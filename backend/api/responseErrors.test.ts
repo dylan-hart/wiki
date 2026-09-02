@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
-import { readdirSync } from 'node:fs'
 import { test } from 'node:test'
+import {
+  listApiRouteFiles,
+  recordRoutesFrom,
+  referencesApiError,
+  stubWikiForRegistration
+} from '../test/routeRecorder.ts'
 
 /**
  * Task 602 (full response-schema accuracy pass across `backend/api/*.ts`) regression coverage.
@@ -19,47 +24,10 @@ import { test } from 'node:test'
  * New route files need no edit here: the directory is scanned at test time.
  */
 
-const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const
-type HttpMethod = (typeof HTTP_METHODS)[number]
-
-interface RecordedRoute {
-  method: HttpMethod
-  path: string
-  options: any
-}
-
-function createRecordingApp(): { app: any; routes: RecordedRoute[] } {
-  const routes: RecordedRoute[] = []
-  const app: any = {
-    addContentTypeParser: () => {},
-    addHook: () => {},
-    register: () => app
-  }
-  for (const method of HTTP_METHODS) {
-    app[method] = (routePath: string, options?: any) => {
-      routes.push({ method, path: routePath, options })
-      return app
-    }
-  }
-  return { app, routes }
-}
-
-// Same registration-time `WIKI.config` touch as `routeTags.test.ts` needs (`assets.ts`'s upload
-// content-type parser reads `WIKI.config.security?.uploadMaxFileSize` while registering).
-;(globalThis as any).WIKI ??= { config: {} }
+stubWikiForRegistration()
 
 const apiDir = import.meta.dirname
-
-const routeFiles = readdirSync(apiDir)
-  .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts') && file !== 'index.ts')
-  .sort()
-
-/** Whether a response entry is (or resolves through `allOf`/`oneOf` to) `{ $ref: 'ApiError#' }`. */
-function referencesApiError(entry: any): boolean {
-  if (!entry) return false
-  if (entry.$ref === 'ApiError#') return true
-  return [...(entry.allOf ?? []), ...(entry.oneOf ?? [])].some(referencesApiError)
-}
+const routeFiles = listApiRouteFiles(apiDir)
 
 test('every route file under api/ was actually found', () => {
   assert.ok(
@@ -73,9 +41,7 @@ test('every route with a non-empty config.permissions declares 401 and 403 as Ap
   let permissionedRoutes = 0
 
   for (const file of routeFiles) {
-    const { app, routes } = createRecordingApp()
-    const mod = await import(`./${file}`)
-    await mod.default(app)
+    const routes = await recordRoutesFrom(apiDir, file)
 
     for (const route of routes) {
       const permissions = route.options?.config?.permissions

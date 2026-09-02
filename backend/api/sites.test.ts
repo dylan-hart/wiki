@@ -1,15 +1,10 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import sitesRoutes from './sites.ts'
-import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
 import { createSiteAdminAccessStub } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Regression test for `GET /_api/sites/:siteIdorHostname`'s `strict` querystring flag: the handler
@@ -166,7 +161,7 @@ async function deleteSite(id: string) {
 }
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     config: {
       security: { disallowOpenRedirect: true },
       docsBase: 'https://test.docs.example/docs'
@@ -201,74 +196,29 @@ before(async () => {
       auditLog: {
         record: mock.fn(async () => {})
       }
-    },
-    logger: { warn: () => {} }
+    }
   }
 
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any],
-      onCreate: (ajv: any) => {
-        ajv.addFormat('hexcolor', (data: unknown) => {
-          return (
-            typeof data === 'string' &&
-            /^#(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(data)
-          )
-        })
-      }
-    }
-  })
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()` etc. is a thrown
-  //    `@fastify/sensible` error, and it is THIS handler — not fastify's default — that shapes it
-  //    into the `{ ok, error, statusCode, message }` the `ApiError` schema below expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  await registerErrorSchema(app)
-  await registerSiteSchema(app)
-  // -> Mirrors the real route-level permission hook from `index.ts`, reading permissions off a
-  //    stubbed session instead of a real one, so the route-level OR-list is exercised too, not just
-  //    the handler's own body check.
-  app.addHook('preHandler', (req: any, reply, done) => {
-    // -> `checkSiteAccess()` takes no `req`, so the stub reads the per-test site-permission grants
-    //    off a module-level variable populated here, once per request, from the same header the
-    //    handler-level tests set.
-    currentSitePermissionHeader = req.headers['x-test-site-permissions']
-    const routePermissions = req.routeOptions.config?.permissions
-    if (routePermissions && routePermissions.length > 0) {
+  app = await buildTestApp({
+    routes: sitesRoutes,
+    wiki,
+    ajv: true,
+    // -> `session: 'header'` promotes `x-test-permissions` into a real session, so the REAL
+    //    route-permission hook exercises the route-level OR-list, not just the handler's own body
+    //    check. The function form also captures `x-test-site-permissions` once per request:
+    //    `checkSiteAccess()` takes no `req`, so the stub reads the per-test site grants off a
+    //    module-level variable.
+    session: (req: any) => {
+      currentSitePermissionHeader = req.headers['x-test-site-permissions']
       const header = req.headers['x-test-permissions']
       const permissions = typeof header === 'string' ? header.split(',').filter(Boolean) : []
-      if (permissions.length < 1) {
-        return reply.unauthorized()
-      }
-      if (!permissions.includes('manage:system')) {
-        const isAllowed = routePermissions.some((perms: any) =>
-          Array.isArray(perms)
-            ? perms.every((perm: string) => permissions.includes(perm))
-            : permissions.includes(perms)
-        )
-        if (!isAllowed) {
-          return reply.forbidden()
-        }
-      }
-    }
-    done()
+      return permissions.length > 0 ? { authenticated: true, permissions, groups: [] } : undefined
+    },
+    permissions: true
   })
-  await registerParamsSchemas(app)
-  await app.register(sitesRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('strict=true does not fall back to the wildcard site', async () => {
   const res = await app.inject({

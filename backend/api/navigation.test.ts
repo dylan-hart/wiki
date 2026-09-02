@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import navigationRoutes from './navigation.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerSchemas as registerNavigationSchema } from './schemas/navigation.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
 import { createSiteAdminAccessStub } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Task #683: `GET .../navigation/pages/:pageId/inherited` and `PUT .../navigation/pages/:pageId`
@@ -60,56 +56,39 @@ const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSit
 let app: FastifyInstance
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
-    sites: { [SITE_ID]: { id: SITE_ID } },
-    models: {
-      groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
-      navigation: {
-        inheritedNavId: async () => 'inherited-nav-id',
-        updateNavigation: async (opts: any) => ({
-          navigationMode: opts.mode,
-          navigationId: 'resulting-nav-id'
-        }),
-        getNav: async () => DEEP_NAV_TREE,
-        getMode: async () => 'static',
-        ensureSiteNav: async () => 'default-nav-id',
-        siteRoots: async () => [{ locale: 'en', navigationId: 'root-nav-id' }],
-        listOverrides: async () => [],
-        setNavItems: async () => {},
-        copyNav: async () => {}
-      }
+  app = await buildTestApp({
+    routes: navigationRoutes,
+    // -> `checkSiteAccess()` takes no `req`, so the stub reads the per-test site-permission grants
+    //    off a module-level variable, populated once per request from the same header the
+    //    handler-level tests set. Returning `undefined` leaves the request's own session alone.
+    session: (req: any) => {
+      currentSitePermissionHeader = req.headers['x-test-site-permissions']
+      return undefined
     },
-    logger: { warn: () => {} }
-  }
-
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
+    wiki: {
+      sites: { [SITE_ID]: { id: SITE_ID } },
+      models: {
+        groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
+        navigation: {
+          inheritedNavId: async () => 'inherited-nav-id',
+          updateNavigation: async (opts: any) => ({
+            navigationMode: opts.mode,
+            navigationId: 'resulting-nav-id'
+          }),
+          getNav: async () => DEEP_NAV_TREE,
+          getMode: async () => 'static',
+          ensureSiteNav: async () => 'default-nav-id',
+          siteRoots: async () => [{ locale: 'en', navigationId: 'root-nav-id' }],
+          listOverrides: async () => [],
+          setNavItems: async () => {},
+          copyNav: async () => {}
+        }
+      }
+    }
   })
-  await registerErrorSchema(app)
-  await registerNavigationSchema(app)
-  app.addHook('preHandler', (req: any, reply, done) => {
-    currentSitePermissionHeader = req.headers['x-test-site-permissions']
-    done()
-  })
-  await registerParamsSchemas(app)
-  await app.register(navigationRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('manage:navigation may read the inherited menu', async () => {
   const res = await app.inject({
@@ -463,48 +442,9 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
   /**
    * No session plugin is registered in this isolated app (see comment above), so a test seeds
    * `req.session` itself via an `x-test-session` header carrying the JSON a real session would already
-   * hold by the time it reaches a route -- decoded before the permission hook runs, exactly where the
-   * real session plugin would sit in the chain.
+   * hold by the time it reaches a route -- `buildTestApp`'s `session: 'header'` decodes it before the
+   * real permission hook runs, exactly where the real session plugin would sit in the chain.
    */
-  function testSessionOnRequest(
-    req: FastifyRequest,
-    _reply: FastifyReply,
-    done: (err?: Error) => void
-  ) {
-    const header = req.headers['x-test-session']
-    if (header) {
-      ;(req as any).session = JSON.parse(header as string)
-    }
-    done()
-  }
-
-  function permissionPreHandler(
-    req: FastifyRequest,
-    reply: FastifyReply,
-    done: (err?: Error) => void
-  ) {
-    const routePermissions = req.routeOptions.config?.permissions
-    if (routePermissions && routePermissions.length > 0) {
-      const session = (req as any).session
-      const permissions = session?.authenticated ? session.permissions : null
-      if (!permissions || permissions.length < 1) {
-        return reply.unauthorized()
-      }
-      if (!permissions.includes('manage:system')) {
-        const isAllowed = routePermissions.some((perms: any) => {
-          if (Array.isArray(perms)) {
-            return perms.every((perm: string) => permissions.some((p: string) => p === perm))
-          }
-          return permissions.some((p: string) => p === perms)
-        })
-        if (!isAllowed) {
-          return reply.forbidden()
-        }
-      }
-    }
-    done()
-  }
-
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const NAV_ID = '22222222-2222-2222-2222-222222222222'
 
@@ -518,7 +458,7 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
   let getNavRouteDescription: string | undefined
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         navigation: {
           async getNav(
@@ -549,43 +489,32 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
       }
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    app.addHook('onRequest', testSessionOnRequest)
-    app.addHook('preHandler', permissionPreHandler)
     // -> Captures the GET .../navigation/:navId route's OpenAPI `description` as it's registered,
     //    so a test below can assert on its actual text (OpenProject #2342) without needing
-    //    `@fastify/swagger` wired into this lightweight test app.
-    app.addHook('onRoute', (routeOptions) => {
-      if (
-        routeOptions.method === 'GET' &&
-        routeOptions.url === '/sites/:siteId/navigation/:navId'
-      ) {
-        getNavRouteDescription = (routeOptions.schema as any)?.description
-      }
+    //    `@fastify/swagger` wired into this lightweight test app. Wrapped around the route plugin
+    //    rather than added to the app, since an `onRoute` hook only fires for routes registered
+    //    into the same encapsulation or below it.
+    const capturingRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('onRoute', (routeOptions) => {
+        if (
+          routeOptions.method === 'GET' &&
+          routeOptions.url === '/sites/:siteId/navigation/:navId'
+        ) {
+          getNavRouteDescription = (routeOptions.schema as any)?.description
+        }
+      })
+      await instance.register(navigationRoutes)
+    }
+
+    app = await buildTestApp({
+      routes: capturingRoutes,
+      wiki,
+      session: 'header',
+      permissions: true
     })
-    await registerErrorSchema(app)
-    await registerNavigationSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(navigationRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     lastSetNavItemsCall = null

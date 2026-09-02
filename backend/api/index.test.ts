@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
-import { readdirSync } from 'node:fs'
 import { after, before, describe, test } from 'node:test'
-import Fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import apiRoutes from './index.ts'
+import { buildTestApp, closeTestApp, makeDoneStub, makeReplyStub } from '../test/fastify.ts'
+import { installTestWiki } from '../test/mocks.ts'
+import { listApiRouteFiles, recordRoutesFrom } from '../test/routeRecorder.ts'
 import {
   siteEnabledPreHandler,
   SITE_DISABLED_MESSAGE,
@@ -42,28 +41,6 @@ import {
  * `bootstrap.ts`'s own doc comment on that call site.
  */
 
-/** A stand-in for `FastifyReply` recording the two methods `siteEnabledPreHandler` may call. */
-function fakeReply() {
-  const calls: { forbidden: string[]; notFound: string[] } = { forbidden: [], notFound: [] }
-  const reply: any = {
-    forbidden(message: string) {
-      calls.forbidden.push(message)
-      return reply
-    },
-    notFound(message: string) {
-      calls.notFound.push(message)
-      return reply
-    }
-  }
-  return { reply, calls }
-}
-
-/** Records whether `done()` was invoked, the way a real Fastify `preHandler` callback would call it. */
-function fakeDone() {
-  let called = false
-  return { done: () => (called = true), wasCalled: () => called }
-}
-
 describe('siteEnabledPreHandler', () => {
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
@@ -74,46 +51,48 @@ describe('siteEnabledPreHandler', () => {
     [DISABLED_SITE_ID]: { id: DISABLED_SITE_ID, isEnabled: false }
   }
 
+  let wikiHandle: { restore(): void }
+
   before(() => {
-    ;(globalThis as any).WIKI = { sites }
+    wikiHandle = installTestWiki({ sites })
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('a route with no siteId param passes through untouched', () => {
-    const { reply, calls } = fakeReply()
-    const { done, wasCalled } = fakeDone()
-    siteEnabledPreHandler({ params: {} } as any, reply, done)
-    assert.equal(wasCalled(), true)
+    const { reply, calls } = makeReplyStub()
+    const stub = makeDoneStub()
+    siteEnabledPreHandler({ params: {} } as any, reply, stub.done)
+    assert.equal(stub.called, true)
     assert.deepEqual(calls.forbidden, [])
     assert.deepEqual(calls.notFound, [])
   })
 
   test('an enabled site passes through', () => {
-    const { reply, calls } = fakeReply()
-    const { done, wasCalled } = fakeDone()
-    siteEnabledPreHandler({ params: { siteId: ENABLED_SITE_ID } } as any, reply, done)
-    assert.equal(wasCalled(), true)
+    const { reply, calls } = makeReplyStub()
+    const stub = makeDoneStub()
+    siteEnabledPreHandler({ params: { siteId: ENABLED_SITE_ID } } as any, reply, stub.done)
+    assert.equal(stub.called, true)
     assert.deepEqual(calls.forbidden, [])
     assert.deepEqual(calls.notFound, [])
   })
 
   test('a disabled site is refused 403 and never reaches done()', () => {
-    const { reply, calls } = fakeReply()
-    const { done, wasCalled } = fakeDone()
-    siteEnabledPreHandler({ params: { siteId: DISABLED_SITE_ID } } as any, reply, done)
-    assert.equal(wasCalled(), false)
+    const { reply, calls } = makeReplyStub()
+    const stub = makeDoneStub()
+    siteEnabledPreHandler({ params: { siteId: DISABLED_SITE_ID } } as any, reply, stub.done)
+    assert.equal(stub.called, false)
     assert.deepEqual(calls.forbidden, [SITE_DISABLED_MESSAGE])
     assert.deepEqual(calls.notFound, [])
   })
 
   test('an unknown siteId is refused 404 and never reaches done()', () => {
-    const { reply, calls } = fakeReply()
-    const { done, wasCalled } = fakeDone()
-    siteEnabledPreHandler({ params: { siteId: UNKNOWN_SITE_ID } } as any, reply, done)
-    assert.equal(wasCalled(), false)
+    const { reply, calls } = makeReplyStub()
+    const stub = makeDoneStub()
+    siteEnabledPreHandler({ params: { siteId: UNKNOWN_SITE_ID } } as any, reply, stub.done)
+    assert.equal(stub.called, false)
     assert.deepEqual(calls.notFound, [SITE_MISSING_MESSAGE])
     assert.deepEqual(calls.forbidden, [])
   })
@@ -133,32 +112,19 @@ describe('siteEnabledPreHandler — wired into a real request lifecycle', () => 
   let handlerCalls = 0
 
   before(async () => {
-    ;(globalThis as any).WIKI = { sites }
-
-    app = Fastify()
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
+    const probeRoutes: FastifyPluginAsync = async (instance) => {
+      // -> Registered before the route, mirroring exactly how `api/index.ts` registers it on its
+      //    `contentApp` scope before any `register(...)` call for a route file.
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      instance.get('/sites/:siteId/probe', async () => {
+        handlerCalls++
+        return { ok: true }
       })
-    })
-    // -> Registered before the route, mirroring exactly how `index.ts` registers it on `app` before
-    //    any `app.register(...)` call for a route file.
-    app.addHook('preHandler', siteEnabledPreHandler)
-    app.get('/sites/:siteId/probe', async () => {
-      handlerCalls++
-      return { ok: true }
-    })
-    await app.ready()
+    }
+    app = await buildTestApp({ routes: probeRoutes, wiki: { sites }, schemas: [] })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('a disabled site is refused before the handler runs', async () => {
     handlerCalls = 0
@@ -203,52 +169,23 @@ describe('siteEnabledPreHandler — wired into a real request lifecycle', () => 
  * proves that exemption directly against the real app rather than by scanning file text.
  */
 describe('site-scoped route surface (covered by the shared preHandler)', () => {
-  const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const
-  type HttpMethod = (typeof HTTP_METHODS)[number]
-
-  interface RecordedRoute {
-    method: HttpMethod
-    path: string
-  }
-
-  function createRecordingApp(): { app: any; routes: RecordedRoute[] } {
-    const routes: RecordedRoute[] = []
-    const app: any = {
-      addContentTypeParser: () => {},
-      addHook: () => {},
-      addSchema: () => {},
-      register: () => app
-    }
-    for (const method of HTTP_METHODS) {
-      app[method] = (routePath: string) => {
-        routes.push({ method, path: routePath })
-        return app
-      }
-    }
-    return { app, routes }
-  }
-
   const apiDir = import.meta.dirname
-  const routeFiles = readdirSync(apiDir)
-    .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
-    // -> Not part of the guarded `contentApp` surface — see this describe block's own doc comment.
-    .filter((file) => file !== 'index.ts' && file !== 'sites.ts')
-    .sort()
+  // -> `sites.ts` is not part of the guarded `contentApp` surface — see this describe block's own
+  //    doc comment.
+  const routeFiles = listApiRouteFiles(apiDir, { exclude: ['sites.ts'] })
 
   let siteScopedPaths: string[] = []
+  let wikiHandle: { restore(): void }
 
   before(async () => {
     // -> A handful of route files touch `WIKI.config` at registration time (`assets.ts`'s upload
-    //    content-type parser), not just inside a handler — see `routeTags.test.ts`'s own header
-    //    comment for the same stub. Set fresh here rather than at module scope: this describe runs
-    //    after two earlier ones that each delete `globalThis.WIKI` in their own `after()`.
-    ;(globalThis as any).WIKI = { config: {} }
+    //    content-type parser), not just inside a handler. Installed fresh here rather than at module
+    //    scope: this describe runs after two earlier ones that each restore `globalThis.WIKI` in
+    //    their own `after()`.
+    wikiHandle = installTestWiki()
     const found: string[] = []
     for (const file of routeFiles) {
-      const { app, routes } = createRecordingApp()
-      const mod = await import(`./${file}`)
-      await mod.default(app)
-      for (const route of routes) {
+      for (const route of await recordRoutesFrom(apiDir, file)) {
         if (route.path.includes(':siteId')) {
           found.push(route.path)
         }
@@ -258,7 +195,7 @@ describe('site-scoped route surface (covered by the shared preHandler)', () => {
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('the scan itself found a substantial number of distinct site-scoped paths', () => {
@@ -331,66 +268,44 @@ describe('the real api/index.ts, fully booted', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      config: { security: {} },
-      sites: {
-        [DISABLED_SITE_ID]: { id: DISABLED_SITE_ID, isEnabled: false }
-      },
-      models: {
-        groups: {
-          actorForRequest: () => ({ permissions: ['manage:sites'] }),
-          checkAccess: () => true,
-          checkSiteAccess: () => true
-        },
+    // -> `ajv: true` gives this instance `index.ts`'s own custom `hexcolor` format — without it,
+    //    building the validator for `theme.colorPrimary` (and friends) throws at `app.ready()`,
+    //    before any test here ever runs. `schemas: []` because `apiRoutes` registers the shared set
+    //    itself, exactly as the real boot does.
+    app = await buildTestApp({
+      routes: apiRoutes,
+      prefix: '/_api',
+      schemas: [],
+      ajv: true,
+      wiki: {
+        config: { security: {} },
         sites: {
-          getSiteById: async () => ({
-            id: DISABLED_SITE_ID,
-            isEnabled: false,
-            title: 'x',
-            hostname: 'x',
-            config: {}
-          }),
-          updateSite: async () => {},
-          countEnabledSites: async () => 5
+          [DISABLED_SITE_ID]: { id: DISABLED_SITE_ID, isEnabled: false }
         },
-        auditLog: { record: async () => {} }
-      },
-      logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} }
-    }
-
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any],
-        // -> `index.ts` (the top-level entry) registers this same custom format on `onCreate` —
-        //    without it, building the validator for `theme.colorPrimary` (and friends) throws at
-        //    `app.ready()`, before any test here ever runs.
-        onCreate: (ajv: any) => {
-          ajv.addFormat('hexcolor', (data: unknown) => {
-            return (
-              typeof data === 'string' &&
-              /^#(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(data)
-            )
-          })
+        models: {
+          groups: {
+            actorForRequest: () => ({ permissions: ['manage:sites'] }),
+            checkAccess: () => true,
+            checkSiteAccess: () => true
+          },
+          sites: {
+            getSiteById: async () => ({
+              id: DISABLED_SITE_ID,
+              isEnabled: false,
+              title: 'x',
+              hostname: 'x',
+              config: {}
+            }),
+            updateSite: async () => {},
+            countEnabledSites: async () => 5
+          },
+          auditLog: { record: async () => {} }
         }
       }
     })
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await app.register(apiRoutes, { prefix: '/_api' })
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('a content route on a disabled site is refused 403', async () => {
     // -> GET PAGES tree (`/sites/:siteId/tree`), not `/sites/:siteId/pages` -- that exact path is

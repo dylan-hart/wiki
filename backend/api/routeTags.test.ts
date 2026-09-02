@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
-import { readdirSync } from 'node:fs'
 import { test } from 'node:test'
+import {
+  listApiRouteFiles,
+  recordRoutesFrom,
+  stubWikiForRegistration
+} from '../test/routeRecorder.ts'
 
 /**
  * Guards `hideUntagged: true` in the swagger config (`index.ts`): a route registered without a
@@ -20,45 +24,10 @@ import { test } from 'node:test'
  * without ever wiring this check up still gets covered by it.
  */
 
-const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const
-type HttpMethod = (typeof HTTP_METHODS)[number]
-
-interface RecordedRoute {
-  method: HttpMethod
-  path: string
-  options: any
-}
-
-/** Records every `app.<method>(path, options, handler)` call a route file's registration makes. */
-function createRecordingApp(): { app: any; routes: RecordedRoute[] } {
-  const routes: RecordedRoute[] = []
-  const app: any = {
-    // -> No-ops: registration-time-only calls this check doesn't care about, present just so a
-    //    route file's top-level `routes()` body runs to completion without throwing.
-    addContentTypeParser: () => {},
-    addHook: () => {},
-    register: () => app
-  }
-  for (const method of HTTP_METHODS) {
-    app[method] = (routePath: string, options?: any) => {
-      routes.push({ method, path: routePath, options })
-      return app
-    }
-  }
-  return { app, routes }
-}
-
-// A handful of route files touch `WIKI.config` at registration time, not just inside a handler
-// closure — `assets.ts`'s upload content-type parser reads `WIKI.config.security?.uploadMaxFileSize`
-// to size its body limit. Stub just that, the same way it would resolve mid-boot; nothing here
-// executes a handler, so no other `WIKI` member is ever reached.
-;(globalThis as any).WIKI ??= { config: {} }
+stubWikiForRegistration()
 
 const apiDir = import.meta.dirname
-
-const routeFiles = readdirSync(apiDir)
-  .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts') && file !== 'index.ts')
-  .sort()
+const routeFiles = listApiRouteFiles(apiDir)
 
 test('every route file under api/ was actually found', () => {
   // Sanity check on the scan itself: a typo'd extension filter that silently matched nothing would
@@ -74,9 +43,7 @@ test('every registered route declares tags, so it survives hideUntagged', async 
   let totalRoutes = 0
 
   for (const file of routeFiles) {
-    const { app, routes } = createRecordingApp()
-    const mod = await import(`./${file}`)
-    await mod.default(app)
+    const routes = await recordRoutesFrom(apiDir, file)
 
     totalRoutes += routes.length
     for (const route of routes) {
