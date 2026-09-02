@@ -60,7 +60,11 @@ describe('download route: byte-serving behavior', () => {
             checkAccess: () => true
           },
           assets: {
-            getAsset: async () => resolvedAsset ?? asset,
+            getAsset: async () => resolvedAsset ?? asset
+          },
+          // -> `readContent` moved to `models/assetServing.ts` when the serving cache was split out
+          //    of `models/assets.ts`; the `/content` route reaches it there now.
+          assetServing: {
             readContent: async (a: any, sId: string) => {
               readContentCalledWith = { a, sId }
               return readContentResult

@@ -1181,7 +1181,7 @@ class Tree {
 
     // -> Every asset under it is served from a different path now, and nothing about the assets
     //    themselves changed for the file cache to notice
-    WIKI.models.assets.forgetAllPaths()
+    WIKI.models.assetServing.forgetAllPaths()
 
     // -> Fired after the transaction resolves, never inside `tx` -- `movePage`'s own boundary (writes
     //    inside, I/O outside) is the reference. One `search.renamed`/`storage.dispatch` per descendant

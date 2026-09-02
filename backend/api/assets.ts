@@ -281,7 +281,7 @@ async function routes(app: FastifyInstance) {
       // -> Through the same local disk cache `/_files/` serves from, since this is the download
       //    button in the file manager rather than an administrative route: anyone who may read a
       //    file may press it
-      const content = await WIKI.models.assets.readContent(asset, req.params.siteId)
+      const content = await WIKI.models.assetServing.readContent(asset, req.params.siteId)
       if (!content) {
         return reply.notFound('This asset has no content.')
       }

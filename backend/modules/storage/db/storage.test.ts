@@ -12,6 +12,7 @@ import {
   tree as treeTable,
   users as usersTable
 } from '../../../db/schema.ts'
+import { assetServing } from '../../../models/assetServing.ts'
 import { assets } from '../../../models/assets.ts'
 import { tree } from '../../../models/tree.ts'
 import dbStorageModule, { purge } from './storage.ts'
@@ -56,7 +57,7 @@ before(async () => {
       fs.mkdtemp(path.join(os.tmpdir(), 'wiki-db-storage-test-'))
     ),
     config: { dataPath: '.' },
-    models: { assets }
+    models: { assets, assetServing }
   })
 
   const [site] = await WIKI.db
@@ -137,7 +138,7 @@ test(
     // -> A stale path resolution, as if `/_files/` had resolved this asset before the purge — proves
     //    `purge()` calls `forgetAllPaths()` rather than leaving a request re-serve a cached `hasPreview:
     //    true` for an asset that no longer has one.
-    assets.pathCache.set(`${siteId}:${purgedAsset.fileName}`, {
+    assetServing.pathCache.set(`${siteId}:${purgedAsset.fileName}`, {
       asset: { hasPreview: true } as any,
       cachedAt: Date.now()
     })
@@ -145,7 +146,11 @@ test(
     const target = { siteId } as StorageTarget
     await purge(target)
 
-    assert.equal(assets.pathCache.size, 0, 'expected purge to clear the cached path resolutions')
+    assert.equal(
+      assetServing.pathCache.size,
+      0,
+      'expected purge to clear the cached path resolutions'
+    )
 
     // -> Content is gone
     assert.equal(await assets.getContent(purgedAsset.id), null)

@@ -46,12 +46,12 @@ export async function purge(target: StorageTarget): Promise<void> {
   const ids = purged.map((row) => row.id)
   // -> Drops the disk-cached bytes of every purged asset on this instance, so `/_files/` cannot go on
   //    serving content the database no longer has.
-  await WIKI.models.assets.dropCachedContent(ids)
+  await WIKI.models.assetServing.dropCachedContent(ids)
   // -> Every purged asset's metadata just changed under any path resolution already cached for this
   //    site (`hasPreview` in particular, now false for anything that had a thumbnail) — a bulk change
   //    with no single path to target individually, the same reasoning `deleteOrphaned` follows for its
   //    own bulk deletion in `models/assets.ts`.
-  WIKI.models.assets.forgetAllPaths()
+  WIKI.models.assetServing.forgetAllPaths()
 }
 
 const dbStorageModule: StorageModule = {

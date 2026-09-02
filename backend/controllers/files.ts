@@ -52,7 +52,7 @@ async function routes(app: FastifyInstance) {
       return
     }
 
-    const asset = await WIKI.models.assets.resolveAssetPath(site.id, req.params['*'] ?? '')
+    const asset = await WIKI.models.assetServing.resolveAssetPath(site.id, req.params['*'] ?? '')
     // -> Not readable is answered as not there, so the URL cannot be used to probe for files
     //
     // -> Resolved by hostname, not a `:siteId` path param, so `apiKeySitePinHook`
@@ -76,10 +76,10 @@ async function routes(app: FastifyInstance) {
       return
     }
 
-    const content = await WIKI.models.assets.readContent(asset, site.id)
+    const content = await WIKI.models.assetServing.readContent(asset, site.id)
     if (!content) {
       // -> The path resolved to a row that is no longer there, so the resolution was a stale one
-      WIKI.models.assets.forgetPath(site.id, asset.folderPath, asset.fileName)
+      WIKI.models.assetServing.forgetPath(site.id, asset.folderPath, asset.fileName)
       return reply.notFound('File not found')
     }
     if ('redirectUrl' in content) {

@@ -10,7 +10,7 @@ import { buildErrorLogContext } from './requestLogContext.ts'
  * `reply.send(error)`. Sending an `Error` from inside a custom error handler re-enters Fastify's own
  * `handleError` and lands at its `fallbackErrorHandler`, which serialises
  * `{ statusCode, code: error.code, message: error.message }` verbatim. `controllers/files.ts`'s
- * uncaught `WIKI.models.assets.readContent()` is the concrete case this closes: an `ENOENT`/`EACCES`
+ * uncaught `WIKI.models.assetServing.readContent()` is the concrete case this closes: an `ENOENT`/`EACCES`
  * there used to hand an unauthenticated client the absolute deployment path, and a Drizzle/pg
  * failure anywhere in this branch used to hand back raw SQL text naming tables and columns.
  *

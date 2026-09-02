@@ -57,7 +57,7 @@ export default {
    */
   async flushCaches(): Promise<void> {
     WIKI.cache.clear()
-    await WIKI.models.assets.purgeCache()
+    await WIKI.models.assetServing.purgeCache()
     await WIKI.models.icons.purgeCache()
 
     await WIKI.models.locales.reloadCache()

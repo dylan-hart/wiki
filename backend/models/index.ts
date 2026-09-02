@@ -3,6 +3,7 @@ import { apiKeys } from './apiKeys.ts'
 import { approvalNotifications } from './approvalNotifications.ts'
 import { approvalRules } from './approvalRules.ts'
 import { approvals } from './approvals.ts'
+import { assetServing } from './assetServing.ts'
 import { assets } from './assets.ts'
 import { auditLog } from './auditLog.ts'
 import { authentication } from './authentication.ts'
@@ -57,6 +58,7 @@ export default {
   approvalNotifications,
   approvalRules,
   approvals,
+  assetServing,
   assets,
   auditLog,
   authentication,
