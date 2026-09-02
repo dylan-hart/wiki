@@ -87,3 +87,48 @@ editing `CLAUDE.md` from a task); collect and apply in one pass at the end.
   `blocks.vimeo.errors.invalidUrl` / `.missingUrl` and `blocks.dailymotion.errors.invalidUrl` /
   `.missingUrl`. Until they are added they resolve to their (unchanged) English fallbacks, exactly as
   before; `scripts/check-locale-keys.mjs` deliberately does not police the `errors` namespace.
+
+- **`fs="false"` now reaches `block-m365-video`.** It inherits the shell's seven props, `fs`
+  included, so a hand-written `::block-m365-video{fs="false"}` takes the fullscreen button off that
+  player where the attribute used to be inert. Its picker is unchanged — that offers only what its
+  own `static definition.props` lists, which is still `embed`/`width`/`height`.
+
+## From task C3
+
+- **Rewrite the "Testing (blocks)" section's "Mounting pattern" and "Dark mode" paragraphs around the
+  shared harness.** Both currently show the hand-rolled shape and call `block-gallery`'s dark-mode
+  describe "a template worth copying verbatim into the next block's suite" — there is now one copy of
+  each, in `blocks/test/`, and all 26 block suites plus `shared/video-embed.test.js` use it:
+  - `blocks/test/mount.js` — `mountBlock(tag, { pre, text, html, props, attrs, parent, settle })`
+    (the three body shapes the markdown renderer actually produces: `pre` for a fenced body, `text`
+    for an unfenced one, `html` for markup a block reads structure out of; `settle` is a number of
+    macrotask turns for a block with an async `connectedCallback`, or a function for one that
+    exposes its own handle — `settle: (el) => el._ready` for the two diagram blocks),
+    `resetBlockDom()` (the universal `afterEach`), and `stubSiteFetch({ site, ok, onRequest })` +
+    `TEST_SITE_ID` for the `GET /_api/sites/current` hop every API-talking block makes first.
+  - `blocks/test/darkMode.js` — `describeDarkMode(mount, { inverted, attribute })`, which IS the
+    suite: `describeDarkMode(() => mountX(...))` at the end of a block's `describe`. `inverted` for a
+    block mounted light and then turned dark (`block-live-data`); `attribute: false` for one whose
+    controller is constructed with `{ attribute: false }` and so has no `dark` attribute to read
+    (`block-map` — the controller's own `isDark` is asserted instead).
+  - `block-diagram` keeps a bespoke dark-mode describe: dark mode there is a real second `_draw()`,
+    not a restyle.
+  - Neither helper file may be named `*.test.js` — the include glob would run it as a suite. (Both
+    also avoid writing a literal `*` + `/` inside a JSDoc block comment; that closes the comment.)
+
+- **Say which shell constructs a `DarkMode` controller.** `DiagramImageElement` does (its `.sheet`
+  border keys off `:host([dark])`), so `block-kroki` and `block-plantuml` get it for free.
+  `VideoEmbedElement` does NOT — there is nothing in an opaque provider iframe to restyle — so
+  `block-youtube` and `block-m365-video` never take a `dark` attribute at all, while `block-vimeo`
+  and `block-dailymotion` construct their own for the one border they draw. Pinned in
+  `shared/video-embed.test.js`.
+
+- **Add an "e2e helpers" note to the "Testing (e2e)" section.** `helpers/admin.js` is now composable
+  rather than one all-or-nothing flow: `submitLogin(page, email, password)` (fills and submits the
+  form already on screen, asserting nothing — for a login somewhere other than a fresh `/login`
+  visit), and `openMarkdownEditor(page, { path, title, origin, locale })` / `typeBody(page, body,
+  { paste, previewWaitText })` / `savePage(page, path, { locale })`, which `createAndPublishPage` is
+  now nothing but a call to in order. A spec that has to do something mid-flow (`assets.spec.js`'s
+  File Manager round trip) calls the three directly instead of re-inlining the contenteditable-title,
+  Monaco-mount and save-dialog handling. `expectAuthenticatedShell` now goes through
+  `authenticatedShellMarker` too, so it agrees with `loginAsAdmin` below the 900px breakpoint.

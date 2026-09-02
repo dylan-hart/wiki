@@ -1,7 +1,10 @@
 import { css } from 'lit'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { DiagramImageElement } from './diagram-image.js'
+import { DarkMode } from './theme.js'
 import { playerStyles, VideoEmbedElement } from './video-embed.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * The smallest possible subclass: the two hooks every video block has to write, and nothing else.
@@ -65,13 +68,11 @@ class TestEmbedCodeElement extends VideoEmbedElement {
 }
 customElements.define('test-video-embed-code', TestEmbedCodeElement)
 
-async function mount(tag, props = {}) {
-  const el = document.createElement(tag)
-  Object.assign(el, props)
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+/** The other shared shell, for the dark-mode comparison below. Adds nothing of its own. */
+class TestDiagramElement extends DiagramImageElement {}
+customElements.define('test-diagram-image', TestDiagramElement)
+
+const mount = (tag, props = {}) => mountBlock(tag, { props })
 
 describe('shared/video-embed.js: playerStyles', () => {
   it('styles the frame box and the frame itself, leaving the error box to errorBox', () => {
@@ -88,10 +89,7 @@ describe('shared/video-embed.js: playerStyles', () => {
 })
 
 describe('shared/video-embed.js: VideoEmbedElement', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
-  })
+  afterEach(resetBlockDom)
 
   it('adopts the shared error box alongside the player styles', () => {
     const cssText = VideoEmbedElement.styles.map((sheet) => sheet.cssText).join('\n')
@@ -215,5 +213,38 @@ describe('shared/video-embed.js: VideoEmbedElement', () => {
       expect(cssText).toContain('.player')
       expect(cssText).toContain('#e0e0e0')
     })
+  })
+})
+
+/*
+ * The two shared shells disagree about dark mode on purpose, and the disagreement is invisible from
+ * either one on its own -- so it is pinned here, in one place, rather than being inferred from which
+ * blocks happen to have a dark-mode suite.
+ *
+ * `DiagramImageElement` constructs a `DarkMode` controller for every block that inherits it, because
+ * its own styles key off `:host([dark])` (the sheet a drawing sits on draws its border differently in
+ * the two themes). `VideoEmbedElement` constructs none: a video frame is an opaque provider iframe on
+ * a black box, and there is nothing in `playerStyles` for a `dark` attribute to change. So
+ * `block-youtube` and `block-m365-video`, which add nothing, never get the attribute at all, while
+ * `block-vimeo` and `block-dailymotion` construct their own controller for the one border they draw
+ * -- see each of those four suites for the per-block half of this.
+ */
+describe('shared: which shell constructs a DarkMode controller', () => {
+  afterEach(resetBlockDom)
+
+  it('VideoEmbedElement constructs none, so a subclass that adds nothing takes no dark attribute', async () => {
+    document.body.classList.add('body--dark')
+    const el = await mount('test-video-embed', { url: 'good' })
+
+    expect(el._darkMode).toBeUndefined()
+    expect(el.hasAttribute('dark')).toBe(false)
+  })
+
+  it('DiagramImageElement constructs one, so a subclass that adds nothing follows the app theme', async () => {
+    document.body.classList.add('body--dark')
+    const el = await mount('test-diagram-image')
+
+    expect(el._darkMode).toBeInstanceOf(DarkMode)
+    expect(el.hasAttribute('dark')).toBe(true)
   })
 })

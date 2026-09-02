@@ -2,36 +2,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import '../block-tab/component.js'
 import { BlockTabsElement } from './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /** Builds `<block-tabs>` around N `<block-tab>` panels, the shape the block reads from its light DOM. */
-async function mountTabs(panels, attrs = {}) {
-  const el = document.createElement('block-tabs')
-  for (const [key, value] of Object.entries(attrs)) {
-    el[key] = value
-  }
-  for (const { label, content, icon } of panels) {
-    const tab = document.createElement('block-tab')
-    tab.setAttribute('label', label)
-    if (icon) {
-      tab.setAttribute('icon', icon)
-    }
-    tab.innerHTML = `<p>${content}</p>`
-    el.appendChild(tab)
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountTabs = (panels, props = {}) =>
+  mountBlock('block-tabs', {
+    props,
+    html: panels
+      .map(
+        ({ label, content, icon }) =>
+          `<block-tab label="${label}"${icon ? ` icon="${icon}"` : ''}><p>${content}</p></block-tab>`
+      )
+      .join('')
+  })
 
 function stripButtons(el) {
   return [...el.shadowRoot.querySelectorAll('.tab')]
 }
 
 describe('block-tabs', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
-  })
+  afterEach(resetBlockDom)
 
   it('declares `active` as a number prop with a default of 0, so sanitize-html allows the attribute', () => {
     const activeProp = BlockTabsElement.definition.props.find((prop) => prop.name === 'active')
@@ -196,18 +187,5 @@ describe('block-tabs', () => {
     vi.unstubAllGlobals()
   })
 
-  describe('dark mode', () => {
-    it('follows body--dark via the shared DarkMode controller', async () => {
-      document.body.classList.add('body--dark')
-      const el = await mountTabs([{ label: 'First', content: 'One' }])
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
-  })
+  describeDarkMode(() => mountTabs([{ label: 'First', content: 'One' }]))
 })

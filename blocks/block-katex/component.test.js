@@ -1,5 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
+
 beforeAll(async () => {
   /*
     jsdom does not implement `document.adoptedStyleSheets` (github.com/jsdom/jsdom/issues/2925): the
@@ -16,33 +19,17 @@ beforeAll(async () => {
  * Appends a `<block-katex>` carrying `source` inside a fenced code block, the way the wiki's own
  * markdown renderer leaves a fence's contents — exactly as typed, undoing markdown's own escaping.
  */
-async function mountKatexFenced(source) {
-  const el = document.createElement('block-katex')
-  const pre = document.createElement('pre')
-  pre.textContent = source
-  el.appendChild(pre)
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountKatexFenced = (source) => mountBlock('block-katex', { pre: source })
 
 /**
  * Appends a `<block-katex>` carrying `source` as its light-DOM body directly (the way the wiki's own
  * markdown renderer leaves it for an unfenced call — see block-gallery's component.test.js for the
  * precedent), exercising `firstUpdated()`'s `fence ?? this` fallback for a call with no `<pre>` at all.
  */
-async function mountKatexUnfenced(source) {
-  const el = document.createElement('block-katex')
-  el.textContent = source
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountKatexUnfenced = (source) => mountBlock('block-katex', { text: source })
 
 describe('block-katex', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   /*
     Regression coverage for bumping the `katex` dependency (0.18.2 -> 0.18.4): a formula that
@@ -108,4 +95,6 @@ describe('block-katex', () => {
 
     expect(el.shadowRoot.querySelector('.error')).not.toBeNull()
   })
+
+  describeDarkMode(() => mountKatexFenced('x = y'))
 })

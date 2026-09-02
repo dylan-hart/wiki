@@ -18,21 +18,14 @@ const { i18nT, MockI18n } = vi.hoisted(() => {
 vi.mock('../shared/i18n.js', () => ({ I18n: MockI18n }))
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-async function mountQrCode(attrs = {}) {
-  const el = document.createElement('block-qr-code')
-  for (const [key, value] of Object.entries(attrs)) {
-    el[key] = value
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountQrCode = (props = {}) => mountBlock('block-qr-code', { props })
 
 describe('block-qr-code', () => {
   afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
+    resetBlockDom()
     i18nT.mockClear()
   })
 
@@ -153,18 +146,5 @@ describe('block-qr-code', () => {
     })
   })
 
-  describe('dark mode', () => {
-    it('follows body--dark via the shared DarkMode controller', async () => {
-      document.body.classList.add('body--dark')
-      const el = await mountQrCode({ value: 'x' })
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
-  })
+  describeDarkMode(() => mountQrCode({ value: 'x' }))
 })

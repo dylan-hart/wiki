@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * Appends a `<block-infobox>` carrying `source` inside a fenced code block, the way the wiki's own
@@ -8,20 +10,10 @@ import './component.js'
  * `connectedCallback` reads the YAML synchronously, so no extra wait is needed before the fields it
  * sets are current, but the caller still awaits one render for the DOM they produce.
  */
-async function mountInfobox(source) {
-  const el = document.createElement('block-infobox')
-  const pre = document.createElement('pre')
-  pre.textContent = source
-  el.appendChild(pre)
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountInfobox = (source) => mountBlock('block-infobox', { pre: source })
 
 describe('block-infobox', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   /*
     Regression coverage for bumping the `js-yaml` dependency (5.2.3 -> 5.3.0), a minor bump in a YAML
@@ -114,4 +106,6 @@ describe('block-infobox', () => {
     const dd = el.shadowRoot.querySelector('dd')
     expect(dd.textContent.trim()).toBe('')
   })
+
+  describeDarkMode(() => mountInfobox('City: Montreal'))
 })

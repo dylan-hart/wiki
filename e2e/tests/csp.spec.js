@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test'
 
-import { ADMIN_EMAIL, ADMIN_PASSWORD, createAndPublishPage, uniqueSlug } from '../helpers/admin.js'
+import {
+  ADMIN_EMAIL,
+  ADMIN_PASSWORD,
+  createAndPublishPage,
+  submitLogin,
+  uniqueSlug
+} from '../helpers/admin.js'
 
 /*
   The shipped `security.cspDirectives` default (`backend/base.yml`) could not be confirmed workable
@@ -154,9 +160,7 @@ test.describe('Content-Security-Policy (enforced)', () => {
     const loginResponse = await page.goto('/login')
     expect(loginResponse?.headers()['content-security-policy']).toBeTruthy()
 
-    await page.getByLabel('Email Address').fill(ADMIN_EMAIL)
-    await page.getByLabel('Password').fill(ADMIN_PASSWORD)
-    await page.getByRole('button', { name: 'Log In', exact: true }).click()
+    await submitLogin(page, ADMIN_EMAIL, ADMIN_PASSWORD)
     await expect(page.locator('.account-avbtn')).toBeVisible()
 
     // -> First checkpoint: the login flow alone, on the document `page.goto('/login')` started.

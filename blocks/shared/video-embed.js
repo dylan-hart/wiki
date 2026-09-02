@@ -34,6 +34,11 @@ import { errorBox } from './styles.js'
  * - `_frameTitle()` and `_frameAllow()` -- the frame's accessible name and its permissions policy.
  * - `static styles` -- as `[...VideoEmbedElement.styles, css`…`]`, for the border two of them draw.
  *
+ * One behaviour change this shell brought with it: every subclass now has the full seven props,
+ * `fs` included, so a hand-written `::block-m365-video{fs="false"}` takes the fullscreen button off
+ * that player too -- where before it was an attribute nothing read. Its picker is unaffected, which
+ * offers only the props its own `static definition` lists.
+ *
  * Deliberately NOT here: `static definition`. It has to stay a plain object literal in each block's
  * own `component.js`, because the build's manifest step, `scripts/check-locale-keys.mjs` and
  * `definitions.test.js` all read it out of the source text rather than by importing the module.

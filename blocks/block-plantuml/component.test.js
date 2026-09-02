@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * `firstUpdated()`'s empty-source error used to name "the PlantUML option in the markdown editor
@@ -10,36 +12,17 @@ import './component.js'
  * point at it — this locks down what replaced it.
  */
 
-async function mountEmpty(withImage = false) {
-  const el = document.createElement('block-plantuml')
-  if (withImage) {
-    const img = document.createElement('img')
-    el.appendChild(img)
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountEmpty = (withImage = false) =>
+  mountBlock('block-plantuml', { html: withImage ? '<img>' : undefined })
 
-async function mountPlantuml(body = '', attrs = {}) {
-  const el = document.createElement('block-plantuml')
-  const pre = document.createElement('pre')
-  pre.textContent = body
-  el.appendChild(pre)
-  Object.assign(el, attrs)
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> firstUpdated() kicks off _draw() without awaiting it (encoding now goes through the async
-  //    CompressionStream), so the state change it produces lands after this first update cycle.
-  await el._ready
-  await el.updateComplete
-  return el
-}
+// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (encoding goes through
+//    the async CompressionStream), so the state change it produces lands after the first update
+//    cycle — `_ready` is the handle `DiagramImageElement` keeps on that work for exactly this.
+const mountPlantuml = (body = '', props = {}) =>
+  mountBlock('block-plantuml', { pre: body, props, settle: (el) => el._ready })
 
 describe('block-plantuml', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   it('reports an empty diagram when the fence has no source', async () => {
     const el = await mountEmpty(false)
@@ -91,4 +74,9 @@ describe('block-plantuml', () => {
     // -> No request should ever have been attempted for a diagram refused before it was drawn
     expect(el.shadowRoot.querySelector('img')).toBeNull()
   })
+
+  // -> Inherited from `shared/diagram-image.js`'s `DiagramImageElement`, which constructs the
+  //    controller for both remote-image diagram blocks — see `shared/video-embed.test.js` for the
+  //    other half of that split.
+  describeDarkMode(() => mountPlantuml('@startuml\nAlice -> Bob : hello\n@enduml'))
 })

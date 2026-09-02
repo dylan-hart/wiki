@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
 import { _resetSiteCache } from '../shared/site.js'
-
-const SITE_ID = 'site-1'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } from '../test/mount.js'
 
 function stubPage(overrides = {}) {
   return {
@@ -28,14 +28,10 @@ function stubFetch({
   pathname = '/some/page'
 } = {}) {
   window.history.pushState({}, '', pathname)
-  const fetchMock = vi.fn(async (url) => {
-    if (url === '/_api/sites/current') {
-      return { ok: true, json: async () => ({ id: SITE_ID, locales }) }
-    }
-    return { ok: true, json: async () => pages }
+  return stubSiteFetch({
+    site: { locales },
+    onRequest: async () => ({ ok: true, json: async () => pages })
   })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
 }
 
 /** The one non-site-lookup call this suite's assertions care about. */
@@ -44,20 +40,13 @@ function treeCall(fetchMock) {
   return new URL(url, 'http://localhost')
 }
 
-/** Appends a `<block-index>` and waits for the fetch chain `connectedCallback` always kicks off. */
-async function mountIndex(attrs = {}) {
-  const el = document.createElement('block-index')
-  for (const [key, value] of Object.entries(attrs)) {
-    el[key] = value
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> Now two fetch hops deep (site -> tree); `setTimeout(0)` drains every microtask queued by
-  //    either, the same pattern `block-live-data`'s own test uses for its `getSiteId` fetch.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await el.updateComplete
-  return el
-}
+/**
+ * Appends a `<block-index>` and waits for the fetch chain `connectedCallback` always kicks off.
+ *
+ * `settle: 1`: two fetch hops deep (site -> tree), and one macrotask turn drains every microtask
+ * queued by either.
+ */
+const mountIndex = (props = {}) => mountBlock('block-index', { props, settle: 1 })
 
 describe('block-index', () => {
   beforeEach(() => {
@@ -66,8 +55,7 @@ describe('block-index', () => {
   })
 
   afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
+    resetBlockDom()
     delete globalThis.WIKI_ROUTER
     vi.unstubAllGlobals()
     window.history.pushState({}, '', '/')
@@ -172,14 +160,10 @@ describe('block-index', () => {
 
   it('logs and keeps _loading false rather than throwing when the fetch fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url) =>
-        url === '/_api/sites/current'
-          ? { ok: true, json: async () => ({ id: SITE_ID, locales: { primary: 'en' } }) }
-          : { ok: false, status: 500 }
-      )
-    )
+    stubSiteFetch({
+      site: { locales: { primary: 'en' } },
+      onRequest: async () => ({ ok: false, status: 500 })
+    })
 
     const el = await mountIndex()
 
@@ -188,19 +172,8 @@ describe('block-index', () => {
     warnSpy.mockRestore()
   })
 
-  describe('dark mode', () => {
-    it('follows body--dark via the shared DarkMode controller', async () => {
-      stubFetch()
-      document.body.classList.add('body--dark')
-      const el = await mountIndex()
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
+  describeDarkMode(() => {
+    stubFetch()
+    return mountIndex()
   })
 })

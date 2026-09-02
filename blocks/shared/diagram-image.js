@@ -205,7 +205,9 @@ export class DiagramImageElement extends LitElement {
   /**
    * A reason for the failure read off the response itself, or null for a server that gives none.
    *
-   * @param {Response} response
+   * `_explain()` calls this with the second request's `Response`; the base implementation gives no
+   * reason and so declares no parameter, while an overriding subclass takes it as its one argument
+   * (`block-plantuml` reads the `X-PlantUML-Diagram-Error` header off it).
    */
   _explainBody() {
     return null

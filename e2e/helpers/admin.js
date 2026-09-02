@@ -28,6 +28,26 @@ function authenticatedShellMarker(page) {
 }
 
 /**
+ * Fills the login form already on screen and submits it -- no navigation, and no assertion about
+ * what comes back. Split out from `loginAsAdmin` because three specs sign in somewhere other than a
+ * fresh `/login` visit (a second site's hostname reached through its own "Login" link, a second
+ * browser context for a non-admin account, a `page.goto('/login')` whose RESPONSE the caller wants
+ * to assert on first) and each had re-typed these three lines for itself (BLK-F6).
+ *
+ * What proves the login worked is the caller's own next assertion -- `expectAuthenticatedShell`,
+ * or something more specific -- which is why there is none here.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} email
+ * @param {string} password
+ */
+export async function submitLogin(page, email, password) {
+  await page.getByLabel('Email Address').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Log In', exact: true }).click()
+}
+
+/**
  * Flow 1's login, factored out because flow 2 and flow 3 both need an authenticated admin before
  * their own flow starts. Drives the real login form -- see `AuthLoginPanel.vue` -- rather than
  * seeding a session cookie directly, so every spec exercises the same login path flow 1 asserts on.
@@ -36,9 +56,7 @@ function authenticatedShellMarker(page) {
  */
 export async function loginAsAdmin(page) {
   await page.goto('/login')
-  await page.getByLabel('Email Address').fill(ADMIN_EMAIL)
-  await page.getByLabel('Password').fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Log In', exact: true }).click()
+  await submitLogin(page, ADMIN_EMAIL, ADMIN_PASSWORD)
   await expect(authenticatedShellMarker(page)).toBeVisible()
 }
 
@@ -46,10 +64,14 @@ export async function loginAsAdmin(page) {
  * Asserts the authenticated shell is on screen: the account menu button that only renders for
  * `userStore.authenticated` (`HeaderNav.vue`), and no "Login" link standing in for it.
  *
+ * Through `authenticatedShellMarker` rather than a bare `.account-avbtn`, for the viewport reason
+ * that helper's own comment gives -- `loginAsAdmin` already waited on the marker, and this assertion
+ * disagreeing with it below 900px was exactly the trap task 2114 hit.
+ *
  * @param {import('@playwright/test').Page} page
  */
 export async function expectAuthenticatedShell(page) {
-  await expect(page.locator('.account-avbtn')).toBeVisible()
+  await expect(authenticatedShellMarker(page)).toBeVisible()
   await expect(page.getByRole('link', { name: 'Login' })).toHaveCount(0)
 }
 
@@ -64,12 +86,13 @@ export async function expectGuestShell(page) {
 }
 
 /**
- * Flow 2's core: create a page at `path` in the markdown editor, type `body` into it, and publish
- * it through the real save dialog -- shared between `page-publish.spec.js` (which IS flow 2) and
- * `multi-site.spec.js` (which needs a real published page on each site to prove they don't share
- * one, without re-narrating how the editor is driven).
+ * Opens the markdown editor on a new page at `path`, names it `title`, and leaves the caret in the
+ * body editor ready to be typed into.
  *
- * Leaves `page` on the new page's own URL, rendered -- not the editor -- once it resolves.
+ * The first of the three steps `createAndPublishPage` is built out of. Split out because
+ * `assets.spec.js` has to interleave a File Manager round trip between typing the body and saving,
+ * which the whole-flow helper has no hook for -- so it had re-narrated the title-field and
+ * Monaco-mount handling for itself (BLK-F6).
  *
  * `origin`, when given, makes the create-page navigation absolute -- required for
  * `multi-site.spec.js`'s second site, whose hostname differs from `playwright.config.js`'s
@@ -80,18 +103,12 @@ export async function expectGuestShell(page) {
  * `locale`, when given, creates the page under that content locale instead of the site's default
  * (`pages/Index.vue`'s `/_create` route reads it straight off `?locale=`, per `stores/page.js`'s
  * `pageCreate`) -- for `rtl.spec.js`'s content-vs-interface-locale cases, which need a page whose
- * own locale differs from the interface locale rather than one at the site's primary. The page's
- * real URL comes out locale-prefixed whenever that locale isn't the site's primary
- * (`localizedPagePath` in `helpers/pagePaths.js`, which `pageStore.editorExitPath` — where this
- * redirects to on save — already uses), so the final URL assertion below expects that prefix too.
+ * own locale differs from the interface locale rather than one at the site's primary.
  *
  * @param {import('@playwright/test').Page} page
- * @param {{ path: string, title: string, body: string, origin?: string, pasteBody?: boolean, previewWaitText?: string, locale?: string }} args
+ * @param {{ path: string, title: string, origin?: string, locale?: string }} args
  */
-export async function createAndPublishPage(
-  page,
-  { path, title, body, origin = '', pasteBody = false, previewWaitText = body, locale }
-) {
+export async function openMarkdownEditor(page, { path, title, origin = '', locale }) {
   const localeQuery = locale ? `&locale=${locale}` : ''
   await page.goto(`${origin}/_create/markdown?path=${path}${localeQuery}`)
 
@@ -116,7 +133,19 @@ export async function createAndPublishPage(
   //    real, focusable editor rather than racing its mount.
   await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
   await page.locator('.editor-markdown-editor').click()
-  if (pasteBody) {
+}
+
+/**
+ * Types `body` into the already-focused markdown editor and waits for it to reach the preview pane.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} body
+ * @param {{ paste?: boolean, previewWaitText?: string }} [options] `paste` inserts the whole string
+ *   at once instead of typing it. `previewWaitText` is what to wait for in the rendered preview,
+ *   defaulting to `body` itself.
+ */
+export async function typeBody(page, body, { paste = false, previewWaitText = body } = {}) {
+  if (paste) {
     // -> `page.keyboard.type()` sends one real keydown/keyup per character, which is exactly what
     //    Monaco's per-character auto-closing-bracket/quote logic (its markdown language config
     //    pairs `{}`, `[]`, `()`, quotes and backticks) watches for. MDC block syntax
@@ -142,7 +171,22 @@ export async function createAndPublishPage(
   //    prose/markdown with no block/math syntax that renders into something else entirely -- a
   //    caller writing MDC blocks or KaTeX passes a plain-text sentinel found elsewhere in `body`.
   await expect(page.locator('.editor-markdown-preview-content')).toContainText(previewWaitText)
+}
 
+/**
+ * Publishes what is in the editor at `path`, through the real save dialog, and waits for the
+ * redirect to the new page's own URL.
+ *
+ * `locale` must match whatever `openMarkdownEditor` was given: the page's real URL comes out
+ * locale-prefixed whenever that locale isn't the site's primary (`localizedPagePath` in
+ * `helpers/pagePaths.js`, which `pageStore.editorExitPath` -- where this redirects to on save --
+ * already uses), so the final URL assertion expects that prefix too.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} path
+ * @param {{ locale?: string }} [options]
+ */
+export async function savePage(page, path, { locale } = {}) {
   await page.getByRole('button', { name: 'Create Page' }).click()
 
   // -> Non-home pages go through the save dialog (`TreeBrowserDialog.vue`, `mode: 'savePage'`). Its
@@ -157,4 +201,27 @@ export async function createAndPublishPage(
   //    (`stores/page.js`), so this is the save completing, not a fixed wait.
   const expectedPath = locale ? `${locale}/${path}` : path
   await expect(page).toHaveURL(new RegExp(`/${expectedPath}$`))
+}
+
+/**
+ * Flow 2's core: create a page at `path` in the markdown editor, type `body` into it, and publish
+ * it through the real save dialog -- shared between `page-publish.spec.js` (which IS flow 2) and
+ * `multi-site.spec.js` (which needs a real published page on each site to prove they don't share
+ * one, without re-narrating how the editor is driven).
+ *
+ * Nothing but the three steps above, in order: a spec that needs to do something between two of
+ * them calls them directly rather than re-inlining any of their handling.
+ *
+ * Leaves `page` on the new page's own URL, rendered -- not the editor -- once it resolves.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {{ path: string, title: string, body: string, origin?: string, pasteBody?: boolean, previewWaitText?: string, locale?: string }} args
+ */
+export async function createAndPublishPage(
+  page,
+  { path, title, body, origin = '', pasteBody = false, previewWaitText = body, locale }
+) {
+  await openMarkdownEditor(page, { path, title, origin, locale })
+  await typeBody(page, body, { paste: pasteBody, previewWaitText })
+  await savePage(page, path, { locale })
 }

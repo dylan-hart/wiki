@@ -1,25 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * Appends a `<block-media-player>` with `src` set, and waits for Lit's first render.
  */
-async function mountPlayer(src) {
-  const el = document.createElement('block-media-player')
-  if (src !== undefined) {
-    el.src = src
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountPlayer = (src) =>
+  mountBlock('block-media-player', { props: src === undefined ? {} : { src } })
 
 describe('block-media-player', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
-  })
+  afterEach(resetBlockDom)
 
   it('shows an error when src is empty or unset', async () => {
     const elUnset = await mountPlayer()
@@ -92,23 +84,5 @@ describe('block-media-player', () => {
     expect(el.shadowRoot.querySelector('.media-display')).toBeNull()
   })
 
-  describe('dark mode', () => {
-    beforeEach(() => {
-      document.body.classList.remove('body--dark')
-    })
-
-    it('follows body--dark on mount and on later toggles, via the shared DarkMode controller', async () => {
-      document.body.classList.add('body--dark')
-      const el = await mountPlayer('/files/clip.mp4')
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      // -> The controller reacts to a MutationObserver callback, which runs as a microtask
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
-  })
+  describeDarkMode(() => mountPlayer('/files/clip.mp4'))
 })

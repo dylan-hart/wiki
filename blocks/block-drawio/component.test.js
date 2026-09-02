@@ -7,6 +7,8 @@ import { BlockDiagramElement } from '../block-diagram/component.js'
 import { BlockKrokiElement } from '../block-kroki/component.js'
 import { BlockPlantumlElement } from '../block-plantuml/component.js'
 import { drawioToSvg, extractModelXml, layout, parseCells, parseStyle } from './mxgraph.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * A diagram with two layers, a group, a swimlane, an `<object>`-wrapped cell, a floating edge and a
@@ -79,16 +81,7 @@ function compress(xml) {
   return btoa(binary)
 }
 
-async function mountDrawio(body = '', attrs = {}) {
-  const el = document.createElement('block-drawio')
-  const pre = document.createElement('pre')
-  pre.textContent = body
-  el.appendChild(pre)
-  Object.assign(el, attrs)
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountDrawio = (body = '', props = {}) => mountBlock('block-drawio', { pre: body, props })
 
 describe('static definition', () => {
   it("names the block for the format it draws, not a bare 'Diagram'", () => {
@@ -117,9 +110,7 @@ describe('static definition', () => {
 })
 
 describe('block-drawio', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   it('draws a simple diagram into an inline svg with no error', async () => {
     const el = await mountDrawio(
@@ -153,15 +144,11 @@ describe('block-drawio', () => {
   })
 
   it('shows an error, naming the fence, for a source markdown has already mangled', async () => {
-    const el = document.createElement('block-drawio')
-    el.textContent = 'not xml at all <<<'
-    document.body.appendChild(el)
-    await el.updateComplete
-    // -> `_error` is set synchronously inside `firstUpdated()`, but the resulting re-render is a
-    //    second update cycle Lit schedules as a side effect — give it a turn before reading the DOM,
-    //    the same way `block-diagram/component.test.js` does for its own no-fence case.
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await el.updateComplete
+    // -> `settle: 1`: `_error` is set synchronously inside `firstUpdated()`, but the resulting
+    //    re-render is a second update cycle Lit schedules as a side effect — give it a turn before
+    //    reading the DOM, the same way `block-diagram/component.test.js` does for its own no-fence
+    //    case.
+    const el = await mountBlock('block-drawio', { text: 'not xml at all <<<', settle: 1 })
 
     const error = el.shadowRoot.querySelector('.error')
     expect(error).not.toBeNull()
@@ -182,6 +169,8 @@ describe('block-drawio', () => {
     expect(el.shadowRoot.querySelector('.caption').textContent).toBe('Order flow')
     expect(el.shadowRoot.querySelector('.diagram').classList.contains('is-center')).toBe(true)
   })
+
+  describeDarkMode(() => mountDrawio(MULTI_LAYER_SOURCE))
 })
 
 describe('mxgraph.js', () => {

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 // -> Far enough out that "has this already ended" never becomes true for a test run, whichever
 //    timezone it resolves against.
@@ -12,22 +14,12 @@ const FUTURE_DATE = '2099-01-01T00:00'
  * a far-future value so a test that only cares about another field (timezone, label, ...) never
  * has to think about expiry.
  */
-async function mountCountdown(attrs = {}) {
-  const el = document.createElement('block-countdown')
-  const { date = FUTURE_DATE, ...rest } = attrs
-  el.date = date
-  for (const [key, value] of Object.entries(rest)) {
-    el[key] = value
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountCountdown = ({ date = FUTURE_DATE, ...rest } = {}) =>
+  mountBlock('block-countdown', { props: { date, ...rest } })
 
 describe('block-countdown', () => {
   afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
+    resetBlockDom()
     vi.useRealTimers()
   })
 
@@ -152,18 +144,5 @@ describe('block-countdown', () => {
     expect(clearSpy).toHaveBeenCalled()
   })
 
-  describe('dark mode', () => {
-    it('follows body--dark via the shared DarkMode controller', async () => {
-      document.body.classList.add('body--dark')
-      const el = await mountCountdown({ date: '2026-01-01T00:00:00Z', timezone: 'UTC' })
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
-  })
+  describeDarkMode(() => mountCountdown({ date: '2026-01-01T00:00:00Z', timezone: 'UTC' }))
 })

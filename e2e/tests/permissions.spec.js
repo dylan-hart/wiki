@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { createAndPublishPage, loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
+import { createAndPublishPage, loginAsAdmin, submitLogin, uniqueSlug } from '../helpers/admin.js'
 
 /**
  * Page-rule permission enforcement (task 984): the flow the subsystem's own CLAUDE.md calls
@@ -79,9 +79,7 @@ test('a Users-group account can read a page but not write it, and is refused the
   try {
     const userPage = await userContext.newPage()
     await userPage.goto('/login')
-    await userPage.getByLabel('Email Address').fill(userEmail)
-    await userPage.getByLabel('Password').fill(userPassword)
-    await userPage.getByRole('button', { name: 'Log In', exact: true }).click()
+    await submitLogin(userPage, userEmail, userPassword)
     await expect(userPage.locator('.account-avbtn')).toBeVisible()
 
     // -> read:pages: the page opens and its content is visible.

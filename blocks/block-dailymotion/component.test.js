@@ -1,29 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * Appends a `<block-dailymotion>` with `url` and any other props set, and waits for Lit's first
  * render.
  */
-async function mountPlayer(url, props = {}) {
-  const el = document.createElement('block-dailymotion')
-  if (url !== undefined) {
-    el.url = url
-  }
-  for (const [key, value] of Object.entries(props)) {
-    el[key] = value
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountPlayer = (url, props = {}) =>
+  mountBlock('block-dailymotion', { props: url === undefined ? props : { url, ...props } })
 
 describe('block-dailymotion', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
-  })
+  afterEach(resetBlockDom)
 
   it('shows an error when url is empty or unset', async () => {
     const elUnset = await mountPlayer()
@@ -121,23 +110,5 @@ describe('block-dailymotion', () => {
     expect(denied.shadowRoot.querySelector('iframe').hasAttribute('allowfullscreen')).toBe(false)
   })
 
-  describe('dark mode', () => {
-    beforeEach(() => {
-      document.body.classList.remove('body--dark')
-    })
-
-    it('follows body--dark on mount and on later toggles, via the shared DarkMode controller', async () => {
-      document.body.classList.add('body--dark')
-      const el = await mountPlayer('x7tgcev')
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      // -> The controller reacts to a MutationObserver callback, which runs as a microtask
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
-  })
+  describeDarkMode(() => mountPlayer('x7tgcev'))
 })

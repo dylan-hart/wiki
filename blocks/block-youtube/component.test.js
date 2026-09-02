@@ -24,16 +24,9 @@ const { i18nT, MockI18n } = vi.hoisted(() => {
 vi.mock('../shared/i18n.js', () => ({ I18n: MockI18n }))
 
 import './component.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-async function mountYoutube(attrs = {}) {
-  const el = document.createElement('block-youtube')
-  for (const [key, value] of Object.entries(attrs)) {
-    el[key] = value
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountYoutube = (props = {}) => mountBlock('block-youtube', { props })
 
 function iframeSrc(el) {
   return el.shadowRoot.querySelector('iframe')?.getAttribute('src')
@@ -41,8 +34,7 @@ function iframeSrc(el) {
 
 describe('block-youtube', () => {
   afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
+    resetBlockDom()
     i18nT.mockClear()
   })
 
@@ -181,5 +173,17 @@ describe('block-youtube', () => {
       expect(style).toContain('width: 640px')
       expect(style).toContain('height: 360px')
     })
+  })
+
+  /*
+   * Deliberately no `describeDarkMode` here: this block adds no `DarkMode` controller of its own and
+   * `shared/video-embed.js` constructs none either -- there is nothing in a YouTube frame for a
+   * `dark` attribute to restyle. See `shared/video-embed.test.js` for the full split.
+   */
+  it('never takes a dark attribute -- the shared video shell constructs no DarkMode controller', async () => {
+    document.body.classList.add('body--dark')
+    const el = await mountYoutube({ url: 'https://youtu.be/dQw4w9WgXcQ' })
+
+    expect(el.hasAttribute('dark')).toBe(false)
   })
 })
