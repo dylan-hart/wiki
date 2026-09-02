@@ -11,17 +11,16 @@ import {
 } from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
 import { renderRefusalGuidance } from '../renderRefusal.ts'
+import { siteIdArg, toResult } from './shared.ts'
 
 const updatePageInputSchema = {
   pageId: z
     .string()
     .uuid()
     .describe('The page to update. See `search_pages`/`get_page` for the id.'),
-  siteId: z
-    .string()
-    .uuid()
-    .optional()
-    .describe('Which site the page belongs to. Omit on a single-site instance.'),
+  // -> No `list_sites` pointer in this one's hint: the caller already holds the page id, which is not
+  //    something `list_sites` would have told them
+  siteId: siteIdArg('Which site the page belongs to.', 'Omit on a single-site instance.'),
   title: z.string().min(1).optional(),
   content: z
     .string()
@@ -42,10 +41,6 @@ export interface UpdatePageArgs {
   description?: string
   tags?: string[]
   publishState?: 'draft' | 'published'
-}
-
-function toResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
 }
 
 /**

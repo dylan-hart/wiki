@@ -105,10 +105,8 @@ export function classifyMailError(err: any): 'connection' | 'tls' | 'auth' | 'se
  * resolved through `WIKI.models.locales.resolveString`/`resolvePluralString` against a `locale` each
  * send method accepts (typically the recipient's `users.prefs.locale`, `en` as the fallback —
  * OpenProject #1611/#1623) — building a DB-backed, admin-editable template system is a separate,
- * larger scope this deliberately stays out of. `MailTemplateEditorOverlay.vue` and the
- * `admin.mail.templates` admin-area section are unwired UI for that unbuilt system, gated behind
- * `flagStore.experimental` on the frontend; there is no `db/schema.ts` table to back them, and none
- * is added by this change.
+ * larger scope this deliberately stays out of: there is no `db/schema.ts` table to back one, and
+ * none is added by this change.
  *
  * `getTransporter()` re-reads `WIKI.config.mail` on every call (it is called once per `send()`) and
  * rebuilds the transporter whenever the resulting options differ from the last build, compared by a
@@ -242,6 +240,34 @@ class MailModel {
   }
 
   /**
+   * Resolve one `mail.<key>.{subject,text,html}` trio for a locale and send it.
+   *
+   * Every transactional template is the same three `resolveString` calls plus a `send()`; what
+   * differs between them is the key, the params, and — for the two that append a sender signature —
+   * a suffix on each body. Written out five times before this, which is five places for a template
+   * to acquire a subject in the recipient's locale and a body in `en`.
+   *
+   * The suffixes are passed already resolved rather than as another key, because
+   * `sendForgotPassword` only resolves them when `mail.senderName` is set at all.
+   */
+  private async sendTemplate(
+    to: string,
+    locale: string | null | undefined,
+    key: string,
+    params: Record<string, string>,
+    { textSuffix = '', htmlSuffix = '' }: { textSuffix?: string; htmlSuffix?: string } = {}
+  ): Promise<void> {
+    await this.send({
+      to,
+      subject: await WIKI.models.locales.resolveString(locale, `mail.${key}.subject`),
+      text:
+        (await WIKI.models.locales.resolveString(locale, `mail.${key}.text`, params)) + textSuffix,
+      html:
+        (await WIKI.models.locales.resolveString(locale, `mail.${key}.html`, params)) + htmlSuffix
+    })
+  }
+
+  /**
    * Email verification link, sent on self-registration when the local strategy's `emailValidation`
    * setting is on. Links at `/auth/verify/:token`, consumed by the public verify route.
    *
@@ -261,13 +287,7 @@ class MailModel {
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/auth/verify/${token}`)
-    const params = { name, link }
-    await this.send({
-      to,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.verifyEmail.subject'),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.verifyEmail.text', params),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.verifyEmail.html', params)
-    })
+    await this.sendTemplate(to, locale, 'verifyEmail', { name, link })
   }
 
   /**
@@ -295,7 +315,6 @@ class MailModel {
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`)
     const cfg = WIKI.config.mail ?? {}
-    const params = { name, link }
     const signatureText = cfg.senderName
       ? await WIKI.models.locales.resolveString(locale, 'mail.signature.text', {
           name: cfg.senderName
@@ -306,16 +325,13 @@ class MailModel {
           name: cfg.senderName
         })
       : ''
-    await this.send({
+    await this.sendTemplate(
       to,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.subject'),
-      text:
-        (await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.text', params)) +
-        signatureText,
-      html:
-        (await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.html', params)) +
-        signatureHtml
-    })
+      locale,
+      'forgotPassword',
+      { name, link },
+      { textSuffix: signatureText, htmlSuffix: signatureHtml }
+    )
   }
 
   /**
@@ -347,13 +363,7 @@ class MailModel {
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`, this.resolveMailBaseURL(siteId))
-    const params = { name, link }
-    await this.send({
-      to,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.welcomeEmail.subject'),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.welcomeEmail.text', params),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.welcomeEmail.html', params)
-    })
+    await this.sendTemplate(to, locale, 'welcomeEmail', { name, link })
   }
 
   /**
@@ -372,13 +382,7 @@ class MailModel {
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink('/login')
-    const params = { name, link }
-    await this.send({
-      to,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.subject'),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.text', params),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.html', params)
-    })
+    await this.sendTemplate(to, locale, 'passwordChanged', { name, link })
   }
 
   /**
@@ -400,17 +404,7 @@ class MailModel {
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink('/login')
-    const params = { name, link }
-    await this.send({
-      to,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.subject'),
-      text: await WIKI.models.locales.resolveString(
-        locale,
-        'mail.registrationAttempt.text',
-        params
-      ),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.html', params)
-    })
+    await this.sendTemplate(to, locale, 'registrationAttempt', { name, link })
   }
 
   /**

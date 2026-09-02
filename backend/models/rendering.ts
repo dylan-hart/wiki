@@ -4,7 +4,13 @@ import { eq, inArray, sql } from 'drizzle-orm'
 import { flipFromString, rotateFromString } from '@iconify/utils'
 import { jobs as jobsTable, pageRenderQueue as renderQueueTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
-import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
+import {
+  assertPuppeteerAvailable,
+  closeQuietly,
+  isPuppeteerAvailable,
+  launchPuppeteerBrowser
+} from '../helpers/puppeteer.ts'
+import { withTimeout } from '../helpers/timeout.ts'
 import type { IconifyIcon } from '@iconify/types'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { BlockProp } from './blocks.ts'
@@ -43,30 +49,6 @@ const RENDER_TIMEOUT = 30000
 
 /** The task that drains the render queue. One browser, one page at a time. */
 const DRAIN_TASK = 'renderPages'
-
-/**
- * Race a render step against `RENDER_TIMEOUT`, so a pathological page cannot hold a worker — or, for
- * PDF export, a browser tab — open past it. Shared by every path that hands work to a live Puppeteer
- * page: rejects with the same `renderTimeout` `CustomError` the frontend-bundle renderer has always
- * used, whichever step is racing.
- */
-function withRenderTimeout<T>(work: Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const expiry = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(
-          new CustomError(
-            'renderTimeout',
-            `Rendering did not finish within ${RENDER_TIMEOUT / 1000} seconds.`,
-            504
-          )
-        ),
-      RENDER_TIMEOUT
-    )
-  })
-  return Promise.race([work, expiry]).finally(() => clearTimeout(timer))
-}
 
 /** The shape `blockAllowances()` needs from a custom block -- see `models/blocks.ts#getCustomBlockDefinitions()`. */
 interface CustomBlockAllowance {
@@ -1058,8 +1040,7 @@ class Rendering {
    * only thing that needs it, and everything else keeps working without it.
    */
   async isAvailable(): Promise<boolean> {
-    const definition = WIKI.models.extensions.getDefinition('puppeteer')
-    return Boolean(definition) && (await WIKI.models.extensions.isInstalled(definition!))
+    return isPuppeteerAvailable()
   }
 
   /**
@@ -1076,13 +1057,10 @@ class Rendering {
         `Server-side rendering is not implemented for the ${editor} editor.`
       )
     }
-    if (!(await this.isAvailable())) {
-      throw new CustomError(
-        'renderPuppeteerMissing',
-        'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
-        503
-      )
-    }
+    await assertPuppeteerAvailable(
+      'renderPuppeteerMissing',
+      'Rendering a page on the server needs the Puppeteer extension, which is not installed.'
+    )
   }
 
   /**
@@ -1282,11 +1260,7 @@ class Rendering {
    * out would replace the real one, or fail a drain that had otherwise finished its work.
    */
   private async discardRenderer(renderer: PageRenderer | null): Promise<void> {
-    try {
-      await renderer?.close()
-    } catch (err: any) {
-      WIKI.logger.debug(`Could not close the render browser cleanly: ${err.message}`)
-    }
+    await closeQuietly(renderer, 'render browser')
   }
 
   /**
@@ -1344,14 +1318,21 @@ class Rendering {
           */
           // -> This callback is serialized and runs in the browser, where `globalThis` is the window
           //    the renderer bundle attached itself to
-          return await withRenderTimeout(
+          return await withTimeout(
             page.evaluate(
               (src: string, cfg: Record<string, any>, ctx: Record<string, any>) =>
                 (globalThis as any).__wikiRender(src, cfg, ctx),
               content,
               config,
               context
-            )
+            ),
+            RENDER_TIMEOUT,
+            () =>
+              new CustomError(
+                'renderTimeout',
+                `Rendering did not finish within ${RENDER_TIMEOUT / 1000} seconds.`,
+                504
+              )
           )
         },
         async close(): Promise<void> {

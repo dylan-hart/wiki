@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { and, eq, inArray } from 'drizzle-orm'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, isUniqueViolation } from '../helpers/common.ts'
 import {
   blockCode as blockCodeTable,
   blocks as blocksTable,
@@ -625,7 +625,7 @@ class Blocks {
           })
           .returning()
       } catch (err: any) {
-        if (err.cause?.code === '23505' || err.code === '23505') {
+        if (isUniqueViolation(err)) {
           throw new CustomError(
             'blockTagTaken',
             `A block already registers the tag "block-${definition.block}" on this site.`,

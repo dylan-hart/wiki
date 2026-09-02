@@ -1,11 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { defaultLocale } from '../../helpers/common.ts'
 import { actorFor, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
-import { defaultLocale, type McpSite } from '../site.ts'
-
-function toResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
-}
+import type { McpSite } from '../site.ts'
+import { toResult } from './shared.ts'
 
 export interface ListedSite {
   id: string
@@ -27,7 +25,7 @@ function maySeeSite(ctx: McpAuthContext, site: McpSite): boolean {
   }
   return WIKI.models.groups.checkAccess(actorFor(ctx), 'read:pages', {
     path: '',
-    locale: defaultLocale(site),
+    locale: defaultLocale(site.id),
     siteId: site.id,
     classification: null
   })
@@ -49,7 +47,7 @@ export function handleListSites(ctx: McpAuthContext): CallToolResult {
     id: site.id,
     hostname: site.hostname,
     title: site.config?.title ?? '',
-    defaultLocale: defaultLocale(site)
+    defaultLocale: defaultLocale(site.id)
   }))
   return toResult(listed)
 }

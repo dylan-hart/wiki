@@ -19,6 +19,7 @@ import {
 } from '../db/schema.ts'
 import type { GroupRule } from './groups.ts'
 import { CustomError } from '../helpers/common.ts'
+import { purgeFilesOlderThan } from '../helpers/fsPurge.ts'
 import { EXPORT_FORMAT_VERSION } from './export.ts'
 
 /** How long an uploaded import sits on disk before `purgeExpired` sweeps it, in seconds. */
@@ -387,27 +388,7 @@ class ImportModel {
    * @returns How many files were removed
    */
   async purgeExpired(): Promise<number> {
-    let files: string[]
-    try {
-      files = await fs.readdir(this.importsPath)
-    } catch (err: any) {
-      if (err.code === 'ENOENT') {
-        return 0
-      }
-      throw err
-    }
-
-    const cutoff = Temporal.Now.instant().subtract({ seconds: IMPORT_TTL_SECONDS })
-    let purged = 0
-    for (const entry of files) {
-      const entryPath = path.join(this.importsPath, entry)
-      const stat = await fs.stat(entryPath)
-      if (Temporal.Instant.compare(stat.mtime.toTemporalInstant(), cutoff) < 0) {
-        await fs.unlink(entryPath)
-        purged++
-      }
-    }
-    return purged
+    return purgeFilesOlderThan(this.importsPath, IMPORT_TTL_SECONDS)
   }
 
   /**

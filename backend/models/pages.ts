@@ -2,9 +2,11 @@ import bcrypt from 'bcryptjs'
 import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
+  BCRYPT_ROUNDS,
   CustomError,
   defaultLocale,
   generatePathHash,
+  isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
@@ -16,14 +18,6 @@ import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
-
-/**
- * Cost factor `bcrypt` hashes a page's password at — the same one `models/users.ts` hashes account
- * passwords and recovery codes with (OpenProject #2232). `pages.password` stores this hash, never the
- * cleartext: `unlockPage()` checks a guess against it with `bcrypt.compare`, the same shape a login
- * check uses.
- */
-const pagePasswordBcryptRounds = 12
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -1115,9 +1109,7 @@ class Pages {
           //    doorway to the page the reader actually wanted, which is the one search should offer
           isSearchable: isRedirect ? false : (input.isSearchable ?? true),
           locale,
-          password: input.password
-            ? await bcrypt.hash(input.password, pagePasswordBcryptRounds)
-            : null,
+          password: input.password ? await bcrypt.hash(input.password, BCRYPT_ROUNDS) : null,
           path,
           publishState: input.publishState ?? 'published',
           publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
@@ -1137,7 +1129,7 @@ class Pages {
     } catch (err: any) {
       // -> The probe above already covers the common case; this catches the race it cannot close --
       //    two requests that both pass the probe before either inserts
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
       throw err
@@ -1293,9 +1285,7 @@ class Pages {
       values.isSearchable = isRedirect ? false : patch.isSearchable
     }
     if (patch.password !== undefined) {
-      values.password = patch.password
-        ? await bcrypt.hash(patch.password, pagePasswordBcryptRounds)
-        : null
+      values.password = patch.password ? await bcrypt.hash(patch.password, BCRYPT_ROUNDS) : null
     }
     if (patch.relations !== undefined) {
       values.relations = patch.relations
@@ -1838,7 +1828,7 @@ class Pages {
     } catch (err: any) {
       // -> The probes above already cover the common case; this catches the race they cannot close --
       //    two requests that both pass a probe before either writes
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
       throw err

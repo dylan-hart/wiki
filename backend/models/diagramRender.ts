@@ -1,6 +1,12 @@
 import { deflateRawSync } from 'node:zlib'
 import { CustomError } from '../helpers/common.ts'
-import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
+import {
+  assertPuppeteerAvailable,
+  closeQuietly,
+  isPuppeteerAvailable,
+  launchPuppeteerBrowser
+} from '../helpers/puppeteer.ts'
+import { withTimeout } from '../helpers/timeout.ts'
 import { blockSettleScript } from './pdfExport.ts'
 
 /** How long a Mermaid render's page setup gets before giving up, in milliseconds. */
@@ -168,19 +174,15 @@ export async function extractDiagramScript(
 class DiagramRender {
   /** Whether this instance can render a Mermaid diagram — PlantUML needs no browser, so it asks nothing here. */
   async isAvailable(): Promise<boolean> {
-    const definition = WIKI.models.extensions.getDefinition('puppeteer')
-    return Boolean(definition) && (await WIKI.models.extensions.isInstalled(definition!))
+    return isPuppeteerAvailable()
   }
 
   /** Refuse a Mermaid request when this instance cannot draw one. PlantUML never reaches this. */
   private async ensureCanRenderMermaid(): Promise<void> {
-    if (!(await this.isAvailable())) {
-      throw new CustomError(
-        'diagramRenderPuppeteerMissing',
-        'Rendering a Mermaid diagram on the server needs the Puppeteer extension, which is not installed.',
-        503
-      )
-    }
+    await assertPuppeteerAvailable(
+      'diagramRenderPuppeteerMissing',
+      'Rendering a Mermaid diagram on the server needs the Puppeteer extension, which is not installed.'
+    )
   }
 
   /**
@@ -231,20 +233,31 @@ class DiagramRender {
     const browser = await this.launchBrowser()
     try {
       const page = await browser.newPage()
-      await this.withTimeout(
+      // -> `page.setContent`/`page.evaluate` have no timeout of their own, and what runs past them is
+      //    somebody else's code — so each step of the Mermaid path is raced against one, the same
+      //    `504` guard every headless-browser path in this codebase uses
+      await withTimeout(
         page.setContent('<!doctype html><html><body></body></html>'),
         RENDER_SETUP_TIMEOUT,
-        'diagramRenderSetupTimeout',
-        `The render page did not come up within ${RENDER_SETUP_TIMEOUT / 1000} seconds.`
+        () =>
+          new CustomError(
+            'diagramRenderSetupTimeout',
+            `The render page did not come up within ${RENDER_SETUP_TIMEOUT / 1000} seconds.`,
+            504
+          )
       )
-      await this.withTimeout(
+      await withTimeout(
         page.evaluate(
           importBlockScript,
           `http://127.0.0.1:${WIKI.config.port}/_blocks/block-diagram.js`
         ),
         RENDER_SETUP_TIMEOUT,
-        'diagramRenderSetupTimeout',
-        `The diagram block did not load within ${RENDER_SETUP_TIMEOUT / 1000} seconds.`
+        () =>
+          new CustomError(
+            'diagramRenderSetupTimeout',
+            `The diagram block did not load within ${RENDER_SETUP_TIMEOUT / 1000} seconds.`,
+            504
+          )
       )
       await page.evaluate(
         mountBlockElementScript,
@@ -252,11 +265,15 @@ class DiagramRender {
         { theme: resolvedTheme },
         source
       )
-      await this.withTimeout(
+      await withTimeout(
         page.evaluate(blockSettleScript, RENDER_SETTLE_MAX_ROUNDS),
         RENDER_SETTLE_TIMEOUT,
-        'diagramRenderSettleTimeout',
-        `The diagram did not finish drawing within ${RENDER_SETTLE_TIMEOUT / 1000} seconds.`
+        () =>
+          new CustomError(
+            'diagramRenderSettleTimeout',
+            `The diagram did not finish drawing within ${RENDER_SETTLE_TIMEOUT / 1000} seconds.`,
+            504
+          )
       )
 
       const { svg, error } = await page.evaluate(extractDiagramScript, 'block-diagram')
@@ -385,28 +402,6 @@ class DiagramRender {
     return encoded
   }
 
-  /**
-   * Race a step of the Mermaid path against a timeout of its own, the `RENDER_TIMEOUT`-style guard
-   * every headless-browser path in this codebase uses: `page.setContent`/`page.evaluate` have no
-   * timeout of their own, and what runs past them is somebody else's code.
-   */
-  private async withTimeout<T>(
-    work: Promise<T>,
-    ms: number,
-    errorName: string,
-    message: string
-  ): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const expiry = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new CustomError(errorName, message, 504)), ms)
-    })
-    try {
-      return await Promise.race([work, expiry])
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
   /** Broken out so a test can mock it — the same shape `pdfExport.ts#launchBrowser` uses. */
   private async launchBrowser(): Promise<any> {
     return launchPuppeteerBrowser('diagramRenderPuppeteerMissing')
@@ -414,11 +409,7 @@ class DiagramRender {
 
   /** Close a browser, and keep any trouble doing so to itself — see `pdfExport.ts#discardBrowser`. */
   private async discardBrowser(browser: any): Promise<void> {
-    try {
-      await browser?.close()
-    } catch (err: any) {
-      WIKI.logger.debug(`Could not close the diagram render browser cleanly: ${err.message}`)
-    }
+    await closeQuietly(browser, 'diagram render browser')
   }
 }
 

@@ -9,8 +9,10 @@ import {
   type McpAuthContext,
   type McpAuthContextGetter
 } from '../auth.ts'
-import { defaultLocale, resolveRequestedSite } from '../site.ts'
+import { defaultLocale } from '../../helpers/common.ts'
+import { resolveRequestedSite } from '../site.ts'
 import { renderRefusalGuidance } from '../renderRefusal.ts'
+import { localeArg, siteIdArg, toResult } from './shared.ts'
 
 const createPageInputSchema = {
   path: z.string().min(1).describe('Where to create the page, as a slash-separated path.'),
@@ -19,14 +21,8 @@ const createPageInputSchema = {
     .string()
     .min(1)
     .describe('The page source, in whatever format `editor` names (markdown by default).'),
-  siteId: z
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      'Which site to create the page on. Omit on a single-site instance; see `list_sites` otherwise.'
-    ),
-  locale: z.string().optional().describe("The site's primary locale when omitted."),
+  siteId: siteIdArg('Which site to create the page on.'),
+  locale: localeArg,
   editor: z
     .string()
     .optional()
@@ -49,10 +45,6 @@ export interface CreatePageArgs {
   description?: string
   tags?: string[]
   publishState?: 'draft' | 'published'
-}
-
-function toResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
 }
 
 /**
@@ -80,7 +72,7 @@ export async function handleCreatePage(
   //    never land on different locales — `||`, not `??`, to mirror `models/pages.ts#createPage()`'s own
   //    `input.locale || defaultLocale(siteId)` fallback exactly: an empty-string `locale` argument is
   //    "unset" there too, not a locale of its own.
-  const locale = args.locale || defaultLocale(site)
+  const locale = args.locale || defaultLocale(site.id)
   if (
     !WIKI.models.groups.checkAccess(actorFor(ctx), 'write:pages', {
       path: args.path,

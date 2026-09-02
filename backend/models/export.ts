@@ -4,6 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { create as createTarball } from 'tar'
 import { eq } from 'drizzle-orm'
+import { purgeFilesOlderThan } from '../helpers/fsPurge.ts'
 import {
   assets as assetsTable,
   groups as groupsTable,
@@ -197,27 +198,7 @@ class ExportModel {
    * @returns How many files were removed
    */
   async purgeExpired(): Promise<number> {
-    let entries: string[]
-    try {
-      entries = await fs.readdir(this.exportsPath)
-    } catch (err: any) {
-      if (err.code === 'ENOENT') {
-        return 0
-      }
-      throw err
-    }
-
-    const cutoff = Temporal.Now.instant().subtract({ seconds: EXPORT_TTL_SECONDS })
-    let purged = 0
-    for (const entry of entries) {
-      const entryPath = path.join(this.exportsPath, entry)
-      const stat = await fs.stat(entryPath)
-      if (Temporal.Instant.compare(stat.mtime.toTemporalInstant(), cutoff) < 0) {
-        await fs.unlink(entryPath)
-        purged++
-      }
-    }
-    return purged
+    return purgeFilesOlderThan(this.exportsPath, EXPORT_TTL_SECONDS)
   }
 }
 

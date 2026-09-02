@@ -10,17 +10,12 @@ import {
   type McpAuthContextGetter
 } from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
+import { localeArg, siteIdArg, toResult } from './shared.ts'
 
 const getPageInputSchema = {
   path: z.string().describe('Slash-separated path of the page to read. The home page when empty.'),
-  siteId: z
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      'Which site to read from. Omit on a single-site instance; see `list_sites` otherwise.'
-    ),
-  locale: z.string().optional().describe("The site's primary locale when omitted."),
+  siteId: siteIdArg('Which site to read from.'),
+  locale: localeArg,
   includeSource: z
     .boolean()
     .optional()
@@ -32,10 +27,6 @@ export interface GetPageArgs {
   siteId?: string
   locale?: string
   includeSource?: boolean
-}
-
-function toResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
 }
 
 /**

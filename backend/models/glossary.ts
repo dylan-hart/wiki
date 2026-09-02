@@ -9,6 +9,7 @@ import {
 import {
   CustomError,
   generatePathHash,
+  isUniqueViolation,
   localizedPagePath,
   normalizePagePath
 } from '../helpers/common.ts'
@@ -194,7 +195,7 @@ class Glossary {
         return rows
       })
     } catch (err: any) {
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('glossaryDuplicateTerm', 'A term with this name already exists.', 409)
       }
       throw err
@@ -281,7 +282,7 @@ class Glossary {
         return rows
       })
     } catch (err: any) {
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('glossaryDuplicateTerm', 'A term with this name already exists.', 409)
       }
       throw err

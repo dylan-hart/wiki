@@ -1,5 +1,11 @@
 import { CustomError } from '../helpers/common.ts'
-import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
+import {
+  assertPuppeteerAvailable,
+  closeQuietly,
+  isPuppeteerAvailable,
+  launchPuppeteerBrowser
+} from '../helpers/puppeteer.ts'
+import { withTimeout } from '../helpers/timeout.ts'
 import { sessionCookieName } from '../helpers/security.ts'
 
 /** How long the live page view gets to finish loading before giving up, in milliseconds. */
@@ -129,8 +135,7 @@ class PdfExport {
    * own error name), even though both happen to need the same extension installed.
    */
   async isAvailable(): Promise<boolean> {
-    const definition = WIKI.models.extensions.getDefinition('puppeteer')
-    return Boolean(definition) && (await WIKI.models.extensions.isInstalled(definition!))
+    return isPuppeteerAvailable()
   }
 
   /**
@@ -140,13 +145,10 @@ class PdfExport {
    * work — a missing extension is a clean 503, not a browser launch left to fail on its own terms.
    */
   async ensureCanExport(): Promise<void> {
-    if (!(await this.isAvailable())) {
-      throw new CustomError(
-        'exportPuppeteerMissing',
-        'Exporting a page to PDF needs the Puppeteer extension, which is not installed.',
-        503
-      )
-    }
+    await assertPuppeteerAvailable(
+      'exportPuppeteerMissing',
+      'Exporting a page to PDF needs the Puppeteer extension, which is not installed.'
+    )
   }
 
   /**
@@ -244,25 +246,16 @@ class PdfExport {
    * page, and this whole export, open indefinitely.
    */
   private async waitForBlocksToSettle(page: any): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const expiry = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () =>
-          reject(
-            new CustomError(
-              'exportSettleTimeout',
-              `The page's diagrams and other async content did not settle within ${EXPORT_SETTLE_TIMEOUT / 1000} seconds.`,
-              504
-            )
-          ),
-        EXPORT_SETTLE_TIMEOUT
-      )
-    })
-    try {
-      await Promise.race([page.evaluate(blockSettleScript, EXPORT_SETTLE_MAX_ROUNDS), expiry])
-    } finally {
-      clearTimeout(timer)
-    }
+    await withTimeout(
+      page.evaluate(blockSettleScript, EXPORT_SETTLE_MAX_ROUNDS),
+      EXPORT_SETTLE_TIMEOUT,
+      () =>
+        new CustomError(
+          'exportSettleTimeout',
+          `The page's diagrams and other async content did not settle within ${EXPORT_SETTLE_TIMEOUT / 1000} seconds.`,
+          504
+        )
+    )
   }
 
   /** Broken out so a test can mock it — see `pdfExport.test.ts` — the same way `import.ts` mocks `runPandoc`. */
@@ -275,11 +268,7 @@ class PdfExport {
    * or has already failed for its own reason, and neither should be replaced by a close failure.
    */
   private async discardBrowser(browser: any): Promise<void> {
-    try {
-      await browser?.close()
-    } catch (err: any) {
-      WIKI.logger.debug(`Could not close the export browser cleanly: ${err.message}`)
-    }
+    await closeQuietly(browser, 'export browser')
   }
 }
 

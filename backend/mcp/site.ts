@@ -18,11 +18,6 @@ export interface McpSite {
   }
 }
 
-/** A site's primary locale, or `en` when the site sets none. Mirrors `Pages`' own private helper. */
-export function defaultLocale(site: McpSite): string {
-  return site.config?.locales?.primary ?? 'en'
-}
-
 /**
  * Resolve a site by id, refusing one that does not exist or is disabled — the same
  * `helpers/common.ts`'s `guardSiteEnabled()` check `api/index.ts`'s shared `preHandler` applies to

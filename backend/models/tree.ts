@@ -8,6 +8,7 @@ import {
   decodeTreePath,
   encodeTreePath,
   generatePathHash,
+  isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
 
@@ -956,7 +957,7 @@ class Tree {
         } catch (err: any) {
           // -> The check above already covers the common case; this catches the race it cannot close --
           //    two requests both filling in the same missing ancestor folder
-          if (err.cause?.code === '23505' || err.code === '23505') {
+          if (isUniqueViolation(err)) {
             throw new CustomError(
               'treeEntryDuplicate',
               'Something with this name already exists here.',
@@ -986,7 +987,7 @@ class Tree {
     } catch (err: any) {
       // -> The check above already covers the common case; this catches the race it cannot close --
       //    two requests both creating the same folder
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError(
           'treeEntryDuplicate',
           'Something with this name already exists here.',
@@ -1698,7 +1699,7 @@ class Tree {
     } catch (err: any) {
       // -> `resolveName` already covers the common case; this catches the race it cannot close -- two
       //    requests that both resolve the same free name before either inserts
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError(
           'treeEntryDuplicate',
           'Something with this name already exists here.',

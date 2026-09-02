@@ -29,6 +29,7 @@ import {
 import type { WikiDbOrTx } from '../core/db.ts'
 import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
+import { BCRYPT_ROUNDS, escapeLikePattern, isUniqueViolation } from '../helpers/common.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { AccountRateLimitedError, consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
@@ -181,15 +182,6 @@ const profilePrefsKeys = [
 const avatarSize = 180
 
 /**
- * Escape the LIKE wildcards `%` and `_` (and the escape character itself) so that a user-supplied
- * filter is matched literally. Values are still parameterized by the driver — this is about a `%`
- * in the filter silently matching everything, not about injection.
- */
-function escapeLikePattern(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
-}
-
-/**
  * Advisory-lock key for serializing writes to one user's whole-blob `auth` column.
  *
  * Every read-modify-write against `users.auth` -- a password change, a TFA toggle, a recovery-code
@@ -247,9 +239,6 @@ async function countTfaFailure(token: string): Promise<void> {
  */
 const maxTfaAttempts = 5
 
-/** Cost factor `bcrypt` hashes recovery codes at — the same one `models/users.ts` hashes passwords with. */
-const recoveryCodeBcryptRounds = 12
-
 /**
  * A fresh set of recovery codes, in both forms `enableTfa()`/`regenerateRecoveryCodes()` need: the
  * plaintext to hand back to the caller exactly once, and the hashed entries to store.
@@ -261,7 +250,7 @@ async function issueRecoveryCodes(): Promise<{
   const plaintext = generateRecoveryCodes()
   const entries: RecoveryCodeEntry[] = await Promise.all(
     plaintext.map(async (code) => ({
-      hash: await bcrypt.hash(normalizeRecoveryCode(code), recoveryCodeBcryptRounds),
+      hash: await bcrypt.hash(normalizeRecoveryCode(code), BCRYPT_ROUNDS),
       usedAt: null
     }))
   )
@@ -565,7 +554,7 @@ class Users {
     const localStrategyId = WIKI.data.systemIds.localAuthId
     // -> Hashed before the transaction opens rather than inside it: bcrypt is CPU-bound, not a query,
     //    and there is no reason to hold the checked-out connection idle while it runs.
-    const passwordHash = await bcrypt.hash(password, 12)
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
 
     // -> The insert and its group assignment must land together or not at all (OpenProject #1607): a
     //    `setUserGroups` failure after the insert had already committed used to leave a user row with
@@ -636,7 +625,7 @@ class Users {
    * already-hashed password over verbatim instead of hashing a plaintext one.
    *
    * ## Why this can't reuse `createUser()`
-   * `createUser()` calls `bcrypt.hash(password, 12)` on whatever string it receives. A 2.5.x
+   * `createUser()` calls `bcrypt.hash(password, BCRYPT_ROUNDS)` on whatever string it receives. A 2.5.x
    * local-provider `users.password` column is already a bcryptjs hash at 12 rounds — hashing it
    * again would produce a value that can never match the original plaintext, silently locking every
    * imported local account out of its own password. This method takes `passwordHash` and writes it
@@ -772,7 +761,7 @@ class Users {
     } catch (err: any) {
       // -> See the collision-policy note above: a race between the pre-check and this insert still
       //    surfaces as the same skip result, not a generic thrown failure.
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         return { status: 'skipped', reason: 'email-collision', existingId: '' }
       }
       throw err
@@ -1225,7 +1214,7 @@ class Users {
     newPassword: string
     mustChangePassword?: boolean
   }): Promise<boolean> {
-    const passwordHash = await bcrypt.hash(newPassword, 12)
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
     return withAdvisoryLock(authLockKey(id), async () => {
       const user = await this.getById(id)
       if (!user) {
@@ -1334,7 +1323,7 @@ class Users {
       throw new Error('ERR_INCORRECT_CURRENT_PASSWORD')
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, 12)
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
     await withAdvisoryLock(authLockKey(userId), async () => {
       const current = await this.getById(userId)
       const currentAuth = (current?.auth ?? {}) as Record<string, any>
@@ -1847,7 +1836,7 @@ class Users {
         email: process.env.ADMIN_EMAIL ?? 'admin@example.com',
         auth: {
           [ids.authModuleId]: {
-            password: await bcrypt.hash(process.env.ADMIN_PASS || '12345678', 12),
+            password: await bcrypt.hash(process.env.ADMIN_PASS || '12345678', BCRYPT_ROUNDS),
             mustChangePwd: !process.env.ADMIN_PASS,
             restrictLogin: false,
             tfaIsActive: false,
@@ -2920,7 +2909,7 @@ class Users {
     }
 
     if (user) {
-      const passwordHash = await bcrypt.hash(newPassword, 12)
+      const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
       await withAdvisoryLock(authLockKey(user.id), async () => {
         const current = await this.getById(user.id)
         const currentAuth = (current?.auth ?? {}) as Record<string, any>
@@ -3050,7 +3039,7 @@ class Users {
       throw new Error('ERR_INVALID_USER')
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, 12)
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
     await withAdvisoryLock(authLockKey(user.id), async () => {
       const current = await this.getById(user.id)
       const currentAuth = (current?.auth ?? {}) as Record<string, any>

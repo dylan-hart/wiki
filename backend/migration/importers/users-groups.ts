@@ -7,6 +7,7 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../../db/schema.ts'
+import { BCRYPT_ROUNDS } from '../../helpers/common.ts'
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
 import { coerceSourceBoolean } from '../source-coercion.ts'
@@ -484,7 +485,7 @@ export function createProviderFallbackUserConverter(
           //    establishes for a brand-new provider account, except mustChangePwd is forced true: this
           //    account cannot sign in through its source provider on this install (see
           //    needsProviderFallback above), so it must go through a password reset before use.
-          password: await bcrypt.hash(nanoid(32), 12),
+          password: await bcrypt.hash(nanoid(32), BCRYPT_ROUNDS),
           mustChangePwd: true,
           restrictLogin: false,
           tfaIsActive: false,

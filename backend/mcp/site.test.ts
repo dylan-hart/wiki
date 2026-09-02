@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { McpToolError } from './auth.ts'
-import { defaultLocale, resolveDefaultSiteId, resolveRequestedSite, resolveSite } from './site.ts'
+import { resolveDefaultSiteId, resolveRequestedSite, resolveSite } from './site.ts'
 
 const SITE_A = { id: 'site-a', hostname: 'a.example.com', isEnabled: true, config: {} }
 const SITE_B = { id: 'site-b', hostname: 'b.example.com', isEnabled: true, config: {} }
@@ -36,13 +36,9 @@ test('resolveSite: throws when the site is disabled', () => {
   assert.throws(() => resolveSite('site-c'), /disabled/)
 })
 
-test('defaultLocale: reads config.locales.primary', () => {
-  assert.equal(defaultLocale({ ...SITE_A, config: { locales: { primary: 'fr' } } }), 'fr')
-})
-
-test('defaultLocale: falls back to en when unset', () => {
-  assert.equal(defaultLocale({ ...SITE_A, config: {} }), 'en')
-})
+// -> No `defaultLocale` tests here any more: `mcp/` had its own copy of the same
+//    `config.locales.primary ?? 'en'` fallback, and now calls `helpers/common.ts#defaultLocale`,
+//    whose own cases live in `helpers/common.test.ts`.
 
 test('resolveDefaultSiteId: a site-pinned key always resolves to its own site', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })

@@ -9,17 +9,14 @@ import {
   type McpAuthContextGetter
 } from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
+import { siteIdArg, toResult } from './shared.ts'
 
 const MAX_LIMIT = 50
 const DEFAULT_LIMIT = 20
 
 const searchPagesInputSchema = {
   query: z.string().min(1).describe('Full-text search terms.'),
-  siteId: z
-    .string()
-    .uuid()
-    .optional()
-    .describe('Which site to search. Omit on a single-site instance; see `list_sites` otherwise.'),
+  siteId: siteIdArg('Which site to search.'),
   locale: z.string().optional().describe('Restrict to one locale. Every locale when omitted.'),
   tags: z.array(z.string()).optional().describe('Only pages carrying every one of these tags.'),
   limit: z.number().int().min(1).max(MAX_LIMIT).optional()
@@ -31,10 +28,6 @@ export interface SearchPagesArgs {
   locale?: string
   tags?: string[]
   limit?: number
-}
-
-function toResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
 }
 
 /**
