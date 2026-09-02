@@ -10,16 +10,11 @@ import type { NavigationItem } from '../models/navigation.ts'
  * menu.
  *
  * Like every module in this feature, this one has no db access of its own — `NavigationWriteModel` is
- * injected, and its two methods are deliberately the exact two operations this task's description
- * names rather than a reinvented write path: `ensureSiteNav(siteId)` is the real
- * `WIKI.models.navigation.ensureSiteNav` (`backend/models/navigation.ts:83`), and `writeSiteItems`
- * reproduces — verbatim — the upsert `updateNavigation()` performs for `items` when called for the
- * home page in `'override'` mode (`backend/models/navigation.ts:214-217`): `targetNavId` collapses to
- * `siteId` in exactly that case (`isSiteRoot && mode !== 'inherit'` ⇒ `ownNavId === siteId`), which is
- * why this module upserts directly against `siteId` rather than driving `updateNavigation()` itself —
- * that method requires an actual tree entry (a `pageId`) to resolve `mode`/`ancestorId` against, and a
- * fresh import has no reason to require one to exist first. Task 421's CLI wires the real
- * `WIKI.models.navigation` calls here.
+ * injected, and its two methods are `WIKI.models.navigation`'s own `ensureSiteNav(siteId, locale)` and
+ * `setNavItems(siteId, navId, items)` rather than a reinvented write path. Writing through those two,
+ * rather than driving `updateNavigation()`, is deliberate: that method requires an actual tree entry
+ * (a `pageId`) to resolve `mode`/`ancestorId` against, and a fresh import has no reason to require one
+ * to exist first. `phases/content.ts` supplies the real implementations (dry-run-gated).
  *
  * ## Link-target conversion
  *
@@ -65,13 +60,13 @@ import type { NavigationItem } from '../models/navigation.ts'
  * `navigationMode` `createPage()` gave it, which is 3.0's own default, `'inherit'`.
  */
 
-/** The subset of `WIKI.models.navigation` this module actually calls — see the module doc comment for
- * why these two calls in particular, and not a hand-written insert. */
+/** The subset of `WIKI.models.navigation` this module actually calls, with the same signatures the
+ * real model has — see the module doc comment for why these two calls in particular, and not a
+ * hand-written insert. */
 export interface NavigationWriteModel {
-  ensureSiteNav(siteId: string): Promise<void>
-  /** The literal upsert `updateNavigation()` performs for `items` at `navigation.ts:214-217`, with
-   * `targetNavId` fixed to `siteId` — see the module doc comment. */
-  writeSiteItems(siteId: string, items: NavigationItem[]): Promise<void>
+  /** Resolves (creating if absent) the site-wide menu row for one locale, returning its id. */
+  ensureSiteNav(siteId: string, locale: string): Promise<string>
+  setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void>
 }
 
 export interface NavigationImportDeps {
@@ -357,7 +352,7 @@ export function mapNavigationItem(raw: unknown, ctx: MapItemContext): Navigation
 
 /**
  * Imports 2.x's staged navigation as `options.siteId`'s site-wide menu, per this task's description.
- * Always writes — `ensureSiteNav` then `writeSiteItems`, even with an empty `items` array when there
+ * Always writes — `ensureSiteNav` then `setNavItems`, even with an empty `items` array when there
  * was nothing to import — so a run always leaves the site with a real (if empty) root menu row.
  */
 export async function importNavigation(
@@ -394,8 +389,8 @@ export async function importNavigation(
     if (mapped) items.push(mapped)
   }
 
-  await deps.navigationModel.ensureSiteNav(options.siteId)
-  await deps.navigationModel.writeSiteItems(options.siteId, items)
+  const navId = await deps.navigationModel.ensureSiteNav(options.siteId, options.locale)
+  await deps.navigationModel.setNavItems(options.siteId, navId, items)
 
   return { items, dropped, warnings }
 }

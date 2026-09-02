@@ -11,61 +11,41 @@ import { createPageImporter } from '../page-import.ts'
 import { importNavigation } from '../navigation-import.ts'
 import { resolvePrimaryLocale } from '../context.ts'
 import { definePhase } from './define-phase.ts'
+import { placeholderRow, writeUnlessDryRun } from './dry-run.ts'
+import { routeOutcome } from './route.ts'
 import type { Page } from '../../models/pages.ts'
 import type { ContentStagingOptions, StagedPage } from '../content-staging.ts'
 import type { PageHistoryInsertRow } from '../page-history-import.ts'
 import type { ImportPagesDeps, PageImportOutcome, PagesWriteModel } from '../page-import.ts'
 import type { NavigationImportDeps, NavigationWriteModel } from '../navigation-import.ts'
-import type { WriteRecorder } from '../recorder.ts'
+import type { RecordOutcome } from './route.ts'
 
 /**
- * Routes one page's `PageImportOutcome` (`page-import.ts`, extended by this task's own proactive fix —
- * see that file's doc comment on `PageImportOutcome`) onto the matching `WriteRecorder` call, mirroring
- * `phases/users.ts`'s `routeOutcome()` convention Task 14's review round established for the identical
- * class of bug: blindly wrapping `pageImporter.importOne()` as `recorder.create()`'s `write` callback
- * would misreport every failed page (a sibling-collision, an existing-entry-collision, a `createPage()`
- * error — `importOne()` never throws for any of these, it just returns a `'failed'` outcome) as a
- * successful `wouldCreate`, since the write never throws and `create()` counts unconditionally.
+ * Maps one page's `PageImportOutcome` (`page-import.ts`) onto the three buckets `./route.ts` routes —
+ * see that module's own doc comment for why the write already happened by the time this runs.
  *
  * `'existing-entry-collision'` is the one failure reason that means "already exists at the
- * destination" — routed to `recorder.skipExisting()`, the same bucket `phases/users.ts` uses for a
- * record `WriteRecorder`/`PhaseReport` has no dedicated "needs admin attention" bucket for either (see
- * that file's own doc comment on the same limitation). Every other failure reason (`empty-path`,
- * `invalid-segment`, `sibling-collision`, `create-error`) is a genuine problem preventing the write, not
- * an idempotency skip, so it goes to `recorder.conflict()` — the same "attempted and failed" bucket
- * `routeOutcome()` reserves for a `'conflicted'` users/groups record.
+ * destination", so it goes to the skip bucket. Every other reason (`empty-path`, `invalid-segment`,
+ * `sibling-collision`, `create-error`) is a genuine problem preventing the write, not an idempotency
+ * skip.
+ *
+ * `warnings` is `pageImporter.succeeded`'s just-pushed entry (a page-history-backfill failure, per
+ * `page-import.ts`'s own `importOne()`), which `PageImportOutcome`'s `'created'` variant has no field
+ * for — one logged line each, so a long list of backfill failures doesn't collapse into one unreadable
+ * line.
  */
-async function routePageOutcome(
-  recorder: WriteRecorder,
+function toRecordOutcome(
   identifier: string,
   outcome: PageImportOutcome,
-  warnings: string[],
-  log: ((message: string) => void) | undefined
-): Promise<void> {
+  warnings: string[]
+): RecordOutcome {
   if (outcome.status === 'created') {
-    // -> `warnings` (`pageImporter.succeeded`'s just-pushed entry — includes a page-history-backfill
-    //    failure, per page-import.ts's own `importOne()`) has nowhere else to go: `PageImportOutcome`'s
-    //    'created' variant carries only `pageId`, and neither `WriteRecorder`/`PhaseReport` has a
-    //    per-record note field (the same gap `phases/users.ts#routeOutcome()`'s doc comment describes
-    //    for a group's dropped-permissions note) — logged here instead (whole-branch review Important
-    //    #3), one line per warning so a long list of backfill failures doesn't collapse into one
-    //    unreadable line.
-    for (const warning of warnings) {
-      log?.(`page ${identifier}: ${warning}`)
-    }
-    // -> The real (or dry-run placeholder — see entities() below) write already happened inside
-    //    importOne(), so this write callback is a deliberate no-op, not a second write. It still has
-    //    to be a real function (not omitted): define-phase.ts#trackWriteCapability() reads "was
-    //    create() ever given a write argument at all" as its one signal that this phase has a genuine
-    //    destination write path — see phases/users.ts's own doc comment on this, which this mirrors.
-    await recorder.create(identifier, async () => {})
-    return
+    return { outcome: 'created', notes: warnings.map((w) => `page ${identifier}: ${w}`) }
   }
   if (outcome.reason === 'existing-entry-collision') {
-    recorder.skipExisting(identifier)
-    return
+    return { outcome: 'skipped' }
   }
-  recorder.conflict(identifier, outcome.message)
+  return { outcome: 'conflicted', detail: outcome.message }
 }
 
 /**
@@ -182,17 +162,15 @@ export const contentPhase = definePhase({
     }
 
     const pagesModel: PagesWriteModel = {
-      async createPage(siteId, input, actor) {
-        if (ctx.dryRun) {
-          // -> Mirrors importers/users-groups.ts's createDryRunWriter(): mint a placeholder id
-          //    instead of really writing, so importOne()'s own classification logic still runs
-          //    identically in both modes. Only `.id` is ever read off the result
-          //    (page-import.ts's importOne()), so a minimal object cast through `unknown` is safe
-          //    here — narrow, deliberate, matching CLAUDE.md's cast convention.
-          return { id: crypto.randomUUID() } as unknown as Page
-        }
-        return WIKI.models.pages.createPage(siteId, input, actor)
-      }
+      createPage: (siteId, input, actor) =>
+        writeUnlessDryRun(
+          ctx.dryRun,
+          // -> Only `.id` is ever read off the result (page-import.ts's importOne()), so a minimal
+          //    object cast through `unknown` is safe here — narrow, deliberate, matching CLAUDE.md's
+          //    cast convention.
+          () => placeholderRow() as unknown as Page,
+          () => WIKI.models.pages.createPage(siteId, input, actor)
+        )
     }
 
     const pagesDeps: ImportPagesDeps = {
@@ -226,22 +204,14 @@ export const contentPhase = definePhase({
     // doc on pageIdMap for why this is a live Map reference, not a snapshot.
     ctx.pageIdMap = pageImporter.pageIdMap
 
-    // navigation-import.ts's `NavigationWriteModel` was designed against an earlier shape of
-    // models/navigation.ts, where a site's navigation row was addressed by `siteId` alone (that
-    // module's own doc comment: "targetNavId collapses to siteId"). The real, current model has since
-    // grown per-locale rows — `ensureSiteNav(siteId, locale)` returns a real, distinct row id, and the
-    // write method is `setNavItems(siteId, navId, items)`, not a `writeSiteItems(siteId, items)` that
-    // never existed. Adapted here (rather than changing navigation-import.ts, out of this task's
-    // scope) by resolving the target site's primary-locale row inside each call: `ensureSiteNav`
-    // resolves and discards the row id (its own contract returns nothing), and `writeSiteItems`
-    // re-resolves the same row — idempotent, since `models/navigation.ts#ensureSiteNav` is keyed on
-    // `(siteId, locale)` and returns the same row every time — before writing to it.
     const navigationModel: NavigationWriteModel = {
-      async ensureSiteNav(siteId) {
-        if (ctx.dryRun) return
-        await WIKI.models.navigation.ensureSiteNav(siteId, resolvePrimaryLocale(ctx))
-      },
-      async writeSiteItems(siteId, items) {
+      ensureSiteNav: (siteId, locale) =>
+        writeUnlessDryRun(
+          ctx.dryRun,
+          () => placeholderRow().id,
+          () => WIKI.models.navigation.ensureSiteNav(siteId, locale)
+        ),
+      async setNavItems(siteId, navId, items) {
         // -> See the module doc comment's "Navigation targets are sanitized" section: setNavItems()
         //    throws for an item whose target isn't a rooted path or a complete http(s)/mailto/tel
         //    address, which a 2.x source's 'external'/'externalblank' item is never validated
@@ -265,7 +235,6 @@ export const contentPhase = definePhase({
           }
         }
         if (ctx.dryRun) return
-        const navId = await WIKI.models.navigation.ensureSiteNav(siteId, resolvePrimaryLocale(ctx))
         await WIKI.models.navigation.setNavItems(siteId, navId, sanitized)
       }
     }
@@ -284,7 +253,13 @@ export const contentPhase = definePhase({
           const outcome = await pageImporter.importOne(staged)
           const warnings =
             outcome.status === 'created' ? (pageImporter.succeeded.at(-1)?.warnings ?? []) : []
-          await routePageOutcome(recorder, String(staged.oldId), outcome, warnings, ctx.log)
+          const identifier = String(staged.oldId)
+          await routeOutcome(
+            recorder,
+            identifier,
+            toRecordOutcome(identifier, outcome, warnings),
+            ctx.log
+          )
         }
       },
       navigation: {
@@ -337,10 +312,8 @@ export const contentPhase = definePhase({
           //    successful outcome) and never throws for a dropped item — those are folded into its
           //    own `dropped`/`warnings` instead — so 'created' is always the right outcome for this
           //    single sentinel record. The real write already happened above (or was no-op'd by
-          //    navigationModel under dryRun); this no-op `write` callback exists only so
-          //    define-phase.ts's write-capability tracking sees a real write path was supplied — see
-          //    routePageOutcome()'s own comment on the same convention.
-          await recorder.create('site-navigation', async () => {})
+          //    navigationModel under dryRun).
+          await recorder.create('site-navigation')
         }
       }
     }

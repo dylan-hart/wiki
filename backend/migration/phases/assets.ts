@@ -2,6 +2,8 @@ import { importAsset } from '../importers/asset-import.ts'
 import { importComment } from '../importers/comment-import.ts'
 import { resolvePrimaryLocale } from '../context.ts'
 import { definePhase } from './define-phase.ts'
+import { placeholderRow, writeUnlessDryRun } from './dry-run.ts'
+import { routeOutcome } from './route.ts'
 import type { SourceAssetFile, SourceRecord } from '../connector.ts'
 import type {
   AssetImportDeps,
@@ -16,40 +18,19 @@ import type {
   CommentImportOptions,
   CommentsWriteModel
 } from '../importers/comment-import.ts'
-import type { WriteRecorder } from '../recorder.ts'
+import type { RecordOutcome } from './route.ts'
 
 /**
- * Routes an `importAsset()`/`importComment()` outcome onto the matching `WriteRecorder` call, mirroring
- * `phases/content.ts`'s `routePageOutcome()` and `phases/users.ts`'s `routeOutcome()` — the same class
- * of bug those two review rounds fixed applies here too, and this task's own brief was written with
- * that lesson in mind, but its illustrative sketch still wrapped the import call *inside*
- * `recorder.create()`'s own `write` callback and let a failure outcome throw out of it. Checked against
- * the real `recorder.ts` (not assumed from the sketch): `DryRunAwareRecorder.create()` does
- * `await write()` with no `try`/`catch` of its own, so a thrown error there propagates all the way out
- * of `classify()` to `define-phase.ts#readEntity()`'s `for await` loop, which only special-cases
- * `NotYetImplementedError` — any other error rethrows further, past `readEntity()`, and is caught by
- * `definePhase()`'s own `run()` try/catch as `status: 'error'` with an **emptied** report, discarding
- * every asset/comment already successfully imported in the same run. That is exactly the "one failed
- * page-history parse takes down the whole content phase" class of bug those two prior review rounds
- * fixed for `pages`/`users`/`groups` — this phase gets it right from the start by calling
- * `importAsset()`/`importComment()` directly (not as `create()`'s `write` argument) and routing the
- * result afterward: success -> `recorder.create(identifier, async () => {})` (a deliberate no-op, since
- * the real write already happened above — still a real function so
- * `define-phase.ts#trackWriteCapability()` sees this phase genuinely has a write path), failure ->
- * `recorder.conflict(identifier, detail)` (a write that was attempted and did not succeed — the same
- * bucket `routePageOutcome()` uses for every content-import failure reason that isn't "already
- * exists").
+ * Maps an `importAsset()`/`importComment()` outcome onto the buckets `./route.ts` routes — see that
+ * module's own doc comment for why the write already happened by the time this runs. Neither importer
+ * has a "skipped" outcome of its own: an asset or comment either creates or conflicts.
  */
-async function routeImportOutcome(
-  recorder: WriteRecorder,
-  identifier: string,
+function toRecordOutcome(
   outcome: { result: 'success' } | { result: 'failure'; failure: { message: string } }
-): Promise<void> {
-  if (outcome.result === 'success') {
-    await recorder.create(identifier, async () => {})
-    return
-  }
-  recorder.conflict(identifier, outcome.failure.message)
+): RecordOutcome {
+  return outcome.result === 'success'
+    ? { outcome: 'created' }
+    : { outcome: 'conflicted', detail: outcome.failure.message }
 }
 
 /**
@@ -95,23 +76,16 @@ export const assetsPhase = definePhase({
     const pageIdMap = ctx.pageIdMap ?? new Map<number, string>()
 
     const assetsModel: AssetsWriteModel = {
-      async upload(input) {
-        if (ctx.dryRun) {
-          // -> Mirrors phases/content.ts's pagesModel.createPage() dry-run branch: mint a placeholder
-          //    id instead of really writing, so importAsset()'s own classification logic (folder
-          //    resolution, actor fallback) still runs identically in both modes.
-          return { id: crypto.randomUUID(), fileName: input.fileName }
-        }
-        return WIKI.models.assets.upload(input)
-      }
+      upload: (input) =>
+        writeUnlessDryRun(
+          ctx.dryRun,
+          () => ({ ...placeholderRow(), fileName: input.fileName }),
+          () => WIKI.models.assets.upload(input)
+        )
     }
     const treeModel: TreeFolderModel = {
-      async getFolder(input) {
-        if (ctx.dryRun) {
-          return { id: crypto.randomUUID() }
-        }
-        return WIKI.models.tree.getFolder(input)
-      }
+      getFolder: (input) =>
+        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.tree.getFolder(input))
     }
     const assetDeps: AssetImportDeps = { assetsModel, treeModel }
     const assetOptions: AssetImportOptions = {
@@ -130,12 +104,8 @@ export const assetsPhase = definePhase({
     }
 
     const commentsModel: CommentsWriteModel = {
-      async create(input) {
-        if (ctx.dryRun) {
-          return { id: crypto.randomUUID() }
-        }
-        return WIKI.models.comments.create(input)
-      }
+      create: (input) =>
+        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.comments.create(input))
     }
     const commentDeps: CommentImportDeps = { commentsModel }
     const commentOptions: CommentImportOptions = {
@@ -159,7 +129,7 @@ export const assetsPhase = definePhase({
             const failure: AssetImportFailure = outcome.failure
             ctx.log?.(`asset ${failure.relativePath}: ${failure.reason} — ${failure.message}`)
           }
-          await routeImportOutcome(recorder, identifier, outcome)
+          await routeOutcome(recorder, identifier, toRecordOutcome(outcome))
         }
       },
       comments: {
@@ -172,7 +142,7 @@ export const assetsPhase = definePhase({
             const failure: CommentImportFailure = outcome.failure
             ctx.log?.(`comment ${failure.oldId}: ${failure.reason} — ${failure.message}`)
           }
-          await routeImportOutcome(recorder, identifier, outcome)
+          await routeOutcome(recorder, identifier, toRecordOutcome(outcome))
         }
       }
     }

@@ -1,4 +1,6 @@
+import { pickDefined, transformConfig } from './shared.ts'
 import type { SourceRecord } from '../connector.ts'
+import type { ConfigTransform } from './shared.ts'
 
 /**
  * `mapStorageRow(s)` (task 767 — "Storage-target mapper, scoped per created site")
@@ -163,26 +165,10 @@ export const KNOWN_3_0_STORAGE_MODULES = [
 // the module doc).
 // ---------------------------------------------------------------------------
 
-function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const key of keys) {
-    if (key in source && source[key] !== undefined) {
-      result[key] = source[key]
-    }
-  }
-  return result
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-type ConfigTransform = (raw: Record<string, unknown>) => Record<string, unknown>
-
 const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
-  disk: (raw) => pick(raw, ['path', 'createDailyBackups']),
+  disk: (raw) => pickDefined(raw, ['path', 'createDailyBackups']),
   sftp: (raw) =>
-    pick(raw, [
+    pickDefined(raw, [
       'host',
       'port',
       'authMode',
@@ -200,7 +186,7 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
    * it is lower-cased here rather than copied straight across.
    */
   azure: (raw) => {
-    const result = pick(raw, ['accountName', 'accountKey', 'containerName'])
+    const result = pickDefined(raw, ['accountName', 'accountKey', 'containerName'])
     if (typeof raw.storageTier === 'string' && raw.storageTier.length > 0) {
       result.storageTier = raw.storageTier.toLowerCase()
     }
@@ -214,7 +200,7 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
    * explicit value copies straight across either way, so no transform is needed for it.
    */
   git: (raw) => {
-    const result = pick(raw, [
+    const result = pickDefined(raw, [
       'authType',
       'repoUrl',
       'branch',
@@ -242,19 +228,13 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
    * recorded a mode and 3.0 has no default that infers one.
    */
   s3: (raw) => {
-    const result = pick(raw, ['bucket', 'accessKeyId', 'secretAccessKey'])
+    const result = pickDefined(raw, ['bucket', 'accessKeyId', 'secretAccessKey'])
     result.mode = 'aws'
     if (typeof raw.region === 'string' && raw.region.length > 0) {
       result.awsRegion = raw.region
     }
     return result
   }
-}
-
-function transformConfig(module: string, rawConfig: unknown): Record<string, unknown> {
-  const raw = isPlainObject(rawConfig) ? rawConfig : {}
-  const transform = CONFIG_TRANSFORMS[module]
-  return transform ? transform(raw) : {}
 }
 
 // ---------------------------------------------------------------------------
@@ -381,7 +361,7 @@ export function mapStorageRow(
     }
   }
 
-  const incoming = transformConfig(module, row.config)
+  const incoming = transformConfig(CONFIG_TRANSFORMS, module, row.config)
   const validationError = resolver.validateConfig(module, incoming)
   if (validationError) {
     return {

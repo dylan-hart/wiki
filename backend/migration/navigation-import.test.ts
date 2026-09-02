@@ -283,16 +283,17 @@ describe('mapNavigationItem', () => {
 
 describe('importNavigation', () => {
   function fakeDeps() {
-    const calls: { ensureSiteNav: string[]; writeSiteItems: [string, unknown][] } = {
+    const calls: { ensureSiteNav: [string, string][]; setNavItems: [string, string, unknown][] } = {
       ensureSiteNav: [],
-      writeSiteItems: []
+      setNavItems: []
     }
     const navigationModel: NavigationWriteModel = {
-      async ensureSiteNav(siteId) {
-        calls.ensureSiteNav.push(siteId)
+      async ensureSiteNav(siteId, locale) {
+        calls.ensureSiteNav.push([siteId, locale])
+        return `nav-${siteId}-${locale}`
       },
-      async writeSiteItems(siteId, items) {
-        calls.writeSiteItems.push([siteId, items])
+      async setNavItems(siteId, navId, items) {
+        calls.setNavItems.push([siteId, navId, items])
       }
     }
     return { deps: { navigationModel }, calls }
@@ -320,9 +321,9 @@ describe('importNavigation', () => {
       locale: 'en'
     })
 
-    assert.deepEqual(calls.ensureSiteNav, ['site-1'])
-    assert.equal(calls.writeSiteItems.length, 1)
-    assert.equal(calls.writeSiteItems[0][0], 'site-1')
+    assert.deepEqual(calls.ensureSiteNav, [['site-1', 'en']])
+    assert.equal(calls.setNavItems.length, 1)
+    assert.deepEqual(calls.setNavItems[0].slice(0, 2), ['site-1', 'nav-site-1-en'])
     assert.deepEqual(result.items, [
       { id: 'a', type: 'header', label: 'Docs' },
       { id: 'b', type: 'link', label: 'Home', target: '/' }
@@ -336,8 +337,8 @@ describe('importNavigation', () => {
       siteId: 'site-1',
       locale: 'en'
     })
-    assert.deepEqual(calls.ensureSiteNav, ['site-1'])
-    assert.deepEqual(calls.writeSiteItems, [['site-1', []]])
+    assert.deepEqual(calls.ensureSiteNav, [['site-1', 'en']])
+    assert.deepEqual(calls.setNavItems, [['site-1', 'nav-site-1-en', []]])
     assert.deepEqual(result.items, [])
   })
 

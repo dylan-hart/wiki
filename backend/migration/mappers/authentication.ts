@@ -1,6 +1,8 @@
 import { escapeRegExp } from 'es-toolkit/string'
+import { isPlainObject, pickDefined, transformConfig, unwrapKnexValue } from './shared.ts'
 import type { authentication as authenticationTable } from '../../db/schema.ts'
 import type { SourceRecord } from '../connector.ts'
+import type { ConfigTransform } from './shared.ts'
 
 /**
  * `mapAuthenticationRow(s)` (task 765 — "Authentication-strategy mapper with multi-source conflict
@@ -75,7 +77,7 @@ import type { SourceRecord } from '../connector.ts'
  * `docs/migration/2.5x-export-bundle-format.md` confirms a live 2.x `authentication` row stores both
  * columns wrapped as `{ v: [...] }` (the same Objection/knex JSON-wrapper convention `configSvc`
  * uses for the `settings` table), while the export-bundle path already unwraps them to a bare array
- * before this mapper ever sees one. `unwrapMaybeWrapped()` below accepts either. `config` needs no
+ * before this mapper ever sees one. `./shared.ts`'s `unwrapKnexValue()` accepts either. `config` needs no
  * such handling — confirmed (same doc, and the vendored `authentication.js` resolver's write path)
  * to always be a plain object on both source kinds.
  */
@@ -120,21 +122,6 @@ export interface AuthModuleResolver {
 // domainWhitelist -> allowedEmailRegex
 // ---------------------------------------------------------------------------
 
-/** Undoes the `{ v: <value> }` wrapping a raw-Postgres-sourced `domainWhitelist`/`autoEnrollGroups`
- * column carries (see the module doc); a bare array (the export-bundle shape) passes through
- * unchanged. */
-function unwrapMaybeWrapped(value: unknown): unknown {
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    'v' in (value as Record<string, unknown>)
-  ) {
-    return (value as Record<string, unknown>).v
-  }
-  return value
-}
-
 /**
  * Compiles a 2.x `domainWhitelist` (an explicit list of allowed email domains) into the single
  * anchored regex string 3.0's `authentication.allowedEmailRegex` stores.
@@ -156,7 +143,7 @@ function unwrapMaybeWrapped(value: unknown): unknown {
  * entirely.
  */
 export function buildAllowedEmailRegex(domainWhitelistRaw: unknown): string {
-  const unwrapped = unwrapMaybeWrapped(domainWhitelistRaw)
+  const unwrapped = unwrapKnexValue(domainWhitelistRaw)
   const domains = Array.isArray(unwrapped)
     ? unwrapped.filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
     : []
@@ -175,22 +162,6 @@ export function buildAllowedEmailRegex(domainWhitelistRaw: unknown): string {
 // buildConfig rather than refused"), so there is no need to explicitly strip a 2.x-only prop like
 // oidc's `skipUserProfile` — it is simply never picked, so it never reaches either function.
 // ---------------------------------------------------------------------------
-
-function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const key of keys) {
-    if (key in source && source[key] !== undefined) {
-      result[key] = source[key]
-    }
-  }
-  return result
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-type ConfigTransform = (raw: Record<string, unknown>) => Record<string, unknown>
 
 /**
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s "four surviving modules' config
@@ -214,9 +185,9 @@ function hasNonEmptyConfig(rawConfig: unknown): boolean {
 
 const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
   local: () => ({}),
-  google: (raw) => pick(raw, ['clientId', 'clientSecret', 'hostedDomain']),
+  google: (raw) => pickDefined(raw, ['clientId', 'clientSecret', 'hostedDomain']),
   github: (raw) => {
-    const result = pick(raw, ['clientId', 'clientSecret', 'allowedOrganization'])
+    const result = pickDefined(raw, ['clientId', 'clientSecret', 'allowedOrganization'])
     // -> Structural collapse, not a rename: 2.x's useEnterprise (boolean) + enterpriseDomain (string)
     //    become 3.0's single enterpriseHost field, whose non-empty presence is what the boolean used
     //    to gate explicitly.
@@ -230,13 +201,7 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
     return result
   },
   oidc: (raw) =>
-    pick(raw, ['clientId', 'clientSecret', 'authorizationURL', 'tokenURL', 'userInfoURL'])
-}
-
-function transformConfig(module: string, rawConfig: unknown): Record<string, unknown> {
-  const raw = isPlainObject(rawConfig) ? rawConfig : {}
-  const transform = CONFIG_TRANSFORMS[module]
-  return transform ? transform(raw) : {}
+    pickDefined(raw, ['clientId', 'clientSecret', 'authorizationURL', 'tokenURL', 'userInfoURL'])
 }
 
 // ---------------------------------------------------------------------------
@@ -311,7 +276,7 @@ export function mapAuthenticationRow(
     }
   }
 
-  const incoming = transformConfig(module, row.config)
+  const incoming = transformConfig(CONFIG_TRANSFORMS, module, row.config)
   const validationError = resolver.validateConfig(module, incoming)
   if (validationError) {
     return {

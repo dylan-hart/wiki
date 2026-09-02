@@ -1,3 +1,4 @@
+import { isPlainObject, pickPresent, unwrapKnexValue } from './shared.ts'
 import type { SourceRecord } from '../connector.ts'
 
 /**
@@ -44,9 +45,9 @@ import type { SourceRecord } from '../connector.ts'
  * carries nothing this mapper needs). `value` is exactly what a raw row carries: 2.x's own
  * `configSvc.saveToDb()` wraps every non-plain-object value as `{ v: <value> }`
  * (`server/core/config.js`, vendored under `docs/migration/vendor/2x-settings/`) and stores plain
- * objects (`mail`, `theming`, `lang`, `seo`, `security`, `uploads`, ...) unwrapped — `unwrapValue()`
- * below undoes exactly that, mirroring the identical unwrap 3.0's own `Settings.getConfig()` already
- * does (`backend/models/settings.ts`).
+ * objects (`mail`, `theming`, `lang`, `seo`, `security`, `uploads`, ...) unwrapped — `./shared.ts`'s
+ * `unwrapKnexValue()` undoes exactly that, mirroring the identical unwrap 3.0's own
+ * `Settings.getConfig()` already does (`backend/models/settings.ts`).
  */
 export interface SiteSettingsSourceRow extends SourceRecord {
   key: string
@@ -65,30 +66,6 @@ export interface SiteSettingsMapping {
     mail?: Record<string, any>
     security?: Record<string, any>
   }
-}
-
-/** Undoes 2.x `configSvc.saveToDb()`'s `{ v: <value> }` wrapping of non-plain-object values. */
-function unwrapValue(value: unknown): unknown {
-  if (value !== null && typeof value === 'object' && 'v' in (value as Record<string, unknown>)) {
-    return (value as Record<string, unknown>).v
-  }
-  return value
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-/** Copies only the given keys from `source` into a fresh object, and only when actually present
- * (`in`, not a truthiness/undefined check — an explicit `false`/`0`/`''` is a real value to copy). */
-function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const key of keys) {
-    if (key in source) {
-      result[key] = source[key]
-    }
-  }
-  return result
 }
 
 const MAIL_FIELDS = [
@@ -140,7 +117,7 @@ const UPLOADS_TO_SECURITY_RENAMES: Record<string, string> = {
 export function mapSiteSettings(rows: readonly SiteSettingsSourceRow[]): SiteSettingsMapping {
   const byKey = new Map<string, unknown>()
   for (const row of rows) {
-    byKey.set(row.key, unwrapValue(row.value))
+    byKey.set(row.key, unwrapKnexValue(row.value))
   }
 
   const siteConfigPatch: Record<string, any> = {}
@@ -172,7 +149,7 @@ export function mapSiteSettings(rows: readonly SiteSettingsSourceRow[]): SiteSet
 
   const theming = byKey.get('theming')
   if (isPlainObject(theming)) {
-    const theme: Record<string, unknown> = pick(theming, [
+    const theme: Record<string, unknown> = pickPresent(theming, [
       'tocPosition',
       'injectCSS',
       'injectHead',
@@ -195,7 +172,7 @@ export function mapSiteSettings(rows: readonly SiteSettingsSourceRow[]): SiteSet
 
   const mail = byKey.get('mail')
   if (isPlainObject(mail)) {
-    const mailPatch = pick(mail, MAIL_FIELDS)
+    const mailPatch = pickPresent(mail, MAIL_FIELDS)
     if (Object.keys(mailPatch).length > 0) {
       instanceSettings.mail = mailPatch
     }
