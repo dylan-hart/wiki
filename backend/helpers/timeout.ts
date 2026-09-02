@@ -1,8 +1,9 @@
 /**
  * Race a promise against a timer, so work that has no ceiling of its own gets one.
  *
- * The eight places that hand-rolled this — the scheduler's worker/in-process task races and its
- * shutdown drain, the render/diagram/PDF Puppeteer steps, the search engine init — all wrote the
+ * The nine call sites that hand-rolled this — the scheduler's worker/in-process task races and its
+ * shutdown drain, the render/PDF Puppeteer steps, the diagram render's three, the search engine init
+ * — all wrote the
  * same block: a `setTimeout` rejecting into a `Promise.race`, with a `clearTimeout` in a `finally`
  * so a fast success does not leave a timer holding the event loop open. What differed between them
  * was only the error to fail with, which is why that is a callback rather than a message: each call

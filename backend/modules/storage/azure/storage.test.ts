@@ -129,6 +129,46 @@ describe('azure storage / ensureContainer (activation)', () => {
   })
 })
 
+/**
+ * What `@azure/storage-blob`'s call shapes carry that the shared contract's readers cannot see: the
+ * key, the bytes, the content type and the tier are all `test/storageModuleContract.ts`'s to assert,
+ * but `upload()`'s positional `contentLength` and `delete()`'s options object are this SDK's alone.
+ */
+describe('azure storage / per-asset lifecycle', () => {
+  test('assetUploaded passes the byte length as upload()’s second, positional argument', async () => {
+    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
+      data: Buffer.from('hello'),
+      mimeType: 'text/plain',
+      fileName: 'notes.txt'
+    }))
+    const target = makeTarget()
+
+    await storageModule.assetUploaded!(target, {
+      id: 'asset-1',
+      fileName: 'notes.txt',
+      folderPath: 'docs',
+      kind: 'document',
+      fileSize: 5
+    })
+
+    assert.equal(uploadMock.mock.callCount(), 1)
+    // -> `upload(body, contentLength, options)`: a wrong length here truncates or overruns the blob,
+    //    and the SDK has no way to notice — it is not derived from the buffer.
+    assert.equal(uploadMock.mock.calls[0]!.arguments[1], 5)
+  })
+
+  test('assetDeleted includes snapshots, so a versioned blob leaves nothing behind', async () => {
+    const target = makeTarget()
+
+    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
+
+    assert.equal(deleteMock.mock.callCount(), 1)
+    // -> Without `deleteSnapshots: 'include'` Azure REFUSES the delete outright for a blob that has
+    //    snapshots, rather than deleting the base blob and orphaning them (matching 2.5.x).
+    assert.deepEqual(deleteMock.mock.calls[0]!.arguments[0], { deleteSnapshots: 'include' })
+  })
+})
+
 describe('azure storage / exportAll', () => {
   test('an activation failure (bad container) surfaces as a thrown Error rather than an unhandled SDK exception', async () => {
     createMock.mock.mockImplementationOnce(async () => {

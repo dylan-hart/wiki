@@ -2,7 +2,10 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 
 import { isValidUuid } from './common.ts'
 
-/** What a page/shell request's hostname resolved to, for the site-resolution hook in `core/http/siteRouting.ts`. */
+/**
+ * What a page/shell request's hostname resolved to, for the site-resolution hook in
+ * `core/http/siteRouting.ts`.
+ */
 export type RequestSiteResolution =
   | { outcome: 'exempt' }
   | { outcome: 'not-found' }
@@ -13,9 +16,9 @@ export type RequestSiteResolution =
  * Decide what a page/shell request's hostname resolves to, and whether the request should be let
  * through at all.
  *
- * Mirrors the SEO hook's precedence in `core/http/siteRouting.ts` exactly — `sitesMappings[normalizeHostname(hostname)]
- * || sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide
- * whether to strip a page extension.
+ * Mirrors the SEO hook's precedence in `core/http/siteRouting.ts` exactly —
+ * `sitesMappings[normalizeHostname(hostname)] || sitesMappings['*']` — so a request sees the same
+ * site the SEO hook already used to decide whether to strip a page extension.
  *
  * `exemptSegments` is the caller's list of first path segments that must reach the app shell
  * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to
@@ -23,11 +26,11 @@ export type RequestSiteResolution =
  *
  * `hostname` is trusted as-is here — the refusal of a forwarded host that names a different site than
  * the socket's own `Host` (task 2085, `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6)
- * happens one layer up, in Fastify itself: `core/http/server.ts` passes `security.trustProxy` straight through
- * as Fastify's own `trustProxy` option, and once that is a genuine address/CIDR spec rather than a
- * bare `true`, Fastify's vendored `request.hostname` getter (`fastify/lib/request.js`) only reads
- * `X-Forwarded-Host` from a peer address the spec covers, falling back to the raw `Host` header for
- * everyone else. So by the time `hostname` reaches this function it has already been through that
+ * happens one layer up, in Fastify itself: `core/http/server.ts` passes `security.trustProxy` straight
+ * through as Fastify's own `trustProxy` option, and once that is a genuine address/CIDR spec rather
+ * than a bare `true`, Fastify's vendored `request.hostname` getter (`fastify/lib/request.js`) only
+ * reads `X-Forwarded-Host` from a peer address the spec covers, falling back to the raw `Host` header
+ * for everyone else. So by the time `hostname` reaches this function it has already been through that
  * check — there is nothing left to compare it against.
  */
 export function resolveRequestSite({
@@ -151,10 +154,11 @@ export async function resolveSiteParam(
 }
 
 /**
- * Response contract for a site resolved OUTSIDE the page/shell hook in `core/http/siteRouting.ts` — an API route or
- * static controller that already has a siteId or hostname of its own (a JSON endpoint, an image, a
- * downloaded file) rather than one arriving through `resolveRequestSite` above. Those requests are
- * not navigations a browser can be bounced away from, so where the hook redirects to a distinct
+ * Response contract for a site resolved OUTSIDE the page/shell hook in `core/http/siteRouting.ts` —
+ * an API route or static controller that already has a siteId or hostname of its own (a JSON
+ * endpoint, an image, a downloaded file) rather than one arriving through `resolveRequestSite`
+ * above. Those requests are not navigations a browser can be bounced away from, so where the hook
+ * redirects to a distinct
  * `/_error/*` page per outcome, these tell the same two outcomes apart by status code instead:
  *
  * - No site at all behind the id/hostname is indistinguishable from any other missing resource, so

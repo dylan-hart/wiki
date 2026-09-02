@@ -35,7 +35,7 @@ test('resolveSite: throws when the site is disabled', () => {
 
 // -> No `defaultLocale` tests here any more: `mcp/` had its own copy of the same
 //    `config.locales.primary ?? 'en'` fallback, and now calls `helpers/localeRouting.ts#defaultLocale`,
-//    whose own cases live in `helpers/common.test.ts`.
+//    whose own cases live in `helpers/localeRouting.test.ts`.
 
 test('resolveDefaultSiteId: a site-pinned key always resolves to its own site', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })

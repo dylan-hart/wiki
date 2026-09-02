@@ -190,10 +190,9 @@ describe('resolveRequestSite', () => {
  * be able to steer site resolution, unless it genuinely arrived through a proxy address the instance
  * has been told to trust. `resolveRequestSite` itself trusts whatever `hostname` it is handed (see its
  * doc comment) -- the refusal happens one layer up, in Fastify's own `trustProxy`-aware
- * `request.hostname` getter, exercised here exactly as `core/http/siteRouting.ts`'s site-resolution hook uses
- * it: a
- * real Fastify instance, a real `trustProxy` address spec, and `.inject()`'s `remoteAddress` standing
- * in for the socket peer.
+ * `request.hostname` getter, exercised here exactly as `core/http/siteRouting.ts`'s site-resolution
+ * hook uses it: a real Fastify instance, a real `trustProxy` address spec, and `.inject()`'s
+ * `remoteAddress` standing in for the socket peer.
  */
 describe('resolveRequestSite via Fastify: X-Forwarded-Host trust boundary (task 2085)', () => {
   const TRUSTED_PROXY_ADDRESS = '10.0.0.1'

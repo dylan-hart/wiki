@@ -264,6 +264,35 @@ describe('s3 storage / ensureBucket (activation)', () => {
 })
 
 describe('s3 storage / per-asset lifecycle', () => {
+  /**
+   * The key, the bytes and the content type are `test/storageModuleContract.ts`'s to assert. `Bucket`
+   * is not part of that contract and could not be: `azure` and `gcs` bind their container/bucket into
+   * the client object itself, while every S3 command carries it as an input field of its own — so an
+   * unset or wrong `Bucket` here would be an S3-only defect the shared readers cannot see.
+   */
+  test('every per-asset command names the configured bucket', async () => {
+    s3Mock.on(PutObjectCommand).resolves({})
+    s3Mock.on(DeleteObjectCommand).resolves({})
+    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
+      data: Buffer.from('hello'),
+      mimeType: 'text/plain',
+      fileName: 'notes.txt'
+    }))
+    const target = makeTarget()
+
+    await storageModule.assetUploaded!(target, {
+      id: 'asset-1',
+      fileName: 'notes.txt',
+      folderPath: 'docs',
+      kind: 'document',
+      fileSize: 5
+    })
+    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
+
+    assert.equal(s3Mock.commandCalls(PutObjectCommand)[0]!.args[0].input.Bucket, 'my-bucket')
+    assert.equal(s3Mock.commandCalls(DeleteObjectCommand)[0]!.args[0].input.Bucket, 'my-bucket')
+  })
+
   test('assetUploaded omits StorageClass in do mode even though storageTier is set', async () => {
     s3Mock.on(PutObjectCommand).resolves({})
     ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
