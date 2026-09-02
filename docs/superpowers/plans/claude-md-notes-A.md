@@ -20,11 +20,11 @@
     `drizzle-orm@1.0.0-rc.4`'s `node-postgres` driver
     (`NodePgQueryResultHKT.type = QueryResult<...>`, `pg-core/async/db.d.ts:283`). This belongs in
     the "Backend patterns" section beside the existing note that a raw `sql` expression substituted
-    into `.select()` returns a postgres-format *string* rather than a `Date`.
+    into `.select()` returns a postgres-format _string_ rather than a `Date`.
   - **Exactly one `unhandledRejection` handler exists, in `core/processGuards.ts`** (D9). `index.ts`
     registers it once, immediately after `logger.init()`, passing `exit: (code) => process.exit(code)`
     so an unhandled rejection still terminates the process. Do not add a second `process.on(
-    'unhandledRejection', …)` anywhere — Node runs listeners in registration order and an exiting
+'unhandledRejection', …)` anywhere — Node runs listeners in registration order and an exiting
     one silences everything after it, which is exactly the bug this removed.
   - **A `Date`-typed column headed for a search index goes through
     `.toTemporalInstant().toString({ smallestUnit: 'millisecond' })`**, not `.toISOString()` and
@@ -76,17 +76,17 @@
     `api/tree.ts`. Two lines in the **Permissions** section point at the old home and are now wrong:
     `:413` ("`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts` and imported by
     `api/pages.ts`" → imported by `helpers/pageAccess.ts`) and `:418` ("or `mayOnPage(req,
-    permission, page)` in `api/pages.ts`" → in `helpers/pageAccess.ts`, and its real signature is
+permission, page)` in `api/pages.ts`" → in `helpers/pageAccess.ts`, and its real signature is
     `mayOnPage(req, permission, siteId, page)`). `:437`'s "`No route-level permissions:` comment, as
     `api/pages.ts`, `api/assets.ts`, …" is still correct — that names route files, not helpers.
   - **A page-scoped route's 404/403 preamble is `requireReadablePage`, not hand-written.** The
     check order is fixed and load-bearing: missing-or-unreadable → 404 `'This page does not
-    exist.'`, then the route's own second permission → 403 with its own message, then still-locked →
+exist.'`, then the route's own second permission → 403 with its own message, then still-locked →
     403 `'This page is password protected.'`. A route needing a different order calls it without
     `permission` and checks afterwards (`api/checklists.ts`'s check-off route is the worked
     example); a route that deliberately tolerates a locked page passes `allowLocked: true`
     (`api/pages.ts`'s backlinks listing). The `null`-once-a-reply-is-sent convention (`if (!page) {
-    return reply }`) is shared with `requireActorId`.
+return reply }`) is shared with `requireActorId`.
   - **A route file must never import another route file.** That was the only reason
     `api/comments.ts`, `api/checklists.ts`, `api/watching.ts`, `api/approvals.ts`, `api/tags.ts`,
     `api/notifications.ts`, `api/tree.ts` and `controllers/collab.ts` reached into `api/pages.ts` /
@@ -105,7 +105,7 @@
     outside them changes. The `modules/` bullet in the `backend/` layout table could name the helper
     as the shared machinery behind "pluggable extensions, discovered from disk".
   - **The extension-sensitive dynamic `import()` strings are unaffected, by design.** `loadModule`
-    takes an importer *closure*, so `models/storage.ts`'s `../modules/storage/${key}/storage.ts`,
+    takes an importer _closure_, so `models/storage.ts`'s `../modules/storage/${key}/storage.ts`,
     `models/search.ts`'s `../modules/search/${key}/search.ts` and `models/authentication.ts`'s
     `../modules/authentication/${stg.module}/authentication.ts` all still sit literally at their own
     call sites — CLAUDE.md's "Five dynamic paths are extension-sensitive" list stays correct
@@ -199,3 +199,79 @@
     probe list is its distinct values; `modules/storage/disk` spreads it and overrides
     `redirect: 'json'` — the one documented divergence, because a redirect's content is already JSON
     there.
+
+## Task A13 — `modules/search/` (CORE-F5)
+
+- **The five search engine modules share `modules/search/shared.ts` and
+  `modules/search/externalBase.ts`.** The doctrine each engine's own header used to state — "copied
+  rather than imported: each engine module stays self-contained" — is overturned: self-containment
+  holds between an engine and its _vendor SDK_, not between an engine and the vocabulary they all
+  already import from `models/search.ts`. A new engine extends `ExternalSearchModule` and imports
+  from `shared.ts`; it does not re-declare any of `escapeHtml`, `HL_START`/`HL_STOP`,
+  `normalizeMarkers`, `SCAN_CAP`, `MAX_INDEXING_BYTES`/`MAX_INDEXING_COUNT`, `REBUILD_BATCH_SIZE`,
+  `batchBySize`, `SearchDocument`/`buildSearchDocument`, `RebuildPageSource`/`defaultPageSource`,
+  `pageStream`/`localePageStream`, `filterVisible` or `toSearchPagesResult`.
+- **`ExternalSearchModule` (`modules/search/externalBase.ts`) owns the four page-lifecycle forwarders
+  and the never-throws wrapper.** A subclass implements `indexPage`/`removePage` (both `protected`)
+  plus `init`/`query`/`rebuild`, and wraps each index write in `this.neverThrows(work, describe)` —
+  the message is the engine's own, since operators grep four different strings. A subclass with a
+  constructor must call `super()` first. **`db` deliberately does NOT extend it** and stays on the
+  bare `SearchModule` interface: its `deleted` is a genuine no-op and its `renamed` only acts on a
+  locale change, so the shared forwarders would be wrong for it. It imports from `shared.ts` only.
+- **Client construction/caching is deliberately not in the base class** — every engine's is a
+  different shape (Algolia pushes index settings first, Elasticsearch creates the index if absent,
+  Azure and AWS each keep two clients behind injected factories). Don't hoist it without a reason
+  bigger than symmetry.
+- **`totalHits`/`totalHitsApproximate` are computed in exactly one place:
+  `shared.ts#toSearchPagesResult`.** Both are derived from the permission-filtered rows alone, never
+  from a count the engine reported before filtering — that is the OpenProject #2151/#2156 count
+  oracle, and re-deriving either at an engine reopens it. `db` builds its own tail (it has a
+  `suggestion` and its no-actor path is already `LIMIT`/`OFFSET`-windowed in SQL) but uses the shared
+  `filterVisible`.
+- **Every engine reads its per-site config through `search.getEngineConfig(siteId, key)`**, and no
+  engine re-applies a `definition.yml` default by hand (`indexName || 'wiki'` and friends are gone).
+  This makes `index.ts` calling `WIKI.models.search.refreshFromDisk()` _before_
+  `initActiveEngines()` load-bearing rather than incidental — `models/search.test.ts` now has a
+  structural check that a reorder cannot pass silently. A test that constructs an engine directly has
+  to set `WIKI.SERVERPATH` and `await search.refreshFromDisk()` first, and that hook must be
+  registered _after_ the `WIKI` assignment: a root-level `before()` in `node:test` runs before the
+  top-level statements that follow it.
+- **`aws-cloudsearch` declares its index fields in the AWS SDK's own `IndexField` shape**
+  (`IndexFieldName`/`IndexFieldType`/`LiteralOptions`/`TextOptions`/`LiteralArrayOptions`), not a
+  module-local vocabulary translated at the boundary. Don't reintroduce a translation layer.
+
+- **Task A8 (small shared-helper bundle).** Seven single-source facts CLAUDE.md's "Backend patterns"
+  section should now carry, none of which it currently does:
+  - **A hostname resolves to a site id through `helpers/common.ts#siteIdForHostname(hostname, {
+    strict })`**, never by indexing `WIKI.sitesMappings` at a call site. It folds the case
+    (`normalizeHostname`, OpenProject #2127) and applies the `*` catch-all fallback; `strict` skips
+    that fallback. `models/sites.ts#getSiteByHostname`, `index.ts`'s two hooks,
+    `api/authentication.ts` and `api/diagrams.ts` all go through it. Its siblings:
+    `siteForHostname(hostname)` for "the site behind this request's own `Host`, or null", and
+    `resolveSiteParam(param, hostname, { strict })` for the `current`/uuid/hostname three-way a path
+    parameter can spell (`api/sites.ts`, `controllers/site.ts`).
+  - **A cacheable response's ETag/`Cache-Control`/304 dance is
+    `helpers/httpCache.ts#notModifiedOrPrepare(req, reply, { etag, cacheControl, nosniff })`**, which
+    returns `true` once it has sent the 304. It also sends `X-Content-Type-Options: nosniff` unless
+    told not to — the default suits any route serving stored or uploaded bytes.
+  - **Racing work against a ceiling is `helpers/timeout.ts#withTimeout(work, ms, onExpire, { unref
+    })`.** `onExpire` is a callback so each caller keeps its own error type, and the error is only
+    built if the timer wins. Nothing is cancelled: the work runs on, the caller stops waiting.
+  - **Puppeteer availability, refusal and close go through `helpers/puppeteer.ts`** —
+    `isPuppeteerAvailable()`, `assertPuppeteerAvailable(errorName, message)` (503) and
+    `closeQuietly(closable, label)`, beside the existing `launchPuppeteerBrowser`.
+  - **`helpers/common.ts` owns `isUniqueViolation(err)` (postgres `23505`, however the driver wrapped
+    it), `escapeLikePattern(value)` and `BCRYPT_ROUNDS`** (the one cost factor everything is hashed
+    at). Do not re-declare any of the three, and do not write `bcrypt.hash(x, 12)`.
+  - **`purgeFilesOlderThan(dir, ttlSeconds)` in `helpers/fsPurge.ts`** is the TTL sweep of a
+    `<dataPath>` directory (a missing directory counts as zero).
+  - **"Are these real group ids" is `WIKI.models.groups.hasUnknownGroupIds(ids)`**, the only owner.
+
+  Two smaller ones: `mcp/tools/shared.ts` holds `toResult` plus the shared `siteIdArg`/`localeArg`
+  zod fields (a tool file declaring its own `toResult` is a regression), and `mcp/` reads a site's
+  default locale through `helpers/common.ts#defaultLocale(siteId)` like everything else.
+
+- **Deferred out of A8, for whoever owns the files.** Two call sites of A8's helpers live in task
+  A13's workspace and were deliberately left alone: `models/search.ts#initActiveEngines`'s timeout
+  race (should become a `withTimeout` call) and `modules/search/db/search.ts`'s `escapeLikePrefix`
+  (byte-identical to `helpers/common.ts#escapeLikePattern`).
