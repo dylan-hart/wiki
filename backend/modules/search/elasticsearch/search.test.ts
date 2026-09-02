@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureTemporal } from '../../../test/temporal.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
+import { stubPageStreamDb } from '../../../test/builders.ts'
 import { search } from '../../../models/search.ts'
 import {
   ElasticsearchSearchModule,
@@ -720,34 +721,13 @@ describe('ElasticsearchSearchModule', () => {
       ;(globalThis as any).WIKI.db = previousDb
     })
 
-    /** A fake `WIKI.db` serving one page of rows, then an empty page, matching the keyset-loop shape. */
-    function fakeDb(rowsBySiteId: Record<string, any[]>) {
-      return {
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              orderBy: () => ({
-                limit: async () => {
-                  const rows = rowsBySiteId[siteId] ?? []
-                  rowsBySiteId[siteId] = []
-                  return rows
-                }
-              })
-            })
-          })
-        })
-      }
-    }
-
     test("deletes only this site's documents, then batches and sends every page found", async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({
-        [siteId]: [
-          fakePage({ id: 'p1', locale: 'en' }),
-          fakePage({ id: 'p2', locale: 'en' }),
-          fakePage({ id: 'p3', locale: 'fr' })
-        ]
-      })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([
+        fakePage({ id: 'p1', locale: 'en' }),
+        fakePage({ id: 'p2', locale: 'en' }),
+        fakePage({ id: 'p3', locale: 'fr' })
+      ])
 
       const result = await mod.rebuild(siteId)
 
@@ -768,7 +748,7 @@ describe('ElasticsearchSearchModule', () => {
 
     test('an empty site deletes its documents and sends no batches', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({ [siteId]: [] })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([])
 
       const result = await mod.rebuild(siteId)
 

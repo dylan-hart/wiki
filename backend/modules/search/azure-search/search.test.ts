@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { mock } from 'node:test'
 import { ensureTemporal } from '../../../test/temporal.ts'
 import { createSilentLogger, installTestWiki } from '../../../test/mocks.ts'
-import { makeIndexablePage } from '../../../test/builders.ts'
+import { makeIndexablePage, makeRebuildPageSource } from '../../../test/builders.ts'
 import { search } from '../../../models/search.ts'
 import {
   AzureSearchModule,
@@ -17,10 +17,9 @@ import {
   type AzureSearchQueryClient,
   type AzureSearchRow
 } from './search.ts'
-import { REBUILD_BATCH_SIZE, type RebuildPageSource } from '../shared.ts'
+import { REBUILD_BATCH_SIZE } from '../shared.ts'
 import defaultAzureSearchModule from './search.ts'
 import type { SearchIndex } from '@azure/search-documents'
-import type { SearchIndexablePage } from '../../../models/search.ts'
 
 /**
  * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`
@@ -830,31 +829,10 @@ describe('azure-search module: query()', () => {
   })
 })
 
-/**
- * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
- * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
- * the full set in the batches it should have, rather than only checking the final tally.
- */
-function fakePageSource(
-  pagesByLocale: Record<string, SearchIndexablePage[]>
-): RebuildPageSource & { calls: { locale: string; offset: number; limit: number }[] } {
-  const calls: { locale: string; offset: number; limit: number }[] = []
-  return {
-    calls,
-    async locales() {
-      return Object.keys(pagesByLocale)
-    },
-    async pageBatch(_siteId, locale, offset, limit) {
-      calls.push({ locale, offset, limit })
-      return (pagesByLocale[locale] ?? []).slice(offset, offset + limit)
-    }
-  }
-}
-
 describe('azure-search module: rebuild()', () => {
   test('streams every locale through mergeOrUploadDocuments and reports a per-locale RebuildResult', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({
+    const source = makeRebuildPageSource({
       en: [page({ id: 'en-1' }), page({ id: 'en-2' })],
       fr: [page({ id: 'fr-1', locale: 'fr' })]
     })
@@ -874,7 +852,7 @@ describe('azure-search module: rebuild()', () => {
 
   test('uploads the exact documents toIndexDocument would build for each page', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({ en: [page({ id: 'en-1' })] })
+    const source = makeRebuildPageSource({ en: [page({ id: 'en-1' })] })
     const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
     await azureSearch.rebuild('site-1')
@@ -888,7 +866,7 @@ describe('azure-search module: rebuild()', () => {
     const enPages = Array.from({ length: REBUILD_BATCH_SIZE + 3 }, (_, i) =>
       page({ id: `en-${i}` })
     )
-    const source = fakePageSource({ en: enPages })
+    const source = makeRebuildPageSource({ en: enPages })
     const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
     const result = await azureSearch.rebuild('site-1')
@@ -908,7 +886,7 @@ describe('azure-search module: rebuild()', () => {
 
   test('a locale with no pages contributes zero and no upload call', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({ en: [] })
+    const source = makeRebuildPageSource({ en: [] })
     const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
     const result = await azureSearch.rebuild('site-1')
@@ -933,7 +911,7 @@ describe('azure-search module: rebuild()', () => {
           ]
         }
       ])
-      const source = fakePageSource({ en: [page({ id: 'stays' })] })
+      const source = makeRebuildPageSource({ en: [page({ id: 'stays' })] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')
@@ -943,7 +921,7 @@ describe('azure-search module: rebuild()', () => {
 
     test('deletes nothing when every previously-indexed id was re-uploaded', async () => {
       const client = fakeQueryClient([{ count: 1, rows: [{ document: { id: 'p1' }, score: 1 }] }])
-      const source = fakePageSource({ en: [page({ id: 'p1' })] })
+      const source = makeRebuildPageSource({ en: [page({ id: 'p1' })] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')
@@ -955,7 +933,7 @@ describe('azure-search module: rebuild()', () => {
       const client = fakeQueryClient([
         { count: 1, rows: [{ document: { id: 'ghost' }, score: 1 }] }
       ])
-      const source = fakePageSource({ en: [] })
+      const source = makeRebuildPageSource({ en: [] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')
@@ -970,7 +948,7 @@ describe('azure-search module: rebuild()', () => {
         score: 1
       }))
       const client = fakeQueryClient([{ count: ghostCount, rows }])
-      const source = fakePageSource({ en: [] })
+      const source = makeRebuildPageSource({ en: [] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')

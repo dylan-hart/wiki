@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureTemporal } from '../../../test/temporal.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
+import { stubPageStreamDb } from '../../../test/builders.ts'
 import { search } from '../../../models/search.ts'
 import {
   AlgoliaSearchModule,
@@ -608,34 +609,13 @@ describe('AlgoliaSearchModule', () => {
       ;(globalThis as any).WIKI.db = previousDb
     })
 
-    /** A fake `WIKI.db` serving one page of rows, then an empty page, matching the keyset-loop shape. */
-    function fakeDb(rowsBySiteId: Record<string, any[]>) {
-      return {
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              orderBy: () => ({
-                limit: async () => {
-                  const rows = rowsBySiteId[siteId] ?? []
-                  rowsBySiteId[siteId] = []
-                  return rows
-                }
-              })
-            })
-          })
-        })
-      }
-    }
-
     test('purges only this site’s records, then batches and sends every page found', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({
-        [siteId]: [
-          fakePage({ id: 'p1', locale: 'en' }),
-          fakePage({ id: 'p2', locale: 'en' }),
-          fakePage({ id: 'p3', locale: 'fr' })
-        ]
-      })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([
+        fakePage({ id: 'p1', locale: 'en' }),
+        fakePage({ id: 'p2', locale: 'en' }),
+        fakePage({ id: 'p3', locale: 'fr' })
+      ])
 
       const result = await mod.rebuild(siteId)
 
@@ -664,18 +644,16 @@ describe('AlgoliaSearchModule', () => {
      */
     test('an oversized page is skipped with a logged warning, the rest of the site still gets indexed', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({
-        [siteId]: [
-          fakePage({ id: 'p1', path: 'docs/small-one', locale: 'en' }),
-          fakePage({
-            id: 'p-huge',
-            path: 'docs/huge-page',
-            locale: 'en',
-            searchContent: 'x'.repeat(MAX_DOCUMENT_BYTES)
-          }),
-          fakePage({ id: 'p2', path: 'docs/small-two', locale: 'fr' })
-        ]
-      })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([
+        fakePage({ id: 'p1', path: 'docs/small-one', locale: 'en' }),
+        fakePage({
+          id: 'p-huge',
+          path: 'docs/huge-page',
+          locale: 'en',
+          searchContent: 'x'.repeat(MAX_DOCUMENT_BYTES)
+        }),
+        fakePage({ id: 'p2', path: 'docs/small-two', locale: 'fr' })
+      ])
       const warnings: string[] = []
       const previousWarn = (globalThis as any).WIKI.logger.warn
       ;(globalThis as any).WIKI.logger.warn = (msg: string) => warnings.push(msg)
@@ -712,7 +690,7 @@ describe('AlgoliaSearchModule', () => {
 
     test('an empty site still purges its own records and sends no batches', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({ [siteId]: [] })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([])
 
       const result = await mod.rebuild(siteId)
 
@@ -730,7 +708,7 @@ describe('AlgoliaSearchModule', () => {
      */
     test('does not touch another site’s records: rebuild scopes its purge to siteId', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({ [siteId]: [fakePage({ id: 'p1' })] })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([fakePage({ id: 'p1' })])
 
       await mod.rebuild(siteId)
 

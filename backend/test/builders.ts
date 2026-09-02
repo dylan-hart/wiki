@@ -10,6 +10,7 @@ import type { GroupRule } from '../models/groups.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { SearchIndexablePage } from '../models/search.ts'
 import type { StorageTarget } from '../models/storage.ts'
+import type { RebuildPageSource } from '../modules/search/shared.ts'
 
 /** A group rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
 export function makeGroupRule(overrides: Partial<GroupRule> = {}): GroupRule {
@@ -159,6 +160,59 @@ export function makeIndexablePage(
     ownerId: 'u1',
     ...overrides
   } as any as SearchIndexablePage
+}
+
+/**
+ * A `WIKI.db` stand-in serving one page of rows, then an empty page — the keyset-loop shape
+ * `modules/search/shared.ts#pageStream` walks, and all `algolia`/`elasticsearch` `rebuild()` needs to
+ * see a whole site go by.
+ *
+ * Deliberately not a `stubSelect()` variant: that one answers a `from`/`where`/`limit` chain with a
+ * fixed row and is about what a model asked for, while this one is about a loop terminating — the
+ * second read has to come back empty or `pageStream` never returns.
+ */
+export function stubPageStreamDb(pages: SearchIndexablePage[]) {
+  let remaining = pages
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: async () => {
+              const rows = remaining
+              remaining = []
+              return rows
+            }
+          })
+        })
+      })
+    })
+  }
+}
+
+/**
+ * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
+ * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
+ * the full set in the batches it should have, rather than only checking the final tally.
+ *
+ * The shape `azure-search` and `aws-cloudsearch` rebuild through (see `modules/search/shared.ts`'s
+ * `RebuildPageSource` doc for why those two take an injected source at all rather than reading
+ * `WIKI.db` the way `stubPageStreamDb` above stands in for).
+ */
+export function makeRebuildPageSource(
+  pagesByLocale: Record<string, SearchIndexablePage[]>
+): RebuildPageSource & { calls: { locale: string; offset: number; limit: number }[] } {
+  const calls: { locale: string; offset: number; limit: number }[] = []
+  return {
+    calls,
+    async locales() {
+      return Object.keys(pagesByLocale)
+    },
+    async pageBatch(_siteId, locale, offset, limit) {
+      calls.push({ locale, offset, limit })
+      return (pagesByLocale[locale] ?? []).slice(offset, offset + limit)
+    }
+  }
 }
 
 /**

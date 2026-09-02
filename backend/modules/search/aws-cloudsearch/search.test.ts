@@ -6,6 +6,7 @@ import { mock } from 'node:test'
 import { ensureTemporal } from '../../../test/temporal.ts'
 import { createSilentLogger, installTestWiki } from '../../../test/mocks.ts'
 import { search } from '../../../models/search.ts'
+import { makeRebuildPageSource } from '../../../test/builders.ts'
 import {
   AwsCloudSearchModule,
   batchDocuments,
@@ -27,7 +28,7 @@ import {
   type DescribedSuggester,
   type SdfDocument
 } from './search.ts'
-import { REBUILD_BATCH_SIZE, type RebuildPageSource } from '../shared.ts'
+import { REBUILD_BATCH_SIZE } from '../shared.ts'
 import defaultAwsCloudSearchModule from './search.ts'
 import type { SearchIndexablePage } from '../../../models/search.ts'
 
@@ -1108,33 +1109,10 @@ describe('aws-cloudsearch module: query()', () => {
   })
 })
 
-/**
- * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
- * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
- * the full set in the batches it should have, rather than only checking the final tally. Identical
- * shape to `azure-search`'s own `fakePageSource` (task #564), copied rather than imported — each
- * module's test file stays self-contained too.
- */
-function fakePageSource(
-  pagesByLocale: Record<string, SearchIndexablePage[]>
-): RebuildPageSource & { calls: { locale: string; offset: number; limit: number }[] } {
-  const calls: { locale: string; offset: number; limit: number }[] = []
-  return {
-    calls,
-    async locales() {
-      return Object.keys(pagesByLocale)
-    },
-    async pageBatch(_siteId, locale, offset, limit) {
-      calls.push({ locale, offset, limit })
-      return (pagesByLocale[locale] ?? []).slice(offset, offset + limit)
-    }
-  }
-}
-
 describe('aws-cloudsearch module: rebuild()', () => {
   test('streams every locale through uploadBatch and reports a per-locale RebuildResult', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({
+    const source = makeRebuildPageSource({
       en: [basePage({ id: 'en-1' }), basePage({ id: 'en-2' })],
       fr: [basePage({ id: 'fr-1', locale: 'fr' })]
     })
@@ -1154,7 +1132,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
 
   test('uploads the exact SDF documents toIndexDocument would build for each page', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({ en: [basePage({ id: 'en-1' })] })
+    const source = makeRebuildPageSource({ en: [basePage({ id: 'en-1' })] })
     const module = new AwsCloudSearchModule(undefined, () => client, source)
 
     await module.rebuild('site-1')
@@ -1168,7 +1146,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
     const enPages = Array.from({ length: REBUILD_BATCH_SIZE + 3 }, (_, i) =>
       basePage({ id: `en-${i}` })
     )
-    const source = fakePageSource({ en: enPages })
+    const source = makeRebuildPageSource({ en: enPages })
     const module = new AwsCloudSearchModule(undefined, () => client, source)
 
     const result = await module.rebuild('site-1')
@@ -1190,7 +1168,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
 
   test('a locale with no pages contributes zero and no upload call', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({ en: [] })
+    const source = makeRebuildPageSource({ en: [] })
     const module = new AwsCloudSearchModule(undefined, () => client, source)
 
     const result = await module.rebuild('site-1')
@@ -1211,7 +1189,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
       const client = fakeQueryClient([
         { found: 2, hit: [hit({ id: 'stays' }), hit({ id: 'ghost' })] } // fetchAllIds
       ])
-      const source = fakePageSource({ en: [basePage({ id: 'stays' })] })
+      const source = makeRebuildPageSource({ en: [basePage({ id: 'stays' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
 
       await module.rebuild('site-1')
@@ -1224,7 +1202,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
       const client = fakeQueryClient([
         { found: 1, hit: [hit({ id: 'page-1' })] } // fetchAllIds
       ])
-      const source = fakePageSource({ en: [basePage({ id: 'page-1' })] })
+      const source = makeRebuildPageSource({ en: [basePage({ id: 'page-1' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
 
       await module.rebuild('site-1')
@@ -1241,7 +1219,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
      */
     test('the domain-id lookup is scoped to this site by a siteId filterQuery, not a bare matchall', async () => {
       const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'ghost' })] }])
-      const source = fakePageSource({ en: [] })
+      const source = makeRebuildPageSource({ en: [] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
 
       await module.rebuild('site-1')
@@ -1252,7 +1230,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
 
     test('purges only this site’s stale ids, ignoring what a differently-scoped lookup would have found', async () => {
       const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'ghost-for-site-2' })] }])
-      const source = fakePageSource({ en: [] })
+      const source = makeRebuildPageSource({ en: [] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
 
       await module.rebuild('site-2')
