@@ -16,9 +16,10 @@ editing `CLAUDE.md` from a task); collect and apply in one pass at the end.
 
 - **Add a `blocks/shared/` paragraph.** There is now a shared-primitive layer every block draws on,
   and a new block should reach for it rather than copy a sibling:
-  - `shared/styles.js` — `errorBox` (the `.error` panel, adopted as `static styles = [errorBox,
-    css\`…\`]`), `errorBoxInline` (the same declarations as an inline `style` value, for
-    `block-include`, the one light-DOM block), `captionStyles` (`.caption` in both themes).
+  - `shared/styles.js` — `errorBox` (the `.error` panel; a block adopts it by making `static styles`
+    an array with `errorBox` first and its own `css` template after), `errorBoxInline` (the same
+    declarations as an inline `style` value, for `block-include`, the one light-DOM block), and
+    `captionStyles` (`.caption` in both themes).
   - `shared/render.js` — `renderError(message)`. Assemble the message first and hand it a finished
     string: `errorBox` sets `white-space: pre-wrap`, so a hand-written multi-line
     `<div class="error">` would draw its own indentation.
