@@ -51,8 +51,6 @@ export interface TreePathAssignment {
 }
 
 export interface PathAssignmentOptions {
-  /** The 3.0 site being imported into — the scope an existing-entry collision is checked within. */
-  siteId: string
   /** Whether `(locale, parentPath, fileName)` is already occupied by a pre-existing 3.0 tree entry in
    * `siteId`'s tree. Injected rather than queried directly: this module has no db access of its own,
    * matching `content-staging.ts`'s "stages, never writes" contract. Task 738 wires the real lookup

@@ -127,8 +127,8 @@ describe('docs/migration/migration-runbook.md', () => {
   it('cross-links the exact UnmappableReason strings this branch actually emits, and their meaning', () => {
     // 'unsupported-auth-provider' is still emitted directly by unmappable.ts (for a 2.x user row);
     // 'unsupported-storage-module' is emitted by phases/settings.ts (for a 2.x storage row) instead —
-    // report.ts's UnmappableReason type is the one place all three reasons (including the currently-
-    // unemitted 'no-destination-table') are declared together.
+    // report.ts's UnmappableReason type is the one place both reasons are declared together, and it
+    // declares exactly those two: every reason the type names is one some phase really emits.
     assert.ok(
       unmappableSrc.includes("'unsupported-auth-provider'"),
       'fixture assumption broken: unmappable.ts no longer emits "unsupported-auth-provider"'
@@ -137,17 +137,11 @@ describe('docs/migration/migration-runbook.md', () => {
       settingsPhaseSrc.includes("'unsupported-storage-module'"),
       'fixture assumption broken: phases/settings.ts no longer emits "unsupported-storage-module"'
     )
-    for (const reason of [
-      'unsupported-auth-provider',
-      'no-destination-table',
-      'unsupported-storage-module'
-    ]) {
+    for (const reason of ['unsupported-auth-provider', 'unsupported-storage-module']) {
       assert.ok(
         reportSrc.includes(`'${reason}'`),
         `fixture assumption broken: report.ts's UnmappableReason no longer declares "${reason}"`
       )
-    }
-    for (const reason of ['unsupported-auth-provider', 'unsupported-storage-module']) {
       assert.ok(doc.includes(reason), `expected runbook to name unmappable reason: ${reason}`)
     }
     // The specific unsupported providers named in unmappable.ts's own UNSUPPORTED_AUTH_PROVIDERS Set

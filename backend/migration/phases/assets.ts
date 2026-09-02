@@ -61,10 +61,10 @@ async function routeImportOutcome(
  * Task 16 wires this phase to the real write engines Task 16 itself builds: `importers/asset-import.ts`
  * (`importAsset()`, driving `models/tree.ts#getFolder({ createIfMissing: true })` then
  * `models/assets.ts#upload()`) and `importers/comment-import.ts` (`importComment()`, driving
- * `models/comments.ts#create()`). Comments no longer have a `staticUnmappable` entry — 3.0's own
- * comments table has had a real import path since this task, so `COMMENTS_UNMAPPABLE` (the earlier,
- * structural "the SourceConnector interface has no `comments()` generator yet" note) was deleted along
- * with its only caller.
+ * `models/comments.ts#create()`). Comments no longer have a phase-level unmappable entry at all —
+ * 3.0's own comments table has had a real import path since this task, so `COMMENTS_UNMAPPABLE` (the
+ * earlier, structural "the SourceConnector interface has no `comments()` generator yet" note) was
+ * deleted along with its only caller.
  *
  * `assets` and `comments` are independent entities (unlike `content`'s strictly-sequential `pages` then
  * `navigation`) — comments resolve `pageId` through `ctx.pageIdMap`, which is already fully populated

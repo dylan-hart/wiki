@@ -36,7 +36,6 @@ function buildHistoryEntry(
     extra: {},
     tags: [],
     authorId: 'user-1',
-    sourceAuthorId: 1,
     ...overrides
   }
 }
@@ -179,7 +178,7 @@ describe('buildPageHistoryRowsForPage', () => {
 
   test('carries the already-resolved authorId straight through, with no further id-map lookup', () => {
     const page = buildStagedPage({
-      history: [buildHistoryEntry({ authorId: 'resolved-uuid-9', sourceAuthorId: 42 })]
+      history: [buildHistoryEntry({ authorId: 'resolved-uuid-9' })]
     })
     const warnings: string[] = []
     const rows = buildPageHistoryRowsForPage(page, 'new-page-1', 'site-1', warnings)

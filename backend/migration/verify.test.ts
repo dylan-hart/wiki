@@ -801,7 +801,7 @@ describe('runContentSpotCheck', () => {
 
   test('normalizes an uppercase/underscored 2.x source path before the destination lookup', async () => {
     // The source path is exactly what a real 2.x row would carry -- uppercase segments and an
-    // underscore -- while the destination is keyed the way `assignTreePaths`/`normalizeMigratedPath`
+    // underscore -- while the destination is keyed the way `page-import.ts`/`normalizeMigratedPath`
     // actually wrote it on import: lowercased, underscores folded to hyphens. An unnormalized lookup
     // would miss this row entirely and report `destination_missing`.
     async function* pages(): AsyncGenerator<SourceRecord> {

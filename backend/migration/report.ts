@@ -53,11 +53,10 @@ export interface UnmappableEntry {
  * `pages` (see `phases/content.ts`'s own doc comment on why neither has its own entity any more), so
  * neither contributes a `wouldCreate`/`unmappable` count of its own either. `conflicts` is empty for
  * most phases today — no general rule yet for what makes two records genuinely conflict rather than one
- * simply superseding the other — except the `settings` phase (Task 15), which uses it for both an
- * authentication row's `conflict-skipped` multi-source collision and the (expected-never, defensive)
- * case of a storage row naming a module with no matching per-site row already seeded, and the
- * `content`/`assets` phases, which use it for a write that was genuinely attempted and failed (a
- * sibling-collision, an unresolvable `pageId`, ...).
+ * simply superseding the other — except the `settings` phase (Task 15), which uses it for the
+ * (expected-never, defensive) case of a storage row naming a module with no matching per-site row
+ * already seeded, and the `content`/`assets` phases, which use it for a write that was genuinely
+ * attempted and failed (a sibling-collision, an unresolvable `pageId`, ...).
  *
  * The `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length` invariant
  * holds **per record** for every phase except `settings` (Task 15). That phase's single `settings`

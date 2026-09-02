@@ -22,8 +22,7 @@ export interface WriteRecorder {
   conflict(identifier: string, detail: string): void
   unmappable(identifier: string, reason: UnmappableReason, detail: string): void
   /** A fresh snapshot of everything recorded so far — arrays are copies, safe for a caller to hold
-   * onto or append to (e.g. a phase merging in its `staticUnmappable` entries) without mutating the
-   * recorder's own state. */
+   * onto or append to without mutating the recorder's own state. */
   snapshot(): Pick<PhaseReport, 'wouldCreate' | 'wouldSkipExisting' | 'conflicts' | 'unmappable'>
 }
 

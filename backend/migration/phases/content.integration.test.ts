@@ -135,7 +135,7 @@ function fakeSourceConnector(): SourceConnector {
           // -> Orphaned: pageId 999 names no current page (a deleted 2.x page). content-staging.ts
           //    keeps this (and the row below, same pageId) on ContentStagingContext.orphanedHistory
           //    rather than attaching either to any StagedPage — phases/content.ts backfills the whole
-          //    group once `pages` has drained, via page-history-import.ts#backfillPageHistory()'s
+          //    group once `pages` has drained, via page-history-import.ts#backfillOrphanedPageHistory()'s
           //    batch form, sharing one freshly synthesized pageId across the group (see the "two rows,
           //    one synthesized pageId" assertion below).
           id: 201,

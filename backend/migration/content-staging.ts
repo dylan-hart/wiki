@@ -78,9 +78,6 @@ export interface StagedPageHistoryEntry {
   tags: StagedTag[]
   /** Resolved 3.0 UUID — the operator fallback if the 2.x row's `authorId` was null or unmapped. */
   authorId: string
-  /** The 2.x `authorId` this was resolved from, `null` if the source column itself was null. Kept for
-   * traceability/reporting, not consumed by any write path. */
-  sourceAuthorId: number | null
 }
 
 /** A `pageHistory` row whose `pageId` names no page among the source's current `pages` rows — a
@@ -323,8 +320,7 @@ function stageHistoryEntry(
     createdAt: asString(raw.createdAt),
     extra: asRecord(raw.extra),
     tags: resolveTags(raw.tags),
-    authorId: author.actorId,
-    sourceAuthorId
+    authorId: author.actorId
   }
 }
 

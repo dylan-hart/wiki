@@ -75,7 +75,7 @@ import { derivePublishState, mapEditor } from './page-import.ts'
  * (`list`, `getVersion`, `listRecoverable`, `getDeletedVersion`, `recoverDeletedPage`) keys off
  * `siteId`+`pageId` or `siteId`+`locale`+`path`, never a join back to `pages`, so a `pageId` that
  * names no live page is exactly the shape `listRecoverable`'s "recoverable" query already expects
- * for any deleted page. `backfillPageHistory` inserts orphaned rows too, grouped by
+ * for any deleted page. `backfillOrphanedPageHistory` inserts those rows, grouped by
  * `sourcePageOldId` and given one freshly synthesized UUID per group (not one per row, so a deleted
  * page's whole chain — including the `deleted` row itself — shares a single `pageId`, the same way
  * a live page's history rows all share its real new `pages.id`). See
@@ -394,8 +394,8 @@ function groupOrphanedHistoryBySourcePage(
  * run already past the point of having created that page (or any other).
  *
  * `page` only needs `oldId` and `history` (see `buildPageHistoryRowsForPage`'s own narrowing for why)
- * — `backfillPageHistory` below reuses this same function for an orphaned-history group, which has no
- * real `StagedPage` to hand in, only a synthesized `pageId` and the group's own entries.
+ * — `backfillOrphanedPageHistory` below reuses this same function for an orphaned-history group, which
+ * has no real `StagedPage` to hand in, only a synthesized `pageId` and the group's own entries.
  */
 export async function backfillPageHistoryForPage(
   page: Pick<StagedPage, 'oldId' | 'history'>,

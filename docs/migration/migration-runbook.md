@@ -196,11 +196,6 @@ reasons are defined; two are actually emitted by this branch's phases:
   `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 3). No storage target is
   updated for that module; the site's default per-module storage target (seeded at site-creation
   time) is simply left at its defaults.
-- **`no-destination-table`** — reserved for an entity with genuinely nowhere in 3.0's schema to land.
-  Nothing currently emits it: comments now have a real destination (`comments` table, imported
-  directly — see below), and no other entity has taken its place. Kept defined in case a future
-  entity needs it.
-
 **Provider-fallback accounts need a password reset — and the report does not currently tell you
 which ones.** A 2.x user whose provider is anything other than `local` **and** not one of the five
 unsupported providers above (i.e. every user on `google`, `github`, `oidc`, `ldap`, `saml`, `cas`,

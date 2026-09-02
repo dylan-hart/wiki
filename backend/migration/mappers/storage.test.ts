@@ -278,8 +278,8 @@ describe('mapStorageRows: per-site replay, no cross-call state', () => {
     const resultA = await mapStorageRows(rows, { resolver: res, siteId: SITE_A })
     const resultB = await mapStorageRows(rows, { resolver: res, siteId: SITE_B })
 
-    const updatesA = resultA.results.map((r) => r.update!)
-    const updatesB = resultB.results.map((r) => r.update!)
+    const updatesA = resultA.results.filter((r) => r.status === 'updated').map((r) => r.update!)
+    const updatesB = resultB.results.filter((r) => r.status === 'updated').map((r) => r.update!)
     assert.equal(updatesA.length, 2)
     assert.equal(updatesB.length, 2)
     assert.ok(updatesA.every((u) => u.siteId === SITE_A))

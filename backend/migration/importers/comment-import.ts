@@ -27,13 +27,9 @@ export interface CommentImportOptions {
   siteId: string
   // -> `UserIdMap` (`id-map.ts`), reused here for `pageIdMap` too — despite the name, it is just the
   //    generic read-only "old numeric id -> new UUID" `.get()` contract, and this module never calls
-  //    anything beyond that on either map. Adapted from the design brief's sketch, which typed both as
-  //    the concrete `IdMap<number>` class: `context.ts`'s `MigrationContext.userIdMap` field is itself
-  //    a plain `Map<number, string>`, not an `IdMap`, so a hand-built fallback for a `MigrationContext`
-  //    that never ran the owning phase would not type-check against `IdMap<number>` — confirmed by
-  //    `npm run typecheck`, not assumed. `pageIdMap` (populated by the `content` phase as a real
-  //    `IdMap<number>`) is left this way for symmetry, and because it also only ever needs `.get()`
-  //    here.
+  //    anything beyond that on either map. Deliberately narrower than the concrete
+  //    `Map<number, string>` the `users`/`content` phases populate, so a caller can hand in a
+  //    hand-built fallback for a `MigrationContext` that never ran the owning phase.
   pageIdMap: UserIdMap
   userIdMap: UserIdMap
 }

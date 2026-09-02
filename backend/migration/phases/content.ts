@@ -223,7 +223,7 @@ export const contentPhase = definePhase({
       actorPermissions: ['write:scripts', 'write:styles']
     })
     // Handed to the assets/comments phase (Task 16, dependsOn: ['content']) — see context.ts's own
-    // doc on pageIdMap for why this is a live IdMap reference, not a snapshot.
+    // doc on pageIdMap for why this is a live Map reference, not a snapshot.
     ctx.pageIdMap = pageImporter.pageIdMap
 
     // navigation-import.ts's `NavigationWriteModel` was designed against an earlier shape of

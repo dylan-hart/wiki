@@ -52,8 +52,8 @@ import type { NavigationItem } from '../models/navigation.ts'
  * ## What this module deliberately does not do
  *
  * `visibilityGroups` on a 2.x item restricted to specific groups names 2.x integer group ids. There is
- * no group-id map on this branch (#414's actual `IdMap` for groups doesn't exist here yet, same gap
- * `content-staging.ts` and `page-import.ts` already documented for users), so a restricted item is
+ * no group-id map on this branch (#414's own old-id -> new-UUID map for groups doesn't exist here yet,
+ * same gap `content-staging.ts` and `page-import.ts` already documented for users), so a restricted item is
  * imported visible to everyone with a warning naming the gap, on the same reasoning
  * `describePrivacyWarning` in `page-import.ts` used for `isPrivate`/`privateNS`: importing it more
  * open than the source, with a clear note, is preferable to either dropping the whole item or silently

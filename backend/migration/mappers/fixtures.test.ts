@@ -23,16 +23,17 @@ import { ensureTemporal } from '../../test/temporal.ts'
  * mapper that alters its output shape shows up here even if it doesn't happen to touch whichever
  * narrower case the other test files already assert on.
  *
- * The four behaviors the task names explicitly are each covered by a fixture row:
+ * The behaviors the task names explicitly are each covered by a fixture row:
  *   - `2.5x-authentication-source-a.json`'s `github` row: `domainWhitelist` → `allowedEmailRegex`
  *     (wrapped-array → anchored, escaped, case-folded regex).
  *   - `2.5x-authentication-source-a.json`'s `firebase` row: an unsupported 2.x auth provider (no
  *     `backend/modules/authentication/firebase/` directory) — reported, not silently dropped.
  *   - `2.5x-storage.json`'s `dropbox` row: an unsupported 2.x storage module (no
  *     `backend/modules/storage/dropbox/` directory) — same "no destination yet, report it" shape.
- *   - the two authentication source fixtures run together through the *same*
- *     `AuthenticationMapperState`, under both `'additive'` (default) and `'first-source-wins'`
- *     conflict policies — the multi-source consolidation branch task 765 built.
+ *
+ * Both authentication source fixtures are still mapped here, but as two independent runs: an import
+ * consolidates exactly one 2.5.x source into one fresh 3.0 instance, so there is no cross-source
+ * conflict policy left to exercise (spec D5).
  */
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures')

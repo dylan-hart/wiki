@@ -323,7 +323,7 @@ describe('per-page import', () => {
   test('carries the staged createdAt/updatedAt through to PageInput rather than dropping them', async () => {
     // -> Regression test for OpenProject #835 / upstream requarks/wiki#4631 ("Importing from Local
     //    File System is ignoring dateCreated and date fields"): StagedPage already carries the
-    //    source's real timestamps (content-staging.ts) — this asserts importPages() actually forwards
+    //    source's real timestamps (content-staging.ts) — this asserts importOne() actually forwards
     //    them to createPage() instead of leaving PageInput.createdAt/updatedAt unset, which would let
     //    createPage()'s now() default silently stamp every imported page with import time.
     const pagesModel = new FakePagesModel()
@@ -691,10 +691,10 @@ describe('createPageImporter', () => {
   })
 
   test('detects a sibling collision across two importOne() calls', async () => {
-    // -> Same single-pass semantics as importPages()'s own sibling-collision test above, but driven
-    //    directly through two separate importOne() calls rather than one importPages() run over an
-    //    iterable — this is exactly the calling shape Task 13 needs: claimedLocations must persist in
-    //    the importer's own closure between calls, not just within one for-await loop.
+    // -> Same single-pass semantics as the sibling-collision test above, but driven through two
+    //    separate importOne() calls on an importer a test built itself rather than through runImport()
+    //    — this is exactly the calling shape phases/content.ts needs: claimedLocations must persist in
+    //    the importer's own closure between calls, not just within one loop.
     const pagesModel = new FakePagesModel()
     const importer = createPageImporter(
       { pagesModel, existingEntry: noExistingEntries },
@@ -708,7 +708,8 @@ describe('createPageImporter', () => {
     assert.equal(importer.succeeded.length, 1)
     assert.equal(importer.succeeded[0].oldId, 1)
     assert.equal(outcome.status, 'failed')
-    assert.equal((outcome as { reason: string }).reason, 'sibling-collision')
+    if (outcome.status !== 'failed') return // -> type narrowing for the assertion below
+    assert.equal(outcome.reason, 'sibling-collision')
   })
 
   describe('importOne() return value', () => {

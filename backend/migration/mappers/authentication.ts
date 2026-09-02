@@ -66,6 +66,9 @@ import type { SourceRecord } from '../connector.ts'
  * One row as read from a 2.5.x `authentication` table
  * (`docs/migration/2.5x-source-schema.md`'s `## authentication` section). `order` is read but never
  * used — confirmed NO DESTINATION on 3.0's `authentication` table by both mapping docs.
+ * `autoEnrollGroups` is likewise declared but never mapped: 3.0 has the column, but its values are
+ * 2.x integer group ids and `settings` runs before `users`, so no imported group exists to remap them
+ * onto (see `mapAuthenticationRow`'s own comment where it writes `[]`).
  *
  * `domainWhitelist`/`autoEnrollGroups` are typed `unknown`, not their eventual array shape, because
  * their wire shape depends on which `SourceConnector` kind produced this row:
