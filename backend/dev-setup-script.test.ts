@@ -16,8 +16,10 @@ import { fileURLToPath } from 'node:url'
  * Actually executing the script (four `npm install`s plus two builds) is far too heavy and
  * network-dependent for a unit test, so this checks the script's shape and content instead: it
  * references all four workspaces, guards the config copy so it never clobbers an existing
- * config.yml, builds frontend and blocks, and is valid bash syntax. It also checks that README's
- * Generic Setup section points at the script instead of duplicating the command list in prose.
+ * config.yml, builds frontend and blocks, and is valid bash syntax. The companion check that
+ * README's Generic Setup section points at the script instead of duplicating the command list in
+ * prose lives in `test/readme-generic-setup-doc.test.ts`, alongside that section's other content
+ * checks.
  */
 
 const execFileAsync = promisify(execFile)
@@ -85,19 +87,5 @@ describe('dev/setup.sh', () => {
   test('resolves the repo root relative to its own location, not the caller cwd', async () => {
     const content = await readFile(SCRIPT_PATH, 'utf8')
     assert.match(content, /BASH_SOURCE/)
-  })
-})
-
-describe('README Generic Setup references dev/setup.sh', () => {
-  test('no longer duplicates the per-workspace install/build command list', async () => {
-    const readme = await readFile(path.join(REPO_ROOT, 'README.md'), 'utf8')
-    const genericSetupIndex = readme.indexOf('## Generic Setup')
-    assert.notEqual(genericSetupIndex, -1, 'README.md should have a Generic Setup section')
-    const section = readme.slice(genericSetupIndex)
-    assert.ok(section.includes('dev/setup.sh'), 'Generic Setup should reference dev/setup.sh')
-    assert.ok(
-      !section.includes('cd ../ux'),
-      'Generic Setup should no longer reference the stale `ux/` workspace'
-    )
   })
 })

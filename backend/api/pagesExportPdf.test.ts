@@ -12,17 +12,19 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 
 /**
- * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf`.
+ * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf` — OpenProject #2258/#2262.
  *
  * Driving a real headless browser is `models/pdfExport.ts`'s job — `pdfExport.test.ts` covers the
  * browser-launch guard and the block-settle wait without a real browser. What belongs to the route,
- * and what this file checks, is the wiring: an anonymous caller is refused before anything else runs
- * (task 2262 — see `docs/variances.md`'s "Anonymous access reconciled" entry, reconciling this route
- * against its `POST …/render` and `POST /diagrams/render` siblings, which both refuse anonymous the
- * same way for the same reason), `read:pages` is checked in the handler (page rules, not
- * `config.permissions`), a missing or password-locked page is refused before the model is ever asked
- * to open a browser, and the request the model receives carries the caller's own hostname, this
- * instance's port, the page's path, and the raw `__Host-wikiSession` cookie value.
+ * and what this file checks, is the wiring: an anonymous caller is refused before anything else runs,
+ * exactly like the page re-render route above it in `api/pages.ts` and `POST /diagrams/render` beside
+ * it (task 2262 — see `docs/variances.md`'s "Anonymous access reconciled" entry, reconciling this
+ * route against those two siblings, which both refuse anonymous the same way for the same reason,
+ * regardless of whether the page itself is one an anonymous reader could otherwise see),
+ * `read:pages` is checked in the handler (page rules, not `config.permissions`), a missing or
+ * password-locked page is refused before the model is ever asked to open a browser, and the request
+ * the model receives carries the caller's own hostname, this instance's port, the page's path, and
+ * the raw `__Host-wikiSession` cookie value.
  */
 
 const SITE_ID = '11111111-1111-1111-1111-111111111111'

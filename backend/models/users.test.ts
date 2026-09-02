@@ -2925,11 +2925,15 @@ describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() },
  * the delete had already committed on its own, the user was left in *no* groups at all: no admin
  * access, no page rules, with the caller's error saying nothing about membership having been wiped.
  * `setUserGroups` now wraps both statements in one transaction, so a failed insert rolls the delete
- * back with it.
+ * back with it. The two tests below prove this two different ways: sabotaging `WIKI.db.transaction`
+ * itself to delete a group mid-transaction (reproducing the real FK-violation race), and handing the
+ * transaction callback a `tx` stand-in whose `insert` is forced to throw outright.
  */
 describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let usersModel: typeof import('./users.ts').users
+  let groupAId: string
+  let groupBId: string
 
   before(async () => {
     fixtures = await setupTestDb()
@@ -2937,7 +2941,22 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
     // -> `setUserGroups` -> `groups.guestMembershipViolation` reads `WIKI.data.systemIds.guestsGroupId`
     //    -- a full-boot value the minimal test `WIKI` does not carry. Neither group id used below is
     //    this one, so it never actually matches; it only has to be present for the read not to throw.
-    WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+    WIKI.data.systemIds = { guestsGroupId: 'ffffffff-ffff-ffff-ffff-ffffffffffff' } as any
+
+    // -> No guests group in this fixture's seed data; `setUserGroups` reads this to keep the guest
+    //    account/guests group pairing intact, and a value that matches neither group under test is
+    //    what makes both of them ordinary, assignable groups.
+    const [groupA] = await fixtures.db
+      .insert(groupsTable)
+      .values({ name: 'setUserGroups Group A', permissions: [], rules: [] })
+      .returning({ id: groupsTable.id })
+    groupAId = groupA!.id
+
+    const [groupB] = await fixtures.db
+      .insert(groupsTable)
+      .values({ name: 'setUserGroups Group B', permissions: [], rules: [] })
+      .returning({ id: groupsTable.id })
+    groupBId = groupB!.id
   })
 
   after(async () => {
@@ -2990,6 +3009,45 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
       membership.map((m) => m.groupId),
       [fixtures.groupId],
       'the prior membership survived the failed insert instead of being left empty'
+    )
+  })
+
+  test('leaves prior membership intact when the insert half of the swap fails', async (t) => {
+    await usersModel.setUserGroups(fixtures.userId, [groupAId])
+    const before = await fixtures.db
+      .select({ groupId: userGroupsTable.groupId })
+      .from(userGroupsTable)
+      .where(eq(userGroupsTable.userId, fixtures.userId))
+    assert.deepEqual(
+      before.map((r) => r.groupId),
+      [groupAId]
+    )
+
+    const originalTransaction = fixtures.db.transaction.bind(fixtures.db)
+    t.mock.method(fixtures.db, 'transaction', (callback: (tx: unknown) => Promise<unknown>) =>
+      originalTransaction((tx: any) => {
+        const fakeTx = {
+          delete: tx.delete.bind(tx),
+          insert: () => {
+            throw new Error('simulated insert failure')
+          }
+        }
+        return callback(fakeTx)
+      })
+    )
+
+    await assert.rejects(
+      usersModel.setUserGroups(fixtures.userId, [groupBId]),
+      /simulated insert failure/
+    )
+
+    const after = await fixtures.db
+      .select({ groupId: userGroupsTable.groupId })
+      .from(userGroupsTable)
+      .where(eq(userGroupsTable.userId, fixtures.userId))
+    assert.deepEqual(
+      after.map((r) => r.groupId),
+      [groupAId]
     )
   })
 })
@@ -3108,84 +3166,6 @@ describe('users.deleteUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 })
 
-/**
- * `setUserGroups` replaces a user's membership with a delete-then-insert, now wrapped in one
- * `WIKI.db.transaction()` (see `models/users.ts`) so the pair commits or fails together. Verified by
- * handing the model's transaction callback a `tx` stand-in whose `delete` is the real, bound method
- * (so it runs for real against Postgres) and whose `insert` is forced to throw — if the two statements
- * were still unwrapped, the delete would already be committed by the time the insert failed, and the
- * user would be left with no groups at all instead of the ones they started with.
- */
-describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => {
-  let fixtures: TestFixtures
-  let usersModel: typeof import('./users.ts').users
-  let groupAId: string
-  let groupBId: string
-
-  before(async () => {
-    fixtures = await setupTestDb()
-    ;({ users: usersModel } = await import('./users.ts'))
-    // -> No guests group in this fixture's seed data; `setUserGroups` reads this to keep the guest
-    //    account/guests group pairing intact, and a value that matches neither group under test is
-    //    what makes both of them ordinary, assignable groups.
-    WIKI.data.systemIds = { guestsGroupId: 'ffffffff-ffff-ffff-ffff-ffffffffffff' } as any
-
-    const [groupA] = await fixtures.db
-      .insert(groupsTable)
-      .values({ name: 'setUserGroups Group A', permissions: [], rules: [] })
-      .returning({ id: groupsTable.id })
-    groupAId = groupA!.id
-
-    const [groupB] = await fixtures.db
-      .insert(groupsTable)
-      .values({ name: 'setUserGroups Group B', permissions: [], rules: [] })
-      .returning({ id: groupsTable.id })
-    groupBId = groupB!.id
-  })
-
-  after(async () => {
-    await teardownTestDb()
-  })
-
-  test('leaves prior membership intact when the insert half of the swap fails', async (t) => {
-    await usersModel.setUserGroups(fixtures.userId, [groupAId])
-    const before = await fixtures.db
-      .select({ groupId: userGroupsTable.groupId })
-      .from(userGroupsTable)
-      .where(eq(userGroupsTable.userId, fixtures.userId))
-    assert.deepEqual(
-      before.map((r) => r.groupId),
-      [groupAId]
-    )
-
-    const originalTransaction = fixtures.db.transaction.bind(fixtures.db)
-    t.mock.method(fixtures.db, 'transaction', (callback: (tx: unknown) => Promise<unknown>) =>
-      originalTransaction((tx: any) => {
-        const fakeTx = {
-          delete: tx.delete.bind(tx),
-          insert: () => {
-            throw new Error('simulated insert failure')
-          }
-        }
-        return callback(fakeTx)
-      })
-    )
-
-    await assert.rejects(
-      usersModel.setUserGroups(fixtures.userId, [groupBId]),
-      /simulated insert failure/
-    )
-
-    const after = await fixtures.db
-      .select({ groupId: userGroupsTable.groupId })
-      .from(userGroupsTable)
-      .where(eq(userGroupsTable.userId, fixtures.userId))
-    assert.deepEqual(
-      after.map((r) => r.groupId),
-      [groupAId]
-    )
-  })
-})
 describe('users.importLocalUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let usersModel: typeof import('./users.ts').users

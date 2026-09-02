@@ -35,9 +35,7 @@ describe('backend/locales/en.json admin measurement labels', () => {
     assert.equal(parsed['admin.metrics.title'], 'Metrics')
   })
 
-  test('admin.analytics.title key appears exactly once (regression guard for the duplicate-key bug found alongside this rename)', async () => {
-    const { raw } = await loadLocale()
-    const occurrences = raw.match(/"admin\.analytics\.title":/g) ?? []
-    assert.equal(occurrences.length, 1)
-  })
+  // -> A duplicate `admin.analytics.title` key (the regression this rename originally guarded
+  //    against) is caught by the general, file-wide duplicate-key guard in `locales/en.test.ts`'s
+  //    `has no duplicate keys` test, which line-parses the whole file rather than one key at a time.
 })

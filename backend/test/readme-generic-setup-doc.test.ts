@@ -39,6 +39,17 @@ describe('README.md — Generic Setup', () => {
     )
   })
 
+  // -> OpenProject #1966: `dev/setup.sh`'s own structural coverage lives in
+  //    `dev-setup-script.test.ts`; this one assertion is specifically about what the README says
+  //    about it, so it belongs here alongside the rest of this section's content checks.
+  test('references dev/setup.sh instead of duplicating the per-workspace install/build command list', () => {
+    assert.ok(genericSetup.includes('dev/setup.sh'), 'Generic Setup should reference dev/setup.sh')
+    assert.ok(
+      !genericSetup.includes('cd ../ux'),
+      'Generic Setup should no longer reference the stale `ux/` workspace'
+    )
+  })
+
   test('does not tell the reader to run `node server`', () => {
     assert.doesNotMatch(
       genericSetup,
