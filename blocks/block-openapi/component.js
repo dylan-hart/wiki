@@ -2,6 +2,10 @@ import { LitElement, html, css, unsafeCSS } from 'lit'
 import { load as parseYaml } from 'js-yaml'
 import SwaggerUIBundle from 'swagger-ui'
 import swaggerUiCss from 'swagger-ui/dist/swagger-ui.css'
+import { readFencedSource } from '../shared/body.js'
+import { boolean } from '../shared/props.js'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /*
@@ -31,20 +35,6 @@ import { DarkMode } from '../shared/theme.js'
   rather than a whole separate API client product.
 */
 
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value — `tryItOut="false"` is what the block picker produces for a
- * toggle that was switched on and off again — and Lit's own Boolean converter reads any string at all
- * as true, that one included.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
-
 /** Every HTTP method swagger-ui knows how to draw an "Execute" button for. */
 const ALL_SUBMIT_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']
 
@@ -59,8 +49,8 @@ const ALL_SUBMIT_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', '
  * `resolveTileSettings` in `block-map` documents.
  *
  * @param {string} url This instance's `url` prop.
- * @param {string} body The block's light-DOM body, fenced or not, exactly as `firstUpdated()` reads
- *   it — see block-katex for why `textContent` is what undoes markdown's escaping.
+ * @param {string} body The block's light-DOM body, fenced or not, exactly as `readFencedSource()`
+ *   reads it — see `../shared/body.js` for why `textContent` is what undoes markdown's escaping.
  * @returns {{ url: string } | { spec: object } | { error: string }}
  */
 export function resolveSpecSource(url, body) {
@@ -145,6 +135,7 @@ paths:
     return [
       // -> swagger-ui first, so the overrides below win where the two touch the same thing
       unsafeCSS(swaggerUiCss),
+      errorBox,
       css`
         :host {
           display: block;
@@ -152,11 +143,6 @@ paths:
 
         .error {
           margin-bottom: 16px;
-          color: var(--q-negative, #c10015);
-          border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-          border-radius: 5px;
-          padding: 1rem;
-          white-space: pre-wrap;
         }
 
         /*
@@ -276,16 +262,9 @@ paths:
     `render()` has run once — see block-map for the same reasoning around Leaflet.
   */
   firstUpdated() {
-    /*
-      The body is taken from the fence markdown left behind, when there is a fence — `textContent` is
-      what undoes the escaping that put `&amp;` and `&lt;` in the markup, and gives back what was
-      typed. See block-katex for the same fenced-body reading, `resolveSpecSource` above for what
-      happens to it.
-    */
-    const fence = this.querySelector('pre')
-    const body = (fence ?? this).textContent ?? ''
+    const { source } = readFencedSource(this)
 
-    const result = resolveSpecSource(this.url, body)
+    const result = resolveSpecSource(this.url, source)
     if ('error' in result) {
       this._error = result.error
       return
@@ -296,7 +275,7 @@ paths:
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     return html`<div class="container"></div>`
   }

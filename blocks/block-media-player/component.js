@@ -1,5 +1,7 @@
 import { LitElement, html, css } from 'lit'
 
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
@@ -78,42 +80,41 @@ export class BlockMediaPlayerElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      /* -> The gap below the block. On this element rather than :host: see block-index. */
-      .container {
-        margin-bottom: 16px;
-        overflow: hidden;
-        border-radius: 5px;
-        position: relative;
-        border: 1px solid #e0e0e0;
-        background-color: #000;
-      }
+        /* -> The gap below the block. On this element rather than :host: see block-index. */
+        .container {
+          margin-bottom: 16px;
+          overflow: hidden;
+          border-radius: 5px;
+          position: relative;
+          border: 1px solid #e0e0e0;
+          background-color: #000;
+        }
 
-      :host([dark]) .container {
-        border-color: rgba(255, 255, 255, 0.15);
-      }
+        :host([dark]) .container {
+          border-color: rgba(255, 255, 255, 0.15);
+        }
 
-      .media-display {
-        display: block;
-        width: 100%;
-      }
+        .media-display {
+          display: block;
+          width: 100%;
+        }
 
-      audio.media-display {
-        height: 54px;
-      }
+        audio.media-display {
+          height: 54px;
+        }
 
-      .error {
-        margin-bottom: 16px;
-        padding: 1rem;
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        color: var(--q-negative, #c10015);
-      }
-    `
+        .error {
+          margin-bottom: 16px;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -145,17 +146,15 @@ export class BlockMediaPlayerElement extends LitElement {
   render() {
     const src = this.src?.trim()
     if (!src) {
-      return html`<div class="error">This player needs the address of an audio or video file.</div>`
+      return renderError('This player needs the address of an audio or video file.')
     }
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
 
     const media = mediaKind(src)
     if (!media) {
-      return html`
-        <div class="error">${src} does not have a recognised audio or video file extension.</div>
-      `
+      return renderError(`${src} does not have a recognised audio or video file extension.`)
     }
 
     return html`

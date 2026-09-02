@@ -28,7 +28,7 @@ vi.mock('../shared/i18n.js', () => ({ t: i18nT }))
 
 import './component.js'
 import { getBlockImportUrl } from '../shared/config.js'
-import { _resetSiteIdCache } from '../shared/site.js'
+import { _resetSiteCache } from '../shared/site.js'
 
 const SITE_ID = 'site-1'
 
@@ -99,7 +99,7 @@ async function mountInclude({ path = 'target-page', locale = '', showTitle = fal
 
 describe('block-include', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
     stubFetch()
   })
 

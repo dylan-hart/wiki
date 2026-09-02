@@ -11,6 +11,10 @@ import katexCss from 'katex/dist/katex.min.css'
   the same thing in both blocks.
 */
 import 'katex/contrib/mhchem'
+import { readFencedSource } from '../shared/body.js'
+import { explainSourceFailure } from '../shared/figure.js'
+import { renderError } from '../shared/render.js'
+import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /*
@@ -76,6 +80,8 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
     return [
       // -> KaTeX first, so the rules below win where the two touch the same thing
       unsafeCSS(KATEX_RULES),
+      errorBox,
+      captionStyles,
       css`
         :host {
           display: block;
@@ -115,21 +121,9 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
           margin: 0;
         }
 
+        /* -> Colour and size come from the shared captionStyles; centring is this block's own */
         .caption {
-          color: #424242;
-          font-size: 0.8em;
           text-align: center;
-        }
-        :host([dark]) .caption {
-          color: rgba(255, 255, 255, 0.7);
-        }
-
-        .error {
-          color: var(--q-negative, #c10015);
-          border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-          border-radius: 5px;
-          padding: 1rem;
-          white-space: pre-wrap;
         }
       `
     ]
@@ -198,32 +192,23 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
       this._error = ''
     } catch (err) {
       this._markup = ''
-      this._error = `This formula could not be typeset: ${err.message ?? err}`
-      if (!fenced) {
-        this._error +=
-          '\n\nThe source has to go inside a fenced code block, or markdown rewrites it before this block sees it.'
-      }
+      this._error = explainSourceFailure('formula could not be typeset', err, fenced)
     }
   }
 
   firstUpdated() {
-    /*
-      The source is the block's body, taken from the fence markdown left behind. `textContent` is what
-      undoes the escaping that put `&amp;` and `&lt;` in the markup, and gives back what was typed.
-    */
-    const fence = this.querySelector('pre')
-    const source = ((fence ?? this).textContent ?? '').trim()
+    const { source, fenced } = readFencedSource(this)
     if (!source) {
       this._error =
         'This formula is empty. Its TeX source goes in the body of the block, inside a fenced code block.'
       return
     }
-    this._typeset(source, Boolean(fence))
+    this._typeset(source, fenced)
   }
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     return html`
       <div class="formula ${this.align === 'left' ? 'is-left' : ''}">

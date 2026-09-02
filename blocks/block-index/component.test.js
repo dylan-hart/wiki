@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
-import { _resetSiteIdCache } from '../shared/site.js'
+import { _resetSiteCache } from '../shared/site.js'
 
 const SITE_ID = 'site-1'
 
@@ -61,7 +61,7 @@ async function mountIndex(attrs = {}) {
 
 describe('block-index', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
     globalThis.WIKI_ROUTER = { push: vi.fn() }
   })
 
@@ -146,6 +146,9 @@ describe('block-index', () => {
   })
 
   it('leaves a ctrl-click alone so the browser can open a new tab', async () => {
+    // -> Without the stub there is no site to resolve, so the block renders its "could not
+    //    determine the current site" state and there is no row to click at all.
+    stubFetch()
     const el = await mountIndex()
     const anchor = el.shadowRoot.querySelector('li a')
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })
@@ -158,6 +161,7 @@ describe('block-index', () => {
 
   it('degrades to a plain link without throwing when WIKI_ROUTER is missing', async () => {
     delete globalThis.WIKI_ROUTER
+    stubFetch()
     const el = await mountIndex()
     const anchor = el.shadowRoot.querySelector('li a')
     const event = new MouseEvent('click', { bubbles: true, cancelable: true })

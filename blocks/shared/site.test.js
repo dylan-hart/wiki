@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { getBlockConfig } from './config.js'
 import {
-  _resetSiteIdCache,
+  _resetSiteCache,
   getCurrentPage,
   getCurrentPageAccess,
   getSiteId,
@@ -18,7 +19,7 @@ function stubFetch(handler) {
 
 describe('shared/site.js', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
     window.history.pushState({}, '', '/')
   })
 
@@ -76,12 +77,44 @@ describe('shared/site.js', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
-    it('issues a fresh request after _resetSiteIdCache', async () => {
+    it('issues a fresh request after _resetSiteCache', async () => {
       const fetchMock = stubFetch(async () => ({ ok: true, json: async () => ({ id: SITE_ID }) }))
 
       await getSiteId()
-      _resetSiteIdCache()
+      _resetSiteCache()
       await getSiteId()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    /*
+     * BLK-F5 / INFRA-F8: `./config.js` used to hold a second `sitePromise` over the same
+     * `GET /_api/sites/current`, so a page with (say) a map and a checklist on it asked the server
+     * for the very same payload twice. One cache now backs both, which is what this file's header
+     * always claimed.
+     */
+    it('shares one request with getBlockConfig, rather than each module caching its own', async () => {
+      const fetchMock = stubFetch(async () => ({
+        ok: true,
+        json: async () => ({ id: SITE_ID, blocksConfig: { map: { tileServerUrl: 'x' } } })
+      }))
+
+      const [id, config] = await Promise.all([getSiteId(), getBlockConfig('map')])
+
+      expect(id).toBe(SITE_ID)
+      expect(config).toEqual({ tileServerUrl: 'x' })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('clears that shared cache for getBlockConfig too', async () => {
+      const fetchMock = stubFetch(async () => ({
+        ok: true,
+        json: async () => ({ id: SITE_ID, blocksConfig: {} })
+      }))
+
+      await getBlockConfig('map')
+      _resetSiteCache()
+      await getBlockConfig('map')
 
       expect(fetchMock).toHaveBeenCalledTimes(2)
     })

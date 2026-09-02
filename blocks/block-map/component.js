@@ -3,6 +3,8 @@ import { LitElement, html, css, unsafeCSS } from 'lit'
 //    apart with a commonjs plugin, and it has no `exports` map to pick the module build for us
 import * as L from 'leaflet/dist/leaflet-src.esm.js'
 import leafletCss from 'leaflet/dist/leaflet.css'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { getBlockConfig } from '../shared/config.js'
 
@@ -138,6 +140,7 @@ export class BlockMapElement extends LitElement {
   static get styles() {
     return [
       unsafeCSS(leafletCss),
+      errorBox,
       css`
         :host {
           display: block;
@@ -224,13 +227,6 @@ export class BlockMapElement extends LitElement {
         }
         .leaflet-container .leaflet-bar a:hover {
           background-color: color-mix(in srgb, var(--control-bg) 90%, var(--control-fg));
-        }
-
-        .error {
-          color: var(--q-negative, #c10015);
-          border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-          border-radius: 5px;
-          padding: 1rem;
         }
       `
     ]
@@ -397,7 +393,7 @@ export class BlockMapElement extends LitElement {
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     // -> Anything else an author might write is read as `auto`, which is the setting that has an
     //    answer for every page rather than a guess at what was meant

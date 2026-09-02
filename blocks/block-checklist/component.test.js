@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
-import { _resetSiteIdCache } from '../shared/site.js'
+import { _resetSiteCache } from '../shared/site.js'
 
 const SITE_ID = 'site-1'
 const PAGE_ID = 'page-1'
@@ -100,7 +100,7 @@ function checklistCalls(fetchMock) {
 
 describe('block-checklist', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {

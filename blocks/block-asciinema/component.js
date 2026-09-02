@@ -3,20 +3,9 @@ import { create } from 'asciinema-player'
 // -> The player's stylesheet, as a string. It is what draws the terminal, and a <link> in the page
 //    cannot reach into this shadow root — see the `cssAsString` plugin in rollup.config.mjs.
 import playerCss from 'asciinema-player/dist/bundle/asciinema-player.css'
-
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value — `autoPlay="false"` is what the block picker produces for a
- * toggle that was switched on and off again — and Lit's own Boolean converter reads any string at all
- * as true, that one included.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
+import { boolean } from '../shared/props.js'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 
 /**
  * Block Asciinema
@@ -92,6 +81,7 @@ export class BlockAsciinemaElement extends LitElement {
   static get styles() {
     return [
       unsafeCSS(playerCss),
+      errorBox,
       css`
         :host {
           display: block;
@@ -107,13 +97,6 @@ export class BlockAsciinemaElement extends LitElement {
           border-radius: 5px;
           /* -> The terminal paints its own background into the corners otherwise */
           overflow: hidden;
-        }
-
-        .error {
-          color: var(--q-negative, #c10015);
-          border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-          border-radius: 5px;
-          padding: 1rem;
         }
       `
     ]
@@ -254,7 +237,7 @@ export class BlockAsciinemaElement extends LitElement {
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     return html`<div class="player"></div>`
   }

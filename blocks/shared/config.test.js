@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { _resetBlockConfigCache, getBlockConfig, getBlockImportUrl } from './config.js'
+import { getBlockConfig, getBlockImportUrl } from './config.js'
+import { _resetSiteCache } from './site.js'
 
 function stubSite(site) {
   vi.stubGlobal(
@@ -25,7 +26,7 @@ describe('shared/config.js: getBlockImportUrl()', () => {
     // -> Both exports share one cached fetch for the module's lifetime (one request per real page
     //    load); each test needs its own site-info response, so the cache must not survive between
     //    them -- the same reason block-map's own tests reset it.
-    _resetBlockConfigCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {
@@ -59,7 +60,7 @@ describe('shared/config.js: getBlockImportUrl()', () => {
 
 describe('shared/config.js: getBlockConfig() reads off the same cached fetch', () => {
   beforeEach(() => {
-    _resetBlockConfigCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {

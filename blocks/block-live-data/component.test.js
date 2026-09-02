@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
 import { sparklinePath, statusLevel } from './component.js'
-import { _resetSiteIdCache } from '../shared/site.js'
+import { _resetSiteCache } from '../shared/site.js'
 
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -43,7 +43,7 @@ async function mountLiveData(props = {}) {
 
 describe('block-live-data', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {

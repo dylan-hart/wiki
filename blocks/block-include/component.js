@@ -2,26 +2,12 @@ import { LitElement, html } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 import { getBlockImportUrl } from '../shared/config.js'
 import { t } from '../shared/i18n.js'
+import { boolean } from '../shared/props.js'
 import { getSiteId, getCurrentPage } from '../shared/site.js'
+import { errorBoxInline } from '../shared/styles.js'
 
 /** How many includes may nest before the chain is treated as a mistake. */
 const MAX_DEPTH = 3
-
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value, and Lit's own Boolean converter reads any string at all as
- * true — `showTitle="false"` included. The picker never writes that one, since it leaves a prop out
- * while it holds its default, but a page written by hand can say it and means it. See `block-index`,
- * where this converter's own doc comment explains why the `boolean` prop below also declares
- * `default: false`.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
 
 /**
  * Strip a path down to the form the server stores, so that `/Foo/Bar/` and `foo/bar` are one page
@@ -265,18 +251,11 @@ export class BlockIncludeElement extends LitElement {
       return null
     }
     if (this._error) {
-      return html`
-        <div
-          style="
-            color: var(--q-negative, #c10015);
-            border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-            border-radius: 5px;
-            padding: 1rem;
-            margin-bottom: 16px;
-          ">
-          ${this._error}
-        </div>
-      `
+      // -> The shared error box (`../shared/styles.js`), as an inline `style`: this block renders
+      //    into the light DOM (see `createRenderRoot`), where Lit never adopts `static styles`, and a
+      //    `<style>` tag of its own would put a rule for the generic `.error` class on the whole page.
+      //    Tight around the message, since the box sets `white-space: pre-wrap`.
+      return html`<div style="${errorBoxInline} margin-bottom: 16px;">${this._error}</div>`
     }
     return html`
       ${this.showTitle ? html`<h2>${this._title}</h2>` : null}${unsafeHTML(this._render)}

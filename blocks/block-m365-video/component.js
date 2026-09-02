@@ -1,5 +1,8 @@
 import { LitElement, html, css } from 'lit'
 
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
+
 /**
  * Hostnames Microsoft serves these embeds from. Deliberately the whole allow-list, checked as a
  * suffix with a dot boundary (`host === suffix || host.endsWith('.' + suffix)`) so a video's own
@@ -95,41 +98,40 @@ export class BlockM365VideoElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      /*
+        /*
         The frame's box, and the gap below the block. On this element rather than :host: see
         block-index.
 
         -> A max-width rather than a plain width, so a player asked for at a fixed size on a phone is
            the width of the phone instead of pushing the page sideways.
       */
-      .player {
-        max-width: 100%;
-        margin-bottom: 16px;
-        border-radius: 5px;
-        overflow: hidden;
-        background-color: #000;
-      }
+        .player {
+          max-width: 100%;
+          margin-bottom: 16px;
+          border-radius: 5px;
+          overflow: hidden;
+          background-color: #000;
+        }
 
-      iframe {
-        display: block;
-        width: 100%;
-        height: 100%;
-        border: 0;
-      }
+        iframe {
+          display: block;
+          width: 100%;
+          height: 100%;
+          border: 0;
+        }
 
-      .error {
-        margin-bottom: 16px;
-        padding: 1rem;
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        color: var(--q-negative, #c10015);
-      }
-    `
+        .error {
+          margin-bottom: 16px;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -170,27 +172,23 @@ export class BlockM365VideoElement extends LitElement {
   render() {
     const raw = (this.embed ?? '').trim()
     if (!raw) {
-      return html` <div class="error">This player needs a Microsoft 365 video's embed code.</div> `
+      return renderError("This player needs a Microsoft 365 video's embed code.")
     }
 
     const src = extractSrc(raw)
     const url = src ? parseHttpsUrl(src) : null
     if (!url) {
-      return html`
-        <div class="error">
-          That doesn't look like a Microsoft 365 video embed. Paste the iframe embed code from the
-          video's Share &gt; Manage Access panel, or just its src address.
-        </div>
-      `
+      return renderError(
+        "That doesn't look like a Microsoft 365 video embed. Paste the iframe embed code from the " +
+          "video's Share > Manage Access panel, or just its src address."
+      )
     }
     if (!isAllowedHost(url.hostname)) {
-      return html`
-        <div class="error">
-          ${url.hostname} is not a Microsoft-owned video host, so this will not be rendered. This
-          block only embeds Clipchamp or Stream-on-SharePoint videos — a *.sharepoint.com,
-          stream.microsoft.com, *.microsoftstream.com or *.clipchamp.com address.
-        </div>
-      `
+      return renderError(
+        `${url.hostname} is not a Microsoft-owned video host, so this will not be rendered. This ` +
+          'block only embeds Clipchamp or Stream-on-SharePoint videos — a *.sharepoint.com, ' +
+          'stream.microsoft.com, *.microsoftstream.com or *.clipchamp.com address.'
+      )
     }
 
     const width = this._size(this.width)

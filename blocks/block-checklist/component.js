@@ -1,4 +1,6 @@
 import { LitElement, html, css } from 'lit'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { getCurrentPageAccess } from '../shared/site.js'
 
@@ -60,108 +62,104 @@ export class BlockChecklistElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      .checklist,
-      .error {
-        margin-bottom: 16px;
-      }
+        .checklist,
+        .error {
+          margin-bottom: 16px;
+        }
 
-      .checklist {
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        border-radius: 5px;
-        padding: 1rem;
-      }
-      :host([dark]) .checklist {
-        border-color: rgba(255, 255, 255, 0.15);
-      }
+        .checklist {
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 5px;
+          padding: 1rem;
+        }
+        :host([dark]) .checklist {
+          border-color: rgba(255, 255, 255, 0.15);
+        }
 
-      .heading {
-        font-weight: 500;
-        font-size: 1.1em;
-        margin-bottom: 0.5rem;
-      }
+        .heading {
+          font-weight: 500;
+          font-size: 1.1em;
+          margin-bottom: 0.5rem;
+        }
 
-      .summary {
-        font-size: 0.85em;
-        opacity: 0.75;
-        margin-bottom: 0.75rem;
-      }
-      .summary.completed {
-        color: var(--q-positive, #21ba45);
-        opacity: 1;
-        font-weight: 500;
-      }
+        .summary {
+          font-size: 0.85em;
+          opacity: 0.75;
+          margin-bottom: 0.75rem;
+        }
+        .summary.completed {
+          color: var(--q-positive, #21ba45);
+          opacity: 1;
+          font-weight: 500;
+        }
 
-      ul {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-      }
+        ul {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
 
-      li {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.6rem;
-      }
+        li {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.6rem;
+        }
 
-      input[type='checkbox'] {
-        margin-top: 0.2rem;
-        width: 1.1rem;
-        height: 1.1rem;
-        flex: none;
-        accent-color: var(--q-primary, #1976d2);
-      }
+        input[type='checkbox'] {
+          margin-top: 0.2rem;
+          width: 1.1rem;
+          height: 1.1rem;
+          flex: none;
+          accent-color: var(--q-primary, #1976d2);
+        }
 
-      .label.checked {
-        text-decoration: line-through;
-        opacity: 0.7;
-      }
+        .label.checked {
+          text-decoration: line-through;
+          opacity: 0.7;
+        }
 
-      .meta {
-        font-size: 0.75em;
-        opacity: 0.65;
-      }
+        .meta {
+          font-size: 0.75em;
+          opacity: 0.65;
+        }
 
-      .history-toggle {
-        margin-top: 0.75rem;
-        background: none;
-        border: none;
-        padding: 0;
-        font: inherit;
-        font-size: 0.8em;
-        color: var(--q-primary, #1976d2);
-        cursor: pointer;
-      }
+        .history-toggle {
+          margin-top: 0.75rem;
+          background: none;
+          border: none;
+          padding: 0;
+          font: inherit;
+          font-size: 0.8em;
+          color: var(--q-primary, #1976d2);
+          cursor: pointer;
+        }
 
-      .history {
-        margin-top: 0.6rem;
-        padding-top: 0.6rem;
-        border-top: 1px solid rgba(0, 0, 0, 0.1);
-        gap: 0.4rem;
-      }
-      :host([dark]) .history {
-        border-color: rgba(255, 255, 255, 0.15);
-      }
+        .history {
+          margin-top: 0.6rem;
+          padding-top: 0.6rem;
+          border-top: 1px solid rgba(0, 0, 0, 0.1);
+          gap: 0.4rem;
+        }
+        :host([dark]) .history {
+          border-color: rgba(255, 255, 255, 0.15);
+        }
 
-      .history li {
-        font-size: 0.8em;
-        opacity: 0.85;
-      }
-
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-      }
-    `
+        .history li {
+          font-size: 0.8em;
+          opacity: 0.85;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -400,7 +398,7 @@ export class BlockChecklistElement extends LitElement {
       return null
     }
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     return html`
       <div class="checklist">

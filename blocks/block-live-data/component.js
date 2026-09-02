@@ -1,4 +1,6 @@
 import { LitElement, html, css, svg, nothing } from 'lit'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { getSiteId } from '../shared/site.js'
 
@@ -147,132 +149,131 @@ export class BlockLiveDataElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      .card {
-        margin-bottom: 16px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        border-radius: 5px;
-        padding: 1rem;
-        background-image: linear-gradient(to bottom, #fff, #fafafa);
-      }
-      :host([dark]) .card {
-        border-color: rgba(255, 255, 255, 0.15);
-        background-image: linear-gradient(to bottom, #161b22, #0d1117);
-      }
+        .card {
+          margin-bottom: 16px;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 5px;
+          padding: 1rem;
+          background-image: linear-gradient(to bottom, #fff, #fafafa);
+        }
+        :host([dark]) .card {
+          border-color: rgba(255, 255, 255, 0.15);
+          background-image: linear-gradient(to bottom, #161b22, #0d1117);
+        }
 
-      .label {
-        font-weight: 500;
-        font-size: 0.85em;
-        opacity: 0.75;
-        margin-bottom: 0.35rem;
-      }
+        .label {
+          font-weight: 500;
+          font-size: 0.85em;
+          opacity: 0.75;
+          margin-bottom: 0.35rem;
+        }
 
-      .value-row {
-        display: flex;
-        align-items: baseline;
-        gap: 0.35rem;
-      }
+        .value-row {
+          display: flex;
+          align-items: baseline;
+          gap: 0.35rem;
+        }
 
-      .value {
-        font-size: 2rem;
-        font-weight: 500;
-        line-height: 1.1;
-        font-variant-numeric: tabular-nums;
-        color: var(--q-primary, #1976d2);
-      }
+        .value {
+          font-size: 2rem;
+          font-weight: 500;
+          line-height: 1.1;
+          font-variant-numeric: tabular-nums;
+          color: var(--q-primary, #1976d2);
+        }
 
-      .unit {
-        font-size: 1rem;
-        opacity: 0.7;
-      }
+        .unit {
+          font-size: 1rem;
+          opacity: 0.7;
+        }
 
-      .fetched-at {
-        margin-top: 0.5rem;
-        font-size: 0.75em;
-        opacity: 0.6;
-      }
+        .fetched-at {
+          margin-top: 0.5rem;
+          font-size: 0.75em;
+          opacity: 0.6;
+        }
 
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-        margin-bottom: 16px;
-      }
+        .error {
+          margin-bottom: 16px;
+        }
 
-      .loading {
-        opacity: 0.6;
-        font-style: italic;
-      }
+        .loading {
+          opacity: 0.6;
+          font-style: italic;
+        }
 
-      .sparkline {
-        display: block;
-        width: 100%;
-        height: 48px;
-      }
-      .sparkline path {
-        fill: none;
-        stroke: var(--q-primary, #1976d2);
-        stroke-width: 2;
-        stroke-linejoin: round;
-        stroke-linecap: round;
-      }
+        .sparkline {
+          display: block;
+          width: 100%;
+          height: 48px;
+        }
+        .sparkline path {
+          fill: none;
+          stroke: var(--q-primary, #1976d2);
+          stroke-width: 2;
+          stroke-linejoin: round;
+          stroke-linecap: round;
+        }
 
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.4rem 0.9rem;
-        border-radius: 999px;
-        font-weight: 500;
-      }
-      .pill .dot {
-        width: 0.65rem;
-        height: 0.65rem;
-        border-radius: 50%;
-      }
-      .pill.status-ok {
-        background-color: color-mix(in srgb, #21ba45 18%, transparent);
-        color: #1b7d34;
-      }
-      .pill.status-ok .dot {
-        background-color: #21ba45;
-      }
-      .pill.status-warning {
-        background-color: color-mix(in srgb, #f2c037 22%, transparent);
-        color: #8a6416;
-      }
-      .pill.status-warning .dot {
-        background-color: #f2c037;
-      }
-      .pill.status-critical {
-        background-color: color-mix(in srgb, #c10015 18%, transparent);
-        color: #c10015;
-      }
-      .pill.status-critical .dot {
-        background-color: #c10015;
-      }
-      .pill.status-unknown {
-        background-color: rgba(128, 128, 128, 0.18);
-        color: rgba(128, 128, 128, 0.9);
-      }
-      .pill.status-unknown .dot {
-        background-color: rgba(128, 128, 128, 0.7);
-      }
-      :host([dark]) .pill.status-ok {
-        color: #7be79a;
-      }
-      :host([dark]) .pill.status-warning {
-        color: #f6da8a;
-      }
-      :host([dark]) .pill.status-critical {
-        color: #ff8a8a;
-      }
-    `
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.4rem 0.9rem;
+          border-radius: 999px;
+          font-weight: 500;
+        }
+        .pill .dot {
+          width: 0.65rem;
+          height: 0.65rem;
+          border-radius: 50%;
+        }
+        .pill.status-ok {
+          background-color: color-mix(in srgb, #21ba45 18%, transparent);
+          color: #1b7d34;
+        }
+        .pill.status-ok .dot {
+          background-color: #21ba45;
+        }
+        .pill.status-warning {
+          background-color: color-mix(in srgb, #f2c037 22%, transparent);
+          color: #8a6416;
+        }
+        .pill.status-warning .dot {
+          background-color: #f2c037;
+        }
+        .pill.status-critical {
+          background-color: color-mix(in srgb, #c10015 18%, transparent);
+          color: #c10015;
+        }
+        .pill.status-critical .dot {
+          background-color: #c10015;
+        }
+        .pill.status-unknown {
+          background-color: rgba(128, 128, 128, 0.18);
+          color: rgba(128, 128, 128, 0.9);
+        }
+        .pill.status-unknown .dot {
+          background-color: rgba(128, 128, 128, 0.7);
+        }
+        :host([dark]) .pill.status-ok {
+          color: #7be79a;
+        }
+        :host([dark]) .pill.status-warning {
+          color: #f6da8a;
+        }
+        :host([dark]) .pill.status-critical {
+          color: #ff8a8a;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -450,7 +451,7 @@ export class BlockLiveDataElement extends LitElement {
 
   render() {
     if (this._status === 'error') {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     if (this._status === 'loading') {
       return html`<div class="card loading">${this.label || 'Loading…'}</div>`

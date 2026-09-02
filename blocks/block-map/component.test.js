@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
 import { resolveTileSettings } from './component.js'
-import { _resetBlockConfigCache } from '../shared/config.js'
+import { _resetSiteCache } from '../shared/site.js'
 
 const OSM_DEFAULT = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
@@ -44,7 +44,7 @@ describe('block-map tile server precedence', () => {
   beforeEach(() => {
     // -> getBlockConfig caches its fetch for the module's lifetime (one request per real page load);
     //    each test needs its own site-config response, so the cache must not survive between them.
-    _resetBlockConfigCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {

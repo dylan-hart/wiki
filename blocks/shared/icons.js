@@ -1,3 +1,5 @@
+import { html } from 'lit'
+
 /**
  * Icons, for blocks.
  *
@@ -62,4 +64,37 @@ export async function fetchIcon(reference) {
  */
 export function iconImageUrl(reference) {
   return reference.startsWith('img:') ? reference.slice(4) : null
+}
+
+/**
+ * The chrome glyphs a block draws for itself, as the path of a 24x24 MDI icon.
+ *
+ * Not everything goes through `fetchIcon` above: a block whose own controls carry icons -- the PDF
+ * viewer's toolbar, the gallery's lightbox -- needs them on screen the moment it renders, and a
+ * request in the way of that would show as a toolbar of empty buttons for as long as it took. These
+ * are the handful of glyphs that costs, inlined once here rather than copied into each block (BLK-F8).
+ *
+ * An icon an author or administrator picked is a different thing entirely and still resolves through
+ * `/_icons`: it is not knowable at build time, so it cannot live in a table like this one.
+ */
+export const MDI_PATHS = {
+  previous: 'M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z',
+  next: 'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z',
+  close:
+    'M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z',
+  zoomOut: 'M19,13H5V11H19V13Z',
+  zoomIn: 'M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z',
+  open: 'M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'
+}
+
+/**
+ * Draw one of the paths above.
+ *
+ * `aria-hidden`, and painted in `currentColor` by inheritance: the glyph is decoration on a control
+ * that names itself, not content of its own.
+ *
+ * @param {string} path One of `MDI_PATHS`.
+ */
+export function inlineIcon(path) {
+  return html`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}" /></svg>`
 }

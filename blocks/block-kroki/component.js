@@ -1,5 +1,8 @@
 import { LitElement, html, css } from 'lit'
+import { readFencedSource } from '../shared/body.js'
 import { compress } from '../shared/compress.js'
+import { renderError } from '../shared/render.js'
+import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { MAX_DIAGRAM_URL_LENGTH, explainUrlTooLarge } from '../shared/url-limit.js'
 
@@ -186,85 +189,73 @@ digraph G {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      captionStyles,
+      css`
+        :host {
+          display: block;
+        }
 
-      /* -> The gap below the block. On this element rather than :host: see block-index. */
-      .diagram,
-      .error {
-        margin-bottom: 16px;
-      }
+        /* -> The gap below the block. On this element rather than :host: see block-index. */
+        .diagram,
+        .error {
+          margin-bottom: 16px;
+        }
 
-      .diagram {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-      }
-      .diagram.is-center {
-        align-items: center;
-      }
+        .diagram {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+        }
+        .diagram.is-center {
+          align-items: center;
+        }
 
-      /*
+        /*
         The drawing sits on white in both themes, padded, the way a QR code does. Most of what Kroki
         draws with draws in black on nothing at all, so on a dark page a diagram left to the page's
         background is black on black — and its own colours, where a diagram has them, are picked to
         sit on paper.
       */
-      .sheet {
-        max-width: 100%;
-        padding: 12px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        border-radius: 5px;
-        background-color: #fff;
-        /* -> A diagram wider than the column scrolls rather than shrinking to illegibility */
-        overflow-x: auto;
-      }
-      :host([dark]) .sheet {
-        border-color: rgba(255, 255, 255, 0.15);
-      }
+        .sheet {
+          max-width: 100%;
+          padding: 12px;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 5px;
+          background-color: #fff;
+          /* -> A diagram wider than the column scrolls rather than shrinking to illegibility */
+          overflow-x: auto;
+        }
+        :host([dark]) .sheet {
+          border-color: rgba(255, 255, 255, 0.15);
+        }
 
-      img {
-        display: block;
-        /* -> Its own size, up to the width of the column */
-        max-width: 100%;
-        height: auto;
-      }
+        img {
+          display: block;
+          /* -> Its own size, up to the width of the column */
+          max-width: 100%;
+          height: auto;
+        }
 
-      /*
+        /*
         The fallback for a drawing that has no size of its own: see _measure below. The sheet takes
         the column instead of hugging the picture, which gives the picture a width to scale against —
         which is what a browser does with any image that has a shape and no size. The height is then
         bounded, since a tall shape scaled to the width of a column runs to several screens, and the
         drawing is fitted inside what that leaves.
       */
-      .diagram.is-unsized .sheet {
-        align-self: stretch;
-      }
-      .diagram.is-unsized img {
-        width: 100%;
-        max-height: 60vh;
-        object-fit: contain;
-      }
-
-      .caption {
-        color: #424242;
-        font-size: 0.8em;
-      }
-      :host([dark]) .caption {
-        color: rgba(255, 255, 255, 0.7);
-      }
-
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-        white-space: pre-wrap;
-      }
-    `
+        .diagram.is-unsized .sheet {
+          align-self: stretch;
+        }
+        .diagram.is-unsized img {
+          width: 100%;
+          max-height: 60vh;
+          object-fit: contain;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -384,12 +375,7 @@ digraph G {
   }
 
   firstUpdated() {
-    /*
-      The source is the block's body, taken from the fence markdown left behind. `textContent` is what
-      undoes the escaping that put `--&gt;` in the markup, and gives back what the author typed.
-    */
-    const fence = this.querySelector('pre')
-    const source = ((fence ?? this).textContent ?? '').trim()
+    const { source } = readFencedSource(this)
     if (!source) {
       this._error =
         'This diagram is empty. Its source goes in the body of the block, inside a ```kroki fence.'
@@ -423,7 +409,7 @@ digraph G {
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     /*
       Nothing at all until the URL exists, which is the first thing `firstUpdated` does — and it runs

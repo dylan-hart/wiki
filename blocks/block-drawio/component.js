@@ -1,6 +1,10 @@
 import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { drawioToSvg } from './mxgraph.js'
+import { readFencedSource } from '../shared/body.js'
+import { explainSourceFailure } from '../shared/figure.js'
+import { renderError } from '../shared/render.js'
+import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
@@ -65,67 +69,55 @@ export class BlockDrawioElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      captionStyles,
+      css`
+        :host {
+          display: block;
+        }
 
-      /* -> The gap below the block. On this element rather than :host: see block-index. */
-      .diagram,
-      .error {
-        margin-bottom: 16px;
-      }
+        /* -> The gap below the block. On this element rather than :host: see block-index. */
+        .diagram,
+        .error {
+          margin-bottom: 16px;
+        }
 
-      .diagram {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-        max-width: 100%;
-      }
-      .diagram.is-center {
-        align-items: center;
-      }
+        .diagram {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+          max-width: 100%;
+        }
+        .diagram.is-center {
+          align-items: center;
+        }
 
-      /*
+        /*
         White in both themes, like block-kroki's sheet: a draw.io diagram's own colours are chosen
         against draw.io's own white canvas, and drawing it straight onto a dark page would leave dark
         text unreadable and strokes with no contrast to sit on.
       */
-      .sheet {
-        max-width: 100%;
-        padding: 12px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        border-radius: 5px;
-        background-color: #fff;
-        overflow-x: auto;
-      }
-      :host([dark]) .sheet {
-        border-color: rgba(255, 255, 255, 0.15);
-      }
+        .sheet {
+          max-width: 100%;
+          padding: 12px;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 5px;
+          background-color: #fff;
+          overflow-x: auto;
+        }
+        :host([dark]) .sheet {
+          border-color: rgba(255, 255, 255, 0.15);
+        }
 
-      svg {
-        display: block;
-        max-width: 100%;
-        height: auto;
-      }
-
-      .caption {
-        color: #424242;
-        font-size: 0.8em;
-      }
-      :host([dark]) .caption {
-        color: rgba(255, 255, 255, 0.7);
-      }
-
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-        white-space: pre-wrap;
-      }
-    `
+        svg {
+          display: block;
+          max-width: 100%;
+          height: auto;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -166,9 +158,8 @@ export class BlockDrawioElement extends LitElement {
    * so there is nothing to await.
    */
   _draw() {
-    const fence = this.querySelector('pre')
-    this._fenced = Boolean(fence)
-    const source = ((fence ?? this).textContent ?? '').trim()
+    const { source, fenced } = readFencedSource(this)
+    this._fenced = fenced
     if (!source) {
       this._error =
         'This diagram is empty. Its source goes in the body of the block, inside a fenced code block.'
@@ -180,11 +171,7 @@ export class BlockDrawioElement extends LitElement {
       this._error = ''
     } catch (err) {
       this._svg = ''
-      this._error = `This diagram could not be drawn: ${err.message ?? err}`
-      if (!this._fenced) {
-        this._error +=
-          '\n\nThe source has to go inside a fenced code block, or markdown rewrites it before this block sees it.'
-      }
+      this._error = explainSourceFailure('diagram could not be drawn', err, this._fenced)
     }
   }
 
@@ -194,7 +181,7 @@ export class BlockDrawioElement extends LitElement {
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     if (!this._svg) {
       return null

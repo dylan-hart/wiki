@@ -1,23 +1,8 @@
 import { LitElement, html, css } from 'lit'
 import { I18n } from '../shared/i18n.js'
-
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value — `autoplay="false"` is what the block picker produces for a
- * toggle that was switched on and off again — and Lit's own Boolean converter reads any string at all
- * as true, that one included.
- *
- * It is also what lets a prop here default to ON, which the note in `block-index` rules out for a
- * block using the stock converter: `controls` is left out of the markup while it holds its default,
- * and written as `controls="false"` the moment it does not, which this reads back correctly.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
+import { boolean } from '../shared/props.js'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 
 /** Every YouTube host a link can arrive on, including the one their own privacy mode hands out. */
 const HOSTS = /^(?:www\.|m\.)?youtube(?:-nocookie)?\.com$/
@@ -159,12 +144,14 @@ export class BlockYoutubeElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      /*
+        /*
         The frame's box, and the gap below the block. On this element rather than :host: see
         block-index.
 
@@ -172,29 +159,26 @@ export class BlockYoutubeElement extends LitElement {
            width of the phone instead of pushing the page sideways. The aspect ratio then keeps it
            widescreen at whatever width it ends up with, which is what a fixed height would not.
       */
-      .player {
-        max-width: 100%;
-        margin-bottom: 16px;
-        border-radius: 5px;
-        overflow: hidden;
-        background-color: #000;
-      }
+        .player {
+          max-width: 100%;
+          margin-bottom: 16px;
+          border-radius: 5px;
+          overflow: hidden;
+          background-color: #000;
+        }
 
-      iframe {
-        display: block;
-        width: 100%;
-        height: 100%;
-        border: 0;
-      }
+        iframe {
+          display: block;
+          width: 100%;
+          height: 100%;
+          border: 0;
+        }
 
-      .error {
-        margin-bottom: 16px;
-        padding: 1rem;
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        color: var(--q-negative, #c10015);
-      }
-    `
+        .error {
+          margin-bottom: 16px;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -307,22 +291,18 @@ export class BlockYoutubeElement extends LitElement {
   render() {
     const id = videoId(this.url ?? '')
     if (!id) {
-      return html`
-        <div class="error">
-          ${
-            this.url?.trim()
-              ? this._i18n.t(
-                  'blocks.youtube.errors.invalidUrl',
-                  `${this.url} is not the address of a YouTube video.`,
-                  { url: this.url }
-                )
-              : this._i18n.t(
-                  'blocks.youtube.errors.missingUrl',
-                  'This player needs the address of a YouTube video.'
-                )
-          }
-        </div>
-      `
+      return renderError(
+        this.url?.trim()
+          ? this._i18n.t(
+              'blocks.youtube.errors.invalidUrl',
+              `${this.url} is not the address of a YouTube video.`,
+              { url: this.url }
+            )
+          : this._i18n.t(
+              'blocks.youtube.errors.missingUrl',
+              'This player needs the address of a YouTube video.'
+            )
+      )
     }
 
     const width = this._size(this.width)
