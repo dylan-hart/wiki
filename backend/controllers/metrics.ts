@@ -1,5 +1,5 @@
 import { groups as groupsTable, pages as pagesTable, users as usersTable } from '../db/schema.ts'
-import { getClusterNodes } from '../api/system.ts'
+import { getClusterNodes } from '../api/system/info.ts'
 import { formatPrometheusMetrics, type MetricsSnapshot } from '../helpers/metrics.ts'
 import type { FastifyInstance } from 'fastify'
 
