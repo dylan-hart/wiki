@@ -146,7 +146,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
     await storageModule.assetUploaded!(target, { id: 'a1', folderPath: '', fileName: 'gone.txt' })
     await verifyClient.send(new HeadObjectCommand({ Bucket: bucket, Key: 'site-1/gone.txt' }))
 
-    await storageModule.assetDeleted!(target, { fileName: 'gone.txt' })
+    await storageModule.assetDeleted!(target, { fileName: 'gone.txt', folderPath: '' })
 
     await assert.rejects(
       () => verifyClient.send(new HeadObjectCommand({ Bucket: bucket, Key: 'site-1/gone.txt' })),

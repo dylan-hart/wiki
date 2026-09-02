@@ -17,15 +17,18 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { SimpleGit } from 'simple-git'
+import { CONTENT_TYPE_EXTENSIONS } from '../../../helpers/pageSerialization.ts'
 import { getFileExtension } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureRepo } from './repo.ts'
 
 /**
- * Every extension this module ever writes a page out as, in probe order. Only consulted by `deleted`
- * (see there for why): everywhere else the extension comes straight from the page's own `contentType`.
+ * Every extension this module ever writes a page out as, in probe order — the distinct values of the
+ * shared `CONTENT_TYPE_EXTENSIONS` table, `getFileExtension`'s `txt` fallback included, so a new page
+ * content type is probed here the moment it can be written. Only consulted by `deleted` (see there for
+ * why): everywhere else the extension comes straight from the page's own `contentType`.
  */
-const PAGE_EXTENSIONS = ['md', 'adoc', 'html', 'txt']
+const PAGE_EXTENSIONS = [...new Set(Object.values(CONTENT_TYPE_EXTENSIONS))]
 
 /**
  * Whether a target's active content types cover this bucket — `'pages'`, or an asset bucket.

@@ -10,6 +10,11 @@ import {
   validateModuleConfig
 } from '../helpers/moduleRegistry.ts'
 import { parseLargeThreshold } from '../helpers/blobTarget.ts'
+import {
+  CONTENT_TYPE_EXTENSIONS,
+  DEFAULT_CONTENT_TYPE_EXTENSION,
+  fileExtensionForContentType
+} from '../helpers/pageSerialization.ts'
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 import type { HookEvent } from './hooks.ts'
@@ -18,28 +23,23 @@ import type { HookEvent } from './hooks.ts'
 export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large'] as const
 
 /**
- * File extension a page's `contentType` is written under, for a target that stores pages as files
- * (git, disk, ...) rather than DB rows. Keyed by the strings `EDITOR_CONTENT_TYPES` in
- * `models/pages.ts` actually produces (`markdown`, `asciidoc`, `html`) — `redirect` and anything else
- * has no natural file representation and falls through to `getFileExtension`'s `txt` fallback.
+ * The file extension for a page's `contentType`, matching 2.5.x's `pageHelper.getFileExtension`.
+ * The table itself is `helpers/pageSerialization.ts`'s `CONTENT_TYPE_EXTENSIONS` — one map shared by
+ * every file-backed target rather than a copy per module.
  */
-export const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
-  markdown: 'md',
-  asciidoc: 'adoc',
-  html: 'html'
+export function getFileExtension(contentType: string): string {
+  return fileExtensionForContentType(contentType)
 }
 
 /**
- * The file extension for a page's `contentType`, matching 2.5.x's `pageHelper.getFileExtension`.
- * Lives here, once, rather than as a switch re-implemented in every file-backed storage module.
+ * The inverse of `CONTENT_TYPE_EXTENSIONS`, e.g. `md` -> `markdown`. Built only from the content types
+ * with an extension of their own: `text` and `redirect` both write the default `txt`, which is a
+ * fallback rather than a reverse-mapping target (see `getContentTypeFromExtension`).
  */
-export function getFileExtension(contentType: string): string {
-  return CONTENT_TYPE_EXTENSIONS[contentType] ?? 'txt'
-}
-
-/** The inverse of `CONTENT_TYPE_EXTENSIONS`, e.g. `md` -> `markdown`. */
 const EXTENSION_CONTENT_TYPES: Record<string, string> = Object.fromEntries(
-  Object.entries(CONTENT_TYPE_EXTENSIONS).map(([contentType, ext]) => [ext, contentType])
+  Object.entries(CONTENT_TYPE_EXTENSIONS)
+    .filter(([, ext]) => ext !== DEFAULT_CONTENT_TYPE_EXTENSION)
+    .map(([contentType, ext]) => [ext, contentType])
 )
 
 /**

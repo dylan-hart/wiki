@@ -3,7 +3,9 @@ import { and, asc, eq, gt } from 'drizzle-orm'
 import type Client from 'ssh2-sftp-client'
 import { assets as assetsTable, tree as treeTable } from '../../../db/schema.ts'
 import { decodeTreePath } from '../../../helpers/common.ts'
+import { belongsInTarget } from '../../../helpers/blobTarget.ts'
 import { ensureDirectory } from './connection.ts'
+import type { AssetContentCategory } from '../../../helpers/blobTarget.ts'
 import type { AssetKind } from '../../../models/assets.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
@@ -92,72 +94,8 @@ export function remotePathForAsset(asset: Pick<AssetExportRow, 'folderPath' | 'f
   return asset.folderPath ? `${asset.folderPath}/${asset.fileName}` : asset.fileName
 }
 
-/**
- * Multipliers for `parseSizeToBytes`, decimal (1000-based) rather than binary (1024-based) — matching
- * how the `filesize` package this backend already depends on (`api/system.ts`) formats bytes back
- * into `MB`/`GB` by default, so a threshold typed as "5MB" here means the same 5,000,000 bytes it
- * would if this repo ever displayed one back to an admin.
- */
-const SIZE_UNIT_MULTIPLIERS: Record<string, number> = {
-  B: 1,
-  KB: 1_000,
-  MB: 1_000 ** 2,
-  GB: 1_000 ** 3,
-  TB: 1_000 ** 4
-}
-
-/**
- * Parse a `contentTypes.largeThreshold`-shaped string (`"5MB"`, `"512B"`, `"1.5 GB"`) into bytes.
- *
- * The format accepted mirrors the exact regex `models/storage.ts` validates a target's threshold
- * against before it is ever saved (`/^\d+(\.\d+)?\s?(B|KB|MB|GB|TB)$/i`), so anything already sitting
- * on a `StorageTarget` is guaranteed to parse.
- */
-export function parseSizeToBytes(threshold: string): number {
-  const match = /^(\d+(?:\.\d+)?)\s?(B|KB|MB|GB|TB)$/i.exec(threshold.trim())
-  if (!match) {
-    throw new Error(`"${threshold}" is not a valid size threshold. Use a size such as "5MB".`)
-  }
-  const [, amount, unit] = match
-  return Math.round(Number.parseFloat(amount) * SIZE_UNIT_MULTIPLIERS[unit.toUpperCase()])
-}
-
-/**
- * Maps an asset's `kind` column (`assetKindEnum` — `'document' | 'image' | 'other'`) onto the
- * content-type bucket names `contentTypes.activeTypes` is expressed in (`'documents' | 'images' |
- * 'others'`).
- *
- * No such mapping exists anywhere else in the codebase to reuse: Feature 368 (Disk & DB target) has
- * not generalized one — its module directory holds only a `definition.yml`, no `storage.ts` — so this
- * stays local to the `sftp` module rather than invented speculatively for a consumer that doesn't
- * exist yet.
- */
-const ASSET_KIND_CONTENT_TYPES: Record<AssetKind, string> = {
-  image: 'images',
-  document: 'documents',
-  other: 'others'
-}
-
-/**
- * Which `contentTypes.activeTypes` bucket an asset falls under.
- *
- * `'large'` takes precedence over the kind-based bucket once `fileSize` is *above* `largeThresholdBytes`
- * (strictly greater than — matching the api schema's own wording, "size above which an asset counts
- * as a large file"), regardless of whether it's an image, document, or other file. Under the
- * threshold, it falls back to its kind's bucket.
- */
-export function contentTypeBucketForAsset(
-  asset: Pick<AssetExportRow, 'kind' | 'fileSize'>,
-  largeThresholdBytes: number
-): string {
-  if (asset.fileSize > largeThresholdBytes) {
-    return 'large'
-  }
-  return ASSET_KIND_CONTENT_TYPES[asset.kind]
-}
-
 /** The asset-facing content type buckets — everything `activeTypes` can hold besides `'pages'`. */
-const ASSET_CONTENT_TYPES = ['images', 'documents', 'others', 'large']
+const ASSET_CONTENT_TYPES: AssetContentCategory[] = ['images', 'documents', 'others', 'large']
 
 /**
  * Write every eligible asset of a site to an SFTP target, batching reads so a large wiki's asset
@@ -167,8 +105,10 @@ const ASSET_CONTENT_TYPES = ['images', 'documents', 'others', 'large']
  * `target.contentTypes.activeTypes` — same reasoning as `exportPages`'s `'pages'` guard: an admin can
  * turn asset sync off for this target independently of the module supporting it, and `exportAll` is
  * expected to still run whatever other content types are enabled. Where at least one asset bucket is
- * active, each row is still individually gated by `contentTypeBucketForAsset` — a target that only
- * wants `'images'` still has to fetch every asset to find them, but writes none of the rest.
+ * active, each row is still individually gated by `helpers/blobTarget.ts`'s `belongsInTarget` — the
+ * same gate `models/storage.ts`'s write-path dispatch and the blob targets' own `exportAll` use — so a
+ * target that only wants `'images'` still has to fetch every asset to find them, but writes none of
+ * the rest.
  *
  * @param client A connected SFTP client, e.g. from `connectSftp`.
  * @param target The site's configured target; `target.config.basePath` is where files land, and
@@ -197,7 +137,6 @@ export async function exportAssets(
   const fetchBatch = options.fetchBatch ?? fetchAssetBatch
   const pageSize = options.pageSize ?? ASSET_BATCH_SIZE
   const basePath = String(target.config.basePath ?? '').replace(/\/+$/, '')
-  const largeThresholdBytes = parseSizeToBytes(target.contentTypes.largeThreshold)
 
   let afterId: string | null = null
   let exportedCount = 0
@@ -208,8 +147,7 @@ export async function exportAssets(
     }
 
     for (const asset of batch) {
-      const bucket = contentTypeBucketForAsset(asset, largeThresholdBytes)
-      if (!activeTypes.includes(bucket)) {
+      if (!belongsInTarget(asset, target.contentTypes)) {
         continue
       }
       // -> Nothing to write for a row with no bytes stored — not expected in practice (every upload

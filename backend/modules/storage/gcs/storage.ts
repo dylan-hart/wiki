@@ -1,6 +1,5 @@
 import { Storage, type Bucket, type StorageOptions } from '@google-cloud/storage'
-import { belongsInTarget, objectKeyFor } from '../../../helpers/blobTarget.ts'
-import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
+import { blobStorageModule } from '../blobBase.ts'
 
 /**
  * Google Cloud Storage. Unlike `s3` and `azure`, 2.5.x has no GCS module to port from — GCS is not
@@ -12,16 +11,9 @@ import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
  * Only assets are handled: this target's `definition.yml` excludes `pages` from
  * `contentTypes.defaultTypesEnabled` and declares `versioning.isSupported: false`, so — as with `s3`
  * and `azure` — there is no page `created`/`updated`/`renamed`/`deleted` lifecycle to port, just the
- * asset side (`assetUploaded`/`assetDeleted`/`assetRenamed`) plus `exportAll`.
+ * asset side (`assetUploaded`/`assetDeleted`/`assetRenamed`) plus `exportAll`, all of which
+ * `blobStorageModule` provides from the driver below.
  */
-
-/**
- * How long a direct-access URL stays valid. Minutes, not hours: it's generated per request for one
- * browser to fetch immediately, not something meant to be bookmarked or cached client-side. Matches
- * the `s3` and `azure` modules' TTL so the three targets behave the same from the admin's point of
- * view.
- */
-const DIRECT_ACCESS_TTL_SECONDS = 5 * 60
 
 /**
  * `definition.yml`'s own default for `apiEndpoint`. The client is only ever told an explicit
@@ -29,15 +21,6 @@ const DIRECT_ACCESS_TTL_SECONDS = 5 * 60
  * gets the SDK's own default behavior rather than this string round-tripped back at it.
  */
 const DEFAULT_API_ENDPOINT = 'storage.google.com'
-
-/**
- * One verified `Bucket` per target, keyed by target id and invalidated the moment the target's stored
- * config changes (a credential rotation, a bucket rename). This is what "activation" means here: the
- * bucket is verified once per config. Every write path below routes through `getClient()`, so the
- * first GCS call any target makes (an admin's "Export All" click, or a future dispatched write) both
- * builds the client and verifies the bucket.
- */
-const activated = new Map<string, { bucket: Bucket; configKey: string; ready: Promise<void> }>()
 
 /**
  * Build the GCS client for a target's config — no network I/O happens here. `credentialsJSON` is the
@@ -82,143 +65,40 @@ export async function ensureBucket(bucket: Bucket): Promise<void> {
   }
 }
 
-/** The activated bucket for a target, (re-)verifying it whenever the stored config changed. */
-async function getClient(target: StorageTarget): Promise<Bucket> {
-  const configKey = JSON.stringify(target.config)
-  const cached = activated.get(target.id)
-  if (cached && cached.configKey === configKey) {
-    await cached.ready
-    return cached.bucket
-  }
-
-  const storage = buildClient(target.config)
-  const bucket = storage.bucket(target.config.bucket)
-  const ready = ensureBucket(bucket).catch((err) => {
-    // -> A failed activation is not remembered as done: the next call — the admin retrying the action
-    //    after fixing credentials, say — has to verify again rather than replay this same rejection
-    activated.delete(target.id)
-    throw err
-  })
-  activated.set(target.id, { bucket, configKey, ready })
-  await ready
-  return bucket
-}
-
-/** Where one asset of a target lives in the bucket. */
-export function keyFor(target: StorageTarget, folderPath: string, fileName: string): string {
-  return objectKeyFor({ siteId: target.siteId, folderPath, fileName })
-}
-
-/** Wrap a GCS SDK call so a failure reaches the caller as a readable `Error`, not a raw SDK exception. */
-async function withGcsErrors<T>(action: string, fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn()
-  } catch (err: any) {
-    throw new Error(`Failed to ${action}: ${err.message ?? err}`)
-  }
-}
-
-/** An asset was created, or an existing one had its bytes replaced. */
-async function assetUploaded(target: StorageTarget, data: Record<string, any>): Promise<void> {
-  const bucket = await getClient(target)
-  const content = await WIKI.models.assets.getContent(data.id)
-  if (!content) {
-    // -> Deleted again between the write that triggered this and this handler actually running;
-    //    nothing left to push
-    return
-  }
-  const key = keyFor(target, data.folderPath ?? '', data.fileName ?? content.fileName)
-  await withGcsErrors(`upload "${key}"`, () =>
-    bucket.file(key).save(content.data, {
-      contentType: content.mimeType,
+const gcsStorage = blobStorageModule<Bucket>({
+  label: 'GCS',
+  async build(config) {
+    const bucket = buildClient(config).bucket(config.bucket)
+    await ensureBucket(bucket)
+    return bucket
+  },
+  async put(bucket, key, body, mimeType, config) {
+    await bucket.file(key).save(body, {
+      contentType: mimeType,
       // -> Buffers under a few MB (the vast majority of assets) don't benefit from a resumable
       //    upload's extra initial request; a resumable session is still used automatically for large
       //    buffers by the SDK's own thresholding regardless of this flag.
       resumable: false,
-      metadata: { storageClass: target.config.storageTier }
+      metadata: { storageClass: config.storageTier }
     })
-  )
-}
-
-/** An asset was deleted. */
-async function assetDeleted(target: StorageTarget, data: Record<string, any>): Promise<void> {
-  const bucket = await getClient(target)
-  const key = keyFor(target, data.folderPath ?? '', data.fileName)
-  await withGcsErrors(`delete "${key}"`, () => bucket.file(key).delete())
-}
-
-/** An asset moved to a new name within the same folder. */
-async function assetRenamed(target: StorageTarget, data: Record<string, any>): Promise<void> {
-  const bucket = await getClient(target)
-  const sourceKey = keyFor(target, data.folderPath ?? '', data.previousFileName ?? data.fileName)
-  const destinationKey = keyFor(target, data.folderPath ?? '', data.fileName)
-
-  await withGcsErrors(`rename "${sourceKey}" to "${destinationKey}"`, async () => {
+  },
+  async remove(bucket, key) {
+    await bucket.file(key).delete()
+  },
+  async copy(bucket, sourceKey, destinationKey) {
     await bucket.file(sourceKey).copy(bucket.file(destinationKey))
-    await bucket.file(sourceKey).delete()
-  })
-}
-
-/**
- * Push every asset of this target's site to GCS, filtered through the target's own `contentTypes`
- * (`activeTypes` / `largeThreshold`) exactly as configured in the admin area — nothing upstream of
- * this filters assets by content type, so `exportAll` is the one place it has to happen. This is also
- * where a target gets its first real activation for a target that has never had a write dispatched to
- * it yet: `getClient()` verifies the bucket before anything is sent.
- */
-async function exportAll(target: StorageTarget): Promise<void> {
-  const bucket = await getClient(target)
-  const storageClass = target.config.storageTier
-
-  let exported = 0
-  for await (const asset of WIKI.models.assets.streamAll(target.siteId)) {
-    if (!belongsInTarget(asset, target.contentTypes)) {
-      continue
-    }
-    const key = keyFor(target, asset.folderPath, asset.fileName)
-    await withGcsErrors(`export "${key}"`, () =>
-      bucket.file(key).save(asset.data, {
-        contentType: asset.mimeType,
-        resumable: false,
-        metadata: { storageClass }
-      })
-    )
-    exported++
-  }
-  WIKI.logger.info(`(STORAGE/${target.title}) Exported ${exported} asset(s) to GCS.`)
-}
-
-/**
- * A short-lived, read-only signed URL for one object — the primitive `assetDelivery.directAccess`
- * needs to redirect a browser straight to the bucket instead of streaming the file through the wiki
- * server. Signed locally by the service-account credentials (`getSignedUrl` performs no network call),
- * scoped to `action: 'read'` on a short expiry — the same shape as `s3`'s presigned GET and `azure`'s
- * read-only SAS URL.
- *
- * Called by `models/assets.ts`'s `directUrlFor()`, per `StorageModule.getDirectUrl` — asset first,
- * target second, matching every other `StorageModule` handler's argument order.
- */
-async function getDirectUrl(
-  asset: { folderPath: string; fileName: string },
-  target: StorageTarget
-): Promise<string> {
-  const bucket = await getClient(target)
-  const key = keyFor(target, asset.folderPath, asset.fileName)
-  return withGcsErrors(`generate a direct-access URL for "${key}"`, async () => {
+  },
+  /**
+   * A read-only signed URL, signed locally by the service-account credentials (`getSignedUrl` performs
+   * no network call) — the same shape as `s3`'s presigned GET and `azure`'s read-only SAS URL.
+   */
+  async sign(bucket, key, ttlSeconds) {
     const [url] = await bucket.file(key).getSignedUrl({
       action: 'read',
-      expires: Date.now() + DIRECT_ACCESS_TTL_SECONDS * 1000
+      expires: Date.now() + ttlSeconds * 1000
     })
     return url
-  })
-}
-
-const gcsStorage: StorageModule = {
-  assetUploaded,
-  assetDeleted,
-  assetRenamed,
-  exportAll,
-  getDirectUrl
-}
+  }
+})
 
 export default gcsStorage

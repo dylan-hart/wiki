@@ -2,7 +2,8 @@ import { describe, test, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { Bucket, File } from '@google-cloud/storage'
-import storageModule, { buildClient, ensureBucket, keyFor } from './storage.ts'
+import storageModule, { buildClient, ensureBucket } from './storage.ts'
+import { keyFor } from '../blobBase.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**

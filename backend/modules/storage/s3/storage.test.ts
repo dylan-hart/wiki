@@ -15,10 +15,10 @@ import storageModule, {
   encodeCopySourceKey,
   ensureBucket,
   isBucketNotFound,
-  keyFor,
   resolveCustomEndpoint,
   storageClassFor
 } from './storage.ts'
+import { keyFor } from '../blobBase.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**

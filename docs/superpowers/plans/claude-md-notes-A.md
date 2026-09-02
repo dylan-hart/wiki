@@ -173,3 +173,29 @@
     two stubs exactly as the real method composes the real pair. Five suites do this now. This is
     the same "build the smallest object satisfying what the code path calls" convention the
     `cache`/`events` stubs already follow, extended to a `WIKI.models` member.
+
+- **Task A12 (storage blob factory, sftp thresholds, one extension map — CORE-F3/F4/F18, spec D3).**
+  Three things CLAUDE.md should now say:
+  - **`s3`, `azure` and `gcs` are drivers over `modules/storage/blobBase.ts`, not standalone
+    modules.** Each still owns its SDK imports, its client construction and its bucket/container
+    verification, but exports `blobStorageModule({ label, build, put, remove, copy, sign })` as its
+    default: the activation cache (one client per target, keyed on `JSON.stringify(config)`, a failed
+    activation deliberately not remembered), the object key (`keyFor` → `helpers/blobTarget.ts`'s
+    `objectKeyFor`), the `Failed to <action>: <message>` error wrapping, the shared
+    `DIRECT_ACCESS_TTL_SECONDS`, and all five handlers
+    (`assetUploaded`/`assetDeleted`/`assetRenamed`/`exportAll`/`getDirectUrl`) live in `blobBase.ts`
+    only. A fourth blob target is a driver, not a fourth copy of that half; `keyFor` is imported from
+    `blobBase.ts` (including by the three modules' own tests), never re-declared.
+  - **There is one large-file threshold semantics in the backend, `helpers/blobTarget.ts`'s** (D3):
+    1024-based units, and `fileSize >= threshold` files an asset as `large`. `sftp` used to parse
+    1000-based units and test `>` — that divergence is gone, and `modules/storage/sftp/assets.ts` now
+    gates each row on `belongsInTarget(asset, target.contentTypes)` like every other target. A target
+    module must not re-implement threshold parsing or the kind→category map.
+  - **One page content-type→extension table: `helpers/pageSerialization.ts`'s
+    `CONTENT_TYPE_EXTENSIONS`** (bare extensions, `DEFAULT_CONTENT_TYPE_EXTENSION = 'txt'`, read
+    through `fileExtensionForContentType` or the dotted `extensionForContentType`).
+    `models/storage.ts`'s `getFileExtension` delegates to it and builds its reverse map from it
+    (skipping the `txt` default, so a bare `.txt` still reads as an asset); `modules/storage/git`'s
+    probe list is its distinct values; `modules/storage/disk` spreads it and overrides
+    `redirect: 'json'` — the one documented divergence, because a redirect's content is already JSON
+    there.

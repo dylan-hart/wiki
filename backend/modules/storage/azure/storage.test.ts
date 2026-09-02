@@ -5,9 +5,9 @@ import { BlockBlobClient, ContainerClient } from '@azure/storage-blob'
 import storageModule, {
   buildServiceClient,
   ensureContainer,
-  isContainerAlreadyExists,
-  keyFor
+  isContainerAlreadyExists
 } from './storage.ts'
+import { keyFor } from '../blobBase.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
