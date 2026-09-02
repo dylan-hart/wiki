@@ -67,22 +67,7 @@ export const EMITTED_EVENTS: HookEvent[] = [
 ]
 
 /** A webhook as exposed by the API. */
-export interface Hook {
-  id: string
-  name: string
-  events: string[]
-  url: string
-  includeMetadata: boolean
-  includeContent: boolean
-  acceptUntrusted: boolean
-  authHeader: string | null
-  state: 'pending' | 'success' | 'error'
-  lastErrorMessage: string | null
-  createdAt: Date
-  updatedAt: Date
-  /** Which site this webhook fires for. Null means every site -- see `emit()`. */
-  siteId: string | null
-}
+export type Hook = typeof hooksTable.$inferSelect
 
 /** One recorded attempt to deliver an event to a webhook. */
 export interface HookDelivery {
@@ -136,22 +121,6 @@ function webhookRateLimitPolicy(): RateLimitPolicy {
       WEBHOOK_RATE_LIMIT_DEFAULTS.banSeconds
     )
   }
-}
-
-const hookSelection = {
-  id: hooksTable.id,
-  name: hooksTable.name,
-  events: hooksTable.events,
-  url: hooksTable.url,
-  includeMetadata: hooksTable.includeMetadata,
-  includeContent: hooksTable.includeContent,
-  acceptUntrusted: hooksTable.acceptUntrusted,
-  authHeader: hooksTable.authHeader,
-  state: hooksTable.state,
-  lastErrorMessage: hooksTable.lastErrorMessage,
-  createdAt: hooksTable.createdAt,
-  updatedAt: hooksTable.updatedAt,
-  siteId: hooksTable.siteId
 }
 
 /**
@@ -218,23 +187,16 @@ class Hooks {
    * Every webhook, newest first
    */
   async getHooks(): Promise<Hook[]> {
-    const results = await WIKI.db
-      .select(hookSelection)
-      .from(hooksTable)
-      .orderBy(desc(hooksTable.createdAt))
-    return results as Hook[]
+    const results = await WIKI.db.select().from(hooksTable).orderBy(desc(hooksTable.createdAt))
+    return results
   }
 
   /**
    * A single webhook, or null if there is no such webhook
    */
   async getHookById(id: string): Promise<Hook | null> {
-    const results = await WIKI.db
-      .select(hookSelection)
-      .from(hooksTable)
-      .where(eq(hooksTable.id, id))
-      .limit(1)
-    return (results[0] as Hook) ?? null
+    const results = await WIKI.db.select().from(hooksTable).where(eq(hooksTable.id, id)).limit(1)
+    return results[0] ?? null
   }
 
   /**

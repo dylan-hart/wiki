@@ -1,12 +1,9 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
+import { pages as pagesTable, tags as tagsTable, tree as treeTable } from '../db/schema.ts'
 import type { AccessActor } from './groups.ts'
 import type { SearchIndexablePage } from './search.ts'
 
-export interface Tag {
-  tag: string
-  usageCount: number
-}
+export type Tag = Pick<typeof tagsTable.$inferSelect, 'tag' | 'usageCount'>
 
 /** A candidate page for a tag rename/delete, before the caller has decided who may touch it. */
 export interface TagPageRef {

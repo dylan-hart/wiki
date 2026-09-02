@@ -7,14 +7,7 @@ import { isValidOriginPattern } from '../helpers/network.ts'
  * A stored credential's public shape — everything about it except `secret`, which never leaves this
  * model. See the file header below for why.
  */
-export interface BlockCredential {
-  id: string
-  siteId: string
-  name: string
-  allowedOrigins: string[]
-  createdAt: Date
-  updatedAt: Date
-}
+export type BlockCredential = Omit<typeof blockCredentialsTable.$inferSelect, 'secret'>
 
 const publicSelection = {
   id: blockCredentialsTable.id,

@@ -43,18 +43,19 @@ import type { AuthStrategy, ProviderProfile } from './authentication.ts'
 import type { SystemIds } from './types.ts'
 
 /** The essential user fields, mirroring the `UserCore` API schema. */
-export interface UserCore {
-  id: string
-  name: string
-  email: string
-  hasAvatar: boolean
-  isSystem: boolean
-  isActive: boolean
-  isVerified: boolean
-  createdAt: Date
-  updatedAt: Date
-  lastLoginAt: Date | null
-}
+export type UserCore = Pick<
+  typeof usersTable.$inferSelect,
+  | 'id'
+  | 'name'
+  | 'email'
+  | 'hasAvatar'
+  | 'isSystem'
+  | 'isActive'
+  | 'isVerified'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'lastLoginAt'
+>
 
 /** One page of users, with the total matching the filter rather than the page size. */
 export interface UserPage {

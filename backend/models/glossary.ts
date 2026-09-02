@@ -13,15 +13,7 @@ import {
   normalizePagePath
 } from '../helpers/common.ts'
 
-export interface GlossaryTerm {
-  id: string
-  term: string
-  definition: string
-  aliases: string[]
-  pageId: string | null
-  createdAt: Date
-  updatedAt: Date
-}
+export type GlossaryTerm = Omit<typeof glossaryTermsTable.$inferSelect, 'siteId'>
 
 export interface GlossaryTermInput {
   term: string

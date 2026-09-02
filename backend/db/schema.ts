@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import type { ApprovalMatchMode } from '../helpers/approvalMatch.ts'
 import {
   type AnyPgColumn,
   bigint,
@@ -175,7 +176,7 @@ export const approvalRules = pgTable(
     // -> One of START / EXACT / END / REGEX / TAG / TAGALL, the same set group page rules use. A
     //    varchar rather than an enum so that adding a mode does not need a migration; the API schema
     //    is what rejects an unknown one.
-    match: varchar({ length: 16 }).notNull().default('START'),
+    match: varchar({ length: 16 }).$type<ApprovalMatchMode>().notNull().default('START'),
     path: varchar({ length: 2048 }).notNull().default(''),
     // -> Group IDs. Resolved on use rather than joined, so deleting a group takes effect at once, the
     //    way `apiKeys.groups` works.
@@ -1499,8 +1500,10 @@ export const storage = pgTable(
     lastTickAt: timestamp({ withTimezone: true }),
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
-    // -> Where the module stands, as opposed to how it is configured: `{ setup: 'notconfigured' |
-    //    'pendinginstall' | 'configured' }` for a module that has a setup process to go through.
+    // -> Currently unused: the setup-wizard states this once held (`{ setup: 'notconfigured' |
+    //    'pendinginstall' | 'configured' }`) were removed with the feature they tracked. Kept as a
+    //    column rather than dropped because doing so needs a migration, not because anything still
+    //    reads or writes it.
     state: jsonb().notNull().default({}),
     siteId: uuid()
       .notNull()

@@ -8,13 +8,7 @@ import { CustomError } from '../helpers/common.ts'
 import type { SystemIds } from './types.ts'
 
 /** A classification level row, as the admin area and every level picker read it. */
-export interface ClassificationLevel {
-  id: string
-  name: string
-  sortOrder: number
-  createdAt: Date
-  updatedAt: Date
-}
+export type ClassificationLevel = typeof levelsTable.$inferSelect
 
 /**
  * Every level, ordered most-open (lowest `sortOrder`) first.
@@ -38,7 +32,7 @@ class ClassificationLevels {
    */
   async reloadCache(): Promise<void> {
     const rows = await WIKI.db.select().from(levelsTable).orderBy(asc(levelsTable.sortOrder))
-    levelsCache = rows as ClassificationLevel[]
+    levelsCache = rows
     WIKI.logger.info(`Loaded ${levelsCache.length} classification level(s) [ OK ]`)
   }
 
@@ -172,7 +166,7 @@ class ClassificationLevels {
     const sortOrder = (row?.max ?? -1) + 1
     const inserted = await WIKI.db.insert(levelsTable).values({ name, sortOrder }).returning()
     await this.broadcastReload()
-    return inserted[0] as ClassificationLevel
+    return inserted[0]
   }
 
   /**
@@ -195,7 +189,7 @@ class ClassificationLevels {
       .where(eq(levelsTable.id, id))
       .returning()
     await this.broadcastReload()
-    return (updated[0] as ClassificationLevel) ?? null
+    return updated[0] ?? null
   }
 
   /**

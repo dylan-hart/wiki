@@ -82,30 +82,7 @@ export const KEY_EXPIRATIONS = {
 export type KeyExpiration = keyof typeof KEY_EXPIRATIONS
 
 /** An API key as exposed by the API. Never includes the token itself, which is not stored. */
-export interface ApiKey {
-  id: string
-  name: string
-  keyShort: string
-  groups: string[]
-  // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing (the key
-  //    carries the full union of its groups' permissions). See `narrowToScope()`.
-  scope: string[] | null
-  // -> A per-level allow-set (OpenProject #1205), or null for unrestricted (today's only behavior
-  //    for a key created before this existed, and the default). Checked in `groups.checkAccess()`
-  //    alongside `scope` above, on every page-rule decision.
-  allowedClassifications: string[] | null
-  // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
-  //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
-  siteId: string | null
-  // -> The user this is a personal access token for, or null for an admin-issued key. See the
-  //    `userId` column comment in `db/schema.ts` and this module's own doc comment for what that
-  //    changes about how the key's permissions are resolved.
-  userId: string | null
-  expiration: Date
-  isRevoked: boolean
-  createdAt: Date
-  updatedAt: Date
-}
+export type ApiKey = typeof apiKeysTable.$inferSelect
 
 /**
  * A key as the admin area lists it: the row, plus whether the certificates have moved on without it.
@@ -161,21 +138,6 @@ export interface ApiKeyIdentity {
 
 /** Raised by `verify()` when a token is not usable, with a reason safe to return to the caller. */
 export class ApiKeyError extends Error {}
-
-const keySelection = {
-  id: apiKeysTable.id,
-  name: apiKeysTable.name,
-  keyShort: apiKeysTable.keyShort,
-  groups: apiKeysTable.groups,
-  scope: apiKeysTable.scope,
-  allowedClassifications: apiKeysTable.allowedClassifications,
-  siteId: apiKeysTable.siteId,
-  userId: apiKeysTable.userId,
-  expiration: apiKeysTable.expiration,
-  isRevoked: apiKeysTable.isRevoked,
-  createdAt: apiKeysTable.createdAt,
-  updatedAt: apiKeysTable.updatedAt
-}
 
 /**
  * Narrow a group-derived permission set down to a key's stored scope.
@@ -276,12 +238,9 @@ class ApiKeys {
    * chose to revoke.
    */
   async getKeys(): Promise<ApiKeyListEntry[]> {
-    const results = await WIKI.db
-      .select(keySelection)
-      .from(apiKeysTable)
-      .orderBy(desc(apiKeysTable.createdAt))
+    const results = await WIKI.db.select().from(apiKeysTable).orderBy(desc(apiKeysTable.createdAt))
     const generatedAt = Temporal.Instant.from(WIKI.config.auth.certs.generatedAt)
-    return (results as ApiKey[]).map((key) => ({
+    return results.map((key) => ({
       ...key,
       isInvalidated: Temporal.Instant.compare(key.createdAt.toTemporalInstant(), generatedAt) < 0
     }))
@@ -298,12 +257,12 @@ class ApiKeys {
    */
   async listKeysForUser(userId: string): Promise<ApiKeyListEntry[]> {
     const results = await WIKI.db
-      .select(keySelection)
+      .select()
       .from(apiKeysTable)
       .where(eq(apiKeysTable.userId, userId))
       .orderBy(desc(apiKeysTable.createdAt))
     const generatedAt = Temporal.Instant.from(WIKI.config.auth.certs.generatedAt)
-    return (results as ApiKey[]).map((key) => ({
+    return results.map((key) => ({
       ...key,
       isInvalidated: Temporal.Instant.compare(key.createdAt.toTemporalInstant(), generatedAt) < 0
     }))
@@ -380,11 +339,11 @@ class ApiKeys {
    */
   async getKeyById(id: string): Promise<ApiKey | null> {
     const results = await WIKI.db
-      .select(keySelection)
+      .select()
       .from(apiKeysTable)
       .where(eq(apiKeysTable.id, id))
       .limit(1)
-    return (results[0] as ApiKey) ?? null
+    return results[0] ?? null
   }
 
   /**

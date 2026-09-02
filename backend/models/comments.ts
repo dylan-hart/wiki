@@ -21,20 +21,7 @@ import {
 } from '../db/schema.ts'
 
 /** A stored comment row, as returned by the primitives below. */
-export interface Comment {
-  id: string
-  siteId: string
-  pageId: string
-  authorId: string | null
-  replyTo: string | null
-  content: string
-  render: string | null
-  guestName: string | null
-  guestEmail: string | null
-  guestIp: string | null
-  createdAt: Date
-  updatedAt: Date
-}
+export type Comment = typeof commentsTable.$inferSelect
 
 /**
  * A comment as returned by {@link Comments.listForPage} — a {@link Comment} minus `guestEmail` /
@@ -235,7 +222,7 @@ class Comments {
         guestIp
       })
       .returning()
-    const comment = rows[0] as Comment
+    const comment = rows[0]
     await this.emitEvent('comment:new', comment, await this.resolveAuthorName(comment))
     return comment
   }
@@ -264,7 +251,7 @@ class Comments {
       })
       .where(eq(commentsTable.id, id))
       .returning()
-    const comment = rows[0] as Comment
+    const comment = rows[0]
     await this.emitEvent('comment:edit', comment, await this.resolveAuthorName(comment))
     return comment
   }
@@ -276,7 +263,7 @@ class Comments {
    */
   async get(id: string): Promise<Comment | null> {
     const rows = await WIKI.db.select().from(commentsTable).where(eq(commentsTable.id, id)).limit(1)
-    return (rows[0] as Comment) ?? null
+    return rows[0] ?? null
   }
 
   /**

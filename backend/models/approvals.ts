@@ -15,14 +15,14 @@ import { hasPermission } from './pages.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { RenderPermissions } from './rendering.ts'
 import { escapeHtml } from './mail.ts'
+import { approvalMatchModes } from '../helpers/approvalMatch.ts'
+import type { ApprovalMatchMode } from '../helpers/approvalMatch.ts'
 
-/**
- * How a rule decides which pages it covers. The same set group page rules use, so an administrator
- * writing one has learnt the other.
- */
-export const approvalMatchModes = ['START', 'EXACT', 'END', 'REGEX', 'TAG', 'TAGALL'] as const
-
-export type ApprovalMatchMode = (typeof approvalMatchModes)[number]
+// Re-exported for existing importers (`api/schemas/approval.ts`) -- the definition now lives in
+// `helpers/approvalMatch.ts` so `db/schema.ts` can type `approvalRules.match` against it without
+// importing a model into the schema module.
+export { approvalMatchModes }
+export type { ApprovalMatchMode }
 
 /** The part of a page a rule is matched against. */
 /** What a rule is matched against: where the page is, and what it is tagged with. */
@@ -75,13 +75,10 @@ export interface ApprovalProgress {
 }
 
 /** An edit suggested against a page, as the author's own view of it. */
-export interface PageEditSubmission {
-  id: string
-  content: string
-  baseHash: string
-  createdAt: Date
-  updatedAt: Date
-}
+export type PageEditSubmission = Pick<
+  typeof submissionsTable.$inferSelect,
+  'id' | 'content' | 'baseHash' | 'createdAt' | 'updatedAt'
+>
 
 /**
  * What became of a resolved suggestion, as its author sees it -- the return leg `hasOpenSuggestion`
@@ -158,26 +155,7 @@ export type ApproveSubmissionResult =
   | { ok: false; reason: 'not-found' | 'stale' | 'forbidden' }
 
 /** An approval rule as the API exposes it. */
-export interface ApprovalRule {
-  id: string
-  name: string
-  isEnabled: boolean
-  match: ApprovalMatchMode
-  path: string
-  /** IDs of the groups whose members may submit edit suggestions for a matching page. */
-  submitterGroups: string[]
-  /** IDs of the groups that review those submissions, and are notified of new ones. */
-  reviewerGroups: string[]
-  /**
-   * How many distinct reviewers must approve a submission this rule covers before it is finalized.
-   * 1 is a single approver's ordinary sign-off; higher requires that many DIFFERENT reviewers to
-   * approve before anything is written to the page. See `approveSubmission` for how this is enforced
-   * when several matching rules disagree.
-   */
-  minApprovals: number
-  createdAt: Date
-  updatedAt: Date
-}
+export type ApprovalRule = Omit<typeof approvalRulesTable.$inferSelect, 'siteId'>
 
 /** The fields a rule is created or updated with. */
 export interface ApprovalRulePatch {
@@ -243,17 +221,14 @@ class Approvals {
    * page rules.
    */
   async reloadCache(): Promise<void> {
-    const rows = (await WIKI.db
+    const rows = await WIKI.db
       .select({ ...ruleSelection, siteId: approvalRulesTable.siteId })
       .from(approvalRulesTable)
-      .orderBy(
-        asc(sql`lower(${approvalRulesTable.name})`),
-        asc(approvalRulesTable.createdAt)
-      )) as (ApprovalRule & { siteId: string })[]
+      .orderBy(asc(sql`lower(${approvalRulesTable.name})`), asc(approvalRulesTable.createdAt))
     rulesCache = {}
     for (const { siteId, ...rule } of rows) {
       rulesCache[siteId] ??= []
-      rulesCache[siteId].push(rule as ApprovalRule)
+      rulesCache[siteId].push(rule)
     }
     WIKI.logger.info(`Loaded ${rows.length} approval rules [ OK ]`)
   }
@@ -303,7 +278,7 @@ class Approvals {
       .from(approvalRulesTable)
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
       .limit(1)
-    return (rows[0] as ApprovalRule) ?? null
+    return rows[0] ?? null
   }
 
   /**
@@ -349,7 +324,7 @@ class Approvals {
       .returning(ruleSelection)
     // -> Every rule read afterwards comes from the cache, so it has to know about this one
     await this.broadcastReload()
-    return rows[0] as ApprovalRule
+    return rows[0]
   }
 
   /**
@@ -384,7 +359,7 @@ class Approvals {
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
       .returning(ruleSelection)
     await this.broadcastReload()
-    return (rows[0] as ApprovalRule) ?? null
+    return rows[0] ?? null
   }
 
   /**
@@ -617,7 +592,7 @@ class Approvals {
         )
       )
       .limit(1)
-    return (rows[0] as PageEditSubmission) ?? null
+    return rows[0] ?? null
   }
 
   /**

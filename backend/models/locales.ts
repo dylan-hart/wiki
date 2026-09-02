@@ -49,16 +49,17 @@ export function computeCompleteness(
   return Math.round((100 * matching) / baseKeys.length)
 }
 
-/** One locale pack as a sideload JSON file must shape it — see `parseSideloadLocalePack`. */
-export interface SideloadLocalePack {
-  name: string
-  nativeName: string
-  language: string
-  region: string
-  script: string
-  isRTL: boolean
-  strings: Record<string, unknown>
-}
+/**
+ * One locale pack as a sideload JSON file must shape it — see `parseSideloadLocalePack`.
+ *
+ * `strings` is intersected in rather than narrowed on the `locales.strings` column itself
+ * (`db/schema.ts`): that column's `.default([])` is an array, which is not assignable to a
+ * `.$type<Record<string, unknown>>()` column.
+ */
+export type SideloadLocalePack = Pick<
+  typeof localesTable.$inferSelect,
+  'name' | 'nativeName' | 'language' | 'region' | 'script' | 'isRTL'
+> & { strings: Record<string, unknown> }
 
 /**
  * Substitute `{name}`-style placeholders in a server-rendered string — the same interpolation
