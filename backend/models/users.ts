@@ -282,8 +282,13 @@ function authLockKey(userId: string): string {
  * `adminInvalidateTfa()` (an administrator overriding exactly that enforcement). The two methods stay
  * separate for the reason `adminInvalidateTfa`'s own doc comment gives — that is about who may ask,
  * not about what gets written, and what gets written is this.
+ *
+ * A factory rather than a shared constant: the value is merged into a stored JSON blob, and handing
+ * two accounts the same `recoveryCodes` array would make them one array.
  */
-const CLEARED_TFA = { tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
+function clearedTfa(): Record<string, any> {
+  return { tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
+}
 
 /**
  * Count a wrong 2FA code against a continuation token, destroying the token once `maxTfaAttempts`
@@ -1567,7 +1572,7 @@ class Users {
       throw new Error('ERR_TFA_ENFORCED')
     }
 
-    await this.patchStrategyAuth(userId, strategyId, () => CLEARED_TFA)
+    await this.patchStrategyAuth(userId, strategyId, clearedTfa)
     WIKI.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
   }
 
@@ -1588,7 +1593,7 @@ class Users {
   async adminInvalidateTfa(userId: string, strategyId: string): Promise<void> {
     const { user } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
 
-    await this.patchStrategyAuth(userId, strategyId, () => CLEARED_TFA)
+    await this.patchStrategyAuth(userId, strategyId, clearedTfa)
     WIKI.models.flags.authDebug(
       `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
     )
