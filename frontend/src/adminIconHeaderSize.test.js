@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
+import { listSourceFiles } from '../test/sourceFiles.js'
+
 /**
  * OpenProject #2332 ("Most admin area header icons render tiny -- WIcon's scoped .w-icon rule beats
  * the global .admin-icon 64px height").
@@ -25,19 +27,6 @@ import { describe, expect, it } from 'vitest'
 const SRC_DIR = dirname(fileURLToPath(import.meta.url))
 const PAGES_DIR = join(SRC_DIR, 'pages')
 
-function findVueFiles(dir) {
-  const out = []
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      out.push(...findVueFiles(full))
-    } else if (entry.name.endsWith('.vue')) {
-      out.push(full)
-    }
-  }
-  return out
-}
-
 /** Every `<w-icon ...>` tag (not just ones with `class="admin-icon"`) so a moved/renamed class can't hide from this scan. */
 function findWIconTags(source) {
   const templateMatch = source.match(/<template[^>]*>([\s\S]*)<\/template>/)
@@ -53,7 +42,9 @@ function isAdminHeaderIcon(tag) {
 }
 
 describe('every admin page header <w-icon class="admin-icon"> passes size="64px"', () => {
-  const adminPageFiles = findVueFiles(PAGES_DIR).filter((f) => /Admin[^/]*\.vue$/.test(f))
+  const adminPageFiles = listSourceFiles(PAGES_DIR, { ext: ['.vue'] }).filter((f) =>
+    /Admin[^/]*\.vue$/.test(f)
+  )
 
   it('scans a non-trivial number of Admin*.vue pages', () => {
     // -> A canary against the file walk or filter silently matching nothing, which would otherwise

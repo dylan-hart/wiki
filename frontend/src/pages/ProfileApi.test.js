@@ -6,6 +6,7 @@ import ProfileApi from './ProfileApi.vue'
 import { useUserStore } from '@/stores/user'
 
 import { createTestI18n } from '../../test/i18n.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * OpenProject #788: `ProfileApi.vue` is the self-service counterpart to `AdminApi.vue` -- it lists
@@ -52,8 +53,8 @@ function mountPage({ freshPinia = true } = {}) {
 
 describe('ProfileApi', () => {
   it("lists the caller's own tokens from users/profile/api-keys, not the admin api-keys resource", async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      const payloads = {
+    stubApi(
+      {
         'users/profile/api-keys': [
           {
             id: 'key-1',
@@ -69,9 +70,9 @@ describe('ProfileApi', () => {
           }
         ],
         sites: []
-      }
-      return { json: () => Promise.resolve(payloads[resource] ?? []) }
-    })
+      },
+      { fallback: [] }
+    )
 
     const wrapper = mountPage()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -142,8 +143,8 @@ describe('ProfileApi', () => {
   // Temporal.Instant#toLocaleString() call of its own -- so a viewer's stored timezone preference
   // must change what's rendered, the same instant included.
   it('renders createdOn through the store formatter, so a stored timezone changes it', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      const payloads = {
+    stubApi(
+      {
         'users/profile/api-keys': [
           {
             id: 'key-1',
@@ -159,9 +160,9 @@ describe('ProfileApi', () => {
           }
         ],
         sites: []
-      }
-      return { json: () => Promise.resolve(payloads[resource] ?? []) }
-    })
+      },
+      { fallback: [] }
+    )
 
     setActivePinia(createPinia())
     const userStore = useUserStore()

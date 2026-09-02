@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ProfileAuth from './ProfileAuth.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * OpenProject #1874: `GET /users/profile/tfa/recovery-codes` (`backend/api/users.ts`) was a
@@ -62,14 +63,9 @@ function localAuthMethod(config = {}) {
 }
 
 async function mountPage({ authMethods, recoveryCodesResponse }) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'users/profile/auth') {
-      return { json: () => Promise.resolve({ authMethods, passkeys: [] }) }
-    }
-    if (url === 'users/profile/tfa/recovery-codes') {
-      return { json: () => Promise.resolve(recoveryCodesResponse) }
-    }
-    return { json: () => Promise.resolve(undefined) }
+  stubApi({
+    'users/profile/auth': { authMethods, passkeys: [] },
+    'users/profile/tfa/recovery-codes': recoveryCodesResponse
   })
 
   const i18n = createTestI18n(MESSAGES)

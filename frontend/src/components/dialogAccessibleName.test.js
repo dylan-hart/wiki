@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
+import { listSourceFiles } from '../../test/sourceFiles.js'
+
 /**
  * OpenProject #1620 ("Thread an accessible name through the 60 dialog and overlay consumers"),
  * part of the "Implement the modal contract in `WDialog`" epic (#1606, 2026-08-24 audit --
@@ -29,19 +31,6 @@ import { describe, expect, it } from 'vitest'
  */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
-
-function walk(dir, results) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    const st = statSync(full)
-    if (st.isDirectory()) {
-      walk(full, results)
-    } else if (entry.endsWith('.vue')) {
-      results.push(full)
-    }
-  }
-  return results
-}
 
 /**
  * Extracts every `<w-dialog ...>` opening tag (attributes included) from a component's source,
@@ -94,7 +83,7 @@ function extractDialogTags(source) {
 }
 
 describe('every <w-dialog usage under components/ supplies an accessible name', () => {
-  const files = walk(componentsDir, []).filter((f) => !f.endsWith('.test.js'))
+  const files = listSourceFiles(componentsDir, { ext: ['.vue'] })
 
   const violations = []
   for (const file of files) {

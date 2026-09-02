@@ -8,6 +8,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { buildTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Regression coverage for task 515's two distinct recover-failure paths.
@@ -33,15 +34,8 @@ const row = {
 }
 
 function mockLoadEndpoints(rows = [row]) {
-  globalThis.API_CLIENT.get.mockImplementation((url) => {
-    if (String(url).includes('pages/deleted')) {
-      // -> One page, already exhausted -- `fetchAllRecoverable`'s cursor loop stops as soon as
-      //    `nextCursor` is null, so a single-page mock is enough for tests that don't care about
-      //    pagination itself.
-      return { json: () => Promise.resolve({ items: rows, nextCursor: null }) }
-    }
-    // -> The site lookup `load()` makes alongside the row list, for its currently active locales
-    return { json: () => Promise.resolve({ locales: { active: ['en', 'fr'] } }) }
+  stubApi(new Map([[/pages\/deleted/, { items: rows, nextCursor: null }]]), {
+    fallback: { locales: { active: ['en', 'fr'] } }
   })
 }
 

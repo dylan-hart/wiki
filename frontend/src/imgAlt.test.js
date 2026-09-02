@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
+import { listSourceFiles } from '../test/sourceFiles.js'
+
 /**
  * OpenProject #1663 ("Add `alt` to the 65 alt-less `<img>` elements under `frontend/src`").
  *
@@ -25,19 +27,6 @@ import { describe, expect, it } from 'vitest'
  */
 const SRC_DIR = dirname(fileURLToPath(import.meta.url))
 
-function findVueFiles(dir) {
-  const out = []
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      out.push(...findVueFiles(full))
-    } else if (entry.name.endsWith('.vue')) {
-      out.push(full)
-    }
-  }
-  return out
-}
-
 function findAltlessImgTags(source) {
   const templateMatch = source.match(/<template[^>]*>([\s\S]*)<\/template>/)
   if (!templateMatch) return []
@@ -53,7 +42,7 @@ function findAltlessImgTags(source) {
 }
 
 describe('every <img> under frontend/src carries a name-giving attribute', () => {
-  const vueFiles = findVueFiles(SRC_DIR)
+  const vueFiles = listSourceFiles(SRC_DIR, { ext: ['.vue'] })
 
   it('scans a non-trivial number of .vue files', () => {
     // -> A canary against `findVueFiles` silently walking the wrong directory (e.g. an empty one),

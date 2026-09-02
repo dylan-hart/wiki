@@ -6,6 +6,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Task 535: the notifications section this page gained above the pre-existing watched-pages list.
@@ -134,12 +135,7 @@ beforeEach(() => {
 
 describe('InboxWatching notifications', () => {
   it('lists unread notifications from GET .../notifications', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([NOTIFICATION]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
 
     const { wrapper } = await mountInboxWatching()
 
@@ -156,12 +152,7 @@ describe('InboxWatching notifications', () => {
   })
 
   it('marking a notification read removes it from the list and notifies the header badge', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([NOTIFICATION]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
     API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
 
     const { wrapper } = await mountInboxWatching()
@@ -182,12 +173,10 @@ describe('InboxWatching notifications', () => {
   })
 
   it('a non-primary-locale notification shows and links to a locale-prefixed path', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([{ ...NOTIFICATION, pageLocale: 'fr' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi(
+      { 'sites/site-1/notifications': [{ ...NOTIFICATION, pageLocale: 'fr' }] },
+      { fallback: [] }
+    )
     API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
 
     const { wrapper, router } = await mountInboxWatching({
@@ -210,12 +199,7 @@ describe('InboxWatching notifications', () => {
   })
 
   it('shows a toast and keeps the row when marking read fails', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([NOTIFICATION]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
     API_CLIENT.patch.mockImplementationOnce(() => {
       throw new Error('network')
     })
@@ -234,12 +218,7 @@ describe('InboxWatching notifications', () => {
 
 describe('InboxWatching watching', () => {
   function mockWatchedPages() {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/watching') {
-        return { json: () => Promise.resolve([WATCHED_PAGE]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/watching': [WATCHED_PAGE] }, { fallback: [] })
   }
 
   it('unwatching a page via DELETE removes it from the list and toasts a positive notification', async () => {

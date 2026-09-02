@@ -4,6 +4,7 @@ import { flushPromises } from '@vue/test-utils'
 import AdminAuth from './AdminAuth.vue'
 
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Regression coverage for Task 441: the "Add Strategy" picker's `availableStrategies` list is a flat,
@@ -115,17 +116,10 @@ const MODULES = [
 ]
 
 async function mountPage({ strategies = [] } = {}) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'authentication/modules') {
-      return { json: () => Promise.resolve(MODULES) }
-    }
-    if (url === 'authentication/strategies') {
-      return { json: () => Promise.resolve(strategies) }
-    }
-    if (url === 'groups') {
-      return { json: () => Promise.resolve([]) }
-    }
-    return { json: () => Promise.resolve(undefined) }
+  stubApi({
+    'authentication/modules': MODULES,
+    'authentication/strategies': strategies,
+    groups: []
   })
 
   const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })

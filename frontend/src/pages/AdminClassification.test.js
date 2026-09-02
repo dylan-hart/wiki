@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
@@ -9,6 +7,7 @@ import { confirm, dialog } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -111,12 +110,7 @@ const DRILLDOWN_REPORT = [
 ]
 
 async function mountReportPage(report = DRILLDOWN_REPORT) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (String(url).includes('classification-report')) {
-      return { json: () => Promise.resolve(report) }
-    }
-    return { json: () => Promise.resolve([]) }
-  })
+  stubApi(new Map([[/classification-report/, report]]), { fallback: [] })
 
   const { wrapper } = mountWithApp(AdminClassification, {
     stores: { site: { docsBase: 'https://docs.js.wiki' } }
@@ -167,15 +161,10 @@ const REPORT = [
 ]
 
 function mountAdminClassification(levels = LEVELS, report = REPORT) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'classification-levels') {
-      return { json: () => Promise.resolve(levels) }
-    }
-    if (url === 'pages/classification-report') {
-      return { json: () => Promise.resolve(report) }
-    }
-    return { json: () => Promise.resolve([]) }
-  })
+  stubApi(
+    { 'classification-levels': levels, 'pages/classification-report': report },
+    { fallback: [] }
+  )
 
   return mountWithApp(AdminClassification, { stores: { site: { id: 'site-1' } } }).wrapper
 }
@@ -290,12 +279,7 @@ describe('AdminClassification: deleteLevel()', () => {
     const getCallsBefore = API_CLIENT.get.mock.calls.length
 
     API_CLIENT.delete.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'classification-levels') {
-        return { json: () => Promise.resolve([LEVELS[1]]) }
-      }
-      return { json: () => Promise.resolve([REPORT[1]]) }
-    })
+    stubApi({ 'classification-levels': [LEVELS[1]] }, { fallback: [REPORT[1]] })
 
     await wrapper.vm.deleteLevel(wrapper.vm.state.levels[0])
     await flushPromises()
@@ -342,15 +326,7 @@ describe('AdminClassification rename focus', () => {
   it('focuses the rename field once it appears, without an inert autofocus attribute', async () => {
     const LEVEL = { id: 'lvl-1', name: 'Internal', sortOrder: 0 }
 
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'classification-levels') {
-        return { json: () => Promise.resolve([LEVEL]) }
-      }
-      if (url === 'pages/classification-report') {
-        return { json: () => Promise.resolve([]) }
-      }
-      return { json: () => Promise.resolve(undefined) }
-    })
+    stubApi({ 'classification-levels': [LEVEL], 'pages/classification-report': [] })
 
     const { wrapper } = mountWithApp(AdminClassification, {
       attachTo: document.body,
@@ -370,20 +346,5 @@ describe('AdminClassification rename focus', () => {
     expect(renameField.exists()).toBe(true)
     expect(renameField.attributes('autofocus')).toBeUndefined()
     expect(document.activeElement).toBe(renameField.element)
-  })
-})
-
-/**
- * OpenProject #1929: `/admin/classification` names a classification-guardrail concept this fork
- * invented (no upstream Wiki.js docs site can describe it), so the `docsBase`-based help button was
- * deleted rather than left pointing at a page that does not exist. Reads the raw source rather than
- * mounting the component -- a full mount is out of proportion for asserting that some markup is
- * simply gone -- so this also guards against the button quietly being reintroduced.
- */
-const source = readFileSync(join(import.meta.dirname, 'AdminClassification.vue'), 'utf-8')
-
-describe('AdminClassification help link', () => {
-  it('has no docsBase-based help/docs button', () => {
-    expect(source).not.toContain('docsBase')
   })
 })

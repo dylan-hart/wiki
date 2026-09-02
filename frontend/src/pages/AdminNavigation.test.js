@@ -10,6 +10,7 @@ import { dialog } from '@/composables/dialog'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { stubApi } from '../../test/mocks.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -51,14 +52,9 @@ const SITE_LOCALES = [
  * happens to reach its `await` first would silently consume the other's mock.
  */
 function mockApiClient({ overrides = OVERRIDES, siteLocales = SITE_LOCALES, primary = 'en' } = {}) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'sites/site-1/navigation/overrides') {
-      return { json: () => Promise.resolve(overrides) }
-    }
-    if (url === 'sites/site-1?strict=true') {
-      return { json: () => Promise.resolve({ locales: { active: siteLocales, primary } }) }
-    }
-    return { json: () => Promise.resolve(undefined) }
+  stubApi({
+    'sites/site-1/navigation/overrides': overrides,
+    'sites/site-1?strict=true': { locales: { active: siteLocales, primary } }
   })
 }
 
@@ -294,14 +290,9 @@ describe('AdminNavigation site-switch reload (OpenProject #948)', () => {
         navigationId: 'nav-9'
       }
     ]
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-2/navigation/overrides') {
-        return { json: () => Promise.resolve(OTHER_SITE_OVERRIDES) }
-      }
-      if (url === 'sites/site-2?strict=true') {
-        return { json: () => Promise.resolve({ locales: { active: SITE_LOCALES, primary: 'en' } }) }
-      }
-      return { json: () => Promise.resolve(undefined) }
+    stubApi({
+      'sites/site-2/navigation/overrides': OTHER_SITE_OVERRIDES,
+      'sites/site-2?strict=true': { locales: { active: SITE_LOCALES, primary: 'en' } }
     })
 
     adminStore.currentSiteId = 'site-2'
@@ -319,17 +310,10 @@ describe('AdminNavigation site-switch reload (OpenProject #948)', () => {
     const { wrapper, adminStore } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-2/navigation/overrides') {
-        return { json: () => Promise.resolve([]) }
-      }
-      if (url === 'sites/site-2?strict=true') {
-        return { json: () => Promise.resolve({ locales: { active: SITE_LOCALES, primary: 'en' } }) }
-      }
-      if (url === 'sites/site-2/navigation/default') {
-        return { json: () => Promise.resolve({ navigationId: 'default-nav-site-2' }) }
-      }
-      return { json: () => Promise.resolve(undefined) }
+    stubApi({
+      'sites/site-2/navigation/overrides': [],
+      'sites/site-2?strict=true': { locales: { active: SITE_LOCALES, primary: 'en' } },
+      'sites/site-2/navigation/default': { navigationId: 'default-nav-site-2' }
     })
     adminStore.currentSiteId = 'site-2'
     await vi.waitUntil(() =>

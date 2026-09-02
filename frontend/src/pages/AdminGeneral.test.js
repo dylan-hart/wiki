@@ -14,6 +14,7 @@ import { createTestI18n } from '../../test/i18n.js'
 
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Regression test: `<blueprint-icon indicator ...>` (a bare attribute, no `:` binding) always sends
@@ -23,12 +24,7 @@ import { mountWithApp } from '../../test/mount.js'
  * mount and only passes a truthy `indicator` when the `sharp` entry reports `!isInstalled`.
  */
 async function mountPage(extensionsResponse) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'system/extensions') {
-      return { json: () => Promise.resolve(extensionsResponse) }
-    }
-    return { json: () => Promise.resolve(undefined) }
-  })
+  stubApi({ 'system/extensions': extensionsResponse })
 
   const router = await createTestRouter(['/'], '/')
 

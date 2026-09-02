@@ -15,6 +15,7 @@ import WMenu from '@/components/shared/WMenu.vue'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /*
   `stores/common.js` reads `localStorage.getItem('locale')` at store-creation time. Node 26 (this
@@ -264,12 +265,7 @@ async function mountAdminLayout() {
   // -> `fetchSites()` (called from `onMounted`) does `this.sites[0].id` when nothing came back --
   //    the default `API_CLIENT` stub resolves every call to `undefined`, which would throw. A
   //    stubbed site list is what a real backend would return here.
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'sites') {
-      return { json: () => Promise.resolve([{ id: 'site-1', title: 'Test Site' }]) }
-    }
-    return { json: () => Promise.resolve([]) }
-  })
+  stubApi({ sites: [{ id: 'site-1', title: 'Test Site' }] }, { fallback: [] })
 
   const wrapper = mount(AdminLayout, {
     global: {
@@ -341,12 +337,7 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
 
     const i18n = createTestI18n()
 
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Test Site' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ sites: [{ id: 'site-1', title: 'Test Site' }] }, { fallback: [] })
 
     const wrapper = mount(AdminLayout, {
       global: {

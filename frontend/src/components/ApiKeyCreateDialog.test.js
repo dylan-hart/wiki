@@ -4,6 +4,7 @@ import { DOMWrapper } from '@vue/test-utils'
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
 import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -33,12 +34,7 @@ function mountDialog() {
 
 describe('ApiKeyCreateDialog site picker', () => {
   it('prepends an "All Sites" (id: null) entry to the fetched sites list', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ sites: [{ id: 'site-1', title: 'Docs' }] }, { fallback: [] })
 
     const wrapper = mountDialog()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -50,15 +46,10 @@ describe('ApiKeyCreateDialog site picker', () => {
   })
 
   it('defaults keySiteId to null and sends it as siteId on create', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      if (resource === 'groups') {
-        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi(
+      { sites: [{ id: 'site-1', title: 'Docs' }], groups: [{ id: 'group-1', name: 'Editors' }] },
+      { fallback: [] }
+    )
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })
@@ -80,15 +71,10 @@ describe('ApiKeyCreateDialog site picker', () => {
   })
 
   it('sends the picked site as siteId on create', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      if (resource === 'groups') {
-        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi(
+      { sites: [{ id: 'site-1', title: 'Docs' }], groups: [{ id: 'group-1', name: 'Editors' }] },
+      { fallback: [] }
+    )
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })
@@ -341,12 +327,7 @@ describe('ApiKeyCreateDialog scope tree', () => {
   })
 
   it('shows the group checkbox as mixed once only some of its scopes are checked, and sends the narrowed list on create', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'groups') {
-        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ groups: [{ id: 'group-1', name: 'Editors' }] }, { fallback: [] })
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })

@@ -4,6 +4,7 @@ import { DOMWrapper } from '@vue/test-utils'
 import ProfileApiKeyCreateDialog from './ProfileApiKeyCreateDialog.vue'
 import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -28,12 +29,7 @@ function mountDialog() {
 
 describe('ProfileApiKeyCreateDialog', () => {
   it('posts to users/profile/api-keys with no groups field, unlike the admin-issued form', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ sites: [{ id: 'site-1', title: 'Docs' }] }, { fallback: [] })
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })
@@ -60,12 +56,7 @@ describe('ProfileApiKeyCreateDialog', () => {
   })
 
   it('prepends an "All Sites" (id: null) entry to the fetched sites list, same as the admin form', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ sites: [{ id: 'site-1', title: 'Docs' }] }, { fallback: [] })
 
     const wrapper = mountDialog()
     await new Promise((resolve) => setTimeout(resolve, 0))

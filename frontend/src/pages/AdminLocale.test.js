@@ -8,6 +8,7 @@ import { queue } from '@/composables/notify'
 
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Coverage indicator on the 'Active Locales' w-item loop (task 696). Each row must surface
@@ -30,15 +31,12 @@ async function mountPage({ permissions = ['manage:sites'] } = {}) {
 
   const router = await createTestRouter(['/_admin/:siteid/locale'], '/_admin/site-1/locale')
 
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'locales') {
-      return { json: () => Promise.resolve(LOCALES) }
-    }
-    if (String(url).startsWith('sites/')) {
-      return { json: () => Promise.resolve({ locales: { primary: 'en', active: ['en'] } }) }
-    }
-    return { json: () => Promise.resolve(undefined) }
-  })
+  stubApi(
+    new Map([
+      ['locales', LOCALES],
+      [/^sites\//, { locales: { primary: 'en', active: ['en'] } }]
+    ])
+  )
 
   return mountWithApp(AdminLocale, {
     messages: {

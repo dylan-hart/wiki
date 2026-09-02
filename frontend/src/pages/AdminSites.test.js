@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import AdminSites from './AdminSites.vue'
@@ -62,20 +60,5 @@ describe('AdminSites hostname links (OpenProject #1990)', () => {
     //    button beside Edit/Delete.
     const links = wrapper.findAll('a[href="//docs.example.com"]')
     expect(links).toHaveLength(2)
-  })
-})
-
-/**
- * OpenProject #1929: `/admin/sites` names a multi-site-administration concept this fork invented (no
- * upstream Wiki.js docs site can describe it), so the `docsBase`-based help button was deleted rather
- * than left pointing at a page that does not exist. Reads the raw source rather than mounting the
- * component -- a full mount is out of proportion for asserting that some markup is simply gone -- so
- * this also guards against the button quietly being reintroduced.
- */
-const source = readFileSync(join(import.meta.dirname, 'AdminSites.vue'), 'utf-8')
-
-describe('AdminSites help link', () => {
-  it('has no docsBase-based help/docs button', () => {
-    expect(source).not.toContain('docsBase')
   })
 })

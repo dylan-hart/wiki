@@ -6,6 +6,7 @@ import BlueprintIcon from '@/components/BlueprintIcon.vue'
 
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Same regression as `AdminGeneral.test.js`: the login background uploader's `<blueprint-icon
@@ -13,12 +14,7 @@ import { mountWithApp } from '../../test/mount.js'
  * truthy `indicator` once `system/extensions` reports the `sharp` entry as `!isInstalled`.
  */
 async function mountPage(extensionsResponse) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'system/extensions') {
-      return { json: () => Promise.resolve(extensionsResponse) }
-    }
-    return { json: () => Promise.resolve(undefined) }
-  })
+  stubApi({ 'system/extensions': extensionsResponse })
 
   const router = await createTestRouter(['/'])
 

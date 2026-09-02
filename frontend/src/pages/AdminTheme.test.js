@@ -9,6 +9,7 @@ import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Task 754: `getAccessibleColor` now has real substitutes for every themeable color name, and this
@@ -19,12 +20,7 @@ import { mountWithApp } from '../../test/mount.js'
  * chrome text, matching the fg/bg pairing `WBtn.vue` uses for every solid button in the app).
  */
 async function mountPage(theme, cvd = 'none') {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'sites/site-a?strict=true') {
-      return { json: () => Promise.resolve({ id: 'site-a', theme }) }
-    }
-    return { json: () => Promise.resolve(undefined) }
-  })
+  stubApi({ 'sites/site-a?strict=true': { id: 'site-a', theme } })
 
   const router = await createTestRouter(['/'])
 
