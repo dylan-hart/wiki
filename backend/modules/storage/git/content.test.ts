@@ -22,6 +22,8 @@ import {
   assetDeleted
 } from './content.ts'
 import { ensureRepo } from './repo.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'
@@ -40,7 +42,7 @@ function installWiki(
     users?: Record<string, any>
   } = {}
 ): void {
-  ;(globalThis as any).WIKI = {
+  installTestWiki({
     ROOTPATH: rootPath,
     sites: {
       [SITE_ID]: { config: { locales: { primary: PRIMARY_LOCALE } } }
@@ -60,7 +62,7 @@ function installWiki(
         getById: mock.fn(async (id: string) => users[id] ?? null)
       }
     }
-  }
+  })
 }
 
 async function makeTempDir(): Promise<string> {
@@ -68,16 +70,9 @@ async function makeTempDir(): Promise<string> {
 }
 
 function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
-  return {
+  return makeStorageTarget('git', {
     id: 'target-1',
-    module: 'git',
-    isEnabled: true,
     title: 'Local Git',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
     contentTypes: {
       activeTypes: ['pages', 'images', 'documents', 'others', 'large'],
       largeThreshold: '5MB'
@@ -89,7 +84,6 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       directAccess: false
     },
     versioning: { isSupported: true, isForceEnabled: true, enabled: true },
-    props: {},
     config: {
       authType: 'basic',
       repoUrl: 'https://example.com/org/repo.git',
@@ -98,9 +92,8 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       defaultName: 'Fallback Name',
       defaultEmail: 'fallback@example.com'
     },
-    actions: [],
     ...overrides
-  } as StorageTarget
+  })
 }
 
 /** Reads back the latest commit's author + message, for asserting the write-path convention. */

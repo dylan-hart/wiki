@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import S3rver from 's3rver'
 import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import storageModule from './storage.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -29,6 +30,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
   let dataDir: string
   let endpoint: string
   let verifyClient: S3Client
+  let wikiHandle: { restore(): void }
   const bucket = 'wiki-emulated-test'
 
   before(async () => {
@@ -50,55 +52,26 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
       credentials: { accessKeyId: 'S3RVER', secretAccessKey: 'S3RVER' }
     })
 
-    global.WIKI = {
-      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+    wikiHandle = installTestWiki({
       models: {
         assets: {
           getContent: async () => null,
           streamAll: async function* () {}
         }
       }
-    } as any
+    })
   })
 
   after(async () => {
     await server.close()
     await rm(dataDir, { recursive: true, force: true })
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   /** A fresh target per test: a real (never-yet-activated) client per id, pointed at the emulator. */
   function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
-    return {
-      id: randomUUID(),
-      siteId: 'site-1',
-      module: 's3',
-      isEnabled: true,
+    return makeStorageTarget('s3', {
       title: 'Emulated S3',
-      description: '',
-      icon: '',
-      banner: '',
-      vendor: '',
-      website: '',
-      contentTypes: {
-        activeTypes: ['images', 'documents', 'others', 'large'],
-        largeThreshold: '5MB'
-      },
-      assetDelivery: {
-        isStreamingSupported: true,
-        isDirectAccessSupported: true,
-        streaming: false,
-        directAccess: true
-      },
-      versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-      sync: {
-        supportedModes: ['push'],
-        schedule: false,
-        mode: 'push',
-        scheduleOverride: null,
-        supportsContentSync: true
-      },
-      props: {},
       config: {
         mode: 'custom',
         endpoint,
@@ -110,9 +83,8 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
         secretAccessKey: 'S3RVER',
         storageTier: 'STANDARD',
         ...configOverrides
-      },
-      actions: []
-    }
+      }
+    })
   }
 
   test('ensureBucket creates the bucket on first activation, then assetUploaded round-trips real bytes', async () => {

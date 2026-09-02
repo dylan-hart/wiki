@@ -7,6 +7,8 @@ import {
   DIRECT_ACCESS_TTL_SECONDS,
   type BlobDriver
 } from './blobBase.ts'
+import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
+import { makeStorageTarget } from '../../test/builders.ts'
 import type { StorageTarget } from '../../models/storage.ts'
 
 /**
@@ -17,15 +19,17 @@ import type { StorageTarget } from '../../models/storage.ts'
  * `storage.test.ts` still covers its SDK callbacks against that SDK's mocking story.
  */
 
-global.WIKI = {
-  logger: { info: mock.fn(), warn: () => {}, error: () => {}, debug: () => {} },
+installTestWiki({
+  // -> `info` is a `mock.fn()` rather than the silent default: `beforeEach` below resets its call
+  //    history, and one test asserts on what the module logged.
+  logger: { ...createSilentLogger(), info: mock.fn() },
   models: {
     assets: {
       getContent: mock.fn(async () => null),
       streamAll: async function* () {}
     }
   }
-} as any
+})
 
 /** The fake driver's "client" — an opaque token, so a test can assert it reached every callback. */
 interface FakeClient {
@@ -65,39 +69,10 @@ function makeDriver() {
 
 /** A fresh target per test, so the factory's per-target activation cache never leaks between cases. */
 function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
-  return {
-    id: randomUUID(),
-    siteId: 'site-1',
-    module: 'fake',
-    isEnabled: true,
+  return makeStorageTarget('fake', {
     title: 'Test Blob',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
-    contentTypes: {
-      activeTypes: ['images', 'documents', 'others', 'large'],
-      largeThreshold: '5MB'
-    },
-    assetDelivery: {
-      isStreamingSupported: true,
-      isDirectAccessSupported: true,
-      streaming: false,
-      directAccess: true
-    },
-    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: {
-      supportedModes: ['push'],
-      schedule: false,
-      mode: 'push',
-      scheduleOverride: null,
-      supportsContentSync: true
-    },
-    props: {},
-    config: { bucket: 'wiki', ...configOverrides },
-    actions: []
-  }
+    config: { bucket: 'wiki', ...configOverrides }
+  })
 }
 
 beforeEach(() => {

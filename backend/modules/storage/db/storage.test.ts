@@ -17,6 +17,7 @@ import { tree } from '../../../models/tree.ts'
 import dbStorageModule, { purge } from './storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
  * Exercises `purge()` against a real Postgres instance rather than a mocked `WIKI.db` chain, because
@@ -47,7 +48,7 @@ before(async () => {
 
   pool = new Pool({ connectionString: DATABASE_URL })
   const db = drizzle({ client: pool, relations })
-  global.WIKI = {
+  installTestWiki({
     db,
     // -> `dropCachedContent()`'s `cachePath` getter reads both of these; pointed at a throwaway temp
     //    directory so this test never touches a real instance's file cache.
@@ -55,9 +56,8 @@ before(async () => {
       fs.mkdtemp(path.join(os.tmpdir(), 'wiki-db-storage-test-'))
     ),
     config: { dataPath: '.' },
-    logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} },
     models: { assets }
-  } as unknown as WikiGlobal
+  })
 
   const [site] = await WIKI.db
     .insert(sitesTable)

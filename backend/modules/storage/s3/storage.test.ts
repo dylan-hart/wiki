@@ -1,6 +1,5 @@
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
 import {
   CopyObjectCommand,
   CreateBucketCommand,
@@ -19,6 +18,8 @@ import storageModule, {
   storageClassFor
 } from './storage.ts'
 import { keyFor } from '../blobBase.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -31,15 +32,14 @@ import type { StorageTarget } from '../../../models/storage.ts'
 
 const s3Mock = mockClient(S3Client)
 
-global.WIKI = {
-  logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+installTestWiki({
   models: {
     assets: {
       getContent: mock.fn(async () => null),
       streamAll: async function* () {}
     }
   }
-} as any
+})
 
 beforeEach(() => {
   s3Mock.reset()
@@ -49,36 +49,8 @@ beforeEach(() => {
 
 /** A fresh target per test, so the module's per-target client cache never leaks between cases. */
 function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
-  return {
-    id: randomUUID(),
-    siteId: 'site-1',
-    module: 's3',
-    isEnabled: true,
+  return makeStorageTarget('s3', {
     title: 'Test S3',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
-    contentTypes: {
-      activeTypes: ['images', 'documents', 'others', 'large'],
-      largeThreshold: '5MB'
-    },
-    assetDelivery: {
-      isStreamingSupported: true,
-      isDirectAccessSupported: true,
-      streaming: false,
-      directAccess: true
-    },
-    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: {
-      supportedModes: ['push'],
-      schedule: false,
-      mode: 'push',
-      scheduleOverride: null,
-      supportsContentSync: true
-    },
-    props: {},
     config: {
       mode: 'aws',
       awsRegion: 'us-east-1',
@@ -87,9 +59,8 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       secretAccessKey: 'fakesecret',
       storageTier: 'STANDARD',
       ...configOverrides
-    },
-    actions: []
-  }
+    }
+  })
 }
 
 describe('s3 storage / resolveCustomEndpoint', () => {

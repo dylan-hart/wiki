@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { after, before, beforeEach, describe, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import { connectSftp, ensureDirectory, type SftpTargetConfig } from './connection.ts'
 import { exportAssets, type AssetExportRow } from './assets.ts'
 import { exportPages, type PageExportRow } from './pages.ts'
 import { exportAll } from './storage.ts'
 import { generateTestKeyPair, startTestSftpServer } from '../../../test/sftpServer.ts'
 import type { TestSftpServer } from '../../../test/sftpServer.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
 
@@ -25,28 +27,28 @@ import { ensureTemporal } from '../../../test/temporal.ts'
  * `Date#toTemporalInstant()`, a Node 26 global this sandbox's Node v25.9.0 doesn't provide — same gap
  * `helpers/pageSerialization.test.ts` and `core/scheduler.test.ts` already work around.
  */
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let loggerCalls: string[]
 
 before(async () => {
   await ensureTemporal()
-  previousWiki = (globalThis as any).WIKI
 })
 
 beforeEach(() => {
   loggerCalls = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
+    // -> Not the silent default: several tests assert on what the export run logged.
     logger: {
       info: mock.fn((message: string) => loggerCalls.push(message)),
       warn: mock.fn((message: string) => loggerCalls.push(message)),
       error: mock.fn(),
       debug: mock.fn()
     }
-  }
+  })
 })
 
-after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+afterEach(() => {
+  wikiHandle.restore()
 })
 
 const PASSWORD_USER = { username: 'pwuser', password: 'hunter2-test' }
@@ -172,17 +174,9 @@ describe('ensureDirectory — real server', () => {
 
 describe('exportAll — full run against a seeded site (real server)', () => {
   function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
-    return {
+    return makeStorageTarget('sftp', {
       id: 'target-1',
-      siteId: 'site-1',
-      module: 'sftp',
-      isEnabled: true,
       title: 'SFTP',
-      description: '',
-      icon: '',
-      banner: '',
-      vendor: '',
-      website: '',
       contentTypes: {
         activeTypes: ['pages', 'images', 'documents', 'others', 'large'],
         largeThreshold: '5MB'
@@ -193,7 +187,6 @@ describe('exportAll — full run against a seeded site (real server)', () => {
         streaming: false,
         directAccess: false
       },
-      versioning: { isSupported: false, isForceEnabled: false, enabled: false },
       sync: {
         supportedModes: ['push'],
         schedule: false,
@@ -201,11 +194,9 @@ describe('exportAll — full run against a seeded site (real server)', () => {
         scheduleOverride: null,
         supportsContentSync: false
       },
-      props: {},
       config: makeConfig(),
-      actions: [],
       ...overrides
-    }
+    })
   }
 
   test('writes every seeded page and asset to the expected remote paths', async () => {

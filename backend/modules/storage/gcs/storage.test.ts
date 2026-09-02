@@ -1,9 +1,10 @@
 import { describe, test, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
 import { Bucket, File } from '@google-cloud/storage'
 import storageModule, { buildClient, ensureBucket } from './storage.ts'
 import { keyFor } from '../blobBase.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -16,15 +17,14 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * (backend)" in CLAUDE.md for the pure-unit-test convention this follows.
  */
 
-global.WIKI = {
-  logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+installTestWiki({
   models: {
     assets: {
       getContent: mock.fn(async () => null),
       streamAll: async function* () {}
     }
   }
-} as any
+})
 
 const FAKE_CREDENTIALS = JSON.stringify({
   client_email: 'wiki@test-project.iam.gserviceaccount.com',
@@ -56,36 +56,8 @@ afterEach(() => {
 
 /** A fresh target per test, so the module's per-target client cache never leaks between cases. */
 function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
-  return {
-    id: randomUUID(),
-    siteId: 'site-1',
-    module: 'gcs',
-    isEnabled: true,
+  return makeStorageTarget('gcs', {
     title: 'Test GCS',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
-    contentTypes: {
-      activeTypes: ['images', 'documents', 'others', 'large'],
-      largeThreshold: '5MB'
-    },
-    assetDelivery: {
-      isStreamingSupported: true,
-      isDirectAccessSupported: true,
-      streaming: false,
-      directAccess: true
-    },
-    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: {
-      supportedModes: ['push'],
-      schedule: false,
-      mode: 'push',
-      scheduleOverride: null,
-      supportsContentSync: true
-    },
-    props: {},
     config: {
       accountName: 'test-project',
       credentialsJSON: FAKE_CREDENTIALS,
@@ -93,9 +65,8 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       storageTier: 'STANDARD',
       apiEndpoint: 'storage.google.com',
       ...configOverrides
-    },
-    actions: []
-  }
+    }
+  })
 }
 
 describe('gcs storage / buildClient', () => {
