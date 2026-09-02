@@ -421,6 +421,21 @@ sentences are now incomplete rather than wrong.
   it should not. A suite names exactly the methods its code path calls. `data.systemIds` defaults to
   an empty object (so a read answers `undefined` instead of throwing on `undefined.x`), and overrides
   are deep-merged — arrays, class instances and `mock.fn()`s replace wholesale rather than merging.
+  The merge copies property DESCRIPTORS, so a stub may declare a GETTER
+  (`get sites() { … }`) to steer what a route sees from a module-level variable per test — which
+  `api/pages.test.ts` does for `features.collaborativeEditing`, and which a value-copying merge would
+  silently freeze into one snapshot.
+- **A hook a suite needs registered before its own routes is a one-line plugin wrapper, not an
+  `app.addHook` after `buildTestApp` returns.** `onRoute` fires only for routes registered into the
+  same encapsulation or below it, and a `preHandler` added after `ready()` is too late; wrapping
+  (`async (instance) => { instance.addHook(…); await instance.register(routes) }`) is how
+  `api/index`, `api/scheduler`, `api/analytics`, `api/navigation`, the nine `siteEnabledPreHandler`
+  suites and `api/authentication`'s form-body/cookie apps all do it.
+- **`session` also takes a FUNCTION,** which is how a suite keeps a per-test identity (`() => session`
+  off a module variable), builds a fresh mutable session per request (`() => ({})`, which the
+  password-reset routes write to), or does a per-request side effect and stays anonymous (return
+  `undefined` — `api/sites`, `api/approvals`, `api/blocks` and `api/navigation` capture an
+  `x-test-site-permissions` header that way, since `checkSiteAccess()` takes no `req`).
 - **`test/*.test.ts` co-located with a harness module is the right home for its own coverage.** The
   section's "`test/` holds shared fixture code that is not itself a `*.test.ts`" sentence needs a
   clause: a harness module in `test/` gets its own co-located suite there, the same as any other
