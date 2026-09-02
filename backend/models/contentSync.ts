@@ -6,33 +6,12 @@ import {
 } from '../db/schema.ts'
 
 /** The kinds of content that can have sync state, i.e. that a storage target can hold. */
-export const SYNC_CONTENT_TYPES = ['page', 'asset'] as const
+const SYNC_CONTENT_TYPES = ['page', 'asset'] as const
 export type SyncContentType = (typeof SYNC_CONTENT_TYPES)[number]
 
 /** Direction a sync attempt moved content in, once it has succeeded at least once. */
-export const SYNC_DIRECTIONS = ['push', 'pull'] as const
+const SYNC_DIRECTIONS = ['push', 'pull'] as const
 export type SyncDirection = (typeof SYNC_DIRECTIONS)[number]
-
-/** A `contentSyncState` row, as read back. */
-export interface ContentSyncStateRow {
-  id: string
-  contentType: SyncContentType
-  contentId: string
-  targetId: string
-  lastDirection: SyncDirection | null
-  targetRef: unknown
-  lastSyncedAt: Date | null
-  lastError: string | null
-  createdAt: Date
-  updatedAt: Date
-}
-
-/** One content item the out-of-date query found, i.e. it has no successful sync newer than itself. */
-export interface OutOfDateContent {
-  id: string
-  siteId: string
-  updatedAt: Date
-}
 
 /**
  * A target's sync status at a glance, e.g. for the admin area's per-target status card. Deliberately
@@ -77,72 +56,21 @@ export interface TargetSyncSummary {
  *
  * `contentId` carries no foreign key -- it addresses either `pages` or `assets` depending on
  * `contentType`, and a single uuid column can't reference two tables. That means a row is never
- * reclaimed when the page or asset it describes is deleted: `getOutOfDatePages`/`getOutOfDateAssets`
- * join outward from `pages`/`assets`, so a deleted content item's orphaned row simply drops out of
- * those results, but `getTargetSummary`'s error-lookup query does not join through content at all --
- * it can surface a stale row's `lastError` for a page or asset that no longer exists.
+ * reclaimed when the page or asset it describes is deleted: `countOutOfDate` joins outward from
+ * `pages`/`assets`, so a deleted content item's orphaned row simply drops out of its results, but
+ * `getTargetSummary`'s error-lookup query does not join through content at all -- it can surface a
+ * stale row's `lastError` for a page or asset that no longer exists.
  */
 class ContentSync {
-  /**
-   * The sync state for one content item on one target, or null if it has never been attempted.
-   */
-  async getState(
-    contentType: SyncContentType,
-    contentId: string,
-    targetId: string
-  ): Promise<ContentSyncStateRow | null> {
-    const rows = await WIKI.db
-      .select()
-      .from(contentSyncStateTable)
-      .where(
-        and(
-          eq(contentSyncStateTable.contentType, contentType),
-          eq(contentSyncStateTable.contentId, contentId),
-          eq(contentSyncStateTable.targetId, targetId)
-        )
-      )
-      .limit(1)
-    return (rows[0] as ContentSyncStateRow) ?? null
-  }
-
-  /**
-   * Every target's state for one content item, e.g. for a page's "sync status" panel.
-   */
-  async getStatesForContent(
-    contentType: SyncContentType,
-    contentId: string
-  ): Promise<ContentSyncStateRow[]> {
-    return (await WIKI.db
-      .select()
-      .from(contentSyncStateTable)
-      .where(
-        and(
-          eq(contentSyncStateTable.contentType, contentType),
-          eq(contentSyncStateTable.contentId, contentId)
-        )
-      )) as ContentSyncStateRow[]
-  }
-
-  /**
-   * Every content item's state on one target, e.g. for a target's "last synced" admin listing.
-   */
-  async getStatesForTarget(targetId: string): Promise<ContentSyncStateRow[]> {
-    return (await WIKI.db
-      .select()
-      .from(contentSyncStateTable)
-      .where(eq(contentSyncStateTable.targetId, targetId))) as ContentSyncStateRow[]
-  }
-
   /**
    * A target's sync status at a glance: when it last succeeded, its most recent error (if any), and
    * how much content on the site is out of date on it. What the admin area's per-target status card
    * reads -- see `TargetSyncSummary` for why this stops short of a single verdict.
    *
-   * Four aggregate queries rather than `getStatesForTarget()`/`getOutOfDatePages()`/`getOutOfDateAssets()`
-   * reduced in memory: a target can have one row per page and asset on the site, and a status card needs
-   * three numbers out of that, not every row transferred to compute them -- `countOutOfDatePages()` and
-   * `countOutOfDateAssets()` run the identical LEFT JOIN as their row-returning counterparts but ask
-   * Postgres for `count(*)` instead of selecting `{ id, siteId, updatedAt }` for every match.
+   * Four aggregate queries rather than every row for the target reduced in memory: a target can have
+   * one row per page and asset on the site, and a status card needs three numbers out of that, not
+   * every row transferred to compute them -- `countOutOfDate()` asks Postgres for `count(*)` over its
+   * LEFT JOIN instead of selecting a row per match.
    *
    * **A stale error is suppressed rather than surfaced (OpenProject #823 item 6 / upstream #846).**
    * `recordSuccess` only ever clears `lastError` on the *same* content item's own row (see its doc) --
@@ -154,10 +82,10 @@ class ContentSync {
    * judges staleness at the target level, not the row level -- once *any* content item has synced to
    * this target more recently than the error's own `updatedAt`, that is taken as evidence the target
    * itself is healthy again (the outage/misconfiguration the error reported has passed) and the error is
-   * hidden. The row itself is left untouched: `getStatesForTarget`/`getState` still report it for anyone
-   * inspecting that specific item, and it becomes live again in the summary if the target's overall
-   * `lastSyncedAt` somehow regresses (which the current callers never allow, so in practice it does not
-   * recur), but its retirement is not lost either.
+   * hidden. The row itself is left untouched -- its own `lastError` still stands in `contentSyncState`
+   * for anyone inspecting that specific item, and it becomes live again in the summary if the target's
+   * overall `lastSyncedAt` somehow regresses (which the current callers never allow, so in practice it
+   * does not recur), but its retirement is not lost either.
    */
   async getTargetSummary(
     targetId: string,
@@ -191,8 +119,8 @@ class ContentSync {
         )
         .orderBy(desc(contentSyncStateTable.updatedAt))
         .limit(1),
-      this.countOutOfDatePages(targetId, { siteId }),
-      this.countOutOfDateAssets(targetId, { siteId })
+      this.countOutOfDate('page', targetId, { siteId }),
+      this.countOutOfDate('asset', targetId, { siteId })
     ])
 
     const lastSyncedAt = syncedRow?.lastSyncedAt ?? null
@@ -319,123 +247,34 @@ class ContentSync {
   }
 
   /**
-   * Pages whose `updatedAt` is newer than their last successful sync to this target -- including
-   * every page that has never synced to it at all. What a dispatcher asks before pushing a batch.
+   * How many content items of one kind are out of date on this target -- their `updatedAt` is newer
+   * than their last successful sync to it, including every item that has never synced to it at all.
+   *
+   * One method over both content types rather than a `page` and an `asset` copy: the query is the
+   * same LEFT JOIN either way, with only the table it joins outward from swapped, and `contentType`
+   * is exactly the discriminator the `contentSyncState` row already carries.
+   *
+   * Asks Postgres for `count(*)` over the join rather than selecting a row per match: `getTargetSummary`
+   * (its only caller) needs the number, never the ids, and a target can have one row per page and
+   * asset on the site.
    */
-  async getOutOfDatePages(
-    targetId: string,
-    { siteId }: { siteId?: string } = {}
-  ): Promise<OutOfDateContent[]> {
-    const conditions = [siteId ? eq(pagesTable.siteId, siteId) : undefined].filter((c) => c != null)
-    return WIKI.db
-      .select({ id: pagesTable.id, siteId: pagesTable.siteId, updatedAt: pagesTable.updatedAt })
-      .from(pagesTable)
-      .leftJoin(
-        contentSyncStateTable,
-        and(
-          eq(contentSyncStateTable.contentType, 'page'),
-          eq(contentSyncStateTable.contentId, pagesTable.id),
-          eq(contentSyncStateTable.targetId, targetId)
-        )
-      )
-      .where(
-        and(
-          ...conditions,
-          or(
-            isNull(contentSyncStateTable.lastSyncedAt),
-            gt(pagesTable.updatedAt, contentSyncStateTable.lastSyncedAt)
-          )
-        )
-      )
-  }
-
-  /**
-   * Assets whose `updatedAt` is newer than their last successful sync to this target -- the same
-   * query as `getOutOfDatePages`, over the other content type.
-   */
-  async getOutOfDateAssets(
-    targetId: string,
-    { siteId }: { siteId?: string } = {}
-  ): Promise<OutOfDateContent[]> {
-    const conditions = [siteId ? eq(assetsTable.siteId, siteId) : undefined].filter(
-      (c) => c != null
-    )
-    return WIKI.db
-      .select({ id: assetsTable.id, siteId: assetsTable.siteId, updatedAt: assetsTable.updatedAt })
-      .from(assetsTable)
-      .leftJoin(
-        contentSyncStateTable,
-        and(
-          eq(contentSyncStateTable.contentType, 'asset'),
-          eq(contentSyncStateTable.contentId, assetsTable.id),
-          eq(contentSyncStateTable.targetId, targetId)
-        )
-      )
-      .where(
-        and(
-          ...conditions,
-          or(
-            isNull(contentSyncStateTable.lastSyncedAt),
-            gt(assetsTable.updatedAt, contentSyncStateTable.lastSyncedAt)
-          )
-        )
-      )
-  }
-
-  /**
-   * How many pages are out of date on this target -- the same LEFT JOIN condition as
-   * `getOutOfDatePages`, but asking Postgres for `count(*)` over it instead of transferring
-   * `{ id, siteId, updatedAt }` for every matching row. What `getTargetSummary` calls: it only ever
-   * needs the number, never the ids.
-   */
-  async countOutOfDatePages(
+  async countOutOfDate(
+    contentType: SyncContentType,
     targetId: string,
     { siteId }: { siteId?: string } = {}
   ): Promise<number> {
-    const conditions = [siteId ? eq(pagesTable.siteId, siteId) : undefined].filter((c) => c != null)
-    const outOfDatePages = WIKI.db
-      .select({ id: pagesTable.id })
-      .from(pagesTable)
-      .leftJoin(
-        contentSyncStateTable,
-        and(
-          eq(contentSyncStateTable.contentType, 'page'),
-          eq(contentSyncStateTable.contentId, pagesTable.id),
-          eq(contentSyncStateTable.targetId, targetId)
-        )
-      )
-      .where(
-        and(
-          ...conditions,
-          or(
-            isNull(contentSyncStateTable.lastSyncedAt),
-            gt(pagesTable.updatedAt, contentSyncStateTable.lastSyncedAt)
-          )
-        )
-      )
-      .as('out_of_date_pages')
-    return WIKI.db.$count(outOfDatePages)
-  }
-
-  /**
-   * How many assets are out of date on this target -- the same LEFT JOIN condition as
-   * `getOutOfDateAssets`, counted rather than fetched. See `countOutOfDatePages` for why.
-   */
-  async countOutOfDateAssets(
-    targetId: string,
-    { siteId }: { siteId?: string } = {}
-  ): Promise<number> {
-    const conditions = [siteId ? eq(assetsTable.siteId, siteId) : undefined].filter(
+    const contentTable = contentType === 'page' ? pagesTable : assetsTable
+    const conditions = [siteId ? eq(contentTable.siteId, siteId) : undefined].filter(
       (c) => c != null
     )
-    const outOfDateAssets = WIKI.db
-      .select({ id: assetsTable.id })
-      .from(assetsTable)
+    const outOfDate = WIKI.db
+      .select({ id: contentTable.id })
+      .from(contentTable)
       .leftJoin(
         contentSyncStateTable,
         and(
-          eq(contentSyncStateTable.contentType, 'asset'),
-          eq(contentSyncStateTable.contentId, assetsTable.id),
+          eq(contentSyncStateTable.contentType, contentType),
+          eq(contentSyncStateTable.contentId, contentTable.id),
           eq(contentSyncStateTable.targetId, targetId)
         )
       )
@@ -444,12 +283,12 @@ class ContentSync {
           ...conditions,
           or(
             isNull(contentSyncStateTable.lastSyncedAt),
-            gt(assetsTable.updatedAt, contentSyncStateTable.lastSyncedAt)
+            gt(contentTable.updatedAt, contentSyncStateTable.lastSyncedAt)
           )
         )
       )
-      .as('out_of_date_assets')
-    return WIKI.db.$count(outOfDateAssets)
+      .as('out_of_date_content')
+    return WIKI.db.$count(outOfDate)
   }
 
   /**

@@ -67,7 +67,7 @@ const ASSET_INSERT_CHUNK_SIZE = 50
  * `importUploadLimit` (`api/system.ts`'s compressed-upload cap) — no legitimate single asset inside
  * an archive should decompress to more than the whole upload was ever allowed to weigh.
  */
-export const IMPORT_MAX_ENTRY_BYTES = 500 * 1024 * 1024
+const IMPORT_MAX_ENTRY_BYTES = 500 * 1024 * 1024
 
 /**
  * The largest an archive's total decompressed size may be, summed across every entry, before
@@ -78,7 +78,7 @@ export const IMPORT_MAX_ENTRY_BYTES = 500 * 1024 * 1024
  * grow unbounded. This is the actual fix for the "zip bomb" concern: bounding real decompressed bytes
  * read, rather than trying to infer one from a compression ratio.
  */
-export const IMPORT_MAX_TOTAL_BYTES = 4 * IMPORT_MAX_ENTRY_BYTES
+const IMPORT_MAX_TOTAL_BYTES = 4 * IMPORT_MAX_ENTRY_BYTES
 
 export interface ImportResult {
   pages: number

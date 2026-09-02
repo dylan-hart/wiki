@@ -3,9 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { commentProviders as commentProvidersTable } from '../db/schema.ts'
 
 /**
  * Covers this task's own logic (617, Feature 394): discovering comment provider modules from disk,
@@ -75,8 +73,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await fs.writeFile(path.join(modulesDir, 'beta', 'comments.ts'), 'export {}\n')
     // -> Stands in for the real `default` provider: the only fixture module here with an actual
     //    `comments.ts` next to it, so `hasImplementation` is true and it is selectable on that basis
-    //    alone, the same way the real native provider is. `getActiveProvider`'s fallback below
-    //    specifically looks for a module keyed `default`.
+    //    alone, the same way the real native provider is.
     await fs.mkdir(path.join(modulesDir, 'default'), { recursive: true })
     await fs.writeFile(
       path.join(modulesDir, 'default', 'definition.yml'),
@@ -93,7 +90,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
     await fs.writeFile(path.join(modulesDir, 'default', 'comments.ts'), 'export {}\n')
     // -> Declares neither `codeTemplate` nor a `comments.ts` -- not selectable, for the write-refusal
-    //    and read-side-fallback tests below.
+    //    test below.
     await fs.mkdir(path.join(modulesDir, 'gamma'), { recursive: true })
     await fs.writeFile(
       path.join(modulesDir, 'gamma', 'definition.yml'),
@@ -209,38 +206,6 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const providers = await commentProvidersModel.getSiteProviders(fixtures.siteId)
     assert.equal(providers.find((p) => p.module === 'alpha')!.isEnabled, true)
     assert.equal(providers.find((p) => p.module === 'gamma')!.isEnabled, false)
-  })
-
-  test('getActiveProvider returns the enabled provider unchanged when it is selectable', async () => {
-    await commentProvidersModel.syncSite(fixtures.siteId)
-    await commentProvidersModel.setActiveProvider(fixtures.siteId, 'beta', {})
-
-    const active = await commentProvidersModel.getActiveProvider(fixtures.siteId)
-    assert.equal(active?.module, 'beta')
-  })
-
-  test('getActiveProvider resolves a stored non-selectable provider back to default rather than dead-ending', async () => {
-    await commentProvidersModel.syncSite(fixtures.siteId)
-    // -> `setActiveProvider` itself now refuses this (the test above), so the only way a site ends up
-    //    here is a row that became non-selectable after being enabled -- simulated with a direct
-    //    write, bypassing the model exactly like a stale row left over from before that guard existed
-    //    (or a module's `codeTemplate`/implementation flipping off on disk later) would.
-    await WIKI.db
-      .update(commentProvidersTable)
-      .set({ isEnabled: false })
-      .where(eq(commentProvidersTable.siteId, fixtures.siteId))
-    await WIKI.db
-      .update(commentProvidersTable)
-      .set({ isEnabled: true })
-      .where(
-        and(
-          eq(commentProvidersTable.siteId, fixtures.siteId),
-          eq(commentProvidersTable.module, 'gamma')
-        )
-      )
-
-    const active = await commentProvidersModel.getActiveProvider(fixtures.siteId)
-    assert.equal(active?.module, 'default')
   })
 
   test('a sensitive prop (secret) never leaves a config read, masked or via the PUT response', async () => {
@@ -366,55 +331,5 @@ describe('commentProviders (definition loading)', () => {
     //    client-embedded provider, and that page-view rendering for it isn't implemented yet
     assert.match(caption, /external/i)
     assert.match(caption, /not.*(?:implement|support)/i)
-  })
-})
-
-/**
- * OpenProject #831: `canonicalPageUrl` is the mandatory formula for the URL any future `codeTemplate`
- * provider's embed identifies a page by — see the class doc comment's "Canonical URL boundary"
- * section. No `WIKI` global needed: this is a pure method over its three string arguments.
- */
-describe('commentProviders.canonicalPageUrl', () => {
-  test('joins protocol, hostname and page path into one absolute URL', async () => {
-    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
-    assert.equal(
-      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com', 'docs/getting-started'),
-      'https://wiki.example.com/docs/getting-started'
-    )
-  })
-
-  test('carries a non-default port through from the hostname untouched', async () => {
-    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
-    assert.equal(
-      commentProvidersModel.canonicalPageUrl('http', 'wiki.example.com:3000', 'home'),
-      'http://wiki.example.com:3000/home'
-    )
-  })
-
-  test('reflects a reverse-proxy scheme/host pair rather than a raw internal one', async () => {
-    // -> Stands in for what `req.protocol`/`req.hostname` are under `trustProxy`: the proxy's public
-    //    scheme and host, not whatever this process's own listener sees. A canonical URL built from
-    //    the wrong pair here is requarks/wiki #2549/#2784's exact failure mode.
-    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
-    assert.equal(
-      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com:8443', 'docs/page'),
-      'https://wiki.example.com:8443/docs/page'
-    )
-  })
-
-  test('does not double a leading slash on the page path', async () => {
-    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
-    assert.equal(
-      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com', '/docs/page'),
-      'https://wiki.example.com/docs/page'
-    )
-  })
-
-  test('the root page path produces the bare origin plus a trailing slash', async () => {
-    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
-    assert.equal(
-      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com', ''),
-      'https://wiki.example.com/'
-    )
   })
 })

@@ -1,7 +1,7 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
@@ -12,6 +12,17 @@ import {
 import { generatePathHash } from '../helpers/common.ts'
 import { pages as pagesTable, sites as sitesTable, tree as treeTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+
+/**
+ * A tree row by id, read straight off the table.
+ *
+ * `tree.getById()` is private (it is the model's one lookup that takes no `siteId`), so a test that
+ * wants to see what a cascade left behind reads the row itself rather than reaching through the model.
+ */
+async function readTreeRow(id: string) {
+  const rows = await WIKI.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
+  return rows[0] ?? null
+}
 
 /**
  * Bug #932: a folder rename/delete cascade used to match every locale sharing the folder's path —
@@ -97,7 +108,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     //   untouched `docs` folder, not swept along by the `en`-only rename. Checking `fr`'s FOLDER
     //   row's `fileName` (as this used to) is vacuous -- that row was never a candidate for the
     //   cascade in the first place, since `renameFolder` was only ever given `en.id`.
-    const frPageTreeRow = await treeModel.getById(frPage!.id)
+    const frPageTreeRow = await readTreeRow(frPage!.id)
     assert.equal(frPageTreeRow!.folderPath, 'docs')
   })
 
@@ -833,7 +844,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const nestedAfter = await treeModel.getFolderById(nested.id, fixtures.siteId)
       const topPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: topPage.id })
       const deepPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: deepPage.id })
-      const assetAfter = await treeModel.getById(asset.id)
+      const assetAfter = await readTreeRow(asset.id)
       assert.ok(rootAfter, 'the root folder must still exist')
       assert.ok(nestedAfter, 'the nested folder must still exist')
       assert.ok(topPageAfter, 'the top page must still exist')

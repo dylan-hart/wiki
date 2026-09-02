@@ -666,7 +666,7 @@ async function routes(app: FastifyInstance) {
         //    silently drag the denied branch to a path where the DENY no longer matches. Real `tags`
         //    and `classification` travel with each descendant page, not `classification: null` --
         //    that hardcoded null is only correct for the folder entry itself, which is not a page.
-        const descendants = await WIKI.models.tree.listDescendantPages(
+        const { pages: descendants } = await WIKI.models.tree.listDescendants(
           req.params.folderId,
           req.params.siteId
         )

@@ -62,16 +62,6 @@ export interface ReviewerScope {
    * `canReviewPage` never need that answer; omit it and `hasApproved` reads `false` throughout.
    */
   viewerId?: string
-  /**
-   * `api/approvals.ts#reviewerFor` also resolves an `AccessActor` for its own `reviewsAll` check and
-   * carries it here for a caller's convenience, but `getReviewableSubmissions()`/
-   * `getSubmissionForReview()` -- the two methods that actually need one, to re-check `read:pages`/
-   * `read:source` against the real page (OpenProject #2160) -- take it as their own separate, required
-   * positional parameter instead of reading it off this field. `canReviewPage` does not read it either
-   * (a different question -- see its own doc comment). Optional and effectively unread by this model;
-   * kept only because `reviewerFor` already builds one, not because anything here consumes it.
-   */
-  actor?: AccessActor
 }
 
 /** Where a submission stands against its rule's minimum-approvals threshold. */
@@ -578,10 +568,9 @@ class Approvals {
               classification: page.classification,
               tags: page.tags
             }),
-          viewerId: actorId ?? undefined,
-          actor
+          viewerId: actorId ?? undefined
         }
-      : { groupIds: [], reviewsAll: false, actor }
+      : { groupIds: [], reviewsAll: false }
     const canReview = await this.canReviewPage(siteId, page, reviewerScope)
 
     return {
@@ -953,16 +942,6 @@ class Approvals {
         )
       }
     }
-  }
-
-  /**
-   * How many suggestions are waiting on a page. Counted for every reviewer, whoever wrote them.
-   */
-  async countSubmissions(pageId: string): Promise<number> {
-    return WIKI.db.$count(
-      submissionsTable,
-      and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.status, 'open'))
-    )
   }
 
   /**

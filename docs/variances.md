@@ -1250,8 +1250,8 @@ six do not apply, each for a different, specific reason tied to how this fork's 
   every other page on the target had since synced successfully. Fixed by treating an error as stale
   once the target's overall `lastSyncedAt` (across every content item, not just that one row) is more
   recent than the error itself — `getTargetSummary` in `backend/models/contentSync.ts`. The
-  underlying row is left untouched (`getState`/`getStatesForTarget` still show it), only the
-  target-level summary suppresses it. Judgment call: "clear on next success" is read as "the target's
+  underlying row is left untouched — its own `lastError` still stands in `contentSyncState` — only
+  the target-level summary suppresses it. Judgment call: "clear on next success" is read as "the target's
   next success", not "that exact content item's next success" — the latter would leave the bug
   unfixed for any item nothing ever touches again, which is the actual failure mode the upstream
   report describes.

@@ -15,6 +15,7 @@ import {
   pageRenderQueue as pageRenderQueueTable,
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
+  tree as treeTable,
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
@@ -22,6 +23,17 @@ import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
+
+/**
+ * A tree row by id, read straight off the table.
+ *
+ * `tree.getById()` is private (it is the model's one lookup that takes no `siteId`), so a test that
+ * wants to see what a page write left in the tree reads the row itself rather than through the model.
+ */
+async function readTreeRow(id: string) {
+  const rows = await WIKI.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
+  return rows[0] ?? null
+}
 
 /**
  * `models/pages.ts`'s create/update/move/delete are almost entirely SQL — inserts, duplicate-path
@@ -407,7 +419,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         pageInput({ path: 'docs/description-only', description: 'original description' }),
         actor
       )
-      const beforeTree = await WIKI.models.tree.getById(page.id)
+      const beforeTree = await readTreeRow(page.id)
       assert.equal((beforeTree!.meta as Record<string, any>).description, 'original description')
 
       // -> A later `updatedAt` than the create-time row requires actual elapsed time between the two
@@ -422,7 +434,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       )
       assert.equal(updated!.description, 'updated description')
 
-      const afterTree = await WIKI.models.tree.getById(page.id)
+      const afterTree = await readTreeRow(page.id)
       assert.equal((afterTree!.meta as Record<string, any>).description, 'updated description')
       assert.ok(
         Temporal.Instant.compare(
@@ -463,7 +475,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
 
-    const createdMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    const createdMeta = (await readTreeRow(page.id))!.meta as Record<string, any>
     assert.equal(createdMeta.authorId, fixtures.userId)
     // -> Never recorded at all: nothing reads either field (OpenProject #1703's fix), so `treeMeta`
     //    no longer computes a value that would formerly have been wrong on this very path
@@ -472,7 +484,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
     await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Retitled' }, actor)
 
-    const retitledMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    const retitledMeta = (await readTreeRow(page.id))!.meta as Record<string, any>
     // -> `updatePage` hands `treeMeta` the flattened `Page` shape (`toPage()`), not a raw row -- these
     //    fields must still match what they held right after creation
     assert.equal(retitledMeta.authorId, createdMeta.authorId)
@@ -545,7 +557,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       moverActor
     )
 
-    const movedMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    const movedMeta = (await readTreeRow(page.id))!.meta as Record<string, any>
     assert.equal(movedMeta.authorId, mover!.id)
     assert.equal('creatorId' in movedMeta, false)
     assert.equal('ownerId' in movedMeta, false)
@@ -703,7 +715,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     const untouched = await pagesModel.getPage({ siteId: fixtures.siteId, id: source.id })
     assert.equal(untouched!.path, 'docs/txn-source')
 
-    const treeEntry = await WIKI.models.tree.getById(source.id)
+    const treeEntry = await readTreeRow(source.id)
     assert.equal(treeEntry!.folderPath, 'docs')
     assert.equal(treeEntry!.fileName, 'txn-source')
   })
@@ -737,9 +749,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(movedFr!.title, 'Français')
 
     // -> Both tree entries actually moved, not just the pages rows
-    const enTree = await WIKI.models.tree.getById(en.id)
+    const enTree = await readTreeRow(en.id)
     assert.equal(enTree!.fileName, 'cascade-b')
-    const frTree = await WIKI.models.tree.getById(fr.id)
+    const frTree = await readTreeRow(fr.id)
     assert.equal(frTree!.fileName, 'cascade-b')
 
     // -> The old path is free again in both locales
@@ -1012,7 +1024,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageInput({ path: 'atomic-delete/page-one', title: 'Atomic Delete Me' }),
       actor
     )
-    const treeEntryBefore = await WIKI.models.tree.getById(page.id)
+    const treeEntryBefore = await readTreeRow(page.id)
     assert.ok(treeEntryBefore)
     const folderBefore = await WIKI.models.tree.getFolder({
       path: 'atomic-delete',
@@ -1034,7 +1046,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     //    but the tree row remains" (the pre-fix orphan)
     const pageAfterFailure = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
     assert.ok(pageAfterFailure)
-    const treeEntryAfterFailure = await WIKI.models.tree.getById(page.id)
+    const treeEntryAfterFailure = await readTreeRow(page.id)
     assert.ok(treeEntryAfterFailure)
     const folderAfterFailure = await WIKI.models.tree.getFolder({
       path: 'atomic-delete',
@@ -1047,7 +1059,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
     assert.equal(deleted, true)
     assert.equal(await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id }), null)
-    assert.equal(await WIKI.models.tree.getById(page.id), null)
+    assert.equal(await readTreeRow(page.id), null)
 
     // -> And the path is free to reuse -- `tree_composite_page_idx` would refuse this insert if the
     //    old tree row had survived

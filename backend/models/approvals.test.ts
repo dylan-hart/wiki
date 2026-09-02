@@ -1,6 +1,6 @@
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
@@ -25,6 +25,20 @@ import { mail } from './mail.ts'
  * display. Includes the two-pending-submissions case, where approving the first must stale the
  * second on the very next read -- there is no cache in front of `getReviewableSubmissions` to miss.
  */
+
+/**
+ * How many suggestions are still waiting on a page, read straight off the table.
+ *
+ * The model used to carry this as `countSubmissions()`, but nothing in production ever called it --
+ * an assertion helper is what it actually was, so it lives here now rather than on the model.
+ */
+async function countOpenSubmissions(pageId: string): Promise<number> {
+  return WIKI.db.$count(
+    submissionsTable,
+    and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.status, 'open'))
+  )
+}
+
 describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pagesModel: typeof import('./pages.ts').pages
@@ -1925,7 +1939,7 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
 
     // -> Neither replaced the other -- unlike two submissions from the same logged in author, which
     //    `onConflictDoUpdate` collapses into one row
-    assert.equal(await approvalsModel.countSubmissions(page.id), 2)
+    assert.equal(await countOpenSubmissions(page.id), 2)
 
     const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [fixtures.groupId]
@@ -1964,7 +1978,7 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
       authorId: null
     })
 
-    assert.equal(await approvalsModel.countSubmissions(page.id), 2)
+    assert.equal(await countOpenSubmissions(page.id), 2)
     // -> Not the same submission stored twice under one id -- two independent rows, each with its own
     //    content, which is exactly what lets the frontend disambiguate them by id when their author
     //    labels are otherwise identical
@@ -2696,7 +2710,7 @@ describe(
         withContent: true
       })
       assert.equal(untouched!.content, 'Original body')
-      assert.equal(await approvalsModel.countSubmissions(page.id), 1)
+      assert.equal(await countOpenSubmissions(page.id), 1)
 
       // -> The same submission still succeeds for a reviewer who does hold write:pages
       const applied = await approvalsModel.approveSubmission({
@@ -2722,7 +2736,7 @@ describe(
  * one too -- neither path recorded anything, so a declined suggestion could not be shown back to its
  * author or recovered from a mistaken decline. Both now mark the row (`status`, `resolvedReason`,
  * `resolvedBy`) and retain it. This suite pins that: the row survives resolution with the right
- * fields set, and every "still pending" query (`getReviewableSubmissions`, `countSubmissions`,
+ * fields set, and every "still pending" query (`getReviewableSubmissions`, `countOpenSubmissions`,
  * `getOwnSubmission` via `saveSubmission`'s resubmit path) stops surfacing a resolved row as open.
  */
 describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -2930,7 +2944,7 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
     assert.ok(!afterApprove.some((s) => s.id === submission.id))
   })
 
-  test('countSubmissions does not count a resolved row as still waiting', async () => {
+  test('countOpenSubmissions does not count a resolved row as still waiting', async () => {
     const page = await makePage('approvals/retain/count', 'Original content')
     const submission = await approvalsModel.saveSubmission({
       siteId: fixtures.siteId,
@@ -2939,10 +2953,10 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
       content: 'Suggested content',
       authorId: fixtures.userId
     })
-    assert.equal(await approvalsModel.countSubmissions(page.id), 1)
+    assert.equal(await countOpenSubmissions(page.id), 1)
 
     await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, null, actor.id)
-    assert.equal(await approvalsModel.countSubmissions(page.id), 0)
+    assert.equal(await countOpenSubmissions(page.id), 0)
   })
 
   test('a declined submission no longer counts as the author’s open suggestion, so they can suggest again', async () => {

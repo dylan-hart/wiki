@@ -118,14 +118,11 @@ export interface Asset {
   hasPreview: boolean
   createdAt: Date
   updatedAt: Date
-  locale: string
-}
-
-/**
- * An asset found by its path, which is the one lookup that has to say which locale it landed on: the
- * URL in a page carries none, and the permission rules may be written against one.
- */
-export interface AssetAtPath extends Asset {
+  /**
+   * Which locale's tree the asset sits in. Carried on every asset because a path lookup has to say
+   * which one it landed on: the URL in a page carries no locale, and the permission rules may be
+   * written against one.
+   */
   locale: string
 }
 
@@ -219,7 +216,7 @@ function kindOf(mimeType: string, fileExt: string): AssetKind {
  */
 class Assets {
   /** Path resolutions, keyed `siteId:path`. Insertion-ordered, so the oldest entry is evictable. */
-  pathCache = new Map<string, { asset: AssetAtPath; cachedAt: number }>()
+  pathCache = new Map<string, { asset: Asset; cachedAt: number }>()
 
   /** Bytes written to the disk cache since the last sweep, for `SWEEP_TRIGGER_RATIO`. */
   writtenSinceSweep = 0
@@ -583,7 +580,7 @@ class Assets {
    * A path can exist once per locale and the URL carries none, so the site's primary locale wins
    * where more than one has a file there. That is also the only one the file manager uploads into.
    */
-  async getAssetByPath(siteId: string, filePath: string): Promise<AssetAtPath | null> {
+  async getAssetByPath(siteId: string, filePath: string): Promise<Asset | null> {
     const segments = filePath.split('/').filter(Boolean)
     const fileName = segments.pop()?.toLowerCase()
     if (!fileName) {
@@ -628,7 +625,7 @@ class Assets {
       fileSize: row.fileSize ?? 0,
       folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
       hasPreview: Boolean(row.hasPreview)
-    } as AssetAtPath
+    } as Asset
   }
 
   /**
@@ -756,7 +753,7 @@ class Assets {
    * What `/_files/` resolves every request through: the metadata decides whether the caller may read
    * the file and what its ETag is, both of which are needed before any bytes are worth fetching.
    */
-  async resolveAssetPath(siteId: string, filePath: string): Promise<AssetAtPath | null> {
+  async resolveAssetPath(siteId: string, filePath: string): Promise<Asset | null> {
     const key = `${siteId}:${normalizePath(filePath)}`
     const cached = this.pathCache.get(key)
     if (cached && Date.now() - cached.cachedAt < PATH_CACHE_TTL_MS) {

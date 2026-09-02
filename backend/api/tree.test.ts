@@ -49,10 +49,9 @@ before(async () => {
           locale: 'en',
           meta: {}
         }),
-        listDescendantPages: async () => [],
         getTree: async () => [],
-        // -> DELETE FOLDER's own default: no descendants, nothing to authorize. Tests covering
-        //    OpenProject #2100 override this per-test.
+        // -> The RENAME and DELETE FOLDER routes' shared default: no descendants, nothing to
+        //    authorize. Tests covering OpenProject #2100/#2102 override this per-test.
         listDescendants: async () => ({ pages: [], assets: [] }),
         deleteFolder: async () => ({ pages: [], assets: [] })
       },
@@ -339,9 +338,10 @@ test('RENAME FOLDER route: refuses when the caller lacks write:pages at the dest
     renameCalled = true
     return {}
   }
-  ;(globalThis as any).WIKI.models.tree.listDescendantPages = async () => [
-    { path: 'sub/child', tags: [], classification: null }
-  ]
+  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+    pages: [{ path: 'sub/child', tags: [], classification: null }],
+    assets: []
+  })
   ;(globalThis as any).WIKI.models.groups.checkAccess = (
     _actor: any,
     permission: string,
@@ -362,9 +362,10 @@ test('RENAME FOLDER route: refuses when a descendant page would land where the c
     renameCalled = true
     return {}
   }
-  ;(globalThis as any).WIKI.models.tree.listDescendantPages = async () => [
-    { path: 'sub/child', tags: [], classification: null }
-  ]
+  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+    pages: [{ path: 'sub/child', tags: [], classification: null }],
+    assets: []
+  })
   ;(globalThis as any).WIKI.models.groups.checkAccess = (
     _actor: any,
     permission: string,

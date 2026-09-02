@@ -63,7 +63,7 @@ function reviewerFor(
   page?: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): ReviewerScope {
   if (!isReviewerSession(req)) {
-    return { groupIds: [], reviewsAll: false, actor: WIKI.models.groups.actorForRequest(req) }
+    return { groupIds: [], reviewsAll: false }
   }
   const actor = WIKI.models.groups.actorForRequest(req)
   return {
@@ -81,11 +81,7 @@ function reviewerFor(
     // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
     //    but a guest could not have approved anything anyway, so `hasApproved` reading `false` for them
     //    is right either way.
-    viewerId: actorFrom(req)?.id,
-    // -> OpenProject #2160: the same actor `reviewsAll` above already resolved, threaded through so
-    //    `getReviewableSubmissions`/`getSubmissionForReview` can re-check `read:pages`/`read:source`
-    //    against the real page rather than trusting approval-rule membership alone.
-    actor
+    viewerId: actorFrom(req)?.id
   }
 }
 

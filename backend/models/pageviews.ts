@@ -21,7 +21,7 @@ function isPageviewClientType(value: string): value is PageviewClientType {
  * matching the 2-year retention (`purgeExpired()` below), so "last2yr" and "all-time" are the same
  * query once that has run.
  */
-export const pageviewWindows = ['last30d', 'last6mo', 'last2yr'] as const
+const pageviewWindows = ['last30d', 'last6mo', 'last2yr'] as const
 export type PageviewWindow = (typeof pageviewWindows)[number]
 
 const WINDOW_INTERVALS: Record<PageviewWindow, string> = {

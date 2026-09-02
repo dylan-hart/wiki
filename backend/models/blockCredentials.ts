@@ -150,11 +150,6 @@ class BlockCredentials {
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
     return (result.rowCount ?? 0) > 0
   }
-
-  /** All of a site's credentials, called from `models/sites.ts#deleteSite()` — no FK cascade. */
-  async deleteSiteCredentials(siteId: string): Promise<void> {
-    await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, siteId))
-  }
 }
 
 export const blockCredentials = new BlockCredentials()

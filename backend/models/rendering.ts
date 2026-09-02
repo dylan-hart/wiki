@@ -288,7 +288,7 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   // -> `style` is here rather than behind `write:styles` because the renderer itself produces it:
   //    KaTeX sizes and positions every piece of a formula with inline styles, and math would come
   //    out mangled for any author without the permission. Presence of the attribute is not gated on
-  //    the permission, but which *declarations* survive inside it is -- see `sanitize()`'s
+  //    the permission, but which *declarations* survive inside it is -- see `sanitizeOptions()`'s
   //    `allowedStyles`, keyed off `ALLOWED_STYLES` below. The permission still fully
   //    gates the `<style>` tag, which is where a page can restyle everything around it.
   '*': ['id', 'class', 'style', 'title', 'dir', 'lang', 'aria-*', 'role', 'data-*'],
@@ -319,7 +319,7 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   //    since chemical notation reaches for MathML shapes a plain formula does not -- `mpadded` and
   //    `mphantom` nested for the isotope-coefficient overlap, `mo[stretchy][minsize]` for a reaction
   //    arrow, `mstyle[scriptlevel][displaystyle]` around a unit fraction. All of it already round-trips
-  //    through `sanitize()` untouched (see `rendering.test.ts`'s `\ce{}`/`\pu{}` tests, captured from a
+  //    through sanitization untouched (see `rendering.test.ts`'s `\ce{}`/`\pu{}` tests, captured from a
   //    real `katex.renderToString` + `katex/contrib/mhchem` run) -- nothing below needed adding for it.
   //    mhchem itself is not wired into the literal `$…$` path today (only plain `katex` is imported in
   //    `renderers/markdown.js`, so `\ce{}` there throws "Undefined control sequence" and falls to the
@@ -400,8 +400,8 @@ const SAFE_POSITION = /^(relative|static)$/
  * Everything actually dangerous is either not a key here at all (`transform`, `opacity`,
  * `pointer-events`, `content`, `z-index`, `inset`) or is present with its value locked down
  * (`position`) — see security/04-injection-xss.md §3, the `position: fixed; inset: 0` full-viewport
- * overlay this closes. An author *with* `write:styles` skips this map entirely (see `sanitize()`
- * below): the permission already means "may restyle the page", which the `<style>` tag lets them do
+ * overlay this closes. An author *with* `write:styles` skips this map entirely (see
+ * `sanitizeOptions()` below): the permission already means "may restyle the page", which the `<style>` tag lets them do
  * regardless of what this map allows on the `style` attribute specifically.
  */
 const ALLOWED_STYLES: Record<string, Record<string, RegExp[]>> = {
@@ -468,7 +468,7 @@ function cssLength(value: string): string {
  * people copy and share, and because an existing link should keep working when the heading around it
  * is edited in ways that do not change its words.
  */
-export function slugifyHeading(text: string): string {
+function slugifyHeading(text: string): string {
   return (
     text
       .toLowerCase()
@@ -512,7 +512,7 @@ class Rendering {
     await this.inlineIcons($)
 
     /*
-      `inlineIcons()` just inserted markup the FIRST `sanitize()` call above never saw — an icon's SVG
+      `inlineIcons()` just inserted markup the FIRST `sanitizeHtml()` call above never saw — an icon's SVG
       `body`, fetched from the icons model's disk/db/upstream-Iconify tiers and screened only by
       `models/icons.ts#isSafeIconBody`'s denylist regex, is written into the document verbatim by
       `renderInlineSvg()`. A denylist can miss what an allowlist cannot: an entity-encoded scheme
@@ -619,7 +619,7 @@ class Rendering {
       const tag = `block-${definition.block}`
       tags.push(tag)
       /*
-        `sanitize()` runs with `lowerCaseAttributeNames: false` (kept so SVG/MathML names like
+        `sanitizeOptions()` sets `lowerCaseAttributeNames: false` (kept so SVG/MathML names like
         `viewBox` survive), so it compares attribute names byte-for-byte. A camelCase-declared prop
         (`runKey`) is what the block picker and definition.yml write, but the DOM -- and therefore
         what an author actually types or Lit reflects -- only ever spells it lowercase (`runkey`).
@@ -748,25 +748,6 @@ class Rendering {
         lowerCaseAttributeNames: false
       }
     }
-  }
-
-  /**
-   * Strip everything the author is not allowed to embed.
-   *
-   * A thin wrapper around `sanitizeOptions()` -- `postProcess` calls that directly so its two passes
-   * share one options object; this exists for callers (and tests) that just want one clean string back
-   * from a single set of inputs.
-   */
-  private sanitize(
-    html: string,
-    permissions: RenderPermissions,
-    enabledBlocks: Set<string>,
-    customBlocks: CustomBlockAllowance[] = []
-  ): string {
-    return sanitizeHtml(
-      html,
-      this.sanitizeOptions(permissions, this.blockAllowances(enabledBlocks, customBlocks))
-    )
   }
 
   /**

@@ -38,3 +38,24 @@
   `.../storage/targets/:targetId/setup` routes at `:1118` and `:1154`). It was already unreachable —
   no module has ever declared a `setup` process, so the server never returned that key — and is now
   definitively dead. Removing it is Lane B's workspace, not A3's.
+
+- **Task A4 (models dead code and un-exports).** Two things worth CLAUDE.md saying, plus one note:
+  - **`models/tree.ts#getById` is now `private`.** It is the model's only tree lookup that takes no
+    `siteId`, so calling it from outside would reopen the cross-site leak `getFolderById`'s required
+    `siteId` closes (OpenProject #2127/#2131). A caller outside the model that needs a tree row by
+    id goes through a `siteId`-scoped method; a test reads the row off `treeTable` directly. If the
+    "Permissions" section ever gains a note about site scoping at the model layer, this is the
+    worked example.
+  - **A model method whose only caller is its own test is dead code, not model surface.** A4 deleted
+    thirteen of them (`contentSync.getState`/`getStatesForContent`/`getStatesForTarget`/
+    `getOutOfDatePages`/`getOutOfDateAssets`, `approvals.countSubmissions`, `sessions.getByUser`/
+    `clearAllSessions`, `authentication.getStrategy`, `blockCredentials.deleteSiteCredentials`,
+    `commentProviders.canonicalPageUrl`/`getActiveProvider`, `rendering.sanitize`,
+    `tree.listDescendantPages`) and re-expressed each test's read-back as a local fixture helper over
+    the table (or, for a private method, through the existing `as any` cast). The "Testing
+    (backend)" section's guidance could say so outright: a read-back oracle belongs in the test
+    file, not on the model.
+  - **`docs/variances.md`'s OpenProject #823 item 6 entry** no longer names
+    `getState`/`getStatesForTarget` (both deleted); it now says the row's own `lastError` still
+    stands in `contentSyncState`. No CLAUDE.md change follows from it — noted so the next reader of
+    that entry knows the wording moved deliberately.

@@ -670,9 +670,14 @@ class Tree {
   }
 
   /**
-   * A single tree row by ID, or null if there is no such row
+   * A single tree row by ID, or null if there is no such row.
+   *
+   * Private on purpose: it is the one lookup here that takes no `siteId`, so a caller outside this
+   * model could reach another site's row with an id alone -- exactly the leak `getFolderById`'s
+   * required `siteId` closes (OpenProject #2127/#2131). Internal callers pair it with their own
+   * site check.
    */
-  async getById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+  private async getById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
     const results = await db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
     return (results[0] as TreeRow) ?? null
   }
@@ -999,53 +1004,6 @@ class Tree {
 
     WIKI.logger.debug(`Created folder ${inserted[0].id} successfully.`)
     return inserted[0] as TreeRow
-  }
-
-  /**
-   * List every page under a folder, at any depth, with what authorizing the whole subtree needs:
-   * its current path, tags and classification (OpenProject #2102).
-   *
-   * Unbounded, like `refreshDescendantPaths` below and unlike `getTree()`'s `MAX_DEPTH`-capped
-   * listing: a permission check that stopped ten levels down would leave everything past that depth
-   * unchecked, which is exactly the kind of gap this exists to close for a rename (or delete) that
-   * cascades to every descendant regardless of how deep it goes.
-   */
-  async listDescendantPages(
-    folderId: string,
-    siteId: string
-  ): Promise<{ path: string; tags: string[]; classification: string | null }[]> {
-    const folder = await this.getFolderById(folderId, siteId)
-    if (!folder) {
-      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
-    }
-    const path = childPathOf(folder)
-
-    const rows = await WIKI.db
-      .select({
-        folderPath: treeTable.folderPath,
-        fileName: treeTable.fileName,
-        tags: treeTable.tags,
-        classification: pagesTable.classification
-      })
-      .from(treeTable)
-      .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
-      .where(
-        and(
-          eq(treeTable.siteId, folder.siteId),
-          eq(treeTable.locale, folder.locale),
-          eq(treeTable.type, 'page'),
-          sql`${treeTable.folderPath} <@ ${path}::ltree`
-        )
-      )
-
-    return rows.map((row) => {
-      const rowFolderPath = decodeTreePath(row.folderPath ?? '') ?? ''
-      return {
-        path: rowFolderPath ? `${rowFolderPath}/${row.fileName}` : row.fileName,
-        tags: row.tags ?? [],
-        classification: row.classification
-      }
-    })
   }
 
   /**

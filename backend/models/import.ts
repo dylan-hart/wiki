@@ -99,14 +99,7 @@ function releasePandocSlot(): void {
  * its own JSON AST — that either aren't "somebody's wiki page" or need options this endpoint doesn't
  * expose, and are deliberately left out rather than accepted and left to confuse whoever picks them.
  */
-export const PANDOC_IMPORT_FORMATS = [
-  'mediawiki',
-  'textile',
-  'docbook',
-  'rst',
-  'docx',
-  'odt'
-] as const
+const PANDOC_IMPORT_FORMATS = ['mediawiki', 'textile', 'docbook', 'rst', 'docx', 'odt'] as const
 
 export type PandocImportFormat = (typeof PANDOC_IMPORT_FORMATS)[number]
 
@@ -161,7 +154,7 @@ function isSupportedFormat(format: string): format is ImportFormat {
  * uses to resolve a per-file format from its name (OpenProject #1209), rather than one format applied
  * across an entire batch.
  */
-export const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
+const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
   md: 'markdown',
   markdown: 'markdown',
   wiki: 'mediawiki',

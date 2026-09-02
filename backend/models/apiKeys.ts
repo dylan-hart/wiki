@@ -20,7 +20,7 @@ import { epochSeconds, signJwt, verifyJwt } from '../helpers/jwt.ts'
 const TOKEN_AUDIENCE = 'urn:wiki.js'
 
 /** An API key signing keypair, with the passphrase its private half is encrypted under. */
-export interface SigningCertificates {
+interface SigningCertificates {
   /** Protects the private key at rest. Belongs to the keypair, and is rotated with it. */
   passphrase: string
   /**

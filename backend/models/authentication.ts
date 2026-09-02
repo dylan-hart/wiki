@@ -174,10 +174,6 @@ function isBuiltInLocal(id: string): boolean {
  * Authentication model
  */
 class Authentication {
-  async getStrategy(module: string) {
-    return WIKI.db.select().from(authenticationTable).where(eq(authenticationTable.module, module))
-  }
-
   async getStrategies({ enabledOnly = false }: { enabledOnly?: boolean } = {}) {
     return WIKI.db
       .select()

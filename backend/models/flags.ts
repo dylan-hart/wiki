@@ -21,7 +21,7 @@ export const FLAGS = {
 
 export type Flag = keyof typeof FLAGS
 
-export const FLAG_KEYS = Object.keys(FLAGS) as Flag[]
+const FLAG_KEYS = Object.keys(FLAGS) as Flag[]
 
 /**
  * Flags model

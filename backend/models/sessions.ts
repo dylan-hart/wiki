@@ -8,16 +8,6 @@ import type { WikiDbOrTx } from '../core/db.ts'
  */
 class Sessions {
   /**
-   * Fetch all sessions from a single user
-   *
-   * @param userId User ID
-   * @returns User Sessions
-   */
-  async getByUser(userId: string) {
-    return WIKI.db.select().from(sessionsTable).where(eq(sessionsTable.userId, userId))
-  }
-
-  /**
    * Fetch a single session by id
    *
    * @param id Session ID
@@ -61,14 +51,6 @@ class Sessions {
    */
   async destroy(id: string) {
     return WIKI.db.delete(sessionsTable).where(eq(sessionsTable.id, id))
-  }
-
-  /**
-   * Delete all sessions from all users
-   *
-   */
-  async clearAllSessions() {
-    return WIKI.db.delete(sessionsTable)
   }
 
   /**

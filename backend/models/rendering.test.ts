@@ -1,6 +1,8 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import sanitizeHtml from 'sanitize-html'
 import type { BlockDefinition } from './blocks.ts'
+import type { RenderPermissions } from './rendering.ts'
 
 /*
  * `Rendering.postProcess` is what a save (and a headless server-side re-render, which drives the
@@ -99,6 +101,28 @@ let customBlocks: { block: string; props: { name: string }[] }[] = []
 }
 
 const { rendering } = await import('./rendering.ts')
+
+/**
+ * What the model's own `sanitize()` used to be: `sanitizeOptions()` fed straight to `sanitize-html`.
+ *
+ * The model no longer carries that wrapper -- `postProcess` calls `sanitizeOptions()` directly so its
+ * two passes share one options object, and nothing but this file ever wanted the one-shot form. Both
+ * `sanitizeOptions` and `blockAllowances` are private, hence the cast.
+ *
+ * `permissions` is `Partial` because these tests only ever name the flag under test: `sanitizeOptions`
+ * reads each one for truthiness, so an omitted flag behaves exactly like `false`.
+ */
+function sanitize(
+  html: string,
+  permissions: Partial<RenderPermissions>,
+  enabledBlockKeys: Set<string>
+): string {
+  const model = rendering as any
+  return sanitizeHtml(
+    html,
+    model.sanitizeOptions(permissions, model.blockAllowances(enabledBlockKeys, []))
+  )
+}
 
 /** The shape markdown-it-mdc + `highlight()` actually leave behind for a fenced diagram inside a block. */
 function blockHtml(tag: string, attrs: string, lang: string, escapedSource: string): string {
@@ -288,17 +312,17 @@ describe('rendering.postProcess: internal link extraction (OpenProject #881)', (
 })
 
 /**
- * `sanitize()` is what a page's HTML has to survive to be stored -- and since Task 624
+ * Sanitization is what a page's HTML has to survive to be stored -- and since Task 624
  * (`renderers/markdown.js`'s `$…$`/`$$…$$` TeX authoring) resolves straight to literal KaTeX
  * HTML/MathML at render time, that markup is now something a real page can carry, not just something
  * `block-katex` draws inside a shadow root the sanitiser never sees.
  *
- * `sanitize()`'s block-allowance pass reads `WIKI.models.blocks.definitions`; no page block is
+ * `sanitizeOptions()`'s block-allowance pass reads `WIKI.models.blocks.definitions`; no page block is
  * involved in typesetting a formula, so its content doesn't matter for these tests -- reuses the
  * same `WIKI` stub the diagram-block suite above already installed.
  */
 
-describe('rendering.sanitize -- KaTeX MathML from inline TeX authoring', () => {
+describe('rendering sanitizeOptions -- KaTeX MathML from inline TeX authoring', () => {
   test('keeps the accent/variant/thickness attributes KaTeX writes onto MathML tags', () => {
     // -> A minimal stand-in for what `katex.renderToString({ output: 'htmlAndMathml' })` actually
     //    emits for `\vec{v}`, `\binom{n}{k}` and a variant-styled identifier -- real output, trimmed
@@ -314,7 +338,7 @@ describe('rendering.sanitize -- KaTeX MathML from inline TeX authoring', () => {
       '<annotation encoding="application/x-tex">\\vec{v}</annotation>' +
       '</semantics></math>'
 
-    const clean = (rendering as any).sanitize(html, {}, new Set())
+    const clean = sanitize(html, {}, new Set())
 
     assert.match(clean, /<mover accent="true">/)
     assert.match(clean, /<munder accentunder="true">/)
@@ -332,7 +356,7 @@ describe('rendering.sanitize -- KaTeX MathML from inline TeX authoring', () => {
 
   These two strings are captured byte-for-byte from a real `katex.renderToString(source, { output:
   'htmlAndMathml' })` run with `katex/contrib/mhchem` loaded (the same import `block-katex/component.js`
-  makes) -- not reconstructed by hand. Both come back from `sanitize()` with their `<math>…</math>`
+  makes) -- not reconstructed by hand. Both come back from sanitization with their `<math>…</math>`
   identical to the byte, so this records a clean audit result, not a fix: every tag and attribute
   mhchem's MathML writer uses was already covered by what Task 624 added.
 
@@ -373,7 +397,7 @@ describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () 
   test('keeps a mermaid diagram block and a resolved inline KaTeX formula both intact through the same save-time pass a reload replays', async () => {
     enabledBlocks = new Set(['diagram'])
     // -> A trimmed but structurally real `katex.renderToString(..., { output: 'htmlAndMathml' })`
-    //    shape: the MathML the earlier describe block already proved survives `sanitize()` on its
+    //    shape: the MathML the earlier describe block already proved survives sanitization on its
     //    own, now alongside a diagram block in one document -- the actual "did the editor's own
     //    HTML come back out the other end of a save" question this item asks.
     const katexHtml =
@@ -407,7 +431,7 @@ describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () 
   })
 })
 
-describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () => {
+describe('rendering sanitizeOptions -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () => {
   test('keeps every tag and attribute a real \\ce{} render writes into MathML', () => {
     const math =
       '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow>' +
@@ -422,7 +446,7 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
       '</mrow><annotation encoding="application/x-tex">\\ce{CO2 + C -&gt; 2 CO}</annotation>' +
       '</semantics></math>'
 
-    const clean = (rendering as any).sanitize(`<p>${math}</p>`, {}, new Set())
+    const clean = sanitize(`<p>${math}</p>`, {}, new Set())
 
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
   })
@@ -438,7 +462,7 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
       '<annotation encoding="application/x-tex">\\pu{123 kJ//mol}</annotation>' +
       '</semantics></math>'
 
-    const clean = (rendering as any).sanitize(`<p>${math}</p>`, {}, new Set())
+    const clean = sanitize(`<p>${math}</p>`, {}, new Set())
 
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
   })
@@ -453,10 +477,10 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
  * ancestor chain clips a `position: fixed` box. `permissions: {}` throughout (no `styles: true`) is
  * the author-without-`write:styles` case these tests are about.
  */
-describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
+describe('rendering sanitizeOptions -- allowedStyles (OpenProject #2180)', () => {
   test('drops position:fixed, inset and z-index for an author without write:styles', () => {
     const html = '<div style="position:fixed;inset:0;z-index:999;color:red;">x</div>'
-    const clean = (rendering as any).sanitize(html, {}, new Set())
+    const clean = sanitize(html, {}, new Set())
 
     assert.doesNotMatch(clean, /position:\s*fixed/)
     assert.doesNotMatch(clean, /inset/)
@@ -468,28 +492,20 @@ describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
 
   test('drops position:absolute and position:sticky the same way as fixed', () => {
     for (const value of ['absolute', 'sticky']) {
-      const clean = (rendering as any).sanitize(
-        `<div style="position:${value};">x</div>`,
-        {},
-        new Set()
-      )
+      const clean = sanitize(`<div style="position:${value};">x</div>`, {}, new Set())
       assert.doesNotMatch(clean, new RegExp(`position:\\s*${value}`))
     }
   })
 
   test('keeps position:relative, real KaTeX output (verified against katex.renderToString)', () => {
-    const clean = (rendering as any).sanitize(
-      '<span style="position:relative;">x</span>',
-      {},
-      new Set()
-    )
+    const clean = sanitize('<span style="position:relative;">x</span>', {}, new Set())
     assert.match(clean, /position:\s*relative/)
   })
 
   test('drops transform, opacity, pointer-events and content', () => {
     const html =
       '<div style="transform:scale(2);opacity:0.5;pointer-events:none;content:\'x\';top:1em;">x</div>'
-    const clean = (rendering as any).sanitize(html, {}, new Set())
+    const clean = sanitize(html, {}, new Set())
 
     assert.doesNotMatch(clean, /transform/)
     assert.doesNotMatch(clean, /opacity/)
@@ -531,7 +547,7 @@ describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
       'min-width:0.853em;height:1.08em;'
     ]
     for (const style of declarations) {
-      const clean = (rendering as any).sanitize(`<span style="${style}">x</span>`, {}, new Set())
+      const clean = sanitize(`<span style="${style}">x</span>`, {}, new Set())
       for (const decl of style.split(';').filter(Boolean)) {
         const [prop, value] = decl.split(':')
         assert.match(
@@ -545,7 +561,7 @@ describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
 
   test('an author with write:styles is not filtered at all -- style="…" survives verbatim', () => {
     const html = '<div style="position:fixed;inset:0;z-index:999;">x</div>'
-    const clean = (rendering as any).sanitize(html, { styles: true }, new Set())
+    const clean = sanitize(html, { styles: true }, new Set())
 
     assert.match(clean, /position:\s*fixed/)
     assert.match(clean, /inset/)
@@ -554,7 +570,7 @@ describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
 })
 
 /*
- * `postProcess` used to run `sanitize()` before `inlineIcons()`, so the last step that draws more
+ * `postProcess` used to sanitize before `inlineIcons()`, so the last step that draws more
  * markup into the document (an icon's SVG body, resolved from a third party) ran AFTER the only step
  * that filtered what a page may contain -- `isSafeIconBody` (`models/icons.ts`) is a denylist over the
  * icon's raw, still HTML-entity-encoded body at ingest time, and never sees what that decodes to once
@@ -626,16 +642,16 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
 })
 
 /**
- * OpenProject #2183: `sanitize()` now passes `allowedStyles` to `sanitize-html`, gating which inline
+ * OpenProject #2183: `sanitizeOptions()` now passes `allowedStyles` to `sanitize-html`, gating which inline
  * `style` *declarations* survive (not just whether the attribute itself is present) on `write:styles`
  * -- `position: fixed` with no clipping ancestor is what lets an author without the permission cover
  * the viewport or hide content from readers while it stays in the source and search index.
  */
-describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (OpenProject #2183)', () => {
+describe('rendering sanitizeOptions -- allowedStyles gates inline CSS by write:styles (OpenProject #2183)', () => {
   test('drops position/inset/z-index declarations for an author without write:styles, keeping an unrelated color declaration', () => {
     const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
 
-    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+    const clean = sanitize(html, { scripts: false, styles: false }, new Set())
 
     assert.doesNotMatch(clean, /position/)
     assert.doesNotMatch(clean, /inset/)
@@ -646,7 +662,7 @@ describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (
   test('keeps position/inset/z-index declarations for an author with write:styles', () => {
     const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
 
-    const clean = (rendering as any).sanitize(html, { scripts: false, styles: true }, new Set())
+    const clean = sanitize(html, { scripts: false, styles: true }, new Set())
 
     assert.match(clean, /position:\s*fixed/)
     assert.match(clean, /inset:\s*0/)
@@ -662,7 +678,7 @@ describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (
       'padding-left: 0.1em; top: -0.3em; left: 0.02em; vertical-align: -0.2em; ' +
       'font-size: 1.2em; border-color: red; background-color: yellow; text-align: center;">x</span>'
 
-    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+    const clean = sanitize(html, { scripts: false, styles: false }, new Set())
 
     for (const declaration of [
       'height:0.8em',
@@ -684,7 +700,7 @@ describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (
   test('drops the style attribute entirely once every declaration it carried is disallowed', () => {
     const html = '<div style="position: fixed; transform: translateX(10px);">x</div>'
 
-    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+    const clean = sanitize(html, { scripts: false, styles: false }, new Set())
 
     assert.doesNotMatch(clean, /style=/)
   })

@@ -2,12 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import { and, eq, inArray } from 'drizzle-orm'
-import {
-  maskSensitiveConfig,
-  parseModuleProps,
-  requestOrigin,
-  unmaskSensitiveConfig
-} from '../helpers/common.ts'
+import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
 import { commentProviders as commentProvidersTable, sites as sitesTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 
@@ -121,13 +116,16 @@ export interface CommentProvider {
  * from the site's real public address — behind a reverse proxy, on a non-default port, or just
  * because an admin-typed "Site URL" setting went stale.
  *
- * `canonicalPageUrl()` below is the fix, and it is mandatory: **whatever future code renders a
- * `codeTemplate` provider's embed must build the page URL it hands the vendor's script by calling
- * `canonicalPageUrl(req.protocol, req.hostname, page.path)`, never by re-deriving `protocol://host`
- * itself and never from a separately stored/configured URL.** `req.protocol`/`req.hostname` are
- * already correct behind a reverse proxy and on a non-default port *as long as `security.trustProxy`
- * is on* (see `requestOrigin`'s own doc comment in `helpers/common.ts`), so there is nothing left to
- * get wrong once every caller goes through the one formula.
+ * The rule that follows from it is mandatory: **whatever future code renders a `codeTemplate`
+ * provider's embed must build the page URL it hands the vendor's script from the request that served
+ * the page — `` `${requestOrigin(req.protocol, req.hostname)}/${page.path}` `` (`helpers/common.ts`,
+ * with `page.path`'s leading slash stripped) — never by re-deriving `protocol://host` itself and
+ * never from a separately stored/configured URL.** `req.protocol`/`req.hostname` are already correct
+ * behind a reverse proxy and on a non-default port *as long as `security.trustProxy` is on* (see
+ * `requestOrigin`'s own doc comment), so there is nothing left to get wrong once every caller goes
+ * through the one formula. This model carried that formula as a `canonicalPageUrl()` one-liner until
+ * it was removed for having no caller but its own test — the boundary is the rule above, not a
+ * wrapper kept alive for it.
  */
 class CommentProviders {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -158,22 +156,6 @@ class CommentProviders {
    */
   isSelectable(definition: Pick<CommentProviderDefinition, 'hasImplementation'>): boolean {
     return definition.hasImplementation
-  }
-
-  /**
-   * The absolute URL of a page on this site, as it was actually reached — the value any
-   * `codeTemplate` provider's embed script must be given to identify the page. See the class doc
-   * comment's "Canonical URL boundary" section for why this must be the *only* way that URL is ever
-   * built.
-   *
-   * @param protocol `req.protocol`, verbatim
-   * @param hostname `req.hostname`, verbatim — already includes a non-default port, and already
-   *   honors `X-Forwarded-Host` behind a reverse proxy when `security.trustProxy` is on
-   * @param pagePath The page's own path, without a leading slash (as `models/pages.ts` stores it)
-   */
-  canonicalPageUrl(protocol: string, hostname: string, pagePath: string): string {
-    const normalizedPath = pagePath.replace(/^\/+/, '')
-    return `${requestOrigin(protocol, hostname)}/${normalizedPath}`
   }
 
   /**
@@ -339,30 +321,6 @@ class CommentProviders {
   }
 
   /**
-   * The provider actually driving comment rendering for a site (OpenProject #1962).
-   *
-   * `setActiveProvider` below refuses to ever *store* a non-selectable module, but that alone does
-   * not make a stored `isEnabled` row permanently safe to trust: a module can lose its
-   * `codeTemplate`/implementation status on disk after a site already activated it -- most plausibly
-   * the parent epic here (#1950) marking Disqus/Commento/Artalk `isAvailable`/`codeTemplate` off
-   * without also touching every site that had already picked one of them. Whichever branch that
-   * parent takes, a site must not be left pointing at a provider the registry now refuses to select
-   * -- this falls back to the `default` provider instead, so a caller rendering comments (or the
-   * admin area explaining what is actually live) always gets back something that renders.
-   *
-   * Returns null only when the site has no `default` row to fall back to at all (a `syncSite()` that
-   * has never run for this site) -- a genuinely unconfigured site, not a dead end this method can fix.
-   */
-  async getActiveProvider(siteId: string): Promise<CommentProvider | null> {
-    const providers = await this.getSiteProviders(siteId)
-    const enabled = providers.find((p) => p.isEnabled)
-    if (enabled?.isSelectable) {
-      return enabled
-    }
-    return providers.find((p) => p.module === 'default') ?? null
-  }
-
-  /**
    * Merge incoming config values onto the ones already stored, keeping only what the module declares.
    *
    * Read-only props are never taken from the client: they are declarations of something the server
@@ -452,8 +410,10 @@ class CommentProviders {
       return null
     }
     // -> A non-selectable module (no server-side implementation) must never be stored as active in the
-    //    first place -- see `getActiveProvider` above for the read-side half of this, covering a
-    //    module that becomes non-selectable AFTER a site already activated it.
+    //    first place. There is no read-side counterpart to this: `api/comments.ts` reads the site's
+    //    providers through `getSiteProviders({ mask: true })` and picks client-side, so a stored row
+    //    whose module loses its implementation on disk AFTER activation surfaces as a non-selectable
+    //    provider there rather than being silently swapped for `default`.
     if (!this.isSelectable(definition)) {
       throw new Error(
         `${definition.title} cannot be activated: it has no server-side implementation.`

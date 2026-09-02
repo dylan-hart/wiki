@@ -24,7 +24,7 @@ export const SYSTEM_PERMISSION = 'manage:system'
  * validation with a 400), and `models/groups.test.ts` pins the two lists staying equal so that can't
  * happen silently again the next time a match kind is added.
  */
-export const GROUP_RULE_MATCH_KINDS = [
+const GROUP_RULE_MATCH_KINDS = [
   'START',
   'END',
   'REGEX',
@@ -587,13 +587,10 @@ class Groups {
     const rules = this.rulesForGroups(actor.groupIds).filter(
       (rule) => siteId == null || ruleMatchesSite(rule, siteId)
     )
+    // -> No second site check here: the `ruleMatchesSite` filter above is that check, and repeating
+    //    it inline can only ever agree with itself.
     return inScope.some((permission) =>
-      rules.some(
-        (rule) =>
-          rule.mode !== 'DENY' &&
-          rule.roles.includes(permission) &&
-          (siteId === null || rule.sites.length === 0 || rule.sites.includes(siteId))
-      )
+      rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
     )
   }
 

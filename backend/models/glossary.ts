@@ -61,7 +61,7 @@ interface CachedGlossaryEntry {
  * incompatibly. Reused as-is for each stored version snapshot (OpenProject #1113) -- one
  * representation shared by export, import, and versioning, per the spec.
  */
-export const GLOSSARY_EXPORT_FORMAT_VERSION = 1
+const GLOSSARY_EXPORT_FORMAT_VERSION = 1
 
 export interface GlossaryExportTerm {
   term: string
