@@ -2,21 +2,12 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolveSiteRule, SITE_PERMISSIONS } from './siteRules.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { makeGroupRule } from '../test/builders.ts'
 
-/** A rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
-function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
-  return {
-    id: 'rule-1',
-    name: 'Test Rule',
-    roles: ['site:theme'],
-    match: 'START',
-    mode: 'ALLOW',
-    path: '',
-    locales: [],
-    sites: [],
-    ...overrides
-  }
-}
+/** `roles: ['site:theme']`, not the shared builder's page-rule default: every case here is about a
+ *  site-scoped delegation permission. */
+const makeRule = (overrides: Partial<GroupRule> = {}): GroupRule =>
+  makeGroupRule({ roles: ['site:theme'], ...overrides })
 
 describe('SITE_PERMISSIONS', () => {
   test('is the closed, namespaced vocabulary from the decision record', () => {

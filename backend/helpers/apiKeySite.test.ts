@@ -6,11 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import { apiKeySitePinHook, enforceApiKeySite, isBearerAuthenticatedPath } from './apiKeySite.ts'
 import pagesRoutes from '../api/pages.ts'
 import assetsRoutes from '../api/assets.ts'
-import { registerSchemas as registerAssetSchema } from '../api/schemas/asset.ts'
-import { registerSchemas as registerApprovalSchemas } from '../api/schemas/approval.ts'
-import { registerSchemas as registerErrorSchema } from '../api/schemas/error.ts'
-import { registerSchemas as registerPageImportSchema } from '../api/schemas/pageImport.ts'
-import { registerSchemas as registerPageSchema } from '../api/schemas/page.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * `enforceApiKeySite` writes the 403 itself via `reply.forbidden()`, so — like `limitApiKey` in
@@ -252,63 +248,37 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
   let deletePageCalls: any[] = []
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      config: { security: {} },
-      models: {
-        pages: {
-          getPage: async (args: any) => {
-            getPageCalls.push(args)
-            return null
+    app = await buildTestApp({
+      routes: [
+        { plugin: pagesRoutes, prefix: '/_api' },
+        { plugin: assetsRoutes, prefix: '/_api' }
+      ],
+      apiKeySitePin: true,
+      session: 'header',
+      wiki: {
+        config: { security: {} },
+        models: {
+          pages: {
+            getPage: async (args: any) => {
+              getPageCalls.push(args)
+              return null
+            },
+            deletePage: async (...args: any[]) => {
+              deletePageCalls.push(args)
+              return true
+            }
           },
-          deletePage: async (...args: any[]) => {
-            deletePageCalls.push(args)
-            return true
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true,
+            groupIdsForRequest: () => []
           }
-        },
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          checkAccess: () => true,
-          groupIdsForRequest: () => []
         }
-      },
-      sites: {}
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    app.addHook('onRequest', async (req) => {
-      const rawKey = req.headers['x-test-api-key']
-      if (typeof rawKey === 'string') {
-        ;(req as any).apiKey = JSON.parse(rawKey)
       }
     })
-    app.addHook('preHandler', apiKeySitePinHook)
-
-    await registerApprovalSchemas(app)
-    await registerPageSchema(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerAssetSchema(app)
-    await app.register(pagesRoutes, { prefix: '/_api' })
-    await app.register(assetsRoutes, { prefix: '/_api' })
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     getPageCalls = []
@@ -458,67 +428,39 @@ describe('pages API — apiKeySitePinHook site-scoping', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        pages: {
-          getPage: async (args: any) => {
-            getPageCalls.push(args)
-            return null
+    app = await buildTestApp({
+      // -> `/_api` prefix, matching `api/index.ts`'s real registration -- the hook only checks
+      //    `/_api/sites/...` (see its own doc comment), so mounting bare would silently exercise
+      //    nothing.
+      routes: pagesRoutes,
+      prefix: '/_api',
+      // -> The REAL hook, at the same stage the real boot registers it (`preHandler`, beside the
+      //    permissions hook).
+      apiKeySitePin: true,
+      session: 'header',
+      wiki: {
+        models: {
+          pages: {
+            getPage: async (args: any) => {
+              getPageCalls.push(args)
+              return null
+            },
+            createPage: async (...args: any[]) => {
+              createPageCalls.push(args)
+              return { id: 'new-page-id' }
+            }
           },
-          createPage: async (...args: any[]) => {
-            createPageCalls.push(args)
-            return { id: 'new-page-id' }
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true,
+            groupIdsForRequest: () => []
           }
-        },
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          checkAccess: () => true,
-          groupIdsForRequest: () => []
         }
-      },
-      sites: {}
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    app.addHook('onRequest', async (req) => {
-      const rawKey = req.headers['x-test-api-key']
-      if (typeof rawKey === 'string') {
-        ;(req as any).apiKey = JSON.parse(rawKey)
-      }
-      const rawSession = req.headers['x-test-session']
-      if (typeof rawSession === 'string') {
-        ;(req as any).session = JSON.parse(rawSession)
       }
     })
-    // -> Same stage the real hook runs at in `index.ts` (`preHandler`, beside the permissions hook).
-    app.addHook('preHandler', apiKeySitePinHook)
-    await registerApprovalSchemas(app)
-    await registerPageSchema(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    // -> `/_api` prefix, matching `api/index.ts`'s real registration -- the hook only checks
-    //    `/_api/sites/...` (see its own doc comment), so mounting bare would silently exercise
-    //    nothing.
-    await app.register(pagesRoutes, { prefix: '/_api' })
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     getPageCalls = []
