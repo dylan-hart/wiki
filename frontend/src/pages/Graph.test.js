@@ -7,6 +7,9 @@ import { createI18n } from 'vue-i18n'
 import { isReactive } from 'vue'
 
 import Graph from './Graph.vue'
+// -> `drawLabels` moved to `graphDraw.js` as a pure function over the canvas context (VIEW-F13.7);
+//    these tests call it directly rather than through a page-local wrapper that nothing else needs.
+import { drawLabels, LABEL_GAP } from './graphDraw.js'
 import { useSiteStore } from '@/stores/site'
 
 /** Mirrors `backend/locales/en.json`'s `graph.*` namespace (OpenProject #1690) -- kept here rather
@@ -600,27 +603,23 @@ describe('Graph.vue (OpenProject #891)', () => {
     //    `k = 1` zoom, itself above the new threshold) already logged fillText calls, so clear
     //    those before asserting on the below-threshold case.
     wrapper.vm.ctx.fillText.mockClear()
-    wrapper.vm.zoomTransform = { k: 0.7, x: 0, y: 0 }
-    wrapper.vm.drawLabels()
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.7)
     expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
 
     wrapper.vm.ctx.fillText.mockClear()
-    wrapper.vm.zoomTransform = { k: 0.8, x: 0, y: 0 }
-    wrapper.vm.drawLabels()
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.8)
     expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
   })
 
   it('drawLabels caps the effective on-screen font size at high zoom (OpenProject #1287/#1288)', async () => {
     const wrapper = await mountGraph()
 
-    wrapper.vm.zoomTransform = { k: 2, x: 0, y: 0 }
-    wrapper.vm.drawLabels()
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 2)
     const [belowCapPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
     // -> Below the cap (2 * 10px = 20px effective), the base font size is unchanged.
     expect(Number(belowCapPx)).toBe(10)
 
-    wrapper.vm.zoomTransform = { k: 8, x: 0, y: 0 }
-    wrapper.vm.drawLabels()
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 8)
     const [atMaxZoomPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
     // -> At max zoom, the drawn font is scaled down so `fontPx * k` stops growing past the cap.
     expect(Number(atMaxZoomPx)).toBeLessThan(10)
@@ -957,7 +956,6 @@ describe('Graph.vue (OpenProject #891)', () => {
 
   it("drawLabels offsets each label by that node's own drawn radius, not a fixed constant (OpenProject #2297)", async () => {
     const wrapper = await mountGraph()
-    wrapper.vm.zoomTransform = { k: 1.2, x: 0, y: 0 }
 
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
@@ -974,13 +972,13 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(radiusA).not.toBe(radiusB)
 
     wrapper.vm.ctx.fillText.mockClear()
-    wrapper.vm.drawLabels()
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 1.2)
 
     const callA = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeA.title)
     const callB = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeB.title)
 
-    expect(callA[1]).toBe(nodeA.x + radiusA + wrapper.vm.LABEL_GAP)
-    expect(callB[1]).toBe(nodeB.x + radiusB + wrapper.vm.LABEL_GAP)
+    expect(callA[1]).toBe(nodeA.x + radiusA + LABEL_GAP)
+    expect(callB[1]).toBe(nodeB.x + radiusB + LABEL_GAP)
   })
 
   it('recovers from a fetch failure without throwing', async () => {

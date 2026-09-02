@@ -173,11 +173,9 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
-import { polygonHull } from 'd3-polygon'
+import { forceCenter, forceCollide } from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
-import { select } from 'd3-selection'
-import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
+import { zoomIdentity } from 'd3-zoom'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useSiteStore } from '@/stores/site'
 import GraphClientTypeFilter from '@/components/GraphClientTypeFilter.vue'
@@ -189,7 +187,12 @@ import {
   deriveFilterOptions,
   nodeId
 } from './graphFilters.js'
-import { clusterForce } from './graphForces.js'
+import { paintGraph } from './graphDraw.js'
+import {
+  attachZoom as attachGraphZoom,
+  computeClusters as buildClusters,
+  startSimulation as runSimulation
+} from './graphSimulation.js'
 
 /**
  * The knowledge graph view (OpenProject #848/#873): a full-viewport, canvas-rendered force graph
@@ -639,91 +642,6 @@ function collideRadiusFor(node) {
   return radiusFor(node) + 2
 }
 
-function drawEdges() {
-  ctx.strokeStyle = 'rgba(128, 128, 128, 0.35)'
-  ctx.lineWidth = 1
-  for (const edge of edges.value) {
-    const source = edge.source
-    const target = edge.target
-    if (source?.x === undefined || target?.x === undefined) {
-      continue
-    }
-    ctx.beginPath()
-    ctx.moveTo(source.x, source.y)
-    ctx.lineTo(target.x, target.y)
-    ctx.stroke()
-  }
-}
-
-function drawClusterHulls() {
-  for (const cluster of clusters.value) {
-    ctx.fillStyle = cluster.color
-    ctx.globalAlpha = 0.12
-    if (cluster.hullPoints?.length) {
-      ctx.beginPath()
-      ctx.moveTo(cluster.hullPoints[0][0], cluster.hullPoints[0][1])
-      for (const point of cluster.hullPoints.slice(1)) {
-        ctx.lineTo(point[0], point[1])
-      }
-      ctx.closePath()
-      ctx.fill()
-    } else if (cluster.circle) {
-      ctx.beginPath()
-      ctx.arc(cluster.circle.x, cluster.circle.y, cluster.circle.r, 0, Math.PI * 2)
-      ctx.fill()
-    }
-    ctx.globalAlpha = 1
-  }
-}
-
-function drawNodes() {
-  for (const node of nodes.value) {
-    if (node.x === undefined) {
-      continue
-    }
-    ctx.beginPath()
-    ctx.arc(node.x, node.y, radiusFor(node), 0, Math.PI * 2)
-    ctx.fillStyle = node.color ?? '#888'
-    ctx.fill()
-  }
-}
-
-/** Below this zoom level a label is unreadably small anyway; skipping the fillText calls entirely
- *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from `1.1`
- *  to `0.75` (OpenProject #2292, a follow-up to #1287/#1288) so labels persist further into a
- *  zoomed-out view: at the `10px` base font, `1.1` hid labels at 11px effective -- still
- *  comfortably readable -- while `0.75` now hides them at 7.5px effective. */
-const LABEL_BASE_FONT_PX = 10
-const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.75
-
-/** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
- *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
- *  `LABEL_BASE_FONT_PX * k` uncapped, reaching 80px at the max zoom (`k = 8`, see `attachZoom()`'s
- *  `scaleExtent`). `24` reads as roughly what a label already looks like comfortably zoomed in. */
-const LABEL_MAX_EFFECTIVE_FONT_PX = 24
-
-/** Breathing room between a node's edge and the start of its label, on top of the node's own
- *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
- *  smallest node (`MIN_CONTRIBUTOR_RADIUS`/`MIN_PAGEVIEW_RADIUS`, both `5`), but now scales with
- *  the node so a label never overlaps a larger node's fill (OpenProject #2297). */
-const LABEL_GAP = 3
-
-function drawLabels() {
-  const scale = zoomTransform.value?.k ?? 1
-  if (scale < LABEL_VISIBILITY_ZOOM_THRESHOLD) {
-    return
-  }
-  const fontPx = Math.min(LABEL_BASE_FONT_PX, LABEL_MAX_EFFECTIVE_FONT_PX / scale)
-  ctx.font = `${fontPx}px sans-serif`
-  ctx.fillStyle = '#333'
-  for (const node of nodes.value) {
-    if (node.x === undefined) {
-      continue
-    }
-    ctx.fillText(node.title ?? node.path, node.x + radiusFor(node) + LABEL_GAP, node.y + 3)
-  }
-}
-
 /** Recomputes everything derived from node POSITION: rebuilds the hit-test quadtree over the
  *  current `x`/`y`s and re-colors/re-hulls clusters via `recomputeClusters()`. Call whenever nodes
  *  may have moved or the visible set may have changed -- a simulation tick, a resize, a sizing
@@ -741,26 +659,19 @@ function relayout() {
   recomputeClusters()
 }
 
-/** Paints the current layout to the canvas -- the `ctx` save/clear/transform/draw/restore sequence
- *  only, no layout recomputation. Safe to call on every zoom/pan frame since it reads
- *  `nodeQuadtree`/`clusters.value` as they last stood rather than rebuilding either. */
+/** Paints the current layout to the canvas. `graphDraw.js` owns the actual
+ *  save/clear/transform/draw/restore sequence; this is only what the page holds that it needs.
+ *  Safe to call on every zoom/pan frame since it recomputes no layout. */
 function repaint() {
-  if (!ctx) {
-    return
-  }
-  const canvas = canvasRef.value
-  const dpr = window.devicePixelRatio || 1
-  ctx.save()
-  ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr)
-  if (zoomTransform.value) {
-    ctx.translate(zoomTransform.value.x, zoomTransform.value.y)
-    ctx.scale(zoomTransform.value.k, zoomTransform.value.k)
-  }
-  drawEdges()
-  drawClusterHulls()
-  drawNodes()
-  drawLabels()
-  ctx.restore()
+  paintGraph({
+    ctx,
+    canvas: canvasRef.value,
+    transform: zoomTransform.value,
+    nodes: nodes.value,
+    edges: edges.value,
+    clusters: clusters.value,
+    radiusFor
+  })
 }
 
 /** Screen coordinates -> the simulation's own coordinate space, undoing the current zoom transform. */
@@ -813,129 +724,22 @@ function onCanvasMouseMove(event) {
   tooltipPos.y = event.clientY - containerRect.top
 }
 
-/*
-  `forceLink().id()` resolves against each node's composite `${locale}:${path}` id (OpenProject
-  #1621/#1629), not the bare `path` -- translations share a path by design
-  (`docs/decisions/locale-translation-linking.md`), so an `id`-of-`path` accessor would make
-  d3-force's `nodeById` map collapse an `en`/`fr` pair sharing a path down to whichever one it
-  processed last, with no error. `node.path` stays around on every node (real and synthetic alike)
-  as the display/navigation field -- `onCanvasClick`, the hover tooltip and `drawLabels()` all still
-  read it.
-
-  `d3.forceLink`'s distance (60) and `d3.forceManyBody`'s charge strength (-120) are starting
-  points, not verified-correct constants -- exploratory visual tuning happens once there's a real
-  graph on screen (Task 13, #888), not here. `forceCollide`'s radius (`collideRadiusFor`, OpenProject
-  #1141) is sized off a plausible node-dot radius, same caveat.
-
-  The `cluster` force (`graphForces.js#clusterForce`, OpenProject #1158) pulls each node toward a
-  running centroid of its own group, layered on top of the forces above -- those alone don't
-  produce visually coherent clusters (per the spec). `0.05` is a starting point: low enough that
-  the other forces still dominate local layout, this is meant to be a bias toward clustering, not
-  the dominant force -- tune visually once there's a real graph on screen. It is attached once,
-  here, rather than re-attached on every `groupBy` change: unlike the `forceX`/`forceY` pair it
-  replaced (which cached their target at force-initialize time -- the root cause of #1158's frozen-
-  origin bug), this force recomputes group centroids from the *current* tick's `x`/`y` every time
-  d3-force calls it, so a `groupBy` change needs no re-attachment to take effect on the next tick.
-*/
 function startSimulation() {
   const { width, height } = containerRef.value.getBoundingClientRect()
 
-  simulation = forceSimulation(nodes.value)
-    .force(
-      'link',
-      forceLink(edges.value)
-        // -> Composite `${locale}:${path}` id (OpenProject #1621/#1629), not bare `path`: two locales'
-        //    translations of the same page share a `path` by design, and d3-force's `nodeById`
-        //    map (built from this accessor) would otherwise collapse them onto whichever node it
-        //    kept last -- N duplicate dots on top of each other, every edge attached to just one
-        //    of them. `graphFilters.js`'s edge builders key their `source`/`target` on the same
-        //    `nodeId()` helper, which is what keeps this accessor's output resolvable against
-        //    every edge actually fed into `edges.value` below.
-        .id((d) => nodeId(d))
-        .distance(60)
-    )
-    .force('charge', forceManyBody().strength(-120))
-    .force('collide', forceCollide(collideRadiusFor))
-    .force('center', forceCenter(width / 2, height / 2))
-    .force('cluster', clusterForce(groupKeyFor, 0.05))
-    .on('tick', () => {
-      relayout()
-      repaint()
-    })
-}
-
-/*
-  `16`px is a starting point sized against the `5`px node-dot radius in `drawNodes()` -- tune
-  visually so the hull clearly contains the dots without ballooning past neighboring clusters. It's
-  a floor added on top of each node's own `radiusFor()` (OpenProject #2296), not the whole gap any
-  more -- see `padHull()` and `computeClusters()`'s circle case below, both of which used to pad by
-  this constant alone and let a large node (up to `MAX_CONTRIBUTOR_RADIUS`/`MAX_PAGEVIEW_RADIUS`,
-  22) poke through its own group tint.
-*/
-const HULL_PADDING = 16
-
-/** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
- *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. Each
- *  `point` is a `[x, y, node]` triple (see `computeClusters()`) so the offset can grow by that
- *  vertex's own `radiusFor(node)` on top of the flat `padding` (OpenProject #2296) -- a large node
- *  sitting on the hull boundary would otherwise poke through the tint by the difference between its
- *  drawn radius and the flat padding. `polygonHull` (`d3-polygon`) returns references to the exact
- *  input elements it hulled, so the third element survives intact into `points` here. */
-function padHull(points, padding) {
-  const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length
-  const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length
-  return points.map(([x, y, node]) => {
-    const dx = x - cx
-    const dy = y - cy
-    const len = Math.hypot(dx, dy) || 1
-    const vertexPadding = padding + (node ? radiusFor(node) : 0)
-    return [x + (dx / len) * vertexPadding, y + (dy / len) * vertexPadding]
-  })
-}
-
-/** Populates `clusters.value` -- one entry per visible group with `hullPoints` (>=3 nodes) or a
- *  fallback `circle` (1-2 nodes, or a degenerate >=3-node group `polygonHull` can't hull, e.g.
- *  every point collinear). Both shapes are sized off each node's edge (its centre plus its own
- *  `radiusFor()`), not just its centre (OpenProject #2296) -- `collideRadiusFor()` above already
- *  adds `radiusFor(node)` to a constant the same way, and is the pattern this mirrors. */
-function computeClusters() {
-  const byGroup = new Map()
-  for (const node of nodes.value) {
-    if (node.x === undefined || node.synthetic) {
-      continue
-    }
-    const key = groupKeyFor(node)
-    const list = byGroup.get(key) ?? []
-    list.push(node)
-    byGroup.set(key, list)
-  }
-
-  const result = []
-  for (const [key, groupNodes] of byGroup) {
-    const color = colorForGroup(key)
-    if (groupNodes.length >= 3) {
-      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y, n]))
-      if (hull) {
-        result.push({ key, color, hullPoints: padHull(hull, HULL_PADDING) })
-        continue
+  simulation = runSimulation(
+    nodes.value,
+    edges.value,
+    { width, height },
+    {
+      groupKeyFor,
+      collideRadiusFor,
+      onTick: () => {
+        relayout()
+        repaint()
       }
-      // -> `polygonHull` returns null for degenerate input (e.g. every point collinear) even with
-      //    >=3 nodes; fall through to the circle case below rather than drawing nothing.
     }
-    const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
-    const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
-    // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
-    //    argument limit at large group sizes (OpenProject #1837, a latent hazard only; no group has
-    //    come close to that in practice). Sized off each node's edge (its centre plus its own
-    //    `radiusFor()`), not just its centre (OpenProject #2296) -- see the `computeClusters()` doc
-    //    comment above.
-    const maxDist = groupNodes.reduce(
-      (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
-      0
-    )
-    result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + HULL_PADDING } })
-  }
-  clusters.value = result
+  )
 }
 
 /** Single entry point Task 18's coloring and Task 20's hull computation both funnel through --
@@ -948,21 +752,19 @@ function recomputeClusters() {
   computeClusters()
 }
 
-/*
-  `scaleExtent([0.1, 8])` is a starting point (wide enough to read a single node's label at max
-  zoom and see the whole graph at min zoom on a typical viewport) -- tune visually once there's
-  real data to zoom around in.
-*/
+/** Rebuilds `clusters.value` from the current node positions. `graphSimulation.js` owns the hull
+ *  geometry; the page supplies the three answers only it has -- how a node is grouped, what colour
+ *  that group is, and how large the node draws. */
+function computeClusters() {
+  clusters.value = buildClusters(nodes.value, { groupKeyFor, colorForGroup, radiusFor })
+}
+
 function attachZoom() {
-  const selection = select(canvasRef.value)
-  const behavior = d3zoom()
-    .scaleExtent([0.1, 8])
-    .on('zoom', (event) => {
-      zoomTransform.value = event.transform
-      // -> Only the canvas transform changed, no node moved -- repaint only (OpenProject #1837).
-      repaint()
-    })
-  selection.call(behavior)
+  attachGraphZoom(canvasRef.value, (transform) => {
+    zoomTransform.value = transform
+    // -> Only the canvas transform changed, no node moved -- repaint only (OpenProject #1837).
+    repaint()
+  })
   zoomTransform.value = zoomIdentity
 }
 
