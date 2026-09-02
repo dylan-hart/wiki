@@ -1,4 +1,5 @@
-import type { FastifyReply } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
+import { buildErrorLogContext } from './requestLogContext.ts'
 
 /**
  * The non-`/_api` branch of the global `app.setErrorHandler` in `index.ts` (task 2263).
@@ -66,4 +67,36 @@ export function sendNonApiError(error: any, reply: FastifyReply): void {
   WIKI.logger.warn(error)
   const { statusCode, body } = buildNonApiErrorResponse(error)
   reply.code(statusCode).type('application/json').send(body)
+}
+
+/**
+ * The `/_api` branch of the same handler, lifted out of `index.ts` (CORE-F12 / TEST-F2) so the real
+ * one can be installed anywhere `/_api/` routes are served — including a test harness, which used to
+ * approximate it with dozens of independently-drifting hand-written copies.
+ *
+ * An error carrying a `statusCode` was set deliberately (almost always `@fastify/sensible`'s
+ * `reply.notFound()` / `app.httpErrors.*`) and is answered as-is; anything else is a bug, so it
+ * collapses to a fixed generic body and is the only branch that logs.
+ */
+export function apiErrorHandler(error: any, req: FastifyRequest, reply: FastifyReply): void {
+  if (error.statusCode) {
+    reply.code(error.statusCode).type('application/json').send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode,
+      message: error.message
+    })
+  } else {
+    // -> A bare `WIKI.logger.warn(error)` gave an operator no way to trace a 500 back to the
+    //    request that caused it. `req.id` is the same correlation id Fastify's own access log
+    //    carries for this request (`genReqId`, in `index.ts`), so the two lines join in an
+    //    aggregator.
+    WIKI.logger.warn(error, buildErrorLogContext(req))
+    reply.code(500).type('application/json').send({
+      ok: false,
+      error: 'Internal Server Error',
+      statusCode: 500,
+      message: 'Internal Server error'
+    })
+  }
 }

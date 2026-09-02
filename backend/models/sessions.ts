@@ -158,3 +158,43 @@ class Sessions {
 }
 
 export const sessions = new Sessions()
+
+/** @fastify/session's node-style store callback: `(err, result)`. */
+type SessionStoreCallback = (err: any, result?: any) => void
+
+/**
+ * Runs one store operation and reports it back through @fastify/session's callback contract.
+ *
+ * A thunk rather than an already-started promise, so a synchronous throw from the model is reported
+ * the same way a rejection is instead of escaping the wrapper.
+ */
+async function settle(op: () => Promise<any>, clb: SessionStoreCallback): Promise<void> {
+  try {
+    clb(null, await op())
+  } catch (err: any) {
+    clb(err, null)
+  }
+}
+
+/**
+ * The `store` @fastify/session is registered with (`core/http/session.ts`).
+ *
+ * @fastify/session's store interface is callback-based while this model is promise-based, so each of
+ * the three operations needs the same `try { clb(null, await …) } catch (err) { clb(err, null) }`
+ * wrapper — written out three times inline in `index.ts` until CORE-F12 collapsed them onto one
+ * `settle()` here, beside the methods they adapt.
+ *
+ * Reads `WIKI.models.sessions` rather than the `sessions` instance above, exactly as the inline
+ * version did: the store is built once at registration, and everything else in the request path goes
+ * through the model registry.
+ */
+export function sessionStoreAdapter() {
+  return {
+    get: (sessionId: string, clb: SessionStoreCallback) =>
+      settle(() => WIKI.models.sessions.get(sessionId), clb),
+    set: (sessionId: string, sessionData: any, clb: SessionStoreCallback) =>
+      settle(() => WIKI.models.sessions.set(sessionId, sessionData), clb),
+    destroy: (sessionId: string, clb: SessionStoreCallback) =>
+      settle(() => WIKI.models.sessions.destroy(sessionId), clb)
+  }
+}

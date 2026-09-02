@@ -2,10 +2,13 @@ import type { FastifyInstance } from 'fastify'
 import { siteEnabledPreHandler } from '../helpers/common.ts'
 
 /**
- * API Routes
+ * Registers every shared JSON Schema a route file may `$ref`.
+ *
+ * Exported (TEST-F2) so a test harness booting a subset of the route files registers the exact same
+ * set this does, rather than each suite maintaining its own hand-picked list of `registerSchemas`
+ * imports that drifts as schemas are added.
  */
-async function routes(app: FastifyInstance) {
-  // Register schemas
+export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/analytics.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/apiKey.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/approval.ts').then((m) => m.registerSchemas(app))
@@ -43,6 +46,14 @@ async function routes(app: FastifyInstance) {
   await import('./schemas/storage.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/tree.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/user.ts').then((m) => m.registerSchemas(app))
+}
+
+/**
+ * API Routes
+ */
+async function routes(app: FastifyInstance) {
+  // Register schemas
+  await registerAllSchemas(app)
 
   // Register routes
 

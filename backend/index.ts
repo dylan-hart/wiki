@@ -4,24 +4,17 @@
 // ===========================================
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import semver from 'semver'
 import { customAlphabet } from 'nanoid'
-import { uniq } from 'es-toolkit/array'
 
 import fastify from 'fastify'
 import fastifyCompress from '@fastify/compress'
-import fastifyCors from '@fastify/cors'
-import fastifyCookie from '@fastify/cookie'
 import fastifyFavicon from 'fastify-favicon'
 import fastifyFormBody from '@fastify/formbody'
-import fastifyHelmet from '@fastify/helmet'
 import fastifySensible from '@fastify/sensible'
-import fastifySession from '@fastify/session'
 import fastifyStatic from '@fastify/static'
-import fastifySwagger from '@fastify/swagger'
-import fastifySwaggerUi from '@fastify/swagger-ui'
 import fastifyWebsocket from '@fastify/websocket'
 import gracefulServer from '@gquittet/graceful-server'
 import ajvFormats from 'ajv-formats'
@@ -32,103 +25,23 @@ import collab from './core/collab.ts'
 import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
+import { registerAuthHooks } from './core/http/authHooks.ts'
+import { registerErrorHandler } from './core/http/errors.ts'
+import { registerOpenApi } from './core/http/openapi.ts'
+import { registerRoutes } from './core/http/routes.ts'
+import { registerSecurity } from './core/http/security.ts'
+import { registerSession } from './core/http/session.ts'
+import {
+  registerAppShellFallback,
+  registerSeoRedirects,
+  registerSiteResolution
+} from './core/http/siteRouting.ts'
 import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
 import { ensureTemporal } from './core/temporal.ts'
-import { apiKeySitePinHook, isBearerAuthenticatedPath } from './helpers/apiKeySite.ts'
-import { resolveAppShellLocale, getTemplatedAppShell } from './helpers/appShell.ts'
-import { assertValidAuthSecret } from './helpers/authSecret.ts'
-import { authSecretSigner } from './helpers/authSecretSigner.ts'
-import {
-  isHashedAssetFilename,
-  isSameOriginWebSocketHandshake,
-  localePrefixRedirectTarget,
-  localePrefixStripTarget,
-  resolveRequestSite,
-  siteIdForHostname,
-  stripPageExtension
-} from './helpers/common.ts'
-import { sendNonApiError } from './helpers/errorHandler.ts'
-import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
-import {
-  limitApiKey,
-  limitApiRequests,
-  limitPublicRequests,
-  isPublicRateLimitedPath
-} from './helpers/rateLimit.ts'
-import { buildErrorLogContext } from './helpers/requestLogContext.ts'
-import {
-  corsOptions,
-  inlineScriptHashSources,
-  parseCspDirectives,
-  sessionCookieName,
-  shouldBlockCrossOriginApiRequest
-} from './helpers/security.ts'
+import { isHashedAssetFilename, isSameOriginWebSocketHandshake } from './helpers/common.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
-
-/**
- * Files a browser or a crawler asks for at the root by convention, rather than because the wiki has a
- * page there. Kept out of the page URL rules below — `txt` is a page extension on a default site, and
- * answering `/robots.txt` with a redirect to `/robots` would be answering the wrong question.
- *
- * `metrics` rides along for the same reason despite not being a "file": `controllers/metrics.ts`
- * registers an unprefixed `/metrics` for Prometheus's fixed scrape convention, which without this
- * entry `isPageUrl()` below reads as a page navigation — a scrape against a hostname mapping to no
- * site (or a disabled one) would 302 to `/_error/unknownsite` / `/_error/disabled` before ever
- * reaching the registered route, and Prometheus follows redirects by default, so it would fail
- * parsing the SPA shell instead of getting a scrape failure that says why (OpenProject #938).
- */
-const RESERVED_ROOT_FILES = new Set(['favicon.ico', 'robots.txt', 'sitemap.xml', 'metrics'])
-
-/**
- * First path segments the SERVER itself answers — every prefix registered in `initHTTPServer`.
- *
- * Spelled out rather than tested with `isPageUrl`, because a leading underscore does not mean the
- * server: the frontend router owns `/_admin`, `/_profile`, `/_inbox`, `/_search`, `/_create`, `/_edit`
- * and `/_error` too, and those have to reach the app shell like any page path. The distinction the
- * shell needs is "does something here serve this", which is this list, and it has to be kept in step
- * with the registrations below.
- */
-const SERVER_ROUTE_SEGMENTS = new Set([
-  '_api',
-  '_assets',
-  '_blocks',
-  '_collab',
-  '_files',
-  '_icons',
-  '_mcp',
-  '_render',
-  '_site',
-  '_terminal',
-  '_thumb',
-  '_user'
-])
-
-/**
- * Whether a URL addresses the page tree rather than the server itself.
- *
- * Everything the server mounts sits under a leading-underscore segment — `/_api`, `/_assets`,
- * `/_files`, and the rest registered in `initHTTPServer` — which is what makes the distinction a
- * prefix test rather than a list to keep in step with the routes.
- */
-function isPageUrl(urlPath: string): boolean {
-  const firstSegment = urlPath.split('/')[1] ?? ''
-  return !firstSegment.startsWith('_') && !RESERVED_ROOT_FILES.has(firstSegment.toLowerCase())
-}
-
-/**
- * `isPageUrl` first segments that must reach the app shell even when the hostname resolves to no
- * site, or to one with `isEnabled === false` — the fix path for either state has to survive the very
- * thing it exists to correct, or a disabled site locks its own administrator out of re-enabling it.
- *
- * `login` is the only entry: everything else an operator needs — `/_admin` itself, and the
- * `/_api/sites/*` route `manage:sites` calls to flip `isEnabled` back on — already sits under a
- * leading-underscore segment, which `isPageUrl` excludes before this list is ever consulted. `/login`
- * is the one page-shaped exception, since (unlike `/_admin`) it is owned by the SPA router rather than
- * mounted here, and it is the only way to obtain the session `/_admin` requires in the first place.
- */
-const SITE_RESOLUTION_EXEMPT_SEGMENTS = new Set(['login'])
 
 if (!semver.satisfies(process.version, '>=26')) {
   console.error('ERROR: Node.js 26.x or later required!')
@@ -293,6 +206,11 @@ async function postBoot() {
 // Init HTTP Server
 // ----------------------------------------
 
+/*
+  The wiring itself lives in `core/http/*`, one module per responsibility. The call order below IS
+  the behaviour — Fastify runs hooks in the order they were added and plugins in the order they were
+  registered — so a `register*` call moved here is a behaviour change, not a tidy-up.
+*/
 async function initHTTPServer() {
   // ----------------------------------------
   // Initialize Fastify App
@@ -351,12 +269,11 @@ async function initHTTPServer() {
     //    verbatim rather than coerced. A trusted-proxy address/CIDR list (not the bare `true` this
     //    admin toggle used to send) is what keeps `req.ip`/`req.hostname` from trusting
     //    `X-Forwarded-For`/`X-Forwarded-Host` sent by an untrusted client -- see
-    //    `docs/tls-termination.md`. Every hostname-keyed site lookup (this hook's own
-    //    `resolveRequestSite` call below, the SEO hook and app-shell fallback further down,
-    //    `models/sites.ts#getSiteByHostname`, and the hostname reads in
-    //    `controllers/files.ts`/`seo.ts`/`site.ts` and `api/authentication.ts`) reads
-    //    `req.hostname`, so narrowing this one setting closes the cross-site `X-Forwarded-Host`
-    //    steering gap for all of them (task 2085).
+    //    `docs/tls-termination.md`. Every hostname-keyed site lookup (`core/http/siteRouting.ts`'s
+    //    SEO hook, site-resolution hook and app-shell fallback, `models/sites.ts#getSiteByHostname`,
+    //    and the hostname reads in `controllers/files.ts`/`seo.ts`/`site.ts` and
+    //    `api/authentication.ts`) reads `req.hostname`, so narrowing this one setting closes the
+    //    cross-site `X-Forwarded-Host` steering gap for all of them (task 2085).
     trustProxy: WIKI.config.security.trustProxy ?? false,
     routerOptions: {
       ignoreTrailingSlash: true
@@ -450,60 +367,7 @@ async function initHTTPServer() {
   // Security
   // ----------------------------------------
 
-  // -> Every setting below comes from the admin area's security view. They are read once, here, so a
-  //    change takes effect on the next restart — the view says as much.
-  const security = WIKI.config.security
-
-  /*
-    The app shell (`assets/index.html`, served by `helpers/appShell.ts`) always ships two inline
-    `<script>` blocks with no `src` -- the Temporal-polyfill feature-detect check and
-    `temporalPolyfillChunkPlugin`'s substituted chunk-url assignment (see both files' own comments) --
-    which a `script-src 'self'` policy with no `'unsafe-inline'` (`base.yml`'s own shipped
-    `cspDirectives` default) refuses outright. `inlineScriptHashSources` turns their exact, built
-    content into the hash sources that let them through without loosening the policy for anything
-    else. Read once here rather than per-request, matching every other setting in this registration:
-    the app shell is a build artifact, so a rebuilt frontend needs the same restart a changed
-    `cspDirectives` value already does. Missing entirely (no `npm run build` yet, e.g. a fresh dev
-    checkout) just means no hash sources -- CSP still registers, the app shell's own inline scripts
-    are the only thing that would trip it.
-  */
-  const cspDirectives =
-    security.enforceCsp && security.cspDirectives
-      ? parseCspDirectives(security.cspDirectives)
-      : null
-  if (cspDirectives?.['script-src']) {
-    const cspAppShellPath = path.join(WIKI.ROOTPATH, 'assets/index.html')
-    if (existsSync(cspAppShellPath)) {
-      const appShellHtml = readFileSync(cspAppShellPath, 'utf8')
-      cspDirectives['script-src'] = [
-        ...cspDirectives['script-src'],
-        ...inlineScriptHashSources(appShellHtml)
-      ]
-    }
-  }
-
-  app.register(fastifyHelmet, {
-    contentSecurityPolicy: cspDirectives
-      ? { directives: cspDirectives, useDefaults: false }
-      : false,
-    strictTransportSecurity:
-      security.enforceHsts && security.hstsDuration > 0
-        ? {
-            maxAge: security.hstsDuration,
-            includeSubDomains: true
-          }
-        : false,
-    // -> Helmet's own default is `sameorigin`, which is also what this setting turned off means
-    xFrameOptions: { action: security.disallowIframe ? 'deny' : 'sameorigin' },
-    referrerPolicy: security.enforceSameOriginReferrerPolicy
-      ? { policy: 'same-origin' }
-      : { policy: 'no-referrer' }
-  })
-
-  // -> One global registration rather than a separate policy for `/_api`: see the doc comment on
-  //    `corsOptions()` for why the method list has to cover the full API CRUD surface even though
-  //    this same registration also fronts asset-serving routes like `/_render` and `/_thumb`.
-  app.register(fastifyCors, corsOptions(security))
+  registerSecurity(app)
 
   // ----------------------------------------
   // Public Assets
@@ -549,417 +413,25 @@ async function initHTTPServer() {
   // Sessions
   // ----------------------------------------
 
-  // Fail closed rather than silently register the session/cookie plugins with a missing or
-  // too-short secret -- see `helpers/authSecret.ts` for why this exists.
-  assertValidAuthSecret(WIKI.config.auth.secret)
-
-  // `authSecretSigner` (OpenProject #2172) hands both plugins an object that reads
-  // `WIKI.config.auth.secret` at call time instead of a value captured once here at registration, so
-  // `models/sessions.ts#rotateSecret()` (verified under a real two-instance HA setup for task 589)
-  // takes effect on a still-running instance immediately: this instance signs and verifies against the
-  // rotated secret starting with the very next request, and so does every other instance the moment
-  // `WIKI.events.inbound`'s `reloadConfig` (already fanned out by `saveToDb()`) reassigns its own
-  // `WIKI.config`. No restart, and no plugin re-registration, required.
-  app.register(fastifyCookie, {
-    secret: authSecretSigner,
-    hook: 'onRequest'
-  })
-  app.register(fastifySession, {
-    secret: authSecretSigner,
-    // -> task 2109: `__Host-`-prefixed and pinned explicit, not `secure: 'auto'` -- see
-    //    `sessionCookieName()`'s doc comment for why `cookiePrefix` (what the task's own text
-    //    suggested) cannot get there, and the two notes below for what pinning these two costs.
-    //    `security.cookieSecure` (default `true`) is the escape hatch for a plain-HTTP dev instance --
-    //    see its doc comment in `base.yml`.
-    cookieName: sessionCookieName(),
-    cookie: {
-      httpOnly: true,
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      /*
-        Unconditionally true when `security.cookieSecure` isn't explicitly `false`, not `secure:
-        'auto'` (task 2109 / WP 2105 §2): the `__Host-` name above is only honoured by a browser when
-        the `Set-Cookie` response itself carries `Secure` -- @fastify/session's 'auto' resolves that to
-        `false` on any request THIS instance sees as plain http
-        (`node_modules/@fastify/session/lib/cookie.js`), which includes both the dev server
-        (`npm run dev` serves :3000 over http, matching config.sample.yml's default) and a
-        genuinely-HTTPS deployment sitting behind a reverse proxy that isn't declared via
-        `trustProxy` -- see `models/security.ts#observeRequest`, which exists to catch exactly that
-        misconfiguration. In the trustProxy-off-but-really-HTTPS case, 'auto' would silently drop the
-        whole `__Host-` cookie rather than merely downgrade it, since a missing `Secure` fails the
-        prefix outright; forcing it `true` fixes that case unconditionally instead.
-
-        This does NOT, on its own, make a plain-HTTP dev instance work: @fastify/session's own `onSend`
-        hook refuses to ever emit a `Secure`-flagged cookie unless it saw the connection itself as TLS
-        (`request.protocol === 'https'`), which a bare `node backend` over plain HTTP never is --
-        loopback or not, contrary to what an earlier version of this comment assumed (OpenProject bug
-        report, 2026-08-31: verified against a real `@fastify/session` request, not merely inferred).
-        `security.cookieSecure: false` is the documented way out of that for a dev instance -- see
-        `base.yml`. Left at its default `true`, this is unchanged: a deployment with no TLS anywhere in
-        the chain (not even a proxy) fails closed -- no session cookie at all, rather than an insecure
-        one -- which is the point.
-      */
-      secure: WIKI.config.security?.cookieSecure !== false,
-      // -> Explicit, not left to 'auto' forcing it only on the non-https branch (task 2109 / WP
-      //    2105 §2): a correctly-deployed HTTPS instance was emitting `Secure` with NO `SameSite`
-      //    at all, which is exactly backwards for CSRF exposure. 'lax', never 'strict' -- the
-      //    OAuth/SAML provider callback is a cross-site top-level navigation back to this origin,
-      //    which 'strict' would refuse to attach the cookie to.
-      sameSite: 'lax'
-    },
-    saveUninitialized: false,
-    store: {
-      async get(sessionId: string, clb: (err: any, result?: any) => void) {
-        try {
-          clb(null, await WIKI.models.sessions.get(sessionId))
-        } catch (err: any) {
-          clb(err, null)
-        }
-      },
-      async set(sessionId: string, sessionData: any, clb: (err: any, result?: any) => void) {
-        try {
-          clb(null, await WIKI.models.sessions.set(sessionId, sessionData))
-        } catch (err: any) {
-          clb(err, null)
-        }
-      },
-      async destroy(sessionId: string, clb: (err: any, result?: any) => void) {
-        try {
-          clb(null, await WIKI.models.sessions.destroy(sessionId))
-        } catch (err: any) {
-          clb(err, null)
-        }
-      }
-    }
-  })
+  registerSession(app)
 
   // ----------------------------------------
-  // Cookie Security Diagnostic (task 833)
+  // API Documentation
   // ----------------------------------------
 
-  // -> Feeds `Security#observeRequest` so the admin area's security view can warn about the
-  //    reverse-proxy cookie misconfiguration described on that method -- see its doc comment.
-  //    Registered after the session cookie is parsed but does not depend on it; placement here is
-  //    just "grouped with the rest of the cookie/session wiring it explains".
-  app.addHook('onRequest', (req, reply, done) => {
-    WIKI.models.security.observeRequest(req.headers, req.protocol)
-    done()
-  })
+  registerOpenApi(app)
 
   // ----------------------------------------
-  // API Routes
+  // Authentication, rate limits and permissions
   // ----------------------------------------
 
-  app.register(fastifySwagger, {
-    hideUntagged: true,
-    openapi: {
-      openapi: '3.1.0',
-      info: {
-        title: 'Wiki.js API',
-        version: WIKI.version
-      },
-      components: {
-        securitySchemes: OPENAPI_SECURITY_SCHEMES
-      },
-      security: OPENAPI_SECURITY
-    },
-    transform: ({ schema, url, route }: any) => {
-      // Add permissions to the route schema description
-      const permissions = route?.config?.permissions ?? []
-      const transformedSchema = { ...schema }
-      const currentDescription = transformedSchema.description || ''
-
-      if (permissions?.length > 0) {
-        const nestedPermissions: string[] = []
-        for (const perm of permissions) {
-          if (Array.isArray(perm)) {
-            nestedPermissions.push(`\`${perm.join(' + ')}\``)
-          } else {
-            nestedPermissions.push(`\`${perm}\``)
-          }
-        }
-        nestedPermissions.push('`manage:system`')
-        transformedSchema.description =
-          `${currentDescription}\n\n**Required Permissions:** ${uniq(nestedPermissions).join(' or ')}`.trim()
-        transformedSchema['x-permissions'] = permissions
-      } else if (route?.config?.publicAccess) {
-        transformedSchema.description =
-          `${currentDescription}\n\n**This API is public.** No special permissions required.`.trim()
-      } else {
-        /*
-          No fixed permission is not the same as public, and saying so was wrong for most of these.
-          A route without one is usually a route whose answer depends on the caller: the page rules of
-          their groups, their own account, or the queue they happen to be a reviewer for. What it
-          serves is scoped, not unrestricted.
-        */
-        transformedSchema.description =
-          `${currentDescription}\n\n**No fixed permission.** What this returns, and what it acts on, is limited to what the caller is entitled to — their session, their groups' page rules, or their own account. A request that is entitled to nothing gets an empty answer or a refusal rather than an error about permissions.`.trim()
-      }
-
-      return { schema: transformedSchema, url }
-    }
-  })
-  app.register(fastifySwaggerUi, {
-    routePrefix: '/_api',
-    /*
-      Swagger UI's own sorters, applied in the browser: tags down the page, and the operations inside
-      each tag by path. Neither is on by default — the order is otherwise the order the routes were
-      registered in, which is meaningful to `api/index.ts` and arbitrary to anyone reading the docs.
-
-      `operationsSorter: 'alpha'` sorts on the path, not the summary, so the several methods of one
-      path stay together and keep their registration order relative to each other.
-    */
-    uiConfig: {
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha'
-    },
-    // -> Left empty so the plugin inlines neither its own logo nor one of ours; the stylesheet below
-    //    is what puts the site's logo in the topbar
-    logo: {} as any,
-    theme: {
-      css: [
-        {
-          filename: 'wiki.css',
-          /*
-            The site's own logo in the topbar, as a background on the link swagger draws its wordmark
-            in.
-
-            A stylesheet rather than the plugin's `logo` option, which takes a buffer and base64-inlines
-            it into the page when the server boots. This documentation is served for whichever site the
-            request arrived at, and an administrator can change that site's logo at any time — a URL
-            resolves both of those per request, and a buffer chosen at boot resolves neither.
-
-            `contain` in a box wider than it is tall, so a square mark and a wordmark both sit sensibly
-            without the logo being distorted to fit.
-          */
-          content: `
-            .swagger-ui .topbar-wrapper a.link > * {
-              display: none;
-            }
-            .swagger-ui .topbar-wrapper a.link {
-              display: block;
-              width: 160px;
-              height: 40px;
-              background: url('/_site/current/logo') left center / contain no-repeat;
-            }
-          `
-        }
-      ]
-    }
-  })
-
-  // ----------------------------------------
-  // API Key Authentication
-  // ----------------------------------------
-
-  app.decorateRequest('apiKey', null)
-
-  app.addHook('onRequest', async (req, reply) => {
-    // -> Bearer tokens authenticate `/_api/` calls, plus the handful of public, hostname-routed
-    //    controllers that accept an API key without a session (`/_files`, `/_site`, `/_thumb` --
-    //    see `helpers/apiKeySite.ts#isBearerAuthenticatedPath` for exactly which and why, OpenProject
-    //    #2339). Everything else is cookie-authenticated. Note that the session is deliberately left
-    //    untouched: writing to it would have @fastify/session persist a session row for every
-    //    scraped request.
-    if (!isBearerAuthenticatedPath(req.url)) {
-      return
-    }
-    const header = req.headers.authorization
-    if (!header?.startsWith('Bearer ')) {
-      return
-    }
-    const token = header.slice('Bearer '.length).trim()
-    if (!token) {
-      return
-    }
-    try {
-      req.apiKey = await WIKI.models.apiKeys.verify(token)
-    } catch (err: any) {
-      // -> Say why: the caller holds the credential and can act on "revoked" or "expired"
-      WIKI.logger.debug(`Rejected an API key: ${err.message}`)
-      return reply.unauthorized(err.message)
-    }
-    // -> Global, not per-route: a compromised key has to be caught on whichever endpoint it hits,
-    //    not only the ones that remembered to attach a limiter. See helpers/rateLimit.ts for why
-    //    this one specifically has no manage:system exemption.
-    return limitApiKey(req, reply)
-  })
-
-  // ----------------------------------------
-  // Same-Origin Check (task 2118 / WP 2105 §3)
-  // ----------------------------------------
-
-  /*
-    `SameSite=Lax` (above) does not cover a same-site-but-different-origin attacker -- a page on
-    sibling.wiki.example is "same-site" to wiki.example for cookie purposes, but not the wiki's own
-    origin, and Lax still attaches the cookie to a top-level form navigation either way. Nothing else
-    in this file inspects request provenance (see WP 2105's own grep for `csrf`/`sec-fetch`/
-    `x-requested-with` across the repo), so a state-changing `/_api/` request riding on the session
-    cookie alone -- no verified bearer token -- has to positively confirm it originated here. The
-    actual decision is `shouldBlockCrossOriginApiRequest()` in `helpers/security.ts` -- kept as a
-    plain function of the request rather than written inline here so it can be exercised directly in
-    a test with no Fastify instance, database, or route registration needed at all; this hook is
-    just the wiring.
-
-    After the API-key hook above, so `req.apiKey` is populated for the bearer exemption; before the
-    rate limiter, though the ordering between the two doesn't matter functionally.
-  */
-  app.addHook('onRequest', (req, reply, done) => {
-    if (shouldBlockCrossOriginApiRequest(req, sessionCookieName())) {
-      // -> Fails closed: a missing/foreign `Origin` (and no `Sec-Fetch-Site: same-origin`) is not
-      //    what a real browser sends on a state-changing cross-document request, so there is
-      //    nothing here to positively trust.
-      return reply.forbidden('Cross-origin request blocked')
-    }
-    done()
-  })
-
-  // ----------------------------------------
-  // General API Rate Limit
-  // ----------------------------------------
-
-  app.addHook('onRequest', async (req, reply) => {
-    // -> After the API-key hook above, so `req.apiKey` is populated for the key it builds its
-    //    counter from. See `helpers/rateLimit.ts#limitApiRequests` for the key/exemption/double-count
-    //    reasoning.
-    if (!req.url.startsWith('/_api/')) {
-      return
-    }
-    return limitApiRequests(req, reply)
-  })
-
-  // ----------------------------------------
-  // Public Surface Rate Limit
-  // ----------------------------------------
-
-  app.addHook('onRequest', async (req, reply) => {
-    // -> The handful of root-mounted public controllers (`/sitemap.xml`, `/robots.txt`, `/_icons`,
-    //    `/_files`, `/_thumb`, `/_site`) carried no throttle of any kind before this hook (OpenProject
-    //    #2274) -- neither this one nor the `/_api/` limiter above ever saw them, since both are
-    //    scoped to `/_api/`. Accounted into its own `public:` bucket, entirely separate from
-    //    `/_api/`'s -- see `helpers/rateLimit.ts#limitPublicRequests`.
-    const path = req.url.split('?')[0] ?? req.url
-    if (!isPublicRateLimitedPath(path)) {
-      return
-    }
-    return limitPublicRequests(req, reply)
-  })
-
-  // ----------------------------------------
-  // Permissions
-  // ----------------------------------------
-
-  /*
-    Global-vs-page-rule audit (task 551, Feature 377): every `session.permissions` /
-    `apiKey.permissions` read under `backend/` was re-grepped and confirmed to check a genuinely-global
-    permission name (this hook's own `routePermissions`, `models/users.ts`'s login flattening,
-    `models/approvals.ts`, `models/groups.ts`'s `checkSiteAdminAccess()`, `controllers/terminal.ts`,
-    `helpers/rateLimit.ts`, `models/groups.ts`'s `actorForRequest()`, `api/users.ts`'s `whoAmI()`), not
-    one of the fourteen page-rule `PAGE_PERMISSIONS` strings — those may only be decided by
-    `groups.checkAccess()` / `mayOnPage()` against a page's rules. One further instance turned up in
-    this pass and was fixed here: `api/pages.ts`'s search route was scanning the GLOBAL list for
-    `write:pages`/`manage:pages`, which a group's `permissions` column never legitimately carries — see
-    `models/groups.ts`'s `mayHoldPermissionSomewhere()`. A future permission check added near any of
-    the above should keep asking the same question this comment does, not assume `session.permissions`
-    covers page-scoped names.
-  */
-  app.addHook('preHandler', (req, reply, done) => {
-    const routePermissions = req.routeOptions.config?.permissions
-    if (routePermissions && routePermissions.length > 0) {
-      // -> A verified API key stands in for a session, carrying the permissions of the groups it was
-      //    issued for
-      const permissions = req.apiKey
-        ? req.apiKey.permissions
-        : req.session?.authenticated
-          ? req.session.permissions
-          : null
-      // Unauthenticated / No Permissions
-      if (!permissions || permissions.length < 1) {
-        return reply.unauthorized()
-      }
-      // Is Root Admin?
-      if (!permissions.includes('manage:system')) {
-        // Check for at least 1 permission
-        const isAllowed = routePermissions.some((perms) => {
-          // Check for all permissions
-          if (Array.isArray(perms)) {
-            return perms.every((perm) => permissions.some((p) => p === perm))
-          } else {
-            return permissions.some((p) => p === perms)
-          }
-        })
-        // Forbidden
-        if (!isAllowed) {
-          return reply.forbidden()
-        }
-      }
-    }
-    done()
-  })
-
-  // ----------------------------------------
-  // API key site pin
-  // ----------------------------------------
-
-  // -> OpenProject #2189/#2194: a key/token pinned to one site (`apiKeys.siteId`) must not reach
-  //    another site's resources through the REST API. One global hook covering every
-  //    `/sites/:siteId/...` route rather than a call added to each of the 117+ of them individually —
-  //    see `helpers/apiKeySite.ts`'s own doc comment for the full reasoning and what this deliberately
-  //    does not cover (a hostname- or body-resolved site, which calls `enforceApiKeySite()` directly).
-  app.addHook('preHandler', apiKeySitePinHook)
+  registerAuthHooks(app)
 
   // ----------------------------------------
   // SEO
   // ----------------------------------------
 
-  app.addHook('onRequest', (req, reply, done) => {
-    const [urlPath, urlQuery] = req.raw.url!.split('?')
-    const withQuery = (newPath: string) => (urlQuery ? `${newPath}?${urlQuery}` : newPath)
-
-    const trimmed = urlPath!.length > 1 && urlPath!.endsWith('/') ? urlPath!.slice(0, -1) : urlPath!
-
-    if (isPageUrl(trimmed)) {
-      // -> Straight off the site caches rather than through the model: this runs on every request, and
-      //    both lookups are the ones `getSiteByHostname` would do, minus its optional reload
-      const siteId = siteIdForHostname(req.hostname)
-      const siteConfig = siteId ? WIKI.sites[siteId]?.config : undefined
-      const withoutExtension = stripPageExtension(trimmed, siteConfig?.pageExtensions)
-      if (withoutExtension) {
-        // -> Answers a trailing slash as well, rather than sending the client back for a second
-        //    round trip to be told about the extension.
-        //
-        //    Not a 301: which extensions resolve this way is a setting, and a browser that cached a
-        //    permanent redirect would go on applying it after an administrator had changed it
-        reply.redirect(withQuery(withoutExtension), 302)
-        return
-      }
-
-      // -> `SERVER_ROUTE_SEGMENTS` and `RESERVED_ROOT_FILES` are already excluded by `isPageUrl`
-      //    above, so a locale code can never collide with one of those first segments here.
-      const localeRedirect = localePrefixRedirectTarget(trimmed, siteConfig?.locales)
-      if (localeRedirect) {
-        // -> Same reasoning as the extension redirect above: `forcePrefix` is a setting, not a
-        //    permanent fact about the URL, so a 301 here would outlive an admin turning it off.
-        reply.redirect(withQuery(localeRedirect), 302)
-        return
-      }
-
-      // -> The mirror image: an explicit prefix the site's rules leave bare (`/en/page`) 302s to
-      //    the one canonical URL (`/page`), and a mis-cased prefix re-cases. 302 for the same
-      //    reason as above — which locales are active, and forcePrefix, are settings.
-      const localeStrip = localePrefixStripTarget(trimmed, siteConfig?.locales)
-      if (localeStrip) {
-        reply.redirect(withQuery(localeStrip), 302)
-        return
-      }
-    }
-
-    if (trimmed !== urlPath) {
-      reply.redirect(withQuery(trimmed), 301)
-      return
-    }
-
-    done()
-  })
+  registerSeoRedirects(app)
 
   app.register(fastifyFormBody, {
     bodyLimit: 1048576 // 1mb
@@ -969,166 +441,25 @@ async function initHTTPServer() {
   // Site Resolution
   // ----------------------------------------
 
-  app.decorateRequest('site', null)
-
-  app.addHook('onRequest', (req, reply, done) => {
-    const urlPath = req.raw.url!.split('?')[0]!
-    const trimmed = urlPath.length > 1 && urlPath.endsWith('/') ? urlPath.slice(0, -1) : urlPath
-
-    // -> Not in scope for the server's own routes, static assets, etc. — see `isPageUrl`
-    if (!isPageUrl(trimmed)) {
-      return done()
-    }
-
-    const firstSegment = trimmed.split('/')[1] ?? ''
-    const resolution = resolveRequestSite({
-      firstSegment,
-      hostname: req.hostname,
-      sitesMappings: WIKI.sitesMappings,
-      sites: WIKI.sites,
-      exemptSegments: SITE_RESOLUTION_EXEMPT_SEGMENTS
-    })
-
-    switch (resolution.outcome) {
-      case 'exempt':
-        return done()
-      case 'ok':
-        req.site = resolution.site
-        return done()
-      case 'disabled':
-        // -> Distinguishable from "not-found" below: this hostname does address a real site, it is
-        //    just switched off, which is a different message (and a different fix) for whoever hits it
-        req.site = resolution.site
-        // -> A 302, not a 301: `isEnabled` is a setting an administrator can flip back, and a browser
-        //    that cached a permanent redirect would keep bouncing here after they did
-        reply.redirect('/_error/disabled', 302)
-        return
-      case 'not-found':
-        reply.redirect('/_error/unknownsite', 302)
-        return
-    }
-  })
+  registerSiteResolution(app)
 
   // ----------------------------------------
   // Routing
   // ----------------------------------------
 
-  app.register(import('./api/index.ts'), { prefix: '/_api' })
-  app.register(import('./controllers/blocks.ts'), { prefix: '/_blocks/custom' })
-  app.register(import('./controllers/collab.ts'), { prefix: '/_collab' })
-  app.register(import('./controllers/files.ts'), { prefix: '/_files' })
-  app.register(import('./controllers/site.ts'), { prefix: '/_site' })
-  app.register(import('./controllers/icons.ts'), { prefix: '/_icons' })
-  // -> The MCP server's HTTP/SSE transport (`mcp/http.ts`) — see that file's doc comment for the
-  //    session/auth model. `mcp/stdio.ts` is the other transport, run as its own OS process.
-  app.register(import('./mcp/http.ts'), { prefix: '/_mcp' })
-  // -> Deliberate exception to the leading-underscore convention every other line here follows:
-  //    Prometheus scrapes a fixed, unprefixed `/metrics`. See `controllers/metrics.ts` for the full
-  //    scope decision (task 594).
-  app.register(import('./controllers/metrics.ts'), { prefix: '/metrics' })
-  app.register(import('./controllers/render.ts'), { prefix: '/_render' })
-  // -> No prefix: `/robots.txt` and `/sitemap.xml` are root-level files, not part of the `_`-prefixed
-  //    server namespace the rest of these occupy. See `RESERVED_ROOT_FILES` / `isPageUrl()` above.
-  app.register(import('./controllers/seo.ts'))
-  app.register(import('./controllers/terminal.ts'), { prefix: '/_terminal' })
-  app.register(import('./controllers/thumb.ts'), { prefix: '/_thumb' })
-  app.register(import('./controllers/user.ts'), { prefix: '/_user' })
+  registerRoutes(app)
 
   // ----------------------------------------
   // App Shell
   // ----------------------------------------
 
-  const appShellPath = path.join(WIKI.ROOTPATH, 'assets/index.html')
-
-  /*
-    The compiled SPA, for every path no route above claimed.
-
-    It has to be the fallback rather than a route of its own: a wiki page lives at any path a user cares
-    to give it, and the frontend's router -- not this server -- is what resolves one. Which is also why
-    the only paths held back are the segments the server itself mounts, so a mistyped `/_api/...` still
-    answers as the API rather than handing back a page of HTML, and the root files a crawler asks for by
-    convention, which are absent here rather than being the app.
-
-    `no-store`: the bundles this pulls in are hashed and immutable under `/_assets`, but the document
-    naming them must never be held, or a rebuilt frontend would keep booting the previous one. Stat'd
-    per request for the same reason -- `npm run build` while the server is up should be enough. It
-    also means a cache never has to be told the templated `lang`/`dir` below vary per site, since
-    nothing is cached at all client-side (the server-side memo below is a from-scratch re-template
-    keyed on that same stat, not a cache the client could ever observe).
-
-    `lang`/`dir` are filled in here rather than left to `App.vue` (which also sets them, from
-    `siteStore.locales`, the moment it boots): that only happens once its JS has loaded, parsed and
-    run, so an RTL locale would flash LTR for however long that takes. Templating them into the shell
-    itself closes that window -- see `helpers/appShell.ts`, whose `getTemplatedAppShell` memoises the
-    templated output per `(lang, isRTL)` pair (there are only a handful) rather than re-reading and
-    re-templating the shell on every request; it also keeps `getLocales()` off the hot path for an
-    already-seen `lang`, only calling it again once the shell file's `mtimeMs` moves.
-  */
-  app.setNotFoundHandler(async (req, reply) => {
-    const [urlPath, urlSearch] = req.raw.url!.split('?')
-    const firstSegment = urlPath!.split('/')[1] ?? ''
-    const isSystemPath = SERVER_ROUTE_SEGMENTS.has(firstSegment)
-    const isReservedRootFile = RESERVED_ROOT_FILES.has(firstSegment.toLowerCase())
-    // -> HEAD as well as GET: it has to answer what GET would, or a monitor pointed at the wiki reads a
-    //    404 for a page the browser beside it loads. Node drops the body for HEAD on its own.
-    const isReadRequest = req.method === 'GET' || req.method === 'HEAD'
-    if (!isReadRequest || isSystemPath || isReservedRootFile) {
-      return reply.notFound()
-    }
-    try {
-      // -> Same site resolution as the SEO hook above: straight off the caches, since this also
-      //    runs on every request that reaches the shell.
-      const siteId = siteIdForHostname(req.hostname)
-      const siteConfig = siteId ? WIKI.sites[siteId]?.config : undefined
-      const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
-      const templated = await getTemplatedAppShell(appShellPath, lang, async () => {
-        const locales = await WIKI.models.locales.getLocales()
-        return locales.find((l: any) => l.code === lang)?.isRTL ?? false
-      })
-      return reply
-        .header('Cache-Control', 'no-store')
-        .type('text/html; charset=utf-8')
-        .send(templated)
-    } catch (err: any) {
-      // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
-      //    fault of this request: say which one, since a bare 500 sends people looking in the server
-      WIKI.logger.error(`Cannot serve the app shell from ${appShellPath}: ${err.message}`)
-      return reply
-        .code(503)
-        .type('text/plain; charset=utf-8')
-        .send('The frontend has not been built yet. Run `npm run build` in frontend/.\n')
-    }
-  })
+  registerAppShellFallback(app)
 
   // ----------------------------------------
   // Error handling
   // ----------------------------------------
 
-  app.setErrorHandler((error: any, req, reply) => {
-    if (req.url.includes('/_api/')) {
-      if (error.statusCode) {
-        reply.code(error.statusCode).type('application/json').send({
-          ok: false,
-          error: error.name,
-          statusCode: error.statusCode,
-          message: error.message
-        })
-      } else {
-        // -> A bare `WIKI.logger.warn(error)` gave an operator no way to trace a 500 back to the
-        //    request that caused it. `req.id` is the same correlation id Fastify's own access log
-        //    carries for this request (`genReqId`, above), so the two lines join in an aggregator.
-        WIKI.logger.warn(error, buildErrorLogContext(req))
-        reply.code(500).type('application/json').send({
-          ok: false,
-          error: 'Internal Server Error',
-          statusCode: 500,
-          message: 'Internal Server error'
-        })
-      }
-    } else {
-      sendNonApiError(error, reply)
-    }
-  })
+  registerErrorHandler(app)
 
   // ----------------------------------------
   // Bind HTTP Server

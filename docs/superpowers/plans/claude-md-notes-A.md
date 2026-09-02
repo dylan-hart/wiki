@@ -326,3 +326,25 @@ return reply }`) is shared with `requireActorId`.
   `backend/migration/importers/page-import.ts`. `docs/variances.md`'s TFA-drop entry likewise still
   names the deleted `backend/migration/importers/user-converters.ts#createLocalUserConverter` (that
   function now lives in `importers/users-groups.ts`) — left alone per the no-variances-edits rule.
+- **A15 — `index.ts` is now only the boot script; the HTTP wiring lives in `backend/core/http/`.**
+  CLAUDE.md's `backend/` layout section should list `core/http/` alongside `core/`'s other
+  singletons: `security.ts` (helmet/CSP/CORS), `session.ts` (cookie + @fastify/session + the
+  cookie-security diagnostic hook), `openapi.ts` (swagger + swagger-ui), `authHooks.ts` (API-key
+  bearer, same-origin gate, the two rate limiters, the route-permission `preHandler`, the API-key
+  site pin), `siteRouting.ts` (`RESERVED_ROOT_FILES` / `SERVER_ROUTE_SEGMENTS` / `isPageUrl`, the SEO
+  redirects, per-request site resolution, the app-shell not-found fallback), `errors.ts`
+  (`setErrorHandler`) and `routes.ts` (every mounted prefix). `index.ts` keeps the `WIKI` literal,
+  `preBoot`/`postBoot`, the Fastify instance options, gracefulServer, the static asset mounts and the
+  three-phase sequence. Several places in CLAUDE.md still say "registered in `index.ts`" about hooks
+  and prefixes that now live in `core/http/*` — the Permissions section's "enforced by a single
+  `preHandler` hook in `index.ts`" is the load-bearing one (it is `core/http/authHooks.ts#permissionPreHandler`).
+- **A15 — three pieces of `index.ts` are now importable pure functions.**
+  `core/http/authHooks.ts#permissionPreHandler` (callback-style `(req, reply, done)`, same shape as
+  `helpers/common.ts#siteEnabledPreHandler` and `helpers/apiKeySite.ts#apiKeySitePinHook`),
+  `helpers/openapi.ts#swaggerTransform` and `helpers/errorHandler.ts#apiErrorHandler`. Plus
+  `api/index.ts#registerAllSchemas(app)` and `models/sessions.ts#sessionStoreAdapter()`. A test that
+  needs the real route-permission gate, the real `/_api` error body or the full shared-schema set
+  imports these rather than re-writing them (TEST-F2).
+- **A15 — stale `index.ts` pointers left in another lane's files.** `backend/controllers/metrics.ts`
+  and `backend/controllers/seo.ts` name `index.ts`'s `RESERVED_ROOT_FILES` / `SERVER_ROUTE_SEGMENTS`
+  in doc comments; those constants are now exported from `backend/core/http/siteRouting.ts`.

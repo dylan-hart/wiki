@@ -3,7 +3,7 @@ import { after, before, describe, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import { buildNonApiErrorResponse, sendNonApiError } from './errorHandler.ts'
+import { apiErrorHandler, buildNonApiErrorResponse, sendNonApiError } from './errorHandler.ts'
 
 describe('buildNonApiErrorResponse', () => {
   test('an error with no statusCode collapses to a generic 500 body carrying no message/code text', () => {
@@ -97,5 +97,76 @@ describe('sendNonApiError', () => {
     assert.equal(body.statusCode, 404)
     assert.equal(body.message, 'This page could not be found.')
     assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 1)
+  })
+})
+
+/**
+ * The `/_api` branch of the same `setErrorHandler`, lifted out of `index.ts` by task A15 so the real
+ * one can be installed by a test harness rather than approximated by the >= 57 hand-rolled copies
+ * TEST-F2 counted across the API suites. Driven through a real Fastify instance for the same reason
+ * `sendNonApiError` above is.
+ */
+describe('apiErrorHandler', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+    app = fastify()
+    await app.register(fastifySensible)
+    app.setErrorHandler(apiErrorHandler)
+    app.get('/_api/boom-generic', async () => {
+      throw new Error('relation "pages" does not exist at character 42')
+    })
+    app.get('/_api/boom-sensible', async () => {
+      throw app.httpErrors.forbidden('You may not do that.')
+    })
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('an error carrying a statusCode answers that status with the { ok, error, statusCode, message } body', async () => {
+    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    const res = await app.inject({ method: 'GET', url: '/_api/boom-sensible' })
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.headers['content-type'], 'application/json; charset=utf-8')
+    assert.deepEqual(res.json(), {
+      ok: false,
+      error: 'ForbiddenError',
+      statusCode: 403,
+      message: 'You may not do that.'
+    })
+    // -> Deliberate refusals are not warnings: only the bare-500 branch logs
+    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+  })
+
+  test('an unmarked error answers a generic 500 whose body leaks nothing from the original', async () => {
+    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    const res = await app.inject({ method: 'GET', url: '/_api/boom-generic' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(res.headers['content-type'], 'application/json; charset=utf-8')
+    assert.deepEqual(res.json(), {
+      ok: false,
+      error: 'Internal Server Error',
+      statusCode: 500,
+      message: 'Internal Server error'
+    })
+    assert.ok(!res.body.includes('relation'))
+  })
+
+  test('the bare-500 branch logs the error with the request context that correlates it', async () => {
+    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    await app.inject({ method: 'GET', url: '/_api/boom-generic' })
+    const calls = (globalThis as any).WIKI.logger.warn.mock.calls
+    assert.equal(calls.length, 1)
+    const [error, context] = calls[0].arguments
+    assert.match(error.message, /relation "pages" does not exist/)
+    assert.equal(context.method, 'GET')
+    assert.equal(context.url, '/_api/boom-generic')
+    assert.equal(typeof context.reqId, 'string')
+    assert.equal(context.userId, undefined)
   })
 })
