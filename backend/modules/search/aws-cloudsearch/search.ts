@@ -13,8 +13,14 @@ import {
   SearchCommand,
   UploadDocumentsCommand
 } from '@aws-sdk/client-cloudsearch-domain'
-import { and, asc, eq } from 'drizzle-orm'
-import { pages as pagesTable } from '../../../db/schema.ts'
+import {
+  defaultPageSource,
+  HL_START,
+  HL_STOP,
+  normalizeMarkers,
+  REBUILD_BATCH_SIZE
+} from '../shared.ts'
+import type { RebuildPageSource } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -588,19 +594,6 @@ const HIGHLIGHT_FIELDS = ['content', 'description']
  */
 const SCAN_CAP = 500
 
-/**
- * Markers requested via each highlighted field's `pre_tag`/`post_tag`, in place of CloudSearch's own
- * default (`<em>`/`</em>`).
- *
- * Control characters, same reasoning as `azure-search`'s own `HL_START`/`HL_STOP` and the `db` engine's
- * `ts_headline` markers: the excerpt is page text that may itself contain anything, and it is
- * HTML-escaped before these are turned into `<b>` tags. Leaving CloudSearch's own `<em>`/`</em>` as the
- * markers would mean a page whose text happens to contain the literal string `<em>` gets it turned into
- * emphasis too.
- */
-const HL_START = ''
-const HL_STOP = ''
-
 /** The `highlight` request parameter: one fragment each from `content`/`description`, as plain text. */
 function highlightOption(): string {
   const options: Record<string, { format: 'text'; pre_tag: string; post_tag: string }> = {}
@@ -610,23 +603,13 @@ function highlightOption(): string {
   return JSON.stringify(options)
 }
 
-/** `escapeHtml` from the `db`/`azure-search` engines, copied rather than imported: each engine module stays self-contained. */
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-/** The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`. */
+/**
+ * The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`
+ * by the shared `normalizeMarkers` — which escapes it first, so the only markup that survives is the
+ * emphasis CloudSearch itself marked.
+ */
 function normalizeHighlight(highlights: Record<string, string> | undefined): string | null {
-  const fragment = highlights?.content ?? highlights?.description
-  if (!fragment) {
-    return null
-  }
-  // -> Escaped first, so the only markup that survives is the emphasis CloudSearch itself marked
-  return escapeHtml(fragment).replaceAll(HL_START, '<b>').replaceAll(HL_STOP, '</b>')
+  return normalizeMarkers(highlights?.content ?? highlights?.description)
 }
 
 /** All return-enabled fields, plus the relevance score — CloudSearch's `_all_fields` excludes `_score`. */
@@ -695,60 +678,6 @@ interface CloudSearchSearchResponse {
 export interface CloudSearchQueryClient {
   uploadDocuments(batch: SdfDocument[]): Promise<void>
   search(request: CloudSearchSearchRequest): Promise<CloudSearchSearchResponse>
-}
-
-/**
- * Where `rebuild()` reads pages from — narrowed to what it needs, the same reasoning as
- * `CloudSearchAdminClient`/`CloudSearchQueryClient` above: a test hands it a fake that returns fixed
- * pages with no real postgres involved, rather than requiring a live database for logic that is really
- * about pagination and per-locale counting. Identical shape to `azure-search`'s own `RebuildPageSource`
- * (task #564), copied rather than imported — each engine module stays self-contained.
- */
-export interface RebuildPageSource {
-  /** Every distinct locale a site currently has at least one page in, in a stable order. */
-  locales(siteId: string): Promise<string[]>
-  /**
-   * One page of a site's rows for one locale, ordered by `id` so repeated calls with an increasing
-   * `offset` walk the whole set exactly once each, with no gaps or duplicates.
-   */
-  pageBatch(
-    siteId: string,
-    locale: string,
-    offset: number,
-    limit: number
-  ): Promise<SearchIndexablePage[]>
-}
-
-/** Rows read from postgres, and documents handed to `uploadBatch` (task #562's own SDF chunking), in one `rebuild()` step. */
-export const REBUILD_BATCH_SIZE = 500
-
-/**
- * The real, database-backed `RebuildPageSource`.
- *
- * Paginated rather than one `SELECT *`, the same reason `rebuild()` itself streams through
- * `uploadBatch` instead of building one giant document array: a site's full page set should never have
- * to fit in memory at once.
- */
-function defaultPageSource(): RebuildPageSource {
-  return {
-    async locales(siteId) {
-      const rows = await WIKI.db
-        .selectDistinct({ locale: pagesTable.locale })
-        .from(pagesTable)
-        .where(eq(pagesTable.siteId, siteId))
-        .orderBy(pagesTable.locale)
-      return rows.map((r) => r.locale)
-    },
-    async pageBatch(siteId, locale, offset, limit) {
-      return WIKI.db
-        .select()
-        .from(pagesTable)
-        .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale)))
-        .orderBy(asc(pagesTable.id))
-        .limit(limit)
-        .offset(offset)
-    }
-  }
 }
 
 /** Builds the real SDK document/query client from a site's stored `endpoint`/region/credentials config. */

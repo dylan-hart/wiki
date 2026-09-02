@@ -7,13 +7,12 @@ import {
   buildFilter,
   buildIndexSchema,
   buildOrderBy,
-  REBUILD_BATCH_SIZE,
   toIndexDocument,
   type AzureSearchIndexClient,
   type AzureSearchQueryClient,
-  type AzureSearchRow,
-  type RebuildPageSource
+  type AzureSearchRow
 } from './search.ts'
+import { REBUILD_BATCH_SIZE, type RebuildPageSource } from '../shared.ts'
 import defaultAzureSearchModule from './search.ts'
 import type { SearchIndex } from '@azure/search-documents'
 import type { SearchIndexablePage } from '../../../models/search.ts'

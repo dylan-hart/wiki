@@ -13,7 +13,6 @@ import {
   MAX_BATCH_BYTES,
   MAX_BATCH_DOCUMENTS,
   MAX_DOCUMENT_BYTES,
-  REBUILD_BATCH_SIZE,
   toIndexDocument,
   type CloudSearchAdminClient,
   type CloudSearchHit,
@@ -22,9 +21,9 @@ import {
   type DescribedAnalysisScheme,
   type DescribedCloudSearchField,
   type DescribedSuggester,
-  type RebuildPageSource,
   type SdfDocument
 } from './search.ts'
+import { REBUILD_BATCH_SIZE, type RebuildPageSource } from '../shared.ts'
 import defaultAwsCloudSearchModule from './search.ts'
 import type { SearchIndexablePage } from '../../../models/search.ts'
 

@@ -4,6 +4,7 @@ import {
   SUGGEST_TITLE_CANDIDATES,
   SUGGEST_TITLE_THRESHOLD
 } from '../../../models/search.ts'
+import { HL_START, HL_STOP, normalizeMarkers } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -79,27 +80,9 @@ const OVERFETCH_GROWTH_FACTOR = 4
  */
 const OVERFETCH_HARD_CAP = 5000
 
-/**
- * Markers `ts_headline` wraps a matched term in.
- *
- * Control characters, because the excerpt is page text that may itself contain anything: it is HTML
- * escaped before these are turned into tags, so a page whose text reads `<script>` cannot come back as
- * markup. Anything that could occur in real text would defeat that.
- */
-const HL_START = '\u0002'
-const HL_STOP = '\u0003'
-
 /** Escape the LIKE wildcards, so that a path filter is a prefix rather than a pattern. */
 function escapeLikePrefix(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
 }
 
 /**
@@ -435,11 +418,7 @@ class DbSearchModule implements SearchModule {
       updatedAt: row.updatedAt as string,
       relevancy: Number(row.relevancy ?? 0),
       // -> Escaped first, so the only markup that survives is the emphasis postgres marked
-      highlight: row.highlight
-        ? escapeHtml(row.highlight as string)
-            .replaceAll(HL_START, '<b>')
-            .replaceAll(HL_STOP, '</b>')
-        : null
+      highlight: normalizeMarkers(row.highlight as string | null)
     }))
 
     /*

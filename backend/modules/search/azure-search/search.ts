@@ -1,8 +1,14 @@
 import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
 import { chunk } from 'es-toolkit/array'
-import { and, asc, eq } from 'drizzle-orm'
-import { pages as pagesTable } from '../../../db/schema.ts'
+import {
+  defaultPageSource,
+  HL_START,
+  HL_STOP,
+  normalizeMarkers,
+  REBUILD_BATCH_SIZE
+} from '../shared.ts'
 import type { SearchIndex } from '@azure/search-documents'
+import type { RebuildPageSource } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -24,19 +30,6 @@ const DEFAULT_INDEX_NAME = 'wiki'
  * query needs no `scoringProfile` parameter to get the weighting below.
  */
 const SCORING_PROFILE_NAME = 'wikiRelevancy'
-
-/**
- * Markers requested via `highlightPreTag`/`highlightPostTag` in place of Azure's own default
- * (`<em>`/`</em>`).
- *
- * Control characters, same reasoning as the `db` engine's `ts_headline` markers (`modules/search/db/
- * search.ts`): the excerpt is page text that may itself contain anything, and it is HTML-escaped
- * before these are turned into `<b>` tags. Leaving Azure's own `<em>`/`</em>` as the markers would mean
- * a page whose text happens to contain the literal string `<em>` gets it turned into emphasis too,
- * which is exactly the collision the `db` engine's own comment on this explains.
- */
-const HL_START = ''
-const HL_STOP = ''
 
 /** Fields the main, unrestricted search matches and highlights against. */
 const FULL_SEARCH_FIELDS = ['title', 'description', 'content']
@@ -104,60 +97,6 @@ export interface AzureSearchQueryClient {
     searchText: string | undefined,
     options: AzureSearchQueryOptions
   ): Promise<{ count?: number; results: AsyncIterable<AzureSearchRow> }>
-}
-
-/**
- * Where `rebuild()` reads pages from — narrowed to what it needs, the same reasoning as
- * `AzureSearchIndexClient`/`AzureSearchQueryClient` above: a test hands it a fake that returns fixed
- * pages with no real postgres involved, rather than requiring a live database for logic that is really
- * about pagination and per-locale counting.
- */
-export interface RebuildPageSource {
-  /** Every distinct locale a site currently has at least one page in, in a stable order. */
-  locales(siteId: string): Promise<string[]>
-  /**
-   * One page of a site's rows for one locale, ordered by `id` so repeated calls with an increasing
-   * `offset` walk the whole set exactly once each, with no gaps or duplicates.
-   */
-  pageBatch(
-    siteId: string,
-    locale: string,
-    offset: number,
-    limit: number
-  ): Promise<SearchIndexablePage[]>
-}
-
-/** Rows read from postgres, and documents sent per `mergeOrUploadDocuments` call, in one `rebuild()` step. */
-export const REBUILD_BATCH_SIZE = 500
-
-/**
- * The real, database-backed `RebuildPageSource`.
- *
- * Paginated rather than one `SELECT *`, the same reason `rebuild()` itself streams through the bulk
- * indexing client instead of building one giant document array: a site's full page set should never
- * have to fit in memory at once, and Azure's own `mergeOrUploadDocuments` has request-size limits of
- * its own that a `REBUILD_BATCH_SIZE`-sized chunk comfortably stays under.
- */
-function defaultPageSource(): RebuildPageSource {
-  return {
-    async locales(siteId) {
-      const rows = await WIKI.db
-        .selectDistinct({ locale: pagesTable.locale })
-        .from(pagesTable)
-        .where(eq(pagesTable.siteId, siteId))
-        .orderBy(pagesTable.locale)
-      return rows.map((r) => r.locale)
-    },
-    async pageBatch(siteId, locale, offset, limit) {
-      return WIKI.db
-        .select()
-        .from(pagesTable)
-        .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale)))
-        .orderBy(asc(pagesTable.id))
-        .limit(limit)
-        .offset(offset)
-    }
-  }
 }
 
 /** Builds the real SDK index-management client from a site's stored `serviceName`/`adminApiKey` config. */
@@ -276,15 +215,6 @@ function escapeODataLiteral(value: string): string {
   return value.replaceAll("'", "''")
 }
 
-/** `escapeHtml` from the `db` engine, copied rather than imported: each engine module stays self-contained. */
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
 /** The delimiter `search.in()` splits its value list on — not a comma, so a value containing one is safe. */
 const IN_DELIMITER = '|'
 
@@ -393,14 +323,13 @@ export function buildOrderBy(orderBy: SearchOrderBy, direction: 'asc' | 'desc'):
   return [`${orderBy} ${dir}`]
 }
 
-/** The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`. */
+/**
+ * The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`
+ * by the shared `normalizeMarkers` — which escapes it first, so the only markup that survives is the
+ * emphasis Azure itself marked.
+ */
 function normalizeHighlight(highlights: Record<string, string[]> | undefined): string | null {
-  const fragment = highlights?.content?.[0] ?? highlights?.description?.[0]
-  if (!fragment) {
-    return null
-  }
-  // -> Escaped first, so the only markup that survives is the emphasis Azure itself marked
-  return escapeHtml(fragment).replaceAll(HL_START, '<b>').replaceAll(HL_STOP, '</b>')
+  return normalizeMarkers(highlights?.content?.[0] ?? highlights?.description?.[0])
 }
 
 /** Compares two rows the same way Azure's own `$orderby` would, for merging two already-sorted result sets. */
