@@ -5,8 +5,8 @@ import { rendering } from './rendering.ts'
 /**
  * Task 631 -- verifies the `block-toggle-as-engine-switch` mechanism end to end, through the same
  * `postProcess()` a real save (`models/pages.ts#create`/`update`) or the Puppeteer queue's drain
- * (`storeRender`) actually calls. `blockAllowances()`/`sanitize()` (see `rendering.ts`) do not know
- * `katex`/`mathjax` by name -- they are ordinary entries in `WIKI.models.blocks.definitions`, gated
+ * (`storeRender`) actually calls. `blockAllowances()`/`sanitizeOptions()` (see `rendering.ts`) do not
+ * know `katex`/`mathjax` by name -- they are ordinary entries in `WIKI.models.blocks.definitions`, gated
  * for a site purely by whether `getEnabledKeys()` returns them. That genericity is exactly what this
  * test exercises: no block-specific code path exists to verify, only the generic one applied to these
  * two blocks.

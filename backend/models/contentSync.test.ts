@@ -250,7 +250,7 @@ test(
   }
 )
 
-test('getStatesForTarget only returns rows for that target', { skip }, async () => {
+test('recordSuccess files a row per target, each scoped to its own', { skip }, async () => {
   const pageId = await makePage('states-for-target')
   await contentSync.recordSuccess({
     contentType: 'page',

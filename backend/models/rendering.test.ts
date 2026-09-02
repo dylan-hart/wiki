@@ -448,7 +448,7 @@ describe('rendering sanitizeOptions -- KaTeX MathML from mhchem (\\ce{}/\\pu{})'
 
     const clean = sanitize(`<p>${math}</p>`, {}, new Set())
 
-    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
+    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitization unchanged')
   })
 
   test('keeps every tag and attribute a real \\pu{} render writes into MathML', () => {
@@ -464,7 +464,7 @@ describe('rendering sanitizeOptions -- KaTeX MathML from mhchem (\\ce{}/\\pu{})'
 
     const clean = sanitize(`<p>${math}</p>`, {}, new Set())
 
-    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
+    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitization unchanged')
   })
 })
 
@@ -553,7 +553,7 @@ describe('rendering sanitizeOptions -- allowedStyles (OpenProject #2180)', () =>
         assert.match(
           clean,
           new RegExp(`${prop}:\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
-          `expected "${decl}" to survive sanitize() unchanged`
+          `expected "${decl}" to survive sanitization unchanged`
         )
       }
     }

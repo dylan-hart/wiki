@@ -18,11 +18,11 @@ export const SYSTEM_PERMISSION = 'manage:system'
  * `ruleMatchesPage` in `helpers/pageRules.ts`.
  *
  * A runtime `as const` array rather than a bare union (no `enum` -- erasable syntax only, see
- * CLAUDE.md's TypeScript section) so `api/schemas/group.ts`'s `GroupRule#` JSON Schema can import
- * this instead of restating the member list: the two used to drift (OpenProject #2116 -- the schema's
- * `match` enum was missing `CLASSIFICATION` entirely, so any request creating such a rule failed
- * validation with a 400), and `models/groups.test.ts` pins the two lists staying equal so that can't
- * happen silently again the next time a match kind is added.
+ * CLAUDE.md's TypeScript section). Module-private: it exists purely to derive `GroupRuleMatch` below,
+ * and nothing outside this file reads it. What `api/schemas/group.ts`'s `GroupRule#` JSON Schema
+ * imports is `GROUP_RULE_MATCH_VALUES` further down, which ajv can consume as a literal array -- see
+ * `GROUP_RULE_MATCH_MEMBERS`'s own doc comment for how that one is pinned to this union at compile
+ * time, and `api/schemas/group.test.ts` for the runtime half.
  */
 const GROUP_RULE_MATCH_KINDS = [
   'START',
