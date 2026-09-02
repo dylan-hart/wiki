@@ -3,7 +3,7 @@ import type { SourceRecord } from '../connector.ts'
 import type { ConfigTransform } from './shared.ts'
 
 /**
- * `mapStorageRow(s)` (task 767 — "Storage-target mapper, scoped per created site")
+ * `mapStorageRow(s)` — storage targets, scoped per created site
  *
  * A pure transform: no DB access, no side effects. Takes 2.5.x `storage` table rows
  * (`docs/migration/2.5x-source-schema.md`'s `## storage` section) and produces 3.0 `storage` row
@@ -35,7 +35,7 @@ import type { ConfigTransform } from './shared.ts'
  * 3.0 ships exactly seven storage modules — `KNOWN_3_0_STORAGE_MODULES` below enumerates them
  * (`azure`, `db`, `disk`, `gcs`, `git`, `s3`, `sftp`), matching `backend/modules/storage/`'s actual
  * directory listing (cross-checked live via `readdirSync` in this module's test, mirroring Feature
- * 412's/task 763's precedent). 2.x shipped eleven; per
+ * 412's precedent). 2.x shipped eleven; per
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 3, six of those eleven 2.x keys
  * have no `modules/storage/<key>/` directory here at all — `box`, `digitalocean`, `dropbox`,
  * `gdrive`, `onedrive`, `s3generic` — and are confirmed **NO DESTINATION**. This mapper checks every
@@ -44,7 +44,7 @@ import type { ConfigTransform } from './shared.ts'
  * this list being updated fails loudly in the enumeration cross-check test rather than silently
  * degrading into "resolver said no, so it must be fine". A row whose key isn't on the list — or is
  * on the list but the resolver has no definition loaded for it — comes back `status: 'unsupported'`,
- * no row written, mirroring the `authentication` mapper's (task 765) `getModule()`-returns-`null`
+ * no row written, mirroring `./authentication.ts`'s `getModule()`-returns-`null`
  * precedent and Feature 414's provider-fallback precedent before that.
  *
  * `db` and `gcs` are on the enumerated list but never actually matched by a 2.x row: `db` (content

@@ -3,9 +3,9 @@ import type { StagedNavigation } from '../content-staging.ts'
 import type { NavigationItem } from '../../models/navigation.ts'
 
 /**
- * Navigation import as the site-wide menu (Feature 416 / Task 741)
+ * Navigation import as the site-wide menu
  *
- * Turns the single `StagedNavigation` row Task 733's staging pass produced (2.x's `navigation.key` /
+ * Turns the single `StagedNavigation` row the staging pass produced (2.x's `navigation.key` /
  * `config` JSON, carried through verbatim — see that module's own doc comment) into 3.0's site-wide
  * menu.
  *
@@ -32,25 +32,25 @@ import type { NavigationItem } from '../../models/navigation.ts'
  *     `selectPageHandle`); 3.0's own link picker (`LinkPickerDialog.vue`) instead writes a bare
  *     `/${path}` with no locale segment at all (confirmed by reading it — `NavSidebar.vue`'s
  *     `destination()`/`routableHref` never re-adds one), so the locale prefix is stripped and the
- *     remaining path is re-normalized through Task 736's `normalizeMigratedPath` (the same function
+ *     remaining path is re-normalized through `normalizeMigratedPath` (the same function
  *     `page-import.ts` uses to place the page in the tree, so the two agree on the result).
  *   - `'search'` → dropped. 3.0's `NavigationItem` has no saved-search-link concept at all (2.x's own
  *     admin UI had already stopped offering it as of the vendored version — `navTypes` in
  *     `admin-navigation.vue` comments it out — so this only matters for data written by an older 2.x).
  *   - anything else unrecognized → dropped, with a warning naming what was seen.
  *
- * Per this task's description, a `'page'`-type link whose target page did not survive Task 738's
- * import — never staged in the first place, staged but failed to place in the tree, or failed
+ * A `'page'`-type link whose target page did not survive the content import — never staged in the
+ * first place, staged but failed to place in the tree, or failed
  * `createPage()` outright — is **dropped**, not left pointing at nothing, and reported by title/target
  * in `NavigationImportResult.dropped` rather than silently disappearing.
  *
  * ## What this module deliberately does not do
  *
  * `visibilityGroups` on a 2.x item restricted to specific groups names 2.x integer group ids. There is
- * no group-id map on this branch (#414's own old-id -> new-UUID map for groups doesn't exist here yet,
- * same gap `content-staging.ts` and `page-import.ts` already documented for users), so a restricted item is
- * imported visible to everyone with a warning naming the gap, on the same reasoning
- * `describePrivacyWarning` in `page-import.ts` used for `isPrivate`/`privateNS`: importing it more
+ * no group-id map threaded down to this module (the `users` phase builds one, but it is not part of
+ * `NavigationImportDeps`), so a restricted item is imported visible to everyone with a warning naming
+ * the gap, on the same reasoning `describePrivacyWarning` in `./page-import.ts` uses for
+ * `isPrivate`/`privateNS`: importing it more
  * open than the source, with a clear note, is preferable to either dropping the whole item or silently
  * keeping a restriction nothing can resolve.
  *
@@ -86,7 +86,7 @@ export interface NavigationImportOptions {
   /** The 3.0 site whose root menu this writes. */
   siteId: string
   /** Which one of 2.x's per-locale trees becomes 3.0's single, locale-less site-wide menu — see the
-   * module doc comment. The caller (Task 421's CLI) is expected to pass the target site's own primary
+   * module doc comment. The caller is expected to pass the target site's own primary
    * locale (`WIKI.sites[siteId].config.locales.primary`); this module has no `WIKI` access to default
    * it itself. */
   locale: string
@@ -319,7 +319,7 @@ export function mapNavigationItem(raw: unknown, ctx: MapItemContext): Navigation
       const normalized = normalizeMigratedPath(ref.path)
       if ('reason' in normalized) {
         // -> Not reachable in practice: a page whose path fails to normalize never reaches
-        //    createPage() (Task 738), so it could never have earned a pageIdMap entry above. Guarded
+        //    createPage(), so it could never have earned a pageIdMap entry above. Guarded
         //    rather than assumed, since this module has no other way to recover the 3.0 path.
         ctx.dropped.push({
           title,

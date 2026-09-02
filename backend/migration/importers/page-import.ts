@@ -5,36 +5,32 @@ import type { PageHistoryImportResult } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../../models/pages.ts'
 
 /**
- * Page content import via `createPage()` (Feature 416 / Task 738; streamed per WP #1790 / Task #1818)
+ * Page content import via `createPage()`
  *
- * Turns each `StagedPage` this feature's staging pass (`content-staging.ts`'s `extractContentStaging()`
- * generator, Task 733) produces into a real 3.0 page, exclusively through
- * `WIKI.models.pages.createPage(siteId, input, actor)` (`backend/models/pages.ts:457`) — never a raw
- * insert, per this task's own description, since `createPage()` is also what writes the matching
- * `tree` row, records the first `pageHistory` row and indexes the page for search; duplicating any of
- * that here would drift the moment `createPage()` changes.
+ * Turns each `StagedPage` the staging pass (`../content-staging.ts`'s `extractContentStaging()`
+ * generator) produces into a real 3.0 page, exclusively through
+ * `WIKI.models.pages.createPage(siteId, input, actor)` — never a raw insert, since `createPage()` is
+ * also what writes the matching `tree` row, records the first `pageHistory` row and indexes the page
+ * for search; duplicating any of that here would drift the moment `createPage()` changes.
  *
- * Like every module in this feature so far, this one has no db access and is not wired to a CLI yet —
- * `WIKI.models.pages.createPage`, the tree existing-entry lookup, and the per-page history backfill are
- * all injected (`ImportPagesDeps`), so tests exercise the real mapping/orchestration logic with fakes
- * standing in for each, and Task 421's CLI is what will eventually pass the real `WIKI.models.pages` /
- * `WIKI.models.tree` implementations (and `page-history-import.ts`'s `backfillPageHistoryForPage`)
- * here.
+ * This module has no db access of its own: `WIKI.models.pages.createPage`, the tree existing-entry
+ * lookup, and the per-page history backfill are all injected (`ImportPagesDeps`), so tests exercise
+ * the real mapping/orchestration logic with fakes standing in for each. `phases/content.ts` passes
+ * the real implementations (dry-run-gated).
  *
  * `importOne()` normalizes and collision-checks each page's tree location itself, via
- * `./path-normalization.ts`'s `normalizeMigratedPath()`, rather than requiring the caller to run it
- * first. That module's own doc comment names this task as the wiring point for the real
- * `WIKI.models.tree` lookup its `existingEntry` callback needs, so it is threaded straight through as
+ * `../path-normalization.ts`'s `normalizeMigratedPath()`, rather than requiring the caller to run it
+ * first — its `existingEntry` callback is threaded straight through as
  * `ImportPagesDeps.existingEntry` rather than re-implemented here. A page whose path fails to
  * normalize or collides never reaches `createPage()` at all; it comes back as a `'failed'`
  * `PageImportOutcome` with the same `reason` `normalizeMigratedPath()`/the collision check below gave
  * it.
  *
- * ## Streaming input and per-page sibling-collision detection (OpenProject #1818)
+ * ## Streaming input and per-page sibling-collision detection
  *
  * Pages arrive one at a time through `importOne()`, rather than as a `StagedPage[]` materialized up
- * front — this is what lets `extractContentStaging()`'s streaming generator (#1798) hand pages over
- * one at a time instead of buffering the whole corpus, per the parent epic #1790. Each page is fully
+ * front — this is what lets `extractContentStaging()`'s streaming generator hand pages over one at a
+ * time instead of buffering the whole corpus. Each page is fully
  * processed (path-assigned, created, its history backfilled — see below) before the caller pulls the
  * next one off the source, so at most one page's heavy fields (`content`/`render`/`toc`/history
  * `content`) are resident at a time.
@@ -46,11 +42,11 @@ import type { Page, PageActor, PageInput } from '../../models/pages.ts'
  * lands on an already-claimed location fails alone (`'sibling-collision'`), while the earlier,
  * already-created page is kept. First-in-the-stream wins.
  *
- * ## History backfill, interleaved (OpenProject #1818)
+ * ## History backfill, interleaved
  *
  * Immediately after a page is created (and any render-queue it triggered has been requested —
  * `createPage()`'s own concern, see "The render bootstrap decision" below), `importOne()` calls
- * `page-history-import.ts`'s `backfillPageHistoryForPage()` for that one page's `history` chain alone —
+ * `./page-history-import.ts`'s `backfillPageHistoryForPage()` for that one page's `history` chain alone —
  * resolving `pageIdMap` for a single freshly-created page rather than waiting for the whole run, via
  * `ImportPagesDeps.backfillHistory`. This is what "page 1's history lands before page 2 is even staged"
  * means in practice: nothing about page 2 is pulled from the source until page 1's
@@ -58,9 +54,8 @@ import type { Page, PageActor, PageInput } from '../../models/pages.ts'
  * page's own warnings rather than turned into a failed outcome — the page itself was created
  * successfully; only some of its past revisions may be missing, the same "non-fatal, reported as a
  * warning" treatment already given to an editor fallback or a render-bootstrap downgrade. This keeps
- * every source page accounted for exactly once, in exactly one of created/failed, per this task's own
- * description, and means one page's history failure neither aborts the run nor loses any other page's
- * rows.
+ * every source page accounted for exactly once, in exactly one of created/failed, and means one
+ * page's history failure neither aborts the run nor loses any other page's rows.
  *
  * ## The synthetic per-page actor
  *
@@ -70,8 +65,8 @@ import type { Page, PageActor, PageInput } from '../../models/pages.ts'
  * single operator identity for the whole run.
  *
  * To still carry the per-page identity `content-staging.ts` already resolved (`StagedPage.creatorId`,
- * itself falling back to the operator via `resolveActorId` wherever the source row's id was null or
- * unmapped — see `id-map.ts`), `importOne()` builds one synthetic `PageActor` **per page** — `{ id:
+ * itself falling back to the operator wherever the source row's id was null or unmapped),
+ * `importOne()` builds one synthetic `PageActor` **per page** — `{ id:
  * staged.creatorId, permissions: options.actorPermissions }` — rather than one fixed actor for every
  * call. Only `permissions` (which gates the `write:scripts`/`write:styles` checks `postProcess` makes)
  * comes from the operator's own grant; a migration is not "logged in as" each original 2.x author, so
@@ -82,9 +77,8 @@ import type { Page, PageActor, PageInput } from '../../models/pages.ts'
  * `StagedPage.authorId` (2.x's *last editor*, as opposed to `creatorId`'s *original author*) has
  * nowhere to land on the row `createPage()` produces — the call collapses both onto `creatorId`. A page
  * whose `authorId` differs from its `creatorId` gets a warning noting the collapse; the real per-revision
- * `authorId` on every historical version is restored when Task 740 backfills `pageHistory` directly
- * (bypassing `createPage()`'s single-actor model, since `WIKI.models.pageHistory.record` — unlike
- * `createPage()` — takes an explicit `authorId`).
+ * `authorId` on every historical version is restored by `./page-history-import.ts`, which inserts
+ * `pageHistory` rows directly and so is not bound by `createPage()`'s single-actor model.
  *
  * ## The render bootstrap decision
  *
@@ -95,7 +89,7 @@ import type { Page, PageActor, PageInput } from '../../models/pages.ts'
  *     extracts `toc`/`searchContent` from it immediately, so the page is fully readable and searchable
  *     the instant it's created — at the cost of that HTML reflecting 2.x's markdown-it plugin output
  *     (2.x's renderer, 2.x's plugin set) until the page is next edited or explicitly re-rendered.
- *   - **`'queue'`**: leave `input.render` undefined, which `createPage()` itself (OpenProject #1716)
+ *   - **`'queue'`**: leave `input.render` undefined, which `createPage()` itself
  *     recognizes as "content with nothing to show for it" — it confirms up front that this instance can
  *     render the page at all, creates it, then queues the same headless-browser `renderPages` job a
  *     stale stored page would get, producing a native 3.0 render — correct output, using 3.0's own
@@ -116,12 +110,11 @@ import type { Page, PageActor, PageInput } from '../../models/pages.ts'
  *
  * Per `docs/migration/2.5x-to-3.0-mapping.md`, 3.0 `pages` has no `isPrivate`/`privateNS` column at
  * all — 2.x's boolean + private-namespace pair would need to become an equivalent page-rule permission
- * (a `read:pages` DENY/ALLOW/FORCEALLOW rule on `groups.rules`), which is #414 (Users, Groups &
- * Permissions)/#420 (Settings/Auth/Storage) territory, neither of which exists on this branch yet (see
- * this task's own continuity notes). Rather than drop the setting silently or fail the page, a page
- * carrying either one is imported (publicly readable, since there is currently nothing else 3.0 can do)
- * with a warning naming the gap, so an operator can add the equivalent rule by hand until #414/#420 wire
- * this up for real.
+ * (a `read:pages` DENY/ALLOW/FORCEALLOW rule on `groups.rules`), and nothing derives one: the source
+ * has no group to attach it to, and the `users` phase imports only the rules a source group already
+ * carried. Rather than drop the setting silently or fail the page, a page carrying either one is
+ * imported (publicly readable) with a warning naming the gap, so an operator can add the equivalent
+ * rule by hand.
  */
 
 /** The subset of `WIKI.models.pages` this module actually calls — injected so this module (and its
@@ -138,7 +131,7 @@ export interface ImportPagesDeps {
   existingEntry: PathAssignmentOptions['existingEntry']
   /**
    * Called immediately after a page is created — before the next page is even pulled off `pages` —
-   * to backfill that page's whole 2.x `pageHistory` chain (WP #1790 / Task #1818). The real
+   * to backfill that page's whole 2.x `pageHistory` chain. The real
    * implementation wires this straight to `page-history-import.ts`'s
    * `backfillPageHistoryForPage(staged, newPageId, siteId, deps)`; a caller that doesn't care about
    * history at all (or a test exercising something else) can omit it, which skips backfill entirely
@@ -312,8 +305,8 @@ export function describePrivacyWarning(
   return (
     `page ${staged.oldId}: 2.x isPrivate=${staged.isPrivate}${ns} has no 3.0 destination — page-level ` +
     'privacy in 3.0 is expressed through page-rule permissions (a read:pages DENY/ALLOW/FORCEALLOW ' +
-    'rule), not a column, and is not wired up by #414/#420 on this branch yet. The page was imported ' +
-    'publicly readable; add an equivalent page rule by hand until that lands.'
+    'rule), not a column, and nothing derives one from a 2.x page. The page was imported publicly ' +
+    'readable; add an equivalent page rule by hand.'
   )
 }
 
@@ -341,8 +334,8 @@ function mapStagedPageToInput(
     warnings.push(
       `page ${staged.oldId}: 2.x's authorId (last editor) differs from creatorId (original author); ` +
         'createPage() only accepts one identity for authorId/creatorId/ownerId on the initial 3.0 row, ' +
-        'so creatorId was used for all three — the real per-revision authorId is restored when Task 740 ' +
-        'backfills pageHistory.'
+        'so creatorId was used for all three — the real per-revision authorId is restored by the ' +
+        'pageHistory backfill.'
     )
   }
 
@@ -403,7 +396,7 @@ function streamedLocationKey(locale: string, parentPath: string, fileName: strin
 }
 
 /**
- * What one `importOne()` call resolved to — see `phases/content.ts`'s `routePageOutcome()`, which
+ * What one `importOne()` call resolved to — see `phases/content.ts`'s `toRecordOutcome()`, which
  * mirrors `phases/users.ts`'s `routeOutcome()` convention. `importOne()` never throws for a bad page
  * (a sibling-collision, an existing-entry-collision, a `createPage()` error), so a caller that
  * unconditionally wrapped it as `recorder.create()`'s `write` callback would misreport every failed

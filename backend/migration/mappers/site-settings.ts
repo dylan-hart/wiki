@@ -2,7 +2,7 @@ import { isPlainObject, pickPresent, unwrapKnexValue } from './shared.ts'
 import type { SourceRecord } from '../connector.ts'
 
 /**
- * `mapSiteSettings` (task 764 — "Site-settings mapper: title/theme/branding/locale/mail")
+ * `mapSiteSettings` — site title/theme/branding/locale/mail
  *
  * A pure transform: no DB access, no side effects. Takes a parsed dump of a 2.5.x install's
  * `settings` table rows and produces (a) a `sites.config` JSONB patch, deep-mergeable onto
@@ -12,11 +12,11 @@ import type { SourceRecord } from '../connector.ts'
  * per row key, each itself `toMerged`-mergeable onto that row's own default
  * (`backend/models/settings.ts`'s `Settings.init()`).
  *
- * The importer engine that will actually apply these (Feature 421, not yet built) owns reading a
- * source and calling `toMerged` for real; this module only computes what to merge.
+ * `phases/settings.ts` owns reading a source and calling `toMerged` for real; this module only
+ * computes what to merge.
  *
- * Scope, per the task description and `docs/migration/2.5x-settings-auth-storage-field-mapping.md`
- * (task 763's field-by-field spec, the source of every mapping below):
+ * Scope, per `docs/migration/2.5x-settings-auth-storage-field-mapping.md` (the field-by-field spec
+ * that is the source of every mapping below):
  *
  * - `sites.config`: `title`, `description` (from 2.x `seo.description`), `company`,
  *   `contentLicense`, `logoUrl`, `theme` (only the sub-fields with a 3.0 destination — colors and
@@ -30,8 +30,8 @@ import type { SourceRecord } from '../connector.ts'
  * Everything else the field-mapping doc catalogs (`features`, `robots`, `footerExtra`,
  * `pageExtensions`, `auth.autoLogin`/`hideLocal`, `enforce2FA`, the `loginBg` asset, `api`, the
  * `auth` certs/secret settings row, `flags`, `metrics`) is out of this task's named scope — either a
- * sibling task's concern (auth strategies: task 765; storage: task 767) or left, same as the doc
- * itself does, as documented NO DESTINATION / follow-up scope.
+ * sibling mapper's concern (`./authentication.ts`, `./storage.ts`) or left, same as the doc itself
+ * does, as documented NO DESTINATION / follow-up scope.
  *
  * A 2.x key that is absent from `rows` altogether (a source that never wrote it — the doc's `mail`
  * "never configured" example is the task description's own worked case) is never synthesized here:

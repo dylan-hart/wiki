@@ -5,8 +5,7 @@ import type { SourceRecord } from '../connector.ts'
 import type { ConfigTransform } from './shared.ts'
 
 /**
- * `mapAuthenticationRow(s)` (task 765 — "Authentication-strategy mapper with multi-source conflict
- * policy")
+ * `mapAuthenticationRow(s)` — 2.5.x authentication strategies
  *
  * A pure transform: no DB access, no side effects. Takes 2.5.x `authentication` table rows
  * (`docs/migration/2.5x-source-schema.md`'s `## authentication` section) and produces 3.0
@@ -28,14 +27,14 @@ import type { ConfigTransform } from './shared.ts'
  * ## Unsupported source modules (mirrors Feature 414's provider-fallback precedent)
  *
  * 3.0 ships sixteen authentication modules (`backend/modules/authentication/*`, see
- * `../unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES`); 2.x ships twenty-one. A source row whose
+ * `../report.ts`'s `KNOWN_3_0_AUTH_MODULES`); 2.x ships twenty-one. A source row whose
  * `strategyKey` isn't one of the sixteen survivors — resolved via `resolver.getModule()` returning
  * `null`, not a hardcoded list, so this mapper tracks whichever modules actually exist on disk rather
  * than a snapshot of them — has nowhere to land: not just its `config` (a remap target that exists),
  * but the row itself. Exactly like Feature 414's `needsProviderFallback()`/`ProviderFallbackFlag` for
  * source *users* on an unimplemented provider, this mapper does not write a row for it: it reports one
- * `status: 'unsupported'` entry in the result, carrying the source key and module, for whichever future
- * dry-run report (Feature 421) wants to show an administrator exactly what didn't come across and why.
+ * `status: 'unsupported'` entry in the result, carrying the source key and module, so the dry-run
+ * report can show an administrator exactly what didn't come across and why.
  *
  * ## Unverified config mappings
  *

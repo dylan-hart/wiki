@@ -88,16 +88,13 @@ export class NotYetImplementedError extends Error {
  * the two supported source kinds it is (`docs/migration/decision-source-scope.md`): a live Postgres
  * connection, or a 2.x Export-to-Disk bundle read from disk.
  *
- * The two implementations shipped alongside this interface (`PostgresSourceConnector`,
- * `ExportBundleSourceConnector`) prove the lifecycle and the shape of the interface are real —
- * `connect()`, `disconnect()`, `describe()` all genuinely do their job — but do not implement the
- * entity generators' bodies beyond what each connector already has to read to validate the source
- * looks right (schema introspection for Postgres; the three small JSON files for the bundle).
- * Reading and transforming full page/user/history/asset rows is explicitly deferred to the tasks
- * named above, which will implement each generator against whichever concrete connector an
- * administrator configured. The `comments()` generator has the same "real on Postgres,
- * `NotYetImplementedError` on export-bundle" status as `users()`, `groups()`, `settings()`, and
- * `assets()`.
+ * The two implementations are not equally complete. `PostgresSourceConnector` implements every
+ * generator for real. `ExportBundleSourceConnector` implements only the entities a bundle actually
+ * carries — `pages()`, `pageHistory()`, `tags()`, `navigation()` — and throws
+ * `NotYetImplementedError` from `users()`, `groups()`, `settings()`, `comments()` and `assets()`;
+ * bundle write support for those is out of scope, and both the phase harness
+ * (`phases/define-phase.ts`) and the verifier (`verify.ts`) treat that error as a per-entity
+ * "not implemented" rather than a run-ending fault.
  *
  * Every generator is an async iterable so an importer can stream rows/files rather than buffer an
  * entire table or bundle in memory — the same lesson `2.5x-export-bundle-format.md` draws from the

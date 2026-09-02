@@ -8,18 +8,18 @@ import type {
 import { derivePublishState, mapEditor } from './page-import.ts'
 
 /**
- * Page history backfill via a direct `pageHistory` insert (Feature 416 / Task 740)
+ * Page history backfill via a direct `pageHistory` insert
  *
  * `WIKI.models.pageHistory.record()` (`backend/models/pageHistory.ts:143`) only ever snapshots the
  * CURRENT `pages` row — it reads the row fresh from `pagesTable` and writes exactly that. Its only
  * concession to a caller who isn't editing *right now* is `versionDate` (added alongside this task, to
  * carry `PageInput.updatedAt` through so that row is dated the source's real last-modified time rather
  * than import time — see upstream requarks/wiki#4631), but it still has no way to express any of the
- * *past* versions a 2.x page's history chain carries — only ever the current one. Task 738's
+ * *past* versions a 2.x page's history chain carries — only ever the current one. `./page-import.ts`'s
  * `page-import.ts` already calls `createPage()` once per page, which itself calls `record()` once,
  * giving every imported page a single `pageHistory` row for its state *as of its own `updatedAt`*.
  * This module is what turns each of that page's remaining 2.x
- * `pageHistory` rows (`StagedPage.history`, Task 733's `content-staging.ts`) into an equivalent 3.0
+ * `pageHistory` rows (`StagedPage.history`, `../content-staging.ts`) into an equivalent 3.0
  * row — reproducing everything `record()` would have computed (`meta`'s field set, `changedFields`'s
  * diff, the action) by hand, because there is no model method that can be called for a version that
  * isn't the current one.
@@ -52,15 +52,15 @@ import { derivePublishState, mapEditor } from './page-import.ts'
  * `'restored'` onto 3.0's `'updated'` accordingly, and falls back to `'updated'` (with a warning) for
  * any other free-text value the column allows but no known writer ever produced.
  *
- * ## Chunked inserts (WP #1790 / Task #1801)
+ * ## Chunked inserts
  *
  * `PageHistoryInsertRow` has 12 fields, and a single `WIKI.db.insert(pageHistoryTable).values(rows)`
  * call binds every field of every row as its own parameter — Postgres refuses more than 65535 bind
  * parameters per statement, a ceiling a mature 2.x install's most-edited page can cross alone at
  * around 5461 revisions. `backfillPageHistoryForPage()` (called once per page, immediately after that
- * page's `createPage()` — see `page-import.ts`) chunks a single page's rows at
+ * page's `createPage()` — see `./page-import.ts`) chunks a single page's rows at
  * `HISTORY_INSERT_CHUNK_SIZE`, and never buffers more than one page's history in memory or in one
- * `insertVersions()` call — see `content-staging.ts`'s own streaming design for the matching page-side
+ * `insertVersions()` call — see `../content-staging.ts`'s own streaming design for the matching page-side
  * half of this fix. An orphaned-history group (below) goes through the exact same
  * `backfillPageHistoryForPage()` and therefore the exact same chunking.
  *
@@ -114,9 +114,9 @@ export interface PageHistoryImportDeps {
    * one page's *entire* history, only ever a chunk of it).
    *
    * DELIBERATE EXCEPTION to "always go through the model" (see the module doc comment above for
-   * why `record()` cannot do this instead): the real implementation — wired up by Task 421's CLI,
-   * same as every other injected dependency across this migration feature — is expected to do
-   * exactly one thing per call, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more.
+   * why `record()` cannot do this instead): the real implementation — wired up by
+   * `phases/content.ts`, same as every other injected dependency here — does exactly one thing per
+   * call, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more.
    * It must NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores every field this
    * module computed and re-derives its own from the current `pages` row instead — the opposite of
    * what a historical backfill needs.
@@ -312,7 +312,7 @@ function diffComparableStates(
  * entry, over the same field set `changedFields()` compares (`NOT_REPORTED_AS_CHANGED`'s
  * exclusions — none of which apply to the page-shaped fields tracked here).
  *
- * `authorId` is **not** resolved here: `content-staging.ts`'s `stageHistoryEntry()` (Task 733)
+ * `authorId` is **not** resolved here: `../content-staging.ts`'s `stageHistoryEntry()`
  * already ran every entry's 2.x `authorId` through `resolveActorId()` with the same orphaned-author
  * operator fallback `StagedPage.authorId`/`creatorId` use, so `entry.authorId` is already the
  * resolved 3.0 UUID this row needs.
@@ -383,7 +383,7 @@ function groupOrphanedHistoryBySourcePage(
 
 /**
  * Backfills `pageHistory` for one already-created page — the per-page entry point `page-import.ts`
- * (`page-import.ts`, Task #1818) calls immediately after its own `createPage()` call for that page,
+ * (`./page-import.ts`) calls immediately after its own `createPage()` call for that page,
  * so a large corpus's history lands page by page rather than all at once at the end of a run. Builds
  * the page's whole 2.x history chain as direct `pageHistory` inserts (see the module doc comment for
  * why `record()` cannot do this), chunked at `HISTORY_INSERT_CHUNK_SIZE` rows per `insertVersions()`

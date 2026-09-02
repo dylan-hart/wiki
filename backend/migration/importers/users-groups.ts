@@ -14,84 +14,35 @@ import { coerceSourceBoolean } from '../source-coercion.ts'
 import { KNOWN_3_0_AUTH_MODULES } from '../report.ts'
 
 /**
- * Users/Groups importer engine (Feature 414, Task 726).
+ * Users/Groups importer engine.
  *
  * Entry point for the part of the 2.5.x → 3.0 migration that writes `groups`, `users` and
  * `userGroups`. Deliberately outside both the request/response path (nothing here is a Fastify
  * route) and `checkForLegacyInstall()` (`core/db.ts`) — that function detects a legacy install
  * during normal boot, whereas this only ever runs when an administrator explicitly launches a
- * migration, which is feature #421's CLI. This module is that CLI's engine, not the CLI itself:
+ * migration, which is `tasks/migrate.ts`. This module is that CLI's engine, not the CLI itself:
  * it exposes one per-record importer factory per entity for the phase wiring to drive once it has
  * built a `SourceConnector` and a `UsersGroupsWriter`; nothing here boots a database connection or
  * parses argv.
  *
- * What this task builds:
- * - The three-phase write order (groups → users → userGroups) `phases/users.ts` enforces.
- * - The `Map<number, string>` source-id → target-UUID bookkeeping both `groups` and `users` need,
- *   since 2.5.x uses integer PKs (`increments()`) and 3.0 uses `uuid().defaultRandom()`
- *   (`db/schema.ts` `groups` at line 147, `users` at line 767) — see `2.5x-to-3.0-mapping.md`'s
- *   `userGroups` section, which calls out that `userId`/`groupId` are "remapped through the
- *   [...] old-id → new-UUID table" and that 2.x's own `userGroups.id` has no destination at all
- *   (it's a composite-PK relation table in 3.0, `db/schema.ts` `userGroups` at line 791).
- * - The `EntityImportSummary`/`ProviderFallbackFlag` shapes feature #421's CLI and dry-run report
- *   consume.
+ * The three entities are written in a fixed order — groups, then users, then userGroups — which
+ * `phases/users.ts` enforces, because `userGroups` resolves both of its ids through the
+ * `Map<number, string>` source-id -> target-UUID maps the first two build: 2.5.x uses integer PKs
+ * (`increments()`) and 3.0 uses `uuid().defaultRandom()`, and 2.x's own `userGroups.id` has no
+ * destination at all (it is a composite-PK relation table in 3.0). See
+ * `docs/migration/2.5x-to-3.0-mapping.md`'s `userGroups` section.
  *
- * `convertGroup`/`convertUser` — the per-record 2.x row → 3.0 insertable row conversion — are
- * supplied by the caller rather than owned here; `phases/users.ts` wires the real ones
- * (`createGroupConverter()`, `createLocalUserConverter()` and
- * `createProviderFallbackUserConverter()` below, composed by `composeUserConverters()`). The `userGroups` translation needs no converter at all:
- * per the mapping doc, all it does is look up both remapped ids and write the join row. There is no
- * per-record 2.x → 3.0 *field* to convert once the two ids are resolved.
+ * The per-record 2.x row -> 3.0 insertable row conversion is supplied by the caller rather than owned
+ * by the importers; `phases/users.ts` wires the real ones (`createGroupConverter()`,
+ * `createLocalUserConverter()` and `createProviderFallbackUserConverter()` below, composed by
+ * `composeUserConverters()`). The `userGroups` translation needs no converter at all: once both ids
+ * resolve there is no field left to convert.
  *
- * Task 729 adds one real (non-stub) piece: `createProviderFallbackUserConverter()`, a `UserConverter`
- * for source users whose `providerKey` cannot become a real 3.0 provider-linked account on this
- * install — see that function's doc for the full routing rule. It creates the account through the
- * local strategy with a random, unusable password (`mustChangePwd: true` forced), the same shape
- * `loginWithProvider()` already establishes for a brand-new provider account
- * (`models/users.ts`, `password: nanoid(32)`), and appends one entry to
- * `UserImporter.providerFallbacks` per account it creates — the data feature #421's dry-run report
- * renders.
- *
- * Task 730 adds the real (non-stub) group converter: `createGroupConverter()`. It converts a
- * non-system source group's `pageRules` array into 3.0's `GroupRule` shape (`deny` -> `mode`, a fresh
- * `id`, a synthesized `name`, `sites: []`) and splits the source group's flat `permissions` array into
- * what actually belongs on 3.0's `groups.permissions` -- the closed seven-name global-permission list
- * (`manage:users`, `manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`,
- * `manage:system`, `access:admin`) -- versus entries that only ever gated page-rule effectiveness in
- * 2.x and have no 3.0 destination (3.0's rules alone govern page access). A source group's own
- * Administrators/Users/Guests (`isSystem: true`) are skipped outright: 3.0 seeds its own system groups
- * once, in `Groups.init()`.
- * Unlike groups conversion itself, `createDrizzleWriter()`'s `insertGroup()` IS changed by this task,
- * from a raw `db.insert(groupsTable)` to `WIKI.models.groups.createGroupFromImport()`, per the task's
- * own instruction to write groups through the model rather than a raw insert -- see that method's doc
- * in `models/groups.ts`.
- *
- * Task 731 adds system-row exclusion and admin/guest membership remapping:
- * - `createGroupImporter()`'s/`createUserImporter()`'s `importOne()` now skip any source record
- *   flagged `isSystem: true` -- 2.5.x id 1 (Administrators)/id 2 (Guests) groups and id 1
- *   (Administrator)/id 2 (Guest) users -- BEFORE calling `convert()` at all, regardless of which
- *   converter is plugged in. Every 3.0 install already seeds its own equivalents once
- *   (`Groups.init()`/`Users.init()`), so creating a second copy from the source would be a
- *   duplicate, not an import.
- * - Skipping those source rows must not also drop the *membership* they implied.
- *   `createUserGroupImporter()` now takes an optional `systemGroupIds` (this install's real target
- *   admin/guest group ids): when an
- *   ordinary (non-system) imported user's source membership pointed at the source's system
- *   Administrators (id 1) or Guests (id 2) group -- which was skipped, so the normal groupIdMap lookup
- *   misses -- the row is remapped onto the supplied target id via the new `UsersGroupsWriter.
- *   assignUserToSystemGroup()` (backed by `Groups.assignUserToGroup()`) instead of being silently
- *   skipped. An ordinary group lookup that resolves normally is untouched by this fallback.
- * - Where those target ids actually live at runtime is worth flagging: the task description names
- *   `WIKI.data.systemIds.{groupAdminId,userAdminId,userGuestId}`, but tracing `core/config.ts`'s
- *   `initDbValues()` shows those three are only local variables inside that function, generated by
- *   `uuid()` and handed to each model's `init()` -- never written back onto `WIKI.data.systemIds`
- *   (which, per `base.yml`, only ever holds `localAuthId`/`guestsGroupId`/`usersGroupId`, the ids fixed
- *   at seed time). The admin group id is instead persisted by `Settings.init()` as
- *   `settings.auth.rootAdminGroupId` and reloaded onto `WIKI.config.auth.rootAdminGroupId`
- *   (`core/config.ts` `loadFromDb()`); the guest *group* id genuinely is on `WIKI.data.systemIds`, as
- *   `guestsGroupId` (not `groupGuestId`). This module still takes no `WIKI` dependency (same
- *   testability goal as `localStrategyId` above) -- the future #421 CLI is the caller that resolves
- *   `systemGroupIds` from those real locations before building the importers.
+ * A source record flagged `isSystem` — 2.5.x's Administrators/Guests groups and Administrator/Guest
+ * users — is skipped before `convert()` is even called, whichever converter is plugged in: every 3.0
+ * install already seeds its own equivalents once (`Groups.init()`/`Users.init()`), so importing the
+ * source's would be a duplicate. Skipping them must not also drop the membership they implied, which
+ * is what `createUserGroupImporter()`'s `systemGroupIds` remap is for.
  *
  * Re-run safety was deliberately dropped (design spec 2026-09-01): this engine only ever runs once
  * against a single fresh, empty destination, so there is no "already imported" case for
@@ -101,7 +52,7 @@ import { KNOWN_3_0_AUTH_MODULES } from '../report.ts'
  */
 
 // ---------------------------------------------------------------------------
-// Result shape — the contract feature #421's CLI and dry-run report read.
+// Result shape — the contract the CLI and its dry-run report read.
 // ---------------------------------------------------------------------------
 
 /** Outcome of attempting to write one source record. */
@@ -130,7 +81,7 @@ export interface EntityImportSummary {
 }
 
 /** One entry per source user whose account was created through the unsupported/reconfigured-provider
- * local-strategy fallback (Task 729, `createProviderFallbackUserConverter`) — the data feature #421's
+ * local-strategy fallback (`createProviderFallbackUserConverter`) — the data the CLI's
  * dry-run report renders so an administrator can see exactly which accounts need a password reset
  * before they're usable, without cross-referencing the per-record detail for each entity. */
 export interface ProviderFallbackFlag {
@@ -142,15 +93,15 @@ export interface ProviderFallbackFlag {
 /** True when a source record is flagged `isSystem` in 2.x -- a fixed row (the Administrators/Guests
  * groups, the Administrator/Guest users) that already exists in any 3.0 install, seeded once by
  * `Groups.init()`/`Users.init()`. Checked in orchestration, before any converter runs, so a system
- * row is never created regardless of which `GroupConverter`/`UserConverter` is plugged in -- Task 731. */
+ * row is never created regardless of which `GroupConverter`/`UserConverter` is plugged in. */
 function isSystemSourceRecord(sourceRecord: SourceRecord): boolean {
   return readSourceBoolean(sourceRecord, 'isSystem') === true
 }
 
 /** 2.5.x's fixed source id for the Administrators group -- see `docs/migration/2.5x-source-schema.md`
- * and this task's own description. Used only to recognize a `userGroups` row whose `groupId` pointed
- * at the source's system Administrators group, since that group's row itself was skipped (Task 731)
- * and so never gets an entry in the group id map. */
+ * Used only to recognize a `userGroups` row whose `groupId` pointed at the source's system
+ * Administrators group, since that group's row itself is skipped and so never gets an entry in the
+ * group id map. */
 const SOURCE_SYSTEM_GROUP_ADMIN_ID = 1
 
 /** 2.5.x's fixed source id for the Guests group -- same rationale as `SOURCE_SYSTEM_GROUP_ADMIN_ID`. */
@@ -158,8 +109,16 @@ const SOURCE_SYSTEM_GROUP_GUEST_ID = 2
 
 /** This install's real target ids for the system Administrators/Guests groups, supplied by the caller
  * so `createUserGroupImporter()` can remap a membership that pointed at the *source's* now-skipped
- * system group onto the equivalent that already exists here -- see the module doc's Task 731
- * paragraph for where these ids actually live at runtime. */
+ * system group onto the equivalent that already exists here.
+ *
+ * Where these live at runtime is worth flagging, because the obvious guess is wrong:
+ * `WIKI.data.systemIds` holds only `localAuthId`/`guestsGroupId`/`usersGroupId` (per `base.yml`) —
+ * `core/config.ts`'s `initDbValues()` generates the admin/guest ids as plain local variables and
+ * hands them to each model's `init()` without ever writing them back. The admin *group* id is
+ * persisted by `Settings.init()` as `settings.auth.rootAdminGroupId` and reloaded onto
+ * `WIKI.config.auth.rootAdminGroupId`; the guest group id is `WIKI.data.systemIds.guestsGroupId`.
+ * This module still takes no `WIKI` dependency of its own (same testability goal as
+ * `localStrategyId`) — the CLI resolves both before building the importers. */
 export interface SystemGroupIds {
   admin: string
   guest: string
@@ -189,7 +148,7 @@ export type NewGroupRow = typeof groupsTable.$inferInsert
 export type NewUserRow = typeof usersTable.$inferInsert
 
 /** A conversion either produces an insertable row, or explains why it doesn't. `providerFallback` is
- * only ever set by `createProviderFallbackUserConverter()` (Task 729): a created row that also needs
+ * only ever set by `createProviderFallbackUserConverter()`: a created row that also needs
  * to land on `UserImporter.providerFallbacks`, since the account genuinely gets created
  * and is *also* flagged for admin attention — not one or the other. */
 export type ConversionOutcome<TRow> =
@@ -213,9 +172,8 @@ export type UserConverter = (
 ) => ConversionOutcome<NewUserRow> | Promise<ConversionOutcome<NewUserRow>>
 
 // ---------------------------------------------------------------------------
-// Group conversion (Task 730) — the one real (non-stub) piece of group conversion this task adds:
-// pageRules -> rules reshaping and the permissions/global-vs-page-rule-only split. See the module
-// doc's Task 730 paragraph and `docs/migration/2.5x-to-3.0-mapping.md`'s `groups` section.
+// Group conversion — pageRules -> rules reshaping and the permissions global-vs-page-rule-only
+// split. See `docs/migration/2.5x-to-3.0-mapping.md`'s `groups` section.
 // ---------------------------------------------------------------------------
 
 /** The closed global-permission list documented in this repo's `CLAUDE.md` — the only strings 3.0's
@@ -303,7 +261,7 @@ function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
 }
 
 /**
- * Builds the real (non-stub) `GroupConverter` for Task 730.
+ * Builds the `GroupConverter`.
  *
  * A source group flagged `isSystem` is skipped outright: 3.0 seeds its own Administrators/Users/
  * Guests once, in `Groups.init()`, with fixed system ids nothing else may collide with — a 2.x
@@ -365,13 +323,11 @@ export function createGroupConverter(): GroupConverter {
 }
 
 // ---------------------------------------------------------------------------
-// Provider fallback (Task 729) — the one non-stub piece of user conversion this task adds. Every
-// other providerKey (`local`, or a mapped github/google/oidc) is out of scope here; see the module
-// doc and `needsProviderFallback()` below.
+// Provider fallback — every providerKey other than `local`; see `needsProviderFallback()` below.
 // ---------------------------------------------------------------------------
 
 /** 2.x `providerKey` values that correspond to a 3.0 authentication module that actually exists
- * today — `../unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES` (`backend/modules/authentication/*`,
+ * today — `../report.ts`'s `KNOWN_3_0_AUTH_MODULES` (`backend/modules/authentication/*`,
  * cross-checked live against disk by that module's test), reused here rather than duplicated so the
  * two lists can't drift apart again. Membership here is necessary but not sufficient for a real
  * provider-linked import: see `needsProviderFallback()`. */
@@ -382,7 +338,7 @@ const IMPLEMENTED_PROVIDER_MODULES = KNOWN_3_0_AUTH_MODULES
  * local-strategy fallback, rather than a real provider-linked (or local-password-carryover) import.
  *
  * - `local` never falls back here — a local password carries over through `Users.importLocalUser()`
- *   (Task 728), a different path entirely, not this one.
+ *   a different path entirely, not this one.
  * - Every other `providerKey` falls back. This covers both halves of the task deliberately: a 2.x
  *   provider with no 3.0 module at all (LDAP, SAML, CAS, Auth0, Okta, ... — Epic #333's territory)
  *   has nowhere else to go, and a 2.x `github`/`google`/`oidc` account has nowhere *safe* to go
@@ -427,13 +383,13 @@ export function readSourceDate(source: SourceRecord, column: string): Date | und
 
 export interface ProviderFallbackConverterOptions {
   /** Target UUID of this install's local authentication strategy. The engine deliberately has no
-   * `WIKI` dependency (see the module doc's testability goal), so the caller — the future #421 CLI —
+   * `WIKI` dependency (see the module doc's testability goal), so the caller — the CLI —
    * supplies this from `WIKI.data.systemIds.localAuthId` at runtime. */
   localStrategyId: string
 }
 
 /**
- * Builds the `UserConverter` for the unsupported/reconfigured-provider fallback path (Task 729).
+ * Builds the `UserConverter` for the unsupported/reconfigured-provider fallback path.
  *
  * For a source user whose `providerKey` needs `needsProviderFallback()`, this creates the account
  * through the local strategy with the same "provider-authenticated, no usable local password" shape
@@ -463,7 +419,7 @@ export function createProviderFallbackUserConverter(
     if (!needsProviderFallback(providerKey)) {
       return {
         status: 'flagged',
-        message: `source provider '${providerKey}' is not handled by the provider-fallback converter ('local' — see Users.importLocalUser, Task 728)`
+        message: `source provider '${providerKey}' is not handled by the provider-fallback converter ('local' — see Users.importLocalUser)`
       }
     }
 
@@ -535,11 +491,10 @@ export function createProviderFallbackUserConverter(
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the `UserConverter` for 2.x's `local` provider (Feature 414 Task 728's field mapping,
- * implemented as a plain row-builder rather than `Users.importLocalUser()` — that method performs its
- * own `getByEmail`/insert internally and returns `{status, id}`, a shape that does not fit the
- * `UserConverter -> NewUserRow -> writer.insertUser(row)` pattern `createUserImporter()` (Task 12)
- * drives. `createProviderFallbackUserConverter` below already established the
+ * Builds the `UserConverter` for 2.x's `local` provider — a plain row-builder rather than
+ * `Users.importLocalUser()`, because that method performs its own `getByEmail`/insert internally and
+ * returns `{status, id}`, a shape that does not fit the
+ * `UserConverter -> NewUserRow -> writer.insertUser(row)` pattern `createUserImporter()` drives. `createProviderFallbackUserConverter` below already established the
  * precedent that user-row creation in this engine is a raw-insert builder, not a model-method call
  * (unlike group creation, which does go through `Groups.createGroupFromImport()`) — this follows the
  * same shape, with the source's real bcrypt hash copied verbatim instead of a random unusable one.
@@ -620,8 +575,8 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
 }
 
 /** Routes a source user record to the real `local`-provider converter or the provider-fallback
- * converter, by `providerKey` — the one real (non-stub) `UserConverter` `phases/users.ts` (Task 14)
- * plugs into `createUserImporter()`. */
+ * converter, by `providerKey` — the `UserConverter` `phases/users.ts` plugs into
+ * `createUserImporter()`. */
 export function composeUserConverters(
   local: UserConverter,
   fallback: UserConverter
@@ -631,7 +586,7 @@ export function composeUserConverters(
 }
 
 // ---------------------------------------------------------------------------
-// Write port — lets orchestration be unit-tested without a live database, and lets the CLI (#421)
+// Write port — lets orchestration be unit-tested without a live database, and lets the CLI
 // swap in a dry-run writer that never touches Postgres at all.
 // ---------------------------------------------------------------------------
 
@@ -640,7 +595,7 @@ export interface UsersGroupsWriter {
   insertUser(row: NewUserRow): Promise<{ id: string }>
   insertUserGroup(userId: string, groupId: string): Promise<void>
   /** Assigns a user to one of THIS install's real system groups (Administrators/Guests) -- used only
-   * by the Task 731 remap path in `createUserGroupImporter()`, never for an ordinary imported group. Distinct
+   * by the remap path in `createUserGroupImporter()`, never for an ordinary imported group. Distinct
    * from `insertUserGroup()` because the real writer must go through `Groups.assignUserToGroup()`
    * rather than a raw insert: that model method runs `guestMembershipViolation()` and de-duplicates via
    * `onConflictDoNothing()`, both of which matter for a system group in a way they don't for a fresh,
@@ -652,12 +607,12 @@ export interface UsersGroupsWriter {
  * surfaced to the caller as a thrown error — `importOne()` catches it per-record and
  * downgrades that record to `conflicted` rather than aborting the whole import.
  *
- * `insertGroup()` is the one exception to "backed by Drizzle": per Task 730, a group is written
- * through `WIKI.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)` —
+ * `insertGroup()` is the one exception to "backed by Drizzle": a group is written through
+ * `WIKI.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)` —
  * that model method carries `createGroup()`'s own insert-then-`reloadCache()` shape, which a bare
  * insert here would silently skip (a newly-imported group's rules would not take effect until the
  * next process restart). `insertUser()`/`insertUserGroup()` stay raw inserts; routing those through
- * their own models is not this task's scope. */
+ * their own models is deliberately out of scope. */
 export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
   return {
     async insertGroup(row) {
@@ -701,18 +656,19 @@ export function createDryRunWriter(): UsersGroupsWriter {
 }
 
 // ---------------------------------------------------------------------------
-// userGroups derivation (Task 14) — `PostgresSourceConnector.users()` (Task 8) denormalizes group
+// userGroups derivation — `PostgresSourceConnector.users()` denormalizes group
 // membership onto each user row as `groups: [{id, name}]` rather than exposing a separate
 // `userGroups()` generator (`SourceConnector` has none — see `connector.ts`'s own `users()` doc).
 // `deriveUserGroupsFromEmbeddedGroups()` re-expands that embedded shape into the flat
 // `{userId, groupId}` records `createUserGroupImporter()` consumes, so `phases/users.ts`'s
 // `userGroups` entity can read the same `users()` iterable a second time (a fresh call — each
-// connector call re-issues its own query, Task 8) and drive the join-table importer without either
+// connector call re-issues its own query) and drive the join-table importer without either
 // connector kind ever needing its own `userGroups()` method.
 // ---------------------------------------------------------------------------
 
-/** Re-expands each user row's embedded `groups: [{id, name}]` array (`PostgresSourceConnector.users()`,
- * Task 8) into one `{userId, groupId}` record per membership, in source order. A user with no
+/** Re-expands each user row's embedded `groups: [{id, name}]` array
+ * (`PostgresSourceConnector.users()`) into one `{userId, groupId}` record per membership, in source
+ * order. A user with no
  * memberships (`groups: []`) yields nothing for that user. */
 export async function* deriveUserGroupsFromEmbeddedGroups(
   users: AsyncIterable<SourceRecord>
@@ -844,24 +800,23 @@ export function createUserImporter(
   return { ...importer, providerFallbacks }
 }
 
-/** Live, per-record `userGroups` join-row import — same shape and rationale as `GroupImporter`/
- * `UserImporter` above, extracted from what used to be `importUserGroups()`'s whole `for await`
- * loop. No field-mapping stub is needed here (see the module doc): once both ids resolve, there is
- * nothing left to convert. */
+/** Live, per-record `userGroups` join-row import — same shape and rationale as `RecordImporter`
+ * above, minus the id map: once both ids resolve there is nothing left to convert, so this one takes
+ * no converter. */
 export interface UserGroupImporter {
-  /** See `GroupImporter#importOne`'s doc — same Task 14 contract: returns the `RecordStatus` it just
+  /** See `RecordImporter#importOne`'s doc — same contract: returns the `RecordStatus` it just
    * recorded onto `summary`. */
   importOne(source: SourceRecord): Promise<RecordStatus>
   readonly summary: EntityImportSummary
 }
 
 /** Builds a `UserGroupImporter`. Takes `userIdMap`/`groupIdMap` directly rather than building them
- * itself — the caller (Task 14's phase wiring) passes the SAME `Map` instances
+ * itself — the caller (`phases/users.ts`) passes the SAME `Map` instances
  * `createGroupImporter()`/`createUserImporter()` populate, so a membership resolved here always
  * reflects every group/user imported so far, including ones imported after this importer was
  * constructed.
  *
- * Task 731: a `groupId` that doesn't resolve in `groupIdMap` is not automatically "the group was
+ * A `groupId` that doesn't resolve in `groupIdMap` is not automatically "the group was
  * never created" -- it may be the source's own system Administrators (`SOURCE_SYSTEM_GROUP_ADMIN_ID`)
  * or Guests (`SOURCE_SYSTEM_GROUP_GUEST_ID`) group, which `createGroupImporter()` deliberately skips
  * rather than creates. When `systemGroupIds` is supplied, that specific case is remapped onto this

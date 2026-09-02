@@ -716,7 +716,7 @@ describe('createPageImporter', () => {
     // -> importOne() never throws for a bad page (a sibling-collision, an existing-entry-collision, a
     //    createPage() error), so a caller that blindly wrapped it as recorder.create()'s own write
     //    callback would misreport every failed page as a successful wouldCreate. These assertions are
-    //    what phases/content.ts's routePageOutcome() routes on.
+    //    what phases/content.ts's toRecordOutcome() routes on.
     test('resolves { status: "created", pageId } on success, matching pageIdMap and succeeded[]', async () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(

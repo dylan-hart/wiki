@@ -53,14 +53,13 @@ function toRecordOutcome(
  * Phase 2 (Feature 414: users/groups/permissions importer). Depends on `settings`: group permissions
  * and page rules are meaningless without the destination's auth strategies already configured.
  *
- * Task 14 wires this phase to the real importer engine (Task 12's stateful per-record factories):
- * three entities, `groups` then `users` then `userGroups`, in that exact object-key order.
+ * Three entities, `groups` then `users` then `userGroups`, in that exact object-key order.
  * `define-phase.ts#readEntity()` drains each entity's source fully before the next one starts, which
  * is load-bearing here — `userGroups` resolves membership against `groupImporter.idMap`/
  * `userImporter.idMap`, both of which must be completely populated (every group/user already
  * imported) before a single membership row is looked up.
  *
- * `ctx.dryRun` selects the writer, not a recorder-level bypass: `createDryRunWriter()` (Task 12) mints
+ * `ctx.dryRun` selects the writer, not a recorder-level bypass: `createDryRunWriter()` mints
  * a placeholder UUID instead of writing, so `convert()`'s real per-record classification logic — which
  * determines `created`/`skipped`/`conflicted`/`flagged`, not just "was something written" — runs
  * identically in both modes. That is what lets `routeOutcome()` above report the true outcome even in
@@ -88,7 +87,7 @@ export const usersPhase = definePhase({
       writer,
       ctx.systemGroupIds
     )
-    // Handed to the content phase (Task 13, dependsOn: ['users']) — see context.ts's own doc on
+    // Handed to the content phase (dependsOn: ['users']) — see context.ts's own doc on
     // `userIdMap` for why this is a live Map reference, not a snapshot.
     ctx.userIdMap = userImporter.idMap
 
@@ -137,7 +136,7 @@ export const usersPhase = definePhase({
       },
       userGroups: {
         // Two full reads of `users` — once for the `users` entity above, once here (each connector
-        // call re-issues its own query, per Task 8) — an accepted tradeoff: this table is never in
+        // call re-issues its own query) — an accepted tradeoff: this table is never in
         // the same volume class as `pages`/`assetData`.
         source: () => deriveUserGroupsFromEmbeddedGroups(ctx.source.users()),
         classify: async (record, recorder) => {

@@ -4,12 +4,12 @@ import type { SourceRecord } from './connector.ts'
 /**
  * The named categories a record can be unmappable for — see Feature 421 task 744's description.
  *
- * `unsupported-auth-provider`: a 2.x user (`unmappable.ts#classifyUserAuthProvider`) or a 2.x
- * `authentication` row (`mappers/authentication.ts`, Task 15) on an auth strategy 3.0 has no module
- * for (LDAP/SAML/CAS/Auth0/Okta and friends — see `unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES` for the
+ * `unsupported-auth-provider`: a 2.x user (`classifyUserAuthProvider` below) or a 2.x
+ * `authentication` row (`mappers/authentication.ts`) on an auth strategy 3.0 has no module
+ * for (LDAP/SAML/CAS/Auth0/Okta and friends — see `KNOWN_3_0_AUTH_MODULES` below for the
  * sixteen modules 3.0 actually ships, `backend/modules/authentication/`).
  *
- * `unsupported-storage-module`: a 2.x `storage` row (`mappers/storage.ts`, Task 15) whose `key` names
+ * `unsupported-storage-module`: a 2.x `storage` row (`mappers/storage.ts`) whose `key` names
  * a module 3.0 has no directory for at all (`box`/`digitalocean`/`dropbox`/`gdrive`/`onedrive`/
  * `s3generic` — confirmed NO DESTINATION by
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 3). Kept distinct from
@@ -40,27 +40,26 @@ export interface UnmappableEntry {
  * of dry-run vs. live.
  *
  * `wouldSkipExisting` is nonzero whenever a phase's `classify` decides a record cannot or should not be
- * written even though it isn't a genuine conflict either — there is no single shared idempotency module
- * behind this (`../provenance.ts`, which Feature 421 task 746 originally built one in, was deleted once
- * every phase got its own real write path); each phase makes its own call instead. `content`'s `pages`
+ * written even though it isn't a genuine conflict either — there is no single shared idempotency
+ * module behind this; each phase makes its own call instead. `content`'s `pages`
  * entity checks the real destination tree for a collision (`pagesDeps.existingEntry`, backed by
  * `WIKI.models.tree.getEntryAt()`); `users`' three entities route a `'skipped'`/`'flagged'`
  * `RecordStatus` the importer's own per-record converter already decided (an unconvertible or
  * already-a-system-object record, not a live destination lookup — see `phases/users.ts#routeOutcome()`'s
- * own doc comment); `settings` (Task 15) reports a `flagged` authentication/storage row whose module is
+ * own doc comment); `settings` reports a `flagged` authentication/storage row whose module is
  * real but whose config could not be safely carried across. `assets`'s two entities have no
  * `skipExisting` bucket of their own at all — an asset or comment either creates or conflicts (see
- * `phases/assets.ts#routeImportOutcome()`), never skips. `pageHistory` and `tags` are folded into
+ * `phases/assets.ts`'s own `toRecordOutcome()`), never skips. `pageHistory` and `tags` are folded into
  * `pages` (see `phases/content.ts`'s own doc comment on why neither has its own entity any more), so
  * neither contributes a `wouldCreate`/`unmappable` count of its own either. `conflicts` is empty for
  * most phases today — no general rule yet for what makes two records genuinely conflict rather than one
- * simply superseding the other — except the `settings` phase (Task 15), which uses it for the
+ * simply superseding the other — except the `settings` phase, which uses it for the
  * (expected-never, defensive) case of a storage row naming a module with no matching per-site row
  * already seeded, and the `content`/`assets` phases, which use it for a write that was genuinely
  * attempted and failed (a sibling-collision, an unresolvable `pageId`, ...).
  *
  * The `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length` invariant
- * holds **per record** for every phase except `settings` (Task 15). That phase's single `settings`
+ * holds **per record** for every phase except `settings`. That phase's single `settings`
  * entity reads every `settings`/`authentication`/`storage`-tagged row off `ctx.source.settings()` as
  * one raw count (`found`), but every `settings`-tagged row collapses into exactly one `site-config`
  * sentinel `recorder.create()` call — regardless of whether there were zero, one, or a dozen of
@@ -121,11 +120,10 @@ export const KNOWN_3_0_AUTH_MODULES = new Set([
  * 2.x auth strategy keys with **no** matching 3.0 authentication module — confirmed by
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s "Confirmed no-destination 2.x auth
  * providers" section: 2.x's 21 providers minus 3.0's 16 `KNOWN_3_0_AUTH_MODULES` leaves exactly these
- * five with nowhere to land, cannot be imported until Task 414 decides what to do about them (map onto
- * `oidc`, refuse, prompt for a password reset, ...) — that decision is Task 414's, not this task's;
- * this only classifies. Every other 2.x provider key — including one this function doesn't recognize
- * at all — passes through unflagged; that is Task 414's problem to classify for real, not this one's
- * to guess at.
+ * five with nowhere to land. A user or strategy on one of them is dropped entirely — no account is
+ * created — and reported as `unsupported-auth-provider` so the operator can decide what to do about
+ * it. Every other 2.x provider key, including one this list doesn't recognize at all, passes through
+ * unflagged; `importers/users-groups.ts`'s provider fallback is what actually routes those.
  */
 const UNSUPPORTED_AUTH_PROVIDERS = new Set([
   'azure',
@@ -143,8 +141,8 @@ function stringField(record: SourceRecord, key: string): string | undefined {
 /**
  * Classifies one source `users` record as unmappable when its `providerKey` names an auth strategy
  * 3.0 has no module for. Returns `null` for every other provider — including ones 3.0 does support,
- * and any provider key this function doesn't recognize (an unrecognized value is Task 414's problem to
- * classify for real, not this task's to guess at).
+ * and any provider key this function doesn't recognize; those are routed by
+ * `importers/users-groups.ts`'s provider fallback instead.
  */
 export function classifyUserAuthProvider(record: SourceRecord): UnmappableEntry | null {
   const providerKey = (stringField(record, 'providerKey') ?? '').toLowerCase()

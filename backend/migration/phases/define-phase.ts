@@ -9,7 +9,7 @@ import type { MigrationContext, MigrationPhase, MigrationPhaseId, PhaseResult } 
  *
  * `classify`, when given, is called for every record read and decides how it counts toward the
  * phase's `PhaseReport` — typically `recorder.unmappable(...)` for a record this task's named
- * unmappable categories cover (see `../unmappable.ts`), otherwise `recorder.create(...)`. An entity
+ * unmappable categories cover (see `../report.ts`), otherwise `recorder.create(...)`. An entity
  * that omits it still gets every record it reads counted as a plain "would create" via the default
  * below — the correct behavior for an entity this task has no per-record reconciliation rule for.
  */

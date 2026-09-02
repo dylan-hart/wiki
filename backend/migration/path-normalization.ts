@@ -1,5 +1,5 @@
 /**
- * Path/locale normalization into a 3.0 tree location (Feature 416 / Task 736)
+ * Path/locale normalization into a 3.0 tree location
  *
  * A 2.x `pages.path` is a flat, slash-separated string held to 2.x's looser `rePagePath`
  * (`/^[a-zA-Z0-9-_/]*$/` — see `docs/migration/2.5x-source-schema.md`), while 3.0 addresses a page
@@ -12,7 +12,8 @@
  *
  * Folding is lossy — `FooBar` and `foobar` both fold to `foobar` — so a fold can land two distinct
  * 2.x pages on the same `(locale, parentPath, fileName)`, or land one on a location a pre-existing
- * 3.0 tree entry already occupies. Detecting either is **not** this module's job: `page-import.ts`'s
+ * 3.0 tree entry already occupies. Detecting either is **not** this module's job:
+ * `importers/page-import.ts`'s
  * `createPageImporter()` owns it, per page as the corpus streams through it, since only the importer
  * knows which locations this run has already claimed and can ask the destination tree about the rest.
  * This module answers exactly one question — what `parentPath`/`fileName` does this 2.x path fold to,
@@ -53,8 +54,8 @@ export interface TreePathAssignment {
 export interface PathAssignmentOptions {
   /** Whether `(locale, parentPath, fileName)` is already occupied by a pre-existing 3.0 tree entry in
    * `siteId`'s tree. Injected rather than queried directly: this module has no db access of its own,
-   * matching `content-staging.ts`'s "stages, never writes" contract. Task 738 wires the real lookup
-   * against `WIKI.models.tree`; tests pass a plain function. */
+   * matching `content-staging.ts`'s "stages, never writes" contract. `phases/content.ts` wires the
+   * real lookup against `WIKI.models.tree`; tests pass a plain function. */
   existingEntry: (
     siteId: string,
     locale: string,
@@ -89,7 +90,7 @@ export function normalizeSegment(segment: string): string | null {
 /**
  * Normalize one 2.x page path (without its locale) into the `parentPath`/`fileName`/`path` a 3.0 tree
  * entry needs — or a `PathNormalizationFailure` describing why it can't be. Locale plays no part
- * here; `page-import.ts` is what folds locale into the collision key.
+ * here; `importers/page-import.ts` is what folds locale into the collision key.
  */
 export function normalizeMigratedPath(
   rawPath: string

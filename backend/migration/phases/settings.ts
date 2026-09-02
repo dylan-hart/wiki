@@ -9,7 +9,7 @@ import type { MigrationContext } from '../context.ts'
 import type { WriteRecorder } from '../recorder.ts'
 
 /**
- * Routes `ctx.source.settings()`'s tagged rows (Task 9's `PostgresSourceConnector.settings()`,
+ * Routes `ctx.source.settings()`'s tagged rows (`PostgresSourceConnector.settings()`,
  * yielding `{ entity: 'settings' | 'authentication' | 'storage', ...row }` in that strict order) to
  * the three pure mappers (Tasks 764/765/767 — `mapSiteSettings`/`mapAuthenticationRows`/
  * `mapStorageRows`) and applies each mapper's output against the real destination.
@@ -44,8 +44,8 @@ import type { WriteRecorder } from '../recorder.ts'
  * for the same reason: deciding `wouldCreate` vs. `conflict` for a storage row requires knowing
  * whether the row a mapped update targets actually exists, and that decision has to happen before
  * calling exactly one recorder method (never both — see the storage loop below), the same "compute
- * the real outcome, then report it once" rule `phases/users.ts#routeOutcome()`/
- * `phases/content.ts#routePageOutcome()` established. Doing this unconditionally rather than gating it
+ * the real outcome, then report it once" rule `phases/route.ts#routeOutcome()` establishes for every
+ * phase. Doing this unconditionally rather than gating it
  * behind `ctx.dryRun` (as `phases/content.ts#existingEntry` does) matches what that file's own doc
  * comment says a real CLI run could safely do anyway ("the destination db is always live even under
  * --dry-run, so checking the real tree ... is both possible and correct there") — content.ts chose the
@@ -70,10 +70,9 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
   // -> One sentinel record for the whole site-config/instance-settings patch, mirroring
   //    `phases/content.ts`'s single `site-navigation` sentinel: there is no per-row identity to
   //    report against (the patch is a merge of every `settings`-tagged row at once), so this counts
-  //    as exactly one `wouldCreate` regardless of how many source rows fed it — including zero, which
-  //    still gives `define-phase.ts#trackWriteCapability()` a real `write` callback to see.
+  //    as exactly one `wouldCreate` regardless of how many source rows fed it, including zero.
   // -> Pure, no-I/O classification — computed unconditionally, the same "compute for real either
-  //    way" rule `phases/content.ts`'s `writeSiteItems` doc comment gives for its own sanitize step,
+  //    way" rule `phases/content.ts`'s `setNavItems` doc comment gives for its own sanitize step,
   //    so a dry run classifies identically to a live one; only the writes below are conditional.
   const { siteConfigPatch, instanceSettings } = mapSiteSettings(settingsRows)
   await recorder.create('site-config', async () => {
@@ -127,12 +126,12 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
   //    the 2.x source row actually had configured: remapping them needs old-group-id ->
   //    new-group-UUID entries that only exist once the `users` phase has run, but `settings` runs
   //    *before* `users` (`phases/users.ts`'s own `dependsOn: ['settings']`), so that map genuinely
-  //    cannot exist yet here. This is the same forced, documented-not-solved reporting gap Task 14
-  //    left for `userImporter.providerFallbacks` (`phases/users.ts:108-112`): neither `PhaseResult`
+  //    cannot exist yet here. This is the same forced, documented-not-solved reporting gap
+  //    `userImporter.providerFallbacks` has in `phases/users.ts`: neither `PhaseResult`
   //    nor `PhaseReport` has a field shaped to surface it. Fixing this for real would mean either
   //    re-ordering the phases (settings currently has `dependsOn: []` specifically so it can run
   //    first — see this phase's own module doc) or a second pass over already-created strategies
-  //    after `users` has run — both out of this task's scope.
+  //    after `users` has run — both deliberately out of scope.
   const authResult = await mapAuthenticationRows(authRows, { resolver: authResolver })
   for (const result of authResult.results) {
     switch (result.status) {
@@ -158,7 +157,7 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
         // -> Exact semantic match: the source row's module has no matching 3.0 authentication
         //    module at all (`resolver.getModule()` returned null) — see `report.ts`'s doc comment
         //    on this reason, which now explicitly covers this mapper's own `'unsupported'` status
-        //    alongside `unmappable.ts#classifyUserAuthProvider`'s pre-existing use of it.
+        //    alongside `report.ts#classifyUserAuthProvider`'s pre-existing use of it.
         recorder.unmappable(
           result.sourceKey,
           'unsupported-auth-provider',
@@ -270,7 +269,7 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
  * Phase 1 (Feature 420: settings/auth/storage config importer). No dependency — everything else in a
  * 2.x install is read relative to how the destination is configured to store and render it.
  *
- * Task 15 wires this phase to the real mappers/models. Unlike `phases/users.ts`/`phases/content.ts`
+ * This phase wires the real mappers/models. Unlike `phases/users.ts`/`phases/content.ts`
  * (several entities, each with its own per-record `classify`), this phase reads exactly one entity —
  * so `runSettingsImport()` above must run exactly once per phase run, not once per tagged row
  * `readEntity()` classifies. A closure-scoped boolean guard is the whole mechanism: no factory/state

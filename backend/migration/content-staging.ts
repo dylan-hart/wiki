@@ -1,7 +1,8 @@
 import type { SourceConnector, SourceRecord } from './connector.ts'
 import { resolveActorId, type UserIdMap } from './id-map.ts'
 // -> Type-only, so this is erased entirely at load time (verbatimModuleSyntax) -- safe even though
-//    navigation-import.ts imports StagedNavigation back from this module, since neither import
+//    importers/navigation-import.ts imports StagedNavigation back from this module, since neither
+//    import
 //    survives to become a real runtime circular dependency.
 import type { NavigationPageRef } from './importers/navigation-import.ts'
 import { coerceSourceBoolean } from './source-coercion.ts'
@@ -56,7 +57,7 @@ export type StagedTag = string
 
 export interface StagedPageHistoryEntry {
   /** The 2.x `pageHistory.id` this row came from — what a page-history id map (built the same way as
-   * `page-import.ts`'s `pageIdMap`, by whichever task actually inserts these rows) keys off. */
+   * `importers/page-import.ts`'s `pageIdMap`) keys off. */
   oldId: number
   action: string
   path: string
@@ -90,7 +91,8 @@ export interface OrphanedPageHistoryEntry extends StagedPageHistoryEntry {
 }
 
 export interface StagedPage {
-  /** The 2.x `pages.id` this row came from — what `page-import.ts`'s `PageImporter.pageIdMap` is
+  /** The 2.x `pages.id` this row came from — what `importers/page-import.ts`'s
+   * `PageImporter.pageIdMap` is
    * keyed on once `importOne()` calls `createPage()` for it. */
   oldId: number
   path: string
@@ -154,14 +156,15 @@ export interface ContentStagingContext {
   /** Human-readable notes on data that could not be carried across faithfully — currently: an
    * orphaned `authorId`/`creatorId` FK (present in the source, unmapped by `userIdMap`) that fell back
    * to the operator actor, and a `pageHistory` row that named no current page. Surfaced for whichever
-   * task ends up reporting import results to an operator (Task 421's CLI) rather than acted on here. */
+   * CLI reports import results to an operator rather than acted on here. */
   warnings: string[]
   /** `pageHistory` rows whose `pageId` matched no row in `pages` — see `OrphanedPageHistoryEntry`.
    * Only complete once the `extractContentStaging()` generator that was given this context has been
    * fully drained — sorted by `versionDate` ascending at that point, same as before streaming. */
   orphanedHistory: OrphanedPageHistoryEntry[]
   /** Every staged page's lightweight `{oldId, path, locale}` identity (Task 13, WP #1790), appended to
-   * as `extractContentStaging()` yields each `StagedPage` — what `navigation-import.ts`'s
+   * as `extractContentStaging()` yields each `StagedPage` — what
+   * `importers/navigation-import.ts`'s
    * `importNavigation()` needs to resolve a 2.x `'page'`-type nav target back onto a staged page.
    * Complete once every page this run's `pages` entity yielded has actually been processed by its
    * caller (`phases/content.ts`'s streaming `pages` entity fully drains before its `navigation` entity
@@ -182,7 +185,7 @@ export interface ContentStagingOptions {
   /** The 3.0 UUID of the actor `resolveActorId` falls back to — this task's chosen strategy for 2.x's
    * nullable/orphaned `authorId`/`creatorId` against 3.0's NOT NULL columns is "the operator running
    * the import"; resolving *who* that is (or creating a system account for it) is left to whichever
-   * task wires this module up (Task 421's CLI), which is why it is a plain required UUID here rather
+   * CLI resolves this, which is why it is a plain required UUID here rather
    * than something this module resolves itself. */
   fallbackActorId: string
 }
