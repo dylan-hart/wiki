@@ -378,3 +378,60 @@ return reply }`) is shared with `requireActorId`.
   - **`models/users.ts` now exports `userSelection`** alongside `UserCore`/`UserPage`; `groups.ts`
     imports all three rather than restating them. If a column is added to the user list projection,
     it is added once, here.
+
+## Task A16 — the shared backend test harness (TEST-F1/F2/F7/F9/F10/F15)
+
+CLAUDE.md's **"Testing (backend)"** section is where all of this belongs; several of its existing
+sentences are now incomplete rather than wrong.
+
+- **`backend/test/` now holds six shared harness modules, not two.** Alongside `db.ts`,
+  `permissionScenario.ts`, `collabWorker.ts`, `sftpServer.ts` and `temporal.ts`:
+  - **`mocks.ts`** — the existing `createCacheStub`/`createEventsStub`/`createSchedulerStub`/
+    `createSiteAdminAccessStub`, plus `createSilentLogger()`, `createWikiStub(overrides)` and
+    `installTestWiki(overrides) → { restore() }`. **A test never writes a `WIKI = {…}` literal
+    again**: it calls `installTestWiki({ …only what its code path reads… })` and restores in
+    `after()`/`afterEach()`. `db.ts`'s own `WIKI` is now a caller of the same builder.
+  - **`fastify.ts`** — `buildTestApp({ routes, wiki, schemas, session, permissions, apiKeySitePin,
+    ajv, swagger, prefix })` and `closeTestApp(app)`, plus `makeRequestStub`/`makeReplyStub`/
+    `makeDoneStub` for a hook driven with no server around it.
+  - **`routeRecorder.ts`** — `createRecordingApp`, `listApiRouteFiles`, `recordRoutesFrom`,
+    `referencesApiError`, `stubWikiForRegistration` for the structural scans over `api/`.
+  - **`builders.ts`** — `makeGroupRule`, `makeRulePageRef`, `makeActor`, `makeSite`,
+    `makeStorageTarget`, `makeIndexablePage`, `stubSelect`.
+  - **`migrationFixtures.ts`** — `iterate`, `stubSourceConnector`, `makeSourcePageRow`,
+    `makeStagedPage`, `LEGACY_SCHEMA_DDL`.
+  - **`sourceFiles.ts`** — `listSourceFiles(root, { ext, skip, skipDirs })`, the one recursive
+    source-tree walker for a structural scanner.
+- **A route test boots through `buildTestApp`, and it installs the REAL production pieces.** The
+  handler is `helpers/errorHandler.ts#apiErrorHandler`, the permission gate is
+  `core/http/authHooks.ts#permissionPreHandler` (API-key branch included — the six hand-written
+  replicas had all dropped it), and `schemas: 'all'` is `api/index.ts#registerAllSchemas`. This
+  supersedes CLAUDE.md's A7 notes above that tell a suite to call `registerParamsSchemas(app)` and
+  `app.addHook('preHandler', siteEnabledPreHandler)` in its own `buildApp`: `schemas: 'all'` covers
+  the first, and a suite mounting one route plugin passes the hook itself only if it is testing the
+  site-enabled behaviour.
+- **Session seeding is the harness's own concern, not production's.** There is no
+  `testSessionOnRequest` in `backend/`; a running server gets its session from a signed cookie.
+  `session: 'header'` is the ONE convention that replaces the four the suites had grown —
+  `x-test-session` (a whole session as JSON), `x-test-permissions` (a JSON array or a comma-separated
+  list, promoted to `{ authenticated: true, permissions, groups: [] }`) and `x-test-api-key` (a whole
+  `req.apiKey` as JSON). `session` also accepts a fixed object or a `(req) => session` function.
+- **`createWikiStub` defaults `models` to `{}` on purpose.** An absent member throwing is coverage:
+  `modules/storage/disk/storage.test.ts` relies on it to prove the module never reaches for a model
+  it should not. A suite names exactly the methods its code path calls. `data.systemIds` defaults to
+  an empty object (so a read answers `undefined` instead of throwing on `undefined.x`), and overrides
+  are deep-merged — arrays, class instances and `mock.fn()`s replace wholesale rather than merging.
+- **`test/*.test.ts` co-located with a harness module is the right home for its own coverage.** The
+  section's "`test/` holds shared fixture code that is not itself a `*.test.ts`" sentence needs a
+  clause: a harness module in `test/` gets its own co-located suite there, the same as any other
+  source file (`test/fastify.ts` → `test/fastify.test.ts`, and five more).
+- **`listApiRouteFiles` is recursive and treats a directory as one route resource.** A route file may
+  be a directory holding an `index.ts` (which is what the large-route-file splits produce); the
+  scanners see one entry per resource either way. `schemas/`, `*.test.ts` and the top-level `index.ts`
+  are skipped. A scanner must use it rather than its own `readdirSync` filter, or a split route file
+  silently drops out of the scan.
+- **Deliberately NOT converted, and why.** `modules/search/*/search.test.ts`'s `fakePage`/`basePage`
+  and `modules/search/shared.test.ts`'s `fakePage` keep their own local builders: their field VALUES
+  differ per engine and tests assert on the exact indexed document, so pointing them all at
+  `makeIndexablePage` would change what is asserted, not just where the fixture lives. Unifying them
+  is TEST-F6's shared contract runner, not this task.

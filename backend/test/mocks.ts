@@ -13,7 +13,9 @@
  * should assert against the stub directly (e.g. `cache.set.mock.calls`) rather than reach past it —
  * that is what makes it a stub and not a bypass.
  */
+import path from 'node:path'
 import { mock } from 'node:test'
+import { isPlainObject } from 'es-toolkit/predicate'
 
 /**
  * A `WIKI.cache`-shaped stub: enough of `LRUCache`'s surface for code that calls
@@ -102,5 +104,109 @@ export function createSiteAdminAccessStub(
     return (
       actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
     )
+  }
+}
+
+/**
+ * `error`/`warn`/`info`/`debug`/`verbose`/`silly`, all no-ops — a test run should not scroll past the
+ * logging of the code it is exercising.
+ *
+ * Exported (TEST-F1) rather than re-inlined per file: 70 backend test files used to carry their own
+ * partial literal (`{ debug }`, `{ warn }`, `{ info, warn, error, debug }`, …), so adding one
+ * `WIKI.logger.info()` call to a route broke every suite whose stub happened to omit `info` — and
+ * failed naming the logger rather than the change.
+ */
+export function createSilentLogger(): any {
+  const noop = () => {}
+  return { error: noop, warn: noop, info: noop, debug: noop, verbose: noop, silly: noop }
+}
+
+/**
+ * Deep-merge `source` into `target`, in place.
+ *
+ * Recurses only where BOTH sides are plain objects; everything else (arrays, class instances, mock
+ * functions, `null`) replaces wholesale. Deliberately narrower than `es-toolkit`'s `toMerged`, which
+ * deep-CLONES its target and merges arrays index-wise — neither is wanted here, since an override may
+ * legitimately carry a live Drizzle instance, a `mock.fn()` whose call history a test asserts on, or
+ * an array meant to stand alone rather than be spliced over a default.
+ */
+function mergeInto(target: any, source: Record<string, any>): any {
+  for (const [key, value] of Object.entries(source)) {
+    if (isPlainObject(value) && isPlainObject(target[key])) {
+      mergeInto(target[key], value)
+    } else {
+      target[key] = value
+    }
+  }
+  return target
+}
+
+/**
+ * The `WIKI` global a test needs, with every member a test rarely cares about already stubbed.
+ *
+ * Defaults: a silent logger, the `cache`/`events`/`scheduler` stubs above, and `{}` for `config`,
+ * `sites`, `sitesMappings` and `models`. `models` is deliberately EMPTY rather than a populated set —
+ * `modules/storage/disk/storage.test.ts` relies on an absent member throwing to prove the module
+ * never reaches for one — so a suite names exactly the model methods its code path calls, and an
+ * unexpected reach past them still fails loudly.
+ *
+ * `data.systemIds` is present but empty, so a read like `WIKI.data.systemIds.guestsGroupId` answers
+ * `undefined` instead of throwing on `undefined.guestsGroupId`; a suite whose code path actually
+ * branches on one of those ids supplies it (the real values live in `base.yml`).
+ *
+ * Overrides are deep-merged (see `mergeInto`), so `{ models: { pages: { … } } }` keeps the logger and
+ * the stubs while replacing only what it names.
+ */
+export function createWikiStub(overrides: Record<string, any> = {}): WikiGlobal {
+  const stub = {
+    IS_DEBUG: false,
+    ROOTPATH: process.cwd(),
+    // -> Derived from this file's own location (`backend/test/mocks.ts`), not `process.cwd()`: a
+    //    workspace's tests run with `backend/` as the cwd already, so `path.join(cwd, 'backend')`
+    //    would point at a `backend/backend` that does not exist. Anything doing disk-based module
+    //    loading (`models/search.ts#hasImplementation()`, a module's `definition.yml`) reads this.
+    SERVERPATH: path.join(import.meta.dirname, '..'),
+    INSTANCE_ID: 'test',
+    // -> Not `Temporal.Now.instant()`: nothing under test reads `startedAt`, and this file otherwise
+    //    has no reason to depend on the runtime actually having `Temporal` installed.
+    startedAt: new Date(),
+    version: 'test',
+    releaseDate: 'test',
+    devMode: true,
+    auth: { groups: {}, strategies: {} },
+    config: {},
+    data: { systemIds: {} },
+    logger: createSilentLogger(),
+    cache: createCacheStub(),
+    events: createEventsStub(),
+    scheduler: createSchedulerStub(),
+    sites: {},
+    sitesMappings: {},
+    models: {}
+  }
+  return mergeInto(stub, overrides) as unknown as WikiGlobal
+}
+
+/**
+ * Install `createWikiStub(overrides)` as the `WIKI` global, returning the handle that puts back
+ * whatever was there before.
+ *
+ * Always restore in `after()`/`afterEach()`: `node --test` isolates each matched FILE into its own
+ * process, but not each suite within one, so a file that installs a global and walks away leaves it
+ * standing for whatever runs next in the same file (see OpenProject #1021). 41 files used to
+ * hand-roll the same `previousWiki` capture/assign dance around this.
+ */
+export function installTestWiki(overrides: Record<string, any> = {}): { restore(): void } {
+  const had = 'WIKI' in globalThis
+  const previous = (globalThis as any).WIKI
+  ;(globalThis as any).WIKI = createWikiStub(overrides)
+  return {
+    restore() {
+      if (had) {
+        ;(globalThis as any).WIKI = previous
+      } else {
+        delete (globalThis as any).WIKI
+      }
+    }
   }
 }
