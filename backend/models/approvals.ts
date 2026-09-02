@@ -14,6 +14,7 @@ import { hasPermission } from './pages.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { RenderPermissions } from './rendering.ts'
 import { escapeHtml } from './mail.ts'
+import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import { approvalMatchModes } from '../helpers/approvalMatch.ts'
 import type { ApprovalMatchMode } from '../helpers/approvalMatch.ts'
 
@@ -210,7 +211,9 @@ let rulesCache: Record<string, ApprovalRule[]> = {}
  * Only the rules for now: which pages accept edit suggestions, from whom, and who reviews them. The
  * submissions themselves are a separate concern and are not stored yet.
  */
-class Approvals {
+class Approvals extends ClusterReloaded {
+  protected readonly reloadEvent = 'reloadApprovals'
+
   /**
    * Reload every site's rules into memory.
    *
@@ -230,25 +233,6 @@ class Approvals {
       rulesCache[siteId].push(rule)
     }
     WIKI.logger.info(`Loaded ${rows.length} approval rules [ OK ]`)
-  }
-
-  /**
-   * Reload this instance's own cache, then tell every other instance in the cluster to do the same —
-   * see `models/groups.ts`'s `broadcastReload()`, which this mirrors exactly, including the same
-   * "never call from inside `reloadCache()`" rule.
-   */
-  private async broadcastReload(): Promise<void> {
-    await this.reloadCache()
-    WIKI.events.outbound.emit('reloadApprovals')
-  }
-
-  /**
-   * Subscribe to HA propagation events
-   */
-  subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadApprovals', async () => {
-      await this.reloadCache()
-    })
   }
 
   /**

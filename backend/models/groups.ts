@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
+import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import { CustomError, escapeLikePattern, normalizePagePath } from '../helpers/common.ts'
 import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
@@ -239,7 +240,9 @@ let rulesPoolCache: Record<string, GroupRule[]> = {}
 /**
  * Groups model
  */
-class Groups {
+class Groups extends ClusterReloaded {
+  protected readonly reloadEvent = 'reloadGroups'
+
   /**
    * Reload the page rules of every group into memory.
    *
@@ -262,35 +265,6 @@ class Groups {
     //    recompiled promptly instead of the cache growing across every group edit an instance sees.
     clearPageRuleRegexCache()
     WIKI.logger.info(`Loaded page rules for ${rows.length} groups [ OK ]`)
-  }
-
-  /**
-   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
-   *
-   * The write already happened in the database by the time a caller reaches this — what's left is
-   * making every instance's in-memory cache agree with it, this one included. Never call
-   * `WIKI.events.outbound.emit('reloadGroups')` directly, and never call it from inside
-   * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
-   * *another* instance's event, and broadcasting from there would echo the event back around the
-   * cluster forever.
-   *
-   * Public rather than internal-only: a write that bypasses this model's own insert/update/delete
-   * methods — `models/siteImport.ts#importSite`'s raw `tx.insert(groupsTable).onConflictDoUpdate(...)`
-   * upsert of imported groups is the one case today — still needs this same reload-then-notify shape,
-   * called by whoever performed the write (`tasks/simple/import-content.ts`) once it lands.
-   */
-  async broadcastReload(): Promise<void> {
-    await this.reloadCache()
-    WIKI.events.outbound.emit('reloadGroups')
-  }
-
-  /**
-   * Subscribe to HA propagation events
-   */
-  subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadGroups', async () => {
-      await this.reloadCache()
-    })
   }
 
   /**

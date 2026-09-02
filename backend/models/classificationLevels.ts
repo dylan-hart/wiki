@@ -4,6 +4,7 @@ import {
   classificationLevels as levelsTable,
   pages as pagesTable
 } from '../db/schema.ts'
+import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { SystemIds } from './types.ts'
 
@@ -23,41 +24,19 @@ export type ClassificationLevel = typeof levelsTable.$inferSelect
  */
 let levelsCache: ClassificationLevel[] = []
 
-class ClassificationLevels {
+class ClassificationLevels extends ClusterReloaded {
+  protected readonly reloadEvent = 'reloadClassificationLevels'
+
   /**
    * Reload every level into memory. Called at boot, and by both halves of the cross-instance
-   * propagation below -- `broadcastReload()` (this instance's own change) and `subscribeToEvents()`'s
-   * handler (another instance's). Never call this directly from a mutator; go through
-   * `broadcastReload()` instead, or the change never reaches the rest of the cluster.
+   * propagation `ClusterReloaded` owns -- `broadcastReload()` (this instance's own change) and
+   * `subscribeToEvents()`'s handler (another instance's). Never call this directly from a mutator; go
+   * through `broadcastReload()` instead, or the change never reaches the rest of the cluster.
    */
   async reloadCache(): Promise<void> {
     const rows = await WIKI.db.select().from(levelsTable).orderBy(asc(levelsTable.sortOrder))
     levelsCache = rows
     WIKI.logger.info(`Loaded ${levelsCache.length} classification level(s) [ OK ]`)
-  }
-
-  /**
-   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
-   *
-   * The write already happened in the database by the time a caller reaches this -- what's left is
-   * making every instance's in-memory cache agree with it, this one included. Never call
-   * `WIKI.events.outbound.emit('reloadClassificationLevels')` directly, and never call it from inside
-   * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
-   * *another* instance's event, and broadcasting from there would echo the event back around the
-   * cluster forever (see `groups.ts`'s own `broadcastReload()`, this method's model).
-   */
-  private async broadcastReload(): Promise<void> {
-    await this.reloadCache()
-    WIKI.events.outbound.emit('reloadClassificationLevels')
-  }
-
-  /**
-   * Subscribe to HA propagation events
-   */
-  subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadClassificationLevels', async () => {
-      await this.reloadCache()
-    })
   }
 
   /** Every level, most-open first. What the admin list and every level picker render. */

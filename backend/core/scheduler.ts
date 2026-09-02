@@ -539,7 +539,7 @@ export default {
    * way, so one wedged task permanently costs `maxWorkers` slots (default 3), and the instance stops
    * claiming new jobs at all. Racing the call against a timer here is what makes that finite: the job
    * is recorded failed and retried with the usual backoff, exactly as a thrown task already is,
-   * `models/rendering.ts#drainQueue`'s `withRenderTimeout` is the in-repo precedent for this shape.
+   * through the shared `helpers/timeout.ts#withTimeout` every other bounded step in the repo uses.
    *
    * The task itself runs inside `runWithJobExecutionContext()` (OpenProject #2351): since it cannot
    * actually be cancelled, a task that calls `WIKI.models.jobs.setResult(jobId, ...)` after this

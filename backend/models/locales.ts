@@ -3,6 +3,7 @@ import path from 'node:path'
 import { locales as localesTable } from '../db/schema.ts'
 import { eq, sql } from 'drizzle-orm'
 import { isPlainObject } from 'es-toolkit/predicate'
+import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import type { LocalazyLanguage } from '../locales/metadata.d.ts'
 
 /**
@@ -116,7 +117,9 @@ export function parseSideloadLocalePack(
 /**
  * Locales model
  */
-class Locales {
+class Locales extends ClusterReloaded {
+  protected readonly reloadEvent = 'reloadLocales'
+
   /**
    * `<dataPath>/locales` — a writeable directory an operator drops locale-pack JSON files into
    * against a running instance's data volume, no rebuild/redeploy/network access needed. Read by
@@ -459,30 +462,6 @@ class Locales {
       this.invalidateStringsCache(locale.code)
     }
     WIKI.logger.info(`Loaded ${locales.length} locales into cache [ OK ]`)
-  }
-
-  /**
-   * Reload this instance's own cache, then tell every other instance in the cluster to do the same —
-   * see `models/groups.ts`'s `broadcastReload()`, which this mirrors exactly, including the same
-   * "never call from inside `reloadCache()`" rule: `reloadCache()` also runs when
-   * `subscribeToEvents()`'s handler answers *another* instance's event, and broadcasting from there
-   * would echo the event back around the cluster forever.
-   *
-   * Public (unlike `classificationLevels.ts`/`glossary.ts`'s private equivalents) because
-   * `tasks/simple/update-locales.ts` calls it directly once its own sync loop has changed something.
-   */
-  async broadcastReload(): Promise<void> {
-    await this.reloadCache()
-    WIKI.events.outbound.emit('reloadLocales')
-  }
-
-  /**
-   * Subscribe to HA propagation events
-   */
-  subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadLocales', async () => {
-      await this.reloadCache()
-    })
   }
 }
 
