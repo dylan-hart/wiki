@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import AdminUsers from './AdminUsers.vue'
 import { useUserStore } from '@/stores/user'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 const USERS_PAGE_1 = {
   total: 45,
@@ -23,19 +21,14 @@ const MESSAGES = {
 }
 
 async function mountPage() {
-  setActivePinia(createPinia())
-  const userStore = useUserStore()
-  userStore.permissions = ['manage:users']
-  userStore.id = 'me'
-
   API_CLIENT.get.mockImplementation(() => usersResponse())
 
   const router = await createTestRouter(['/_admin/users'], '/_admin/users')
 
-  const i18n = createTestI18n(MESSAGES)
-
-  const wrapper = mount(AdminUsers, {
-    global: { plugins: [router, i18n] }
+  const { wrapper } = mountWithApp(AdminUsers, {
+    messages: MESSAGES,
+    router,
+    stores: { user: { permissions: ['manage:users'], id: 'me' } }
   })
   await vi.waitUntil(() => API_CLIENT.get.mock.calls.length >= 1)
 

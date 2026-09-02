@@ -3,13 +3,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import ErrorGeneric from './ErrorGeneric.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * OpenProject #2110: `.errorpage-code` / `.errorpage-title` used to be fixed at 12rem/5rem with no
@@ -37,27 +35,22 @@ function ruleFor(className) {
 }
 
 async function mountErrorGeneric(action = 'notfound') {
-  setActivePinia(createPinia())
-
   const router = await createTestRouter(['/', '/_error/:action'], `/_error/${action}`)
 
-  const i18n = createTestI18n({
-    common: {
-      error: {
-        title: 'Error',
-        goHome: 'Go Home',
-        loginAs: 'Login',
-        notfound: { title: 'Page Not Found', hint: 'The page does not exist' },
-        unauthorized: { title: 'Unauthorized', hint: 'You are not authorized' }
+  return mountWithApp(ErrorGeneric, {
+    messages: {
+      common: {
+        error: {
+          title: 'Error',
+          goHome: 'Go Home',
+          loginAs: 'Login',
+          notfound: { title: 'Page Not Found', hint: 'The page does not exist' },
+          unauthorized: { title: 'Unauthorized', hint: 'You are not authorized' }
+        }
       }
-    }
-  })
-
-  return mount(ErrorGeneric, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
+    },
+    router
+  }).wrapper
 }
 
 describe('ErrorGeneric responsive type (OpenProject #2110)', () => {

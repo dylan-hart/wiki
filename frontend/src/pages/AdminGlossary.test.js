@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminGlossary from './AdminGlossary.vue'
 import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
@@ -9,7 +8,7 @@ import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDia
 import { useAdminStore } from '@/stores/admin'
 import { dialog, confirm } from '@/composables/dialog'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -40,20 +39,12 @@ const EXPORT_TERMS = [
 ]
 
 function mountAdminGlossary(terms = EXPORT_TERMS) {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-1'
-
   API_CLIENT.get.mockReturnValue({
     json: () => Promise.resolve({ formatVersion: 1, terms })
   })
 
-  const i18n = createTestI18n()
-
-  const wrapper = mount(AdminGlossary, {
-    global: {
-      plugins: [i18n]
-    }
+  const { wrapper } = mountWithApp(AdminGlossary, {
+    stores: { admin: { currentSiteId: 'site-1' } }
   })
   return wrapper
 }

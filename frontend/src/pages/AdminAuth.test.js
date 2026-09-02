@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminAuth from './AdminAuth.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for Task 441: the "Add Strategy" picker's `availableStrategies` list is a flat,
@@ -116,8 +115,6 @@ const MODULES = [
 ]
 
 async function mountPage({ strategies = [] } = {}) {
-  setActivePinia(createPinia())
-
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'authentication/modules') {
       return { json: () => Promise.resolve(MODULES) }
@@ -131,12 +128,7 @@ async function mountPage({ strategies = [] } = {}) {
     return { json: () => Promise.resolve(undefined) }
   })
 
-  const i18n = createTestI18n(MESSAGES)
-
-  const wrapper = mount(AdminAuth, {
-    attachTo: document.body,
-    global: { plugins: [i18n] }
-  })
+  const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
   await flushPromises()
 
   return wrapper
@@ -277,7 +269,6 @@ describe('AdminAuth mappable-groups picker', () => {
   }
 
   it('is not rendered when the strategy has not turned Map Groups on', async () => {
-    setActivePinia(createPinia())
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'authentication/modules') {
         return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
@@ -303,8 +294,7 @@ describe('AdminAuth mappable-groups picker', () => {
       }
       return { json: () => Promise.resolve(undefined) }
     })
-    const i18n = createTestI18n(MESSAGES)
-    const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
     await flushPromises()
 
     expect(mappablePickerNode(wrapper).exists()).toBe(false)
@@ -313,7 +303,6 @@ describe('AdminAuth mappable-groups picker', () => {
   })
 
   it('renders, gated by Map Groups being on, with no selection when the allow-list is empty', async () => {
-    setActivePinia(createPinia())
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'authentication/modules') {
         return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
@@ -345,8 +334,7 @@ describe('AdminAuth mappable-groups picker', () => {
       }
       return { json: () => Promise.resolve(undefined) }
     })
-    const i18n = createTestI18n(MESSAGES)
-    const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
     await flushPromises()
 
     const picker = mappablePickerNode(wrapper)

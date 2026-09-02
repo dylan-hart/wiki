@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import AdminSecurity from './AdminSecurity.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for task 636: the admin security view must round-trip the
@@ -105,15 +106,7 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
  * patterns already on this page.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-
-  const i18n = createTestI18n()
-
-  return mount(AdminSecurity, {
-    global: {
-      plugins: [i18n]
-    }
-  })
+  return mountWithApp(AdminSecurity).wrapper
 }
 
 describe('AdminSecurity CSP controls', () => {

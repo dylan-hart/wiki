@@ -7,6 +7,7 @@ import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for the login-time recovery-code toggle (task 428): switching the `tfa`
@@ -31,16 +32,9 @@ const LOCAL_STRATEGY = {
 }
 
 async function mountAtTfaScreen() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'site-1'
-
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
 
-  const i18n = createTestI18n()
-  const wrapper = mount(AuthLoginPanel, {
-    global: { plugins: [i18n] }
-  })
+  const { wrapper } = mountWithApp(AuthLoginPanel, { stores: { site: { id: 'site-1' } } })
   await flushPromises()
 
   const inputs = wrapper.findAll('input')
@@ -477,14 +471,9 @@ describe('AuthLoginPanel reset password', () => {
  */
 describe('AuthLoginPanel redirect handling (OpenProject #2208)', () => {
   async function mountAndLogin(redirect) {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.id = 'site-1'
-
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
 
-    const i18n = createTestI18n()
-    const wrapper = mount(AuthLoginPanel, { global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(AuthLoginPanel, { stores: { site: { id: 'site-1' } } })
     await flushPromises()
 
     const inputs = wrapper.findAll('input')

@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminLogin from './AdminLogin.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Same regression as `AdminGeneral.test.js`: the login background uploader's `<blueprint-icon
@@ -14,8 +13,6 @@ import { createTestRouter } from '../../test/router.js'
  * truthy `indicator` once `system/extensions` reports the `sharp` entry as `!isInstalled`.
  */
 async function mountPage(extensionsResponse) {
-  setActivePinia(createPinia())
-
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'system/extensions') {
       return { json: () => Promise.resolve(extensionsResponse) }
@@ -25,13 +22,7 @@ async function mountPage(extensionsResponse) {
 
   const router = await createTestRouter(['/'])
 
-  const i18n = createTestI18n()
-
-  const wrapper = mount(AdminLogin, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
+  const { wrapper } = mountWithApp(AdminLogin, { router })
   await flushPromises()
 
   return wrapper

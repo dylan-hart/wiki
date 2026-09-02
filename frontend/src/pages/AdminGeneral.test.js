@@ -13,6 +13,7 @@ import { isActive as loadingIsActive } from '@/composables/loading'
 import { createTestI18n } from '../../test/i18n.js'
 
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression test: `<blueprint-icon indicator ...>` (a bare attribute, no `:` binding) always sends
@@ -22,8 +23,6 @@ import { createTestRouter } from '../../test/router.js'
  * mount and only passes a truthy `indicator` when the `sharp` entry reports `!isInstalled`.
  */
 async function mountPage(extensionsResponse) {
-  setActivePinia(createPinia())
-
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'system/extensions') {
       return { json: () => Promise.resolve(extensionsResponse) }
@@ -33,13 +32,7 @@ async function mountPage(extensionsResponse) {
 
   const router = await createTestRouter(['/'], '/')
 
-  const i18n = createTestI18n()
-
-  const wrapper = mount(AdminGeneral, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
+  const { wrapper } = mountWithApp(AdminGeneral, { router })
   await flushPromises()
 
   return wrapper
@@ -80,14 +73,9 @@ const FIXTURE_SITE = {
 }
 
 async function mountLoaded() {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = FIXTURE_SITE.id
   // -> `manage:sites` satisfies `useSiteAdminAccess('site:general')`'s GLOBAL_FALLBACKS check on its
   //    own, so it skips its site-scoped `fetchSitePermissions` network call entirely -- otherwise
   //    that call, not `load()`'s, would consume the single `mockReturnValueOnce` below.
-  const userStore = useUserStore()
-  userStore.permissions = ['manage:sites']
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_SITE) })
 
@@ -96,8 +84,10 @@ async function mountLoaded() {
     `/_admin/${FIXTURE_SITE.id}/general`
   )
 
-  const i18n = createTestI18n()
-  const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
+  const { wrapper } = mountWithApp(AdminGeneral, {
+    router,
+    stores: { admin: { currentSiteId: FIXTURE_SITE.id }, user: { permissions: ['manage:sites'] } }
+  })
   await flushPromises()
 
   return wrapper
@@ -425,18 +415,15 @@ describe('AdminGeneral load() error handling (OpenProject #947)', () => {
 
   it('hides the loading overlay and notifies instead of leaving it stuck when load() rejects', async () => {
     notifyQueue.splice(0, notifyQueue.length)
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.currentSiteId = 'site-1'
-    const userStore = useUserStore()
-    userStore.permissions = ['manage:sites']
 
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.reject(new Error('Network error')) })
 
     const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site-1/general')
 
-    const i18n = createTestI18n()
-    const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
+    const { wrapper } = mountWithApp(AdminGeneral, {
+      router,
+      stores: { admin: { currentSiteId: 'site-1' }, user: { permissions: ['manage:sites'] } }
+    })
     // -> `loading.show()`'s own 500ms delay -- see `composables/loading.js` -- has to actually
     //    elapse for `isActive` to ever flip `true` at all; advancing past it is what would have
     //    caught the overlay stuck on `true` forever pre-fix, since a bare, unguarded `await` never

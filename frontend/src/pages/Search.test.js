@@ -8,6 +8,7 @@ import { useSiteStore } from '@/stores/site'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * The regex `extractTags()` replaces (see `searchTags.js`'s own header comment for the full
@@ -117,20 +118,14 @@ afterEach(() => {
 })
 
 async function mountSearch() {
-  setActivePinia(createPinia())
-
   const router = await createTestRouter(['/_search'], '/_search')
 
-  const i18n = createTestI18n()
-
-  const wrapper = mount(Search, {
-    global: {
-      plugins: [router, i18n],
-      stubs: {
-        HeaderNav: true,
-        FooterNav: true,
-        MainOverlayDialog: true
-      }
+  const { wrapper } = mountWithApp(Search, {
+    router,
+    stubs: {
+      HeaderNav: true,
+      FooterNav: true,
+      MainOverlayDialog: true
     }
   })
   activeWrapper = wrapper

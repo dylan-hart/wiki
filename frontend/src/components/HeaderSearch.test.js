@@ -9,6 +9,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 vi.mock('@/helpers/clipboard', () => ({
   copyToClipboard: vi.fn()
@@ -24,19 +25,16 @@ vi.mock('@/helpers/clipboard', () => ({
  * usage — the opposite of "popular" — regardless of what order strings were written after it.
  */
 async function mountWithTags(tags) {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.features.search = true
-  siteStore.tagsLoaded = true
-  siteStore.tags = tags
-
   const router = await createTestRouter(['/'])
 
-  const i18n = createTestI18n()
-
-  const wrapper = mount(HeaderSearch, {
-    global: {
-      plugins: [router, i18n]
+  const { wrapper } = mountWithApp(HeaderSearch, {
+    router,
+    stores: {
+      site: (store) => {
+        store.features.search = true
+        store.tagsLoaded = true
+        store.tags = tags
+      }
     }
   })
 
@@ -71,16 +69,16 @@ describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => 
   })
 
   it('does not render in row (phone) form, which has no room to dock a second control', async () => {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.features.search = true
-
     const router = await createTestRouter(['/'])
 
-    const i18n = createTestI18n()
-    const wrapper = mount(HeaderSearch, {
+    const { wrapper } = mountWithApp(HeaderSearch, {
       props: { row: true },
-      global: { plugins: [router, i18n] }
+      router,
+      stores: {
+        site: (store) => {
+          store.features.search = true
+        }
+      }
     })
 
     expect(wrapper.find('.header-search-tags-btn').exists()).toBe(false)
@@ -103,17 +101,16 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
   })
 
   async function mountAttached() {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.features.search = true
-
     const router = await createTestRouter(['/'])
 
-    const i18n = createTestI18n()
-
-    const wrapper = mount(HeaderSearch, {
-      global: { plugins: [router, i18n] },
-      attachTo: document.body
+    const { wrapper } = mountWithApp(HeaderSearch, {
+      attachTo: document.body,
+      router,
+      stores: {
+        site: (store) => {
+          store.features.search = true
+        }
+      }
     })
     activeWrapper = wrapper
     return wrapper
@@ -465,20 +462,19 @@ describe('HeaderSearch preview results panel', () => {
   })
 
   it('still renders the results panel in row (phone) form factor', async () => {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.id = 'site1'
-    siteStore.features.search = true
-    siteStore.tagsLoaded = true
-    siteStore.tags = []
-
     const router = await createTestRouter(['/'])
 
-    const i18n = createTestI18n()
-
-    const wrapper = mount(HeaderSearch, {
+    const { wrapper } = mountWithApp(HeaderSearch, {
       props: { row: true },
-      global: { plugins: [router, i18n] }
+      router,
+      stores: {
+        site: (store) => {
+          store.id = 'site1'
+          store.features.search = true
+          store.tagsLoaded = true
+          store.tags = []
+        }
+      }
     })
 
     await wrapper.find('.header-search-input').trigger('focus')
@@ -687,17 +683,19 @@ describe('HeaderSearch preview edge cases', () => {
   })
 
   it('keeps results, popular tags and operator tips together in one scrollable panel', async () => {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.id = 'site1'
-    siteStore.features.search = true
-    siteStore.tagsLoaded = true
-    siteStore.tags = [{ tag: 'foo', usageCount: 1 }]
-
     const router = await createTestRouter(['/'])
 
-    const i18n = createTestI18n()
-    const wrapper = mount(HeaderSearch, { global: { plugins: [router, i18n] } })
+    const { wrapper } = mountWithApp(HeaderSearch, {
+      router,
+      stores: {
+        site: (store) => {
+          store.id = 'site1'
+          store.features.search = true
+          store.tagsLoaded = true
+          store.tags = [{ tag: 'foo', usageCount: 1 }]
+        }
+      }
+    })
 
     await wrapper.find('.header-search-input').trigger('focus')
     API_CLIENT.get.mockReturnValueOnce({

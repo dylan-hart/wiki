@@ -112,6 +112,19 @@ describe('mountWithApp', () => {
     expect(flagsStore.loaded).toBe(true)
   })
 
+  it('runs a function seed against the store, for a nested field Object.assign cannot reach', () => {
+    const { siteStore, pageStore } = mountWithApp(Probe, {
+      stores: {
+        site: (store) => {
+          store.features.profile = true
+        },
+        page: (store) => store.$patch({ locale: 'fr' })
+      }
+    })
+    expect(siteStore.features.profile).toBe(true)
+    expect(pageStore.locale).toBe('fr')
+  })
+
   it('stubs teleport by default, so a dialog renders inline where a suite can find it', () => {
     const Teleporting = {
       template: '<teleport to="body"><span class="inside">x</span></teleport>'

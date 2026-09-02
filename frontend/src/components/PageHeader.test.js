@@ -15,6 +15,7 @@ import WMenu from '@/components/shared/WMenu.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression test for OpenProject #2000: `notImplemented()` showed a red toast with the untranslated
@@ -41,17 +42,9 @@ describe('PageHeader dead code', () => {
  * fix, since they resolve against the reader's direction rather than the viewport.
  */
 async function mountHeader() {
-  setActivePinia(createPinia())
-
   const router = await createTestRouter(['/'])
 
-  const i18n = createTestI18n()
-
-  return mount(PageHeader, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
+  return mountWithApp(PageHeader, { router }).wrapper
 }
 
 /**

@@ -11,8 +11,6 @@
 // through to the router as if it were a same-origin path. `isFollowableRedirectTarget()` replaces
 // the regex with the same rule the backend's `helpers/redirectTarget.ts` applies.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import App from './App.vue'
 import { useFlagsStore } from '@/stores/flags'
@@ -23,19 +21,16 @@ import { createTestI18n } from '../test/i18n.js'
 
 import { buildTestRouter } from '../test/router.js'
 
+import { mountWithApp } from '../test/mount.js'
+
 async function mountReady() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  const flagsStore = useFlagsStore()
-  const userStore = useUserStore()
-  siteStore.id = 'site-1'
-  flagsStore.loaded = true
-  userStore.profileLoaded = true
-
   const router = buildTestRouter(['/', '/some/page'])
-  const i18n = createTestI18n({ auth: { logoutSuccess: 'Logged out' } })
 
-  mount(App, { global: { plugins: [router, i18n] } })
+  mountWithApp(App, {
+    messages: { auth: { logoutSuccess: 'Logged out' } },
+    router,
+    stores: { site: { id: 'site-1' }, flags: { loaded: true }, user: { profileLoaded: true } }
+  })
   await router.push('/')
   await router.isReady()
 

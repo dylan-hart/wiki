@@ -13,6 +13,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter, createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for task 633's wiring: `PageComments.vue` is mounted inside the article
@@ -707,9 +708,6 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
   })
 
   async function mountAtRoute(path, { siteId = 'site-1' } = {}) {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.id = siteId
     /*
       This fix's own `router.replace('/')` lands on the plain page-load branch for `/`, which --
       since the API stub 404s everything -- runs its own, unrelated `ERR_PAGE_NOT_FOUND` handling
@@ -718,9 +716,6 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
       test's minimal route table does not register -- keeping the assertions below about what THIS
       fix did, not about that unrelated cascade.
     */
-    const userStore = useUserStore()
-    userStore.authenticated = true
-    userStore.permissions = ['manage:system']
 
     const router = buildTestRouter([
       '/',
@@ -735,21 +730,21 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
     router.push(path)
     await router.isReady()
 
-    const i18n = createTestI18n()
-
-    const wrapper = mount(Index, {
-      global: {
-        plugins: [router, i18n],
-        stubs: {
-          PageHeader: true,
-          PageActionsCol: true,
-          PageToc: true,
-          PageTags: true,
-          SideDialog: true,
-          PageRedirect: true,
-          FooterNav: true,
-          PageComments: true
-        }
+    const { wrapper } = mountWithApp(Index, {
+      router,
+      stores: {
+        site: { id: siteId },
+        user: { authenticated: true, permissions: ['manage:system'] }
+      },
+      stubs: {
+        PageHeader: true,
+        PageActionsCol: true,
+        PageToc: true,
+        PageTags: true,
+        SideDialog: true,
+        PageRedirect: true,
+        FooterNav: true,
+        PageComments: true
       }
     })
     activeWrapper = wrapper

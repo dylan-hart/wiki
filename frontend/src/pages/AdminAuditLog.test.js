@@ -1,29 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import AdminAuditLog from './AdminAuditLog.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * OpenProject #989: the instance-wide audit log's admin list — filtering by actor/type/date, and the
  * retention setting saved alongside it.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-
-  const i18n = createTestI18n({
-    'admin.audit.title': 'Audit Log',
-    'admin.audit.event.user.created': 'User Created',
-    'common.actions.save': 'Save'
-  })
-
-  return mount(AdminAuditLog, {
-    global: {
-      plugins: [i18n]
+  return mountWithApp(AdminAuditLog, {
+    messages: {
+      'admin.audit.title': 'Audit Log',
+      'admin.audit.event.user.created': 'User Created',
+      'common.actions.save': 'Save'
     }
-  })
+  }).wrapper
 }
 
 async function flush(wrapper) {

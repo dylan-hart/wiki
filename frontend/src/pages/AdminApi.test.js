@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import AdminApi from './AdminApi.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Covers the site caption line added to each key row (task 622): a key pinned to a site names that
@@ -13,20 +11,16 @@ import { createTestI18n } from '../../test/i18n.js'
  * it in the same list item.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-  const i18n = createTestI18n({
-    admin: {
-      api: {
-        keySite: 'Site: {site}',
-        newKeySiteAllSites: 'All Sites'
+  return mountWithApp(AdminApi, {
+    messages: {
+      admin: {
+        api: {
+          keySite: 'Site: {site}',
+          newKeySiteAllSites: 'All Sites'
+        }
       }
     }
-  })
-  return mount(AdminApi, {
-    global: {
-      plugins: [i18n]
-    }
-  })
+  }).wrapper
 }
 
 describe('AdminApi key list site caption', () => {

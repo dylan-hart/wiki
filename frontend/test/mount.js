@@ -69,7 +69,14 @@ export function mountWithApp(Component, options = {}) {
     flags: seeded.flagsStore
   }
   for (const [key, values] of Object.entries(stores)) {
-    Object.assign(byKey[key], values)
+    // -> A function rather than an object for the seeds a plain `Object.assign` cannot express: a
+    //    nested field (`siteStore.features.profile = true`), a `$patch`, or a value derived from the
+    //    store's own current state.
+    if (typeof values === 'function') {
+      values(byKey[key])
+    } else {
+      Object.assign(byKey[key], values)
+    }
   }
 
   const i18n = createTestI18n(messages)

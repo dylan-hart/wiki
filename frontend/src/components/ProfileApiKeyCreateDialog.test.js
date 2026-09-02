@@ -1,11 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { DOMWrapper, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { DOMWrapper } from '@vue/test-utils'
 
 import ProfileApiKeyCreateDialog from './ProfileApiKeyCreateDialog.vue'
 import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
-
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -23,13 +21,9 @@ afterEach(() => {
  * these tests already set up.
  */
 function mountDialog() {
-  setActivePinia(createPinia())
-  const i18n = createTestI18n()
-  return mount(ProfileApiKeyCreateDialog, {
-    global: {
-      plugins: [i18n]
-    }
-  })
+  // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports its
+  //    body to `document.body`, which is where the layout and scope-tree describes below assert.
+  return mountWithApp(ProfileApiKeyCreateDialog, { stubs: {} }).wrapper
 }
 
 describe('ProfileApiKeyCreateDialog', () => {

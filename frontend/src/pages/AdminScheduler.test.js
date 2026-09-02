@@ -1,12 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import AdminScheduler from './AdminScheduler.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * OpenProject #1929: `/admin/scheduler` names a job-scheduler concept this fork invented (no upstream
@@ -30,20 +28,14 @@ describe('AdminScheduler help link', () => {
  * row per execution -- see `helpers/jobHistoryGrouping.js` for the pure grouping logic this wires in.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-
-  const i18n = createTestI18n({
-    'admin.scheduler.title': 'Scheduler',
-    'admin.scheduler.groupRuns': '1 run | {count} runs',
-    'admin.scheduler.groupExpand': 'Show individual runs of {task}',
-    'admin.scheduler.groupCollapse': 'Hide individual runs of {task}'
-  })
-
-  return mount(AdminScheduler, {
-    global: {
-      plugins: [i18n]
+  return mountWithApp(AdminScheduler, {
+    messages: {
+      'admin.scheduler.title': 'Scheduler',
+      'admin.scheduler.groupRuns': '1 run | {count} runs',
+      'admin.scheduler.groupExpand': 'Show individual runs of {task}',
+      'admin.scheduler.groupCollapse': 'Hide individual runs of {task}'
     }
-  })
+  }).wrapper
 }
 
 async function flush(wrapper) {

@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminPagesDeleted from './AdminPagesDeleted.vue'
 import { useAdminStore } from '@/stores/admin'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for task 515's two distinct recover-failure paths.
@@ -47,20 +46,22 @@ function mockLoadEndpoints(rows = [row]) {
 }
 
 async function mountPage() {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-1'
-  adminStore.locales = [
-    { code: 'en', name: 'English', nativeName: 'English' },
-    { code: 'fr', name: 'French', nativeName: 'French' }
-  ]
-
   mockLoadEndpoints()
 
   const router = buildTestRouter(['/:pathMatch(.*)*'])
-  const i18n = createTestI18n()
 
-  const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
+  const { wrapper } = mountWithApp(AdminPagesDeleted, {
+    router,
+    stores: {
+      admin: {
+        currentSiteId: 'site-1',
+        locales: [
+          { code: 'en', name: 'English', nativeName: 'English' },
+          { code: 'fr', name: 'French', nativeName: 'French' }
+        ]
+      }
+    }
+  })
   await flushPromises()
 
   return { wrapper, router }
@@ -89,10 +90,6 @@ describe('AdminPagesDeleted: load()', () => {
     const rowB = { ...row, id: 'hist-b', path: 'b' }
     const seenUrls = []
 
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.currentSiteId = 'site-1'
-
     globalThis.API_CLIENT.get.mockImplementation((url) => {
       seenUrls.push(String(url))
       if (String(url).includes('pages/deleted')) {
@@ -105,8 +102,10 @@ describe('AdminPagesDeleted: load()', () => {
     })
 
     const router = buildTestRouter(['/:pathMatch(.*)*'])
-    const i18n = createTestI18n()
-    const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
+    const { wrapper } = mountWithApp(AdminPagesDeleted, {
+      router,
+      stores: { admin: { currentSiteId: 'site-1' } }
+    })
     await flushPromises()
 
     // -> Both server pages' rows landed in the same list, and the second request carried the first

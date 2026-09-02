@@ -1,15 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminClassification from './AdminClassification.vue'
 import { useSiteStore } from '@/stores/site'
 import { confirm, dialog } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -29,19 +28,13 @@ beforeEach(() => {
  * identical POST before the first round trip (and its `load()` refresh) completed.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-
-  const i18n = createTestI18n({
-    'admin.classification.title': 'Classification',
-    'admin.classification.new': 'New Level',
-    'admin.classification.newDefaultName': 'New Level'
-  })
-
-  return mount(AdminClassification, {
-    global: {
-      plugins: [i18n]
+  return mountWithApp(AdminClassification, {
+    messages: {
+      'admin.classification.title': 'Classification',
+      'admin.classification.new': 'New Level',
+      'admin.classification.newDefaultName': 'New Level'
     }
-  })
+  }).wrapper
 }
 
 function findNewLevelButton(wrapper) {
@@ -118,10 +111,6 @@ const DRILLDOWN_REPORT = [
 ]
 
 async function mountReportPage(report = DRILLDOWN_REPORT) {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.docsBase = 'https://docs.js.wiki'
-
   API_CLIENT.get.mockImplementation((url) => {
     if (String(url).includes('classification-report')) {
       return { json: () => Promise.resolve(report) }
@@ -129,8 +118,9 @@ async function mountReportPage(report = DRILLDOWN_REPORT) {
     return { json: () => Promise.resolve([]) }
   })
 
-  const i18n = createTestI18n()
-  const wrapper = mount(AdminClassification, { global: { plugins: [i18n] } })
+  const { wrapper } = mountWithApp(AdminClassification, {
+    stores: { site: { docsBase: 'https://docs.js.wiki' } }
+  })
   await flushPromises()
 
   return wrapper
@@ -177,10 +167,6 @@ const REPORT = [
 ]
 
 function mountAdminClassification(levels = LEVELS, report = REPORT) {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'site-1'
-
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'classification-levels') {
       return { json: () => Promise.resolve(levels) }
@@ -191,9 +177,7 @@ function mountAdminClassification(levels = LEVELS, report = REPORT) {
     return { json: () => Promise.resolve([]) }
   })
 
-  const i18n = createTestI18n()
-
-  return mount(AdminClassification, { global: { plugins: [i18n] } })
+  return mountWithApp(AdminClassification, { stores: { site: { id: 'site-1' } } }).wrapper
 }
 
 /**
@@ -357,7 +341,6 @@ describe('AdminClassification deleteLevel confirmation', () => {
 describe('AdminClassification rename focus', () => {
   it('focuses the rename field once it appears, without an inert autofocus attribute', async () => {
     const LEVEL = { id: 'lvl-1', name: 'Internal', sortOrder: 0 }
-    setActivePinia(createPinia())
 
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'classification-levels') {
@@ -369,13 +352,11 @@ describe('AdminClassification rename focus', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const i18n = createTestI18n({
-      common: { actions: { rename: 'Rename' } }
-    })
-
-    const wrapper = mount(AdminClassification, {
+    const { wrapper } = mountWithApp(AdminClassification, {
       attachTo: document.body,
-      global: { plugins: [i18n] }
+      messages: {
+        common: { actions: { rename: 'Rename' } }
+      }
     })
     await flushPromises()
 

@@ -14,6 +14,7 @@ import WMenu from '@/components/shared/WMenu.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /*
   `stores/common.js` reads `localStorage.getItem('locale')` at store-creation time. Node 26 (this
@@ -45,14 +46,6 @@ describe('AdminLayout sidebar nav', () => {
     permissions = ['access:admin', 'manage:sites'],
     sitePermissions = []
   }) {
-    setActivePinia(createPinia())
-
-    const userStore = useUserStore()
-    userStore.permissions = permissions
-
-    const flagsStore = useFlagsStore()
-    flagsStore.experimental = experimental
-
     // -> Avoids the pre-existing `this.sites[0].id` crash in `adminStore.fetchSites()` (called from
     //    `onMounted`) when the stubbed API_CLIENT response is empty by default. The
     //    `userPermissions` branch avoids a similar crash in `userStore.fetchSitePermissions()`,
@@ -70,10 +63,9 @@ describe('AdminLayout sidebar nav', () => {
 
     const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site1/general')
 
-    const i18n = createTestI18n()
-
-    const wrapper = mount(AdminLayout, {
-      global: { plugins: [router, i18n] }
+    const { wrapper } = mountWithApp(AdminLayout, {
+      router,
+      stores: { user: { permissions: permissions }, flags: { experimental: experimental } }
     })
     await flushPromises()
 
@@ -150,26 +142,18 @@ describe('AdminLayout Navigation nav-tree entry', () => {
    * alone, regardless of the experimental flag.
    */
   async function mountLayout({ permissions = [], experimental = false } = {}) {
-    setActivePinia(createPinia())
-
-    const userStore = useUserStore()
-    userStore.permissions = permissions
-
-    const flagsStore = useFlagsStore()
-    flagsStore.$patch({ loaded: true, experimental })
-
-    const adminStore = useAdminStore()
-    adminStore.currentSiteId = 'site-1'
-
     const router = await createTestRouter(['/:pathMatch(.*)*'], '/_admin/site-1/navigation')
 
-    const i18n = createTestI18n()
-
-    return mount(AdminLayout, {
-      global: {
-        plugins: [router, i18n]
+    return mountWithApp(AdminLayout, {
+      router,
+      stores: {
+        user: { permissions: permissions },
+        flags: (store) => {
+          store.$patch({ loaded: true, experimental })
+        },
+        admin: { currentSiteId: 'site-1' }
       }
-    })
+    }).wrapper
   }
 
   function findNavigationLink(wrapper) {

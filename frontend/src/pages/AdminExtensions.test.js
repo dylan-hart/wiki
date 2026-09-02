@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 import { TimeoutError } from 'ky'
 
 import AdminExtensions from './AdminExtensions.vue'
 import { isActive as loadingIsActive } from '@/composables/loading'
 import { dismiss as dismissNotification, queue as notifyQueue } from '@/composables/notify'
-import { useSiteStore } from '@/stores/site'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /** OpenProject #1922: `siteStore.docsBase` is server-provided, with no hardcoded frontend default --
  *  set it explicitly here so `mountWithExtensions`'s tests exercise a real base rather than `''`. */
@@ -53,19 +51,13 @@ const messages = {
 }
 
 async function mountWithExtensions(extensions) {
-  setActivePinia(createPinia())
-  useSiteStore().docsBase = TEST_DOCS_BASE
-
   globalThis.API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(extensions) })
 
-  const i18n = createTestI18n(messages)
-
-  const wrapper = mount(AdminExtensions, {
-    global: {
-      plugins: [i18n],
-      stubs: {
-        WTooltip: { template: '<div class="stub-tooltip"><slot /></div>' }
-      }
+  const { wrapper } = mountWithApp(AdminExtensions, {
+    messages,
+    stores: { site: { docsBase: TEST_DOCS_BASE } },
+    stubs: {
+      WTooltip: { template: '<div class="stub-tooltip"><slot /></div>' }
     }
   })
 

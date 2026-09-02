@@ -1,13 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import AdminSites from './AdminSites.vue'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 const SITES = [
   { id: 1, title: 'Docs', hostname: 'docs.example.com', isEnabled: true },
@@ -15,17 +13,11 @@ const SITES = [
 ]
 
 async function mountPage() {
-  setActivePinia(createPinia())
-
   API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve(SITES) }))
 
   const router = await createTestRouter(['/_admin/sites'], '/_admin/sites')
 
-  const i18n = createTestI18n()
-
-  const wrapper = mount(AdminSites, {
-    global: { plugins: [router, i18n] }
-  })
+  const { wrapper } = mountWithApp(AdminSites, { router })
   await vi.waitUntil(() => API_CLIENT.get.mock.calls.length >= 1)
   await wrapper.vm.$nextTick()
 

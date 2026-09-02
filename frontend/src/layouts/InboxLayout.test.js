@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import InboxLayout from './InboxLayout.vue'
 import { useUserStore } from '@/stores/user'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for OpenProject #2000: the rail used to have a first "Inbox" entry pointing at
@@ -30,10 +28,6 @@ const messages = {
 }
 
 async function mountInboxLayout() {
-  setActivePinia(createPinia())
-  const userStore = useUserStore()
-  userStore.$patch({ authenticated: true })
-
   const router = await createTestRouter(
     [
       '/login',
@@ -44,17 +38,19 @@ async function mountInboxLayout() {
     '/_inbox/watching'
   )
 
-  const i18n = createTestI18n(messages)
-
-  return mount(InboxLayout, {
-    global: {
-      plugins: [router, i18n],
-      stubs: {
-        HeaderNav: true,
-        MainOverlayDialog: true
+  return mountWithApp(InboxLayout, {
+    messages,
+    router,
+    stores: {
+      user: (store) => {
+        store.$patch({ authenticated: true })
       }
+    },
+    stubs: {
+      HeaderNav: true,
+      MainOverlayDialog: true
     }
-  })
+  }).wrapper
 }
 
 describe('InboxLayout sidenav', () => {

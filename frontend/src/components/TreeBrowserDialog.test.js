@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import TreeBrowserDialog from './TreeBrowserDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression test for task 515's `siteId` prop.
@@ -20,18 +19,15 @@ import { createTestI18n } from '../../test/i18n.js'
  * back against the admin-selected site.
  */
 function mountDialog(props, { viewedSiteId = 'viewed-site' } = {}) {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = viewedSiteId
-
-  const i18n = createTestI18n()
-
   globalThis.API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue([]) })
 
-  return mount(TreeBrowserDialog, {
+  return mountWithApp(TreeBrowserDialog, {
     props: { mode: 'duplicatePage', itemTitle: 'A page', itemFileName: 'a-page', ...props },
-    global: { plugins: [i18n] }
-  })
+    stores: { site: { id: viewedSiteId } },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports
+    //    its body to `document.body`, which is where this suite asserts.
+    stubs: {}
+  }).wrapper
 }
 
 describe('TreeBrowserDialog siteId prop', () => {
@@ -199,17 +195,11 @@ describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
    * in its final shape before that call, not merely before this helper returns.
    */
   function mountRenameDialog({ tree = [], translations = [] } = {}, props = {}) {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.id = 'site-1'
-
-    const i18n = createTestI18n()
-
     globalThis.API_CLIENT.get.mockImplementation((url) => ({
       json: vi.fn().mockResolvedValue(url.includes('/translations') ? translations : tree)
     }))
 
-    return mount(TreeBrowserDialog, {
+    return mountWithApp(TreeBrowserDialog, {
       props: {
         mode: 'renamePage',
         itemId: 'page-1',
@@ -217,8 +207,11 @@ describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
         itemFileName: 'a-page',
         ...props
       },
-      global: { plugins: [i18n] }
-    })
+      stores: { site: { id: 'site-1' } },
+      // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports
+      //    its body to `document.body`, which is where this suite asserts.
+      stubs: {}
+    }).wrapper
   }
 
   it('fetches translations for the page being renamed', async () => {

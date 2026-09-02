@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminLocale from './AdminLocale.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { queue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Coverage indicator on the 'Active Locales' w-item loop (task 696). Each row must surface
@@ -25,29 +24,11 @@ const LOCALES = [
 ]
 
 async function mountPage({ permissions = ['manage:sites'] } = {}) {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
   // -> onMounted() only calls load() when a site is already selected
-  adminStore.currentSiteId = 'site-1'
   // -> `manage:sites` satisfies `useSiteAdminAccess('site:locale')`'s GLOBAL_FALLBACKS check on its
   //    own, skipping its site-scoped fetchSitePermissions() redirect-on-denial path entirely.
-  const userStore = useUserStore()
-  userStore.permissions = permissions
 
   const router = await createTestRouter(['/_admin/:siteid/locale'], '/_admin/site-1/locale')
-
-  const i18n = createTestI18n({
-    admin: {
-      locale: {
-        completeness: '{percent}% translated',
-        sideload: 'Sideload Locale Package',
-        sideloadHelp: 'sideload help text',
-        sideloadSuccess: '{count} locale package(s) loaded successfully.',
-        sideloadNone: 'No locale packages were found to sideload.',
-        sideloadFailed: 'Failed to sideload locale packages.'
-      }
-    }
-  })
 
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'locales') {
@@ -59,9 +40,22 @@ async function mountPage({ permissions = ['manage:sites'] } = {}) {
     return { json: () => Promise.resolve(undefined) }
   })
 
-  return mount(AdminLocale, {
-    global: { plugins: [router, i18n] }
-  })
+  return mountWithApp(AdminLocale, {
+    messages: {
+      admin: {
+        locale: {
+          completeness: '{percent}% translated',
+          sideload: 'Sideload Locale Package',
+          sideloadHelp: 'sideload help text',
+          sideloadSuccess: '{count} locale package(s) loaded successfully.',
+          sideloadNone: 'No locale packages were found to sideload.',
+          sideloadFailed: 'Failed to sideload locale packages.'
+        }
+      }
+    },
+    router,
+    stores: { admin: { currentSiteId: 'site-1' }, user: { permissions: permissions } }
+  }).wrapper
 }
 
 describe('AdminLocale: per-row completeness indicator', () => {

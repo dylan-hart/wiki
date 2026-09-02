@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 
 import InboxWatching from './InboxWatching.vue'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Task 535: the notifications section this page gained above the pre-existing watched-pages list.
@@ -105,16 +103,19 @@ function findButtonByText(text) {
 }
 
 async function mountInboxWatching(sitePatch = {}) {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.$patch({ id: 'site-1', ...sitePatch })
-
   const router = await createTestRouter(['/', '/:path(.*)'])
 
-  const i18n = createTestI18n(messages)
-
-  const wrapper = mount(InboxWatching, {
-    global: { plugins: [router, i18n] }
+  const { wrapper } = mountWithApp(InboxWatching, {
+    messages,
+    router,
+    stores: {
+      site: (store) => {
+        store.$patch({ id: 'site-1', ...sitePatch })
+      }
+    },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the preferences dialog really
+    //    teleports its body to `document.body`, which is where `findButtonByText` looks.
+    stubs: {}
   })
   await flushLoads()
   notifyQueue.splice(0, notifyQueue.length)

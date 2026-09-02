@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import ProfileInfo from './ProfileInfo.vue'
 import { useSiteStore } from '@/stores/site'
 
-import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * OpenProject #2074: `ProfileInfo.vue`'s "Save Changes" button used to draw `la:check` while every
@@ -14,22 +13,22 @@ import { createTestI18n } from '../../test/i18n.js'
  * this page's Save button must not regress back to the other glyph.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
   // -> The Save button only renders once editing is allowed (`canEdit`, gated on this feature flag).
-  siteStore.features.profile = true
 
-  const i18n = createTestI18n({
-    common: {
-      actions: {
-        saveChanges: 'Save Changes'
+  return mountWithApp(ProfileInfo, {
+    messages: {
+      common: {
+        actions: {
+          saveChanges: 'Save Changes'
+        }
+      }
+    },
+    stores: {
+      site: (store) => {
+        store.features.profile = true
       }
     }
-  })
-
-  return mount(ProfileInfo, {
-    global: { plugins: [i18n] }
-  })
+  }).wrapper
 }
 
 describe('ProfileInfo "Save Changes" icon (OpenProject #2074)', () => {

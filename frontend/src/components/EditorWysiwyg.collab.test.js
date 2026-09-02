@@ -17,6 +17,7 @@ import { useUserStore } from '@/stores/user'
 import { queue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Split into its own file, separate from `EditorWysiwyg.test.js`, matching
@@ -120,14 +121,10 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
   })
 
   it('does not start a session when collaboration is not enabled', async () => {
-    setActivePinia(createPinia())
-    const pageStore = usePageStore()
-    pageStore.content = 'Hello'
     // -> No `pageStore.id`, no `siteStore.features.collaborativeEditing`, no authenticated user --
     //    the exact gaps `collabEnabled` checks for, matching `EditorWysiwyg.test.js`'s default
     //    `mountEditor`.
-    const i18n = createTestI18n()
-    const wrapper = mount(EditorWysiwyg, { global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(EditorWysiwyg, { stores: { page: { content: 'Hello' } } })
     await nextTick()
     await nextTick()
 

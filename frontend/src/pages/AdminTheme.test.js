@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminTheme from './AdminTheme.vue'
 import { useAdminStore } from '@/stores/admin'
@@ -9,6 +8,7 @@ import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Task 754: `getAccessibleColor` now has real substitutes for every themeable color name, and this
@@ -19,12 +19,6 @@ import { createTestRouter } from '../../test/router.js'
  * chrome text, matching the fg/bg pairing `WBtn.vue` uses for every solid button in the app).
  */
 async function mountPage(theme, cvd = 'none') {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-a'
-  const userStore = useUserStore()
-  userStore.cvd = cvd
-
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'sites/site-a?strict=true') {
       return { json: () => Promise.resolve({ id: 'site-a', theme }) }
@@ -37,19 +31,21 @@ async function mountPage(theme, cvd = 'none') {
   // -> Real message for the one key a test needs to read back (the computed ratio); everything else
   //    stays untranslated (`createTestI18n` keeps `missingWarn`/`fallbackWarn` off), matching
   //    upstream `en.json`.
-  const i18n = createTestI18n({
-    admin: {
-      theme: {
-        contrastWarning:
-          'Contrast ratio is {ratio}, below the WCAG AA minimum of 4.5:1 for this color against the text drawn over it.'
-      }
-    }
-  })
 
-  const wrapper = mount(AdminTheme, {
-    global: {
-      plugins: [router, i18n]
-    }
+  const { wrapper } = mountWithApp(AdminTheme, {
+    messages: {
+      admin: {
+        theme: {
+          contrastWarning:
+            'Contrast ratio is {ratio}, below the WCAG AA minimum of 4.5:1 for this color against the text drawn over it.'
+        }
+      }
+    },
+    router,
+    stores: { admin: { currentSiteId: 'site-a' }, user: { cvd } },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the contrast-warning test below
+    //    reads the tooltip back out of `document.body`, where `WTooltip` really teleports it.
+    stubs: {}
   })
   await flushPromises()
 

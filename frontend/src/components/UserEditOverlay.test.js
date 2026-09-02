@@ -11,6 +11,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for task 432: the admin passkeys panel (list + per-row revoke) and a real
@@ -55,14 +56,6 @@ const PASSKEYS = [
 ]
 
 async function mountOverlay({ canManage = true } = {}) {
-  setActivePinia(createPinia())
-
-  const adminStore = useAdminStore()
-  adminStore.overlayOpts = { id: USER.id }
-
-  const userStore = useUserStore()
-  userStore.permissions = canManage ? ['manage:users'] : []
-
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'groups') {
       return { json: () => Promise.resolve([]) }
@@ -78,11 +71,11 @@ async function mountOverlay({ canManage = true } = {}) {
 
   const router = await createTestRouter(['/u/:section'], '/u/auth')
 
-  const i18n = createTestI18n()
-
-  const wrapper = mount(UserEditOverlay, {
-    global: {
-      plugins: [router, i18n]
+  const { wrapper } = mountWithApp(UserEditOverlay, {
+    router,
+    stores: {
+      admin: { overlayOpts: { id: USER.id } },
+      user: { permissions: canManage ? ['manage:users'] : [] }
     }
   })
   await flushPromises()
@@ -97,17 +90,7 @@ async function mountOverlay({ canManage = true } = {}) {
  * Correct behaviour is `gr.id !== id`, dropping only the targeted group.
  */
 async function mountWithUser(groups) {
-  setActivePinia(createPinia())
-
-  const adminStore = useAdminStore()
-  adminStore.overlayOpts = { id: 'user-1' }
-
-  const userStore = useUserStore()
-  userStore.permissions = ['manage:users']
-
   const router = await createTestRouter(['/:id?/:section?'], '/user-1/groups')
-
-  const i18n = createTestI18n()
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(groups) })
   API_CLIENT.get.mockReturnValueOnce({
@@ -124,10 +107,9 @@ async function mountWithUser(groups) {
       })
   })
 
-  const wrapper = mount(UserEditOverlay, {
-    global: {
-      plugins: [router, i18n]
-    }
+  const { wrapper } = mountWithApp(UserEditOverlay, {
+    router,
+    stores: { admin: { overlayOpts: { id: 'user-1' } }, user: { permissions: ['manage:users'] } }
   })
 
   await flushPromises()
@@ -365,17 +347,6 @@ describe('UserEditOverlay operations panel delete user', () => {
  */
 describe('UserEditOverlay dates honour the stored profile timezone (OpenProject #1755)', () => {
   async function mountOverviewWithTimezone(timezone) {
-    setActivePinia(createPinia())
-
-    const adminStore = useAdminStore()
-    adminStore.overlayOpts = { id: USER.id }
-
-    const userStore = useUserStore()
-    userStore.permissions = ['manage:users']
-    userStore.timezone = timezone
-    userStore.dateFormat = 'YYYY-MM-DD'
-    userStore.timeFormat = '24h'
-
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'groups') {
         return { json: () => Promise.resolve([]) }
@@ -396,11 +367,17 @@ describe('UserEditOverlay dates honour the stored profile timezone (OpenProject 
 
     const router = await createTestRouter(['/u/:section'], '/u/overview')
 
-    const i18n = createTestI18n({ common: { datetime: '{date} at {time}' } })
-
-    const wrapper = mount(UserEditOverlay, {
-      global: {
-        plugins: [router, i18n]
+    const { wrapper } = mountWithApp(UserEditOverlay, {
+      messages: { common: { datetime: '{date} at {time}' } },
+      router,
+      stores: {
+        admin: { overlayOpts: { id: USER.id } },
+        user: {
+          permissions: ['manage:users'],
+          timezone: timezone,
+          dateFormat: 'YYYY-MM-DD',
+          timeFormat: '24h'
+        }
       }
     })
     await flushPromises()

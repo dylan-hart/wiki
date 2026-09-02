@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
@@ -12,8 +11,8 @@ import { useSiteStore } from '@/stores/site'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * The `import` utility used to be `disabled` with no handler at all (task 585). These tests cover the
@@ -57,20 +56,13 @@ const messages = {
 }
 
 async function mountUtilities() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'aaaaaaaa-0000-4000-8000-000000000001'
-  siteStore.hostname = 'example.com'
-
   const router = await createTestRouter(['/'])
 
-  const i18n = createTestI18n(messages)
-
-  return mount(AdminUtilities, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
+  return mountWithApp(AdminUtilities, {
+    messages,
+    router,
+    stores: { site: { id: 'aaaaaaaa-0000-4000-8000-000000000001', hostname: 'example.com' } }
+  }).wrapper
 }
 
 /** Picks a fake `.tar.gz` through the hidden file input, the way a real user's file picker would. */

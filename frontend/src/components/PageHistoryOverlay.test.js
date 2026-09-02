@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 /*
   The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in -- the
@@ -46,8 +45,8 @@ import { useUserStore } from '@/stores/user'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for task 516: `branchFrom`'s destination locale, and the three failure shapes
@@ -88,29 +87,28 @@ function mockGetEndpoints() {
 }
 
 async function mountOverlay({ mockEndpoints = mockGetEndpoints } = {}) {
-  setActivePinia(createPinia())
-  const pageStore = usePageStore()
-  const siteStore = useSiteStore()
-  const userStore = useUserStore()
-
-  pageStore.$patch({
-    id: 'page-1',
-    path: 'my-page',
-    title: 'My Page',
-    locale: 'en',
-    editor: 'html'
-  })
-  siteStore.id = 'site-1'
-  userStore.$patch({ permissions: ['write:pages'] })
-
   mockEndpoints()
 
   const router = buildTestRouter(['/:pathMatch(.*)*'])
-  const i18n = createTestI18n()
 
-  const wrapper = mount(PageHistoryOverlay, {
+  const { wrapper } = mountWithApp(PageHistoryOverlay, {
     attachTo: document.body,
-    global: { plugins: [router, i18n] }
+    router,
+    stores: {
+      page: (store) => {
+        store.$patch({
+          id: 'page-1',
+          path: 'my-page',
+          title: 'My Page',
+          locale: 'en',
+          editor: 'html'
+        })
+      },
+      site: { id: 'site-1' },
+      user: (store) => {
+        store.$patch({ permissions: ['write:pages'] })
+      }
+    }
   })
   await flushPromises()
 
