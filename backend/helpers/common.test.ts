@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import {
   defaultLocale,
+  escapeLikePattern,
   guardSiteEnabled,
   isHashedAssetFilename,
   isSameOriginWebSocketHandshake,
+  isUniqueViolation,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   localizedPagePath,
@@ -17,6 +19,7 @@ import {
   SENSITIVE_CONFIG_MASK,
   shouldPrefixLocale,
   siteEnabledPreHandler,
+  siteIdForHostname,
   SITE_DISABLED_MESSAGE,
   SITE_MISSING_MESSAGE,
   stripLocalePrefix,
@@ -380,6 +383,85 @@ describe('normalizeHostname', () => {
 
   test('leaves an already-lowercase hostname unchanged', () => {
     assert.equal(normalizeHostname('wiki.example.com'), 'wiki.example.com')
+  })
+})
+
+describe('siteIdForHostname', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { sites, sitesMappings }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('resolves a hostname the instance answers to', () => {
+    assert.equal(siteIdForHostname('wiki.example.com'), ENABLED_SITE_ID)
+  })
+
+  test('matches case-insensitively (OpenProject #2127)', () => {
+    assert.equal(siteIdForHostname('Wiki.Example.Com'), ENABLED_SITE_ID)
+  })
+
+  test('falls back to the wildcard site for an unknown hostname', () => {
+    assert.equal(siteIdForHostname('nobody.example.com'), WILDCARD_SITE_ID)
+  })
+
+  test('falls back to the wildcard site when there is no hostname at all', () => {
+    assert.equal(siteIdForHostname(undefined), WILDCARD_SITE_ID)
+    assert.equal(siteIdForHostname(''), WILDCARD_SITE_ID)
+  })
+
+  test('strict refuses the wildcard fallback', () => {
+    assert.equal(siteIdForHostname('wiki.example.com', { strict: true }), ENABLED_SITE_ID)
+    assert.equal(siteIdForHostname('nobody.example.com', { strict: true }), undefined)
+    assert.equal(siteIdForHostname(undefined, { strict: true }), undefined)
+  })
+})
+
+describe('isUniqueViolation', () => {
+  test('recognizes a postgres 23505 raised directly', () => {
+    assert.equal(isUniqueViolation(Object.assign(new Error('dupe'), { code: '23505' })), true)
+  })
+
+  test('recognizes a 23505 wrapped as the cause of a driver error', () => {
+    assert.equal(
+      isUniqueViolation(
+        Object.assign(new Error('dupe'), {
+          cause: Object.assign(new Error('dupe'), { code: '23505' })
+        })
+      ),
+      true
+    )
+  })
+
+  test('refuses another postgres error code', () => {
+    assert.equal(isUniqueViolation(Object.assign(new Error('fk'), { code: '23503' })), false)
+  })
+
+  test('refuses a plain error, null and undefined', () => {
+    assert.equal(isUniqueViolation(new Error('boom')), false)
+    assert.equal(isUniqueViolation(null), false)
+    assert.equal(isUniqueViolation(undefined), false)
+  })
+})
+
+describe('escapeLikePattern', () => {
+  test('escapes the two LIKE wildcards and the escape character itself', () => {
+    assert.equal(escapeLikePattern('100%'), '100\\%')
+    assert.equal(escapeLikePattern('a_b'), 'a\\_b')
+    assert.equal(escapeLikePattern('back\\slash'), 'back\\\\slash')
+  })
+
+  test('leaves an ordinary filter string alone', () => {
+    assert.equal(escapeLikePattern('editors'), 'editors')
+  })
+
+  test('escapes the backslash before the wildcards, never twice over', () => {
+    assert.equal(escapeLikePattern('\\%'), '\\\\\\%')
   })
 })
 

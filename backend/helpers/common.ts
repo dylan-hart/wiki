@@ -152,8 +152,8 @@ export function stripPageExtension(urlPath: string, extensions?: string[] | null
  * setting) that nothing kept in sync with what the request was actually reached on. Passing
  * `req.protocol`/`req.hostname` straight through — never a stored setting, never assembled by hand a
  * second time — makes that drift structurally impossible: there is only one source, the request
- * itself. `controllers/seo.ts`'s sitemap/robots.txt and `commentProviders.ts`'s `canonicalPageUrl`
- * (for any future `codeTemplate` provider's embed) both go through this.
+ * itself. `controllers/seo.ts`'s sitemap/robots.txt goes through this, and so must any future
+ * embed/canonical-URL builder.
  */
 export function requestOrigin(protocol: string, hostname: string): string {
   return `${protocol}://${hostname}`
@@ -315,6 +315,70 @@ export const SITE_MISSING_MESSAGE = 'This site does not exist.'
  */
 export function normalizeHostname(hostname: string): string {
   return hostname.toLowerCase()
+}
+
+/**
+ * Which site a request's hostname resolves to, as `WIKI.sitesMappings` answers it.
+ *
+ * The other half of `normalizeHostname`'s job (OpenProject #2127): folding the hostname is only
+ * useful if every lookup actually does it, and the lookup itself — `sitesMappings[normalized]`,
+ * falling back to the `*` catch-all — was written out at five call sites, one of which
+ * (`api/diagrams.ts`) indexed `sitesMappings` with the raw `req.hostname` and so missed a mixed-case
+ * `Host` entirely, resolving the catch-all site instead of the one addressed. One function, so a
+ * lookup added later cannot reintroduce that.
+ *
+ * @param strict Refuse the `*` catch-all, answering `undefined` for a hostname no site claims —
+ *   what `GET /_api/sites/:siteIdorHostname?strict=true` offers a caller that wants to know whether
+ *   this exact hostname is configured, rather than which site would serve it
+ */
+export function siteIdForHostname(
+  hostname: string | undefined,
+  { strict = false }: { strict?: boolean } = {}
+): string | undefined {
+  const direct = hostname ? WIKI.sitesMappings[normalizeHostname(hostname)] : undefined
+  if (strict) {
+    return direct
+  }
+  return direct || WIKI.sitesMappings['*']
+}
+
+/**
+ * Resolve the site behind a request's own hostname, or null when the request carries none.
+ *
+ * The three-line ternary `api/users.ts` repeated for each of its hostname-scoped profile features.
+ * Not the same question `siteIdForHostname` answers: this one hands back the cached site record
+ * (through the model, so a `forceReload` caller elsewhere still shares one code path), and a request
+ * with no `Host` at all resolves to nothing rather than to the `*` catch-all.
+ */
+export async function siteForHostname(
+  hostname: string | undefined,
+  { strict = false }: { strict?: boolean } = {}
+): Promise<any> {
+  return hostname ? await WIKI.models.sites.getSiteByHostname({ hostname, strict }) : null
+}
+
+/**
+ * Resolve a site named by a path parameter that may be the sentinel `current`, a site id, or a
+ * hostname — the three-way spelling `GET /_api/sites/:siteIdorHostname` and `/_site/:siteId/:resource`
+ * each wrote out for themselves.
+ *
+ * `current` means "whichever site this request was addressed to", so it defers to the request's own
+ * hostname. Anything shaped like a UUID is an id; anything else is read as a hostname, which is also
+ * where a literal `current` on a request carrying no `Host` header lands — deliberately unchanged
+ * from what both call sites already did, rather than special-cased into a null.
+ */
+export async function resolveSiteParam(
+  param: string,
+  hostname: string | undefined,
+  { strict = false }: { strict?: boolean } = {}
+): Promise<any> {
+  if (param === 'current' && hostname) {
+    return siteForHostname(hostname, { strict })
+  }
+  if (isValidUuid(param)) {
+    return WIKI.models.sites.getSiteById({ id: param })
+  }
+  return WIKI.models.sites.getSiteByHostname({ hostname: param, strict })
 }
 
 export function guardSiteEnabled(
@@ -816,6 +880,41 @@ export async function replyWithFile(
   const stream = fs.createReadStream(filePath)
   return reply.send(stream)
 }
+
+/**
+ * Whether a failure is postgres' unique-violation (`23505`), however the driver wrapped it.
+ *
+ * Nine write paths — page create/move, a tree entry, a glossary term, a block, a user — race a
+ * uniqueness constraint deliberately: they check first, insert anyway, and treat the constraint as
+ * the real arbiter of who won, since another writer can always land between the check and the
+ * insert. Each one asked the same two-part question (`err.code`, and `err.cause?.code` for the same
+ * error re-thrown by the query builder), which is exactly the sort of predicate that drifts when a
+ * tenth site copies only one half of it.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  const candidate = err as { code?: unknown; cause?: { code?: unknown } } | null | undefined
+  return candidate?.code === '23505' || candidate?.cause?.code === '23505'
+}
+
+/**
+ * Escape the LIKE wildcards `%` and `_` (and the escape character itself) so that a user-supplied
+ * filter is matched literally. Values are still parameterized by the driver — this is about a `%`
+ * in the filter silently matching everything, not about injection.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+/**
+ * The bcrypt cost factor everything this codebase hashes is hashed at — account passwords, a page's
+ * own password, a 2FA recovery code, the random password an imported or seeded account gets.
+ *
+ * One constant rather than a `12` written at each call site (plus two identically-valued private
+ * constants of its own): the cost is a single security decision about this instance, and a hash
+ * written at a different cost than its neighbours is indistinguishable from a mistake when read
+ * back.
+ */
+export const BCRYPT_ROUNDS = 12
 
 export class CustomError extends Error {
   statusCode: number
