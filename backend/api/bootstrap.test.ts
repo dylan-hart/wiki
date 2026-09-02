@@ -94,7 +94,7 @@ describe('isEnabled guard (task 699)', () => {
    * endpoint resolves its own site independently and previously handed back a disabled site's full
    * config to anybody who asked.
    *
-   * Contract asserted here (documented in `helpers/common.ts`'s `guardSiteEnabled`): no site behind the
+   * Contract asserted here (documented in `helpers/siteResolution.ts`'s `guardSiteEnabled`): no site behind the
    * hostname is a 404 (unchanged, pre-existing behavior), a site that resolved but has
    * `isEnabled === false` is a distinguishable 403.
    */

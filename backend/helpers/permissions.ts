@@ -47,7 +47,7 @@ export const PAGE_PERMISSIONS: string[] = [
    * OpenProject #1080's declassification guardrail: lowering a page's classification (making it
    * MORE open) needs this on top of `write:pages`/`manage:pages`, so an ordinary editor cannot
    * silently declassify a sensitive page by editing metadata. Raising it (making it stricter) needs
-   * only the ordinary write permission -- see `api/pages.ts`'s PATCH route.
+   * only the ordinary write permission -- see `api/pages/write.ts`'s PATCH route.
    */
   'manage:classification'
 ]

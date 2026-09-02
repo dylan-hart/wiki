@@ -161,7 +161,7 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
 
 /**
  * Whether this actor holds `write:pages`/`manage:pages` ANYWHERE ON THIS SITE — the same question
- * `api/pages.ts`'s search route asks before deciding whether unpublished pages and password-protected
+ * `api/pages/read.ts`'s search route asks before deciding whether unpublished pages and password-protected
  * excerpts belong in a result set. See `PAGE_PASSWORD_BYPASS_ROLES`'s doc comment there for why DENY
  * is ignored and why this is deliberately coarser than a per-page check.
  *

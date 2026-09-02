@@ -65,7 +65,7 @@ const ASSET_INSERT_CHUNK_SIZE = 50
  * A tar entry's declared size is not something the archive can lie about: the format's own parser
  * reads exactly that many decompressed bytes for that entry and no more, so this is checked against
  * `entry.size` before a single byte of the entry's body is consumed. Set to the same magnitude as
- * `importUploadLimit` (`api/system.ts`'s compressed-upload cap) — no legitimate single asset inside
+ * `importUploadLimit` (`api/system/transfer.ts`'s compressed-upload cap) — no legitimate single asset inside
  * an archive should decompress to more than the whole upload was ever allowed to weigh.
  */
 const IMPORT_MAX_ENTRY_BYTES = 500 * 1024 * 1024
@@ -304,7 +304,7 @@ class ImportModel {
    * Save an uploaded archive to `<dataPath>/imports/`, streaming it straight from the request rather
    * than buffering the whole thing in memory first — a whole archive materialised as one `Buffer` in
    * the request thread was previously what stood between one legitimate large import and an OOM (see
-   * `api/system.ts`'s content-type parser, which hands this the raw request stream rather than a
+   * `api/system/transfer.ts`'s content-type parser, which hands this the raw request stream rather than a
    * parsed buffer).
    *
    * `bodyLimit` is enforced here as bytes arrive, since a streamed body bypasses Fastify's own

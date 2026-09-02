@@ -43,7 +43,7 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  *   et al.).
  * - `security` — called directly by `phases/settings.ts`: the settings phase's
  *   `security`-keyed instance-settings patch goes through the real `WIKI.models.security.updateConfig()`
- *   (the same merge-then-`saveToDb()` path `api/system.ts` uses), not a raw
+ *   (the same merge-then-`saveToDb()` path `api/system/settings.ts` uses), not a raw
  *   `WIKI.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
  *   that would silently delete every 3.0-only `security` field the 2.x mapper's patch doesn't produce.
  *

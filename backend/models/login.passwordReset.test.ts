@@ -364,7 +364,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   })
 
   /**
-   * `clearKeysFromUser()` is what `api/users.ts`'s deactivation path (`patch.isActive === false`)
+   * `clearKeysFromUser()` is what `api/users/admin.ts`'s deactivation path (`patch.isActive === false`)
    * calls alongside `sessions.clearSessionsFromUser()` (OpenProject #2094): purging a user's
    * outstanding `userKeys` rows is what stops a `resetPwd` token minted before deactivation from
    * still being redeemable afterwards.

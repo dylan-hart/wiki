@@ -59,7 +59,7 @@ const ASSERTION_XPATH =
   '//*[local-name(.)="Assertion" and namespace-uri(.)="urn:oasis:names:tc:SAML:2.0:assertion"]'
 
 /**
- * Stands in for the id `api/authentication.ts`'s `/auth/:strategyId/authorize` route would have
+ * Stands in for the id `api/auth/provider.ts`'s `/auth/:strategyId/authorize` route would have
  * generated and carried on `req.session.authFlow` — every fixture below is signed as if it were
  * answering an AuthnRequest with this `InResponseTo`, and every `profile()` call hands the matching
  * `authnRequestId` back, the same round trip the real callback route performs.

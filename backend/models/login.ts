@@ -355,7 +355,7 @@ class Login {
    *     silently undo it;
    *   - every group carrying `manage:system` (`groups.systemGroupIds()`) and the configured root
    *     administrators group (`WIKI.config.auth.rootAdminGroupId`) — an IdP can never grant or revoke
-   *     wiki-level administrative access, mirroring the same invariant `api/users.ts` enforces for a
+   *     wiki-level administrative access, mirroring the same invariant `api/users/admin.ts` enforces for a
    *     human editing group membership directly. This holds unconditionally, independent of the
    *     allow-list below;
    *   - any group outside the strategy's own `mappableGroups` allow-list — an admin-chosen subset of
@@ -1100,7 +1100,7 @@ class Login {
    * Never throws and never reports which of its checks failed: an unknown/disabled strategy, one
    * with `allowForgotPassword` off, an email matching no account, an account that has no password
    * under this strategy (e.g. provider-only), a deactivated account, and one whose password login has
-   * been restricted (`restrictLogin`) are all silently a no-op. `api/authentication.ts`'s route
+   * been restricted (`restrictLogin`) are all silently a no-op. `api/auth/site.ts`'s route
    * answers the same generic success either way, which is what actually closes the
    * email-enumeration hole -- this method just makes sure there is nothing here (a thrown `ERR_`, a
    * different return shape) for that route to leak by accident.

@@ -769,7 +769,7 @@ Recording this here so a future spec pass on Epic 13 does not re-open or re-deri
 
 **Security-relevant, operator-facing behavior change**, caught by a whole-branch review of the
 migration importer (Feature 421's twenty-task reset). Both real (non-stub) `UserConverter`s
-(`backend/migration/importers/user-converters.ts#createLocalUserConverter`,
+(`backend/migration/importers/users-groups.ts#createLocalUserConverter`,
 `backend/migration/importers/users-groups.ts#createProviderFallbackUserConverter`) hardcode every
 imported user's `users.auth[authModuleId].tfaIsActive: false` and `.tfaSecret: ''`, regardless of what
 the 2.x source row actually had. **A user who had two-factor authentication enabled on the 2.x source

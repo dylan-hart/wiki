@@ -756,7 +756,7 @@ class UserCredentials {
    * Purge every outstanding `userKeys` row for a user -- reset-password, email-verify, TFA-setup and
    * change-password tokens alike.
    *
-   * The counterpart to `sessions.clearSessionsFromUser()` for deactivation (`api/users.ts`'s
+   * The counterpart to `sessions.clearSessionsFromUser()` for deactivation (`api/users/admin.ts`'s
    * `patch.isActive === false` path calls both): a token minted before an account was deactivated
    * would otherwise still be redeemable afterwards. `afterLoginChecks()` would refuse the login that
    * redemption ends in, but not before `resetPassword()` has already rewritten the password hash --

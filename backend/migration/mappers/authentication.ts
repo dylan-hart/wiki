@@ -14,7 +14,7 @@ import type { ConfigTransform } from './shared.ts'
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 2 provider inventory.
  *
  * Every 2.x row's `config` is checked and completed the same way the live admin API does it
- * (`backend/api/authentication.ts`'s create route): `Authentication.validateConfig(module, incoming)`
+ * (`backend/api/auth/strategies.ts`'s create route): `Authentication.validateConfig(module, incoming)`
  * first — a row whose config doesn't fit the target module's declared prop types is never silently
  * miscoerced, it comes back `flagged` — then `Authentication.buildConfig(module, incoming, {})` to
  * fill in every declared prop (module defaults for anything 2.x never had). This module never

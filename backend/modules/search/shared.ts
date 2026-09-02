@@ -254,7 +254,7 @@ export interface SearchDocument {
 
 /** A page row, as a `SearchDocument`. */
 export function buildSearchDocument(page: SearchIndexablePage): SearchDocument {
-  // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+  // -> Same conversion `api/pages/write.ts` uses for a `Date` column headed into an ISO string: an exact
   //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
   const updatedAt = page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
   return {

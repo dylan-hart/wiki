@@ -33,7 +33,7 @@ export const MAX_IMPORT_BATCH_FILES = 20
  *
  * `MAX_IMPORT_SIZE` bounds one file; `MAX_IMPORT_BATCH_FILES` bounds how many a batch may carry —
  * but nothing bounded their product, so a full batch of maximum-size files meant ~500 MB of Node
- * heap resident at once before `api/pages.ts`'s batch handler converted a single one of them
+ * heap resident at once before `api/pages/import.ts`'s batch handler converted a single one of them
  * (OpenProject #2204, audit `09-dos-resource.md` §10). Set to four times a single file's own limit:
  * generous for an ordinary batch of real documents, while keeping the peak well under what the old,
  * unbounded aggregate could reach. The batch handler also converts each file as soon as it finishes

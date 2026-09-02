@@ -697,7 +697,7 @@ describe('login.login (form-based provider auto-provisioning)', () => {
 
   // -> OpenProject #2361: a refused account-keyed attempt must throw the typed
   //    `AccountRateLimitedError` (carrying `retryAfter`), not a plain `Error('ERR_RATE_LIMITED')` --
-  //    the route handler (`api/authentication.ts`) tells the two apart to answer 429 instead of the
+  //    the route handler (`api/auth/site.ts`) tells the two apart to answer 429 instead of the
   //    generic `ERR_`-prefix 400. Refused before `str.authenticate()` is ever reached, same as the
   //    always-allowed stub in every other test in this block.
   test("a refused account-keyed rate limit throws AccountRateLimitedError with the verdict's retryAfter, before authenticate() runs", async (t) => {

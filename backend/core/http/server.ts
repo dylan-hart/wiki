@@ -79,7 +79,7 @@ export function createHttpApp(): FastifyInstance {
     //    `docs/tls-termination.md`. Every hostname-keyed site lookup (`core/http/siteRouting.ts`'s
     //    SEO hook, site-resolution hook and app-shell fallback, `models/sites.ts#getSiteByHostname`,
     //    and the hostname reads in `controllers/files.ts`/`seo.ts`/`site.ts` and
-    //    `api/authentication.ts`) reads `req.hostname`, so narrowing this one setting closes the
+    //    `api/auth/provider.ts`) reads `req.hostname`, so narrowing this one setting closes the
     //    cross-site `X-Forwarded-Host` steering gap for all of them (task 2085).
     trustProxy: WIKI.config.security.trustProxy ?? false,
     routerOptions: {

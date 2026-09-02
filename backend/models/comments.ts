@@ -378,7 +378,7 @@ class Comments {
    * CONTENT.
    *
    * `pathFilter`, when given, is pushed into the query as a prefix `ILIKE` — the same "starts with"
-   * semantics `api/pages.ts`'s page search uses for its own `path` filter — rather than applied
+   * semantics `api/pages/read.ts`'s page search uses for its own `path` filter — rather than applied
    * after the fact, so it shrinks the very set about to be permission-checked, for free.
    */
   async pageRefsForSite(siteId: string, pathFilter?: string): Promise<AdminPageRef[]> {

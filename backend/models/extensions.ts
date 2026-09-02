@@ -321,7 +321,7 @@ class Extensions {
    *   which scripts to trust, npm itself has no such per-package allowlist, and this codebase installs
    *   no tool (such as `@lavamoat/allow-scripts`) that would add one. That is accepted rather than
    *   mediated because the caller must already hold `manage:system` (see the route's
-   *   `config.permissions` in `api/system.ts`) — an operator with that permission can already run
+   *   `config.permissions` in `api/system/extensions.ts`) — an operator with that permission can already run
    *   arbitrary code on this server by other means, so gating install scripts specifically would add
    *   friction without adding a boundary.
    *

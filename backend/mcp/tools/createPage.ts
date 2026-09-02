@@ -48,7 +48,7 @@ export interface CreatePageArgs {
 }
 
 /**
- * Create a page, gated exactly like `POST /_api/sites/:siteId/pages` (`api/pages.ts`): a personal
+ * Create a page, gated exactly like `POST /_api/sites/:siteId/pages` (`api/pages/write.ts`): a personal
  * access token only (see `pageActorFor()`'s doc comment for why an admin-issued key is refused), and
  * `write:pages` on the path being created.
  *

@@ -17,7 +17,7 @@ const apiDir = path.join(import.meta.dirname, '../api')
 stubWikiForRegistration()
 
 describe('createRecordingApp', () => {
-  test('records every method/path/options triple and no-ops the registration-time calls', () => {
+  test('records every method/path/options triple and replays a registered sub-plugin', () => {
     const { app, routes } = createRecordingApp()
     app.addHook('preHandler', () => {})
     app.addSchema({ $id: 'Thing' })
@@ -84,7 +84,7 @@ describe('listApiRouteFiles', () => {
 
   test('a directory with an index.ts is ONE route resource, its siblings are that plugin internals', async () => {
     // -> The branch A17's `api/pages/` split depends on, asserted against a tree built here rather
-    //    than against `api/`'s current shape, which has no such directory yet.
+    //    than against `api/`'s current shape, whose own `api/pages/` is one instance of it.
     const root = await mkdtemp(path.join(tmpdir(), 'wiki-route-scan-'))
     try {
       await mkdir(path.join(root, 'foo'))

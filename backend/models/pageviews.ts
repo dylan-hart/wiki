@@ -119,7 +119,7 @@ export interface RecordPageviewParams {
  * A log, not a counter: OpenProject #1140 (the knowledge graph sizing nodes by visit volume) needs to
  * count DISTINCT visitors over any of three trailing windows -- 30 days / 6 months / 2 years -- which a
  * running total could never answer once the window closed over it. Two write paths exist,
- * `api/pages.ts`'s page-read route and `mcp/tools/getPage.ts`'s `get_page` tool, both calling `record()`
+ * `api/pages/read.ts`'s page-read route and `mcp/tools/getPage.ts`'s `get_page` tool, both calling `record()`
  * here rather than inserting directly, so the admin opt-out and the best-effort guarantee live in
  * exactly one place.
  */
@@ -193,7 +193,7 @@ class Pageviews {
         distinctPages: sql<number>`count(distinct ${pageviewsTable.pageId})::int`,
         // -> A raw `sql` aggregate expression, not a plain column read -- the driver returns it as a
         //    postgres-format string (e.g. `2026-07-25 13:17:36.230177+00`), same as `db.execute()`,
-        //    not as a `Date`. Parsed below with `Temporal.Instant.from()`, matching `api/system.ts`'s
+        //    not as a `Date`. Parsed below with `Temporal.Instant.from()`, matching `api/system/info.ts`'s
         //    `getClusterNodes()`, per CLAUDE.md's Temporal conversion convention.
         mostRecentAt: sql<string | null>`max(${pageviewsTable.viewedAt})`
       })

@@ -7,7 +7,7 @@ import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../model
  * provider's own `NotOnOrAfter` rather than trusting a compromised or misconfigured one
  * unconditionally — `@node-saml/node-saml` defaults `maxAssertionAgeMs` to `0`, i.e. no cap beyond
  * `NotOnOrAfter` itself (`saml.js`'s `calcMaxAgeAssertionTime`). Matches `AUTH_FLOW_MINUTES` in
- * `api/authentication.ts`: an assertion issued further in the past than a login flow is itself
+ * `api/auth/provider.ts`: an assertion issued further in the past than a login flow is itself
  * allowed to take has no legitimate reason to still be circulating.
  */
 const MAX_ASSERTION_AGE_MS = 15 * 60 * 1000
@@ -22,7 +22,7 @@ const MAX_ASSERTION_AGE_MS = 15 * 60 * 1000
  *
  * What actually ties the two requests together is `req.session.authFlow`, which is DB-backed
  * (`models/sessions.ts`) and therefore survives both of those. `authorizationUrl()` below pins the
- * AuthnRequest's own `ID` to a value generated ahead of time (`api/authentication.ts`'s
+ * AuthnRequest's own `ID` to a value generated ahead of time (`api/auth/provider.ts`'s
  * `/auth/:strategyId/authorize` route) rather than letting `node-saml` invent one nobody records, and
  * `profile()` is handed that same id back once the session flow is read. This provider does nothing
  * but compare against the one id it was bound to at construction time — it holds no state of its own
@@ -71,7 +71,7 @@ function asStringArray(value: unknown): string[] {
  * answer is a signed XML assertion delivered as a browser form POST rather than a code on a query
  * string. `RelayState` is where `state` travels for this protocol — see `AuthFlow.state` in
  * `models/authentication.ts` for why, and the POST `/auth/:strategyId/callback` route in
- * `api/authentication.ts` for where it is read back.
+ * `api/auth/provider.ts` for where it is read back.
  *
  * Every login builds a fresh `SAML` instance from the strategy's stored config rather than keeping one
  * around: unlike OIDC there is no discovery round trip to amortize, and a `NodeSAML` instance is cheap

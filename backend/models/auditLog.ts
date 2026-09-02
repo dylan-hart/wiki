@@ -46,7 +46,7 @@ export const AUDIT_EVENTS = [
   //   transport called them, so this fires for both.
   'mcp.sessionOpened',
   'mcp.writeToolCalled',
-  // -> #2231: every write route in `api/system.ts` -- instance-wide administration with no per-target
+  // -> #2231: every write route in `api/system/` -- instance-wide administration with no per-target
   //   row of its own (no `targetType` fits), so `detail` alone carries what changed. For
   //   `flagsUpdated`/`securityUpdated`, `detail` is the exact `patch` object `pickFlags`/`pickFields`
   //   already produced -- filtered to each model's own closed field list, which is what guarantees an

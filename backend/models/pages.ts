@@ -278,7 +278,7 @@ export interface BacklinkRow {
  * structurally an `AccessActor` (`models/groups.ts`) too, and `hasPermission()` passes it straight
  * into `checkAccess()`, so a scoped key's `write:scripts`/`write:styles` grant is narrowed the same
  * way `checkAccess()` narrows every other page-rule permission (OpenProject #930) — omitting it here
- * would leave `api/pages.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
+ * would leave `api/pages/write.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
  *
  * `siteId`, likewise, is the same key's site pin (`ApiKeyIdentity.siteId`, OpenProject #2189) —
  * omitting it here is exactly what would have left a personal access token's `write:scripts`/
@@ -1065,7 +1065,7 @@ class Pages {
       values.tags = patch.tags
     }
     // -> The declassification GUARDRAIL permission (`manage:classification`, OpenProject #1080) is
-    //    checked one layer up, in `api/pages.ts` -- the same layering every other page-rule
+    //    checked one layer up, in `api/pages/write.ts` -- the same layering every other page-rule
     //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
     //    page's classification, whichever direction it moves, may never end up below its immediate
     //    parent's floor.

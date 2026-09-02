@@ -1294,7 +1294,7 @@ export const pageWatchEvents = pgTable(
  * graph sizing nodes by visit volume) can count DISTINCT visitors over any trailing window it likes
  * (30 days / 6 months / 2 years) rather than being stuck with whatever a running total already
  * collapsed away. `models/pageviews.ts#record()` is the only writer, called best-effort from both
- * places a page is actually read -- `GET /sites/:siteId/pages/:pageIdOrHash` (`api/pages.ts`) and the
+ * places a page is actually read -- `GET /sites/:siteId/pages/:pageIdOrHash` (`api/pages/read.ts`) and the
  * MCP `get_page` tool (`mcp/tools/getPage.ts`) -- so `clientType` genuinely distinguishes the two,
  * rather than being a column only one call site ever set.
  *

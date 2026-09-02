@@ -44,7 +44,7 @@ export interface UpdatePageArgs {
 }
 
 /**
- * Update a page, gated exactly like `PATCH /_api/sites/:siteId/pages/:pageId` (`api/pages.ts`): a
+ * Update a page, gated exactly like `PATCH /_api/sites/:siteId/pages/:pageId` (`api/pages/write.ts`): a
  * personal access token only (see `pageActorFor()`'s doc comment), and `write:pages` ON THIS PAGE —
  * checked against the page as it stands, so a rule scoped to one branch is honored the same way it is
  * for the REST route.

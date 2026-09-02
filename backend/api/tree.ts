@@ -221,7 +221,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> `siteEnabledPreHandler` (`helpers/common.ts`) has already answered 404 for an unknown
+      // -> `siteEnabledPreHandler` (`helpers/siteResolution.ts`) has already answered 404 for an unknown
       //    `:siteId` before any handler here runs, so this is the site, not a maybe.
       const site = WIKI.sites[req.params.siteId]
       // -> The same setting that hides the sidebar's Browse button, enforced where it counts: with

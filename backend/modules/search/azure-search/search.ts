@@ -198,7 +198,7 @@ export function toIndexDocument(page: SearchIndexablePage): Record<string, any> 
     icon: page.icon ?? '',
     hasPassword: page.password != null,
     classification: page.classification,
-    // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+    // -> Same conversion `api/pages/write.ts` uses for a `Date` column headed into an ISO string: an exact
     //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
     updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
   }

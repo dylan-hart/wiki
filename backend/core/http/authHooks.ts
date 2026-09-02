@@ -27,10 +27,10 @@ import { sessionCookieName, shouldBlockCrossOriginApiRequest } from '../../helpe
  * `apiKey.permissions` read under `backend/` was re-grepped and confirmed to check a genuinely-global
  * permission name (this hook's own `routePermissions`, `models/users.ts`'s login flattening,
  * `models/approvals.ts`, `models/groups.ts`'s `checkSiteAdminAccess()`, `controllers/terminal.ts`,
- * `helpers/rateLimit.ts`, `models/groups.ts`'s `actorForRequest()`, `api/users.ts`'s `whoAmI()`), not
+ * `helpers/rateLimit.ts`, `models/groups.ts`'s `actorForRequest()`, `api/users/admin.ts`'s `whoAmI()`), not
  * one of the fourteen page-rule `PAGE_PERMISSIONS` strings — those may only be decided by
  * `groups.checkAccess()` / `mayOnPage()` against a page's rules. One further instance turned up in
- * that pass and was fixed there: `api/pages.ts`'s search route was scanning the GLOBAL list for
+ * that pass and was fixed there: `api/pages/read.ts`'s search route was scanning the GLOBAL list for
  * `write:pages`/`manage:pages`, which a group's `permissions` column never legitimately carries — see
  * `models/groups.ts`'s `mayHoldPermissionSomewhere()`. A future permission check added near any of
  * the above should keep asking the same question this comment does, not assume `session.permissions`

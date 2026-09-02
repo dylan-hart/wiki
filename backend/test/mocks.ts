@@ -164,7 +164,11 @@ function mergeInto(target: any, source: Record<string, any>): any {
  * branches on one of those ids supplies it (the real values live in `base.yml`).
  *
  * Overrides are deep-merged (see `mergeInto`), so `{ models: { pages: { … } } }` keeps the logger and
- * the stubs while replacing only what it names.
+ * the stubs while replacing only what it names. A nested override therefore MERGES into the default
+ * rather than replacing it — `{ events: { … } }`, `{ cache: { … } }` and `{ models: { … } }` all
+ * come back as the default object with the named keys written over it, so a test asserting on one
+ * must read `WIKI.events` / `WIKI.cache` / `WIKI.models.x` rather than holding on to the object
+ * literal it passed in. (Arrays, class instances and `mock.fn()`s replace wholesale.)
  */
 export function createWikiStub(overrides: Record<string, any> = {}): WikiGlobal {
   const stub = {

@@ -62,7 +62,7 @@ async function routes(app: FastifyInstance) {
       /*
         No route-level `permissions`: that hook reads the group-wide list, and page permissions are
         granted by a group's RULES, addressed by the path the converted content would be saved to.
-        Checked against that path below, exactly like CREATE PAGE above.
+        Checked against that path below, exactly like CREATE PAGE in `api/pages/write.ts`.
       */
       schema: {
         summary: 'Convert an uploaded file to Markdown',

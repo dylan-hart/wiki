@@ -7,7 +7,7 @@ import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../model
  * verify signatures on — the access token is exchanged over TLS and then spent against the API, which
  * answers who it belongs to. That is the whole protocol here, so this module is written with `fetch`
  * and no dependency. The parts a library would otherwise be trusted with — `state`, and keeping the
- * client secret off the browser — are done by the flow around it (`api/authentication.ts`).
+ * client secret off the browser — are done by the flow around it (`api/auth/provider.ts`).
  *
  * Two GitHub-specific things are worth the code:
  *

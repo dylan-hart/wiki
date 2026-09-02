@@ -8,13 +8,13 @@
  *
  * That makes the acknowledgement local by nature. The route that starts one answers for the instance
  * that ran it and says that the others were told; an instance acting on the event has nobody to
- * report back to. There is no registry of instances either (see `api/system.ts`), so there is nothing
+ * report back to. There is no registry of instances either (see `api/system/info.ts`), so there is nothing
  * to wait for a complete answer from in the first place.
  *
  * Verified against a real two-instance setup, both pointed at one shared database, for task 589: the
  * `wiki` channel NOTIFY/LISTEN round trip in `core/db.ts` does reach the second instance for both
  * actions below, and each route's `count` in its response is confirmed to be this instance's own —
- * deliberate, not a bug — matching the descriptions in `api/system.ts`.
+ * deliberate, not a bug — matching the descriptions in `api/system/maintenance.ts`.
  */
 export default {
   /**

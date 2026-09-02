@@ -117,7 +117,7 @@ export function siteIdForHostname(
 /**
  * Resolve the site behind a request's own hostname, or null when the request carries none.
  *
- * The three-line ternary `api/users.ts` repeated for each of its hostname-scoped profile features.
+ * The three-line ternary `api/users/profile.ts` repeated for each of its hostname-scoped profile features.
  * Not the same question `siteIdForHostname` answers: this one hands back the cached site record
  * (through the model, so a `forceReload` caller elsewhere still shares one code path), and a request
  * with no `Host` at all resolves to nothing rather than to the `*` catch-all.

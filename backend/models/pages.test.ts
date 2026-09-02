@@ -1888,7 +1888,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     alias-resolution route's `mayOnPage(req, 'read:pages', { path: target.path })` never saw a
     locale or any tags — a locale- or tag-scoped page rule could never be evaluated for a page
     reached through its alias, only a path-based one, silently. This proves the select now carries
-    both fields through, which is what api/pages.ts's alias route threads into `mayOnPage`.
+    both fields through, which is what api/pages/read.ts's alias route threads into `mayOnPage`.
   */
   test('getPathFromAlias resolves locale and tags along with id and path', async () => {
     const page = await pagesModel.createPage(

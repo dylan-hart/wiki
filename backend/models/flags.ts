@@ -8,7 +8,7 @@
 export const FLAGS = {
   /** Consumed by the frontend, which reveals unfinished features when it is on. */
   experimental: 'Unfinished features are offered in the interface.',
-  /** Consumed by `models/users.ts` and `api/authentication.ts` via `authDebug()` below. */
+  /** Consumed by `models/users.ts` and `api/auth/site.ts` via `authDebug()` below. */
   authDebug: 'Login and account creation attempts are logged in detail.',
   /**
    * Consumed by the query logger in `core/db.ts`. Bound parameter values are redacted there — only

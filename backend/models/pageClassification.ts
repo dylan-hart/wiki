@@ -84,7 +84,7 @@ class PageClassification {
    * against its immediate parent's classification, not the whole ancestor chain, since a real parent
    * already satisfies the floor against ITS OWN parent by induction.
    *
-   * Public rather than private: `api/pages.ts`'s classification-conflicts resolve route needs it to
+   * Public rather than private: `api/pages/classification.ts`'s classification-conflicts resolve route needs it to
    * enforce the same floor invariant against an admin-chosen target level (see that route's own
    * comment on why `bulkSetClassification` alone was not enough).
    */
@@ -197,7 +197,7 @@ class PageClassification {
    * resolving a classification-resolution-dialog conflict actually does to the descendants an admin
    * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
    * place that decides who may call this and validates the target level, the same layering
-   * `updatePage`'s own caller (`api/pages.ts`) already follows for the declassification guardrail.
+   * `updatePage`'s own caller (`api/pages/write.ts`) already follows for the declassification guardrail.
    *
    * `.returning()` gets the raw rows for free off the same write -- exactly what
    * `WIKI.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above

@@ -51,7 +51,7 @@ describe('authentication module definitions: refs guidance', () => {
  *
  * `base.yml` declares no `authentication` key, so this field only ever exists because
  * `refreshStrategiesFromDisk()` put it there — and `models/users.ts`'s login and registration paths
- * (`WIKI.data.authentication.find(...)`) and `api/authentication.ts`'s strategy listing all read it
+ * (`WIKI.data.authentication.find(...)`) and `api/auth/strategies.ts`'s strategy listing all read it
  * unguarded. Left `undefined` by a scan that threw, the very next login answers a `TypeError` 500
  * instead of "no such strategy", which is the failure mode this locks down.
  */
@@ -174,7 +174,7 @@ describe(
       let strategy = await authentication.getStrategyById(id)
       assert.equal(strategy?.config.clientSecret, 'super-secret-value')
 
-      // -> `{ mask: true }`: what the admin GET routes (api/authentication.ts) actually return.
+      // -> `{ mask: true }`: what the admin GET routes (api/auth/strategies.ts) actually return.
       strategy = await authentication.getStrategyById(id, { mask: true })
       assert.equal(strategy?.config.clientSecret, '********')
       // -> A non-sensitive prop on the same strategy is untouched by masking.

@@ -16,7 +16,7 @@ import { sessionStoreAdapter } from './sessions.ts'
  * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login and
  * otherwise live for up to the 30-day cookie age -- `clearSessionsFromUser` existed with zero
  * callers, and `clearSessionsForGroup` is new here, both wired into the deactivation /
- * group-membership / group-permission-change routes in `api/users.ts` and `api/groups.ts`.
+ * group-membership / group-permission-change routes in `api/users/admin.ts` and `api/groups.ts`.
  *
  * OpenProject #2248: `purgeExpiredSessions` is the same table's housekeeping counterpart --
  * `@fastify/session` never calls `store.destroy` on a stale row, so a row past the cookie's 30-day

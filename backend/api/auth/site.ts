@@ -100,7 +100,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      // -> `siteEnabledPreHandler` (`helpers/common.ts`) has already answered 404 for an unknown
+      // -> `siteEnabledPreHandler` (`helpers/siteResolution.ts`) has already answered 404 for an unknown
       //    `:siteId` before any handler here runs, so this is the site, not a maybe —
       //    `models/sites.ts#getSiteById` is this same map lookup with an `await` in front of it.
       const site = WIKI.sites[req.params.siteId]

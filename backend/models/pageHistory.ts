@@ -731,7 +731,7 @@ class PageHistory {
     /**
      * The version's own tags/classification (OpenProject #2168), lifted out of `meta` as named fields
      * rather than left for the caller to reach in for -- neither is `EXCLUDED_FROM_META`, so both
-     * already travel with every version; this is what `api/pages.ts`'s recover route checks
+     * already travel with every version; this is what `api/pages/history.ts`'s recover route checks
      * `read:pages`/`read:source` against at the SOURCE path, before its existing `write:pages` check
      * against the destination.
      */

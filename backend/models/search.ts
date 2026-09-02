@@ -592,7 +592,7 @@ class Search {
    *
    * Internal to the dispatcher: `query`/`rebuild`/`created`/`updated`/`deleted`/`renamed` below all
    * resolve through this and forward straight to it, which is what keeps every caller
-   * (`api/pages.ts`, `models/pages.ts`, `tasks/simple/rebuild-search-index.ts`) off any specific
+   * (`api/pages/read.ts`, `models/pages.ts`, `tasks/simple/rebuild-search-index.ts`) off any specific
    * engine implementation — they only ever call `WIKI.models.search.*`. A `db`-only capability that
    * genuinely has to reach past the dispatcher asks `ensureModule(DB_MODULE)` directly, the way
    * `getAvailableDictionaries()` above does.

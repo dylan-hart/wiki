@@ -482,7 +482,7 @@ class Groups extends ClusterReloaded {
    * the only options were widen (answer as if unrestricted) or refuse outright for any actor carrying
    * a non-null allow-set. Widening was chosen because every caller re-checks per row against a real
    * page with `checkAccess()` before that page's content is ever exposed, making this method's answer
-   * a cheap upstream hint rather than the actual gate: `api/pages.ts`'s search route uses it only to
+   * a cheap upstream hint rather than the actual gate: `api/pages/read.ts`'s search route uses it only to
    * decide the coarse `includeDrafts`/`hideProtectedContent` flags, while the page-by-page visibility
    * filter every search backend applies (each `modules/search/<engine>/search.ts`'s own `visible`
    * filter) already calls `checkAccess(actor, 'read:pages', ...)` per candidate — so a
@@ -746,7 +746,7 @@ class Groups extends ClusterReloaded {
    * Whether any of the given ids does not name a real group on this instance.
    *
    * The one owner of "are these real group ids", asked from three places that each had their own
-   * spelling: assigning a user's groups (`api/users.ts`), naming the groups an API key draws its
+   * spelling: assigning a user's groups (`api/users/admin.ts`), naming the groups an API key draws its
    * permissions from (`api/apiKeys.ts`), and naming an approval rule's submitter/reviewer groups
    * (`api/approvals.ts`, which asked `models/approvals.ts` for the unknown ids and then only ever
    * checked whether the list was empty).
@@ -1028,7 +1028,7 @@ class Groups extends ClusterReloaded {
    * (`WIKI.config.auth.rootAdminGroupId`) even on the off chance it is ever queried before that
    * permission is flattened onto it — losing the ability to grant `manage:system` back is
    * unrecoverable, so this list is the single shared definition of "never touch this group without
-   * already holding `manage:system`" that both `api/users.ts`'s membership-change guard and
+   * already holding `manage:system`" that both `api/users/admin.ts`'s membership-change guard and
    * `models/users.ts#syncProviderGroups`'s provider-group sync read from.
    */
   async systemGroupIds(): Promise<string[]> {

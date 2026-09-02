@@ -91,7 +91,7 @@ export function requireActorId(
  * an author or manager of the page is not asked for the password they themselves could remove.
  *
  * Asked per page, through `mayOnPage`, which is what distinguishes it from `PAGE_PASSWORD_BYPASS_ROLES`
- * in `api/pages.ts` — the same two permission names, but asked site-wide via
+ * in `api/pages/read.ts` — the same two permission names, but asked site-wide via
  * `mayHoldPermissionSomewhere()` because search spans many pages with no single rule to consult. Where
  * there IS one page to judge, this is the check to use; see that constant's own doc comment for why
  * search deliberately settles for the coarser answer.
@@ -247,7 +247,7 @@ export async function loadReadablePage(
  * this helper has no way to supply, since only the caller knows what the caller was trying to do.
  *
  * The first member types `permission` as `string | undefined` rather than `string` so a caller that
- * decides the permission from the request (`api/pages.ts`'s export route asks for `read:source` only
+ * decides the permission from the request (`api/pages/export.ts`'s export route asks for `read:source` only
  * when `format=markdown`) still writes one call rather than two — the key is still REQUIRED there, so
  * naming it at all is what obliges the message.
  */
@@ -275,7 +275,7 @@ type RequireReadablePageOptions = {
  * its own check afterwards, rather than bending the option.
  *
  * `permission` omitted means `read:pages` alone, which `loadReadablePage` has already enforced.
- * `allowLocked` is for the one route that deliberately does not care (`api/pages.ts`'s backlinks
+ * `allowLocked` is for the one route that deliberately does not care (`api/pages/read.ts`'s backlinks
  * listing, which reveals no page body).
  *
  * @returns The page, or `null` once a reply has been sent — so a route's whole preamble is

@@ -12,7 +12,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * passes — it only ever restricts what an API key, specifically, may reach.
  *
  * Returns `true` when the request may proceed. On a mismatch it writes the 403 itself (via
- * `reply.forbidden()`, matching every other authorization refusal in `api/pages.ts` and
+ * `reply.forbidden()`, matching every other authorization refusal in `api/pages/read.ts` and
  * `api/assets.ts`) and returns `false`, so a caller's whole check is:
  *
  * ```ts
@@ -29,7 +29,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  *     OpenProject #2201), where the route has to resolve the real site itself before this can run;
  *   - a site id named in the request *body*, used by every `manage:system`-gated admin route that
  *     creates or exports something scoped to one site (`api/hooks.ts`'s webhook create/update,
- *     `api/apiKeys.ts`'s admin-issued key create, `api/system.ts`'s `/export`) — deliberately left
+ *     `api/apiKeys.ts`'s admin-issued key create, `api/system/transfer.ts`'s `/export`) — deliberately left
  *     *uncalled*, not merely unenumerated: `manage:system` already bypasses every other authorization
  *     check in this codebase (see CLAUDE.md's Permissions section), so pinning would be enforced only
  *     on this one action a `manage:system` key can take and nowhere else it matters just as much — an

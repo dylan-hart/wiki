@@ -18,7 +18,7 @@ function asStringArray(value: unknown): string[] {
  * rather than the `passport-oauth2` strategy 2.5.x used for this module.
  *
  * `state` is the only part of `AuthFlow` this module reads: it is generated and checked by the shared
- * flow around it (`api/authentication.ts`), so there is nothing here to verify beyond passing it through
+ * flow around it (`api/auth/provider.ts`), so there is nothing here to verify beyond passing it through
  * unchanged. `nonce` and `codeVerifier` exist for OIDC/PKCE providers and are simply ignored — a plain
  * OAuth2 provider has no ID token to bind a nonce to, and no client-side secret PKCE would protect.
  *

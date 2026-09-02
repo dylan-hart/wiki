@@ -350,7 +350,7 @@ export default {
    * The only way a `completionPromises` entry ever otherwise settles is a `jobCompleted` NOTIFY
    * (`start()`'s `onNotification` handler above) — and postgres NOTIFY is not durable, so one missed
    * during a LISTEN reconnect is simply gone. Without this sweep that left the deferred, and everything
-   * awaiting it (`api/system.ts`'s check-update route, for one), pending forever, and the map entry
+   * awaiting it (`api/system/info.ts`'s check-update route, for one), pending forever, and the map entry
    * itself leaked for the life of the process. `added` (written by `addJob`, otherwise never read) is
    * what makes each entry's age checkable.
    */

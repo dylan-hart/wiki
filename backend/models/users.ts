@@ -682,7 +682,7 @@ class Users {
     }
 
     // -> Validated against the installed catalogue rather than a static enum, same reasoning as the
-    //    timezone check in `api/users.ts` — the valid set is only known at runtime. An empty string
+    //    timezone check in `api/users/profile.ts` — the valid set is only known at runtime. An empty string
     //    clears the preference (falls back to `en` when mail resolves it), so it skips the check.
     if (patch.locale !== undefined && patch.locale !== '') {
       const known = (await WIKI.models.locales.getLocales()).some(
@@ -1090,7 +1090,7 @@ class Users {
    * attacker who can plant a session id on a victim before they log in — `saveUninitialized: false`
    * does not prevent it, since two public pre-login endpoints already force a store write and a
    * `Set-Cookie` (`POST /sites/:siteId/auth/passkey/challenge` and `GET /auth/:strategyId/authorize`
-   * in `api/authentication.ts`) — ends up sharing the victim's now-authenticated session once they
+   * in `api/auth/site.ts`) — ends up sharing the victim's now-authenticated session once they
    * do. `@fastify/session#regenerate()` mints a fresh session id and store row and reassigns it onto
    * `req.session` in place, so every read of `req.session` after this line — in this method, and
    * back up the call chain in `afterLoginChecks` — already sees the regenerated one. Nothing needs

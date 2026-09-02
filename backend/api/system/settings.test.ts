@@ -173,7 +173,7 @@ describe('PUT /api | /metrics | /pageviews — the boolean flag toggles', () => 
  * `AdminPageviews.vue` no way to show an admin real evidence that tracking is actually recording
  * anything. It now also returns `summary`, sourced straight from `WIKI.models.pageviews.summary()`
  * (that method's own DB-backed tests in `models/pageviews.test.ts` cover the aggregation itself --
- * this route-level test stubs it, same as `GET /info`'s stubbed `WIKI.models.jobs` above, so it's
+ * this route-level test stubs it, same as `GET /info`'s stubbed `WIKI.models.jobs` in `api/system/info.test.ts`, so it's
  * only verifying the route wires the model's return value through unchanged).
  */
 describe('GET /pageviews', () => {

@@ -212,7 +212,7 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
    * DELIBERATELY left reachable so an administrator could keep cleaning up a disabled site's content.
    * The 2026-08-24 audit found that gap worth closing instead: `api/assets.ts:68/328/400` (upload,
    * rename, delete) are named in OpenProject #1587 as part of the surface its shared preHandler
-   * (`siteEnabledPreHandler`, `helpers/common.ts`) now covers, same as every other `:siteId` route.
+   * (`siteEnabledPreHandler`, `helpers/siteResolution.ts`) now covers, same as every other `:siteId` route.
    * `assets.ts` itself no longer calls `guardSiteEnabled` anywhere, so this suite wires the same
    * preHandler onto its own standalone app below (mirroring how `api/index.ts` wires it in
    * production).

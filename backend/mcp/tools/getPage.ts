@@ -31,7 +31,7 @@ export interface GetPageArgs {
 
 /**
  * Read a single page by path, restricted to what the configured key may actually read. Mirrors
- * `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages.ts`): `read:pages` gates the page at all,
+ * `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages/read.ts`): `read:pages` gates the page at all,
  * `read:source` gates the raw source on top of that, a password-protected page comes back with
  * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it, and
  * `publicOnly` is derived from `pageActorFor(ctx)` exactly as the REST route derives it from
@@ -79,7 +79,7 @@ export async function handleGetPage(
 
   // -> Best-effort, never awaited: `models/pageviews.ts#record()` swallows its own failures and
   //    no-ops entirely under the admin opt-out, so a logging failure can never break this read.
-  //    `ctx.keyId` is hashed rather than stored -- the same convention `api/pages.ts`'s
+  //    `ctx.keyId` is hashed rather than stored -- the same convention `api/pages/read.ts`'s
   //    `recordPageview()` uses for a bearer-key REST caller, and for the same reason: two different
   //    keys are two different visitors, the same key reused is one. This is the `mcp` counterpart to
   //    that route's `api`/`browser` split (OpenProject #1140's "web browser vs. API/MCP access").

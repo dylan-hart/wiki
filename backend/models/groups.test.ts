@@ -843,7 +843,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   /**
    * OpenProject #2119: `allowedClassifications` used to be compared AFTER the `manage:system`
    * short-circuit, so a `manage:system`-holding actor's allow-set was dead code -- the exact bypass
-   * `api/users.ts:677-681` promises a PAT holder it will not have. The comparison now runs first, so
+   * `api/users/profile.ts`'s personal-token create route promises a PAT holder it will not have. The comparison now runs first, so
    * a `manage:system` actor with a non-null allow-set is refused outside it and still allowed inside
    * it, alongside `manage:system bypasses every rule` above, which stays true for a null allow-set.
    */

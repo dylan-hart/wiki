@@ -221,7 +221,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   /**
    * OpenProject #830 (upstream #6541, permission-filtered instant-search suggestions): the endpoint
    * behind the header's live preview (`GET /sites/:siteId/pages/search`) is this same `query()` --
-   * `api/pages.ts` passes it the requester's `accessActor` and nothing else narrows the result set for
+   * `api/pages/read.ts` passes it the requester's `accessActor` and nothing else narrows the result set for
    * an anonymous or under-privileged caller. So a match this actor has no `read:pages` access to must
    * never come back in `results`, not merely be excluded from the `suggestion` -- the "did you mean"
    * suggestion test below covers the latter already; this covers the former, which is what a reader

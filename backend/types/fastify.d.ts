@@ -55,7 +55,7 @@ declare module 'fastify' {
     groups?: string[]
     /**
      * Ids of the password-protected pages this session has entered the password for. Written by the
-     * unlock route in `api/pages.ts`, and the only thing that opens one for a reader who may not edit
+     * unlock route in `api/pages/read.ts`, and the only thing that opens one for a reader who may not edit
      * it — the client is never trusted with that state.
      */
     unlockedPages?: string[]
@@ -85,8 +85,8 @@ declare module 'fastify' {
       startedAt: string
     }
     /**
-     * The WebAuthn challenge a passkey ceremony is waiting on, written by the routes in `api/users.ts`
-     * (registration) and `api/authentication.ts` (login) and consumed by the verification that
+     * The WebAuthn challenge a passkey ceremony is waiting on, written by the routes in `api/users/profile.ts`
+     * (registration) and `api/auth/site.ts` (login) and consumed by the verification that
      * follows.
      *
      * It lives on the session because a login challenge belongs to nobody yet: a passkey identifies
@@ -96,7 +96,7 @@ declare module 'fastify' {
     passkeyRegistration?: PasskeyChallenge
     passkeyLogin?: PasskeyChallenge
     /**
-     * Set the first time a browser-side pageview is logged for this session (`api/pages.ts`'s
+     * Set the first time a browser-side pageview is logged for this session (`api/pages/read.ts`'s
      * `recordPageview()`). The value itself is never read — writing anything at all is what marks the
      * session modified, which is what makes `@fastify/session` persist it (`saveUninitialized: false`
      * otherwise never would) so the same anonymous reader is recognizable as one visitor across

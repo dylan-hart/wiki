@@ -50,7 +50,7 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
     assert.ok(seenAt, 'expected a timestamp to be recorded')
     // -> Round-trips through Temporal.Instant.from without throwing, i.e. it is the millisecond-
     //    precision ISO string the rest of the codebase writes (see `getClusterNodes` in
-    //    `api/system.ts`), not some other shape.
+    //    `api/system/info.ts`), not some other shape.
     assert.doesNotThrow(() => Temporal.Instant.from(seenAt!))
   })
 

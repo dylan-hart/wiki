@@ -345,22 +345,22 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
 
 describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)', () => {
   /**
-   * Regression coverage for the disabled-site guard on `pages.ts`'s own site-scoped routes. Originally
+   * Regression coverage for the disabled-site guard on `api/pages/`'s own site-scoped routes. Originally
    * (task 699) this guard was hand-applied inside three handlers — LIST, SEARCH and INCLUDE — and this
    * describe block registered `pagesRoutes` on its own to prove exactly those three. OpenProject
    * #1587/#1593 deleted all three hand-applied calls: the guard is now `siteEnabledPreHandler`
-   * (`helpers/common.ts`), one `preHandler` `api/index.ts` registers on its guarded content-route
-   * subtree, before any content route file (`pages.ts` is one of them; `sites.ts`, site administration
+   * (`helpers/siteResolution.ts`), one `preHandler` `api/index.ts` registers on its guarded content-route
+   * subtree, before any content route file (`api/pages/` is one of them; `sites.ts`, site administration
    * rather than content, deliberately is not — see `index.ts`'s own doc comment), so a route in
-   * `pages.ts` no longer guards itself at all. Registering that same real preHandler here (not a
+   * `api/pages/` no longer guards itself at all. Registering that same real preHandler here (not a
    * re-implementation of it — see the import) before `pagesRoutes`, exactly as `index.ts` orders it, is
-   * what makes this describe block still a meaningful test of `pages.ts`'s routes rather than of the
+   * what makes this describe block still a meaningful test of `api/pages/`'s routes rather than of the
    * preHandler itself (which `index.test.ts` already covers directly, across every `:siteId` route in
    * every `api/` file, discovered structurally rather than named one by one).
    *
    * Widened past the original three routes (of which LIST was deleted by OpenProject #1986 as a
    * permanently-empty stub with no caller — SEARCH and INCLUDE are what remain of the original
-   * three here) to the rest of `pages.ts`'s previously-*unguarded* surface named in the audit this
+   * three here) to the rest of `api/pages/`'s previously-*unguarded* surface named in the audit this
    * task closes (`docs/audit-2026-08-24/correctness-api-routes.md` §1): GET PAGE, page history, a
    * single history version, and export. (`UNLOCK` is covered structurally in `index.test.ts`'s
    * route-surface scan instead of here, since it carries its own `onRequest` rate-limit hook ahead
@@ -424,7 +424,7 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
 
     const wrappedRoutes: FastifyPluginAsync = async (instance) => {
       // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
-      //    before the route file it covers is registered — `pages.ts` no longer calls
+      //    before the route file it covers is registered — `api/pages/` no longer calls
       //    `guardSiteEnabled` itself (OpenProject #1593).
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(pagesRoutes)

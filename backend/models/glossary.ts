@@ -473,7 +473,7 @@ class Glossary {
   /**
    * Resolves an export's `path` to a `pageId` against the site's primary locale, or rejects it.
    *
-   * Deliberately does NOT apply the `|| 'home'` default that `api/pages.ts` and `mcp/tools/getPage.ts`
+   * Deliberately does NOT apply the `|| 'home'` default that `api/pages/read.ts` and `mcp/tools/getPage.ts`
    * use at their own normalize-then-hash call sites (OpenProject #1936). Those two resolve a
    * *request* for "whatever's at this path", where an empty path legitimately means the site root.
    * Here `path` is a glossary term's user-typed canonical-page reference: the `!path` guard above
