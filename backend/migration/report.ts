@@ -1,4 +1,5 @@
 import type { MigrationPhaseId } from './context.ts'
+import type { SourceRecord } from './connector.ts'
 
 /**
  * The named categories a record can be unmappable for — see Feature 421 task 744's description.
@@ -85,4 +86,154 @@ export interface PhaseReport {
 /** An empty report for a phase that aborted before any reconciliation happened (`status: 'error'`). */
 export function emptyPhaseReport(phase: MigrationPhaseId): PhaseReport {
   return { phase, found: 0, wouldCreate: 0, wouldSkipExisting: 0, conflicts: [], unmappable: [] }
+}
+
+// ---------------------------------------------------------------------------
+// Classifying a source record as unmappable
+// ---------------------------------------------------------------------------
+
+/**
+ * 3.0's real authentication module directory (`ls backend/modules/authentication/`), cross-checked
+ * live against disk by `unmappable.test.ts` the same way `mappers/storage.ts`'s
+ * `KNOWN_3_0_STORAGE_MODULES` is checked against `backend/modules/storage/` — so this list drifting
+ * from what's actually on disk fails a test rather than silently going stale again.
+ */
+export const KNOWN_3_0_AUTH_MODULES = new Set([
+  'auth0',
+  'cas',
+  'discord',
+  'github',
+  'gitlab',
+  'google',
+  'keycloak',
+  'ldap',
+  'local',
+  'microsoft',
+  'oauth2',
+  'oidc',
+  'okta',
+  'saml',
+  'slack',
+  'twitch'
+])
+
+/**
+ * 2.x auth strategy keys with **no** matching 3.0 authentication module — confirmed by
+ * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s "Confirmed no-destination 2.x auth
+ * providers" section: 2.x's 21 providers minus 3.0's 16 `KNOWN_3_0_AUTH_MODULES` leaves exactly these
+ * five with nowhere to land, cannot be imported until Task 414 decides what to do about them (map onto
+ * `oidc`, refuse, prompt for a password reset, ...) — that decision is Task 414's, not this task's;
+ * this only classifies. Every other 2.x provider key — including one this function doesn't recognize
+ * at all — passes through unflagged; that is Task 414's problem to classify for real, not this one's
+ * to guess at.
+ */
+const UNSUPPORTED_AUTH_PROVIDERS = new Set([
+  'azure',
+  'dropbox',
+  'facebook',
+  'firebase',
+  'rocketchat'
+])
+
+function stringField(record: SourceRecord, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * Classifies one source `users` record as unmappable when its `providerKey` names an auth strategy
+ * 3.0 has no module for. Returns `null` for every other provider — including ones 3.0 does support,
+ * and any provider key this function doesn't recognize (an unrecognized value is Task 414's problem to
+ * classify for real, not this task's to guess at).
+ */
+export function classifyUserAuthProvider(record: SourceRecord): UnmappableEntry | null {
+  const providerKey = (stringField(record, 'providerKey') ?? '').toLowerCase()
+  if (!UNSUPPORTED_AUTH_PROVIDERS.has(providerKey)) {
+    return null
+  }
+  const identifier = stringField(record, 'email') ?? String(record.id ?? providerKey)
+  return {
+    identifier,
+    reason: 'unsupported-auth-provider',
+    detail: `providerKey "${providerKey}" has no matching 3.0 authentication module (confirmed no-destination — see docs/migration/2.5x-settings-auth-storage-field-mapping.md's Part 2 provider inventory).`
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering the aggregate report
+// ---------------------------------------------------------------------------
+
+type ColumnKey =
+  | 'phase'
+  | 'found'
+  | 'wouldCreate'
+  | 'wouldSkipExisting'
+  | 'conflictCount'
+  | 'unmappableCount'
+
+const COLUMNS: { key: ColumnKey; header: string }[] = [
+  { key: 'phase', header: 'Phase' },
+  { key: 'found', header: 'Found' },
+  { key: 'wouldCreate', header: 'Would Create' },
+  { key: 'wouldSkipExisting', header: 'Would Skip' },
+  { key: 'conflictCount', header: 'Conflicts' },
+  { key: 'unmappableCount', header: 'Unmappable' }
+]
+
+function cell(report: PhaseReport, key: ColumnKey): string {
+  switch (key) {
+    case 'conflictCount':
+      return String(report.conflicts.length)
+    case 'unmappableCount':
+      return String(report.unmappable.length)
+    default:
+      return String(report[key])
+  }
+}
+
+/**
+ * Renders the aggregate dry-run report as a plain-text table, one row per phase, plus a detail line
+ * per conflict/unmappable entry beneath it — the console default (Feature 421 task 744). Returns a
+ * plain string rather than printing directly, so a caller can choose stdout vs. the structured logger
+ * vs. a test assertion. `--report-file` additionally writes the same reports as JSON (`reportsToJson`)
+ * for diffing between runs.
+ */
+export function formatReportTable(reports: PhaseReport[]): string {
+  if (reports.length === 0) {
+    return '(no phases ran)'
+  }
+
+  const rows = reports.map((report) => COLUMNS.map((column) => cell(report, column.key)))
+  const widths = COLUMNS.map((column, i) =>
+    Math.max(column.header.length, ...rows.map((row) => row[i].length))
+  )
+  const formatRow = (cells: string[]) =>
+    cells
+      .map((value, i) => value.padEnd(widths[i]))
+      .join('  ')
+      .trimEnd()
+
+  const lines = [
+    formatRow(COLUMNS.map((column) => column.header)),
+    widths.map((width) => '-'.repeat(width)).join('  '),
+    ...rows.map(formatRow)
+  ]
+
+  for (const report of reports) {
+    for (const conflict of report.conflicts) {
+      lines.push(`  [${report.phase}] conflict: ${conflict.identifier} — ${conflict.detail}`)
+    }
+    for (const entry of report.unmappable) {
+      lines.push(
+        `  [${report.phase}] unmappable (${entry.reason}): ${entry.identifier} — ${entry.detail}`
+      )
+    }
+  }
+
+  return lines.join('\n')
+}
+
+/** JSON form of the aggregate report, written to `--report-file` for later diffing between runs. */
+export function reportsToJson(reports: PhaseReport[]): string {
+  return JSON.stringify(reports, null, 2)
 }

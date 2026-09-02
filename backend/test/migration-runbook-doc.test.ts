@@ -7,7 +7,7 @@
 // each checkable claim from its real source rather than trusting the doc's prose:
 //
 //   1. The two `UnmappableReason` values the runbook must explain (`backend/migration/report.ts`)
-//      match the strings `backend/migration/unmappable.ts` actually emits.
+//      match the strings its own `classifyUserAuthProvider` actually emits.
 //   2. The CLI flags/commands the runbook tells an operator to run are real flags this branch's
 //      `cli.ts`/`verify-cli.ts`/`package.json` define, not invented ones.
 //   3. The `PhaseReport` field names the runbook uses to explain the dry-run table match the real
@@ -27,7 +27,6 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = join(HERE, '..', '..')
 const MIGRATION_DOCS_DIR = join(REPO_ROOT, 'docs', 'migration')
 const DOC_PATH = join(MIGRATION_DOCS_DIR, 'migration-runbook.md')
-const UNMAPPABLE_PATH = join(REPO_ROOT, 'backend', 'migration', 'unmappable.ts')
 const REPORT_PATH = join(REPO_ROOT, 'backend', 'migration', 'report.ts')
 const SETTINGS_PHASE_PATH = join(REPO_ROOT, 'backend', 'migration', 'phases', 'settings.ts')
 const CLI_PATH = join(REPO_ROOT, 'backend', 'migration', 'cli.ts')
@@ -37,7 +36,7 @@ const PACKAGE_JSON_PATH = join(REPO_ROOT, 'backend', 'package.json')
 const DECISION_DOC_PATH = join(MIGRATION_DOCS_DIR, 'decision-source-scope.md')
 
 const doc = readFileSync(DOC_PATH, 'utf8')
-const unmappableSrc = readFileSync(UNMAPPABLE_PATH, 'utf8')
+const unmappableSrc = readFileSync(REPORT_PATH, 'utf8')
 const reportSrc = readFileSync(REPORT_PATH, 'utf8')
 const settingsPhaseSrc = readFileSync(SETTINGS_PHASE_PATH, 'utf8')
 const cliSrc = readFileSync(CLI_PATH, 'utf8')
@@ -125,13 +124,13 @@ describe('docs/migration/migration-runbook.md', () => {
   })
 
   it('cross-links the exact UnmappableReason strings this branch actually emits, and their meaning', () => {
-    // 'unsupported-auth-provider' is still emitted directly by unmappable.ts (for a 2.x user row);
+    // 'unsupported-auth-provider' is still emitted directly by report.ts (for a 2.x user row);
     // 'unsupported-storage-module' is emitted by phases/settings.ts (for a 2.x storage row) instead —
     // report.ts's UnmappableReason type is the one place both reasons are declared together, and it
     // declares exactly those two: every reason the type names is one some phase really emits.
     assert.ok(
       unmappableSrc.includes("'unsupported-auth-provider'"),
-      'fixture assumption broken: unmappable.ts no longer emits "unsupported-auth-provider"'
+      'fixture assumption broken: report.ts no longer emits "unsupported-auth-provider"'
     )
     assert.ok(
       settingsPhaseSrc.includes("'unsupported-storage-module'"),
@@ -144,14 +143,14 @@ describe('docs/migration/migration-runbook.md', () => {
       )
       assert.ok(doc.includes(reason), `expected runbook to name unmappable reason: ${reason}`)
     }
-    // The specific unsupported providers named in unmappable.ts's own UNSUPPORTED_AUTH_PROVIDERS Set
+    // The specific unsupported providers named in report.ts's own UNSUPPORTED_AUTH_PROVIDERS Set
     // literal (confirmed against KNOWN_3_0_AUTH_MODULES: these five, and only these five, have no
     // matching backend/modules/authentication/<key>/ directory — ldap/saml/cas/auth0/okta all do now
     // and must NOT be described as unsupported).
     for (const provider of ['azure', 'dropbox', 'facebook', 'firebase', 'rocketchat']) {
       assert.ok(
         unmappableSrc.toLowerCase().includes(provider),
-        `fixture assumption broken: unmappable.ts no longer names ${provider}`
+        `fixture assumption broken: report.ts no longer names ${provider}`
       )
       assert.ok(
         doc.toLowerCase().includes(provider),
@@ -162,7 +161,7 @@ describe('docs/migration/migration-runbook.md', () => {
     for (const provider of ['ldap', 'saml', 'cas', 'auth0', 'okta']) {
       assert.ok(
         unmappableSrc.toLowerCase().includes(provider),
-        `fixture assumption broken: unmappable.ts's KNOWN_3_0_AUTH_MODULES no longer lists ${provider}`
+        `fixture assumption broken: report.ts's KNOWN_3_0_AUTH_MODULES no longer lists ${provider}`
       )
     }
     assert.match(doc, /comments/i)

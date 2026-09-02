@@ -415,7 +415,7 @@ describe('migration phases', () => {
   test('usersPhase classifies an unsupported auth provider as unmappable; a flagged record is not counted as wouldCreate either (Task 14 review fix)', async () => {
     async function* users(): AsyncGenerator<SourceRecord> {
       // Alice: a local-provider user with no password hash to carry over -- `createLocalUserConverter`
-      // (`user-converters.ts`) flags rather than creates her. Before the review fix, `phases/users.ts`
+      // (`users-groups.ts`) flags rather than creates her. Before the review fix, `phases/users.ts`
       // counted her as `wouldCreate` regardless (every `recorder.create()` call it made counted
       // unconditionally, since the importer's real per-record outcome was discarded) -- this is the
       // exact case the fix corrects.

@@ -3,7 +3,7 @@ import { resolveActorId, type UserIdMap } from './id-map.ts'
 // -> Type-only, so this is erased entirely at load time (verbatimModuleSyntax) -- safe even though
 //    navigation-import.ts imports StagedNavigation back from this module, since neither import
 //    survives to become a real runtime circular dependency.
-import type { NavigationPageRef } from './navigation-import.ts'
+import type { NavigationPageRef } from './importers/navigation-import.ts'
 import { coerceSourceBoolean } from './source-coercion.ts'
 
 /**

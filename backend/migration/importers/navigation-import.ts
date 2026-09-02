@@ -1,6 +1,6 @@
-import { normalizeMigratedPath } from './path-normalization.ts'
-import type { StagedNavigation } from './content-staging.ts'
-import type { NavigationItem } from '../models/navigation.ts'
+import { normalizeMigratedPath } from '../path-normalization.ts'
+import type { StagedNavigation } from '../content-staging.ts'
+import type { NavigationItem } from '../../models/navigation.ts'
 
 /**
  * Navigation import as the site-wide menu (Feature 416 / Task 741)

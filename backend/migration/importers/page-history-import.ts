@@ -1,10 +1,10 @@
 import { isEqual } from 'es-toolkit/predicate'
-import type { PageHistoryAction } from '../models/pageHistory.ts'
+import type { PageHistoryAction } from '../../models/pageHistory.ts'
 import type {
   OrphanedPageHistoryEntry,
   StagedPage,
   StagedPageHistoryEntry
-} from './content-staging.ts'
+} from '../content-staging.ts'
 import { derivePublishState, mapEditor } from './page-import.ts'
 
 /**

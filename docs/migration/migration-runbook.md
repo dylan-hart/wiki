@@ -182,9 +182,9 @@ reasons are defined; two are actually emitted by this branch's phases:
 
 - **`unsupported-auth-provider`** — a 2.x `users` row, or a 2.x `authentication` (strategy) row, whose
   provider/module is one of the five 3.0 genuinely has no module directory for at all: `azure`,
-  `dropbox`, `facebook`, `firebase`, `rocketchat` (`backend/migration/unmappable.ts`'s
+  `dropbox`, `facebook`, `firebase`, `rocketchat` (`backend/migration/report.ts`'s
   `UNSUPPORTED_AUTH_PROVIDERS`, cross-checked live against `backend/modules/authentication/` by
-  `unmappable.test.ts`). 3.0 now ships sixteen authentication modules — `auth0`, `cas`, `discord`,
+  `report.test.ts`). 3.0 now ships sixteen authentication modules — `auth0`, `cas`, `discord`,
   `github`, `gitlab`, `google`, `keycloak`, `ldap`, `local`, `microsoft`, `oauth2`, `oidc`, `okta`,
   `saml`, `slack`, `twitch` — so a 2.x user or strategy on `ldap`/`saml`/`cas`/`auth0`/`okta` is **not**
   in this unmappable bucket any more; those five providers do have a 3.0 module. A user/strategy row
@@ -203,7 +203,7 @@ unsupported providers above (i.e. every user on `google`, `github`, `oidc`, `lda
 imported — just not through a real provider link. Because automatic OAuth/LDAP/SAML re-linking isn't
 built yet, every such user is created as a **local-strategy account with a random, unusable password
 and `mustChangePwd` forced to `true`.** This is tracked internally as the importer runs
-(`UsersGroupsImportResult.providerFallbacks`), but neither `PhaseReport` nor the JSON report file
+(`UserImporter.providerFallbacks`), but neither `PhaseReport` nor the JSON report file
 currently surfaces it — there is no CLI flag or report field that lists which accounts need a
 password reset. After a live `users` phase, query the destination directly instead
 (`SELECT email FROM users WHERE (auth -> '<local-strategy-uuid>' ->> 'mustChangePwd')::boolean = true`,

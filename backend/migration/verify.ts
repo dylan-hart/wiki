@@ -148,10 +148,10 @@ async function countAsyncIterable(iterable: AsyncIterable<unknown>): Promise<num
   return count
 }
 
-/** Wraps `body` the same way `countSourceEntities()` wraps each `VERIFY_ENTITIES` read: a
- * `NotYetImplementedError` — thrown either synchronously when a stub generator method is called, or
- * from inside the async iteration itself, both real shapes across the two connectors — resolves to
- * `'not_implemented'` for this one count rather than aborting the whole verify run. */
+/** Counts one source entity's records, resolving to `'not_implemented'` rather than aborting the whole
+ * verify run when the generator is still a stub. A `NotYetImplementedError` is caught whether thrown
+ * synchronously as the generator method is called or from inside the async iteration itself — both are
+ * real shapes across the two connectors. */
 async function countOrNotImplemented(
   body: () => AsyncIterable<unknown>
 ): Promise<number | 'not_implemented'> {
@@ -192,15 +192,7 @@ export async function countPhaseOnlySourceCounts(
 export async function countSourceEntities(source: SourceConnector): Promise<SourceEntityCounts> {
   const result = {} as SourceEntityCounts
   for (const entity of VERIFY_ENTITIES) {
-    try {
-      result[entity] = await countAsyncIterable(source[entity]() as AsyncIterable<unknown>)
-    } catch (err: any) {
-      if (err instanceof NotYetImplementedError) {
-        result[entity] = 'not_implemented'
-      } else {
-        throw err
-      }
-    }
+    result[entity] = await countOrNotImplemented(() => source[entity]() as AsyncIterable<unknown>)
   }
   return result
 }

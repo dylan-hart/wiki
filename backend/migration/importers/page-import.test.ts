@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import type { StagedPage } from './content-staging.ts'
+import type { StagedPage } from '../content-staging.ts'
 import type { PageHistoryImportResult } from './page-history-import.ts'
-import type { Page, PageActor, PageInput } from '../models/pages.ts'
+import type { Page, PageActor, PageInput } from '../../models/pages.ts'
 import {
   createPageImporter,
   derivePublishState,

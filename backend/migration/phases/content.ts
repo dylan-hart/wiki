@@ -6,18 +6,25 @@ import {
   extractContentStaging,
   extractNavigation
 } from '../content-staging.ts'
-import { backfillOrphanedPageHistory, backfillPageHistoryForPage } from '../page-history-import.ts'
-import { createPageImporter } from '../page-import.ts'
-import { importNavigation } from '../navigation-import.ts'
+import {
+  backfillOrphanedPageHistory,
+  backfillPageHistoryForPage
+} from '../importers/page-history-import.ts'
+import { createPageImporter } from '../importers/page-import.ts'
+import { importNavigation } from '../importers/navigation-import.ts'
 import { resolvePrimaryLocale } from '../context.ts'
 import { definePhase } from './define-phase.ts'
 import { placeholderRow, writeUnlessDryRun } from './dry-run.ts'
 import { routeOutcome } from './route.ts'
 import type { Page } from '../../models/pages.ts'
 import type { ContentStagingOptions, StagedPage } from '../content-staging.ts'
-import type { PageHistoryInsertRow } from '../page-history-import.ts'
-import type { ImportPagesDeps, PageImportOutcome, PagesWriteModel } from '../page-import.ts'
-import type { NavigationImportDeps, NavigationWriteModel } from '../navigation-import.ts'
+import type { PageHistoryInsertRow } from '../importers/page-history-import.ts'
+import type {
+  ImportPagesDeps,
+  PageImportOutcome,
+  PagesWriteModel
+} from '../importers/page-import.ts'
+import type { NavigationImportDeps, NavigationWriteModel } from '../importers/navigation-import.ts'
 import type { RecordOutcome } from './route.ts'
 
 /**

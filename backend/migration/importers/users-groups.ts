@@ -11,7 +11,7 @@ import { BCRYPT_ROUNDS } from '../../helpers/common.ts'
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
 import { coerceSourceBoolean } from '../source-coercion.ts'
-import { KNOWN_3_0_AUTH_MODULES } from '../unmappable.ts'
+import { KNOWN_3_0_AUTH_MODULES } from '../report.ts'
 
 /**
  * Users/Groups importer engine (Feature 414, Task 726).
@@ -38,8 +38,8 @@ import { KNOWN_3_0_AUTH_MODULES } from '../unmappable.ts'
  *
  * `convertGroup`/`convertUser` — the per-record 2.x row → 3.0 insertable row conversion — are
  * supplied by the caller rather than owned here; `phases/users.ts` wires the real ones
- * (`createGroupConverter()` below, and `./user-converters.ts`'s local converter composed with
- * `createProviderFallbackUserConverter()`). The `userGroups` translation needs no converter at all:
+ * (`createGroupConverter()`, `createLocalUserConverter()` and
+ * `createProviderFallbackUserConverter()` below, composed by `composeUserConverters()`). The `userGroups` translation needs no converter at all:
  * per the mapping doc, all it does is look up both remapped ids and write the join row. There is no
  * per-record 2.x → 3.0 *field* to convert once the two ids are resolved.
  *
@@ -412,10 +412,7 @@ function readSourceString(source: SourceRecord, column: string): string | undefi
  * instead hand back an ISO string. Either is accepted; anything else (missing column, `null`,
  * malformed string) degrades to `undefined` — the same "let the target column default rather than
  * fail the whole record" tolerance `page-import.ts`'s `normalizeStagedDate` gives a malformed staged
- * date — so one bad timestamp on one source row never blocks that user's import. Exported (not just
- * used within this module) so `./user-converters.ts`'s `createLocalUserConverter` — the other real
- * `UserConverter` in this engine, Task 14 — shares this exact tolerance rather than a second, drifting
- * copy of it. */
+ * date — so one bad timestamp on one source row never blocks that user's import. */
 export function readSourceDate(source: SourceRecord, column: string): Date | undefined {
   const raw = source[column]
   if (raw instanceof Date) {
@@ -533,6 +530,107 @@ export function createProviderFallbackUserConverter(
 }
 
 // ---------------------------------------------------------------------------
+// Local-provider user conversion, and the router that picks between it and the
+// provider fallback above.
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the `UserConverter` for 2.x's `local` provider (Feature 414 Task 728's field mapping,
+ * implemented as a plain row-builder rather than `Users.importLocalUser()` — that method performs its
+ * own `getByEmail`/insert internally and returns `{status, id}`, a shape that does not fit the
+ * `UserConverter -> NewUserRow -> writer.insertUser(row)` pattern `createUserImporter()` (Task 12)
+ * drives. `createProviderFallbackUserConverter` below already established the
+ * precedent that user-row creation in this engine is a raw-insert builder, not a model-method call
+ * (unlike group creation, which does go through `Groups.createGroupFromImport()`) — this follows the
+ * same shape, with the source's real bcrypt hash copied verbatim instead of a random unusable one.
+ *
+ * Boolean columns (`mustChangePwd`/`isActive`/`isVerified`) go through `coerceSourceBoolean()` rather
+ * than a bare `=== true` check, matching this module's own `readSourceBoolean` convention: the
+ * export-bundle connector represents 2.x's boolean columns as JSON `0`/`1` on engines whose knex/
+ * Objection layer does that (MySQL/MariaDB/SQLite — see `source-coercion.ts`'s header, OpenProject
+ * #1845/#1850), and a bare `=== true` would silently treat every such row as `false`. Timestamp
+ * columns go through this module's own `readSourceDate()` — the same "real `Date` or an
+ * ISO string, else `undefined`" tolerance `createProviderFallbackUserConverter` uses, shared rather
+ * than duplicated.
+ */
+export interface LocalUserConverterOptions {
+  localStrategyId: string
+}
+
+export function createLocalUserConverter(options: LocalUserConverterOptions): UserConverter {
+  return (source: SourceRecord) => {
+    const email =
+      typeof source.email === 'string' && source.email.length > 0
+        ? source.email.toLowerCase()
+        : undefined
+    if (!email) {
+      return { status: 'skipped', message: 'source user record has no email address' }
+    }
+    const passwordHash = typeof source.password === 'string' ? source.password : undefined
+    if (!passwordHash) {
+      return {
+        status: 'flagged',
+        message: 'source local-provider user has no password hash to carry over'
+      }
+    }
+    const name = typeof source.name === 'string' && source.name.length > 0 ? source.name : email
+
+    const row: NewUserRow = {
+      email,
+      name,
+      auth: {
+        [options.localStrategyId]: {
+          password: passwordHash,
+          mustChangePwd: coerceSourceBoolean(source.mustChangePwd) ?? false,
+          restrictLogin: false,
+          tfaIsActive: false,
+          tfaRequired: false,
+          tfaSecret: ''
+        }
+      },
+      isSystem: false,
+      isActive: coerceSourceBoolean(source.isActive) ?? false,
+      // -> Defaults to `false`, not `true` (unlike `createProviderFallbackUserConverter`'s own
+      //    `isVerified` default): for a `local`-provider account this column genuinely tracks whether
+      //    2.x's own email-verification flow was completed, so a missing/malformed value is treated
+      //    conservatively as "not verified" rather than assumed. The fallback converter's `true`
+      //    default reflects a different case entirely -- an account whose provider (github/ldap/...)
+      //    already authenticated the email externally, so 2.x's local-only verification concept does
+      //    not really apply to it.
+      isVerified: coerceSourceBoolean(source.isVerified) ?? false,
+      meta: {
+        location: typeof source.location === 'string' ? source.location : '',
+        jobTitle: typeof source.jobTitle === 'string' ? source.jobTitle : '',
+        pronouns: ''
+      },
+      prefs: {
+        timezone: typeof source.timezone === 'string' ? source.timezone : 'America/New_York',
+        dateFormat: typeof source.dateFormat === 'string' ? source.dateFormat : 'YYYY-MM-DD',
+        timeFormat: '12h',
+        appearance: typeof source.appearance === 'string' ? source.appearance : 'site',
+        cvd: 'none'
+      },
+      createdAt: readSourceDate(source, 'createdAt'),
+      updatedAt: readSourceDate(source, 'updatedAt'),
+      lastLoginAt: readSourceDate(source, 'lastLoginAt')
+    }
+
+    return { status: 'created', row }
+  }
+}
+
+/** Routes a source user record to the real `local`-provider converter or the provider-fallback
+ * converter, by `providerKey` — the one real (non-stub) `UserConverter` `phases/users.ts` (Task 14)
+ * plugs into `createUserImporter()`. */
+export function composeUserConverters(
+  local: UserConverter,
+  fallback: UserConverter
+): UserConverter {
+  return (source: SourceRecord) =>
+    source.providerKey === 'local' ? local(source) : fallback(source)
+}
+
+// ---------------------------------------------------------------------------
 // Write port — lets orchestration be unit-tested without a live database, and lets the CLI (#421)
 // swap in a dry-run writer that never touches Postgres at all.
 // ---------------------------------------------------------------------------
@@ -639,27 +737,44 @@ function readSourceId(source: SourceRecord, column: string): number | undefined 
   return Number.isInteger(n) ? n : undefined
 }
 
-/** Live, per-record group import (following `page-import.ts`'s `PageImporter` pattern), so Task 14
- * can drive one source group at a time from its own phase entity instead of being handed a whole
- * iterable up front. `summary`/`idMap` are live references into the same closure-scoped bindings
- * every `importOne()` call mutates — not snapshots — so a caller reading them after several calls
- * sees every group processed so far. */
-export interface GroupImporter {
+/** Live, per-record import of one id-mapped entity (`groups` or `users`), so a phase entity can drive
+ * one source record at a time instead of being handed a whole iterable up front. `summary`/`idMap`
+ * are live references into the same closure-scoped bindings every `importOne()` call mutates — not
+ * snapshots — so a caller reading them after several calls sees every record processed so far. */
+export interface RecordImporter {
   /** Imports one source record, returning the exact `RecordStatus` it recorded onto `summary` for
-   * this record (Task 14 fix: a caller driving `importOne()` directly — `phases/users.ts` — needs
-   * this to route its own `WriteRecorder` call correctly; `importOne()` itself never throws for a
-   * bad/conflicting record, so the return value, not a caught exception, is the only signal). */
+   * this record: a caller driving `importOne()` directly (`phases/users.ts`) needs this to route its
+   * own `WriteRecorder` call correctly, and `importOne()` never throws for a bad/conflicting record,
+   * so the return value — not a caught exception — is the only signal. */
   importOne(source: SourceRecord): Promise<RecordStatus>
   readonly summary: EntityImportSummary
   readonly idMap: Map<number, string>
 }
 
-/** Builds a `GroupImporter`. Never throws for one bad or conflicting record; each becomes a
- * `RecordResult` on `summary` instead, so one group's bad data cannot abort the whole run. */
-export function createGroupImporter(
-  convert: GroupConverter,
-  writer: UsersGroupsWriter
-): GroupImporter {
+export type GroupImporter = RecordImporter
+
+/** `RecordImporter` plus the accumulated provider-fallback flags, which only `users` produces.
+ * `providerFallbacks` is the same kind of live reference as `summary`/`idMap`:
+ * `createProviderFallbackUserConverter()`-produced accounts accumulate onto it across every
+ * `importOne()` call. */
+export interface UserImporter extends RecordImporter {
+  readonly providerFallbacks: ProviderFallbackFlag[]
+}
+
+interface RecordImporterOptions<TRow> {
+  convert: (source: SourceRecord) => ConversionOutcome<TRow> | Promise<ConversionOutcome<TRow>>
+  insert: (row: TRow) => Promise<{ id: string }>
+  /** Recorded verbatim for a source row flagged `isSystem` — the one thing groups and users say
+   * differently, since each names its own already-seeded 3.0 equivalent. */
+  systemSkipMessage: string
+  /** When given, every created record's `providerFallback` (if any) is appended here. */
+  providerFallbacks?: ProviderFallbackFlag[]
+}
+
+/** Builds an importer for one id-mapped entity. Never throws for one bad or conflicting record; each
+ * becomes a `RecordResult` on `summary` instead, so one record's bad data cannot abort the whole
+ * run. */
+function createRecordImporter<TRow>(options: RecordImporterOptions<TRow>): RecordImporter {
   const summary = emptySummary()
   const idMap = new Map<number, string>()
 
@@ -675,25 +790,23 @@ export function createGroupImporter(
     }
 
     if (isSystemSourceRecord(sourceRecord)) {
-      record(summary, {
-        sourceId,
-        status: 'skipped',
-        message:
-          "system group (Administrators/Guests) -- an equivalent is already seeded by this install's own Groups.init(); not imported"
-      })
+      record(summary, { sourceId, status: 'skipped', message: options.systemSkipMessage })
       return 'skipped'
     }
 
-    const outcome = await convert(sourceRecord)
+    const outcome = await options.convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
       return outcome.status
     }
 
     try {
-      const { id: targetId } = await writer.insertGroup(outcome.row)
+      const { id: targetId } = await options.insert(outcome.row)
       idMap.set(sourceId, targetId)
       record(summary, { sourceId, targetId, status: 'created', message: outcome.message })
+      if (outcome.providerFallback) {
+        options.providerFallbacks?.push(outcome.providerFallback)
+      }
       return 'created'
     } catch (err: any) {
       record(summary, { sourceId, status: 'conflicted', message: err.message })
@@ -704,71 +817,31 @@ export function createGroupImporter(
   return { importOne, summary, idMap }
 }
 
-/** Live, per-record user import — same shape and rationale as `GroupImporter` above.
- * `providerFallbacks` is the same kind of
- * live reference as `summary`/`idMap`: `createProviderFallbackUserConverter()`-produced accounts
- * accumulate onto it across every `importOne()` call. */
-export interface UserImporter {
-  /** See `GroupImporter#importOne`'s doc — same Task 14 contract: returns the `RecordStatus` it just
-   * recorded onto `summary`. */
-  importOne(source: SourceRecord): Promise<RecordStatus>
-  readonly summary: EntityImportSummary
-  readonly idMap: Map<number, string>
-  readonly providerFallbacks: ProviderFallbackFlag[]
+export function createGroupImporter(
+  convert: GroupConverter,
+  writer: UsersGroupsWriter
+): GroupImporter {
+  return createRecordImporter({
+    convert,
+    insert: (row) => writer.insertGroup(row),
+    systemSkipMessage:
+      "system group (Administrators/Guests) -- an equivalent is already seeded by this install's own Groups.init(); not imported"
+  })
 }
 
-/** Builds a `UserImporter`. Never throws for one bad or conflicting record; each becomes a
- * `RecordResult` on `summary` instead, so one user's bad data cannot abort the whole run. */
 export function createUserImporter(
   convert: UserConverter,
   writer: UsersGroupsWriter
 ): UserImporter {
-  const summary = emptySummary()
-  const idMap = new Map<number, string>()
   const providerFallbacks: ProviderFallbackFlag[] = []
-
-  async function importOne(sourceRecord: SourceRecord): Promise<RecordStatus> {
-    const sourceId = readSourceId(sourceRecord, 'id')
-    if (sourceId === undefined) {
-      record(summary, {
-        sourceId: String(sourceRecord.id ?? '?'),
-        status: 'skipped',
-        message: 'missing or non-integer source id'
-      })
-      return 'skipped'
-    }
-
-    if (isSystemSourceRecord(sourceRecord)) {
-      record(summary, {
-        sourceId,
-        status: 'skipped',
-        message:
-          "system user (Administrator/Guest) -- an equivalent is already seeded by this install's own Users.init(); not imported"
-      })
-      return 'skipped'
-    }
-
-    const outcome = await convert(sourceRecord)
-    if (outcome.status !== 'created') {
-      record(summary, { sourceId, status: outcome.status, message: outcome.message })
-      return outcome.status
-    }
-
-    try {
-      const { id: targetId } = await writer.insertUser(outcome.row)
-      idMap.set(sourceId, targetId)
-      record(summary, { sourceId, targetId, status: 'created' })
-      if (outcome.providerFallback) {
-        providerFallbacks.push(outcome.providerFallback)
-      }
-      return 'created'
-    } catch (err: any) {
-      record(summary, { sourceId, status: 'conflicted', message: err.message })
-      return 'conflicted'
-    }
-  }
-
-  return { importOne, summary, idMap, providerFallbacks }
+  const importer = createRecordImporter({
+    convert,
+    insert: (row) => writer.insertUser(row),
+    systemSkipMessage:
+      "system user (Administrator/Guest) -- an equivalent is already seeded by this install's own Users.init(); not imported",
+    providerFallbacks
+  })
+  return { ...importer, providerFallbacks }
 }
 
 /** Live, per-record `userGroups` join-row import — same shape and rationale as `GroupImporter`/

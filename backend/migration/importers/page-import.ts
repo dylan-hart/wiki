@@ -1,8 +1,8 @@
-import { normalizeMigratedPath } from './path-normalization.ts'
-import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
-import type { StagedPage } from './content-staging.ts'
+import { normalizeMigratedPath } from '../path-normalization.ts'
+import type { PathAssignmentOptions, TreePathAssignment } from '../path-normalization.ts'
+import type { StagedPage } from '../content-staging.ts'
 import type { PageHistoryImportResult } from './page-history-import.ts'
-import type { Page, PageActor, PageInput } from '../models/pages.ts'
+import type { Page, PageActor, PageInput } from '../../models/pages.ts'
 
 /**
  * Page content import via `createPage()` (Feature 416 / Task 738; streamed per WP #1790 / Task #1818)

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { extractLocaleItems, importNavigation, mapNavigationItem } from './navigation-import.ts'
 import type { NavigationPageRef, NavigationWriteModel } from './navigation-import.ts'
-import type { StagedNavigation } from './content-staging.ts'
+import type { StagedNavigation } from '../content-staging.ts'
 
 describe('extractLocaleItems', () => {
   test('returns a pre-2.3 flat array (each item already carries a kind) untouched', () => {

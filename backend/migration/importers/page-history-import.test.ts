@@ -4,7 +4,7 @@ import type {
   OrphanedPageHistoryEntry,
   StagedPage,
   StagedPageHistoryEntry
-} from './content-staging.ts'
+} from '../content-staging.ts'
 import {
   backfillOrphanedPageHistory,
   backfillPageHistoryForPage,
