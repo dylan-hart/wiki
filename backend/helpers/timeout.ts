@@ -1,7 +1,7 @@
 /**
  * Race a promise against a timer, so work that has no ceiling of its own gets one.
  *
- * The seven places that hand-rolled this — the scheduler's worker/in-process task races and its
+ * The eight places that hand-rolled this — the scheduler's worker/in-process task races and its
  * shutdown drain, the render/diagram/PDF Puppeteer steps, the search engine init — all wrote the
  * same block: a `setTimeout` rejecting into a `Promise.race`, with a `clearTimeout` in a `finally`
  * so a fast success does not leave a timer holding the event loop open. What differed between them

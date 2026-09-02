@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
  * The page a headless browser loads in order to render markdown for the server.
  *
  * Nothing but a host for the frontend's renderer bundle — it holds no data, reads nothing and
- * displays nothing. `models/rendering.ts` navigates here, waits for `__wikiRenderReady` and calls
+ * displays nothing. `models/renderQueue.ts` navigates here, waits for `__wikiRenderReady` and calls
  * `__wikiRender` with the content to render.
  */
 const SHELL = `<!doctype html>
@@ -29,7 +29,7 @@ const SHELL = `<!doctype html>
  * No `enforceApiKeySite()` call belongs here (OpenProject #2201's enumeration named this file, but
  * this route resolves no site at all — the fixed shell below is identical for every site, and the
  * headless browser that fetches it carries no API key). The actual per-page render happens inside
- * that headless browser via `models/rendering.ts`'s own `page.evaluate()`, never as a second HTTP
+ * that headless browser via `models/renderQueue.ts`'s own `page.evaluate()`, never as a second HTTP
  * request back through this server.
  */
 async function routes(app: FastifyInstance) {

@@ -40,6 +40,10 @@ describe('normalizeHostname', () => {
   test('leaves an already-lowercase hostname unchanged', () => {
     assert.equal(normalizeHostname('wiki.example.com'), 'wiki.example.com')
   })
+
+  test('leaves the wildcard mapping key untouched', () => {
+    assert.equal(normalizeHostname('*'), '*')
+  })
 })
 
 describe('siteIdForHostname', () => {
@@ -181,26 +185,13 @@ describe('resolveRequestSite', () => {
   })
 })
 
-describe('normalizeHostname', () => {
-  test('lowercases', () => {
-    assert.equal(normalizeHostname('Wiki.Example.Com'), 'wiki.example.com')
-  })
-
-  test('is a no-op on an already-lowercase hostname', () => {
-    assert.equal(normalizeHostname('wiki.example.com'), 'wiki.example.com')
-  })
-
-  test('leaves the wildcard mapping key untouched', () => {
-    assert.equal(normalizeHostname('*'), '*')
-  })
-})
-
 /**
  * Task 2085: an unauthenticated client naming another site's hostname in `X-Forwarded-Host` must not
  * be able to steer site resolution, unless it genuinely arrived through a proxy address the instance
  * has been told to trust. `resolveRequestSite` itself trusts whatever `hostname` it is handed (see its
  * doc comment) -- the refusal happens one layer up, in Fastify's own `trustProxy`-aware
- * `request.hostname` getter, exercised here exactly as `index.ts`'s site-resolution hook uses it: a
+ * `request.hostname` getter, exercised here exactly as `core/http/siteRouting.ts`'s site-resolution hook uses
+ * it: a
  * real Fastify instance, a real `trustProxy` address spec, and `.inject()`'s `remoteAddress` standing
  * in for the socket peer.
  */

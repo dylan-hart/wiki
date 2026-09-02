@@ -472,7 +472,7 @@ class Storage {
    *
    * @param opts.mask When true, a `sensitive` prop's stored value (an S3 secret key, an sftp
    *   password, ...) is replaced with a mask before being returned -- see
-   *   `helpers/common.ts#maskSensitiveConfig`. Defaults to false: this is the *only* place a
+   *   `helpers/moduleProps.ts#maskSensitiveConfig`. Defaults to false: this is the *only* place a
    *   target's config is assembled, so `dispatch()`, `executeAction()` and `runDailyBackups()` all
    *   call this with the default and need the real values to actually connect.
    *   Only an admin-facing read that serializes `config` straight into an HTTP response should ever

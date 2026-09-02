@@ -208,7 +208,7 @@ class Authentication {
    *
    * @param opts.mask When true, a `sensitive` prop's stored value (an OAuth client secret, an LDAP
    *   bind password, ...) is replaced with a mask before being returned -- see
-   *   `helpers/common.ts#maskSensitiveConfig`. Defaults to false: `updateStrategy()`'s own merge
+   *   `helpers/moduleProps.ts#maskSensitiveConfig`. Defaults to false: `updateStrategy()`'s own merge
    *   reads through this method too, and needs the real values to preserve an untouched secret
    *   correctly. The actual login flow never reads config from here at all -- it goes through the
    *   raw `getStrategies()` below, used only to build `WIKI.auth.strategies` -- so masking here by

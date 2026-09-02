@@ -19,7 +19,7 @@ import { sessionCookieName, shouldBlockCrossOriginApiRequest } from '../../helpe
  * The route-permission gate: the single place a route's `config.permissions` declaration is
  * enforced.
  *
- * Callback-style (`(req, reply, done)`), matching `helpers/common.ts#siteEnabledPreHandler` and
+ * Callback-style (`(req, reply, done)`), matching `helpers/siteResolution.ts#siteEnabledPreHandler` and
  * `helpers/apiKeySite.ts#apiKeySitePinHook` — register it with
  * `app.addHook('preHandler', permissionPreHandler)`.
  *

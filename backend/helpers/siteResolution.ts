@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 
 import { isValidUuid } from './common.ts'
 
-/** What a page/shell request's hostname resolved to, for the site-resolution hook in `index.ts`. */
+/** What a page/shell request's hostname resolved to, for the site-resolution hook in `core/http/siteRouting.ts`. */
 export type RequestSiteResolution =
   | { outcome: 'exempt' }
   | { outcome: 'not-found' }
@@ -13,7 +13,7 @@ export type RequestSiteResolution =
  * Decide what a page/shell request's hostname resolves to, and whether the request should be let
  * through at all.
  *
- * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[normalizeHostname(hostname)]
+ * Mirrors the SEO hook's precedence in `core/http/siteRouting.ts` exactly — `sitesMappings[normalizeHostname(hostname)]
  * || sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide
  * whether to strip a page extension.
  *
@@ -23,7 +23,7 @@ export type RequestSiteResolution =
  *
  * `hostname` is trusted as-is here — the refusal of a forwarded host that names a different site than
  * the socket's own `Host` (task 2085, `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6)
- * happens one layer up, in Fastify itself: `index.ts` passes `security.trustProxy` straight through
+ * happens one layer up, in Fastify itself: `core/http/server.ts` passes `security.trustProxy` straight through
  * as Fastify's own `trustProxy` option, and once that is a genuine address/CIDR spec rather than a
  * bare `true`, Fastify's vendored `request.hostname` getter (`fastify/lib/request.js`) only reads
  * `X-Forwarded-Host` from a peer address the spec covers, falling back to the raw `Host` header for
@@ -151,7 +151,7 @@ export async function resolveSiteParam(
 }
 
 /**
- * Response contract for a site resolved OUTSIDE the page/shell hook in `index.ts` — an API route or
+ * Response contract for a site resolved OUTSIDE the page/shell hook in `core/http/siteRouting.ts` — an API route or
  * static controller that already has a siteId or hostname of its own (a JSON endpoint, an image, a
  * downloaded file) rather than one arriving through `resolveRequestSite` above. Those requests are
  * not navigations a browser can be bounced away from, so where the hook redirects to a distinct

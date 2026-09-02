@@ -15,7 +15,7 @@ import type {
 } from './search.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 
-/** A prop shaped the way `parseModuleProps` (helpers/common.ts) normalizes a `definition.yml` entry. */
+/** A prop shaped the way `parseModuleProps` (helpers/moduleProps.ts) normalizes a `definition.yml` entry. */
 function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
   return {
     default: false,

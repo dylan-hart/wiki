@@ -40,7 +40,7 @@ export interface ModuleDefinitionRecord {
  *
  * @param opts.label The module kind in human words ("authentication module"). Read only by
  *   `logEach`, so a caller that does not log per module leaves it out.
- * @param opts.parseProps Normalize `props` through `parseModuleProps` (`helpers/common.ts`).
+ * @param opts.parseProps Normalize `props` through `parseModuleProps` (`helpers/moduleProps.ts`).
  * @param opts.sortPropsByOrder Order the parsed props by their declared `order`, so that every
  *   consumer — the admin area included — reads them in the order the module meant them to be shown.
  * @param opts.skipUnavailable Drop a definition that does not declare `isAvailable`.
@@ -100,7 +100,7 @@ export function mergeModuleConfig(
 ): Record<string, any> {
   // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
   //    through to `current` below instead of overwriting the real stored secret with the mask
-  //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
+  //    string itself. See `helpers/moduleProps.ts#unmaskSensitiveConfig`.
   const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
   const config: Record<string, any> = {}
   for (const [key, prop] of Object.entries(props)) {

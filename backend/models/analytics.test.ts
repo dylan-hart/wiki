@@ -7,7 +7,7 @@ import path from 'node:path'
  *
  * `models/analytics.ts` mirrors `models/authentication.ts`'s directory-scan pattern — readdir
  * `modules/analytics`, parse each `definition.yml`, run its `props` through
- * `helpers/common.ts#parseModuleProps` — but has no db table behind it, since a provider's
+ * `helpers/moduleProps.ts#parseModuleProps` — but has no db table behind it, since a provider's
  * enabled/config state lives directly in each site's `config.analytics.providers` rather than being
  * shared instance-wide the way an auth strategy is. This is a plain unit test against the real
  * `modules/analytics` directory added by this task: no db, no fastify app, just `fs` + `js-yaml`.

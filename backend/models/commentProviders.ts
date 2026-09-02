@@ -230,7 +230,7 @@ class CommentProviders {
    * after a provider was configured is returned with its default rather than as a missing key.
    *
    * @param opts.mask When true, a `sensitive` prop's stored value (the Akismet API key, ...) is
-   *   replaced with a mask before being returned -- see `helpers/common.ts#maskSensitiveConfig`.
+   *   replaced with a mask before being returned -- see `helpers/moduleProps.ts#maskSensitiveConfig`.
    *   Defaults to false: `setActiveProvider()`'s own merge reads through this method too, and needs
    *   the real values to preserve an untouched secret correctly. Only an admin-facing read that
    *   serializes `config` straight into an HTTP response should pass `{ mask: true }`.

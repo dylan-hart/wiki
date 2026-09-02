@@ -216,7 +216,7 @@ export interface SearchEngineDefinition {
    * Engine-specific config fields, e.g. an API key or an index name.
    *
    * `dictOverrides` (a locale -> text search dictionary map) is deliberately not declared here:
-   * `parseModuleProps` (`helpers/common.ts`) only knows how to validate boolean/number/string/enum
+   * `parseModuleProps` (`helpers/moduleProps.ts`) only knows how to validate boolean/number/string/enum
    * scalars, and an override map is a free-form object with no fixed set of keys. It stays a JSON
    * config field a provider reads directly off its stored config — same as `AdminSearch.vue`'s
    * `util-code-editor` already edits it today — rather than being forced through prop validation that
@@ -363,7 +363,7 @@ class Search {
    * restart is simply absent, rather than half-present with no metadata behind it.
    *
    * @param opts.mask When true, a `sensitive` prop's stored value (Algolia's `apiKey`, ...) is
-   *   replaced with a mask before being returned -- see `helpers/common.ts#maskSensitiveConfig`.
+   *   replaced with a mask before being returned -- see `helpers/moduleProps.ts#maskSensitiveConfig`.
    *   Defaults to false; `selectEngine()`/`initActiveEngines()` never call this at all (they read
    *   `getEngineConfig()` directly), but the default stays false here too so a caller other than the
    *   admin list route never gets a masked value it did not ask for.

@@ -453,7 +453,7 @@ class Navigation {
    * per-page/per-folder menus, and copying one of those across sites isn't a use case this covers.
    *
    * Reads `siteId`'s active locales from the cached site config rather than taking them as a
-   * parameter, same as `defaultLocale` in `helpers/common.ts` reaching into `WIKI.sites` directly —
+   * parameter, same as `defaultLocale` in `helpers/localeRouting.ts` reaching into `WIKI.sites` directly —
    * a site with none configured (or one this instance doesn't know about) resolves to an empty list
    * rather than an error, since there is nothing to enumerate.
    */

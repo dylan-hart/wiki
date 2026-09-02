@@ -3,7 +3,7 @@ import { describe, test } from 'node:test'
 import { mergeModuleConfig, validateModuleConfig } from './moduleRegistry.ts'
 import type { ModuleProp } from './moduleProps.ts'
 
-/** A prop shaped the way `parseModuleProps` (helpers/common.ts) normalizes a `definition.yml` entry. */
+/** A prop shaped the way `parseModuleProps` (helpers/moduleProps.ts) normalizes a `definition.yml` entry. */
 function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
   return {
     default: false,

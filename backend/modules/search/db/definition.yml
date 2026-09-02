@@ -13,7 +13,7 @@ props:
     default: false
 # dictOverrides (a locale -> PostgreSQL text search dictionary map, e.g. { "en": "english" }) has no
 # entry above on purpose: it is not a scalar the props system (parseModuleProps in
-# backend/helpers/common.ts) can validate, since that system only understands boolean/number/string/enum
+# backend/helpers/moduleProps.ts) can validate, since that system only understands boolean/number/string/enum
 # values, not an object with an arbitrary set of locale keys. It stays a free-form JSON config field this
 # module reads directly off its stored config (config.dictOverrides) instead — the same way
 # frontend/src/pages/AdminSearch.vue already edits it today, through a util-code-editor rather than a

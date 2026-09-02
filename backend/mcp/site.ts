@@ -20,7 +20,7 @@ export interface McpSite {
 
 /**
  * Resolve a site by id, refusing one that does not exist or is disabled — the same
- * `helpers/common.ts`'s `guardSiteEnabled()` check `api/index.ts`'s shared `preHandler` applies to
+ * `helpers/siteResolution.ts`'s `guardSiteEnabled()` check `api/index.ts`'s shared `preHandler` applies to
  * every content/feature `:siteId`-scoped `/_api` route (OpenProject task 1593; `api/sites.ts`'s own
  * site-ADMINISTRATION routes are deliberately excluded there, see its comment), adapted to throw since
  * there is no `FastifyReply` here to write to, and to answer "does not exist" rather than leaving an
