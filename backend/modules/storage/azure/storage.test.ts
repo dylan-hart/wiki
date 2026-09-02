@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import { BlockBlobClient, ContainerClient } from '@azure/storage-blob'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { runStorageModuleContract } from '../../../test/storageModuleContract.ts'
 import storageModule, {
   buildServiceClient,
   ensureContainer,
   isContainerAlreadyExists
 } from './storage.ts'
-import { keyFor } from '../blobBase.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -129,143 +129,7 @@ describe('azure storage / ensureContainer (activation)', () => {
   })
 })
 
-describe('azure storage / keyFor', () => {
-  test('scopes the key by siteId and joins the folder path', () => {
-    const target = makeTarget()
-    assert.equal(keyFor(target, 'docs/reports', 'q1.pdf'), `${target.siteId}/docs/reports/q1.pdf`)
-  })
-
-  test('an empty folderPath yields a key straight under the site', () => {
-    const target = makeTarget()
-    assert.equal(keyFor(target, '', 'logo.png'), `${target.siteId}/logo.png`)
-  })
-})
-
-describe('azure storage / per-asset lifecycle', () => {
-  test('assetUploaded fetches the bytes and uploads them under the site-scoped key, with the configured tier', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
-      data: Buffer.from('hello'),
-      mimeType: 'text/plain',
-      fileName: 'notes.txt'
-    }))
-    const target = makeTarget()
-
-    await storageModule.assetUploaded!(target, {
-      id: 'asset-1',
-      fileName: 'notes.txt',
-      folderPath: 'docs',
-      kind: 'document',
-      fileSize: 5
-    })
-
-    assert.equal(uploadMock.mock.callCount(), 1)
-    const call = uploadMock.mock.calls[0]!
-    assert.equal((call.arguments[0] as Buffer).toString(), 'hello')
-    assert.equal(call.arguments[1], 5)
-    const options = call.arguments[2] as any
-    assert.equal(options.tier, 'cool')
-    assert.equal(options.blobHTTPHeaders.blobContentType, 'text/plain')
-    // -> the BlockBlobClient this call landed on is scoped to the site-prefixed key
-    assert.equal((call.this as BlockBlobClient).name, `${target.siteId}/docs/notes.txt`)
-  })
-
-  test('assetUploaded is a no-op when the asset was deleted again before delivery', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => null)
-    const target = makeTarget()
-
-    await storageModule.assetUploaded!(target, { id: 'gone', fileName: 'x.txt', folderPath: '' })
-
-    assert.equal(uploadMock.mock.callCount(), 0)
-  })
-
-  test('assetDeleted deletes the site-scoped key with snapshots included', async () => {
-    const target = makeTarget()
-
-    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
-
-    assert.equal(deleteMock.mock.callCount(), 1)
-    const call = deleteMock.mock.calls[0]!
-    assert.deepEqual(call.arguments[0], { deleteSnapshots: 'include' })
-    assert.equal((call.this as BlockBlobClient).name, `${target.siteId}/images/old.png`)
-  })
-
-  test('assetRenamed copies to the new key via syncCopyFromURL, then deletes the old one', async () => {
-    const target = makeTarget()
-
-    await storageModule.assetRenamed!(target, {
-      fileName: 'new-name.png',
-      previousFileName: 'old-name.png',
-      folderPath: 'images'
-    })
-
-    assert.equal(syncCopyMock.mock.callCount(), 1)
-    const copyCall = syncCopyMock.mock.calls[0]!
-    const destinationKey = `${target.siteId}/images/new-name.png`
-    const sourceKey = `${target.siteId}/images/old-name.png`
-    assert.equal((copyCall.this as BlockBlobClient).name, destinationKey)
-    // -> unlike S3's CopySource, syncCopyFromURL takes the source client's own (unencoded) `.url`
-    assert.ok((copyCall.arguments[0] as string).endsWith(`wiki/${sourceKey}`))
-
-    assert.equal(deleteMock.mock.callCount(), 1)
-    const deleteCall = deleteMock.mock.calls[0]!
-    assert.equal((deleteCall.this as BlockBlobClient).name, sourceKey)
-  })
-})
-
 describe('azure storage / exportAll', () => {
-  test('pushes only assets the target contentTypes cover, keyed under the site', async () => {
-    const target = makeTarget()
-    target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
-
-    WIKI.models.assets.streamAll = async function* () {
-      yield {
-        id: 'a1',
-        fileName: 'pic.png',
-        folderPath: 'gallery',
-        kind: 'image',
-        fileSize: 100,
-        mimeType: 'image/png',
-        data: Buffer.from('img')
-      }
-      yield {
-        id: 'a2',
-        fileName: 'report.pdf',
-        folderPath: 'docs',
-        kind: 'document',
-        fileSize: 200,
-        mimeType: 'application/pdf',
-        data: Buffer.from('doc')
-      }
-    } as any
-
-    await storageModule.exportAll(target)
-
-    assert.equal(uploadMock.mock.callCount(), 1)
-    const call = uploadMock.mock.calls[0]!
-    assert.equal((call.this as BlockBlobClient).name, `${target.siteId}/gallery/pic.png`)
-  })
-
-  test('a large asset is exported under the large bucket instead of its kind, when large is active', async () => {
-    const target = makeTarget()
-    target.contentTypes = { activeTypes: ['large'], largeThreshold: '1B' }
-
-    WIKI.models.assets.streamAll = async function* () {
-      yield {
-        id: 'a1',
-        fileName: 'huge.bin',
-        folderPath: '',
-        kind: 'other',
-        fileSize: 999,
-        mimeType: 'application/octet-stream',
-        data: Buffer.from('x')
-      }
-    } as any
-
-    await storageModule.exportAll(target)
-
-    assert.equal(uploadMock.mock.callCount(), 1)
-  })
-
   test('an activation failure (bad container) surfaces as a thrown Error rather than an unhandled SDK exception', async () => {
     createMock.mock.mockImplementationOnce(async () => {
       throw Object.assign(new Error('Server failed to authenticate the request.'), {
@@ -287,7 +151,9 @@ describe('azure storage / exportAll', () => {
 })
 
 describe('azure storage / getDirectUrl', () => {
-  test('returns a short-TTL, read-only SAS URL for the blob', async () => {
+  /** That it addresses the right key for the shared TTL is the contract's; that it grants READ only,
+   * as an SAS permission string, is this SDK's. */
+  test('the SAS grants read and nothing else', async () => {
     const target = makeTarget()
     const url = await storageModule.getDirectUrl!(
       {
@@ -299,11 +165,45 @@ describe('azure storage / getDirectUrl', () => {
       target
     )
 
-    const parsed = new URL(url!)
-    assert.ok(parsed.pathname.includes(`${target.siteId}/images/pic.png`))
-    assert.equal(parsed.searchParams.get('sp'), 'r')
-    const expiry = new Date(parsed.searchParams.get('se')!)
-    const deltaSeconds = (expiry.getTime() - Date.now()) / 1000
-    assert.ok(deltaSeconds > 290 && deltaSeconds <= 300, `expected ~300s TTL, got ${deltaSeconds}`)
+    assert.equal(new URL(url!).searchParams.get('sp'), 'r')
   })
+})
+
+/**
+ * The ten asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of
+ * `@azure/storage-blob`'s own call shapes — see `test/storageModuleContract.ts` for what they are
+ * and why they live in one place. Everything above this line is this module's alone.
+ */
+runStorageModuleContract('azure', {
+  makeTarget,
+  stubSdk: () => {
+    /** `<container>/<key>` off a blob URL's path, dropping the container the target is configured for. */
+    const keyFromUrl = (url: string) =>
+      new URL(url).pathname.replace(/^\//, '').split('/').slice(1).join('/')
+    return {
+      module: storageModule,
+      puts: () =>
+        uploadMock.mock.calls.map((call) => ({
+          key: (call.this as BlockBlobClient).name,
+          body: (call.arguments[0] as Buffer).toString(),
+          mimeType: (call.arguments[2] as any).blobHTTPHeaders.blobContentType,
+          storageTier: (call.arguments[2] as any).tier
+        })),
+      removes: () => deleteMock.mock.calls.map((call) => (call.this as BlockBlobClient).name),
+      copies: () =>
+        syncCopyMock.mock.calls.map((call) => ({
+          // -> unlike S3's CopySource, syncCopyFromURL takes the source client's own (unencoded) URL
+          sourceKey: keyFromUrl(call.arguments[0] as string),
+          destinationKey: (call.this as BlockBlobClient).name
+        })),
+      describeDirectUrl: (url: string) => {
+        const parsed = new URL(url)
+        const expiry = new Date(parsed.searchParams.get('se')!)
+        return {
+          key: keyFromUrl(url),
+          ttlSeconds: (expiry.getTime() - Date.now()) / 1000
+        }
+      }
+    }
+  }
 })

@@ -322,4 +322,39 @@ describe('blobBase / error wrapping', () => {
       }
     )
   })
+
+  /**
+   * `getDirectUrl` is the one handler whose action name is a whole phrase rather than a verb, and
+   * the only one that returns a value rather than resolving — so its wrapper is the easiest to
+   * change without noticing. An admin whose bucket credentials cannot sign reads sees this string.
+   */
+  test('a signing failure names the direct-access action and the key, verbatim', async () => {
+    const driver = makeDriver()
+    driver.sign.mock.mockImplementationOnce(async () => {
+      throw new Error('credentials cannot sign')
+    })
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    await assert.rejects(
+      () =>
+        module.getDirectUrl!(
+          {
+            id: 'asset-1',
+            updatedAt: new Date('2024-01-01T00:00:00Z'),
+            folderPath: 'images',
+            fileName: 'pic.png'
+          },
+          target
+        ),
+      (err: any) => {
+        assert.ok(err instanceof Error)
+        assert.equal(
+          err.message,
+          `Failed to generate a direct-access URL for "${target.siteId}/images/pic.png": credentials cannot sign`
+        )
+        return true
+      }
+    )
+  })
 })

@@ -2,9 +2,9 @@ import { describe, test, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { Bucket, File } from '@google-cloud/storage'
 import storageModule, { buildClient, ensureBucket } from './storage.ts'
-import { keyFor } from '../blobBase.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
+import { runStorageModuleContract } from '../../../test/storageModuleContract.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -141,140 +141,7 @@ describe('gcs storage / ensureBucket (activation)', () => {
   })
 })
 
-describe('gcs storage / keyFor', () => {
-  test('scopes the key by siteId and joins the folder path', () => {
-    const target = makeTarget()
-    assert.equal(keyFor(target, 'docs/reports', 'q1.pdf'), `${target.siteId}/docs/reports/q1.pdf`)
-  })
-
-  test('an empty folderPath yields a key straight under the site', () => {
-    const target = makeTarget()
-    assert.equal(keyFor(target, '', 'logo.png'), `${target.siteId}/logo.png`)
-  })
-})
-
-describe('gcs storage / per-asset lifecycle', () => {
-  test('assetUploaded fetches the bytes and saves them under the site-scoped key, with the configured tier', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
-      data: Buffer.from('hello'),
-      mimeType: 'text/plain',
-      fileName: 'notes.txt'
-    }))
-    const target = makeTarget()
-
-    await storageModule.assetUploaded!(target, {
-      id: 'asset-1',
-      fileName: 'notes.txt',
-      folderPath: 'docs',
-      kind: 'document',
-      fileSize: 5
-    })
-
-    assert.equal(saveMock.mock.callCount(), 1)
-    const call = saveMock.mock.calls[0]!
-    assert.equal((call.arguments[0] as Buffer).toString(), 'hello')
-    const options = call.arguments[1] as any
-    assert.equal(options.contentType, 'text/plain')
-    assert.equal(options.metadata.storageClass, 'STANDARD')
-    // -> the File this call landed on is scoped to the site-prefixed key
-    assert.equal((call.this as File).name, `${target.siteId}/docs/notes.txt`)
-  })
-
-  test('assetUploaded is a no-op when the asset was deleted again before delivery', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => null)
-    const target = makeTarget()
-
-    await storageModule.assetUploaded!(target, { id: 'gone', fileName: 'x.txt', folderPath: '' })
-
-    assert.equal(saveMock.mock.callCount(), 0)
-  })
-
-  test('assetDeleted deletes the site-scoped key', async () => {
-    const target = makeTarget()
-
-    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
-
-    assert.equal(deleteMock.mock.callCount(), 1)
-    const call = deleteMock.mock.calls[0]!
-    assert.equal((call.this as File).name, `${target.siteId}/images/old.png`)
-  })
-
-  test('assetRenamed copies to the new key, then deletes the old one', async () => {
-    const target = makeTarget()
-
-    await storageModule.assetRenamed!(target, {
-      fileName: 'new-name.png',
-      previousFileName: 'old-name.png',
-      folderPath: 'images'
-    })
-
-    assert.equal(copyMock.mock.callCount(), 1)
-    const copyCall = copyMock.mock.calls[0]!
-    const destinationKey = `${target.siteId}/images/new-name.png`
-    const sourceKey = `${target.siteId}/images/old-name.png`
-    assert.equal((copyCall.this as File).name, sourceKey)
-    assert.equal((copyCall.arguments[0] as File).name, destinationKey)
-
-    assert.equal(deleteMock.mock.callCount(), 1)
-    const deleteCall = deleteMock.mock.calls[0]!
-    assert.equal((deleteCall.this as File).name, sourceKey)
-  })
-})
-
 describe('gcs storage / exportAll', () => {
-  test('pushes only assets the target contentTypes cover, keyed under the site', async () => {
-    const target = makeTarget()
-    target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
-
-    WIKI.models.assets.streamAll = async function* () {
-      yield {
-        id: 'a1',
-        fileName: 'pic.png',
-        folderPath: 'gallery',
-        kind: 'image',
-        fileSize: 100,
-        mimeType: 'image/png',
-        data: Buffer.from('img')
-      }
-      yield {
-        id: 'a2',
-        fileName: 'report.pdf',
-        folderPath: 'docs',
-        kind: 'document',
-        fileSize: 200,
-        mimeType: 'application/pdf',
-        data: Buffer.from('doc')
-      }
-    } as any
-
-    await storageModule.exportAll(target)
-
-    assert.equal(saveMock.mock.callCount(), 1)
-    const call = saveMock.mock.calls[0]!
-    assert.equal((call.this as File).name, `${target.siteId}/gallery/pic.png`)
-  })
-
-  test('a large asset is exported under the large bucket instead of its kind, when large is active', async () => {
-    const target = makeTarget()
-    target.contentTypes = { activeTypes: ['large'], largeThreshold: '1B' }
-
-    WIKI.models.assets.streamAll = async function* () {
-      yield {
-        id: 'a1',
-        fileName: 'huge.bin',
-        folderPath: '',
-        kind: 'other',
-        fileSize: 999,
-        mimeType: 'application/octet-stream',
-        data: Buffer.from('x')
-      }
-    } as any
-
-    await storageModule.exportAll(target)
-
-    assert.equal(saveMock.mock.callCount(), 1)
-  })
-
   test('an activation failure (missing bucket) surfaces as a thrown Error rather than an unhandled SDK exception', async () => {
     existsMock.mock.mockImplementationOnce(async () => [false] as any)
     const target = makeTarget({ bucket: 'nonexistent-bucket' })
@@ -292,7 +159,9 @@ describe('gcs storage / exportAll', () => {
 })
 
 describe('gcs storage / getDirectUrl', () => {
-  test('requests a short-TTL, read-only signed URL for the object', async () => {
+  /** That it addresses the right key for the shared TTL is the contract's; that it asks for a `read`
+   * action, and hands back exactly what the SDK signed, is this SDK's. */
+  test("asks the SDK for a 'read' signed URL and returns it unchanged", async () => {
     const target = makeTarget()
 
     const url = await storageModule.getDirectUrl!(
@@ -307,11 +176,40 @@ describe('gcs storage / getDirectUrl', () => {
 
     assert.equal(url, 'https://storage.googleapis.com/signed')
     assert.equal(getSignedUrlMock.mock.callCount(), 1)
-    const call = getSignedUrlMock.mock.calls[0]!
-    assert.equal((call.this as File).name, `${target.siteId}/images/pic.png`)
-    const config = call.arguments[0] as any
-    assert.equal(config.action, 'read')
-    const deltaSeconds = (config.expires - Date.now()) / 1000
-    assert.ok(deltaSeconds > 290 && deltaSeconds <= 300, `expected ~300s TTL, got ${deltaSeconds}`)
+    assert.equal((getSignedUrlMock.mock.calls[0]!.arguments[0] as any).action, 'read')
+  })
+})
+
+/**
+ * The ten asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of
+ * `@google-cloud/storage`'s own call shapes — see `test/storageModuleContract.ts` for what they are
+ * and why they live in one place. Everything above this line is this module's alone.
+ */
+runStorageModuleContract('gcs', {
+  makeTarget,
+  stubSdk: () => ({
+    module: storageModule,
+    puts: () =>
+      saveMock.mock.calls.map((call) => ({
+        key: (call.this as File).name,
+        body: (call.arguments[0] as Buffer).toString(),
+        mimeType: (call.arguments[1] as any).contentType,
+        storageTier: (call.arguments[1] as any).metadata.storageClass
+      })),
+    removes: () => deleteMock.mock.calls.map((call) => (call.this as File).name),
+    copies: () =>
+      copyMock.mock.calls.map((call) => ({
+        sourceKey: (call.this as File).name,
+        destinationKey: (call.arguments[0] as File).name
+      })),
+    // -> The URL itself is the SDK's canned answer here, carrying nothing to read back: `getSignedUrl`
+    //    is the call that names the object and the expiry, so the request is what gets described.
+    describeDirectUrl: () => {
+      const call = getSignedUrlMock.mock.calls[0]!
+      return {
+        key: (call.this as File).name,
+        ttlSeconds: ((call.arguments[0] as any).expires - Date.now()) / 1000
+      }
+    }
   })
 })
