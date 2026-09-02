@@ -68,6 +68,26 @@ These are behaviour-adjacent. Each is judged correct and small; any can be rever
 | D9 | `index.ts` keeps exactly one `unhandledRejection` handler: `processGuards.ts`'s, given an `exit` option. | The second could never run (CORE-F9). |
 | D10 | `AdminStorage`'s delivery-graph `las` webfont glyphs become inline SVG `img:` icons. | No such font is loaded; the glyphs render as tofu (VIEW-F10). |
 
+Found during implementation, in the same spirit — each is a consequence of folding two near-identical
+things into one, not an independent change of intent:
+
+| # | Decision | Why |
+| --- | --- | --- |
+| D11 | `api/apiKeys` + `users/profile` API-key creation: a body with TWO faults now reports a different fault first (name → siteId → classifications → groups; was name → groups → siteId → classifications). Single-fault messages unchanged. | One shared validator for both routes; the order is the shared one (A8). |
+| D12 | `block-plantuml` inherits kroki's `_measure()`/`is-unsized` fallback. | Falls out of the shared `DiagramImageElement`; only fires for an image with no intrinsic size (C2). |
+| D13 | `block-vimeo`/`block-dailymotion` resolve their error strings through `I18n` (one locale fetch on connect, cached per locale). | Matches `block-youtube`; the four keys do not exist yet, so both still render their unchanged English fallbacks (C2). |
+| D14 | Password-strength label "Medium" → "Average" in the three admin password dialogs. | Unified onto the one `common.password.*` key set (B2). |
+| D15 | The webhook/asset/folder/group delete confirmations use `WConfirmDialog` (`destructive`): no in-dialog loading state, no retry-in-place on failure (the toast still reports it). | Four bespoke dialogs that only confirmed, folded into the shared one (B2). |
+| D16 | `autocomplete="new-password"` now applies to sensitive module-config inputs on Analytics/Auth/Comments. | The shared `ModuleConfigForm` already did this; the three private copies did not (B2). |
+| D17 | `useAdminSettings`: save-failure captions on Analytics/Flags/Security try the `admin.<page>.<errorCode>` key before the raw message; Refresh on AdminBlocks/AdminEditors raises the loading overlay; the success toast precedes the store patch on Theme/Editors. | The settled shape every other settings page already had (B3). |
+| D18 | `GroupUsersPanel` renders a loading table instead of a blank page when landing directly on a group's users section. | Falls out of the shared panel's own loading state (B5). |
+| D19 | `models/userCredentials.verifyTfaCode` returns `false` for an account deleted mid-verification (was `true`). | The extracted `patchStrategyAuth` re-reads the row inside the advisory lock and declines the write when there is no row (A10). |
+| D20 | s3 `getDirectUrl` failure string "Failed to presign …" → "Failed to generate a direct-access URL for …"; a malformed sftp `largeThreshold` falls back to `Infinity` instead of throwing out of `exportAssets`. | Matches azure/gcs and `helpers/blobTarget.ts` respectively (A12, D3). |
+| D21 | A live migration run in which a phase created nothing exits 0 (was reclassified `not_implemented` → exit 1). | `trackWriteCapability` is gone: every phase has a real write path, so an empty phase is an empty phase (A19). |
+| D22 | `helpers/treeNodes.js#fetchTreeEntries` omits `locale` from the query when nullish (File Manager previously sent `locale=null`). | One loader for three callers; `null` in a query string was the outlier (B4). |
+| D23 | `stores/page.js#pageUnlock` also resets `password`/`removePassword` (via `pagePatch`). | The shared patch is what "unlock" means; the partial reset was an omission (B4). |
+| D24 | After the api splits, an unmatched `Content-Type` sent to a route in `api/pages/`, `api/users/` or `api/system/` outside the sub-plugin owning the parser answers 415 (`FST_ERR_CTP_INVALID_MEDIA_TYPE`) instead of being parsed by the resource-wide parser and failing validation with 400. Notably `application/octet-stream` to a non-transfer `/system` route no longer writes an upload file before failing. | `register()` is a real encapsulation boundary; the narrower scope is the correct one (A17). |
+
 Left alone as genuine behaviour questions (noted for triage, not changed): `approvals.getActorGroupIds`
 vs `groups.groupIdsForRequest` on API-key requests; `approvals.matchesPage` case folding;
 `WCircularProgress`/`WSpinner` merge; dropping `pako`.

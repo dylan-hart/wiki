@@ -47,11 +47,30 @@ from inside `backend/`. It boots in three phases: `preBoot()` (config → db →
 scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes), `postBoot()`
 (refresh locales/strategies/sites from disk & db, start scheduler).
 
-- `api/` — REST route plugins, one file per resource (`sites.ts`, `users.ts`, `pages.ts`,
-  `system.ts`, `locales.ts`, `authentication.ts`), registered by `api/index.ts` under the `/_api`
-  prefix.
+- `api/` — REST route plugins, one file **or directory** per resource (`sites.ts`, `locales.ts`,
+  `assets.ts`, `tree.ts`, …, plus `pages/`, `users/`, `system/` and `auth/`), registered by
+  `api/index.ts` under the `/_api` prefix.
+  - **A resource too large for one file is a directory whose `index.ts` is its plugin**, split into
+    sub-plugins by responsibility: `pages/{read,write,history,import,export,classification}.ts`,
+    `users/{admin,profile}.ts`, `system/{info,settings,maintenance,transfer,extensions}.ts`,
+    `auth/{provider,site,strategies}.ts`. The aggregate `index.ts` registers each **unprefixed** — a
+    sub-plugin declares whole paths, so a prefix of its own would move every route it owns — and the
+    mounted table is identical to the single file it replaced. Two consequences: `register()` is a
+    real encapsulation boundary, so a body parser or `@fastify/multipart` registered inside a
+    sub-plugin is scoped to that sub-plugin alone (`pages/import.ts` owns the `'*'` buffer parser,
+    `system/transfer.ts` the gzip one) and an unmatched `Content-Type` sent to a sibling
+    sub-plugin's route answers 415 rather than reaching the parser; and **a route file must never
+    import another route file** — shared route logic belongs in `helpers/` (`helpers/pageAccess.ts`
+    is what that rule produced), which is also what lets the structural scans in
+    `api/routeTags.test.ts`, `api/responseErrors.test.ts` and `api/index.test.ts` treat everything
+    under `api/` as a plugin.
   - `api/schemas/` — shared JSON Schemas registered via `app.addSchema()` and referenced from route
-    schemas as `{ $ref: 'Site#' }`. Register new shared schemas in `api/index.ts` _before_ the routes.
+    schemas as `{ $ref: 'Site#' }`. Register new shared schemas in `api/index.ts` _before_ the
+    routes; `api/index.ts#registerAllSchemas(app)` is the exported whole set, which is what a test
+    harness installs rather than re-listing. `api/schemas/params.ts` covers `params:` the same way —
+    `SiteIdParams`, `SitePageParams`, `SiteFolderParams`, `SiteTagParams`, `SitePageCommentParams` —
+    so a site-scoped route writes `params: { $ref: 'SiteIdParams#' }` rather than a fresh literal. A
+    route whose params carry anything else (a `kind`, an `alias`, a one-off `:xId`) keeps its own.
 - `controllers/` — non-API HTTP routes: `site.ts` serves per-site resources (logo, favicon, login
   background) under `/_site`; `icons.ts` serves icons under `/_icons`, implementing the part of the
   Iconify API protocol the frontend speaks (`/_icons/<prefix>.json?icons=a,b` and
@@ -65,16 +84,61 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   postgres-backed job queue), `collab.ts` (the Yjs collaborative-editing sync/awareness protocol,
   driven by `controllers/collab.ts`'s WebSocket upgrade), `maintenance.ts` (the admin utilities view's
   cross-instance actions — clear cache, drop websockets — broadcast over the event bus so every
-  instance runs them, not just the one that received the route).
+  instance runs them, not just the one that received the route), `temporal.ts` (`ensureTemporal()`),
+  `processGuards.ts` (the one `unhandledRejection` handler).
+  - `core/http/` — everything `index.ts` used to do to a Fastify instance: `server.ts`
+    (`createHttpApp()` — instance options, gracefulServer, `sensible`/`compress`/`websocket`,
+    `WIKI.app`/`WIKI.server`; plus `registerStaticAssets(app)`), `security.ts` (helmet/CSP/CORS),
+    `session.ts` (cookie + `@fastify/session` + the cookie-security diagnostic hook), `openapi.ts`
+    (swagger + swagger-ui), `authHooks.ts` (API-key bearer, same-origin gate, the two rate limiters,
+    the route-permission `preHandler`, the API-key site pin), `siteRouting.ts`
+    (`RESERVED_ROOT_FILES` / `SERVER_ROUTE_SEGMENTS` / `isPageUrl`, the SEO redirects, per-request
+    site resolution, the app-shell not-found fallback), `errors.ts` and `routes.ts` (every mounted
+    prefix). `index.ts` is now only the boot script: the `WIKI` literal, the three phases,
+    `app.listen()`. **Registration order is behaviour** — Fastify registers plugins in call order,
+    so `registerStaticAssets(app)` staying between `registerSecurity(app)` and
+    `registerSession(app)` is a real constraint, not tidiness.
 - `db/` — `schema.ts` (all Drizzle table definitions), `relations.ts`, `migrations/` (generated).
 - `models/` — data-access classes over Drizzle, aggregated by `models/index.ts` and exposed as
   `WIKI.models.*`. Business logic belongs here, not in route handlers. `types.ts` holds the shared
-  `SystemIds` passed to each model's `init()` during first-run seeding.
+  `SystemIds` passed to each model's `init()` during first-run seeding. A model too large for one
+  file is split by subject into siblings, each its own `WIKI.models` member: **rendering is two
+  models** — `rendering.ts` is the post-process pipeline a save runs through, `renderQueue.ts` the
+  headless-browser queue (their shared sanitizer policy is `helpers/htmlSanitizePolicy.ts`);
+  **`users` no longer holds login** — `login.ts` owns login/register/2FA-login/forgot/reset,
+  `userCredentials.ts` owns passwords, 2FA, recovery codes and the `userKeys` token pair (its
+  `verifyTfaCode` re-reads the row inside the per-user advisory lock, so a correct code for an
+  account deleted mid-verification is refused, not accepted), and
+  `users.ts` keeps the account itself (CRUD, profile, avatar, groups, `updateSession`); **approvals
+  is three** — `approvals.ts` (submissions and `reviewerScopeFor`), `approvalRules.ts` (rules, their
+  cache, `matchesPage`) and `approvalNotifications.ts` (the mail). `assetServing.ts` and
+  `pageClassification.ts` are the other two splits.
 - `modules/` — pluggable extensions, discovered from disk. Each module is a directory with a
   `definition.yml` (key, title, props/config schema) plus its implementation — e.g.
   `modules/authentication/local/`. Six kinds exist: `authentication/`, `storage/` (7 modules —
   `disk`, `s3`, `azure`, `gcs`, `sftp`, `git`, `db` — each shipping a real `storage.ts`; see
-  `models/storage.ts`), `search/`, `analytics/`, `comments/`, `extensions/`.
+  `models/storage.ts`), `search/`, `analytics/`, `comments/`, `extensions/`. The discovery/config/
+  load boilerplate is `helpers/moduleRegistry.ts`, once, for all six module-backed models; a
+  module's own `definition.yml` declares props and actions only — **there is no
+  `setup`/`setupDestroy` extension point**, so a storage module exports `validateConfig`, the
+  content-dispatch handlers and its `definition.yml` action handlers and nothing else.
+  - `modules/storage/blobBase.ts` — `s3`, `azure` and `gcs` are **drivers**, not standalone modules:
+    each owns its SDK imports, client construction and bucket verification and exports
+    `blobStorageModule({ label, build, put, remove, copy, sign })`. The activation cache, the object
+    key (`keyFor`), the `Failed to <action>: <message>` wrapping, `DIRECT_ACCESS_TTL_SECONDS` and
+    all five lifecycle handlers live in `blobBase.ts` only. A fourth blob target is a driver.
+  - `modules/search/{shared,externalBase}.ts` — the five engines share their vocabulary
+    (`escapeHtml`, the highlight markers, the scan/indexing caps, `batchBySize`,
+    `SearchDocument`/`buildSearchDocument`, `pageStream`, `filterVisible`, `toSearchPagesResult`)
+    and the four page-lifecycle forwarders plus the never-throws wrapper (`ExternalSearchModule`). A
+    new engine extends `ExternalSearchModule` and imports from `shared.ts`; it does not re-declare
+    any of them, and it does not re-derive `totalHits`/`totalHitsApproximate` (only
+    `shared.ts#toSearchPagesResult` does, off permission-filtered rows). `db` deliberately stays on
+    the bare `SearchModule` interface — its `deleted` is a genuine no-op and its `renamed` only acts
+    on a locale change — and imports from `shared.ts` alone. Every engine reads its per-site config
+    through `search.getEngineConfig(siteId, key)` and never re-applies a `definition.yml` default by
+    hand, which is what makes `index.ts` calling `refreshFromDisk()` before `initActiveEngines()`
+    load-bearing.
 - `mcp/` — the in-process Model Context Protocol server (`bootstrap.ts`, `auth.ts`, `http.ts`),
   exposing wiki content/actions to an MCP-speaking client over the instance's own HTTP surface.
   `mcp/tools/renderDiagram.ts` delegates to the same `models/diagramRender.render()` that
@@ -83,8 +147,17 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   documented public endpoint is a breaking change to a contract an external integrator may already
   depend on.
 - `migration/` — the 2.5.x-to-3.0 import CLI: `cli.ts` and `orchestrator.ts` drive a source
-  `connector.ts`/`connectors/` implementation through staged `phases/`, `importers/` per record class,
-  and `mappers/` for field translation, recording provenance and a dry-run report along the way. See
+  `connector.ts`/`connectors/` implementation through staged `phases/`, `importers/` (every
+  importer, one per record class) and `mappers/` for field translation, recording a dry-run report
+  along the way. `report.ts` is the one report module (the `PhaseReport`/`UnmappableEntry` shapes,
+  the auth classification, the table/JSON rendering). It consolidates exactly **one** 2.5.x source
+  into one fresh 3.0 instance — there is no multi-source conflict policy. Three shared helpers new
+  code uses rather than re-deriving: `phases/route.ts#routeOutcome` (the only place a phase turns an
+  already-attempted per-record import into a `WriteRecorder` call — the write always happens
+  *before* routing, never as `recorder.create()`'s callback), `phases/dry-run.ts`
+  (`writeUnlessDryRun`, `placeholderRow`) and `mappers/shared.ts` (`isPlainObject`,
+  `transformConfig`, `unwrapKnexValue`, and both of `pickDefined` / `pickPresent` — **do not** swap
+  these for `es-toolkit`'s, whose `isPlainObject` rejects the class instances a `pg` row is). See
   `docs/migration/` for the source-schema and field-mapping specs this reads against.
 - `tasks/simple/` — jobs run in-process by the scheduler; each exports `task()`. File name is
   kebab-case, the task key is its camelCase form.
@@ -92,7 +165,18 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `WIKI` global (config + logger + lazy `ensureDb()`) and dynamically imports the task.
 - `base.yml` — system defaults for every config key. Do not edit as a user-facing config; it defines
   the shape merged with `config.yml` and the db `settings` table.
-- `helpers/` — small pure utilities (`common.ts`, `config.ts`, `pageRules.ts`, `siteRules.ts`, …).
+- `helpers/` — small pure utilities. `common.ts` is the general bag (the tree-path codec,
+  `normalizePagePath`, `requestOrigin`, the hash/uuid helpers, `isUniqueViolation`,
+  `escapeLikePattern`, `BCRYPT_ROUNDS`, `CustomError`, …); the clusters that outgrew it have their
+  own file and there is **no re-export shim**, so importing a moved symbol from `common.ts` is a
+  type error on purpose: `siteResolution.ts` (hostname → site, `resolveSiteParam`,
+  `guardSiteEnabled`, `siteEnabledPreHandler`), `localeRouting.ts` (`defaultLocale`,
+  `assertLocaleActive`, the locale-prefix redirect/strip targets), `moduleProps.ts`
+  (`parseModuleProps`, the sensitive-config mask), `pageAccess.ts` (the page/asset/folder access
+  questions), `moduleRegistry.ts`, `clusterCache.ts`, `pagination.ts`, `timeout.ts`, `httpCache.ts`,
+  `fsPurge.ts`, `htmlSanitizePolicy.ts`, `approvalMatch.ts`, `blobTarget.ts`,
+  `pageSerialization.ts`, `pageRules.ts`, `siteRules.ts`, `permissions.ts`, `config.ts`, … See
+  [Backend patterns](#backend-patterns) for which question each answers.
 - `types/` — ambient declarations: `global.d.ts` (the `WIKI` global) and `fastify.d.ts` (session +
   route-permission augmentations).
 - `locales/` — `en.json` source strings (Localazy-managed) + `metadata.js` language table (the one
@@ -120,13 +204,24 @@ initializers → mount. There is no UI framework: `src/components/shared/` is th
 - `src/stores/` — Pinia stores (`site`, `user`, `page`, `editor`, `admin`, `common`, `flags`,
   `collab` — who else is editing the open page, the reactive face of `composables/collab.js`).
   `stores/index.js` creates the pinia instance and injects `router` into every store.
+- `src/composables/` — the reusable behaviour behind more than one component. The load-bearing ones:
+  `adminSettings.js` (every admin settings page's load/save skeleton — see
+  [Frontend patterns](#frontend-patterns)), `siteAdminAccess.js`, `siteImage.js`,
+  `adminOverlayRoute.js`, `fieldFrame.js`, `apiKeyCreateForm.js`, `anchoredFloat.js`,
+  `toggleModel.js`, `previewResize.js`, `markdownCollab.js`, `fileUpload.js`,
+  `fileManagerActions.js`, `pageSaveFlow.js`, `monacoDiff.js`, `screen.js`, `collab.js`.
+- `src/helpers/` — pure utilities: `apiError.js`, `datetime.js`, `pagePaths.js`, `systemIds.js`
+  (mirrors `backend/base.yml`'s `systemIds` — never retype the literal), `treeNodes.js`,
+  `apiKeyState.js`, `markdownFences.js`, `markdownInsert.js`, `pointerDrag.js`, `blockScan.js`,
+  `storageDeliveryGraph.js`, `wysiwygMenuBar.js`, `authValidation.js`, `moduleConfig.js`,
+  `passwordStrength.js`, `randomPassword.js`, `injectCss.js`, `accessibility.js`, `siteImages.js`.
 - `src/renderers/` — page content rendering pipeline: `markdown.js` plus `modules/` (katex, kroki,
   plantuml, markdown-it plugins).
 - `src/css/` — `tailwind.css` (theme tokens, utilities and the shared component classes) plus SCSS:
   `_theme.scss` (brand colours) and `_palette.scss` (the Material ramp the older stylesheets use).
   Both are injected into every SFC by `css.preprocessorOptions.scss.additionalData` in
   `vite.config.js`, which is why templates can write bare `$primary` / `$grey-4`.
-- `src/helpers/`, `src/assets/`, `public/`, `index.html`.
+- `src/assets/`, `public/`, `index.html`.
 
 Path alias `@` → `frontend/src` (defined in `vite.config.js`; `jsconfig.json` mirrors it for the IDE).
 
@@ -147,22 +242,51 @@ Blocks style themselves off `:host` and read the theme colors via CSS custom pro
 (`var(--q-primary)` — the `--q-` prefix is historical; the properties are declared in
 `css/tailwind.css` and rewritten at runtime for per-site theming).
 
-**A block reaches the API and learns its site id through `blocks/shared/site.js`'s `getSiteId()`
-plus a bare `fetch` against the public, hostname-routed surface — never `globalThis.API_CLIENT` /
-`globalThis.WIKI_STATE`.** Those two globals only exist inside the SPA shell (see
-`frontend/src/boot/api.js`); a block sitting in transcluded content, a future standalone embed, or
-anywhere else the SPA never booted has no access to them, while a public `fetch` (`getSiteId()`
-itself, or `shared/config.js`'s `fetchSite()`) works everywhere a block can be placed — the reason
-`getSiteId()`'s header gives for choosing it. `block-checklist`, `block-index` and `block-include`
-predate this decision and still read the SPA globals directly; converting them is separate,
-tracked work, not license to add a fourth block that does the same. The one gap the public API
-doesn't cover is a permission check with no public equivalent — `block-checklist`'s
-`WIKI_STATE.user.can('write:pages')` gate. Until a public, anonymous-safe permissions endpoint
-exists, a block that genuinely needs one keeps reading `globalThis.WIKI_STATE?.user?.can?.(...)`
-directly (optional-chained, since the global may be absent), treating an absent or `false` read as
-"not permitted" and hiding or disabling the gated control — so the block still renders outside the
-SPA shell, just without that one affordance, rather than throwing. See `blocks/shared/site.js`'s
-header for the fuller rationale.
+**`static definition = {…}` must stay a plain object literal inside the block's own
+`component.js`.** `rollup.config.mjs`'s manifest builder, `scripts/check-locale-keys.mjs` and
+`definitions.test.js` all read it out of the source text rather than by importing the module, so a
+definition assembled from a shared object, spread, or computed key is invisible to all three. This
+holds through inheritance — a block extending a shared base still declares its own literal. Only
+`static styles`, `static properties`, constructors, helpers and `render()` may move into
+`blocks/shared/`.
+
+**`blocks/shared/` is a real primitive layer — reach for it rather than copying a sibling.**
+
+- `styles.js` — `errorBox` (make `static styles` an array with it first, then the block's own `css`
+  template), `errorBoxInline` (the same declarations as an inline `style` value, for
+  `block-include`, the one light-DOM block) and `captionStyles`.
+- `render.js` — `renderError(message)`. Assemble the message first and hand it a finished string:
+  `errorBox` sets `white-space: pre-wrap`, so a hand-written multi-line `<div class="error">` would
+  draw its own indentation.
+- `props.js` — `boolean`, the attribute converter that reads `"false"` as false. Spread it:
+  `showIcons: { ...boolean, attribute: 'show-icons' }`.
+- `body.js` — `readFencedSource(el) → { source, fenced }`, the fence-preferring body read.
+- `figure.js` — `explainSourceFailure(clause, err, fenced)` (the first argument is the whole clause
+  following "This", not a bare verb), `explainEmptySource(subject, { source, fence })`, and
+  `figureStyles`, the `.formula`/`.drawing` shell katex and mathjax share.
+- `icons.js` — the Iconify fetch, plus `MDI_PATHS` + `inlineIcon(path)` for chrome glyphs a block
+  draws without a request.
+- `site.js` — `fetchSite()` is the single cache over `GET /_api/sites/current` (`config.js` imports
+  it), and `_resetSiteCache()` is the one test-reset hook.
+- `i18n.js` — a reader-facing string a block renders resolves through `I18n` (one locale-strings
+  fetch on connect, cached per locale) with the English text as its fallback, not as a bare literal.
+  `scripts/check-locale-keys.mjs` deliberately does not police the `errors` namespace, so a key that
+  does not exist yet resolves to its fallback rather than failing the build.
+- `video-embed.js` — `VideoEmbedElement`, the base class behind `block-youtube`, `block-vimeo`,
+  `block-dailymotion` and `block-m365-video`. It owns the seven player props
+  (`url`/`width`/`height`/`autoplay`/`controls`/`fs`/`loop`), `_size()`, `_frameStyle()` and the
+  lazily-loaded `<iframe>` `render()`; a subclass writes `_parse`, `_embedUrl` and `_providerName`,
+  and may override `_source()`, the two message hooks, `_frameTitle()`, `_frameAllow()` and `static
+  styles` (spread `VideoEmbedElement.styles` first). It constructs **no** `DarkMode` controller —
+  there is nothing in an opaque provider iframe to restyle — so `block-youtube` and
+  `block-m365-video` never take a `dark` attribute at all, while `block-vimeo` and
+  `block-dailymotion` construct their own for the one border they draw.
+- `diagram-image.js` — `DiagramImageElement`, behind `block-kroki` and `block-plantuml` (and
+  `diagramStyles`, which `block-drawio` adopts for the sheet alone). It owns
+  `server`/`format`/`caption`/`align`, a `DarkMode` controller, the body read, the
+  `MAX_DIAGRAM_URL_LENGTH` pre-flight guard, `_measure()`, `_explain()` and `render()`; a subclass
+  writes `_url`, `_defaultServer`, `_fenceName` and `_alt`, and may override
+  `_explainBody(response)` and `_emptySourceMessage()`.
 
 **Dark mode goes through `blocks/shared/theme.js`, never `:host-context()`.** The app's source of
 truth is the `body--dark` class on `<body>`, which CSS in a shadow root cannot see; `:host-context()`
@@ -200,6 +324,7 @@ describes as a future task, concretely). The one convention every block uses ins
 
 `block-index`, `block-include` and `block-checklist` are the reference conversions (`block-live-data`
 and `block-map` were the first two blocks onto the site id half, before the rest of this existed).
+No block reads `API_CLIENT` or `WIKI_STATE` any more; a new one that does is a regression.
 
 ## Commands
 
@@ -410,12 +535,12 @@ editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, ar
 `review:pages`, `manage:pages`, `delete:pages`, `write:styles`, `write:scripts`, `read:source`,
 `read:history`, `read:assets`, `write:assets`, `manage:assets`, `read:comments`, `write:comments`,
 `manage:comments`, `manage:classification` (`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts`
-and imported by `api/pages.ts`). A group grants them through **rules**:
+and imported by `helpers/pageAccess.ts`). A group grants them through **rules**:
 each rule names some of them (`roles`) plus how it addresses pages (`match` + `path`, or tags) and
 what it does with them (`mode`: ALLOW / DENY / FORCEALLOW). Nothing is granted by default, and when
 several rules match, the most specific one wins — `helpers/pageRules.ts` documents the ordering.
-Ask `WIKI.models.groups.checkAccess(actor, permission, page)`, or `mayOnPage(req, permission, page)`
-in `api/pages.ts`.
+Ask `WIKI.models.groups.checkAccess(actor, permission, page)`, or
+`mayOnPage(req, permission, siteId, page)` in `helpers/pageAccess.ts`.
 
 **Site-scoped delegation permissions** are bound to a site (not a path): `site:general`,
 `site:theme`, `site:navigation`, `site:blocks`, `site:approvals`, `site:login`, `site:locale`,
@@ -429,13 +554,30 @@ ids. Nothing is granted by default; `helpers/siteRules.ts#resolveSiteRule` docum
 DENY < FORCEALLOW tie-break, the same ordering `helpers/pageRules.ts` uses. Ask
 `WIKI.models.groups.checkSiteAccess(actor, permission, siteId)`.
 
+**"Global permission OR `site:*` delegation" has one implementation**:
+`WIKI.models.groups.checkSiteAdminAccess(req, globalPermission, sitePermission, siteId)`, with
+`helpers/siteRules.ts#maySiteAdmin` as its four-argument call-site shorthand (no logic of its own;
+it resolves `WIKI.models.groups` at call time, and exists only so a one-line gate stays one line).
+The global half is checked first and is site-blind, so delegation is additive rather than a
+migration; the site half is `checkSiteAccess()` unchanged, site pin, API-key scope boundary and
+`manage:system` bypass included. Do not write a route-file wrapper around it.
+
 Consequences worth knowing:
 
 - **A page or site-scoped permission cannot be enforced by `config.permissions`.** That hook reads
   the group-wide list only, so `permissions: ['write:pages']` refuses everybody. A route that turns
   on one of these declares no route permission and checks in the handler instead — say so with a
-  `No route-level permissions:` comment, as `api/pages.ts`, `api/assets.ts`, `api/blocks.ts` and
+  `No route-level permissions:` comment, as `api/pages/`, `api/assets.ts`, `api/blocks.ts` and
   `api/sites.ts`'s site-scoped routes do.
+- **A page-scoped route's 404/403 preamble is `helpers/pageAccess.ts#requireReadablePage`, not
+  hand-written**, and its check order is load-bearing: missing-or-unreadable → 404 `'This page does
+  not exist.'`, then the route's own second permission → 403 with its own message, then still-locked
+  → 403 `'This page is password protected.'`. A route needing a different order calls it without
+  `permission` and checks afterwards (`api/checklists.ts`'s check-off route); one that deliberately
+  tolerates a locked page passes `allowLocked: true` (`api/pages/read.ts`'s backlinks listing). It
+  returns `null` once a reply is sent (`if (!page) { return reply }`), the same convention
+  `requireActorId` uses. `actorFrom`, `mayBypassPassword`, `unlockedFor`, `pagePermissionsFor`,
+  `mayOnAsset`, `mayOnFolder` and `visibleTreeItems` live beside it.
 - **Names are not interchangeable across or within kinds.** `manage:pages` does not imply
   `write:pages`, and `manage:sites` does not imply any `site:*` permission: a rule grants the exact
   strings in its `roles`.
@@ -460,7 +602,8 @@ Consequences worth knowing:
   `PageScriptsDialog.vue` editor once existed but nothing ever executed the stored values; both were
   deleted as dead half-built code. The permission names stay fully live — they gate whether an
   author's raw `<script>`/`<style>` HTML in page content survives sanitization
-  (`models/rendering.ts`'s `RenderPermissions`).
+  (`helpers/htmlSanitizePolicy.ts`'s `RenderPermissions`, shared by `models/rendering.ts` and
+  `models/renderQueue.ts`).
 
 ### Backend patterns
 
@@ -478,18 +621,93 @@ Consequences worth knowing:
   integration surface (a published plugin API, a third-party client this project commits to
   supporting) appears; until then a `/_api/v1` prefix would be speculative scaffolding.
 - **Permissions** are declared per-route in `config.permissions`, and enforced by a single
-  `preHandler` hook in `index.ts`. The array is OR-ed; a nested array is AND-ed
+  `preHandler` hook — `core/http/authHooks.ts#permissionPreHandler`, registered on the root app. The
+  array is OR-ed; a nested array is AND-ed
   (`permissions: ['read:sites', ['manage:users', 'manage:groups']]`). `manage:system` bypasses every
-  check. `@fastify/swagger`'s `transform` folds these into the OpenAPI description automatically —
-  so declaring them is also how they get documented. Only **global** permissions belong here; see
-  [Permissions](#permissions) for the other kind and how they are checked.
+  check. `@fastify/swagger`'s `transform` (`helpers/openapi.ts#swaggerTransform`) folds these into
+  the OpenAPI description automatically — so declaring them is also how they get documented. Only
+  **global** permissions belong here; see [Permissions](#permissions) for the other kinds.
+- **An unknown `:siteId` answers `404 'This site does not exist.'` from one place**, not from each
+  handler: `helpers/siteResolution.ts#siteEnabledPreHandler`, the `preHandler` `api/index.ts`
+  registers on its guarded `contentApp` scope. **A route under that scope may assume its `:siteId`
+  site exists**, and a new route file inherits it with no call of its own. Two deliberate
+  exemptions: `api/sites.ts` (registered outside `contentApp` — `PUT /sites/:siteId` is how a
+  disabled site is re-enabled, so it keeps its own 404s) and `api/bootstrap.ts` (resolves by
+  hostname, not a param). Hook order is load-bearing: the global permission `preHandler` is on the
+  root app and therefore runs first, so an unauthorized caller still gets 401/403 rather than
+  learning which site ids exist.
 - **Every route needs a `schema`** with `summary`, `tags`, and response schemas. `hideUntagged` is on,
   so an untagged route is invisible in the API docs. Reuse `$ref` schemas from `api/schemas/`.
 - **Errors** via `@fastify/sensible` helpers (`reply.notFound()`, `reply.badRequest()`,
-  `reply.unauthorized()`, `reply.forbidden()`). The `setErrorHandler` in `index.ts` shapes `/_api/`
-  failures into `{ ok, error, statusCode, message }` JSON.
+  `reply.unauthorized()`, `reply.forbidden()`). `helpers/errorHandler.ts#apiErrorHandler`, installed
+  by `core/http/errors.ts`, shapes `/_api/` failures into `{ ok, error, statusCode, message }` JSON.
 - **Schema changes**: edit `db/schema.ts`, then `npm run db-generate` and commit the generated
   migration. Never hand-edit an existing migration.
+- **`WIKI.db.execute()` returns pg's `QueryResult` envelope, not a bare row array** — read
+  `result.rows`. A `result.rows ?? result` probe is dead code (verified against
+  `drizzle-orm`'s `node-postgres` driver). This is the same distinction as the raw-`sql`-expression
+  note under Temporal below: neither path is a plain column read.
+- **Exactly one `unhandledRejection` handler exists**, `core/processGuards.ts`'s, registered by
+  `index.ts` immediately after `logger.init()` with `exit: (code) => process.exit(code)`. Do not add
+  a second: Node runs listeners in registration order and an exiting one silences everything after
+  it, which is exactly the bug that removed the duplicate.
+
+#### Shared backend helpers — one owner per question
+
+Reach for these rather than re-deriving; each is the single implementation, and a second copy is the
+regression the split existed to prevent.
+
+- **Hostname → site id**: `helpers/siteResolution.ts#siteIdForHostname(hostname, { strict })`, never
+  a bare `WIKI.sitesMappings[…]` index — it folds the case and applies the `*` catch-all (`strict`
+  skips the fallback). Siblings: `siteForHostname(hostname)` and `resolveSiteParam(param, hostname,
+  { strict })` for the `current`/uuid/hostname three-way a path parameter can spell.
+- **A cacheable response's ETag/`Cache-Control`/304 dance**:
+  `helpers/httpCache.ts#notModifiedOrPrepare(req, reply, { etag, cacheControl, nosniff })`, which
+  returns `true` once it has sent the 304 and adds `X-Content-Type-Options: nosniff` by default.
+- **Racing work against a ceiling**: `helpers/timeout.ts#withTimeout(work, ms, onExpire, { unref
+  })`. `onExpire` is a callback so each caller keeps its own error type. Nothing is cancelled — the
+  work runs on, the caller stops waiting.
+- **Puppeteer availability/refusal/close**: `helpers/puppeteer.ts` (`isPuppeteerAvailable`,
+  `assertPuppeteerAvailable(errorName, message)` → 503, `closeQuietly`, `launchPuppeteerBrowser`).
+- **Postgres unique violations, `LIKE` escaping and the bcrypt cost**: `helpers/common.ts`'s
+  `isUniqueViolation(err)`, `escapeLikePattern(value)` and `BCRYPT_ROUNDS`. Never write
+  `bcrypt.hash(x, 12)`, and never hand-roll a prefix filter's escaping.
+- **A TTL sweep of a `<dataPath>` directory**: `helpers/fsPurge.ts#purgeFilesOlderThan(dir, ttl)`.
+- **"Are these real group ids"**: `WIKI.models.groups.hasUnknownGroupIds(ids)`.
+- **Offset pagination**: `helpers/pagination.ts#paginate`. Its `total` thunk takes drizzle's own
+  `select({ total: count() })` — and the `total` alias is load-bearing, since `paginate` reads
+  `totals[0]?.total` and any other alias silently paginates as `total: 0`.
+- **A model's process-local cache of a whole table**: `extends
+  helpers/clusterCache.ts#ClusterReloaded`, declaring `protected readonly reloadEvent` and
+  implementing `reloadCache()`. Never write your own `broadcastReload()`/`subscribeToEvents()`. Two
+  rules the base class encodes: a mutator calls `broadcastReload()`, never `reloadCache()` directly;
+  and `reloadCache()` never emits, or the event echoes around the cluster forever. `groups`,
+  `sites`, `approvals`, `classificationLevels` and `locales` are on it; `glossary` and `navigation`
+  are deliberately not (theirs are per-site invalidates, not whole-cache reloads).
+- **Telling the outside world about a page or asset write**: `models/hooks.ts#announce` — webhook
+  emit then storage dispatch, both awaited, in that order. It is a module function, not a `Hooks`
+  method, precisely so a caller's test can stub `WIKI.models.hooks` as a bare `{ emit }`.
+- **Page-placement refusals**: `helpers/localeRouting.ts#assertLocaleActive` /
+  `#assertPathNotReservedLocale`. `tree.ts`'s reserved-locale check is a deliberately different,
+  root-only error and is not these.
+- **Large-file thresholds and the kind→category map**: `helpers/blobTarget.ts`, once — 1024-based
+  units, and `fileSize >= threshold` files an asset as `large`. A storage module must not
+  re-implement either.
+- **Page content-type → extension**: `helpers/pageSerialization.ts#CONTENT_TYPE_EXTENSIONS`
+  (`DEFAULT_CONTENT_TYPE_EXTENSION = 'txt'`), read through `fileExtensionForContentType` or the
+  dotted `extensionForContentType`. `modules/storage/disk` overriding `redirect: 'json'` is the one
+  documented divergence.
+- **`mcp/` shared bits**: `mcp/tools/shared.ts` holds `toResult` plus the shared `siteIdArg`/
+  `localeArg` zod fields; a tool file declaring its own `toResult` is a regression.
+- **A `Date` column headed into a search index**:
+  `.toTemporalInstant().toString({ smallestUnit: 'millisecond' })`, never `.toISOString()` and never
+  behind an `instanceof Date` guard.
+- **Cross-model reuse is an explicit export, not a re-declaration.** `models/tree.ts` exports
+  `holdsVisiblePagesUnder`, `pageIsVisible`, `compareFoldersFirst` and `MAX_DEPTH` for
+  `navigation.ts`; `models/users.ts` exports `userSelection` alongside `UserCore`/`UserPage`, so a
+  column added to the user list projection is added once. `models/tree.ts#getById` is `private` on
+  purpose — it is the only tree lookup taking no `siteId`, and a caller outside the model that needs
+  a tree row by id goes through a `siteId`-scoped method instead.
 - **Dates use the `Temporal` API**, not luxon (no longer a backend dependency), and it is typed by the
   TS 7 lib so it needs no type import. **It is not, however, a native global** — verified directly
   against a real Node 26.7.0 binary: `typeof Temporal` is `undefined`, `Date.prototype.toTemporalInstant`
@@ -528,8 +746,17 @@ separate transpile or worker config.
 - **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
   `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
   already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
-  oxlint and oxfmt cover them the same way. `test/` holds shared fixture code that is not itself a
-  `*.test.ts` (`db.ts`, `mocks.ts`, …), plus two narrow categories of test that genuinely have no
+  oxlint and oxfmt cover them the same way. One source file's tests may be several sibling files
+  split by subject — `models/users.test.ts` (pure), `models/users.crud.test.ts`,
+  `models/users.profile.test.ts` — and **`*.db.test.ts` marks a DB-backed file**
+  (`core/scheduler.reaping.db.test.ts`, `models/storage.db.test.ts`, …), so the pure/DB boundary is
+  visible from the filename and the pure half can be run alone. Both halves still gate exactly as
+  before; the suffix is a naming convention, not a mechanism. A DB-backed file opens **one**
+  `setupTestDb()` for the whole file, shared by its describes, rather than one per describe.
+  `test/` holds the shared harness and fixture code that is not itself a
+  `*.test.ts` (`db.ts`, `mocks.ts`, …) — plus, since a harness module is a source file like any
+  other, its own co-located coverage (`test/fastify.ts` → `test/fastify.test.ts`) — plus two narrow
+  categories of test that genuinely have no
   single co-located home: a DB-backed round trip spanning more than one source file rather than
   unit-testing either in isolation (`blockUploadServing.test.ts` — `api/blocks.ts`'s upload route and
   `controllers/blocks.ts`'s serve route each already have their own unit-level `*.test.ts` sibling;
@@ -581,13 +808,67 @@ separate transpile or worker config.
     `.devcontainer`'s, is always the caller's choice to make.
 - **Mocking convention: `test/mocks.ts`.** `WIKI.cache` and `WIKI.events` exist for cross-request and
   cross-instance concerns that almost no model-layer test is actually exercising — `createCacheStub()`
-  / `createEventsStub()` build the smallest object satisfying the methods a code path under test
+  / `createEventsStub()` (and `createSchedulerStub()`, `createSiteAdminAccessStub()`,
+  `createSilentLogger()`) build the smallest object satisfying the methods a code path under test
   actually calls (`node:test`'s `mock.fn()`, so a test that DOES care can assert
   `cache.set.mock.calls` directly), rather than reaching for the real `NodeCache`/`Emittery` instances
-  the app boots with. `setupTestDb()` installs both onto its `WIKI` unconditionally, since building
-  them costs nothing and a model gaining a `WIKI.cache`/`WIKI.events` touch later should not need this
-  fixture rewritten to cope. Follow the same pattern for any other `WIKI` member a future model test
+  the app boots with. Follow the same pattern for any other `WIKI` member a future model test
   needs present but does not care about.
+  - **A test never writes a `WIKI = {…}` literal.** `installTestWiki(overrides)` installs
+    `createWikiStub(overrides)` as the global and returns a `{ restore() }` to call in
+    `after()`/`afterEach()` — `node --test` isolates each matched FILE into its own process but not
+    each suite within one, so a file that installs a global and walks away leaves it standing.
+    `setupTestDb()` is a caller of the same builder.
+  - **`createWikiStub` defaults `models` to `{}` on purpose**: an absent member throwing is coverage
+    (`modules/storage/disk/storage.test.ts` relies on it to prove the module never reaches for a
+    model it should not), so a suite names exactly the methods its code path calls. `data.systemIds`
+    defaults to `{}` so a read answers `undefined` rather than throwing. Overrides are
+    **deep-merged** — a nested `{ events: {…} }` merges into the default rather than replacing it,
+    so assert against `WIKI.events`, not the literal you passed — while arrays, class instances and
+    `mock.fn()`s replace wholesale. The merge copies property DESCRIPTORS, so a stub may declare a
+    **getter** to steer what a route sees from a module-level variable per test.
+- **A route test boots through `test/fastify.ts#buildTestApp({ routes, wiki, schemas, session,
+  permissions, apiKeySitePin, ajv, swagger, prefix })`**, closed with `closeTestApp(app)`. It
+  installs the REAL production pieces — `helpers/errorHandler.ts#apiErrorHandler`,
+  `core/http/authHooks.ts#permissionPreHandler` (API-key branch included) and, for `schemas: 'all'`,
+  `api/index.ts#registerAllSchemas` — so a suite is testing the app's own gate rather than a replica
+  of it. `makeRequestStub`/`makeReplyStub`/`makeDoneStub` are there for a hook driven with no server
+  around it.
+  - **Session seeding is the harness's concern, not production's** — there is no
+    `testSessionOnRequest` in `backend/`; a running server gets its session from a signed cookie.
+    `session: 'header'` is the one convention: `x-test-session` (a whole session as JSON),
+    `x-test-permissions` (a JSON array or comma-separated list) and `x-test-api-key` (a whole
+    `req.apiKey` as JSON). `session` also takes a fixed object, or a **function** — which is how a
+    suite keeps a per-test identity, builds a fresh mutable session per request, or does a
+    per-request side effect and stays anonymous by returning `undefined`.
+  - **A hook a suite needs registered before its own routes is a one-line plugin wrapper**
+    (`async (instance) => { instance.addHook(…); await instance.register(routes) }`), not an
+    `app.addHook` after `buildTestApp` returns: `onRoute` fires only for routes registered into the
+    same encapsulation or below, and a `preHandler` added after `ready()` is too late.
+- **The rest of `test/`**: `builders.ts` (`makeGroupRule`, `makeActor`, `makeSite`,
+  `makeStorageTarget`, `makeIndexablePage`, `stubSelect`, …), `routeRecorder.ts`
+  (`createRecordingApp`, `listApiRouteFiles`, `recordRoutesFrom`, … for the structural scans over
+  `api/` — its recording stub **replays** a registered sub-plugin, since a no-op `register` would
+  make every route in a split resource invisible while the scans still passed, and
+  `listApiRouteFiles` is recursive and treats a directory with an `index.ts` as one resource, so a
+  scanner must use it rather than its own `readdirSync` filter), `sourceFiles.ts`
+  (`listSourceFiles`, the one recursive source-tree walker), `migrationFixtures.ts`,
+  `collabHarness.ts`, `permissionScenario.ts`, `sftpServer.ts`, `temporal.ts`.
+  **`test/collabWorker.ts` is a worker-thread entry point and must not be imported by a test** — it
+  destructures `workerData` and calls `boot()` at import time, which is why the shared collab
+  helpers live in `collabHarness.ts`.
+- **A new search engine or blob storage module is wired to its contract runner, not re-described.**
+  `test/searchModuleContract.ts#runSearchModuleContract(name, { makeModule, config, siteConfig })`
+  emits the claims every `modules/search/*` engine owes `models/search.ts`;
+  `test/storageModuleContract.ts#runStorageModuleContract(name, { makeTarget, stubSdk })` does the
+  same for the asset lifecycle every blob storage module owes `models/storage.ts`. Each module's own
+  test file supplies a harness translating the claims into its vendor shapes and keeps only what is
+  genuinely vendor-specific. The `db` search engine is deliberately outside the runner, for the same
+  reason it does not extend `ExternalSearchModule`.
+- **A read-back oracle belongs in the test file, not on the model.** A model method whose only
+  caller is its own test is dead code: express the read-back as a local fixture helper over the
+  table (or, for a private method, through an `as any` cast) instead of widening the model's
+  surface.
 - **Use `node:assert/strict`**, not a third-party assertion library. `describe`/`test` (or `it`) both
   come from `node:test` itself.
 - Keep the pure-unit majority of the suite fast: it's meant to run on every change, not just in CI. A
@@ -598,10 +879,29 @@ separate transpile or worker config.
 
 - **Templates are plain HTML.** A handful of pre-3.x leftovers are still `<template lang="pug">` —
   check the file you're editing rather than assuming.
-- **UI components come from `components/shared/`**, registered globally, so `<w-btn>` / `<w-input>` /
-  `<w-icon>` need no import. Each one is scoped to how this app actually uses it rather than to the
-  full API of the framework component it replaced; the header comment in each file says where they
-  differ. Add a prop there rather than reaching around it.
+- **UI components come from `components/shared/`**, registered globally, so `<w-btn>` / `<w-input>`
+  / `<w-icon>` need no import. Each one is scoped to how this app actually uses it rather than to
+  the full API of the framework component it replaced; the header comment in each file says where
+  they differ. Add a prop there rather than reaching around it. The library has one deliberately
+  **unregistered** member: `components/shared/WFieldFrame.vue` draws the shared Material field
+  chrome around whichever control its caller renders and is internal to `WInput` and `WSelect`, so
+  it is absent from `components/shared/index.js` and there is no `<w-field-frame>` to write in app
+  markup. Its sibling is `composables/fieldFrame.js` (`fieldProps` + `useFieldFrame`), which owns
+  the twelve props both fields declare, `validate()`, and the frame's computed colours and classes;
+  a third field type uses both, and nothing else should reach for either.
+- **There is no SSR build.** `import.meta.env.SSR` appears nowhere in `frontend/src` — Vite folds it
+  to `false`, so every branch behind it was unreachable. `boot/{api,eventbus,externals}.js` assign
+  onto `window` unconditionally and `router/index.js` uses `createWebHistory` only; don't
+  reintroduce the pattern.
+- **`useScreen()` returns `gte` only** (`gte.sm`/`.md`/`.lg`/`.xl`). The old `gt.*` shorthand
+  resolved to the same four refs one breakpoint along and is gone: `gt.md` is `gte.lg`.
+- **`userStore` has one date-time formatter**, `formatDateTime(t, date, { seconds, zone })`, plus
+  `formatDate(date)` (date alone, no `t`) — not four near-namesakes.
+- **"dirty" and "clean" are editor-store actions, not raw timestamp writes.**
+  `editorStore.markDirty()` is what a component calls when the reader changed something;
+  `markClean(extra?)` equalizes both timestamps and merges `extra` into the same `$patch`;
+  `ensureConfigs()` fetches the editor configs unless already loaded. New editor code uses these
+  rather than assigning `lastChangeTimestamp` by hand.
 - HTTP calls go through the `ky` client, reachable as the `API_CLIENT` global (declared in the oxlint
   config, so no import needed) — e.g. `await API_CLIENT.get('sites').json()`. It handles the `/_api`
   prefix; authentication is the session cookie, sent with every request.
@@ -615,6 +915,45 @@ separate transpile or worker config.
   is something else — a list, a viewer, a picker-plus-panel like `AdminSearch.vue` — gets its own
   card-local save control instead (`AdminSearch.vue:105`, `AdminAuditLog.vue:174-180`); see
   `docs/decisions/embedded-setting-save-affordance.md` for the full reasoning.
+- **An admin settings page's load/save skeleton is `composables/adminSettings.js`, not
+  hand-written.** `useAdminSettings({ i18nPrefix, keys, siteScoped, overlay, defaults, extraState,
+  fetch, pick, onLoaded, commit, onSaved, onSavedCurrentSite })` returns `{ state, load, save,
+  refresh }` and owns the `state.loading` gauge, the full-screen overlay raised and lowered inside
+  `load()` (never by the caller's watcher), the
+  `<prefix>.loadFailed`/`.saveSuccess`/`.saveFailed`/`.refreshSuccess` toasts, the failed-save
+  caption (`t('<prefix>.' + err.data?.error, apiErrorMessage(err, …))` — the page's own wording for
+  the server's error code, falling back to the server's message), the `adminStore.currentSiteId`
+  watcher and its mounted load, the "no `currentSiteId`, don't fetch" guard, and the "am I editing
+  the site I am browsing" gate in front of `onSavedCurrentSite`. A page keeps only what is its own —
+  `defaultConfig()`, the requests, the payload mapping, and any action beyond loading and saving;
+  page-specific reactive fields go in `extraState` so the template keeps reading `state.x`. `save()`
+  answers `true`/`false` so a page can act only on a stored change, and `refresh()` is the
+  composable's, not a per-page `await load(); notify(...)` wrapper. Twenty pages use it;
+  `AdminComments` and `AdminStorage` are the two deliberate hold-outs (each does more inside its own
+  `save()` than the options cover).
+- **Six shared surfaces are the only supported way to do these things**, and a new call site reaches
+  for them rather than writing its own copy:
+  - `components/ModuleConfigForm.vue` + `helpers/moduleConfig.js` (`buildConfigEditor`,
+    `buildConfigPayload`) render and serialise EVERY module's config — Analytics, Auth, Comments,
+    Search and Storage all go through them, and a `readOnly` prop draws as a hinted `div`.
+    Sensitive inputs carry `autocomplete="new-password"` there, so every page inherits it.
+  - `composables/siteImage.js#useSiteImage(kind, …)` owns the pick → validate → upload/clear → toast
+    → cache-bust cycle for a site's logo, favicon and login background (`helpers/siteImages.js`
+    stays the transport).
+  - **A "delete this" confirmation is `confirm({ destructive: true, persistent: true })`**, not a
+    bespoke `*DeleteDialog.vue`. `Page`/`Site`/`User`DeleteDialog remain only because each does more
+    than confirm (a navigation refetch, a type-the-title guard, content reassignment); a fourth
+    look-alike dialog is the regression. The shared dialog has no in-dialog loading state and no
+    retry-in-place on failure — the toast reports it.
+  - `helpers/passwordStrength.js#passwordStrengthBadge(password, t)` is the single score →
+    `{ color, label }` mapping, resolving against `common.password.*`.
+  - `helpers/randomPassword.js` exports `PASSWORD_CHARSET` / `PASSWORD_CHARSET_UNAMBIGUOUS`; a
+    dialog picks one rather than pasting a literal. `helpers/systemIds.js` likewise owns
+    `GUESTS_GROUP_ID`.
+  - `composables/adminOverlayRoute.js#useAdminOverlayRoute({ overlay, listPath, onClosed })` is the
+    `:id`-in-the-route ↔ `adminStore.overlay` plumbing for an admin list page with an edit overlay.
+    It registers its own lifecycle hooks, so an adopting page drops its `checkOverlay()`, both
+    watchers and its overlay-clearing unmount hook.
 
 ### Testing (frontend)
 
@@ -652,10 +991,45 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
   shape these components actually ship with in production, which is what a test should be verifying
   against.
 
-- **File convention: co-located `*.test.js`**, matching the backend's `*.test.ts` convention — a test
-  lives next to the file it covers (`components/shared/WBtn.vue` → `components/shared/WBtn.test.js`),
-  not in a mirrored `test/` tree. `test/` itself is reserved for the harness's own shared fixture code
-  (`test/setup.js`, `test/mocks.js`), matching what `backend/test/` reserves `test/` for.
+- **File convention: co-located `*.test.js`**, matching the backend's `*.test.ts` convention — a
+  test lives next to the file it covers (`components/shared/WBtn.vue` →
+  `components/shared/WBtn.test.js`), not in a mirrored `test/` tree. `test/` itself is reserved for
+  the harness's own shared fixture code, matching what `backend/test/` reserves `test/` for;
+  `vitest.config.js`'s `include` also covers `test/**/*.test.js`, so the harness has its own named
+  coverage and a break in it fails as itself rather than as a hundred unrelated component failures.
+  - **The suites split by concern, so a filename names what it covers**: `stores/page.{save,load,
+    lifecycle,derived}`, `pages/Graph.{rendering,sizing,tooltip,i18n,layout,fallback}`,
+    `components/EditorMarkdown.{content,preview,resize,assets,lifecycle}`, and so on. No test file
+    under `frontend/src` is over ~530 lines.
+  - **A cross-component assertion is a `describe.each`, not a copy** —
+    `components/editorMarkupShared.test.js` and `components/apiKeyScopeTree.test.js` hold what is
+    identical between two components; what genuinely differs stays in each component's own suite.
+    `src/docsBaseGate.test.js` is the one `docsBase` gate (fork-invented surfaces that must carry no
+    help button), with an existence check so a rename cannot retire a guard silently.
+  - **A test-only sibling module is a plain `.js`, never a `*.test.js`** — `pages/graphFixtures.js`,
+    `components/editorMarkdownHarness.js`, `components/pageActionsHarness.js`. The include glob
+    collects only `*.test.js`, so these are imported and never run as a suite. A `vi.mock(...)` call
+    must still live in each test file (it is hoisted per file); the harness exports the factory.
+- **A suite does not build its own i18n, router, pinia or mount.** `frontend/test/` is a real
+  harness:
+  - `test/i18n.js` — `createTestI18n(messages)` (nests under `en`, takes flat-dotted or nested keys,
+    missing/fallback warnings off).
+  - `test/router.js` — `await createTestRouter(routes, initialPath)` (bare strings become stub
+    routes; does the `push` + `isReady()` coda by hand-written sites used to repeat) and the
+    synchronous `buildTestRouter(routes)`.
+  - `test/mount.js` — `mountWithApp(Component, { props, messages, routes|router, initialPath,
+    stores, stubs, components, attachTo, …mountOptions })` → `{ wrapper, router, i18n, siteStore,
+    userStore, pageStore, adminStore, editorStore, flagsStore }`. Fresh pinia per call. It writes to
+    a store only when `stores` names it, so a suite asserting against an untouched store still can.
+  - `test/fixtures.js` — `seedSite`/`seedUser`/`seedPage`/`seedAdmin(overrides)` and `stubRouter`.
+  - `test/mocks.js` — `createApiClientStub()` plus `stubApi(routes, { method, fallback })`, a
+    URL→payload table (a plain object for exact keys, a `Map` when a route needs a `RegExp`; a
+    function value is called per request) returning `{ calls }`.
+  - `test/sourceFiles.js` — `listSourceFiles(root, { ext, skip })`, the one recursive walker for the
+    source-scanning suites.
+  - **`stubs` defaults to `{ teleport: true }`**, and a suite that asserts against `document.body`
+    opts out with `stubs: {}` and a one-line reason — `w-dialog`/`w-menu`/`WTooltip` really do
+    teleport their body out of the wrapper.
 - **The two ambient globals, `API_CLIENT` and `EVENT_BUS`** (see [Frontend
   patterns](#frontend-patterns)), exist nowhere outside `boot/*` — a component or store reading either
   as a bare global would throw `ReferenceError` under test without a stand-in. `test/setup.js`
@@ -672,7 +1046,11 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
   `config.global.components = { ...sharedComponents }` (`components/shared/index.js`'s own exported
   map — the same one `boot/components.js` uses) — so a component under test that uses `<w-icon>` /
   `<w-btn>` / ... resolves them exactly as the real app does, with no per-test import list to keep in
-  sync as components are added.
+  sync as components are added. `BlueprintIcon`, `LoadingGeneric` and `StatusLight` are registered
+  there too, from the same imports `boot/components.js` uses; **a suite must not re-register or stub
+  them**, or the same component renders two different ways depending on the file.
+- **`WInput` puts `aria-label` on the `<input>` itself**, so a test selects it as
+  `input[aria-label="X"]` — never the ancestor form `[aria-label="X"] input`, which cannot match.
 - **`Temporal` polyfill**: loaded eagerly in `test/setup.js` when the global is absent, the same way
   `boot/temporal.js` lazily polyfills it for pre-Temporal Safari — this sandbox's Node 25.9 lacks it
   natively (engines requires >=26), same environment note as the backend's testing section.
@@ -708,33 +1086,31 @@ would.
   workarounds. If a future block's test needs something jsdom doesn't emulate, the task spec's
   documented fallback is `@web/test-runner` (runs in a real browser, no DOM emulation at all) — not a
   different DOM emulator.
-- **File convention: co-located `component.test.js`**, matching the `*.test.ts` / `*.test.js`
-  convention in `backend/` and `frontend/` — `block-gallery/component.js` →
-  `block-gallery/component.test.js`. `vitest.config.js`'s `include` is `**/*.test.js`, wide enough to
-  also discover a future `shared/theme.test.js` or `shared/url-limit.test.js` (`shared/`'s
-  `url-limit.js`, `config.js`, `icons.js`, `theme.js` currently have no test coverage at all) — a
-  narrower `*/component.test.js` could only ever match inside a `block-*/` directory.
-- **Mounting pattern** — a block reads its content from the _light_ DOM (the markdown body becomes its
-  children before Lit ever renders), so a test builds that shape directly rather than passing props:
-  ```js
-  const el = document.createElement('block-gallery')
-  el.textContent = '/photos/one.jpg\n/photos/two.jpg'
-  document.body.appendChild(el)
-  await el.updateComplete
-  el.shadowRoot.querySelector('.tile') // → assert against the shadow tree
-  ```
-  Reactive `@property`-declared fields (`thumbnailSize`, `fit`, `unlockAspectRatio`, ...) can be set
-  directly as JS properties (`el.thumbnailSize = 240`) rather than through attribute strings — simpler
-  than reconstructing Lit's attribute-name-casing and converter rules, and exercises the same
-  reactive-update path `render()` runs against either way.
-- **Dark mode**, since every block depends on it (`blocks/shared/theme.js`'s `DarkMode` controller —
-  see the file header comment there): toggle `document.body.classList` between `body--dark` and
-  nothing, and assert the host's `dark` attribute follows. The controller reacts through a
-  `MutationObserver` callback, which runs as a microtask in jsdom same as a real browser — awaiting
-  one `queueMicrotask` tick plus the block's own `updateComplete` is enough to observe the change; no
-  fake timers or polling needed. `block-gallery/component.test.js`'s `describe('dark mode', ...)`
-  block is the reference case — a template worth copying verbatim into the next block's suite, since
-  the controller's behavior (not any one block's use of it) is what's actually being locked down.
+- **File convention: co-located `*.test.js`**, matching the `*.test.ts` / `*.test.js` convention in
+  `backend/` and `frontend/` — `block-gallery/component.js` → `block-gallery/component.test.js`, and
+  the same rule covers `shared/`, where every module but `compress.js` has a co-located suite.
+  `vitest.config.js`'s `include` is `**/*.test.js`, so a helper file under `blocks/test/` **must
+  not** end in `.test.js` — the glob would run it as a suite.
+- **Mounting goes through `blocks/test/mount.js`.** `mountBlock(tag, { pre, text, html, props,
+  attrs, parent, settle })` builds the three body shapes the markdown renderer actually produces —
+  `pre` for a fenced body, `text` for an unfenced one, `html` for markup a block reads structure out
+  of — since a block reads its content from the _light_ DOM, not from props. `settle` is a number of
+  macrotask turns for a block with an async `connectedCallback`, or a function for one that exposes
+  its own handle (`settle: (el) => el._ready` for the two diagram blocks). `resetBlockDom()` is the
+  universal `afterEach`, and `stubSiteFetch({ site, ok, onRequest })` + `TEST_SITE_ID` cover the
+  `GET /_api/sites/current` hop every API-talking block makes first. Reactive `@property` fields can
+  still be set directly as JS properties (`el.thumbnailSize = 240`) rather than through attribute
+  strings — simpler than reconstructing Lit's casing and converter rules, and the same reactive
+  update path either way.
+- **Dark mode is `blocks/test/darkMode.js#describeDarkMode(mount, { inverted, attribute })`**, which
+  IS the suite: call `describeDarkMode(() => mountX(...))` at the end of a block's `describe` rather
+  than writing the toggle by hand. `inverted` is for a block mounted light and then turned dark
+  (`block-live-data`); `attribute: false` for one whose controller is constructed with `{ attribute:
+  false }` and so has no `dark` attribute to read (`block-map` — the controller's own `isDark` is
+  asserted instead). `block-diagram` keeps a bespoke describe, because dark mode there is a real
+  second `_draw()` rather than a restyle. The controller reacts through a `MutationObserver`
+  callback, which runs as a microtask in jsdom same as a real browser, so no fake timers or polling
+  are needed.
 - **Linted the same way as `backend/` and `frontend/`**: `blocks/` has its own `oxlint` devDependency
   and `.oxlintrc.json`, run the same way (`npx oxlint` from `blocks/`) and wired into
   `.github/workflows/quality.yml`'s "Blocks Lint" step alongside the other two workspaces' — see
@@ -795,6 +1171,15 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
   `e2e/` otherwise never touches the database directly) for the handful of job states nothing in the
   app's own API can plant on demand — an "already picked up by another instance" race, a stuck
   `interrupted` row still owed a retry, a bulk-seeded history page past the UI's display limit.
+- **`helpers/admin.js` is composable, not one all-or-nothing flow.** `createAndPublishPage` is
+  nothing but a call to `openMarkdownEditor(page, { path, title, origin, locale })`, then
+  `typeBody(page, body, { paste, previewWaitText })`, then `savePage(page, path, { locale })`, in
+  order — so a spec that has to do something mid-flow (`assets.spec.js`'s File Manager round trip)
+  calls the three directly instead of re-inlining the contenteditable-title, Monaco-mount and
+  save-dialog handling below. `submitLogin(page, email, password)` fills and submits the form
+  already on screen and asserts nothing, for a login somewhere other than a fresh `/login` visit.
+  `expectAuthenticatedShell` resolves through the same `authenticatedShellMarker` `loginAsAdmin`
+  uses, so the two agree below the 900px breakpoint.
 - **Monaco is a real, asynchronously-mounted editor, not a `<textarea>`.** `createAndPublishPage`
   waits for `.editor-markdown-editor .monaco-editor` before clicking into it — clicking the
   container before Monaco has rendered a focusable surface under it is a click with nothing to
@@ -914,7 +1299,12 @@ store; no SVG is ever written into content.
     (Quasar bundled the underlying webfonts and rendered the class string directly, no Iconify
     translation involved), and nothing in this fork — nor the planned 2.5.x migration importer
     (`Migration & Upgrade Path from 2.5.x` epic, "Importer Engine: Content" feature) — has ever
-    produced or plans to carry forward that format into a `w-icon` name. Do not write new ones.
+    produced or plans to carry forward that format into a `w-icon` name. The last such leftover is
+    gone (`AdminStorage.vue`'s delivery graph drew its content-type and missing-origin nodes as
+    `{ icon: 'las', iconText: '&#xf1c5;' }`, i.e. as tofu; they carry `/_assets/icons/*.svg` paths
+    now, and the graph's `<text>` render branch went with them). `grep -rn "'las'" frontend/src`
+    is empty — a new `las`/`mdi-`-style name anywhere in `frontend/src` is a regression, not merely
+    discouraged.
 - Picking an icon calls `POST /_api/icons/materialize`, which is what guarantees the wiki can serve it
   afterwards without the Iconify API.
 - **Per-action glyphs are settled, not a majority to re-derive.** An add/create action (a button, menu
@@ -938,7 +1328,8 @@ plain REST), and every former consumer — `components/AuthLoginPanel.vue`'s `re
 included, alongside the passkey login and 2FA paths that were REST from the start — has been ported
 to REST. `AdminPages.vue`, `AdminPagesEdit.vue`, `AdminPagesVisualize.vue` and `AdminTags.vue`, the
 last pages still calling `this.$apollo.mutate`/`this.$apollo.queries.*`, were deleted outright rather
-than ported (`frontend/src/pages/` now has only `AdminPagesDeleted.vue`, an unrelated page). A grep
+than ported; of that family `frontend/src/pages/` now holds `AdminPagesDeleted.vue` and a
+`AdminPages.vue` rewritten from scratch against REST, sharing nothing with the deleted one. A grep
 for `apollo|graphql` in `frontend/src` turns up only comments and test fixtures referring to the
 removal in the past tense — no live `$apollo` call site remains.
 
