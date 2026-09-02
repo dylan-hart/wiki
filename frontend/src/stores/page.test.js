@@ -665,6 +665,33 @@ describe('page store: pageLoad()', () => {
   })
 })
 
+describe('page store: pageUnlock()', () => {
+  /**
+   * The password the reader just typed to get in is not the page's stored one, and the response
+   * carries no `password` back to overwrite it with (the API only ever hashes it -- OpenProject
+   * #2232). Unlocking used to leave it sitting in the store, where the next save would have sent it
+   * as a password change; `pagePatch()` clears it the same way `pageLoad` and `pageSave` always did.
+   */
+  it('clears the typed password and the remove flag once the page is unlocked', async () => {
+    const pageStore = usePageStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    pageStore.$patch({ id: 'page-1', password: 'hunter2', removePassword: true })
+
+    API_CLIENT.post.mockReturnValueOnce(
+      stubPageResponse({ id: 'page-1', title: 'Locked Page', content: 'secret' })
+    )
+
+    await pageStore.pageUnlock('hunter2')
+
+    expect(pageStore.title).toBe('Locked Page')
+    expect(pageStore.contentLoaded).toBe(true)
+    expect(pageStore.password).toBe('')
+    expect(pageStore.removePassword).toBe(false)
+  })
+})
+
 describe('page store: pageEdit()', () => {
   it('forwards the given locale to the pageLoad() request', async () => {
     const siteStore = useSiteStore()

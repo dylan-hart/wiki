@@ -815,8 +815,7 @@ function resolveSaveConflict(snapshot) {
           updatedAt: snapshot.updatedAt
         })
         // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
-        const now = Temporal.Now.instant()
-        editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
+        editorStore.markClean()
         notify({
           type: 'warning',
           message: t('editor.collab.saveConflict.discarded'),
