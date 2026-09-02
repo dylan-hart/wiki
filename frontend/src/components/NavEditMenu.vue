@@ -271,12 +271,21 @@ async function save() {
       type: 'positive',
       message: t('navEdit.saveModeSuccess')
     })
-    // -> Patching the id is what makes the sidebar reload: it watches this and refetches the menu the
-    //    page now resolves to
     pageStore.$patch({
       navigationMode: state.mode,
       navigationId: resp.navigationId ?? null
     })
+    /*
+      Force-refetch rather than relying on the `pageStore.navigationId` watcher `NavSidebar.vue` runs
+      (OpenProject #1012's fix, same as `NavEditOverlay.vue`'s own `save()`): that watcher only fires
+      when the id itself changes, but plenty of saves from THIS popup leave it unchanged while still
+      changing what the sidebar should show -- `menuMode` alone (`static`/`auto`/`mixed`, resolved
+      against the SAME row), or `override` <-> `overrideExact` (both resolve to this entry's own row,
+      per `updateNavigation()`). Left to the watcher, none of those redraw the sidebar until a full
+      reload re-fetches from scratch -- this is the "still reproduces" gap the item editor's own Save
+      button already closed but this popup's Save never did.
+    */
+    await siteStore.fetchNavigation(resp.navigationId ?? null, true)
     props.menuHideHandler()
   } catch (err) {
     notify({

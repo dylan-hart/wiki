@@ -22,6 +22,8 @@ const MESSAGES = {
   'common.actions.save': 'Save'
 }
 
+const SERVER_ITEMS = [{ id: 'fresh', type: 'link', label: 'Fresh' }]
+
 function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inherit' } = {}) {
   setActivePinia(createPinia())
 
@@ -40,6 +42,11 @@ function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inheri
     }
     if (url === 'sites/site-1/navigation/pages/page-1/inherited') {
       return { json: vi.fn().mockResolvedValue({ navigationId: 'ancestor-nav' }) }
+    }
+    // -> The sidebar's own re-fetch, once `save()` force-refreshes it -- any `.../navigation/<id>`
+    //    not already matched above
+    if (url.startsWith('sites/site-1/navigation/')) {
+      return { json: vi.fn().mockResolvedValue(SERVER_ITEMS) }
     }
     return { json: vi.fn().mockResolvedValue({}) }
   })
@@ -79,6 +86,36 @@ describe('NavEditMenu', () => {
     await flushPromises()
 
     expect(API_CLIENT.get).not.toHaveBeenCalledWith(expect.stringContaining('/mode'))
+  })
+
+  /**
+   * OpenProject #1012's fix landed on `NavEditOverlay.vue`'s own Save button, but this popup's own
+   * Save (which persists `mode`/`menuMode` directly, without ever opening the item editor) never
+   * got the same force-refetch -- so a `menuMode` change (or an `override` <-> `overrideExact`
+   * toggle) that resolves to the SAME `navigationId` left the sidebar showing stale items until a
+   * full reload, since `NavSidebar.vue`'s `pageStore.navigationId` watcher only fires on an actual
+   * id change and `fetchNavigation()`'s own cache gate would skip an unchanged id regardless.
+   */
+  it('force-refetches the sidebar nav on save, even when the resolved id is unchanged', async () => {
+    const { wrapper, siteStore } = mountMenu()
+    await flushPromises()
+
+    siteStore.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'stale' }] } })
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi
+        .fn()
+        .mockResolvedValue({ ok: true, navigationMode: 'inherit', navigationId: 'nav-1' })
+    })
+
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    await saveBtn.trigger('click')
+    // -> The default `API_CLIENT.get` mock resolves `SERVER_ITEMS` for any `.../navigation/<id>` --
+    //    no longer `stale` is the proof the gate was bypassed, not just that some request went out.
+    await vi.waitUntil(() => siteStore.nav.items[0]?.id === 'fresh')
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(siteStore.nav.items).toEqual(SERVER_ITEMS)
   })
 
   it('passes the loaded menuMode through to the item editor via overlayOpts on "Edit Menu Items"', async () => {
