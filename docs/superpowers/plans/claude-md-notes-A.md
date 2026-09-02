@@ -348,3 +348,33 @@ return reply }`) is shared with `requireActorId`.
 - **A15 — stale `index.ts` pointers left in another lane's files.** `backend/controllers/metrics.ts`
   and `backend/controllers/seo.ts` name `index.ts`'s `RESERVED_ROOT_FILES` / `SERVER_ROUTE_SEGMENTS`
   in doc comments; those constants are now exported from `backend/core/http/siteRouting.ts`.
+
+- **A10 — five new shared backend helpers, worth naming in CLAUDE.md's "Existing shared utilities"
+  reasoning (and in the "Backend patterns" section):**
+  - **`helpers/clusterCache.ts#ClusterReloaded`** is now the single home of the cross-instance
+    reload protocol. A model that keeps a process-local cache of a whole table `extends
+    ClusterReloaded`, declares `protected readonly reloadEvent = '<name>'` and implements
+    `reloadCache()`; it must NOT write its own `broadcastReload()`/`subscribeToEvents()`. The two
+    rules the base class encodes: a mutator calls `broadcastReload()`, never `reloadCache()`
+    directly; and `reloadCache()` never emits, or the event echoes around the cluster forever. The
+    five models on it today are `groups`, `sites`, `approvals`, `classificationLevels`, `locales`.
+    (`glossary.ts` and `navigation.ts` are deliberately NOT on it — theirs are per-site
+    `{ siteId }` invalidates, not whole-cache reloads.)
+  - **`helpers/pagination.ts#paginate`** is the one offset-pagination idiom. Its `total` thunk takes
+    drizzle's own `select({ total: count() })` query — `count()` from `drizzle-orm` is now the only
+    count spelling in the model layer, and one of the six sites counts across an `innerJoin`, which
+    `db.$count`'s table-or-subquery shape cannot express.
+  - **`helpers/common.ts#assertLocaleActive` / `#assertPathNotReservedLocale`** are the two
+    page-placement refusals (`pageInvalidLocale`, `pageReservedLocaleSegment`). `tree.ts`'s
+    reserved-locale checks are a deliberately different error (`treeReservedLocaleSegment`, root-only)
+    and are not these.
+  - **`models/hooks.ts#announce`** (a module function, not a `Hooks` method) is how a page or asset
+    write tells the outside world: webhook emit then storage dispatch, both awaited, in that order.
+    Every content write path uses it; do not re-inline the pair. It is a module function precisely so
+    a caller's test can stub `WIKI.models.hooks` as a bare `{ emit }` without losing it.
+  - **`models/tree.ts#holdsVisiblePagesUnder`** is the shared "does this folder hold a page a reader
+    may open" `EXISTS`, exported alongside `pageIsVisible`/`compareFoldersFirst`/`MAX_DEPTH` for
+    `navigation.ts` — the cross-model reuse convention CLAUDE.md already describes for that pair.
+  - **`models/users.ts` now exports `userSelection`** alongside `UserCore`/`UserPage`; `groups.ts`
+    imports all three rather than restating them. If a column is added to the user list projection,
+    it is added once, here.
