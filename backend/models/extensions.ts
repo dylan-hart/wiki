@@ -192,9 +192,7 @@ class Extensions {
     const extensionsPath = path.join(WIKI.SERVERPATH, 'modules/extensions')
     try {
       // -> No `parseProps`: an extension declares how to detect and install itself, not a config form
-      const definitions = await readModuleDefinitions<ExtensionDefinition>(extensionsPath, {
-        label: 'extension'
-      })
+      const definitions = await readModuleDefinitions<ExtensionDefinition>(extensionsPath)
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
       WIKI.logger.info(`Found ${this.definitions.length} extensions [ OK ]`)
     } catch (err: any) {

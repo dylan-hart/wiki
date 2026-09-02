@@ -328,7 +328,6 @@ class Storage {
     const storagePath = path.join(WIKI.SERVERPATH, 'modules/storage')
     try {
       const definitions = await readModuleDefinitions<StorageDefinition>(storagePath, {
-        label: 'storage module',
         parseProps: true,
         sortPropsByOrder: true,
         decorate: async (parsed, key) => {

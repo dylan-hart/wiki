@@ -40,6 +40,11 @@ class Analytics {
   }
 
   async refreshFromDisk(): Promise<void> {
+    // -> Emptied before the scan, not merely reassigned on success: `base.yml` declares no
+    //    `analytics` key, so a failed scan would otherwise leave the field `undefined` for every
+    //    reader of it -- see the same note in `models/authentication.ts`, whose consumers call
+    //    `.find(...)` on it unguarded.
+    WIKI.data.analytics = []
     try {
       // -> Only a module declaring `isAvailable` is loaded: a definition on disk that this build does
       //    not actually ship a provider for must not reach a site's analytics settings.

@@ -459,6 +459,12 @@ class Authentication {
   }
 
   async refreshStrategiesFromDisk(): Promise<void> {
+    // -> Emptied before the scan, not merely reassigned on success: `base.yml` declares no
+    //    `authentication` key, and `models/users.ts`'s login/registration paths and
+    //    `api/authentication.ts`'s strategy listing all call `WIKI.data.authentication.find(...)`
+    //    unguarded. A failed scan has to leave them an empty list to walk, not `undefined` to throw
+    //    a 500 on -- the same "reset, then refill" the other module-backed models do in their catch.
+    WIKI.data.authentication = []
     try {
       // -> Only a module declaring `isAvailable` is loaded: a definition on disk that this build does
       //    not actually ship an implementation for must not reach the admin area's picker.

@@ -38,7 +38,8 @@ export interface ModuleDefinitionRecord {
  * Throws rather than logging: what a failed scan means for the definitions already held, and how it
  * is reported, is the caller's decision (see the header comment above).
  *
- * @param opts.label The module kind in human words ("authentication module"), for `logEach`'s line.
+ * @param opts.label The module kind in human words ("authentication module"). Read only by
+ *   `logEach`, so a caller that does not log per module leaves it out.
  * @param opts.parseProps Normalize `props` through `parseModuleProps` (`helpers/common.ts`).
  * @param opts.sortPropsByOrder Order the parsed props by their declared `order`, so that every
  *   consumer — the admin area included — reads them in the order the module meant them to be shown.
@@ -50,13 +51,13 @@ export interface ModuleDefinitionRecord {
 export async function readModuleDefinitions<T extends ModuleDefinitionRecord>(
   dirPath: string,
   opts: {
-    label: string
+    label?: string
     parseProps?: boolean
     sortPropsByOrder?: boolean
     skipUnavailable?: boolean
     logEach?: boolean
     decorate?: (definition: Record<string, any>, key: string) => T | Promise<T>
-  }
+  } = {}
 ): Promise<T[]> {
   // -> Filtered to directories only: a loose per-module test file sitting alongside the module
   //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
@@ -285,6 +286,10 @@ export async function syncSiteModuleRows<
     if (existingKeys.includes(definition.key)) {
       continue
     }
+    // -> `as never` only because `table` is the generic per-site shape rather than one concrete
+    //    table, so drizzle has no `$inferInsert` to check against here. The row itself is still
+    //    fully type-checked, at the call site: each caller annotates `rowFor`'s return as
+    //    `Omit<typeof <its>Table.$inferInsert, 'siteId' | 'module'>`.
     await WIKI.db
       .insert(table)
       .values({ siteId, module: definition.key, ...rowFor(definition) } as never)

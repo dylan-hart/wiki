@@ -169,7 +169,6 @@ class CommentProviders {
   ): Promise<void> {
     try {
       const definitions = await readModuleDefinitions<CommentProviderDefinition>(modulesPath, {
-        label: 'comment provider module',
         parseProps: true,
         sortPropsByOrder: true,
         decorate: async (parsed, key) => {

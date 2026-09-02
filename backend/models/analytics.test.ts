@@ -80,3 +80,23 @@ test('getModule() returns null for a key nothing on disk declares', async () => 
   await analyticsModel.refreshFromDisk()
   assert.equal(analyticsModel.getModule('does-not-exist'), null)
 })
+
+/**
+ * A failed scan must still leave `WIKI.data.analytics` an array: `base.yml` declares no `analytics`
+ * key, so the field only exists because `refreshFromDisk()` put it there — the same invariant
+ * `models/authentication.test.ts` locks down for its own `WIKI.data.authentication` readers.
+ */
+test('a scan that fails leaves WIKI.data.analytics an empty array rather than undefined', async () => {
+  const previousServerPath = (globalThis as any).WIKI.SERVERPATH
+  // -> A directory that does not exist: `readdir` rejects before a single definition is read.
+  ;(globalThis as any).WIKI.SERVERPATH = path.join(import.meta.dirname, '..', '__no-such-dir__')
+  ;(globalThis as any).WIKI.data = {}
+  try {
+    await analyticsModel.refreshFromDisk()
+    assert.deepEqual(WIKI.data.analytics, [])
+    assert.deepEqual(analyticsModel.getModules(), [])
+  } finally {
+    ;(globalThis as any).WIKI.SERVERPATH = previousServerPath
+    ;(globalThis as any).WIKI.data = {}
+  }
+})

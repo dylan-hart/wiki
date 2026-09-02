@@ -309,7 +309,6 @@ class Search {
     const searchPath = path.join(WIKI.SERVERPATH, 'modules/search')
     try {
       const definitions = await readModuleDefinitions<SearchEngineDefinition>(searchPath, {
-        label: 'search module',
         parseProps: true,
         sortPropsByOrder: true
       })
