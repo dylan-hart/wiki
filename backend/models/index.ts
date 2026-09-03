@@ -15,6 +15,7 @@ import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
 import { diagramRender } from './diagramRender.ts'
+import { eventSubscriptions } from './eventSubscriptions.ts'
 import { exportModel } from './export.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
@@ -72,6 +73,7 @@ export default {
   comments,
   contentSync,
   diagramRender,
+  eventSubscriptions,
   export: exportModel,
   extensions,
   flags,

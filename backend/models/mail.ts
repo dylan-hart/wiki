@@ -439,6 +439,29 @@ class MailModel {
   }
 
   /**
+   * Minimal, generic notification sent by `tasks/simple/notify-event-subscription-subscribers.ts`
+   * for one user subscribed to an event (`models/eventSubscriptions.ts`), whenever
+   * `models/hooks.ts#emit()` fires it — the per-user counterpart to the site-configured webhook
+   * `hooks` deliver instead. Deliberately
+   * a single generic template rather than one per event: richer, per-event-type copy is separately-
+   * tracked follow-on work (Feature #2425's "email transport/templating" child), and this exists to
+   * prove the subscribe → trigger → send path end to end, not to be the final reader-facing copy.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendEventSubscriptionNotification({
+    to,
+    event,
+    locale
+  }: {
+    to: string
+    event: string
+    locale?: string | null
+  }): Promise<void> {
+    await this.sendTemplate(to, locale, 'eventSubscription', { event })
+  }
+
+  /**
    * The content one page-watch change contributes to an email — a single line describing who did
    * what to which page, with the summary and a link back to it. The shared building block behind
    * both `sendPageWatchNotification` (one change, sent alone) and `sendPageWatchDigest` (several
