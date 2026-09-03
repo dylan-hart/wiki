@@ -245,6 +245,22 @@ async function routes(app: FastifyInstance) {
         )
       }
       /*
+        Publish-state guardrail (OpenProject #2466, part of #2421's dedicated publish/unpublish
+        permission): changing `publishState` is not covered by `write:pages`/`manage:pages` alone --
+        it needs `publish:pages` ON THIS PAGE too, so an editor who can write the page cannot silently
+        publish or unpublish it. Unlike the classification guardrail above, `publishState` has no
+        "direction" to spare a raise from the extra check -- any actual change needs it.
+      */
+      if (
+        req.body.publishState !== undefined &&
+        req.body.publishState !== target.publishState &&
+        !mayOnPage(req, 'publish:pages', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Changing this page’s publish state requires the publish:pages permission on it.'
+        )
+      }
+      /*
         Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
         A collab-connected editor's next save naturally carries the post-save timestamp its own
         collaborators' saves already advanced it to (`applySave()` in `composables/collab.js`), so this
