@@ -135,6 +135,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       icon: {
         type: 'string',
         description: "The page's icon, as an Iconify reference. Empty when it has none."
+      },
+      depth: {
+        type: 'integer',
+        description:
+          'How many folders below the queried path this page sits, 0 being directly inside it -- relative to the query, not the site root.'
       }
     }
   })

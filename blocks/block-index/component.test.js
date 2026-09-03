@@ -176,4 +176,66 @@ describe('block-index', () => {
     stubFetch()
     return mountIndex()
   })
+
+  /**
+   * OpenProject #2461: `block-index` used to render a flat list regardless of a page's `depth`. Each
+   * row's `--depth` custom property is what now draws it nested/indented, and a listing carrying any
+   * depth > 0 forces a single column so the indent reads against the right width.
+   */
+  describe('nested/indented rendering (OpenProject #2461)', () => {
+    it('draws every row flush (depth 0) when every page has no depth', async () => {
+      stubFetch({ pages: [stubPage({ path: 'docs/a', title: 'A', depth: 0 })] })
+      const el = await mountIndex()
+
+      const row = el.shadowRoot.querySelector('li')
+      expect(row.style.getPropertyValue('--depth')).toBe('0')
+    })
+
+    it("indents each row by its own page's depth, independent of its siblings", async () => {
+      stubFetch({
+        pages: [
+          stubPage({ path: 'docs/parent', title: 'Parent', depth: 0 }),
+          stubPage({ path: 'docs/parent/child', title: 'Child', depth: 1 }),
+          stubPage({ path: 'docs/parent/child/grand', title: 'Grandchild', depth: 2 })
+        ]
+      })
+      const el = await mountIndex({ depth: 2 })
+
+      const rows = [...el.shadowRoot.querySelectorAll('li')]
+      expect(rows.map((row) => row.style.getPropertyValue('--depth'))).toEqual(['0', '1', '2'])
+    })
+
+    it('treats a missing depth (e.g. an older API response) as 0 rather than throwing', async () => {
+      stubFetch({ pages: [stubPage({ path: 'docs/a', title: 'A' })] })
+      const el = await mountIndex()
+
+      expect(el.shadowRoot.querySelector('li').style.getPropertyValue('--depth')).toBe('0')
+    })
+
+    it('lays out the normal multi-column grid when nothing is nested', async () => {
+      stubFetch({
+        pages: [
+          stubPage({ path: 'docs/a', title: 'A', depth: 0 }),
+          stubPage({ path: 'docs/b', title: 'B', depth: 0 })
+        ]
+      })
+      const el = await mountIndex({ columns: '2' })
+
+      expect(el.shadowRoot.querySelector('ul').getAttribute('style')).toBeFalsy()
+    })
+
+    it('forces a single column once any row is nested, so the indent is not squeezed by a second column', async () => {
+      stubFetch({
+        pages: [
+          stubPage({ path: 'docs/a', title: 'A', depth: 0 }),
+          stubPage({ path: 'docs/a/b', title: 'B', depth: 1 })
+        ]
+      })
+      const el = await mountIndex({ columns: '2' })
+
+      expect(el.shadowRoot.querySelector('ul').style.gridTemplateColumns).toBe(
+        'repeat(1, minmax(0, 1fr))'
+      )
+    })
+  })
 })
