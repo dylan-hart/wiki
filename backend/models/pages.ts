@@ -2066,6 +2066,34 @@ class Pages {
   }
 
   /**
+   * Every translation row -- across every locale -- for a set of paths within one site: the join
+   * half of translation staleness/missing detection (`helpers/translationStatus.ts` is the compare
+   * half). Backs the admin pages view's per-locale status column (OpenProject #2476) and is written
+   * to be reused by whatever else needs the same shared-path join per
+   * `docs/decisions/locale-translation-linking.md` (the locale-switcher badge, OpenProject #2475).
+   *
+   * Unfiltered by page-rule access on purpose: the caller already knows about every path it is
+   * asking for (typically an already permission-filtered search result), and all that is reported
+   * back here is "does a translation exist / when did it last change" — never page content.
+   */
+  async getTranslationRows(
+    siteId: string,
+    paths: string[]
+  ): Promise<Array<{ path: string; locale: string; updatedAt: Date }>> {
+    if (paths.length < 1) {
+      return []
+    }
+    return WIKI.db
+      .select({
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        updatedAt: pagesTable.updatedAt
+      })
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.path, paths)))
+  }
+
+  /**
    * Drop the per-site caches a page write can invalidate, in the order every write path dropped them.
    *
    * The sitemap list and the graph bundle are dropped unconditionally: a page's existence, path,

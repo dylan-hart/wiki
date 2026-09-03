@@ -11,6 +11,7 @@ import { withTimeout } from '../helpers/timeout.ts'
 import type { AccessActor } from './groups.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { pages as pagesTable } from '../db/schema.ts'
+import type { TranslationStatusEntry } from '../helpers/translationStatus.ts'
 
 /**
  * The engine every site starts with, and the only one guaranteed to work: postgres full-text search
@@ -84,6 +85,13 @@ export interface SearchResult {
   updatedAt: string
   relevancy: number
   highlight: string | null
+  /**
+   * Per-locale translation staleness/missing status for this result's path — never set by a search
+   * engine itself (no engine here knows about locales it isn't scoped to). `api/pages/read.ts`'s
+   * search route attaches it after `query()` returns, only when the caller opts in with
+   * `includeLocaleStatus` (OpenProject #2476), which is why it is optional here.
+   */
+  localeStatus?: TranslationStatusEntry[]
 }
 
 export interface SearchPagesResult {

@@ -1,9 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { SEARCH_ORDER_BY, type SearchOrderBy } from '../../models/search.ts'
+import { SEARCH_ORDER_BY, type SearchOrderBy, type SearchResult } from '../../models/search.ts'
 import { generatePathHash, isValidUuid, normalizePagePath } from '../../helpers/common.ts'
 import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { limitAuthAttempts } from '../../helpers/rateLimit.ts'
-import { computeTranslationStatus } from '../../helpers/translationStatus.ts'
+import {
+  computeTranslationStatus,
+  computeTranslationStatuses,
+  type TranslationRow
+} from '../../helpers/translationStatus.ts'
 import {
   actorFrom,
   mayBypassPassword,
@@ -71,6 +75,36 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
 const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 
 /**
+ * Fills in each result's `localeStatus` (OpenProject #2476) -- the admin pages view's per-locale
+ * staleness/missing column -- in place, mutating `results` rather than returning a new array, since
+ * the caller already holds the exact array the response schema is about to serialize.
+ *
+ * One batched `getTranslationRows` call over every distinct path on this page of results, not one
+ * query per row: `results` is already capped at `limit` (at most 100), so the join stays a single,
+ * small `IN (...)` read regardless of how many locales end up represented.
+ */
+async function attachLocaleStatus(siteId: string, results: SearchResult[]): Promise<void> {
+  if (results.length < 1) {
+    return
+  }
+  const paths = [...new Set(results.map((r) => r.path))]
+  const rows = await WIKI.models.pages.getTranslationRows(siteId, paths)
+  const rowsByPath = new Map<string, TranslationRow[]>()
+  for (const row of rows) {
+    const list = rowsByPath.get(row.path) ?? []
+    list.push({ locale: row.locale, updatedAt: row.updatedAt })
+    rowsByPath.set(row.path, list)
+  }
+  const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+    defaultLocale(siteId)
+  ]
+  const statuses = computeTranslationStatuses(rowsByPath, activeLocales, defaultLocale(siteId))
+  for (const result of results) {
+    result.localeStatus = statuses.get(result.path) ?? []
+  }
+}
+
+/**
  * Read-side page routes: finding a page, opening one, unlocking a protected one, and the small
  * lookups a page view makes around it -- its translations, what links to it, the alias it answers to,
  * and what the reader themselves may do here.
@@ -92,6 +126,7 @@ async function routes(app: FastifyInstance) {
       orderByDirection?: 'asc' | 'desc'
       offset?: number
       limit?: number
+      includeLocaleStatus?: boolean
     }
   }>(
     '/sites/:siteId/pages/search',
@@ -153,6 +188,12 @@ async function routes(app: FastifyInstance) {
               minimum: 1,
               maximum: 100,
               default: 25
+            },
+            includeLocaleStatus: {
+              type: 'boolean',
+              default: false,
+              description:
+                "Attach each result's `localeStatus`: whether every one of the site's active locales is missing, stale, current, or the primary translation for that path — the admin pages view's per-locale column. Off by default: it costs one extra batched query over this page of results, so a caller that does not render it should not opt in."
             }
           }
         },
@@ -178,6 +219,22 @@ async function routes(app: FastifyInstance) {
                     highlight: {
                       type: ['string', 'null'],
                       description: 'Excerpt with matched terms in `<b>`, everything else escaped.'
+                    },
+                    localeStatus: {
+                      type: 'array',
+                      description:
+                        "Present only when `includeLocaleStatus=true` was requested. One entry per the site's active locales, primary locale first.",
+                      items: {
+                        type: 'object',
+                        properties: {
+                          locale: { type: 'string' },
+                          state: {
+                            type: 'string',
+                            enum: ['primary', 'current', 'stale', 'missing']
+                          },
+                          updatedAt: { type: ['string', 'null'], format: 'date-time' }
+                        }
+                      }
                     }
                   }
                 }
@@ -216,7 +273,7 @@ async function routes(app: FastifyInstance) {
         PAGE_PASSWORD_BYPASS_ROLES,
         req.params.siteId
       )
-      return WIKI.models.search.query({
+      const result = await WIKI.models.search.query({
         siteId: req.params.siteId,
         query: req.query.query,
         path: req.query.path,
@@ -238,6 +295,10 @@ async function routes(app: FastifyInstance) {
         //    still listed. Global rather than per page — since a search spans many pages at once.
         hideProtectedContent: !maySeeEverything
       })
+      if (req.query.includeLocaleStatus) {
+        await attachLocaleStatus(req.params.siteId, result.results)
+      }
+      return result
     }
   )
 
