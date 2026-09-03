@@ -114,6 +114,13 @@ export interface CollabHarness {
   trackRoom(room: any): void
   /** This test's `WIKI.models.pages.getPage` mock, rebuilt fresh before every test. */
   getPage(): any
+  /**
+   * This test's `WIKI.models.pageDrafts.save`/`clear` mocks (OpenProject #2455), rebuilt fresh before
+   * every test. Resolve to `undefined` and record nothing more than the calls made to them -- a suite
+   * that cares asserts on `.mock.calls` directly, the same way {@link getPage} is used elsewhere.
+   */
+  getPageDraftsSave(): any
+  getPageDraftsClear(): any
 }
 
 /**
@@ -126,6 +133,8 @@ export interface CollabHarness {
 export function installCollabHarness(): CollabHarness {
   let wikiHandle: { restore(): void }
   let getPageMock: any
+  let pageDraftsSaveMock: any
+  let pageDraftsClearMock: any
   /**
    * `awarenessProtocol.Awareness` (a room's cursor/presence tracker) starts a real `setInterval` of
    * its own to expire stale states - nothing above ever cleans it up on the happy path except a room
@@ -137,9 +146,14 @@ export function installCollabHarness(): CollabHarness {
 
   beforeEach(() => {
     getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
+    pageDraftsSaveMock = mock.fn(async () => {})
+    pageDraftsClearMock = mock.fn(async () => {})
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'unset',
-      models: { pages: { getPage: getPageMock } }
+      models: {
+        pages: { getPage: getPageMock },
+        pageDrafts: { save: pageDraftsSaveMock, clear: pageDraftsClearMock }
+      }
     })
     createdRooms = []
   })
@@ -164,6 +178,8 @@ export function installCollabHarness(): CollabHarness {
     trackRoom(room) {
       createdRooms.push(room)
     },
-    getPage: () => getPageMock
+    getPage: () => getPageMock,
+    getPageDraftsSave: () => pageDraftsSaveMock,
+    getPageDraftsClear: () => pageDraftsClearMock
   }
 }

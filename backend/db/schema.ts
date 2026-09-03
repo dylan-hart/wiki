@@ -823,6 +823,34 @@ export const pages = pgTable(
   ]
 )
 
+// PAGE DRAFTS --------------------------
+/**
+ * The last unsaved edit a page's collaboration room was holding when it emptied out without a save
+ * (OpenProject #2455) -- what `core/collab.ts#closeRoomIfEmpty` persists here, and what `viewer.draft`
+ * on `GET .../pages/:pageIdOrHash` (and the `GET`/`DELETE .../pages/:pageId/draft` routes) let the
+ * editor offer to restore on reopening after a crash or a closed tab.
+ *
+ * One row per page (`pageId` is the primary key, not merely a foreign key): collaborative editing is
+ * a shared room, not a personal draft, so there is one "what was left unsaved" per page, not one per
+ * user. Replaced wholesale on every persist (`onConflictDoUpdate`) and deleted the moment the page is
+ * actually saved (`WIKI.collab.pageSaved`) or the reader chooses to discard it — this table never
+ * accumulates history, it only ever holds the single most recent unsaved snapshot.
+ */
+export const pageDrafts = pgTable('pageDrafts', {
+  pageId: uuid()
+    .primaryKey()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  content: text().notNull(),
+  title: varchar({ length: 255 }).notNull(),
+  description: varchar({ length: 255 }).notNull(),
+  icon: varchar({ length: 255 }).notNull(),
+  // -> Null once the account is gone, rather than holding the account hostage. Mirrors
+  //    `comments.authorId`.
+  authorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+  authorName: varchar({ length: 255 }),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+})
+
 // COMMENTS -----------------------------
 /**
  * One row per comment (or reply) posted on a page.

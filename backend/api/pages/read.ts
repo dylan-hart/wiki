@@ -420,9 +420,23 @@ async function routes(app: FastifyInstance) {
         without the feature, since a room can never exist there and the number would be misleading if
         the feature were re-enabled and disabled again while a stale one lingered.
       */
-      const activeEditors = WIKI.sites[req.params.siteId]?.config?.features?.collaborativeEditing
+      const collabEnabled = Boolean(
+        WIKI.sites[req.params.siteId]?.config?.features?.collaborativeEditing
+      )
+      const activeEditors = collabEnabled
         ? WIKI.collab.participantInfo(page.id)
         : { count: 0, names: [] }
+      /*
+        A recovery draft (OpenProject #2455) is nothing but a collaboration room's own leftover
+        content, so it can only exist -- and only matters -- to whoever could have written the room in
+        the first place: `write:pages` on this page, the same permission the collaboration websocket
+        itself checks. Skipped for anyone else, the same way `activeEditors` above is skipped when the
+        feature is off, so this never runs an extra query for a plain reader.
+      */
+      const draft =
+        collabEnabled && mayOnPage(req, 'write:pages', req.params.siteId, page)
+          ? await WIKI.models.pageDrafts.summary(page.id)
+          : null
       return {
         ...page,
         commentsCount,
@@ -430,7 +444,8 @@ async function routes(app: FastifyInstance) {
           permissions: pagePermissionsFor(req, req.params.siteId, page),
           ...approvalState,
           isWatching,
-          activeEditors
+          activeEditors,
+          draft
         }
       }
     }

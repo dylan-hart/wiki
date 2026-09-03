@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 
 import classificationRoutes from './classification.ts'
+import draftRoutes from './drafts.ts'
 import exportRoutes from './export.ts'
 import historyRoutes from './history.ts'
 import importRoutes from './import.ts'
@@ -10,7 +11,7 @@ import writeRoutes from './write.ts'
 /**
  * Pages API Routes
  *
- * One resource, six sub-plugins by responsibility (API-F5). Every route path, method, schema,
+ * One resource, seven sub-plugins by responsibility (API-F5). Every route path, method, schema,
  * `tags` and permission is exactly what the single `api/pages.ts` declared, and each sub-plugin is
  * registered with no prefix of its own — the mounted route table is identical either way.
  *
@@ -27,6 +28,7 @@ async function routes(app: FastifyInstance) {
   await app.register(classificationRoutes)
   await app.register(historyRoutes)
   await app.register(exportRoutes)
+  await app.register(draftRoutes)
 }
 
 export default routes

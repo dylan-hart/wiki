@@ -196,6 +196,13 @@ interface CollabRoom {
   ready: Promise<void>
   /** Whether this room is still filling itself, i.e. has nothing worth handing to a peer yet. */
   provisional: boolean
+  /**
+   * Whether the document holds a change past its starting state -- set by every `doc.on('update')`
+   * once {@link provisional} clears, cleared again by `pageSaved()`. What `closeRoomIfEmpty()` checks
+   * before persisting a recovery draft (OpenProject #2455): a room nobody ever typed into, on this
+   * instance or a peer's, has nothing worth saving a copy of.
+   */
+  dirty: boolean
 }
 
 interface SaveInfo {
@@ -268,6 +275,26 @@ export function buildSeed(page: {
   const update = Y.encodeStateAsUpdate(seed)
   seed.destroy()
   return update
+}
+
+/**
+ * The inverse of {@link buildSeed}: read a room's current text/props back out as plain values, for
+ * persisting as a recovery draft (OpenProject #2455). Called synchronously, before the room's
+ * `Y.Doc` is destroyed -- nothing here is safe to read once that has happened.
+ */
+export function extractSnapshot(doc: Y.Doc): {
+  content: string
+  title: string
+  description: string
+  icon: string
+} {
+  const props = doc.getMap('props')
+  return {
+    content: doc.getText('content').toString(),
+    title: (props.get('title') as string | undefined) ?? '',
+    description: (props.get('description') as string | undefined) ?? '',
+    icon: (props.get('icon') as string | undefined) ?? ''
+  }
 }
 
 /**
@@ -600,7 +627,8 @@ export default {
       awareness,
       conns: new Map(),
       ready: Promise.resolve(),
-      provisional: true
+      provisional: true,
+      dirty: false
     }
     this.rooms.set(page.id, room)
 
@@ -611,6 +639,15 @@ export default {
       const message = encoding.toUint8Array(encoder)
       for (const conn of room.conns.keys()) {
         this.send(conn, message)
+      }
+      /*
+        Past the initial seed (still `provisional` while that applies -- see the interface doc on
+        `dirty`), ANY advance of the document is unsaved content, whether it was typed here or
+        arrived relayed from a peer instance's own editor. Relayed or not decides only whether this
+        instance re-broadcasts it below, not whether it counts as dirty.
+      */
+      if (!room.provisional) {
+        room.dirty = true
       }
       if (origin !== RELAYED) {
         this.relay({ r: room.pageId, t: 'update', p: Buffer.from(update).toString('base64') })
@@ -736,17 +773,29 @@ export default {
   onClose(room: CollabRoom, conn: WebSocket): void {
     const state = room.conns.get(conn)
     room.conns.delete(conn)
+    // -> Best-effort attribution for a persisted draft (see closeRoomIfEmpty) -- read off this
+    //    connection's own awareness state before it is retracted below, since nothing else here
+    //    tracks who typed what. Absent for a departing socket that never set one.
+    let closingAuthorName: string | null = null
     if (state) {
       // -> `ws` delivers `terminate()` as a `close` event exactly like a graceful close, so this one
       //    site covers both paths: a legitimate reconnect loop can never exhaust its own ceiling.
       this.releaseSlot(state.identity)
       if (state.clients.size > 0) {
+        const states = room.awareness.getStates() as Map<number, { user?: { name?: string } }>
+        for (const clientId of state.clients) {
+          const name = states.get(clientId)?.user?.name
+          if (name) {
+            closingAuthorName = name
+            break
+          }
+        }
         // -> Announced as an awareness change, which is what takes the avatar out of the header and
         //    the cursor out of the text for everyone else, here and on every other instance
         awarenessProtocol.removeAwarenessStates(room.awareness, [...state.clients], null)
       }
     }
-    this.closeRoomIfEmpty(room)
+    this.closeRoomIfEmpty(room, closingAuthorName)
   },
 
   /**
@@ -790,12 +839,28 @@ export default {
    *
    * Peers are not told. A room elsewhere is a replica in its own right whose participants are still
    * editing; this instance simply asks for their state again next time someone here opens the page.
+   *
+   * The one exception (OpenProject #2455): a room that never saw a real edit closes exactly as
+   * before, but a {@link CollabRoom.dirty | dirty} one has its content snapshotted and persisted as a
+   * recovery draft before being torn down, so the editor can offer to restore it the next time this
+   * page is opened. Fire-and-forget -- the socket that triggered this close is already gone, so a
+   * failure here can only be logged, not reported to whoever was editing.
    */
-  closeRoomIfEmpty(room: CollabRoom): void {
+  closeRoomIfEmpty(room: CollabRoom, closingAuthorName: string | null = null): void {
     if (room.conns.size > 0 || this.rooms.get(room.pageId) !== room) {
       return
     }
     this.rooms.delete(room.pageId)
+    if (room.dirty) {
+      const snapshot = extractSnapshot(room.doc)
+      void WIKI.models.pageDrafts
+        .save({ pageId: room.pageId, authorId: null, authorName: closingAuthorName, ...snapshot })
+        .catch((err: any) => {
+          WIKI.logger.warn(
+            `Failed to persist the recovery draft for page ${room.pageId}: ${err.message}`
+          )
+        })
+    }
     room.awareness.destroy()
     room.doc.destroy()
   },
@@ -810,14 +875,31 @@ export default {
    *
    * The save does not necessarily land on an instance that has the room, so an instance without one
    * passes the news along instead.
+   *
+   * Also the one place a page's recovery draft (OpenProject #2455) is cleared on the strength of an
+   * actual save rather than a reader's own "discard" -- what was unsaved a moment ago is now exactly
+   * what is stored, so a persisted copy of it would only ever be offered back stale. Attempted on
+   * every call regardless of whether this instance holds the room: the row lives in postgres, not in
+   * memory, and whichever instance's `PATCH` handler called this is the one that gets to clear it.
    */
   pageSaved(pageId: string, info: SaveInfo): void {
     const room = this.rooms.get(pageId)
     if (room) {
+      /*
+        Order matters: writing `lastSave` into the doc is itself a document update, and the very
+        `doc.on('update')` handler that marks a room dirty for a real edit fires for this write too
+        (it does not distinguish which Y type changed). Setting `dirty` back to `false` AFTER that
+        write, not before, is what makes the reset actually stick rather than being immediately
+        clobbered by that same handler.
+      */
       room.doc.getMap('meta').set('lastSave', info)
+      room.dirty = false
     } else {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
     }
+    void WIKI.models.pageDrafts.clear(pageId).catch((err: any) => {
+      WIKI.logger.warn(`Failed to clear the recovery draft for page ${pageId}: ${err.message}`)
+    })
   },
 
   // ----------------------------------------

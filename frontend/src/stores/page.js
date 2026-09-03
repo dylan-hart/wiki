@@ -178,7 +178,14 @@ export const usePageStore = defineStore('page', {
      * "N other people have this page open" before a collab session of its own has even started; see
      * `EditorMarkdown.vue`. Always `{ count: 0, names: [] }` on a site without collaborative editing.
      */
-    activeEditors: { count: 0, names: [] }
+    activeEditors: { count: 0, names: [] },
+    /**
+     * An unsaved draft recorded when this page's collaboration room last closed with edits still
+     * pending (OpenProject #2455) -- `{ updatedAt, authorName }`, or `null` when there is none. What
+     * `composables/collab.js` offers to restore once its session syncs. Content is not carried here;
+     * it is fetched only once the reader actually chooses to restore it.
+     */
+    draft: null
   }),
   getters: {
     breadcrumbs: (state) => {
@@ -371,7 +378,8 @@ export const usePageStore = defineStore('page', {
         canReview: viewer.canReview === true,
         pendingSubmissions: viewer.pendingSubmissions ?? [],
         isWatching: viewer.isWatching === true,
-        activeEditors: viewer.activeEditors ?? { count: 0, names: [] }
+        activeEditors: viewer.activeEditors ?? { count: 0, names: [] },
+        draft: viewer.draft ?? null
       })
     },
     /**
@@ -402,6 +410,7 @@ export const usePageStore = defineStore('page', {
         pendingSubmissions: [],
         isWatching: false,
         activeEditors: { count: 0, names: [] },
+        draft: null,
         notFound: true
       })
     },
