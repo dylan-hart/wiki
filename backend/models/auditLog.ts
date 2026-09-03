@@ -86,12 +86,13 @@ export const AUDIT_TARGET_TYPES = [
   'site',
   'storageTarget',
   'authStrategy',
-  // -> #1118: `mcp.writeToolCalled`'s target is the page the tool call wrote, not the calling key
-  //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
-  //   answer "what did the agent write", not just "an agent wrote something".
+  // -> #1118: `mcp.writeToolCalled`'s target is the page (or, per #2446, the asset) the tool call
+  //   wrote, not the calling key (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the target
+  //   is what makes the log entry answer "what did the agent write", not just "an agent wrote
+  //   something".
   'page',
-  // -> #2443/#2445: `mcp.writeToolCalled`'s target for `upload_asset` and `rename_asset`, the same
-  //   reasoning as `page` above applied to the asset write tools.
+  // -> #2443/#2445/#2446: `mcp.writeToolCalled`'s target for `upload_asset`, `rename_asset` and
+  //   `delete_asset`, the same reasoning as `page` above applied to the asset write tools.
   'asset',
   'glossaryTerm',
   // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
