@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
@@ -8,13 +8,22 @@ import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Covers #1117: the dialog's `mcpInstallCommand` computed builds a ready-to-paste `claude mcp add`
- * command alongside the raw key, using `window.location.origin` (never a hardcoded host) and
- * `--scope local` (never `project`, which would write the bearer token into a committed `.mcp.json`
- * -- see the component's own doc comment).
+ * command alongside the raw key, using `window.location.origin` (never a hardcoded host) and a
+ * `--scope` driven by the `mcpInstallScope` user/local toggle (OpenProject #2411), defaulting to
+ * `user`. `project` is never a reachable value -- it would write the bearer token into a committed
+ * `.mcp.json` -- see the component's own doc comment.
  */
 function mountDialog(props = {}) {
   const i18n = createTestI18n({
-    admin: { api: { copyKeyTitle: 'Copy API Key', key: 'API Key' } },
+    admin: {
+      api: {
+        copyKeyTitle: 'Copy API Key',
+        key: 'API Key',
+        mcpInstallScope: 'Install Scope',
+        mcpInstallScopeUser: 'User',
+        mcpInstallScopeLocal: 'Local'
+      }
+    },
     profile: { api: { copyKeyTitle: 'Copy Access Token', key: 'Access Token' } }
   })
   return mount(ApiKeyCopyDialog, {
@@ -42,12 +51,13 @@ describe('ApiKeyCopyDialog mcp install command', () => {
     })
   })
 
-  it('builds a claude mcp add command with the origin, key, and --scope local', () => {
+  it('builds a claude mcp add command with the origin, key, and --scope user by default', () => {
     const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
 
+    expect(wrapper.vm.mcpInstallScope).toBe('user')
     expect(wrapper.vm.mcpInstallCommand).toBe(
       'claude mcp add --transport http wikijs https://wiki.example.com/_mcp ' +
-        '--header "Authorization: Bearer wiki_abc123.def456" --scope local'
+        '--header "Authorization: Bearer wiki_abc123.def456" --scope user'
     )
   })
 
@@ -60,8 +70,39 @@ describe('ApiKeyCopyDialog mcp install command', () => {
     const wrapper = mountDialog({ keyValue: 'another-key' })
 
     expect(wrapper.vm.mcpInstallCommand).toContain('http://localhost:3000/_mcp')
-    expect(wrapper.vm.mcpInstallCommand).toContain('--scope local')
+    expect(wrapper.vm.mcpInstallCommand).toContain('--scope user')
     expect(wrapper.vm.mcpInstallCommand).not.toContain('--scope project')
+  })
+
+  it('switches the command to --scope local via the user/local toggle', async () => {
+    const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
+    // WDialog only renders its slot once `dialogVisible` flips true, two ticks after mount
+    // (`useDialogComponent`'s `onMounted(() => nextTick(...))`).
+    await flushPromises()
+
+    const toggle = wrapper.findComponent({ name: 'WBtnToggle' })
+    expect(toggle.exists()).toBe(true)
+    expect(toggle.props('options')).toEqual([
+      { label: 'User', value: 'user' },
+      { label: 'Local', value: 'local' }
+    ])
+
+    await toggle.vm.$emit('update:modelValue', 'local')
+
+    expect(wrapper.vm.mcpInstallScope).toBe('local')
+    expect(wrapper.vm.mcpInstallCommand).toContain('--scope local')
+    expect(wrapper.vm.mcpInstallCommand).not.toContain('--scope user')
+  })
+
+  it('never offers project as a toggle option', async () => {
+    const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
+    await flushPromises()
+
+    const toggle = wrapper.findComponent({ name: 'WBtnToggle' })
+    const values = toggle.props('options').map((opt) => opt.value)
+
+    expect(values).toEqual(['user', 'local'])
+    expect(values).not.toContain('project')
   })
 
   it('copies the install command to the clipboard on copyMcpInstallCommand()', async () => {
