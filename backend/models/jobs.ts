@@ -152,6 +152,18 @@ export const JOB_SCHEDULE_SEED = [
     task: 'purgePageWatchEvents',
     cron: '50 0 * * *',
     type: 'system'
+  },
+  // -> Checks the configured replication schedule (`WIKI.config.replication`, OpenProject #2437) and
+  //    queues a `replicationPull` job when it's due -- same "comparison happens inside the task
+  //    itself" shape as `storageSyncTick` above. Every 5 minutes rather than `storageSyncTick`'s
+  //    every-minute cron, both because a replication schedule is realistically daily/weekly (no need
+  //    for minute-level precision) and because `* * * * *` is already claimed by `storageSyncTick` --
+  //    see `models/jobs.test.ts`'s uniqueness check. See `models/replication.ts#tick()` /
+  //    `tasks/simple/replication-tick.ts`.
+  {
+    task: 'replicationTick',
+    cron: '*/5 * * * *',
+    type: 'system'
   }
 ] as const
 

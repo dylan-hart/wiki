@@ -42,6 +42,7 @@ import { pdfExport } from './pdfExport.ts'
 import { rateLimits } from './rateLimits.ts'
 import { renderQueue } from './renderQueue.ts'
 import { rendering } from './rendering.ts'
+import { replication } from './replication.ts'
 import { search } from './search.ts'
 import { security } from './security.ts'
 import { sessions } from './sessions.ts'
@@ -98,6 +99,7 @@ export default {
   rateLimits,
   renderQueue,
   rendering,
+  replication,
   search,
   security,
   sessions,

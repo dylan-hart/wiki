@@ -94,6 +94,19 @@ defaults:
       # seeding runs. Keys `hashVisitor()`'s HMAC so a stored `visitorHash` can't be re-derived from
       # `sessions.id`/`apiKeys.id` without it.
       hashKey: ''
+    # Scheduled clean-slate replication from another instance (OpenProject #2437): pull a full
+    # snapshot from `sourceUrl` (another Wiki.js 3.x instance) on `cron` and wipe-and-replace this
+    # instance's own data with it. Instance-level, not per-site -- see
+    # `models/replication.ts`/`tasks/simple/replication-tick.ts`. `sourceToken` is a bearer PAT for
+    # the source instance (reusing the existing `models/apiKeys.ts` PAT auth, per the epic's own
+    # scope), and `lastRunAt` is written back by `tick()` each time it queues a pull -- an operator
+    # never sets it by hand.
+    replication:
+      enabled: false
+      sourceUrl: ''
+      sourceToken: ''
+      cron: ''
+      lastRunAt: null
     # Only a backstop for a database that predates this key's introduction (the `settings` table row
     # is what actually governs a live instance -- see `models/settings.ts#init()` and
     # `models/auditLog.ts`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS`, which this must match).

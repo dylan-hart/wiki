@@ -75,6 +75,13 @@ test('JOB_SCHEDULE_SEED registers purgeUserKeys on a valid daily cron', () => {
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
+test("JOB_SCHEDULE_SEED registers replicationTick on a 5-minute cron, not storageSyncTick's every-minute one (OpenProject #2437)", () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'replicationTick')
+  assert.ok(entry, 'expected a replicationTick entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  assert.equal(entry!.cron, '*/5 * * * *')
+})
+
 test('JOB_SCHEDULE_SEED registers purgePageWatchEvents on a valid daily cron', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgePageWatchEvents')
   assert.ok(entry, 'expected a purgePageWatchEvents entry in the schedule seed')
@@ -121,6 +128,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'purgeRateLimits',
       'purgeSessions',
       'purgeUserKeys',
+      'replicationTick',
       'sendWatchDigests',
       'storageDailyBackup',
       'storageSyncTick',
