@@ -118,6 +118,12 @@
       </div>
     </div>
     <div class="graph-view-filters">
+      <w-input
+        v-model="keywordQuery"
+        clearable
+        outlined
+        dense
+        :label="t('graph.filters.keyword')" />
       <w-select
         v-model="activeFilters.tags"
         multiple
@@ -335,8 +341,18 @@ const activeFilters = reactive({
   locale: null
 })
 
+/** The graph filter panel's keyword search box (OpenProject #2478, Feature #2414). Deliberately kept
+ *  OUTSIDE `activeFilters` above: that object drives `computeVisibleSubset()`'s AND-narrowing (a node
+ *  failing any active tag/folder-depth/locale filter is hidden), while a keyword match is meant to
+ *  HIGHLIGHT matching nodes without hiding the rest -- a different behavior the epic spec calls out
+ *  explicitly. Wiring this to `GET sites/:siteId/pages/search` and rendering the highlight are
+ *  separate work packages (#2479/#2480); this ref is currently read by nothing else. */
+const keywordQuery = ref('')
+
 /** Resets every filter to its default -- the `activeFilters` watcher (Task 26/#901) fires
- *  automatically once these change, no separate wiring needed here. */
+ *  automatically once these change, no separate wiring needed here. `keywordQuery` is deliberately
+ *  not reset here: it isn't one of the narrowing filters this button/action targets (see its own doc
+ *  comment above), and its own `w-input`'s `clearable` affordance already covers resetting it. */
 function clearFilters() {
   activeFilters.tags = []
   activeFilters.folderDepth = null

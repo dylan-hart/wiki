@@ -2779,6 +2779,7 @@
   "graph.controls.visitsByMcp": "MCP",
   "graph.filters.clear": "Clear filters",
   "graph.filters.folderDepth": "Folder Depth",
+  "graph.filters.keyword": "Keyword",
   "graph.filters.locale": "Locale",
   "graph.filters.tags": "Tags",
   "graph.tooltip.contributors": "{count} contributor | {count} contributors",
