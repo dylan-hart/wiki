@@ -50,6 +50,15 @@
               hide-bottom-space
               :label="t(`admin.api.mcpInstallCommand`)"
               :hint="t(`admin.api.mcpInstallCommandHint`)" />
+            <w-btn-toggle
+              v-model="mcpInstallScope"
+              push
+              glossy
+              no-caps
+              toggle-color="primary"
+              class="mt-2"
+              :aria-label="t(`admin.api.mcpInstallScope`)"
+              :options="mcpInstallScopeOptions" />
           </w-item-section>
         </w-item>
       </w-form>
@@ -131,6 +140,24 @@ const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent({
 
 const { t } = useI18n()
 
+// SCOPE TOGGLE
+
+/**
+ * `user`/`local` toggle for the generated install command's `--scope` flag (OpenProject #2411).
+ * Defaults to `user` -- available across all the admin/user's own projects, still never committed --
+ * rather than `local`, which is scoped to whichever single project directory the command happens to
+ * be run from.
+ *
+ * Deliberately no `project` option: `project` scope writes the command -- bearer token included --
+ * into `.mcp.json`, which gets committed to a repo. See the `mcpInstallCommand` doc comment below.
+ */
+const mcpInstallScope = ref('user')
+
+const mcpInstallScopeOptions = computed(() => [
+  { label: t(`admin.api.mcpInstallScopeUser`), value: 'user' },
+  { label: t(`admin.api.mcpInstallScopeLocal`), value: 'local' }
+])
+
 // COMPUTED
 
 /**
@@ -138,14 +165,15 @@ const { t } = useI18n()
  * (`/_mcp`, OpenProject #985). `window.location.origin` rather than a hardcoded host -- this dialog
  * is rendered from whichever origin the admin/user is actually browsing.
  *
- * `--scope local`, not `project`: `project` scope writes the command -- bearer token included -- into
- * `.mcp.json`, which gets committed to a repo. This has to stay private to whoever's terminal it's
+ * `--scope` comes from the `mcpInstallScope` toggle above and is either `user` or `local` -- never
+ * `project`: `project` scope writes the command -- bearer token included -- into `.mcp.json`, which
+ * gets committed to a repo. Both remaining options stay private to whoever's terminal the command is
  * pasted into, the same one-time-visibility framing as the raw key above.
  */
 const mcpInstallCommand = computed(() => {
   return (
     `claude mcp add --transport http wikijs ${window.location.origin}/_mcp ` +
-    `--header "Authorization: Bearer ${props.keyValue}" --scope local`
+    `--header "Authorization: Bearer ${props.keyValue}" --scope ${mcpInstallScope.value}`
   )
 })
 
