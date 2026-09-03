@@ -1,5 +1,6 @@
 /**
- * Worker-thread body for the multi-instance `core/collab.ts` races exercised by `core/collab.test.ts`.
+ * Worker-thread body for the multi-instance `core/collab.ts` races exercised by
+ * `core/collab.crossInstance.db.test.ts`.
  *
  * Each worker is a genuinely separate `WIKI` global — a worker thread gets its own V8 isolate and its
  * own module registry, so this is the smallest way to run two real `collab.ts` instances (own `rooms`,

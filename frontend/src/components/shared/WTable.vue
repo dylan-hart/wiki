@@ -73,6 +73,7 @@
 
 <script setup>
 import { computed, reactive } from 'vue'
+import { CELL_ALIGN } from './metrics'
 
 /**
  * Data table.
@@ -133,16 +134,10 @@ const props = defineProps({
 
 const sort = reactive({ name: null, descending: false })
 
-// -> Same reasoning as WTd's own ALIGN map: `col.align` keeps its `left`/`right` names for every
-//    existing column descriptor, resolved to the logical `text-start`/`text-end` utility.
-const ALIGN = {
-  left: 'text-start',
-  center: 'text-center',
-  right: 'text-end'
-}
-
+// -> `col.align` keeps its `left`/`right` names for every existing column descriptor, resolved to
+//    the logical `text-start`/`text-end` utility -- see `CELL_ALIGN`.
 function alignClass(col) {
-  return ALIGN[col.align] ?? ALIGN.left
+  return CELL_ALIGN[col.align] ?? CELL_ALIGN.left
 }
 
 function ariaSort(col) {

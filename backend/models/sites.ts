@@ -19,7 +19,9 @@ import {
   storage as storageTable
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
-import { CustomError, normalizeHostname } from '../helpers/common.ts'
+import { ClusterReloaded } from '../helpers/clusterCache.ts'
+import { CustomError } from '../helpers/common.ts'
+import { normalizeHostname, siteIdForHostname } from '../helpers/siteResolution.ts'
 import {
   detectImageMime,
   detectSvg,
@@ -106,7 +108,9 @@ export const DEFAULT_THEME_COLORS = {
 /**
  * Sites model
  */
-class Sites {
+class Sites extends ClusterReloaded {
+  protected readonly reloadEvent = 'reloadSites'
+
   async getSiteById({ id, forceReload = false }: { id: string; forceReload?: boolean }) {
     if (forceReload) {
       await WIKI.models.sites.reloadCache()
@@ -126,10 +130,7 @@ class Sites {
     if (forceReload) {
       await WIKI.models.sites.reloadCache()
     }
-    const normalizedHostname = normalizeHostname(hostname)
-    const siteId = strict
-      ? WIKI.sitesMappings[normalizedHostname]
-      : WIKI.sitesMappings[normalizedHostname] || WIKI.sitesMappings['*']
+    const siteId = siteIdForHostname(hostname, { strict })
     if (siteId) {
       return WIKI.sites[siteId]
     }
@@ -156,25 +157,6 @@ class Sites {
       WIKI.sitesMappings[normalizeHostname(site.hostname)] = site.id
     }
     WIKI.logger.info(`Loaded ${sites.length} site configurations [ OK ]`)
-  }
-
-  /**
-   * Reload this instance's own cache, then tell every other instance in the cluster to do the same —
-   * see `models/groups.ts`'s `broadcastReload()`, which this mirrors exactly, including the same
-   * "never call from inside `reloadCache()`" rule.
-   */
-  private async broadcastReload(): Promise<void> {
-    await this.reloadCache()
-    WIKI.events.outbound.emit('reloadSites')
-  }
-
-  /**
-   * Subscribe to HA propagation events
-   */
-  subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadSites', async () => {
-      await this.reloadCache()
-    })
   }
 
   async createSite(hostname: string, config: Record<string, any> = {}) {

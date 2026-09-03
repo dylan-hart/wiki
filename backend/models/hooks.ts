@@ -3,6 +3,7 @@ import https from 'node:https'
 import { hooks as hooksTable, jobHistory as jobHistoryTable } from '../db/schema.ts'
 import { and, count, desc, eq, sql } from 'drizzle-orm'
 import { durationToSeconds } from '../helpers/common.ts'
+import { paginate } from '../helpers/pagination.ts'
 import type { JobState } from './jobs.ts'
 import type { RateLimitPolicy } from './rateLimits.ts'
 
@@ -67,22 +68,7 @@ export const EMITTED_EVENTS: HookEvent[] = [
 ]
 
 /** A webhook as exposed by the API. */
-export interface Hook {
-  id: string
-  name: string
-  events: string[]
-  url: string
-  includeMetadata: boolean
-  includeContent: boolean
-  acceptUntrusted: boolean
-  authHeader: string | null
-  state: 'pending' | 'success' | 'error'
-  lastErrorMessage: string | null
-  createdAt: Date
-  updatedAt: Date
-  /** Which site this webhook fires for. Null means every site -- see `emit()`. */
-  siteId: string | null
-}
+export type Hook = typeof hooksTable.$inferSelect
 
 /** One recorded attempt to deliver an event to a webhook. */
 export interface HookDelivery {
@@ -136,22 +122,6 @@ function webhookRateLimitPolicy(): RateLimitPolicy {
       WEBHOOK_RATE_LIMIT_DEFAULTS.banSeconds
     )
   }
-}
-
-const hookSelection = {
-  id: hooksTable.id,
-  name: hooksTable.name,
-  events: hooksTable.events,
-  url: hooksTable.url,
-  includeMetadata: hooksTable.includeMetadata,
-  includeContent: hooksTable.includeContent,
-  acceptUntrusted: hooksTable.acceptUntrusted,
-  authHeader: hooksTable.authHeader,
-  state: hooksTable.state,
-  lastErrorMessage: hooksTable.lastErrorMessage,
-  createdAt: hooksTable.createdAt,
-  updatedAt: hooksTable.updatedAt,
-  siteId: hooksTable.siteId
 }
 
 /**
@@ -218,23 +188,16 @@ class Hooks {
    * Every webhook, newest first
    */
   async getHooks(): Promise<Hook[]> {
-    const results = await WIKI.db
-      .select(hookSelection)
-      .from(hooksTable)
-      .orderBy(desc(hooksTable.createdAt))
-    return results as Hook[]
+    const results = await WIKI.db.select().from(hooksTable).orderBy(desc(hooksTable.createdAt))
+    return results
   }
 
   /**
    * A single webhook, or null if there is no such webhook
    */
   async getHookById(id: string): Promise<Hook | null> {
-    const results = await WIKI.db
-      .select(hookSelection)
-      .from(hooksTable)
-      .where(eq(hooksTable.id, id))
-      .limit(1)
-    return (results[0] as Hook) ?? null
+    const results = await WIKI.db.select().from(hooksTable).where(eq(hooksTable.id, id)).limit(1)
+    return results[0] ?? null
   }
 
   /**
@@ -265,28 +228,26 @@ class Hooks {
       eq(jobHistoryTable.task, 'dispatchWebhook'),
       sql`${jobHistoryTable.payload} ->> 'hookId' = ${hookId}`
     )
-    const [deliveries, totals] = await Promise.all([
-      WIKI.db
-        .select({
-          event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
-          state: jobHistoryTable.state,
-          attempt: jobHistoryTable.attempt,
-          maxRetries: jobHistoryTable.maxRetries,
-          lastErrorMessage: jobHistoryTable.lastErrorMessage,
-          startedAt: jobHistoryTable.startedAt,
-          completedAt: jobHistoryTable.completedAt
-        })
-        .from(jobHistoryTable)
-        .where(where)
-        .orderBy(desc(jobHistoryTable.startedAt))
-        .limit(limit),
-      WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
-    ])
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select({
+            event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
+            state: jobHistoryTable.state,
+            attempt: jobHistoryTable.attempt,
+            maxRetries: jobHistoryTable.maxRetries,
+            lastErrorMessage: jobHistoryTable.lastErrorMessage,
+            startedAt: jobHistoryTable.startedAt,
+            completedAt: jobHistoryTable.completedAt
+          })
+          .from(jobHistoryTable)
+          .where(where)
+          .orderBy(desc(jobHistoryTable.startedAt))
+          .limit(limit),
+      total: () => WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    })
 
-    return {
-      total: totals[0]?.total ?? 0,
-      deliveries
-    }
+    return { total, deliveries: rows }
   }
 
   /**
@@ -483,3 +444,48 @@ class Hooks {
 }
 
 export const hooks = new Hooks()
+
+/**
+ * Tell the outside world that a page or an asset changed: webhooks first, then storage targets.
+ *
+ * Ten write paths across `models/pages.ts` and `models/assets.ts` — create, edit, rename, delete and
+ * the folder-cascade delete, for each of the two content kinds — each ended with the same pair of
+ * awaited calls carrying near-identical payloads. What actually differs between the two calls is
+ * small and fixed: a webhook may be given `metadata` (whatever a subscriber asked to be told beyond
+ * the identity of the thing that changed), while a storage dispatch may be given the couple of extra
+ * columns a target needs to classify the content (`kind`/`fileSize`).
+ *
+ * A module function rather than a method on `Hooks`, because both call sites are other models and
+ * both of their test suites stand `WIKI.models.hooks` up as a bare `{ emit }` stub — a method here
+ * would not exist on those stubs, while this reads `WIKI.models.hooks.emit` and
+ * `WIKI.models.storage.dispatch` at call time, exactly as the inlined copies did.
+ *
+ * Both calls are awaited in this order, deliberately: `assets.test.ts` asserts that an upload does
+ * not resolve until both have. The payloads are what external consumers actually receive, so they are
+ * assembled here to be byte-identical to what each site sent before (`pages.test.ts` and
+ * `assets.test.ts` assert them field for field) — `data` carries its own `siteId` in its own
+ * position rather than having one spliced in here.
+ *
+ * @param data The shared payload, sent as-is to both
+ * @param extra.metadata Merged into the webhook payload only, as `metadata`
+ * @param extra.dispatchExtra Merged into the storage-dispatch payload only
+ */
+export async function announce(
+  event: HookEvent,
+  siteId: string,
+  data: Record<string, unknown>,
+  extra: {
+    metadata?: Record<string, unknown>
+    dispatchExtra?: Record<string, unknown>
+  } = {}
+): Promise<void> {
+  await WIKI.models.hooks.emit(
+    event,
+    siteId,
+    extra.metadata ? { ...data, metadata: extra.metadata } : data
+  )
+  await WIKI.models.storage.dispatch(
+    event,
+    extra.dispatchExtra ? { ...data, ...extra.dispatchExtra } : data
+  )
+}

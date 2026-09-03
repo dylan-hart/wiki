@@ -125,13 +125,13 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { dialog } from '@/composables/dialog'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
@@ -196,20 +196,29 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  search: '',
-  /** `null` means every locale -- the "All Locales" option in `localeOptions`. */
-  locale: null,
-  overrides: [],
-  /**
-   * The administered site's own active locales and primary locale, fetched fresh per
-   * `loadSiteLocales()` -- deliberately NOT `siteStore.locales`, which is the site currently serving
-   * this browser tab and can differ from `adminStore.currentSiteId`, the site actually being
-   * administered here (OpenProject #948). Read by `localeOptions` and `openDefaultMenu()` below.
-   */
-  siteLocales: [],
-  sitePrimaryLocale: 'en'
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.navigation',
+  extraState: {
+    search: '',
+    /** `null` means every locale -- the "All Locales" option in `localeOptions`. */
+    locale: null,
+    overrides: [],
+    /**
+     * The administered site's own active locales and primary locale, fetched fresh per
+     * `loadSiteLocales()` -- deliberately NOT `siteStore.locales`, which is the site currently serving
+     * this browser tab and can differ from `adminStore.currentSiteId`, the site actually being
+     * administered here (OpenProject #948). Read by `localeOptions` and `openDefaultMenu()` below.
+     */
+    siteLocales: [],
+    sitePrimaryLocale: 'en'
+  },
+  fetch: (siteId) =>
+    API_CLIENT.get(`sites/${siteId}/navigation/overrides`, {
+      ...(state.locale && { searchParams: { locale: state.locale } })
+    }).json(),
+  onLoaded: (overrides) => {
+    state.overrides = overrides
+  }
 })
 
 // HELPERS
@@ -361,34 +370,12 @@ const columns = [
   overrides table showing the previous site's rows while "Edit Default Menu" (reading
   `adminStore.currentSiteId` at call time) silently edited the NEW site's menu (OpenProject #948).
 */
-watch(() => adminStore.currentSiteId, load)
 watch(() => adminStore.currentSiteId, loadSiteLocales)
 // -> The locale filter itself: re-runs `load()` alone, not `loadSiteLocales()` -- the OPTIONS in the
 //    dropdown do not depend on which one is currently picked, only on which site is administered.
 watch(() => state.locale, load)
 
 // METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    state.overrides = await API_CLIENT.get(
-      `sites/${adminStore.currentSiteId}/navigation/overrides`,
-      {
-        ...(state.locale && { searchParams: { locale: state.locale } })
-      }
-    ).json()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.navigation.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  loading.hide()
-  state.loading--
-}
 
 /**
  * The administered site's own active/primary locales -- see `state.siteLocales`'s doc comment for
@@ -411,10 +398,9 @@ async function loadSiteLocales() {
 
 // MOUNTED
 
-onMounted(() => {
-  loadSiteLocales()
-  load()
-})
+// -> The overrides table itself is loaded by `useAdminSettings` above; only this page's second,
+//    site-switch-only request is its own.
+onMounted(loadSiteLocales)
 </script>
 
 <style lang="scss"></style>

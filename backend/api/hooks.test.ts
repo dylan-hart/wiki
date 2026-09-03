@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySwagger from '@fastify/swagger'
-import fastifySensible from '@fastify/sensible'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import hooksRoutes from './hooks.ts'
-import { registerSchemas as registerHookSchema } from './schemas/hook.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { EMITTED_EVENTS, HOOK_EVENTS } from '../models/hooks.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
@@ -30,18 +26,8 @@ import { ensureTemporal } from '../test/temporal.ts'
  * cache or db access.
  */
 
-async function buildApp() {
-  const app = fastify()
-  await app.register(fastifySwagger)
-  registerHookSchema(app)
-  await registerErrorSchema(app)
-  await app.register(hooksRoutes)
-  await app.ready()
-  return app
-}
-
 test('GET /events response reflects EMITTED_EVENTS for every catalogued event', async () => {
-  const app = await buildApp()
+  const app = await buildTestApp({ routes: hooksRoutes, swagger: true })
   try {
     const res = await app.inject({ method: 'GET', url: '/events' })
     assert.equal(res.statusCode, 200)
@@ -64,12 +50,12 @@ test('GET /events response reflects EMITTED_EVENTS for every catalogued event', 
       assert.equal(entry.isEmitted, true, `${entry.key} should be reported as emitted`)
     }
   } finally {
-    await app.close()
+    await closeTestApp(app)
   }
 })
 
 test('GET /events Swagger description does not repeat known-stale claims', async () => {
-  const app = await buildApp()
+  const app = await buildTestApp({ routes: hooksRoutes, swagger: true })
   try {
     const spec = app.swagger() as any
     const description = spec.paths['/events'].get.description as string
@@ -82,7 +68,7 @@ test('GET /events Swagger description does not repeat known-stale claims', async
     // via `models/comments.ts`'s `create`/`update`/`delete`.
     assert.doesNotMatch(description, /comments? (is|are) not (yet )?implemented/i)
   } finally {
-    await app.close()
+    await closeTestApp(app)
   }
 })
 
@@ -115,10 +101,9 @@ let existingHook: any
 
 before(async () => {
   await ensureTemporal()
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     version: 'test',
     INSTANCE_ID: 'test-instance',
-    logger: { warn: () => {}, debug: () => {} },
     sites: { [SITE_1_ID]: { id: SITE_1_ID, config: {} } },
     models: {
       hooks: {
@@ -151,29 +136,12 @@ before(async () => {
   const { port } = server.address() as AddressInfo
   serverUrl = `http://127.0.0.1:${port}/`
 
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.badRequest()`/etc. is a thrown
-  //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
-  //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  await registerHookSchema(app)
-  await registerErrorSchema(app)
-  await app.register(hooksRoutes)
-  await app.ready()
+  app = await buildTestApp({ routes: hooksRoutes, wiki })
 })
 
 after(async () => {
-  await app.close()
+  await closeTestApp(app)
   await new Promise<void>((resolve) => server.close(() => resolve()))
-  delete (globalThis as any).WIKI
 })
 
 beforeEach(() => {

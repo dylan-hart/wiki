@@ -185,13 +185,13 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 
-import { dialog, dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
+import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
-import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import ApiKeyScopePicker from './ApiKeyScopePicker.vue'
-import { apiErrorMessage } from '@/helpers/apiError'
+import { useApiKeyCreateForm } from '@/composables/apiKeyCreateForm'
+import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 import { useAdminStore } from '@/stores/admin'
 
 // EMITS
@@ -212,49 +212,32 @@ const { t } = useI18n()
 
 const adminStore = useAdminStore()
 
-// DATA
-
-const state = reactive({
-  keyName: '',
-  keyExpiration: '90d',
-  keyGroups: [],
-  // -> Empty means unscoped (null on the wire): the key carries the full union of its groups, same
-  //    as a key created before scoping existed. Anything picked here narrows it -- see the field's
-  //    own comment in the template.
-  keyScope: [],
-  // -> null is the "All Sites" entry -- instance-wide, same as a key created before site-pinning
-  //    existed.
-  keySiteId: null,
-  groups: [],
-  loadingGroups: false,
-  sites: [],
-  loadingSites: false,
-  // -> The checked ids of the classification checkbox grid, initialized to every level once
-  //    `adminStore.classificationLevels` loads (see `onMounted`) -- all-checked, same as "No Limit"
-  //    was before this existed. See `allowedClassifications` below for what actually gets sent.
-  keyClassifications: [],
-  loading: 0
-})
-
-/**
- * The guests group is anonymous access, so a key carrying its permissions would grant nothing a
- * caller cannot already do. Its ID is fixed at install (`systemIds.guestsGroupId` in base.yml), and
- * the API rejects it too.
- */
-const GUESTS_GROUP_ID = '10000000-0000-4000-8000-000000000001'
-
-const expirations = [
-  { value: '30d', text: t('admin.api.expiration30d') },
-  { value: '90d', text: t('admin.api.expiration90d') },
-  { value: '180d', text: t('admin.api.expiration180d') },
-  { value: '1y', text: t('admin.api.expiration1y') },
-  { value: '3y', text: t('admin.api.expiration3y') }
-]
-
 // REFS
 
 const createKeyForm = ref(null)
 const iptName = ref(null)
+
+// FORM
+
+/*
+  The lifetimes, the site picker, the classification grid, the name rules and the create round trip
+  are shared with the self-service form (`ProfileApiKeyCreateDialog.vue`) -- see
+  `composables/apiKeyCreateForm.js`. The groups picker below is what only an admin-issued key has:
+  a personal token always carries its creator's own permissions, so there is nothing to pick there.
+*/
+const { state, expirations, siteOptions, keyNameValidation, create } = useApiKeyCreateForm({
+  endpoint: 'api-keys',
+  i18nPrefix: 'admin.api',
+  form: () => createKeyForm.value,
+  onOk: onDialogOK,
+  t,
+  extraState: {
+    keyGroups: [],
+    groups: [],
+    loadingGroups: false
+  },
+  extraJson: (formState) => ({ groups: formState.keyGroups })
+})
 
 // COMPUTED
 
@@ -262,29 +245,7 @@ const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.keyGroups[0])[0]?.name
 })
 
-/** The site select's own "All Sites" entry (`id: null`) is prepended -- see the field's template comment. */
-const siteOptions = computed(() => {
-  return [{ id: null, title: t('admin.api.newKeySiteAllSites') }, ...state.sites]
-})
-
-/**
- * What actually reaches the API (OpenProject #1205): `null` when every currently known level is
- * checked -- equivalent to the old "No Limit" default, and it stays that way against a level added
- * later too, exactly like a key created before this feature existed. Anything less than every level
- * checked is sent as the explicit array of checked ids, which only narrows.
- */
-const allowedClassifications = computed(() => {
-  const allIds = adminStore.classificationLevels.map((level) => level.id)
-  const isEveryLevelChecked = allIds.every((id) => state.keyClassifications.includes(id))
-  return isEveryLevelChecked ? null : state.keyClassifications
-})
-
 // VALIDATION RULES
-
-const keyNameValidation = [
-  (val) => val.length > 0 || t('admin.api.nameMissing'),
-  (val) => /^[^<>"]+$/.test(val) || t('admin.api.nameInvalidChars')
-]
 
 const keyGroupsValidation = [(val) => val.length > 0 || t('admin.api.groupsMissing')]
 
@@ -295,6 +256,8 @@ async function loadGroups() {
   state.loadingGroups = true
   try {
     const resp = await API_CLIENT.get('groups').json()
+    // -> The guests group is anonymous access, so a key carrying its permissions would grant nothing
+    //    a caller cannot already do. The API rejects it too.
     state.groups = (resp ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
   } catch (err) {
     notify({
@@ -307,83 +270,7 @@ async function loadGroups() {
   state.loading--
 }
 
-async function loadSites() {
-  state.loading++
-  state.loadingSites = true
-  try {
-    const resp = await API_CLIENT.get('sites').json()
-    state.sites = resp ?? []
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.api.loadFailed'),
-      caption: err.message
-    })
-  }
-  state.loadingSites = false
-  state.loading--
-}
-
-async function create() {
-  state.loading++
-  try {
-    const isFormValid = await createKeyForm.value.validate(true)
-    if (!isFormValid) {
-      throw new Error(t('admin.api.createInvalidData'))
-    }
-    const resp = await API_CLIENT.post('api-keys', {
-      json: {
-        name: state.keyName,
-        expiration: state.keyExpiration,
-        groups: state.keyGroups,
-        scope: state.keyScope.length > 0 ? state.keyScope : null,
-        allowedClassifications: allowedClassifications.value,
-        siteId: state.keySiteId
-      }
-    }).json()
-    if (!resp?.key) {
-      throw new Error(t('common.error.unexpected'))
-    }
-    notify({
-      type: 'positive',
-      message: t('admin.api.createSuccess')
-    })
-    // -> The token exists only in this response, so hand it straight to the copy dialog
-    dialog({
-      component: ApiKeyCopyDialog,
-      componentProps: {
-        keyValue: resp.key
-      }
-    }).onDismiss(() => {
-      onDialogOK()
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
 // MOUNTED
 
-onMounted(async () => {
-  loadGroups()
-  loadSites()
-  state.loading++
-  try {
-    await adminStore.fetchClassificationLevels()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.api.loadFailed'),
-      caption: err.message
-    })
-  }
-  // -> All-checked default (OpenProject #1205), equivalent to the old "No Limit" -- set only after
-  //    the levels are known, since the checkbox grid above has nothing to check before then.
-  state.keyClassifications = adminStore.classificationLevels.map((level) => level.id)
-  state.loading--
-})
+onMounted(loadGroups)
 </script>

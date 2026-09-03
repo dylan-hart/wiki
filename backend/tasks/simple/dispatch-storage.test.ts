@@ -17,6 +17,7 @@ import { withAdvisoryLock } from '../../helpers/advisoryLock.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import type { WikiDb } from '../../core/db.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /** A pass-through lock: these tests exercise the task's own control flow, not real Postgres locking. */
 const noopLock = async (_key: string, fn: () => Promise<any>) => fn()
@@ -27,10 +28,7 @@ const noopLock = async (_key: string, fn: () => Promise<any>) => fn()
  * not the models it calls, which have their own tests. See `task()`'s `deps` parameter.
  */
 before(() => {
-  global.WIKI = {
-    ensureDb: async () => true,
-    logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
-  } as unknown as WikiGlobal
+  installTestWiki({ ensureDb: async () => true })
 })
 
 const target = { id: 'target-1', module: 'git', title: 'Git' } as unknown as StorageTarget

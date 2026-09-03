@@ -2,53 +2,39 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
 import { resolveTileSettings } from './component.js'
-import { _resetBlockConfigCache } from '../shared/config.js'
+import { _resetSiteCache } from '../shared/site.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom, stubSiteFetch } from '../test/mount.js'
 
 const OSM_DEFAULT = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 /**
  * Mounts a `<block-map>` with valid coordinates, optionally carrying page-authored props, and waits
  * past `firstUpdated`'s `getBlockConfig` fetch and Leaflet's own tile-layer setup.
+ *
+ * `settle: 2`: firstUpdated is async (it awaits getBlockConfig before building the tile layer), so
+ * its own body runs after updateComplete resolves. A couple of macrotask turns is enough for the
+ * stubbed fetch's promise chain and the synchronous Leaflet setup after it to settle.
  */
-async function mountMap(props = {}) {
-  const el = document.createElement('block-map')
-  el.lat = 45.5019
-  el.lon = -73.5674
-  Object.assign(el, props)
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> firstUpdated is async (it awaits getBlockConfig before building the tile layer), so its own
-  //    body runs after updateComplete resolves. A couple of microtask turns is enough for the
-  //    stubbed fetch's promise chain and the synchronous Leaflet setup after it to settle.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  return el
-}
+const mountMap = (props = {}) =>
+  mountBlock('block-map', { props: { lat: 45.5019, lon: -73.5674, ...props }, settle: 2 })
 
 /** The `src` Leaflet actually gave the one tile it drew for this map, or '' if none was found. */
 function tileImgSrc(el) {
   return el.shadowRoot.querySelector('.leaflet-tile-container img')?.getAttribute('src') ?? ''
 }
 
-function stubSiteConfig(blocksConfig = {}) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ blocksConfig })
-    })
-  )
-}
+const stubSiteConfig = (blocksConfig = {}) => stubSiteFetch({ site: { blocksConfig } })
 
 describe('block-map tile server precedence', () => {
   beforeEach(() => {
     // -> getBlockConfig caches its fetch for the module's lifetime (one request per real page load);
     //    each test needs its own site-config response, so the cache must not survive between them.
-    _resetBlockConfigCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {
-    document.body.replaceChildren()
+    resetBlockDom()
     vi.unstubAllGlobals()
   })
 
@@ -99,12 +85,23 @@ describe('block-map tile server precedence', () => {
     })
 
     it('fetches the site config from the public, ungated site-info endpoint', async () => {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue({ ok: true, json: async () => ({ blocksConfig: {} }) })
-      vi.stubGlobal('fetch', fetchMock)
+      const fetchMock = stubSiteConfig({})
       await mountMap()
       expect(fetchMock).toHaveBeenCalledWith('/_api/sites/current')
     })
   })
+
+  /*
+   * `block-map` constructs its controller with `{ attribute: false }` -- it resolves the theme
+   * itself (a map can be pinned light on a dark page through its own `theme` prop) and a second,
+   * possibly disagreeing answer sitting on the host would be misleading. So what follows the app's
+   * theme here is the controller's own `isDark`, not a `dark` attribute.
+   */
+  describeDarkMode(
+    () => {
+      stubSiteConfig({})
+      return mountMap()
+    },
+    { attribute: false }
+  )
 })

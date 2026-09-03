@@ -370,7 +370,7 @@ describe(
       // -> Applied only now, after the page to be recovered already exists -- `createPage()`'s own
       //    up-front `ensureCanRender()` check (OpenProject #1716) must not also block seeding the
       //    fixture above.
-      t.mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {
+      t.mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {
         throw new CustomError('renderPuppeteerMissing', 'Puppeteer is not installed.', 503)
       })
 

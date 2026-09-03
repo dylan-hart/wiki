@@ -334,65 +334,14 @@
               <em>{{ t('admin.auth.noConfigOption') }}</em>
             </w-banner>
           </w-card-section>
-          <template v-for="(cfg, cfgKey, idx) in state.strategy.config" :key="cfgKey">
-            <template v-if="configIfCheck(cfg.if)">
-              <w-separator class="my-2" inset v-if="idx > 0" />
-              <w-item v-if="cfg.type === `boolean`" :tag="cfg.readOnly ? `div` : `label`">
-                <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label :class="cfg.readOnly ? `text-orange` : ``" caption>{{
-                    cfg.hint
-                  }}</w-item-label>
-                </w-item-section>
-                <w-item-section avatar>
-                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disabled="cfg.readOnly" />
-                </w-item-section>
-              </w-item>
-              <w-item v-else>
-                <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label :class="cfg.readOnly ? `text-orange` : ``" caption>{{
-                    cfg.hint
-                  }}</w-item-label>
-                </w-item-section>
-                <w-item-section
-                  :style="cfg.type === `number` ? `flex: 0 0 150px;` : ``"
-                  :class="{ 'col-auto': cfg.enum && cfg.enumDisplay === `buttons` }">
-                  <w-btn-toggle
-                    v-if="cfg.enum && cfg.enumDisplay === `buttons`"
-                    v-model="cfg.value"
-                    push
-                    glossy
-                    no-caps
-                    toggle-color="primary"
-                    :aria-label="cfg.title"
-                    :options="cfg.enum"
-                    :disabled="cfg.readOnly" />
-                  <w-select
-                    v-else-if="cfg.enum"
-                    outlined
-                    v-model="cfg.value"
-                    :options="cfg.enum"
-                    emit-value
-                    map-options
-                    dense
-                    options-dense
-                    :aria-label="cfg.title"
-                    :disabled="cfg.readOnly" />
-                  <w-input
-                    v-else
-                    outlined
-                    v-model="cfg.value"
-                    dense
-                    :type="inputTypeFor(cfg)"
-                    :aria-label="cfg.title"
-                    :disabled="cfg.readOnly" />
-                </w-item-section>
-              </w-item>
-            </template>
-          </template>
+          <!--
+            Generic per-prop config form, shared with `AdminAnalytics.vue`, `AdminComments.vue`,
+            `AdminSearch.vue` and `AdminStorage.vue` -- see `ModuleConfigForm.vue`.
+            `state.strategy.config` is the `buildConfigEditor()`-built editable structure, not the
+            raw stored values; mutating a field's `.value` there, which this component does in place,
+            is what `buildConfigPayload()` in `payloadFor()` below reads back.
+          -->
+          <module-config-form v-if="state.strategy.config" :config="state.strategy.config" />
           <!--
             Not one of the dynamic `state.strategy.config` props above: `mappableGroups` is a
             top-level strategy field, same as `autoEnrollGroups`, gated on the module's own
@@ -536,17 +485,21 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { v4 as uuid } from 'uuid'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { confirm } from '@/composables/dialog'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
+import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
+
+import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 
 // COMPOSABLES
 
@@ -568,24 +521,57 @@ useMeta(() => ({
 
 // CONSTANTS
 
-const GUESTS_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 // -> The strategy every account's password is stored against, hence the one that cannot be disabled
 //    or deleted. A second instance of the local module is an ordinary strategy.
 const BUILTIN_LOCAL_STRATEGY_ID = '5a528c4c-0a82-4ad2-96a5-2b23811e6588'
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  loadingGroups: true,
-  groups: [],
-  strategies: [],
-  activeStrategies: [],
-  selectedStrategy: '',
-  // -> Text typed into the "Add Strategy" menu's filter field; reset each time the menu reopens
-  strategyFilter: '',
-  strategy: {
-    strategy: {}
+const { state, load, refresh } = useAdminSettings({
+  i18nPrefix: 'admin.auth',
+  // -> Instance-wide, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    loadingGroups: true,
+    groups: [],
+    strategies: [],
+    activeStrategies: [],
+    selectedStrategy: '',
+    // -> Text typed into the "Add Strategy" menu's filter field; reset each time the menu reopens
+    strategyFilter: '',
+    strategy: {
+      strategy: {}
+    }
+  },
+  fetch: async () => {
+    state.loadingGroups = true
+    try {
+      return await Promise.all([
+        API_CLIENT.get('authentication/modules').json(),
+        API_CLIENT.get('authentication/strategies').json(),
+        API_CLIENT.get('groups').json()
+      ])
+    } finally {
+      // -> Whether or not the request came back: the group picker must not be left spinning on a
+      //    failure it is not the one reporting.
+      state.loadingGroups = false
+    }
+  },
+  onLoaded: ([modules, strategies, groups]) => {
+    state.strategies = modules ?? []
+    state.activeStrategies = (strategies ?? []).map((str) => {
+      const mod = state.strategies.find((m) => m.key === str.module) ?? {
+        key: str.module,
+        title: str.module
+      }
+      return {
+        ...str,
+        strategy: mod,
+        config: buildConfigEditor(mod.props, str.config)
+      }
+    })
+    // -> Guests cannot be enrolled into, being the group of users who never logged in
+    state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
   }
 })
 
@@ -655,100 +641,8 @@ watch(
 
 // METHODS
 
-/**
- * Turn a module prop declaration and its stored value into the shape the config editor renders,
- * expanding `value|label` enum entries into options.
- */
-function buildConfigEditor(props, values) {
-  const config = {}
-  for (const [key, prop] of Object.entries(props ?? {})) {
-    config[key] = {
-      ...prop,
-      value: values?.[key] ?? prop.default,
-      ...(prop.enum && {
-        enum: prop.enum.map((entry) => {
-          const [value, label] = entry.split('|')
-          return { value, label: label ?? value }
-        })
-      })
-    }
-  }
-  return config
-}
-
-function inputTypeFor(cfg) {
-  if (cfg.multiline) {
-    return 'textarea'
-  }
-  if (cfg.sensitive) {
-    return 'password'
-  }
-  return cfg.type === 'number' ? 'number' : 'text'
-}
-
-async function load() {
-  state.loading++
-  state.loadingGroups = true
-  loading.show()
-  try {
-    const [modules, strategies, groups] = await Promise.all([
-      API_CLIENT.get('authentication/modules').json(),
-      API_CLIENT.get('authentication/strategies').json(),
-      API_CLIENT.get('groups').json()
-    ])
-    state.strategies = modules ?? []
-    state.activeStrategies = (strategies ?? []).map((str) => {
-      const mod = state.strategies.find((m) => m.key === str.module) ?? {
-        key: str.module,
-        title: str.module
-      }
-      return {
-        ...str,
-        strategy: mod,
-        config: buildConfigEditor(mod.props, str.config)
-      }
-    })
-    // -> Guests cannot be enrolled into, being the group of users who never logged in
-    state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.auth.loadFailed'),
-      caption: err.message
-    })
-  }
-  state.loadingGroups = false
-  loading.hide()
-  state.loading--
-}
-
-async function refresh() {
-  await load()
-  notify({
-    type: 'positive',
-    message: t('admin.auth.refreshSuccess')
-  })
-}
-
-function configIfCheck(ifs) {
-  if (!ifs || ifs.length < 1) {
-    return true
-  }
-  return ifs.every((s) => state.strategy.config[s.key]?.value === s.eq)
-}
-
-/**
- * The strategy as the API expects it. Read-only props are left out: the server keeps whatever is
- * stored for them, so sending them back would be pretending they can be set.
- */
+/** The strategy as the API expects it. */
 function payloadFor(str) {
-  const config = {}
-  for (const [key, cfg] of Object.entries(str.config ?? {})) {
-    if (cfg.readOnly) {
-      continue
-    }
-    config[key] = cfg.type === 'number' ? Number(cfg.value) : cfg.value
-  }
   return {
     displayName: str.displayName,
     isEnabled: str.isEnabled,
@@ -758,7 +652,7 @@ function payloadFor(str) {
     autoEnrollGroups: str.autoEnrollGroups ?? [],
     trustEmailForLinking: str.trustEmailForLinking ?? false,
     mappableGroups: str.mappableGroups ?? [],
-    config
+    config: buildConfigPayload(str.config)
   }
 }
 
@@ -885,8 +779,4 @@ function confirmDelete() {
     await load()
   })
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>

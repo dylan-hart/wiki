@@ -1,10 +1,11 @@
 import { escapeRegExp } from 'es-toolkit/string'
+import { isPlainObject, pickDefined, transformConfig, unwrapKnexValue } from './shared.ts'
 import type { authentication as authenticationTable } from '../../db/schema.ts'
 import type { SourceRecord } from '../connector.ts'
+import type { ConfigTransform } from './shared.ts'
 
 /**
- * `mapAuthenticationRow(s)` (task 765 — "Authentication-strategy mapper with multi-source conflict
- * policy")
+ * `mapAuthenticationRow(s)` — 2.5.x authentication strategies
  *
  * A pure transform: no DB access, no side effects. Takes 2.5.x `authentication` table rows
  * (`docs/migration/2.5x-source-schema.md`'s `## authentication` section) and produces 3.0
@@ -13,7 +14,7 @@ import type { SourceRecord } from '../connector.ts'
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 2 provider inventory.
  *
  * Every 2.x row's `config` is checked and completed the same way the live admin API does it
- * (`backend/api/authentication.ts`'s create route): `Authentication.validateConfig(module, incoming)`
+ * (`backend/api/auth/strategies.ts`'s create route): `Authentication.validateConfig(module, incoming)`
  * first — a row whose config doesn't fit the target module's declared prop types is never silently
  * miscoerced, it comes back `flagged` — then `Authentication.buildConfig(module, incoming, {})` to
  * fill in every declared prop (module defaults for anything 2.x never had). This module never
@@ -26,14 +27,14 @@ import type { SourceRecord } from '../connector.ts'
  * ## Unsupported source modules (mirrors Feature 414's provider-fallback precedent)
  *
  * 3.0 ships sixteen authentication modules (`backend/modules/authentication/*`, see
- * `../unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES`); 2.x ships twenty-one. A source row whose
+ * `../report.ts`'s `KNOWN_3_0_AUTH_MODULES`); 2.x ships twenty-one. A source row whose
  * `strategyKey` isn't one of the sixteen survivors — resolved via `resolver.getModule()` returning
  * `null`, not a hardcoded list, so this mapper tracks whichever modules actually exist on disk rather
  * than a snapshot of them — has nowhere to land: not just its `config` (a remap target that exists),
  * but the row itself. Exactly like Feature 414's `needsProviderFallback()`/`ProviderFallbackFlag` for
  * source *users* on an unimplemented provider, this mapper does not write a row for it: it reports one
- * `status: 'unsupported'` entry in the result, carrying the source key and module, for whichever future
- * dry-run report (Feature 421) wants to show an administrator exactly what didn't come across and why.
+ * `status: 'unsupported'` entry in the result, carrying the source key and module, so the dry-run
+ * report can show an administrator exactly what didn't come across and why.
  *
  * ## Unverified config mappings
  *
@@ -50,37 +51,12 @@ import type { SourceRecord } from '../connector.ts'
  * gate: storage is safe because its transform coverage matches every module a 2.x row can name (`db`/
  * `gcs` deliberately absent, documented at `storage.ts:167-172`), which is not true here.
  *
- * ## Multi-source conflict policy
+ * ## One source, one row per module
  *
- * `authentication` carries no `siteId` — every row is instance-wide. A single 2.5.x source already
- * has at most one row per module (`key` is that table's PK), but this mapper's caller may consolidate
- * *multiple* 2.5.x sources into one fresh 3.0 instance (that per-source PK gives no cross-source
- * uniqueness at all), and a fresh 3.0 install has no existing rows for either source's modules to
- * collide with — so the only place a same-module collision can happen is between two sources' rows
- * meeting each other here, in this mapper, not against anything already in the target database.
- *
- * `AuthenticationMapperState` is the caller's tool for detecting that: pass the *same* state object to
- * every call across every source being consolidated (each source's rows go through their own
- * `mapAuthenticationRows` call — the state, not the row list, is what threads the sources together),
- * and pick one of two explicit, tested policies for what happens the second time a module shows up:
- *
- * - `'additive'` (the default): every valid row becomes its own row. 3.0's schema has no uniqueness
- *   constraint on `authentication.module` and the admin UI already treats N concurrently-configured
- *   instances of the same module as a normal case (e.g. two `oidc` strategies for two tenants) — so
- *   dropping a second source's real, working provider config would be silent configuration loss with
- *   no way to reconstruct it afterward, which is worse than a slightly noisier strategy list. To keep
- *   the noise navigable, a `displayName` that would otherwise exactly collide with one already
- *   produced (from any source, any module — `authentication.displayName` has no per-module scope
- *   either) gets ` (2)`, ` (3)`, ... appended until it's unique.
- * - `'first-source-wins'`: the first row seen for a given module claims it; every later row for that
- *   same module, from any subsequent source, comes back `status: 'conflict-skipped'` — the row is real
- *   and was read correctly, it was just never written, which is why this is a distinct status from
- *   `'unsupported'` (no module exists at all) rather than reusing it.
- *
- * Neither policy is silently assumed: `conflictPolicy` is a required-with-default option on
- * `mapAuthenticationRows`/`mapAuthenticationRow`, so a caller sees the choice at the call site, and
- * both branches are exercised by this module's tests — not an implicit last-write-wins on whichever
- * row an importer happened to process last.
+ * `authentication` carries no `siteId` — every row is instance-wide — and a 2.5.x source has at most
+ * one row per module (`key` is that table's PK). An import runs one source into one fresh 3.0
+ * instance, which has no existing rows to collide with, so there is no same-module collision for this
+ * mapper to arbitrate: every valid row simply becomes its own row.
  */
 
 // ---------------------------------------------------------------------------
@@ -91,13 +67,16 @@ import type { SourceRecord } from '../connector.ts'
  * One row as read from a 2.5.x `authentication` table
  * (`docs/migration/2.5x-source-schema.md`'s `## authentication` section). `order` is read but never
  * used — confirmed NO DESTINATION on 3.0's `authentication` table by both mapping docs.
+ * `autoEnrollGroups` is likewise declared but never mapped: 3.0 has the column, but its values are
+ * 2.x integer group ids and `settings` runs before `users`, so no imported group exists to remap them
+ * onto (see `mapAuthenticationRow`'s own comment where it writes `[]`).
  *
  * `domainWhitelist`/`autoEnrollGroups` are typed `unknown`, not their eventual array shape, because
  * their wire shape depends on which `SourceConnector` kind produced this row:
  * `docs/migration/2.5x-export-bundle-format.md` confirms a live 2.x `authentication` row stores both
  * columns wrapped as `{ v: [...] }` (the same Objection/knex JSON-wrapper convention `configSvc`
  * uses for the `settings` table), while the export-bundle path already unwraps them to a bare array
- * before this mapper ever sees one. `unwrapMaybeWrapped()` below accepts either. `config` needs no
+ * before this mapper ever sees one. `./shared.ts`'s `unwrapKnexValue()` accepts either. `config` needs no
  * such handling — confirmed (same doc, and the vendored `authentication.js` resolver's write path)
  * to always be a plain object on both source kinds.
  */
@@ -142,21 +121,6 @@ export interface AuthModuleResolver {
 // domainWhitelist -> allowedEmailRegex
 // ---------------------------------------------------------------------------
 
-/** Undoes the `{ v: <value> }` wrapping a raw-Postgres-sourced `domainWhitelist`/`autoEnrollGroups`
- * column carries (see the module doc); a bare array (the export-bundle shape) passes through
- * unchanged. */
-function unwrapMaybeWrapped(value: unknown): unknown {
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    'v' in (value as Record<string, unknown>)
-  ) {
-    return (value as Record<string, unknown>).v
-  }
-  return value
-}
-
 /**
  * Compiles a 2.x `domainWhitelist` (an explicit list of allowed email domains) into the single
  * anchored regex string 3.0's `authentication.allowedEmailRegex` stores.
@@ -178,7 +142,7 @@ function unwrapMaybeWrapped(value: unknown): unknown {
  * entirely.
  */
 export function buildAllowedEmailRegex(domainWhitelistRaw: unknown): string {
-  const unwrapped = unwrapMaybeWrapped(domainWhitelistRaw)
+  const unwrapped = unwrapKnexValue(domainWhitelistRaw)
   const domains = Array.isArray(unwrapped)
     ? unwrapped.filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
     : []
@@ -190,42 +154,6 @@ export function buildAllowedEmailRegex(domainWhitelistRaw: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// autoEnrollGroups: 2.x integer group ids -> 3.0 group UUIDs
-// ---------------------------------------------------------------------------
-
-/**
- * Remaps 2.x integer group ids onto 3.0 group UUIDs via a caller-supplied `groupIdMap` — the same
- * old-id -> new-UUID bookkeeping `2.5x-to-3.0-mapping.md`'s `autoEnrollGroups` row calls for. An id
- * with no entry in the map (the group wasn't imported, or hasn't been yet — this mapper has no DB
- * access to check) is dropped rather than blocking the whole row: `autoEnrollGroups` is an
- * enhancement (accounts still get created without it), not a field whose absence makes the row
- * unusable, so a caller that hasn't run the groups importer yet still gets a valid `authentication`
- * row back, just with an empty (or partial) `autoEnrollGroups`.
- */
-export function remapAutoEnrollGroups(
-  autoEnrollGroupsRaw: unknown,
-  groupIdMap: ReadonlyMap<number, string>
-): string[] {
-  const unwrapped = unwrapMaybeWrapped(autoEnrollGroupsRaw)
-  if (!Array.isArray(unwrapped)) {
-    return []
-  }
-  const result: string[] = []
-  for (const entry of unwrapped) {
-    const sourceId =
-      typeof entry === 'number' ? entry : typeof entry === 'string' ? Number(entry) : NaN
-    if (!Number.isInteger(sourceId)) {
-      continue
-    }
-    const targetId = groupIdMap.get(sourceId)
-    if (targetId) {
-      result.push(targetId)
-    }
-  }
-  return result
-}
-
-// ---------------------------------------------------------------------------
 // Per-module config remap — the "key-by-key remap required, module by module" step
 // `2.5x-to-3.0-mapping.md` calls for. Everything not picked here is simply absent from `incoming`;
 // `buildConfig` fills it from the module's own default, and `validateConfig` skips undeclared keys
@@ -233,22 +161,6 @@ export function remapAutoEnrollGroups(
 // buildConfig rather than refused"), so there is no need to explicitly strip a 2.x-only prop like
 // oidc's `skipUserProfile` — it is simply never picked, so it never reaches either function.
 // ---------------------------------------------------------------------------
-
-function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const key of keys) {
-    if (key in source && source[key] !== undefined) {
-      result[key] = source[key]
-    }
-  }
-  return result
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-type ConfigTransform = (raw: Record<string, unknown>) => Record<string, unknown>
 
 /**
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s "four surviving modules' config
@@ -272,9 +184,9 @@ function hasNonEmptyConfig(rawConfig: unknown): boolean {
 
 const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
   local: () => ({}),
-  google: (raw) => pick(raw, ['clientId', 'clientSecret', 'hostedDomain']),
+  google: (raw) => pickDefined(raw, ['clientId', 'clientSecret', 'hostedDomain']),
   github: (raw) => {
-    const result = pick(raw, ['clientId', 'clientSecret', 'allowedOrganization'])
+    const result = pickDefined(raw, ['clientId', 'clientSecret', 'allowedOrganization'])
     // -> Structural collapse, not a rename: 2.x's useEnterprise (boolean) + enterpriseDomain (string)
     //    become 3.0's single enterpriseHost field, whose non-empty presence is what the boolean used
     //    to gate explicitly.
@@ -288,55 +200,14 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
     return result
   },
   oidc: (raw) =>
-    pick(raw, ['clientId', 'clientSecret', 'authorizationURL', 'tokenURL', 'userInfoURL'])
-}
-
-function transformConfig(module: string, rawConfig: unknown): Record<string, unknown> {
-  const raw = isPlainObject(rawConfig) ? rawConfig : {}
-  const transform = CONFIG_TRANSFORMS[module]
-  return transform ? transform(raw) : {}
-}
-
-// ---------------------------------------------------------------------------
-// Multi-source conflict policy
-// ---------------------------------------------------------------------------
-
-export type ConflictPolicy = 'additive' | 'first-source-wins'
-
-/**
- * Threads consolidation state across every `mapAuthenticationRows`/`mapAuthenticationRow` call that
- * belongs to the same import run — one call per source, the *same* state object passed to each. See
- * the module doc's "Multi-source conflict policy" section for what each policy does with it.
- */
-export interface AuthenticationMapperState {
-  /** Every `displayName` already produced by a `created` row, from any source, any module — used by
-   * `'additive'` to disambiguate a colliding one. */
-  usedDisplayNames: Set<string>
-  /** Every module a `created` row already exists for, from any source — used by `'first-source-wins'`
-   * to detect a later source reconfiguring the same module. */
-  claimedModules: Set<string>
-}
-
-export function createAuthenticationMapperState(): AuthenticationMapperState {
-  return { usedDisplayNames: new Set(), claimedModules: new Set() }
-}
-
-function disambiguateDisplayName(base: string, used: ReadonlySet<string>): string {
-  if (!used.has(base)) {
-    return base
-  }
-  let n = 2
-  while (used.has(`${base} (${n})`)) {
-    n++
-  }
-  return `${base} (${n})`
+    pickDefined(raw, ['clientId', 'clientSecret', 'authorizationURL', 'tokenURL', 'userInfoURL'])
 }
 
 // ---------------------------------------------------------------------------
 // Result shape
 // ---------------------------------------------------------------------------
 
-export type AuthenticationRowStatus = 'created' | 'unsupported' | 'flagged' | 'conflict-skipped'
+export type AuthenticationRowStatus = 'created' | 'unsupported' | 'flagged'
 
 export interface AuthenticationRowResult {
   /** The source row's 2.x `key` (that table's PK) — unique within one source, not across sources. */
@@ -354,9 +225,6 @@ export interface AuthenticationRowResult {
 export interface AuthenticationMappingResult {
   /** One entry per source row, in read order, whatever its outcome. */
   results: AuthenticationRowResult[]
-  /** Convenience: just the rows actually ready to insert, in order — what an importer's writer loop
-   * iterates. */
-  createdRows: NewAuthenticationRow[]
 }
 
 /** 2.x `strategyKey` (added `2.5.1.js`, backfilled from `key` on upgrade — see
@@ -373,27 +241,15 @@ function resolveModuleKey(row: SourceAuthenticationRow): string {
 
 export interface MapAuthenticationRowOptions {
   resolver: AuthModuleResolver
-  /** @default 'additive' */
-  conflictPolicy?: ConflictPolicy
-  /** @default an empty map — every `autoEnrollGroups` entry is dropped rather than blocking the row. */
-  groupIdMap?: ReadonlyMap<number, string>
-  /** @default a fresh, single-call state. Pass the same state across every source's call to actually
-   * exercise the conflict policy — see the module doc. */
-  state?: AuthenticationMapperState
 }
 
-/** Maps one 2.x `authentication` row. See the module doc for the full policy; `mapAuthenticationRows`
- * is the usual entry point, this is exposed for a caller that wants to stream rows one at a time. */
+/** Maps one 2.x `authentication` row. `mapAuthenticationRows` is the usual entry point; this is
+ * exposed for a caller that wants to stream rows one at a time. */
 export function mapAuthenticationRow(
   row: SourceAuthenticationRow,
   options: MapAuthenticationRowOptions
 ): AuthenticationRowResult {
-  const {
-    resolver,
-    conflictPolicy = 'additive',
-    groupIdMap = new Map(),
-    state = createAuthenticationMapperState()
-  } = options
+  const { resolver } = options
   const sourceKey = typeof row.key === 'string' ? row.key : String(row.key ?? '?')
   const module = resolveModuleKey(row)
 
@@ -419,7 +275,7 @@ export function mapAuthenticationRow(
     }
   }
 
-  const incoming = transformConfig(module, row.config)
+  const incoming = transformConfig(CONFIG_TRANSFORMS, module, row.config)
   const validationError = resolver.validateConfig(module, incoming)
   if (validationError) {
     return {
@@ -430,20 +286,7 @@ export function mapAuthenticationRow(
     }
   }
 
-  if (conflictPolicy === 'first-source-wins' && state.claimedModules.has(module)) {
-    return {
-      sourceKey,
-      module,
-      status: 'conflict-skipped',
-      message: `module '${module}' was already configured by an earlier source (first-source-wins policy) — this row was skipped, not merged or overwritten`
-    }
-  }
-
-  const baseDisplayName = row.displayName?.trim() || mod.title
-  const displayName =
-    conflictPolicy === 'additive'
-      ? disambiguateDisplayName(baseDisplayName, state.usedDisplayNames)
-      : baseDisplayName
+  const displayName = row.displayName?.trim() || mod.title
 
   // -> 2.5.x carried one combined flag (`selfRegistration`, source-side); 3.0 splits its target into
   //    `selfRegistration` (enforced only for a form-based module) and `autoProvision` (enforced only
@@ -459,30 +302,24 @@ export function mapAuthenticationRow(
     selfRegistration: acceptsNewUsers,
     autoProvision: acceptsNewUsers,
     allowedEmailRegex: buildAllowedEmailRegex(row.domainWhitelist),
-    autoEnrollGroups: remapAutoEnrollGroups(row.autoEnrollGroups, groupIdMap),
+    // -> 2.x's own `autoEnrollGroups` names 2.x integer group ids, which have no 3.0 equivalent at
+    //    the point this runs: `settings` deliberately runs before `users` (see `phases/settings.ts`),
+    //    so no group has been imported yet and there is nothing to remap them onto.
+    autoEnrollGroups: [],
     config: resolver.buildConfig(module, incoming, {})
   }
-
-  state.usedDisplayNames.add(displayName)
-  state.claimedModules.add(module)
 
   return { sourceKey, module, status: 'created', row: newRow }
 }
 
-/** Maps every row from one source. Pass the same `state` (via `options`) across multiple calls to
- * consolidate multiple sources under one conflict policy — see the module doc. */
+/** Maps every row from one source. */
 export async function mapAuthenticationRows(
   rows: Iterable<SourceAuthenticationRow> | AsyncIterable<SourceAuthenticationRow>,
   options: MapAuthenticationRowOptions
 ): Promise<AuthenticationMappingResult> {
   const results: AuthenticationRowResult[] = []
-  const createdRows: NewAuthenticationRow[] = []
   for await (const row of rows) {
-    const result = mapAuthenticationRow(row, options)
-    results.push(result)
-    if (result.status === 'created' && result.row) {
-      createdRows.push(result.row)
-    }
+    results.push(mapAuthenticationRow(row, options))
   }
-  return { results, createdRows }
+  return { results }
 }

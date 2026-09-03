@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminComments from './AdminComments.vue'
 import { useAdminStore } from '@/stores/admin'
 import { openDialogs, closeDialog } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * Task 621 (Feature 394, "Admin comments management UI rebuild"): the provider selection &
@@ -18,44 +19,42 @@ import { queue as notifyQueue } from '@/composables/notify'
  */
 
 const messages = {
-  en: {
-    admin: {
-      comments: {
-        title: 'Comments',
-        subtitle: 'Add discussions to your wiki pages',
-        provider: 'Provider',
-        providerConfig: 'Provider Configuration',
-        providerNoConfig: 'This provider has no configuration options you can modify.',
-        noProviders: 'No comment provider modules are installed.',
-        loadFailed: 'Failed to load comment providers.',
-        saveFailed: 'Failed to save the comment provider configuration.',
-        saveSuccess: 'Comment provider configuration saved successfully.',
-        enabledNoProviderHint: 'Comments are enabled in General, but no provider is active yet.',
-        goToGeneral: 'Go to General',
-        externalProviderNotice:
-          'This is an external, client-embedded comment provider and is not rendered on pages yet.',
-        moderation: 'Moderation',
-        moderationUnavailableHint:
-          'Comments are not active for this site, so there is nothing to moderate yet.',
-        configureProvider: 'Choose a Provider',
-        excerpt: 'Comment',
-        author: 'Author',
-        page: 'Page',
-        date: 'Date',
-        delete: 'Delete Comment',
-        deleteConfirmTitle: 'Delete Comment?',
-        deleteConfirmText: 'Are you sure you want to delete this comment by {author}?',
-        deleteSuccess: 'Comment deleted successfully.',
-        deleteFailed: 'Failed to delete the comment.',
-        loadCommentsFailed: 'Failed to load comments.',
-        searchByPage: 'Filter by page path...',
-        searchByAuthor: 'Filter by author...',
-        searchNoResults: 'No comments match your search.'
-      }
-    },
-    common: {
-      actions: { apply: 'Apply', viewDocs: 'View docs', refresh: 'Refresh', delete: 'Delete' }
+  admin: {
+    comments: {
+      title: 'Comments',
+      subtitle: 'Add discussions to your wiki pages',
+      provider: 'Provider',
+      providerConfig: 'Provider Configuration',
+      providerNoConfig: 'This provider has no configuration options you can modify.',
+      noProviders: 'No comment provider modules are installed.',
+      loadFailed: 'Failed to load comment providers.',
+      saveFailed: 'Failed to save the comment provider configuration.',
+      saveSuccess: 'Comment provider configuration saved successfully.',
+      enabledNoProviderHint: 'Comments are enabled in General, but no provider is active yet.',
+      goToGeneral: 'Go to General',
+      externalProviderNotice:
+        'This is an external, client-embedded comment provider and is not rendered on pages yet.',
+      moderation: 'Moderation',
+      moderationUnavailableHint:
+        'Comments are not active for this site, so there is nothing to moderate yet.',
+      configureProvider: 'Choose a Provider',
+      excerpt: 'Comment',
+      author: 'Author',
+      page: 'Page',
+      date: 'Date',
+      delete: 'Delete Comment',
+      deleteConfirmTitle: 'Delete Comment?',
+      deleteConfirmText: 'Are you sure you want to delete this comment by {author}?',
+      deleteSuccess: 'Comment deleted successfully.',
+      deleteFailed: 'Failed to delete the comment.',
+      loadCommentsFailed: 'Failed to load comments.',
+      searchByPage: 'Filter by page path...',
+      searchByAuthor: 'Filter by author...',
+      searchNoResults: 'No comments match your search.'
     }
+  },
+  common: {
+    actions: { apply: 'Apply', viewDocs: 'View docs', refresh: 'Refresh', delete: 'Delete' }
   }
 }
 
@@ -169,16 +168,10 @@ function mountPage({
     API_CLIENT.delete.mockImplementation(deleteImpl)
   }
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/_admin/:siteid/comments', component: { template: '<div />' } },
-      { path: '/_admin/:siteid/general', component: { template: '<div />' } }
-    ]
-  })
+  const router = buildTestRouter(['/_admin/:siteid/comments', '/_admin/:siteid/general'])
   router.push('/_admin/site1/comments')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
+  const i18n = createTestI18n(messages)
 
   const wrapper = mount(AdminComments, {
     global: { plugins: [router, i18n] }

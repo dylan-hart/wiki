@@ -1,12 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import NavBrowseMenu from './NavBrowseMenu.vue'
-import { usePageStore } from '@/stores/page'
-import { useSiteStore } from '@/stores/site'
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * OpenProject #832 (upstream #1793, recurred as upstream discussion #7316): a raw i18n key
@@ -67,22 +63,7 @@ const REAL_STRINGS = {
 const RAW_KEY_PATTERN = /\b[a-z][a-zA-Z]*(?:\.[a-zA-Z][a-zA-Z]*){2,}\b/
 
 async function mountBrowseMenu({ folderPath = '' } = {}) {
-  setActivePinia(createPinia())
-
-  const siteStore = useSiteStore()
-  siteStore.id = 'site-1'
-
-  const pageStore = usePageStore()
-  pageStore.$patch({ path: folderPath ? `${folderPath}/current-page` : 'home', locale: 'en' })
-
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
-
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: REAL_STRINGS } })
+  const router = await createTestRouter(['/:pathMatch(.*)*'])
 
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve(folderPath ? DOCS_LEVEL : ROOT_LEVEL)
@@ -92,9 +73,16 @@ async function mountBrowseMenu({ folderPath = '' } = {}) {
   //    (a hidden placeholder span plus a teleport), whose trigger is climbed from the mounted root's
   //    own PARENT (`WMenu.vue`'s `onMounted`) -- so it must be attached to a real, connected element
   //    for that climb to find anything, and the dispatched click below must land on that same element.
-  const wrapper = mount(NavBrowseMenu, {
+  const { wrapper } = mountWithApp(NavBrowseMenu, {
     attachTo: document.body,
-    global: { plugins: [router, i18n] }
+    messages: REAL_STRINGS,
+    router,
+    stores: {
+      site: { id: 'site-1' },
+      page: (store) => {
+        store.$patch({ path: folderPath ? `${folderPath}/current-page` : 'home', locale: 'en' })
+      }
+    }
   })
 
   wrapper.element.dispatchEvent(new MouseEvent('click', { bubbles: true }))

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { handleListNavigation } from './listNavigation.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const GUEST_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 const SITE_ID = 'site-a'
@@ -40,7 +41,7 @@ const LEVEL = {
   ]
 }
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let browseCalls: any[]
 let checkAccessCalls: any[]
 
@@ -51,7 +52,7 @@ function install({
 } = {}) {
   browseCalls = []
   checkAccessCalls = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     sites: {
       [SITE_ID]: {
@@ -75,15 +76,11 @@ function install({
         }
       }
     }
-  }
+  })
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
-
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 function textOf(result: any) {

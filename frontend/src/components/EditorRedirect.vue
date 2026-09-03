@@ -173,7 +173,7 @@ watch(
 
 /** Say that the page has unsaved changes, which is what turns the header's Save button on. */
 function touch() {
-  editorStore.lastChangeTimestamp = Temporal.Now.instant()
+  editorStore.markDirty()
 }
 
 function setTitle(title) {

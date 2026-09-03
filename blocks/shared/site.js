@@ -34,7 +34,20 @@
 /** The site-info payload, once fetched. Holds the promise, so concurrent callers share one request. */
 let sitePromise = null
 
-function fetchSite() {
+/**
+ * The public site-info payload, fetched at most once per page load.
+ *
+ * The single cache behind everything a block learns about the site it is being read on: its id and
+ * locales (below), and its per-block config and blocks index (`./config.js`, which imports this
+ * rather than keeping a second cache over the same request -- BLK-F5). A page with a map and a
+ * checklist on it asks the server for this once, not once per module that wants a piece of it.
+ *
+ * `null` for a request that failed or was refused: every caller here treats a missing payload as the
+ * block falling back to its own defaults, not as the block breaking.
+ *
+ * @returns {Promise<object | null>}
+ */
+export function fetchSite() {
   if (!sitePromise) {
     sitePromise = fetch('/_api/sites/current')
       .then((resp) => (resp.ok ? resp.json() : null))
@@ -153,11 +166,12 @@ export async function getCurrentPageAccess() {
 }
 
 /**
- * Test-only: forgets the cached fetch, so a new `getSiteId`/`getSiteLocales`/`getCurrentPage` call
- * issues a fresh request. Mirrors `../shared/config.js`'s `_resetBlockConfigCache` for the same
- * reason -- the module-level cache is deliberate in production but would otherwise leak one test's
- * mocked response into the next.
+ * Test-only: forgets the cached site-info fetch, so the next call issues a fresh request.
+ *
+ * The one reset hook for the one cache -- `./config.js`'s `getBlockConfig`/`getBlockImportUrl` read
+ * off the same `fetchSite()` above, so this clears them too. The module-level cache is deliberate in
+ * production but would otherwise leak one test's mocked response into the next.
  */
-export function _resetSiteIdCache() {
+export function _resetSiteCache() {
   sitePromise = null
 }

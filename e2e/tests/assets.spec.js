@@ -2,7 +2,13 @@ import { fileURLToPath } from 'node:url'
 
 import { expect, test } from '@playwright/test'
 
-import { loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
+import {
+  loginAsAdmin,
+  openMarkdownEditor,
+  savePage,
+  typeBody,
+  uniqueSlug
+} from '../helpers/admin.js'
 
 /**
  * Task 1977: the asset upload/serving chain end to end -- `FileManager.vue` -> `POST
@@ -31,19 +37,10 @@ test('uploads an asset through the file manager, inserts it into a page, and ser
   const path = `e2e-asset-${slug}`
   const title = `E2E Asset Page ${slug}`
 
-  await page.goto(`/_create/markdown?path=${path}`)
-
-  // -> Same title-field handling as `createAndPublishPage` (contenteditable, typed + blurred) --
-  //    not reused directly because this flow needs to interleave a File Manager round trip between
-  //    typing the body and saving, which that helper has no hook for.
-  const titleField = page.getByLabel('Title', { exact: true })
-  await titleField.click()
-  await page.keyboard.type(title)
-  await titleField.blur()
-
-  await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
-  await page.locator('.editor-markdown-editor').click()
-  await page.keyboard.type('Asset upload test.\n\n')
+  // -> `createAndPublishPage`'s own three steps, called separately rather than as the whole flow:
+  //    this one needs to interleave a File Manager round trip between typing the body and saving.
+  await openMarkdownEditor(page, { path, title })
+  await typeBody(page, 'Asset upload test.\n\n', { previewWaitText: 'Asset upload test.' })
 
   // -> The side toolbar's "Insert Assets" button (`EditorMarkdown.vue`'s `insertAssets`) opens the
   //    File Manager overlay in insert mode. It carries no `aria-label` of its own -- only a
@@ -75,12 +72,7 @@ test('uploads an asset through the file manager, inserts it into a page, and ser
   const previewImage = page.locator('.editor-markdown-preview-content img')
   await expect(previewImage).toHaveAttribute('src', new RegExp(`/_files/${FIXTURE_NAME}$`))
 
-  await page.getByRole('button', { name: 'Create Page' }).click()
-
-  const saveDialog = page.getByRole('dialog')
-  await saveDialog.getByLabel('Path Name').fill(path)
-  await saveDialog.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page).toHaveURL(new RegExp(`/${path}$`))
+  await savePage(page, path)
 
   // -> The published, rendered page -- `assetPath`'s root-relative markdown path resolved to the
   //    `/_files/` URL `controllers/files.ts` serves (`fileSrc` in `renderers/htmlImages.js`).

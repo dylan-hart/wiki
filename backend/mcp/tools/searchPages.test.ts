@@ -1,21 +1,18 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { handleSearchPages } from './searchPages.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const SITE_ID = 'site-a'
 const GROUP_ID = 'group-a'
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let queryCalls: any[]
-
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
 
 function install({ permissions = [] as string[] } = {}) {
   queryCalls = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
     models: {
       groups: {
@@ -30,7 +27,7 @@ function install({ permissions = [] as string[] } = {}) {
         }
       }
     }
-  }
+  })
   return {
     keyId: 'key-1',
     permissions,
@@ -42,7 +39,7 @@ function install({ permissions = [] as string[] } = {}) {
 }
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 test('handleSearchPages: forwards query/locale/tags/limit and the actor to search.query', async () => {

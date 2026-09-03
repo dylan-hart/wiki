@@ -1,6 +1,5 @@
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
 import {
   CopyObjectCommand,
   CreateBucketCommand,
@@ -15,10 +14,12 @@ import storageModule, {
   encodeCopySourceKey,
   ensureBucket,
   isBucketNotFound,
-  keyFor,
   resolveCustomEndpoint,
   storageClassFor
 } from './storage.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
+import { runStorageModuleContract } from '../../../test/storageModuleContract.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -31,15 +32,14 @@ import type { StorageTarget } from '../../../models/storage.ts'
 
 const s3Mock = mockClient(S3Client)
 
-global.WIKI = {
-  logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+installTestWiki({
   models: {
     assets: {
       getContent: mock.fn(async () => null),
       streamAll: async function* () {}
     }
   }
-} as any
+})
 
 beforeEach(() => {
   s3Mock.reset()
@@ -49,36 +49,8 @@ beforeEach(() => {
 
 /** A fresh target per test, so the module's per-target client cache never leaks between cases. */
 function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
-  return {
-    id: randomUUID(),
-    siteId: 'site-1',
-    module: 's3',
-    isEnabled: true,
+  return makeStorageTarget('s3', {
     title: 'Test S3',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
-    contentTypes: {
-      activeTypes: ['images', 'documents', 'others', 'large'],
-      largeThreshold: '5MB'
-    },
-    assetDelivery: {
-      isStreamingSupported: true,
-      isDirectAccessSupported: true,
-      streaming: false,
-      directAccess: true
-    },
-    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: {
-      supportedModes: ['push'],
-      schedule: false,
-      mode: 'push',
-      scheduleOverride: null,
-      supportsContentSync: true
-    },
-    props: {},
     config: {
       mode: 'aws',
       awsRegion: 'us-east-1',
@@ -87,9 +59,8 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       secretAccessKey: 'fakesecret',
       storageTier: 'STANDARD',
       ...configOverrides
-    },
-    actions: []
-  }
+    }
+  })
 }
 
 describe('s3 storage / resolveCustomEndpoint', () => {
@@ -176,18 +147,6 @@ describe('s3 storage / storageClassFor', () => {
 
   test('custom mode never returns a StorageClass, even if storageTier is populated', () => {
     assert.equal(storageClassFor({ mode: 'custom', storageTier: 'STANDARD' }), undefined)
-  })
-})
-
-describe('s3 storage / keyFor', () => {
-  test('scopes the key by siteId and joins the folder path', () => {
-    const target = makeTarget()
-    assert.equal(keyFor(target, 'docs/reports', 'q1.pdf'), `${target.siteId}/docs/reports/q1.pdf`)
-  })
-
-  test('an empty folderPath yields a key straight under the site', () => {
-    const target = makeTarget()
-    assert.equal(keyFor(target, '', 'logo.png'), `${target.siteId}/logo.png`)
   })
 })
 
@@ -305,8 +264,15 @@ describe('s3 storage / ensureBucket (activation)', () => {
 })
 
 describe('s3 storage / per-asset lifecycle', () => {
-  test('assetUploaded fetches the bytes and PUTs them under the site-scoped key, with StorageClass in aws mode', async () => {
+  /**
+   * The key, the bytes and the content type are `test/storageModuleContract.ts`'s to assert. `Bucket`
+   * is not part of that contract and could not be: `azure` and `gcs` bind their container/bucket into
+   * the client object itself, while every S3 command carries it as an input field of its own — so an
+   * unset or wrong `Bucket` here would be an S3-only defect the shared readers cannot see.
+   */
+  test('every per-asset command names the configured bucket', async () => {
     s3Mock.on(PutObjectCommand).resolves({})
+    s3Mock.on(DeleteObjectCommand).resolves({})
     ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
       data: Buffer.from('hello'),
       mimeType: 'text/plain',
@@ -321,13 +287,10 @@ describe('s3 storage / per-asset lifecycle', () => {
       kind: 'document',
       fileSize: 5
     })
+    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
 
-    const [call] = s3Mock.commandCalls(PutObjectCommand)
-    assert.equal(call!.args[0].input.Bucket, 'my-bucket')
-    assert.equal(call!.args[0].input.Key, `${target.siteId}/docs/notes.txt`)
-    assert.equal((call!.args[0].input.Body as Buffer).toString(), 'hello')
-    assert.equal(call!.args[0].input.ContentType, 'text/plain')
-    assert.equal(call!.args[0].input.StorageClass, 'STANDARD')
+    assert.equal(s3Mock.commandCalls(PutObjectCommand)[0]!.args[0].input.Bucket, 'my-bucket')
+    assert.equal(s3Mock.commandCalls(DeleteObjectCommand)[0]!.args[0].input.Bucket, 'my-bucket')
   })
 
   test('assetUploaded omits StorageClass in do mode even though storageTier is set', async () => {
@@ -347,26 +310,6 @@ describe('s3 storage / per-asset lifecycle', () => {
 
     const [call] = s3Mock.commandCalls(PutObjectCommand)
     assert.equal(call!.args[0].input.StorageClass, undefined)
-  })
-
-  test('assetUploaded is a no-op when the asset was deleted again before delivery', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => null)
-    const target = makeTarget()
-
-    await storageModule.assetUploaded!(target, { id: 'gone', fileName: 'x.txt', folderPath: '' })
-
-    assert.equal(s3Mock.commandCalls(PutObjectCommand).length, 0)
-  })
-
-  test('assetDeleted sends DeleteObject for the site-scoped key', async () => {
-    s3Mock.on(DeleteObjectCommand).resolves({})
-    const target = makeTarget()
-
-    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
-
-    const [call] = s3Mock.commandCalls(DeleteObjectCommand)
-    assert.equal(call!.args[0].input.Bucket, 'my-bucket')
-    assert.equal(call!.args[0].input.Key, `${target.siteId}/images/old.png`)
   })
 
   test('assetRenamed copies to the new key (fully bucket-qualified CopySource) then deletes the old one', async () => {
@@ -419,61 +362,6 @@ describe('s3 storage / per-asset lifecycle', () => {
 })
 
 describe('s3 storage / exportAll', () => {
-  test('pushes only assets the target contentTypes cover, keyed under the site', async () => {
-    s3Mock.on(PutObjectCommand).resolves({})
-    const target = makeTarget()
-    target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
-
-    WIKI.models.assets.streamAll = async function* () {
-      yield {
-        id: 'a1',
-        fileName: 'pic.png',
-        folderPath: 'gallery',
-        kind: 'image',
-        fileSize: 100,
-        mimeType: 'image/png',
-        data: Buffer.from('img')
-      }
-      yield {
-        id: 'a2',
-        fileName: 'report.pdf',
-        folderPath: 'docs',
-        kind: 'document',
-        fileSize: 200,
-        mimeType: 'application/pdf',
-        data: Buffer.from('doc')
-      }
-    } as any
-
-    await storageModule.exportAll(target)
-
-    const calls = s3Mock.commandCalls(PutObjectCommand)
-    assert.equal(calls.length, 1)
-    assert.equal(calls[0]!.args[0].input.Key, `${target.siteId}/gallery/pic.png`)
-  })
-
-  test('a large asset is exported under the large bucket instead of its kind, when large is active', async () => {
-    s3Mock.on(PutObjectCommand).resolves({})
-    const target = makeTarget()
-    target.contentTypes = { activeTypes: ['large'], largeThreshold: '1B' }
-
-    WIKI.models.assets.streamAll = async function* () {
-      yield {
-        id: 'a1',
-        fileName: 'huge.bin',
-        folderPath: '',
-        kind: 'other',
-        fileSize: 999,
-        mimeType: 'application/octet-stream',
-        data: Buffer.from('x')
-      }
-    } as any
-
-    await storageModule.exportAll(target)
-
-    assert.equal(s3Mock.commandCalls(PutObjectCommand).length, 1)
-  })
-
   test('an activation failure (bad bucket) surfaces as a thrown Error rather than an unhandled SDK exception', async () => {
     s3Mock.on(HeadBucketCommand).rejects(
       Object.assign(new Error('Forbidden'), {
@@ -495,21 +383,46 @@ describe('s3 storage / exportAll', () => {
   })
 })
 
-describe('s3 storage / getDirectUrl', () => {
-  test('returns a short-TTL presigned GET URL for the object', async () => {
-    const target = makeTarget()
-    const url = await storageModule.getDirectUrl!(
-      {
-        id: 'asset-1',
-        updatedAt: new Date('2024-01-01T00:00:00Z'),
-        folderPath: 'images',
-        fileName: 'pic.png'
-      },
-      target
-    )
-
-    const parsed = new URL(url!)
-    assert.equal(parsed.searchParams.get('X-Amz-Expires'), '300')
-    assert.ok(parsed.pathname.includes(`${target.siteId}/images/pic.png`))
-  })
+/**
+ * The ten asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of the
+ * S3 SDK's own command inputs — see `test/storageModuleContract.ts` for what they are and why they
+ * live in one place. Everything above this line is this module's alone.
+ */
+runStorageModuleContract('s3', {
+  makeTarget,
+  stubSdk: () => {
+    s3Mock.on(PutObjectCommand).resolves({})
+    s3Mock.on(DeleteObjectCommand).resolves({})
+    s3Mock.on(CopyObjectCommand).resolves({})
+    return {
+      module: storageModule,
+      puts: () =>
+        s3Mock.commandCalls(PutObjectCommand).map((call) => ({
+          key: call.args[0].input.Key!,
+          body: (call.args[0].input.Body as Buffer).toString(),
+          mimeType: call.args[0].input.ContentType!,
+          storageTier: call.args[0].input.StorageClass
+        })),
+      removes: () =>
+        s3Mock.commandCalls(DeleteObjectCommand).map((call) => call.args[0].input.Key!),
+      copies: () =>
+        s3Mock.commandCalls(CopyObjectCommand).map((call) => ({
+          // -> `CopySource` is bucket-qualified and per-segment percent-encoded (its own tests below
+          //    pin that shape); the contract asks about the key, so both are undone here.
+          sourceKey: call.args[0].input
+            .CopySource!.split('/')
+            .slice(1)
+            .map((segment) => decodeURIComponent(segment))
+            .join('/'),
+          destinationKey: call.args[0].input.Key!
+        })),
+      describeDirectUrl: (url: string) => {
+        const parsed = new URL(url)
+        return {
+          key: parsed.pathname.replace(/^\//, ''),
+          ttlSeconds: Number(parsed.searchParams.get('X-Amz-Expires'))
+        }
+      }
+    }
+  }
 })

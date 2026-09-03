@@ -105,7 +105,8 @@ Design of the reused shape:
 ## 3. Closed vocabulary of site-admin permissions
 
 **Decision: one permission per settings surface** (fine-grained, not a coarser grouping),
-mirroring `PAGE_PERMISSIONS`'s granularity in `backend/api/pages.ts:76-92`. Namespaced `site:*` so
+mirroring `PAGE_PERMISSIONS`'s granularity, the same one-shape-per-address-combination fragmentation
+`backend/api/schemas/params.ts` now consolidates for path params. Namespaced `site:*` so
 the strings cannot collide with the existing global `manage:*` tier (`manage:sites`,
 `manage:theme`, `manage:navigation`, `manage:system` — see CLAUDE.md's Permissions section) or with
 `PAGE_PERMISSIONS`'s `verb:pages` shape. This list is closed the same way `PAGE_PERMISSIONS` and

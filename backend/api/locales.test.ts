@@ -1,58 +1,17 @@
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { after, before, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import fastifySwagger from '@fastify/swagger'
+import type { FastifyInstance } from 'fastify'
 import localesRoutes from './locales.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
- * Minimal stand-ins for `index.ts`'s real session decoration + `config.permissions` preHandler hook
- * (see `groups.test.ts` for the same pattern) — needed here only because `POST /sideload` is this
- * file's first route that actually declares route-level permissions; the two `GET` routes above are
- * `publicAccess: true` and never exercised this path.
+ * `buildTestApp`'s `session: 'header'` + `permissions: true` install the real
+ * `config.permissions` preHandler over a header-seeded session (see `groups.test.ts` for the same
+ * pattern) — needed here only because `POST /sideload` is this file's first route that actually
+ * declares route-level permissions; the two `GET` routes above are `publicAccess: true` and never
+ * exercised this path.
  */
-function testSessionOnRequest(
-  req: FastifyRequest,
-  _reply: FastifyReply,
-  done: (err?: Error) => void
-) {
-  const header = req.headers['x-test-session']
-  if (header) {
-    ;(req as any).session = JSON.parse(header as string)
-  }
-  done()
-}
-
-function permissionPreHandler(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  done: (err?: Error) => void
-) {
-  const routePermissions = req.routeOptions.config?.permissions
-  if (routePermissions && routePermissions.length > 0) {
-    const session = (req as any).session
-    const permissions = session?.authenticated ? session.permissions : null
-    if (!permissions || permissions.length < 1) {
-      return reply.unauthorized()
-    }
-    if (!permissions.includes('manage:system')) {
-      const isAllowed = routePermissions.some((perms: any) => {
-        if (Array.isArray(perms)) {
-          return perms.every((perm: string) => permissions.some((p: string) => p === perm))
-        }
-        return permissions.some((p: string) => p === perms)
-      })
-      if (!isAllowed) {
-        return reply.forbidden()
-      }
-    }
-  }
-  done()
-}
-
 function headersFor(permissions: string[]) {
   return {
     'x-test-session': JSON.stringify({ authenticated: true, permissions, groups: [] })
@@ -94,41 +53,24 @@ const sideloadResult = { loaded: ['tlh'], skipped: [{ code: 'broken', error: 'in
 let currentEnStrings: Record<string, string> = sampleStrings
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
-    models: {
-      locales: {
-        getLocales: async () => [sampleLocale],
-        getStrings: async (code: string) => (code === 'en' ? currentEnStrings : []),
-        sideloadFromDataPath: async () => sideloadResult
+  app = await buildTestApp({
+    routes: localesRoutes,
+    swagger: true,
+    session: 'header',
+    permissions: true,
+    wiki: {
+      models: {
+        locales: {
+          getLocales: async () => [sampleLocale],
+          getStrings: async (code: string) => (code === 'en' ? currentEnStrings : []),
+          sideloadFromDataPath: async () => sideloadResult
+        }
       }
     }
-  }
-
-  app = fastify()
-  await app.register(fastifySensible)
-  app.setErrorHandler((error: any, _req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
   })
-  await registerErrorSchema(app)
-  await app.register(fastifySwagger, {
-    hideUntagged: true,
-    openapi: { openapi: '3.1.0', info: { title: 'test', version: '0.0.0' } }
-  })
-  app.addHook('onRequest', testSessionOnRequest)
-  app.addHook('preHandler', permissionPreHandler)
-  await app.register(localesRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('GET / documents a concrete 200 response schema', () => {
   const doc: any = app.swagger()

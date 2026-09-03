@@ -16,6 +16,9 @@ import {
   limitPublicRequests
 } from './helpers/rateLimit.ts'
 import { isBearerAuthenticatedPath } from './helpers/apiKeySite.ts'
+import { installTestWiki } from './test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * OpenProject #2274: `index.ts` itself runs its boot sequence at import time (`await preBoot()` etc.
@@ -65,15 +68,15 @@ describe('rate limiter hook wiring (index.ts)', () => {
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { apiRateLimitEnabled: true, apiRateLimitMax: 300 } },
       models: { rateLimits: { consume } },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('a request to a root-mounted public path reaches the public limiter', async () => {
@@ -136,7 +139,7 @@ describe('API-key population hook wiring (index.ts)', () => {
   let verifyShouldThrow: boolean
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         apiKeys: {
           verify: async (token: string) => {
@@ -150,9 +153,8 @@ describe('API-key population hook wiring (index.ts)', () => {
         rateLimits: {
           consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
         }
-      },
-      logger: { debug: () => {} }
-    }
+      }
+    })
 
     app = fastify()
     await app.register(fastifySensible)
@@ -194,7 +196,7 @@ describe('API-key population hook wiring (index.ts)', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   beforeEach(() => {

@@ -1,28 +1,25 @@
-import { describe, test, before, after, beforeEach, mock } from 'node:test'
+import { describe, test, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { task } from './import-content.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * Exercises the task's control flow — including the four post-import cache/index side effects
- * (OpenProject #1713) — against fake `siteImport`/`groups`/`glossary`/`assets`/`jobs` models and a fake
+ * (OpenProject #1713) — against fake `siteImport`/`groups`/`glossary`/`assetServing`/`jobs` models and a fake
  * `addJob`, not a real database. See `task()`'s `deps` parameter, the same convention
  * `dispatch-storage.test.ts` uses.
  */
 
-let previousWiki: any
-
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
+let wikiHandle: { restore(): void }
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 beforeEach(() => {
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     logger: { info: mock.fn(), error: mock.fn(), warn: mock.fn(), debug: mock.fn() }
-  }
+  })
 })
 
 const payload = { filePath: '/tmp/upload.tar.gz', targetSiteId: 'site-1', importedById: 'user-1' }
@@ -58,7 +55,7 @@ function makeDeps(overrides: Partial<Parameters<typeof task>[2]> = {}) {
         calls.invalidateCache.push(siteId)
       })
     } as any,
-    assets: {
+    assetServing: {
       forgetAllPaths: mock.fn(() => {
         calls.forgetAllPaths++
       })

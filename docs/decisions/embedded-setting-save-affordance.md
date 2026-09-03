@@ -6,12 +6,14 @@
 
 ## The question
 
-Fourteen of the admin area's pages are pure settings forms — the whole page is one form, and it
+Thirteen of the admin area's pages are pure settings forms — the whole page is one form, and it
 commits from a single `unelevated` primary `common.actions.apply` button in the page header
 (`AdminGeneral.vue:37`, `AdminTheme.vue:39`, `AdminLocale.vue:37`, `AdminLogin.vue:39`,
 `AdminAuth.vue:37`, `AdminMail.vue:39`, `AdminEditors.vue:37`, `AdminStorage.vue:42`,
 `AdminSecurity.vue:37`, `AdminBlocks.vue:54`, `AdminComments.vue:40`, `AdminAnalytics.vue:27`,
-`AdminFlags.vue:39`, `AdminRendering.vue:37`).
+`AdminFlags.vue:39`). A fourteenth, `AdminRendering.vue`, once followed the same pattern but has
+since been deleted outright as dead scaffolding (empty `load`/`save`, fake data) rather than kept as
+an example of it.
 
 Not every admin page is that shape. `AdminAuditLog.vue` is primarily a **viewer** — a filtered,
 paginated list of audit-log entries — with a retention-days setting embedded in a card near the

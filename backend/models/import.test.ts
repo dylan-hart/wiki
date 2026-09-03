@@ -32,7 +32,7 @@ const PANDOC_DEFINITION: ExtensionDefinition = {
 }
 
 /**
- * `models/import.ts` guards on `WIKI.models.extensions`, exactly the way `models/rendering.ts`'s
+ * `models/import.ts` guards on `WIKI.models.extensions`, exactly the way `models/renderQueue.ts`'s
  * `ensureCanRender` guards on Puppeteer — so the extensions model is stubbed here rather than pulled
  * in for real, and `runPandoc` (the one method that actually shells out) is mocked per test so the
  * business logic — format validation, size limits, "no usable content", error surfacing — is

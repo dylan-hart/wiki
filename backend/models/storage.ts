@@ -1,39 +1,45 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
-import { load } from 'js-yaml'
-import { and, eq, inArray } from 'drizzle-orm'
-import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
+import { and, eq } from 'drizzle-orm'
+import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
+import {
+  loadModule,
+  mergeModuleConfig,
+  moduleHasFile,
+  readModuleDefinitions,
+  syncSiteModuleRows,
+  validateModuleConfig
+} from '../helpers/moduleRegistry.ts'
 import { parseLargeThreshold } from '../helpers/blobTarget.ts'
+import {
+  CONTENT_TYPE_EXTENSIONS,
+  DEFAULT_CONTENT_TYPE_EXTENSION,
+  fileExtensionForContentType
+} from '../helpers/pageSerialization.ts'
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { HookEvent } from './hooks.ts'
 
 /** The kinds of content a target can be asked to hold. */
 export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large'] as const
 
 /**
- * File extension a page's `contentType` is written under, for a target that stores pages as files
- * (git, disk, ...) rather than DB rows. Keyed by the strings `EDITOR_CONTENT_TYPES` in
- * `models/pages.ts` actually produces (`markdown`, `asciidoc`, `html`) — `redirect` and anything else
- * has no natural file representation and falls through to `getFileExtension`'s `txt` fallback.
+ * The file extension for a page's `contentType`, matching 2.5.x's `pageHelper.getFileExtension`.
+ * The table itself is `helpers/pageSerialization.ts`'s `CONTENT_TYPE_EXTENSIONS` — one map shared by
+ * every file-backed target rather than a copy per module.
  */
-export const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
-  markdown: 'md',
-  asciidoc: 'adoc',
-  html: 'html'
+export function getFileExtension(contentType: string): string {
+  return fileExtensionForContentType(contentType)
 }
 
 /**
- * The file extension for a page's `contentType`, matching 2.5.x's `pageHelper.getFileExtension`.
- * Lives here, once, rather than as a switch re-implemented in every file-backed storage module.
+ * The inverse of `CONTENT_TYPE_EXTENSIONS`, e.g. `md` -> `markdown`. Built only from the content types
+ * with an extension of their own: `text` and `redirect` both write the default `txt`, which is a
+ * fallback rather than a reverse-mapping target (see `getContentTypeFromExtension`).
  */
-export function getFileExtension(contentType: string): string {
-  return CONTENT_TYPE_EXTENSIONS[contentType] ?? 'txt'
-}
-
-/** The inverse of `CONTENT_TYPE_EXTENSIONS`, e.g. `md` -> `markdown`. */
 const EXTENSION_CONTENT_TYPES: Record<string, string> = Object.fromEntries(
-  Object.entries(CONTENT_TYPE_EXTENSIONS).map(([contentType, ext]) => [ext, contentType])
+  Object.entries(CONTENT_TYPE_EXTENSIONS)
+    .filter(([, ext]) => ext !== DEFAULT_CONTENT_TYPE_EXTENSION)
+    .map(([contentType, ext]) => [ext, contentType])
 )
 
 /**
@@ -136,19 +142,14 @@ export interface StorageDefinition {
    * module that only ever acts on write — nothing to schedule.
    */
   schedule: string | false
-  /** Declared by modules that cannot be configured by hand, e.g. an app installed on a provider. */
-  setup?: {
-    handler: string
-    defaultValues: Record<string, any>
-  }
   props: Record<string, ModuleProp>
   actions: StorageAction[]
   /**
    * Whether a `storage.ts` sits next to the definition.
    *
    * No module ships one yet, so every target is configuration-only for now: nothing reads or writes
-   * content through a module. Actions and setup are gated on this, so that the admin area never
-   * offers to run something that has no implementation behind it.
+   * content through a module. Actions are gated on this, so that the admin area never offers to run
+   * something that has no implementation behind it.
    */
   hasImplementation: boolean
   /**
@@ -205,11 +206,6 @@ export interface StorageTarget {
     /** See `StorageDefinition.supportsContentSync` — surfaced per-target for the admin area. */
     supportsContentSync: boolean
   }
-  setup?: {
-    handler: string
-    state: string
-    values: Record<string, any>
-  }
   props: Record<string, ModuleProp>
   config: Record<string, any>
   actions: StorageAction[]
@@ -240,12 +236,11 @@ export interface StorageTargetInput {
 /**
  * What a module implementation is expected to export, once any of them do.
  *
- * Every handler here — `setup`, `setupDestroy`, the content-dispatch handlers, and any custom
- * `[handler]` an action names — receives the *full* `StorageTarget`, never a bare id. That target
- * includes `siteId`, which is therefore the one reliable way for a handler to learn which site's
- * pages/assets/tree rows it is scoped to: nothing else is passed alongside it. `executeAction()`,
- * `runSetup()` and `destroySetup()` all already fetch the target via `getSiteTargetById()` before
- * calling in, so a handler never has to ask the model for it again.
+ * Every handler here — the content-dispatch handlers, and any custom `[handler]` an action names —
+ * receives the *full* `StorageTarget`, never a bare id. That target includes `siteId`, which is
+ * therefore the one reliable way for a handler to learn which site's pages/assets/tree rows it is
+ * scoped to: nothing else is passed alongside it. `executeAction()` already fetches the target via
+ * `getSiteTargetById()` before calling in, so a handler never has to ask the model for it again.
  *
  * The content-dispatch handlers below are called by the `dispatchStorage` task — never directly —
  * one per write-path event this target's `contentTypes.activeTypes` covers; see `Storage.dispatch()`
@@ -267,10 +262,6 @@ export interface StorageModule {
    * @returns The reason it is invalid, or null when it is fine
    */
   validateConfig?: (config: Record<string, any>, target: StorageTarget) => Promise<string | null>
-  /** Advance a multi-step setup process, returning what the admin area should do next. */
-  setup?: (target: StorageTarget, state: Record<string, any>) => Promise<Record<string, any>>
-  /** Undo whatever `setup` configured, so that it can be started over. */
-  setupDestroy?: (target: StorageTarget) => Promise<void>
   /** A page was created. */
   created?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** A page's content, title or metadata changed. */
@@ -335,46 +326,31 @@ class Storage {
    */
   async refreshFromDisk(): Promise<void> {
     const storagePath = path.join(WIKI.SERVERPATH, 'modules/storage')
-    const definitions: StorageDefinition[] = []
     try {
-      // -> Filtered to directories only: a loose per-module test file sitting alongside the module
-      //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
-      //    -- one such file would abort the whole scan and silently lose every real module.
-      const storageEntries = await fs.readdir(storagePath, { withFileTypes: true })
-      const storageDirs = storageEntries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-      for (const dir of storageDirs) {
-        const raw = await fs.readFile(path.join(storagePath, dir, 'definition.yml'), 'utf8')
-        const parsed = load(raw) as Record<string, any>
-        // -> The directory name is the key, as it is for every other module type
-        parsed.key = dir
-        // -> Props carry a display `order`, applied once here so that every consumer — the admin
-        //    area included — reads them in the order the module meant them to be shown in
-        parsed.props = Object.fromEntries(
-          Object.entries(parseModuleProps(parsed.props ?? {})).sort(
-            ([, a], [, b]) => a.order - b.order
-          )
-        )
-        // -> Declared as a map keyed by handler, which is far more readable in YAML than a list of
-        //    objects, but the handler has to travel with the action for it to be callable
-        parsed.actions = Object.entries(parsed.actions ?? {}).map(([handler, action]) => ({
-          handler,
-          ...(action as Omit<StorageAction, 'handler'>)
-        }))
-        parsed.versioning = {
-          isSupported: false,
-          isForceEnabled: false,
-          defaultEnabled: false,
-          ...parsed.versioning
+      const definitions = await readModuleDefinitions<StorageDefinition>(storagePath, {
+        parseProps: true,
+        sortPropsByOrder: true,
+        decorate: async (parsed, key) => {
+          // -> Declared as a map keyed by handler, which is far more readable in YAML than a list of
+          //    objects, but the handler has to travel with the action for it to be callable
+          parsed.actions = Object.entries(parsed.actions ?? {}).map(([handler, action]) => ({
+            handler,
+            ...(action as Omit<StorageAction, 'handler'>)
+          }))
+          parsed.versioning = {
+            isSupported: false,
+            isForceEnabled: false,
+            defaultEnabled: false,
+            ...parsed.versioning
+          }
+          // -> A module that declares nothing about sync only ever acts on write, in one mode
+          parsed.supportedModes = parsed.supportedModes ?? ['push']
+          parsed.defaultMode = parsed.defaultMode ?? parsed.supportedModes[0]
+          parsed.schedule = parsed.schedule ?? false
+          parsed.hasImplementation = await this.hasImplementation(key)
+          return parsed as StorageDefinition
         }
-        // -> A module that declares nothing about sync only ever acts on write, in one mode
-        parsed.supportedModes = parsed.supportedModes ?? ['push']
-        parsed.defaultMode = parsed.defaultMode ?? parsed.supportedModes[0]
-        parsed.schedule = parsed.schedule ?? false
-        parsed.hasImplementation = await this.hasImplementation(dir)
-        definitions.push(parsed as StorageDefinition)
-      }
+      })
       // -> The database target first, then alphabetically: it is the one every site starts with
       this.definitions = definitions.sort((a, b) =>
         a.key === DB_MODULE ? -1 : b.key === DB_MODULE ? 1 : a.title.localeCompare(b.title)
@@ -402,12 +378,7 @@ class Storage {
    * Whether the module has any code to run, as opposed to only a definition
    */
   async hasImplementation(key: string): Promise<boolean> {
-    try {
-      await fs.access(path.join(WIKI.SERVERPATH, 'modules/storage', key, 'storage.ts'))
-      return true
-    } catch {
-      return false
-    }
+    return moduleHasFile(WIKI.SERVERPATH, 'modules/storage', key, 'storage.ts')
   }
 
   /**
@@ -440,20 +411,11 @@ class Storage {
    * definition declares is read from disk on every request rather than copied into the row.
    */
   async syncSite(siteId: string): Promise<void> {
-    const existing = await WIKI.db
-      .select({ module: storageTable.module })
-      .from(storageTable)
-      .where(eq(storageTable.siteId, siteId))
-    const existingKeys = existing.map((t) => t.module)
-    const definedKeys = this.definitions.map((d) => d.key)
-
-    for (const definition of this.definitions) {
-      if (existingKeys.includes(definition.key)) {
-        continue
-      }
-      await WIKI.db.insert(storageTable).values({
-        siteId,
-        module: definition.key,
+    await syncSiteModuleRows(
+      storageTable,
+      siteId,
+      this.definitions,
+      (definition): Omit<typeof storageTable.$inferInsert, 'siteId' | 'module'> => ({
         // -> Content has to land somewhere from the moment a site exists
         isEnabled: definition.key === DB_MODULE,
         contentTypes: {
@@ -468,18 +430,9 @@ class Storage {
           enabled: definition.versioning.isForceEnabled || definition.versioning.defaultEnabled
         },
         syncMode: definition.defaultMode,
-        config: this.buildConfig(definition.key),
-        state: definition.setup ? { setup: 'notconfigured' } : {}
+        config: this.buildConfig(definition.key)
       })
-    }
-
-    // -> A module removed from disk should not linger in the admin list
-    const orphaned = existingKeys.filter((key) => !definedKeys.includes(key))
-    if (orphaned.length > 0) {
-      await WIKI.db
-        .delete(storageTable)
-        .where(and(eq(storageTable.siteId, siteId), inArray(storageTable.module, orphaned)))
-    }
+    )
   }
 
   /**
@@ -519,9 +472,9 @@ class Storage {
    *
    * @param opts.mask When true, a `sensitive` prop's stored value (an S3 secret key, an sftp
    *   password, ...) is replaced with a mask before being returned -- see
-   *   `helpers/common.ts#maskSensitiveConfig`. Defaults to false: this is the *only* place a
-   *   target's config is assembled, so `dispatch()`, `executeAction()`, `runDailyBackups()` and the
-   *   setup handlers all call this with the default and need the real values to actually connect.
+   *   `helpers/moduleProps.ts#maskSensitiveConfig`. Defaults to false: this is the *only* place a
+   *   target's config is assembled, so `dispatch()`, `executeAction()` and `runDailyBackups()` all
+   *   call this with the default and need the real values to actually connect.
    *   Only an admin-facing read that serializes `config` straight into an HTTP response should ever
    *   pass `{ mask: true }`.
    */
@@ -575,18 +528,9 @@ class Storage {
           scheduleOverride: row.scheduleOverride,
           supportsContentSync: definition.supportsContentSync
         },
-        // -> Only offered for a module that can actually run its setup process
-        ...(definition.setup &&
-          definition.hasImplementation && {
-            setup: {
-              handler: definition.setup.handler,
-              state: ((row.state ?? {}) as Record<string, any>).setup ?? 'notconfigured',
-              values: this.buildSetupValues(definition, row.config as Record<string, any>)
-            }
-          }),
         props: definition.props,
         config: mask ? maskSensitiveConfig(definition.props, config) : config,
-        // -> Same reasoning as setup: an action with nothing behind it cannot be run
+        // -> An action with nothing behind it cannot be run
         actions: definition.hasImplementation ? definition.actions : []
       })
     }
@@ -605,87 +549,26 @@ class Storage {
   }
 
   /**
-   * The values the setup form starts from: whatever the module stored, else its declared defaults.
-   */
-  buildSetupValues(
-    definition: StorageDefinition,
-    stored: Record<string, any> = {}
-  ): Record<string, any> {
-    const values: Record<string, any> = {}
-    for (const [key, value] of Object.entries(definition.setup?.defaultValues ?? {})) {
-      values[key] = stored[key] ?? value
-    }
-    return values
-  }
-
-  /**
-   * Merge incoming config values onto the ones already stored, keeping only what the module declares.
-   *
-   * Read-only props are never taken from the client: they are declarations of something the server
-   * does not support changing, so the stored value (or the module default) always wins.
+   * Merge incoming config values onto the ones already stored, keeping only what the module declares
+   * — see `helpers/moduleRegistry.ts#mergeModuleConfig`.
    */
   buildConfig(
     moduleKey: string,
     incoming: Record<string, any> = {},
     existing: Record<string, any> = {}
   ): Record<string, any> {
-    const props = this.getDefinition(moduleKey)?.props ?? {}
-    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
-    //    through to `current` below instead of overwriting the real stored secret with the mask
-    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
-    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
-    const config: Record<string, any> = {}
-    for (const [key, prop] of Object.entries(props)) {
-      const current = existing[key] !== undefined ? existing[key] : prop.default
-      config[key] =
-        prop.readOnly || cleanedIncoming[key] === undefined ? current : cleanedIncoming[key]
-    }
-    return config
+    return mergeModuleConfig(this.getDefinition(moduleKey)?.props ?? {}, incoming, existing)
   }
 
   /**
-   * Check incoming config values against what the module declares.
-   *
-   * The props are a runtime declaration read from a YAML file, so no JSON Schema can cover them —
-   * without this, a boolean prop would happily store the string `"maybe"`.
+   * Check incoming config values against what the module declares — see
+   * `helpers/moduleRegistry.ts#validateModuleConfig`. An unknown key is dropped by `buildConfig`
+   * rather than refused here, so a module losing a prop can never make the admin area unable to save.
    *
    * @returns The reason it is invalid, or null when it is fine
    */
   validateConfig(moduleKey: string, incoming: Record<string, any> = {}): string | null {
-    const props = this.getDefinition(moduleKey)?.props ?? {}
-    for (const [key, value] of Object.entries(incoming)) {
-      const prop = props[key]
-      // -> Unknown keys are dropped by buildConfig rather than refused: a module losing a prop must
-      //    not make the admin area unable to save
-      if (!prop || prop.readOnly || value === undefined) {
-        continue
-      }
-      if (prop.enum) {
-        // -> Enum entries are declared as `value` or `value|label`
-        const allowed = prop.enum.map((entry) => entry.split('|')[0])
-        if (!allowed.includes(`${value}`)) {
-          return `"${value}" is not a valid value for ${prop.title}.`
-        }
-        continue
-      }
-      switch (prop.type) {
-        case 'boolean':
-          if (typeof value !== 'boolean') {
-            return `${prop.title} must be true or false.`
-          }
-          break
-        case 'number':
-          if (typeof value !== 'number' || !Number.isFinite(value)) {
-            return `${prop.title} must be a number.`
-          }
-          break
-        default:
-          if (typeof value !== 'string') {
-            return `${prop.title} must be a string.`
-          }
-      }
-    }
-    return null
+    return validateModuleConfig(this.getDefinition(moduleKey)?.props ?? {}, incoming)
   }
 
   /**
@@ -703,9 +586,6 @@ class Storage {
     const definition = this.getDefinition(target.module)!
     if (patch.isEnabled === false && target.module === DB_MODULE) {
       return 'The database storage target cannot be disabled, as content would have nowhere to live.'
-    }
-    if (patch.isEnabled === true && target.setup && target.setup.state !== 'configured') {
-      return `${definition.title} cannot be enabled until its setup process is completed.`
     }
     const activeTypes = patch.contentTypes?.activeTypes
     if (activeTypes) {
@@ -1062,22 +942,14 @@ class Storage {
    * @returns The implementation, or null when the module has none or it failed to load
    */
   async ensureModule(key: string): Promise<StorageModule | null> {
-    if (this.modules[key]) {
-      return this.modules[key]
-    }
-    if (!this.getDefinition(key)?.hasImplementation) {
-      return null
-    }
-    try {
+    return loadModule(
+      this.modules,
+      key,
       // -> Extension-sensitive dynamic import, invisible to the type checker
-      this.modules[key] = (await import(`../modules/storage/${key}/storage.ts`)).default
-      WIKI.logger.debug(`Activated storage module ${key} [ OK ]`)
-      return this.modules[key]
-    } catch (err: any) {
-      WIKI.logger.warn(`Failed to load storage module ${key} [ FAILED ]`)
-      WIKI.logger.warn(err)
-      return null
-    }
+      () => import(`../modules/storage/${key}/storage.ts`),
+      'storage',
+      () => this.getDefinition(key)?.hasImplementation === true
+    )
   }
 
   /**
@@ -1094,33 +966,6 @@ class Storage {
       throw new Error(`The ${target.title} storage module does not implement "${handler}".`)
     }
     await mod[handler](target)
-  }
-
-  /**
-   * Advance a module's setup process.
-   *
-   * @returns What the admin area should do next, as decided by the module
-   * @throws When the module cannot be loaded or has no setup process
-   */
-  async runSetup(target: StorageTarget, state: Record<string, any>): Promise<Record<string, any>> {
-    const mod = await this.ensureModule(target.module)
-    if (!mod?.setup) {
-      throw new Error(`The ${target.title} storage module has no setup process.`)
-    }
-    return mod.setup(target, state)
-  }
-
-  /**
-   * Undo a module's setup, so that it can be started over.
-   *
-   * @throws When the module cannot be loaded or has no setup process
-   */
-  async destroySetup(target: StorageTarget): Promise<void> {
-    const mod = await this.ensureModule(target.module)
-    if (!mod?.setupDestroy) {
-      throw new Error(`The ${target.title} storage module has no setup process.`)
-    }
-    await mod.setupDestroy(target)
   }
 }
 

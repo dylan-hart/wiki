@@ -1,6 +1,8 @@
 import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { renderSVG } from 'uqr'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { I18n } from '../shared/i18n.js'
 
@@ -42,72 +44,71 @@ export class BlockQrCodeElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      /* -> The gap below the block. On this element rather than :host: see block-index. */
-      .qr {
-        margin-bottom: 16px;
-        display: inline-flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-        padding: 12px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        border-radius: 5px;
-        /*
+        /* -> The gap below the block. On this element rather than :host: see block-index. */
+        .qr {
+          margin-bottom: 16px;
+          display: inline-flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          padding: 12px;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 5px;
+          /*
           White in both themes, and padded: a code is read by a camera looking for dark squares on a
           light field, so inverting it for dark mode would make it harder to scan, not easier.
         */
-        background-color: #fff;
-      }
-      :host([dark]) .qr {
-        border-color: rgba(255, 255, 255, 0.15);
-      }
+          background-color: #fff;
+        }
+        :host([dark]) .qr {
+          border-color: rgba(255, 255, 255, 0.15);
+        }
 
-      /* -> The drawing is sized here, so the box grows by its own padding rather than eating into it */
-      .qr svg {
-        display: block;
-        width: var(--qr-size);
-        height: auto;
-      }
+        /* -> The drawing is sized here, so the box grows by its own padding rather than eating into it */
+        .qr svg {
+          display: block;
+          width: var(--qr-size);
+          height: auto;
+        }
 
-      .caption {
-        max-width: var(--qr-size);
-        color: #424242;
-        font-size: 0.8em;
-        text-align: center;
-        overflow-wrap: anywhere;
-      }
+        .caption {
+          max-width: var(--qr-size);
+          color: #424242;
+          font-size: 0.8em;
+          text-align: center;
+          overflow-wrap: anywhere;
+        }
 
-      /*
+        /*
         Standard offscreen-clip technique: present to assistive tech and to a "select all" copy, absent
         from the rendered layout. display: none would pull it out of the accessibility tree too, which
         is the one thing this element exists to avoid -- role="img" below collapses the .qr subtree out
         of the accessible-name computation, so this is the only place the encoded value is exposed.
       */
-      .visually-hidden {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: -1px;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-        border: 0;
-      }
+        .visually-hidden {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
 
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-        margin-bottom: 16px;
-      }
-    `
+        .error {
+          margin-bottom: 16px;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -187,9 +188,9 @@ export class BlockQrCodeElement extends LitElement {
 
   render() {
     if (this._tooLong) {
-      return html`<div class="error">
-        ${this._i18n.t('blocks.qr-code.errors.tooLong', 'This is too long to fit in a QR code.')}
-      </div>`
+      return renderError(
+        this._i18n.t('blocks.qr-code.errors.tooLong', 'This is too long to fit in a QR code.')
+      )
     }
     const size = `${Math.min(Math.max(Number(this.size) || 180, 80), 600)}px`
     const encoded = this._encoded()

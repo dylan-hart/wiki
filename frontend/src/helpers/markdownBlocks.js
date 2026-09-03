@@ -1,4 +1,5 @@
 import { blockAttributes, propDefault } from '@/helpers/blocks'
+import { linesOutsideFences } from '@/helpers/markdownFences'
 
 /**
  * The blocks already in a page's source, read back and rewritten.
@@ -11,9 +12,6 @@ import { blockAttributes, propDefault } from '@/helpers/blocks'
  * and what sits between the fences is the author's — page content, or the blocks of a tabset. Building
  * the whole block again from its definition, the way inserting one does, would throw that away.
  */
-
-/** The opening or closing line of a fenced block, indented up to the three spaces markdown allows. */
-const FENCE = /^ {0,3}(`{3,}|~{3,})/
 
 /**
  * A block component opening a line: `::block-name`, with its attributes if it was given any.
@@ -61,24 +59,10 @@ function parseAttributes(source) {
  * @returns {Array<{ block: string, line: number, fence: string, attributes: Array }>}
  */
 export function findBlocks(text) {
-  const lines = text.split('\n')
   const blocks = []
-  let fence = null
 
-  for (let index = 0; index < lines.length; index++) {
-    const edge = FENCE.exec(lines[index])
-    if (fence) {
-      if (edge && edge[1][0] === fence[0] && edge[1].length >= fence.length) {
-        fence = null
-      }
-      continue
-    }
-    if (edge) {
-      fence = edge[1]
-      continue
-    }
-
-    const opening = OPENING.exec(lines[index])
+  linesOutsideFences(text.split('\n'), (line, index) => {
+    const opening = OPENING.exec(line)
     if (opening) {
       blocks.push({
         block: opening[2],
@@ -87,7 +71,7 @@ export function findBlocks(text) {
         attributes: parseAttributes(opening[3] ?? '')
       })
     }
-  }
+  })
   return blocks
 }
 

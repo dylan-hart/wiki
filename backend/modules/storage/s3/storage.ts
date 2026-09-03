@@ -10,8 +10,7 @@ import {
   type StorageClass
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { belongsInTarget, objectKeyFor } from '../../../helpers/blobTarget.ts'
-import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
+import { blobStorageModule } from '../blobBase.ts'
 
 /**
  * S3-compatible blob storage — AWS S3, DigitalOcean Spaces, or any other S3-compatible endpoint,
@@ -23,25 +22,9 @@ import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
  * `contentTypes.defaultTypesEnabled` and declares `versioning.isSupported: false`, so unlike 2.5.x's
  * S3 module there is no `created`/`updated`/`renamed`/`deleted` page lifecycle to port — just the
  * asset side (`assetUploaded`/`assetDeleted`/`assetRenamed`, named to match the write-path dispatch
- * contract `models/storage.ts` documents) plus `exportAll`.
+ * contract `models/storage.ts` documents) plus `exportAll`, all of which `blobStorageModule` provides
+ * from the driver below.
  */
-
-/**
- * How long a direct-access URL stays valid. Minutes, not hours: it's generated per request for one
- * browser to fetch immediately, not something meant to be bookmarked or cached client-side.
- */
-const DIRECT_ACCESS_TTL_SECONDS = 5 * 60
-
-/**
- * One verified S3 client per target, keyed by target id and invalidated the moment the target's
- * stored config changes (a credential rotation, a bucket rename). This is what "activation" means
- * here: the client is built and its bucket verified/created once per config, matching 2.5.x's `init()`
- * — which ran once when the module was enabled — without a corresponding lifecycle hook existing yet
- * on this branch's `models/storage.ts` to call it from. Every write path below routes through
- * `getClient()`, so the first S3 call any target makes (an admin's "Export All" click, or a future
- * dispatched write) both builds the client and verifies the bucket.
- */
-const activated = new Map<string, { client: S3Client; configKey: string; ready: Promise<void> }>()
 
 /** DigitalOcean Spaces' endpoint shape: one hostname per region, not a separately configured URL. */
 function doEndpoint(region: string): string {
@@ -151,32 +134,6 @@ export async function ensureBucket(client: S3Client, config: Record<string, any>
   }
 }
 
-/** The activated client for a target, (re-)verifying its bucket whenever the stored config changed. */
-async function getClient(target: StorageTarget): Promise<S3Client> {
-  const configKey = JSON.stringify(target.config)
-  const cached = activated.get(target.id)
-  if (cached && cached.configKey === configKey) {
-    await cached.ready
-    return cached.client
-  }
-
-  const client = buildClient(target.config)
-  const ready = ensureBucket(client, target.config).catch((err) => {
-    // -> A failed activation is not remembered as done: the next call — the admin retrying the action
-    //    after fixing credentials, say — has to verify again rather than replay this same rejection
-    activated.delete(target.id)
-    throw err
-  })
-  activated.set(target.id, { client, configKey, ready })
-  await ready
-  return client
-}
-
-/** Where one asset of a target lives in the bucket. */
-export function keyFor(target: StorageTarget, folderPath: string, fileName: string): string {
-  return objectKeyFor({ siteId: target.siteId, folderPath, fileName })
-}
-
 /** Only `aws` mode may set a `StorageClass` — `storageTier` is gated `if: mode eq aws` in
  *  `definition.yml`, but `models/storage.ts`'s `buildConfig()` still fills every prop with its
  *  default regardless of that UI-only gate, so `do`/`custom` targets carry a leftover `storageTier`
@@ -185,47 +142,6 @@ export function storageClassFor(config: Record<string, any>): StorageClass | und
   return config.mode === 'aws' && config.storageTier
     ? (config.storageTier as StorageClass)
     : undefined
-}
-
-/** Wrap an S3 SDK call so a failure reaches the caller as a readable `Error`, not a raw SDK exception. */
-async function withS3Errors<T>(action: string, fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn()
-  } catch (err: any) {
-    throw new Error(`Failed to ${action}: ${err.message ?? err}`)
-  }
-}
-
-/** An asset was created, or an existing one had its bytes replaced. */
-async function assetUploaded(target: StorageTarget, data: Record<string, any>): Promise<void> {
-  const client = await getClient(target)
-  const content = await WIKI.models.assets.getContent(data.id)
-  if (!content) {
-    // -> Deleted again between the write that triggered this and this handler actually running;
-    //    nothing left to push
-    return
-  }
-  const key = keyFor(target, data.folderPath ?? '', data.fileName ?? content.fileName)
-  await withS3Errors(`upload "${key}"`, () =>
-    client.send(
-      new PutObjectCommand({
-        Bucket: target.config.bucket,
-        Key: key,
-        Body: content.data,
-        ContentType: content.mimeType,
-        StorageClass: storageClassFor(target.config)
-      })
-    )
-  )
-}
-
-/** An asset was deleted. */
-async function assetDeleted(target: StorageTarget, data: Record<string, any>): Promise<void> {
-  const client = await getClient(target)
-  const key = keyFor(target, data.folderPath ?? '', data.fileName)
-  await withS3Errors(`delete "${key}"`, () =>
-    client.send(new DeleteObjectCommand({ Bucket: target.config.bucket, Key: key }))
-  )
 }
 
 /**
@@ -240,14 +156,38 @@ export function encodeCopySourceKey(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/')
 }
 
-/** An asset moved to a new name within the same folder. */
-async function assetRenamed(target: StorageTarget, data: Record<string, any>): Promise<void> {
-  const client = await getClient(target)
-  const bucket = target.config.bucket
-  const sourceKey = keyFor(target, data.folderPath ?? '', data.previousFileName ?? data.fileName)
-  const destinationKey = keyFor(target, data.folderPath ?? '', data.fileName)
+/**
+ * What this module's driver hands `blobBase.ts` as its client: unlike Azure's `ContainerClient` or
+ * GCS's `Bucket`, an `S3Client` carries no bucket of its own — every command names one — so the
+ * activated pair is the client plus the bucket its target is configured against.
+ */
+interface S3Target {
+  client: S3Client
+  bucket: string
+}
 
-  await withS3Errors(`rename "${sourceKey}" to "${destinationKey}"`, async () => {
+const s3Storage = blobStorageModule<S3Target>({
+  label: 'S3',
+  async build(config) {
+    const client = buildClient(config)
+    await ensureBucket(client, config)
+    return { client, bucket: config.bucket }
+  },
+  async put({ client, bucket }, key, body, mimeType, config) {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentType: mimeType,
+        StorageClass: storageClassFor(config)
+      })
+    )
+  },
+  async remove({ client, bucket }, key) {
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
+  },
+  async copy({ client, bucket }, sourceKey, destinationKey, config) {
     // -> `CopySource` always needs the bucket prefixed and the key encoded, regardless of
     //    `s3BucketEndpoint`: the parameter addresses the source object directly rather than being
     //    resolved against the client's own endpoint routing. 2.5.x hit exactly this omission as
@@ -257,74 +197,15 @@ async function assetRenamed(target: StorageTarget, data: Record<string, any>): P
         Bucket: bucket,
         CopySource: `${bucket}/${encodeCopySourceKey(sourceKey)}`,
         Key: destinationKey,
-        StorageClass: storageClassFor(target.config)
+        StorageClass: storageClassFor(config)
       })
     )
-    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: sourceKey }))
-  })
-}
-
-/**
- * Push every asset of this target's site to S3, filtered through the target's own `contentTypes`
- * (`activeTypes` / `largeThreshold`) exactly as configured in the admin area — nothing upstream of
- * this filters assets by content type, so `exportAll` is the one place it has to happen. This is also
- * where a target gets its first real activation for a target that has never had a write dispatched to
- * it yet: `getClient()` verifies (and where reasonable, creates) the bucket before anything is sent.
- */
-async function exportAll(target: StorageTarget): Promise<void> {
-  const client = await getClient(target)
-  const bucket = target.config.bucket
-  const storageClass = storageClassFor(target.config)
-
-  let exported = 0
-  for await (const asset of WIKI.models.assets.streamAll(target.siteId)) {
-    if (!belongsInTarget(asset, target.contentTypes)) {
-      continue
-    }
-    const key = keyFor(target, asset.folderPath, asset.fileName)
-    await withS3Errors(`export "${key}"`, () =>
-      client.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: key,
-          Body: asset.data,
-          ContentType: asset.mimeType,
-          StorageClass: storageClass
-        })
-      )
-    )
-    exported++
-  }
-  WIKI.logger.info(`(STORAGE/${target.title}) Exported ${exported} asset(s) to S3.`)
-}
-
-/**
- * A short-lived, presigned GET URL for one asset — the primitive `assetDelivery.directAccess` needs
- * to redirect a browser straight to the bucket instead of streaming the file through the wiki server.
- * `s3`/`azure`/`gcs` are the only targets that declare `assetDelivery.isDirectAccessSupported: true`;
- * `models/assets.ts`'s `directUrlFor()` calls this (as `StorageModule.getDirectUrl`) whenever a
- * target both enables `assetDelivery.directAccess` and has a module implementing it — asset first,
- * target second, matching every other `StorageModule` handler's argument order.
- */
-async function getDirectUrl(
-  asset: { folderPath: string; fileName: string },
-  target: StorageTarget
-): Promise<string> {
-  const client = await getClient(target)
-  const key = keyFor(target, asset.folderPath, asset.fileName)
-  return withS3Errors(`presign "${key}"`, () =>
-    getSignedUrl(client, new GetObjectCommand({ Bucket: target.config.bucket, Key: key }), {
-      expiresIn: DIRECT_ACCESS_TTL_SECONDS
+  },
+  sign({ client, bucket }, key, ttlSeconds) {
+    return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
+      expiresIn: ttlSeconds
     })
-  )
-}
-
-const s3Storage: StorageModule = {
-  assetUploaded,
-  assetDeleted,
-  assetRenamed,
-  exportAll,
-  getDirectUrl
-}
+  }
+})
 
 export default s3Storage

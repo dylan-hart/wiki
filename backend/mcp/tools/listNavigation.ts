@@ -2,29 +2,23 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { actorFor, McpToolError, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
-import { defaultLocale, resolveRequestedSite } from '../site.ts'
+import { defaultLocale } from '../../helpers/localeRouting.ts'
+import { resolveRequestedSite } from '../site.ts'
+import { localeArg, siteIdArg, toResult } from './shared.ts'
 
 const listNavigationInputSchema = {
-  siteId: z
-    .string()
-    .uuid()
-    .optional()
-    .describe('Which site to browse. Omit on a single-site instance; see `list_sites` otherwise.'),
+  siteId: siteIdArg('Which site to browse.'),
   path: z
     .string()
     .optional()
     .describe('Slash-separated path of the folder to list. The site root when omitted.'),
-  locale: z.string().optional().describe("The site's primary locale when omitted.")
+  locale: localeArg
 }
 
 export interface ListNavigationArgs {
   siteId?: string
   path?: string
   locale?: string
-}
-
-function toResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
 }
 
 /**
@@ -42,7 +36,7 @@ export async function handleListNavigation(
     throw new McpToolError('Browsing is disabled on this site.')
   }
 
-  const locale = args.locale ?? defaultLocale(site)
+  const locale = args.locale ?? defaultLocale(site.id)
   const level = await WIKI.models.tree.browse({
     siteId: site.id,
     path: args.path,

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import PageComments from './PageComments.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
@@ -10,48 +9,48 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 const MESSAGES = {
-  en: {
-    common: {
-      comments: {
-        title: 'Comments',
-        loading: 'Loading comments...',
-        beFirst: 'Be the first to comment.',
-        none: 'No comments yet.',
-        modified: 'modified {reldate}',
-        reply: 'Reply',
-        fieldContent: 'Comment Content',
-        fieldEmail: 'Your Email Address',
-        fieldName: 'Your Name',
-        newPlaceholder: 'Write a new comment...',
-        markdownFormat: 'Markdown Format',
-        contentMissingError: 'Comment is empty or too short!',
-        postComment: 'Post Comment',
-        postSuccess: 'New comment posted successfully.',
-        postingAs: 'Posting as {name}',
-        updateComment: 'Update Comment',
-        updateSuccess: 'Comment was updated successfully.',
-        deleteConfirmTitle: 'Confirm Delete',
-        deleteWarn: 'Are you sure you want to permanently delete this comment?',
-        deletePermanentWarn: 'This action cannot be undone!',
-        deleteSuccess: 'Comment was deleted successfully.'
-      },
-      actions: {
-        cancel: 'Cancel',
-        delete: 'Delete'
-      },
-      error: {
-        generic: {
-          title: 'Unexpected Error'
-        }
-      }
+  common: {
+    comments: {
+      title: 'Comments',
+      loading: 'Loading comments...',
+      beFirst: 'Be the first to comment.',
+      none: 'No comments yet.',
+      modified: 'modified {reldate}',
+      reply: 'Reply',
+      fieldContent: 'Comment Content',
+      fieldEmail: 'Your Email Address',
+      fieldName: 'Your Name',
+      newPlaceholder: 'Write a new comment...',
+      markdownFormat: 'Markdown Format',
+      contentMissingError: 'Comment is empty or too short!',
+      postComment: 'Post Comment',
+      postSuccess: 'New comment posted successfully.',
+      postingAs: 'Posting as {name}',
+      updateComment: 'Update Comment',
+      updateSuccess: 'Comment was updated successfully.',
+      deleteConfirmTitle: 'Confirm Delete',
+      deleteWarn: 'Are you sure you want to permanently delete this comment?',
+      deletePermanentWarn: 'This action cannot be undone!',
+      deleteSuccess: 'Comment was deleted successfully.'
     },
-    auth: {
-      errors: {
-        missingName: 'Name is missing.',
-        missingEmail: 'Email is missing.',
-        invalidEmail: 'Email is invalid.'
+    actions: {
+      cancel: 'Cancel',
+      delete: 'Delete'
+    },
+    error: {
+      generic: {
+        title: 'Unexpected Error'
       }
+    }
+  },
+  auth: {
+    errors: {
+      missingName: 'Name is missing.',
+      missingEmail: 'Email is missing.',
+      invalidEmail: 'Email is invalid.'
     }
   }
 }
@@ -112,7 +111,7 @@ async function mountComments({
   userStore.authenticated = authenticated
   userStore.name = 'Jane Doe'
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+  const i18n = createTestI18n(MESSAGES)
 
   const wrapper = mount(PageComments, {
     global: {
@@ -139,7 +138,7 @@ describe('PageComments', () => {
         })
     })
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    const i18n = createTestI18n(MESSAGES)
     const wrapper = mount(PageComments, { global: { plugins: [i18n] } })
 
     expect(wrapper.text()).toContain('Loading comments...')

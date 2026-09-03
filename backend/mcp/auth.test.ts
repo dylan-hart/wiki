@@ -11,12 +11,12 @@ import {
   McpToolError,
   pageActorFor
 } from './auth.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 
 before(() => {
-  previousWiki = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     models: {
       apiKeys: {
         verify: async (token: string) => {
@@ -65,11 +65,11 @@ before(() => {
         }
       }
     }
-  }
+  })
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 test('authenticateApiKey: resolves a valid token to its keyId, permissions, siteId and groupIds', async () => {

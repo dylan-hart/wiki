@@ -5,6 +5,8 @@ import { createI18n } from 'vue-i18n'
 
 import { useDictText } from './i18nText.js'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 /**
  * `useDictText()` wraps `useI18n()`, which only works inside a component's `setup()` -- mounting a
  * tiny probe component through `@vue/test-utils` is how `dark.test.js` and `screen.test.js`'s
@@ -25,11 +27,7 @@ function mountProbe({ plugins = [] } = {}) {
 
 describe('useDictText', () => {
   it('returns the dictionary value when the key resolves', () => {
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: { en: { 'common.probe.label': 'Dictionary Value' } }
-    })
+    const i18n = createTestI18n({ 'common.probe.label': 'Dictionary Value' })
 
     const getResolved = mountProbe({ plugins: [i18n] })
 

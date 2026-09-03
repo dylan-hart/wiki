@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { load } from 'js-yaml'
-import { parseModuleProps } from '../../../helpers/common.ts'
+import { parseModuleProps } from '../../../helpers/moduleProps.ts'
 
 const definitionPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'definition.yml')
 

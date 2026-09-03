@@ -1,5 +1,6 @@
 import { extractBlockDefinition, extractDefinedElementTag } from '../helpers/blockDefinition.ts'
 import { CustomError } from '../helpers/common.ts'
+import { maySiteAdmin } from '../helpers/siteRules.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -49,23 +50,9 @@ async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boole
     return true
   }
   const groupIds = WIKI.models.approvals.getActorGroupIds(req)
-  const rules = await WIKI.models.approvals.getRules(siteId)
+  const rules = await WIKI.models.approvalRules.getRules(siteId)
   return rules.some(
     (rule) => rule.isEnabled && rule.submitterGroups.some((id) => groupIds.includes(id))
-  )
-}
-
-/**
- * Whether this caller may enable, disable or delete this site's blocks.
- *
- * `manage:sites` keeps working exactly as before delegation existed; `site:blocks` (see
- * `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
- */
-function mayManageBlocks(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:blocks', siteId)
   )
 }
 
@@ -101,16 +88,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Built-in blocks are registered from the compiled block manifest, so the list reflects what is actually installed. This is what the editor builds its block picker from, so it is available to page authors and to anyone an approval rule lets suggest an edit — guests included, where a site takes public suggestions — as well as to site administrators.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of site blocks',
@@ -123,10 +101,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!(await mayListBlocks(req, req.params.siteId))) {
         return reply.forbidden('You are not allowed to list the blocks of this site.')
       }
@@ -154,7 +128,7 @@ async function routes(app: FastifyInstance) {
         Permissions section) and no new, narrower permission name may be invented for this route.
 
         NOT applied identically on the PUT (enable/disable) and DELETE routes below: those also accept
-        the narrower site-scoped `site:blocks` delegation (`mayManageBlocks()`, backed by
+        the narrower site-scoped `site:blocks` delegation (`checkSiteAdminAccess()`, backed by
         `checkSiteAccess()` — see `docs/decisions/delegated-per-site-administration.md` §3, which lists
         `site:blocks` as covering exactly these two routes). That is a deliberate, accepted widening,
         not an inconsistency: introducing NEW arbitrary script is the more sensitive act, so upload
@@ -170,16 +144,7 @@ async function routes(app: FastifyInstance) {
         description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another. The source must itself call \`customElements.define("block-{tag}", ...)\` with that exact name; a mismatch is rejected too, since a block that does not register the tag it promises renders nothing on every page that uses it.`,
         tags: ['Blocks'],
         consumes: ['*/*'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Custom block uploaded successfully',
@@ -200,11 +165,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       const data = req.body
       if (!Buffer.isBuffer(data) || data.length < 1) {
         return reply.badRequest('No file was sent.')
@@ -263,23 +223,14 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may change a site's blocks comes from `checkSiteAccess()`,
-        which that hook cannot call — see `mayManageBlocks`.
+        which that hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Enable or disable site blocks',
         description:
           'Only the blocks listed are affected; any others keep their current state. A state may also carry a `config` object of site-level values for that block (e.g. the "Server" field block-kroki and block-plantuml offer) — omitted, its row keeps whatever config it already has; given, for a built-in block it is sanitized against the block\'s declared `config` fields (stale keys stripped) and replaces the row wholesale, while a custom block (no declared fields) is written as-is.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['states'],
@@ -338,11 +289,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      if (!mayManageBlocks(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
 
@@ -372,7 +319,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/blocks/:blockId',
     {
       /*
-        No route-level `permissions`: same reasoning as the PUT above — see `mayManageBlocks`.
+        No route-level `permissions`: same reasoning as the PUT above — see `checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Delete a custom block',
@@ -405,11 +352,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      if (!mayManageBlocks(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
 

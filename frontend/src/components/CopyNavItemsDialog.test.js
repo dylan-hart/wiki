@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import CopyNavItemsDialog from './CopyNavItemsDialog.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 const MESSAGES = {
   'navEdit.copyFrom': 'Copy from...',
@@ -25,7 +26,7 @@ const OTHER_SITES = [
 ]
 
 function mountDialog(props = {}) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   return mount(CopyNavItemsDialog, {
     props: {
       siteId: 'site-1',

@@ -17,10 +17,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
 import { ensureRepo, resolveRepoPath, buildAuthenticatedUrl } from './repo.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 
 /** Installs a `WIKI` stub with git detection reporting `installed`, and ROOTPATH under a temp dir. */
 function installWiki(rootPath: string, { installed = true }: { installed?: boolean } = {}): void {
-  ;(globalThis as any).WIKI = {
+  installTestWiki({
     ROOTPATH: rootPath,
     models: {
       extensions: {
@@ -28,7 +29,7 @@ function installWiki(rootPath: string, { installed = true }: { installed?: boole
         isInstalled: mock.fn(async () => installed)
       }
     }
-  }
+  })
 }
 
 async function makeTempDir(): Promise<string> {

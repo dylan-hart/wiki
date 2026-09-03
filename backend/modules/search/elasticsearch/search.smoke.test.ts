@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@elastic/elasticsearch'
 import { search } from '../../../models/search.ts'
 import { ElasticsearchSearchModule } from './search.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 import type { AccessActor } from '../../../models/groups.ts'
 import type { SearchIndexablePage } from '../../../models/search.ts'
 
@@ -42,7 +43,7 @@ describe(
     const siteId = 'smoke-site'
     const indexName = `wiki-smoke-${randomBytes(6).toString('hex')}`
     const hosts = process.env.ELASTICSEARCH_TEST_URL ?? ''
-    let previousWiki: any
+    let wikiHandle: { restore(): void }
     let mod: ElasticsearchSearchModule
     let cleanupClient: Client
 
@@ -67,10 +68,8 @@ describe(
     }
 
     before(async () => {
-      previousWiki = (globalThis as any).WIKI
-      ;(globalThis as any).WIKI = {
+      wikiHandle = installTestWiki({
         SERVERPATH: backendDir,
-        logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} },
         sites: {
           [siteId]: {
             config: {
@@ -89,7 +88,7 @@ describe(
             checkAccess: () => true
           }
         }
-      }
+      })
       await search.refreshFromDisk()
 
       mod = new ElasticsearchSearchModule()
@@ -164,7 +163,7 @@ describe(
       } catch {
         // -> Best-effort: a throwaway container is about to be torn down entirely either way.
       }
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     })
 
     test('path filters to that subtree, excluding siblings and drafts outside it', async () => {

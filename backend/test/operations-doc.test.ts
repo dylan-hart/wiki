@@ -22,7 +22,7 @@ const OPERATIONS_MD = path.join(REPO_ROOT, 'docs/operations.md')
 const DATA_PATH_SUBDIRS: Record<string, string> = {
   locales: 'backend/models/locales.ts',
   'cache/icons': 'backend/models/icons.ts',
-  'cache/files': 'backend/models/assets.ts',
+  'cache/files': 'backend/models/assetServing.ts',
   exports: 'backend/models/export.ts',
   imports: 'backend/models/siteImport.ts'
 }

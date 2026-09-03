@@ -152,49 +152,14 @@
               >{{ t('admin.comments.providerNoConfig') }}</w-banner
             >
           </w-card-section>
-          <template v-for="(cfg, cfgKey, idx) in selectedProvider.config" :key="cfgKey">
-            <template v-if="configIfCheck(cfg.if)">
-              <w-separator class="my-2" inset v-if="idx > 0" />
-              <w-item v-if="cfg.type === `boolean`" tag="label">
-                <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                </w-item-section>
-                <w-item-section avatar>
-                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disabled="cfg.readOnly" />
-                </w-item-section>
-              </w-item>
-              <w-item v-else>
-                <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                </w-item-section>
-                <w-item-section :style="cfg.type === `number` ? `flex: 0 0 150px;` : ``">
-                  <w-select
-                    v-if="cfg.enum"
-                    outlined
-                    v-model="cfg.value"
-                    :options="cfg.enum"
-                    emit-value
-                    map-options
-                    dense
-                    options-dense
-                    :aria-label="cfg.title"
-                    :disabled="cfg.readOnly" />
-                  <w-input
-                    v-else
-                    outlined
-                    v-model="cfg.value"
-                    dense
-                    :type="inputTypeFor(cfg)"
-                    :aria-label="cfg.title"
-                    :disabled="cfg.readOnly" />
-                </w-item-section>
-              </w-item>
-            </template>
-          </template>
+          <!--
+            Generic per-prop config form, shared with `AdminAnalytics.vue`, `AdminAuth.vue`,
+            `AdminSearch.vue` and `AdminStorage.vue` -- see `ModuleConfigForm.vue`.
+            `selectedProvider.config` is the `buildConfigEditor()`-built editable structure, not the
+            raw stored values; mutating a field's `.value` there, which this component does in place,
+            is what `buildConfigPayload()` in `payloadFor()` below reads back.
+          -->
+          <module-config-form v-if="selectedProvider.config" :config="selectedProvider.config" />
         </w-card>
       </div>
     </div>
@@ -310,6 +275,9 @@ import { useSiteStore } from '@/stores/site'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
+import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
+
+import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 
 // COMPOSABLES
 
@@ -461,44 +429,6 @@ watch(
 
 // METHODS
 
-/**
- * Turn a module prop declaration and its stored value into the shape the config editor renders,
- * expanding `value|label` enum entries into options.
- */
-function buildConfigEditor(props, values) {
-  const config = {}
-  for (const [key, prop] of Object.entries(props ?? {})) {
-    config[key] = {
-      ...prop,
-      value: values?.[key] ?? prop.default,
-      ...(prop.enum && {
-        enum: prop.enum.map((entry) => {
-          const [value, label] = entry.split('|')
-          return { value, label: label ?? value }
-        })
-      })
-    }
-  }
-  return config
-}
-
-function inputTypeFor(cfg) {
-  if (cfg.multiline) {
-    return 'textarea'
-  }
-  if (cfg.sensitive) {
-    return 'password'
-  }
-  return cfg.type === 'number' ? 'number' : 'text'
-}
-
-function configIfCheck(ifs) {
-  if (!ifs || ifs.length < 1) {
-    return true
-  }
-  return ifs.every((s) => selectedProvider.value.config[s.key]?.value === s.eq)
-}
-
 /** A single-line preview of a comment's content, collapsing whitespace and capping the length. */
 function excerptOf(content) {
   const flat = (content ?? '').replace(/\s+/g, ' ').trim()
@@ -537,14 +467,7 @@ async function load() {
  * stored for them, so sending them back would be pretending they can be set.
  */
 function payloadFor(prov) {
-  const config = {}
-  for (const [key, cfg] of Object.entries(prov.config ?? {})) {
-    if (cfg.readOnly) {
-      continue
-    }
-    config[key] = cfg.type === 'number' ? Number(cfg.value) : cfg.value
-  }
-  return { module: prov.module, config }
+  return { module: prov.module, config: buildConfigPayload(prov.config) }
 }
 
 /** Activates the selected provider and stores its config, then reloads to pick up the server truth. */

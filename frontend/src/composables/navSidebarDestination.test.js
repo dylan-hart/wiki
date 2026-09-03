@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { useNavSidebarDestination } from './navSidebarDestination'
 import routes from '@/router/routes'
+
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * A focused unit test of `destination()` alone, alongside the fuller case matrix
@@ -25,9 +26,7 @@ async function mountDestination() {
     }
   })
 
-  const router = createRouter({ history: createMemoryHistory(), routes })
-  await router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(routes)
 
   mount(Host, { global: { plugins: [router] } })
   return captured

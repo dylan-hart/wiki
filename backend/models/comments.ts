@@ -21,20 +21,7 @@ import {
 } from '../db/schema.ts'
 
 /** A stored comment row, as returned by the primitives below. */
-export interface Comment {
-  id: string
-  siteId: string
-  pageId: string
-  authorId: string | null
-  replyTo: string | null
-  content: string
-  render: string | null
-  guestName: string | null
-  guestEmail: string | null
-  guestIp: string | null
-  createdAt: Date
-  updatedAt: Date
-}
+export type Comment = typeof commentsTable.$inferSelect
 
 /**
  * A comment as returned by {@link Comments.listForPage} — a {@link Comment} minus `guestEmail` /
@@ -166,10 +153,10 @@ const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
  * - **No permission checks.** Neither `models/pages.ts` nor `models/pageWatching.ts` calls
  *   `WIKI.models.groups.checkAccess()` from inside the model — that happens one layer up, in the API
  *   route handler, which is where `FastifyRequest` and the session/actor legitimately live
- *   (`mayOnPage` in `api/pages.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
+ *   (`mayOnPage` in `helpers/pageAccess.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
  *   follows the same layering: no `FastifyRequest` import, no embedded access check.
  * - **No `render` population.** This codebase's page-rendering pipeline is a headless-browser render
- *   queue (`models/rendering.ts`) — far too heavy to hold a request open for a short synchronous
+ *   queue (`models/renderQueue.ts`) — far too heavy to hold a request open for a short synchronous
  *   comment post. `render` stays nullable and untouched here for 2.5.x row-shape parity and so a
  *   future provider has somewhere to put sanitized HTML; actually populating it (markdown-it +
  *   DOMPurify, mirroring 2.5.x's `comment.js`) is Feature 390's default-provider job, not this one's.
@@ -235,7 +222,7 @@ class Comments {
         guestIp
       })
       .returning()
-    const comment = rows[0] as Comment
+    const comment = rows[0]
     await this.emitEvent('comment:new', comment, await this.resolveAuthorName(comment))
     return comment
   }
@@ -264,7 +251,7 @@ class Comments {
       })
       .where(eq(commentsTable.id, id))
       .returning()
-    const comment = rows[0] as Comment
+    const comment = rows[0]
     await this.emitEvent('comment:edit', comment, await this.resolveAuthorName(comment))
     return comment
   }
@@ -276,7 +263,7 @@ class Comments {
    */
   async get(id: string): Promise<Comment | null> {
     const rows = await WIKI.db.select().from(commentsTable).where(eq(commentsTable.id, id)).limit(1)
-    return (rows[0] as Comment) ?? null
+    return rows[0] ?? null
   }
 
   /**
@@ -391,7 +378,7 @@ class Comments {
    * CONTENT.
    *
    * `pathFilter`, when given, is pushed into the query as a prefix `ILIKE` — the same "starts with"
-   * semantics `api/pages.ts`'s page search uses for its own `path` filter — rather than applied
+   * semantics `api/pages/read.ts`'s page search uses for its own `path` filter — rather than applied
    * after the fact, so it shrinks the very set about to be permission-checked, for free.
    */
   async pageRefsForSite(siteId: string, pathFilter?: string): Promise<AdminPageRef[]> {

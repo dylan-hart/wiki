@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminMail from './AdminMail.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * `sendTest()` used to be a stub that always showed a warning notification (the backend had no SMTP
@@ -17,25 +18,14 @@ import { queue as notifyQueue } from '@/composables/notify'
 async function mountAdminMail() {
   setActivePinia(createPinia())
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: {
-          mail: {
-            testRecipient: 'Recipient Email Address',
-            testSend: 'Send Email',
-            sendTestSuccess: 'A test email was sent successfully.'
-          }
-        }
+  const i18n = createTestI18n({
+    admin: {
+      mail: {
+        testRecipient: 'Recipient Email Address',
+        testSend: 'Send Email',
+        sendTestSuccess: 'A test email was sent successfully.'
       }
     }
   })
@@ -45,11 +35,10 @@ async function mountAdminMail() {
   //    here reads `state.config`, so it is left alone rather than stubbed.
   const wrapper = mount(AdminMail, {
     global: {
-      plugins: [router, i18n],
+      plugins: [router, i18n]
       // -> Registered globally by `boot/components.js`, not by the `sharedComponents` map
       //    `test/setup.js` installs -- stubbed here rather than widening the shared harness for a
       //    component this test never asserts against.
-      stubs: { BlueprintIcon: true }
     }
   })
   await wrapper.vm.$nextTick()
@@ -59,7 +48,7 @@ async function mountAdminMail() {
   //    own action produced.
   notifyQueue.splice(0, notifyQueue.length)
 
-  const recipientField = wrapper.get('[aria-label="Recipient Email Address"] input')
+  const recipientField = wrapper.get('input[aria-label="Recipient Email Address"]')
   const sendButton = wrapper.findAll('button').find((btn) => btn.text().includes('Send Email'))
 
   return { wrapper, recipientField, sendButton }

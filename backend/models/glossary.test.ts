@@ -580,7 +580,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     })
 
     test('importTerms() rejects a bare "/" path rather than defaulting it to the home page (OpenProject #1936)', async () => {
-      // -> Unlike `api/pages.ts`'s page-view route and `mcp/tools/getPage.ts`, `resolvePagePath()`
+      // -> Unlike `api/pages/read.ts`'s page-view route and `mcp/tools/getPage.ts`, `resolvePagePath()`
       //    does NOT fall back to `generatePathHash('home')` for a path that normalizes to empty --
       //    see the comment on `resolvePagePath()` in `models/glossary.ts`. A home page existing on
       //    the site must not change that: "/" still fails to resolve.

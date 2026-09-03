@@ -1,6 +1,7 @@
+import { render } from 'lit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { fetchIcon, iconImageUrl } from './icons.js'
+import { fetchIcon, iconImageUrl, inlineIcon, MDI_PATHS } from './icons.js'
 
 /*
  * OpenProject #1768: `fetchIcon` splits a reference on `:` and asks `/_icons/<prefix>/<name>.svg`
@@ -61,5 +62,40 @@ describe('shared/icons.js: iconImageUrl()', () => {
 
   it('returns null for a non-image reference', () => {
     expect(iconImageUrl('mdi:home')).toBeNull()
+  })
+})
+
+/*
+ * `block-pdf` and `block-gallery` both draw a handful of MDI glyphs straight from their path data
+ * rather than through `fetchIcon`: their toolbar/lightbox chrome must be on screen the moment the
+ * block renders, with no request in the way, and the two blocks had copied the same paths and the
+ * same one-line `_icon()` helper into each of themselves.
+ */
+describe('shared/icons.js: MDI_PATHS and inlineIcon()', () => {
+  it('carries the six glyphs the two chrome-drawing blocks share', () => {
+    expect(Object.keys(MDI_PATHS).sort()).toEqual([
+      'close',
+      'next',
+      'open',
+      'previous',
+      'zoomIn',
+      'zoomOut'
+    ])
+    for (const path of Object.values(MDI_PATHS)) {
+      expect(path).toMatch(/^M/)
+    }
+  })
+
+  it('draws a path as a 24x24 svg that is invisible to assistive tech', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    render(inlineIcon(MDI_PATHS.close), host)
+
+    const svg = host.querySelector('svg')
+    expect(svg.getAttribute('viewBox')).toBe('0 0 24 24')
+    expect(svg.getAttribute('aria-hidden')).toBe('true')
+    expect(svg.querySelector('path').getAttribute('d')).toBe(MDI_PATHS.close)
+
+    document.body.innerHTML = ''
   })
 })

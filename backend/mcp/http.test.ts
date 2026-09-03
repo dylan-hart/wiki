@@ -6,6 +6,9 @@ import fastifySensible from '@fastify/sensible'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { activeBanMemo } from '../helpers/rateLimit.ts'
 import httpRoutes from './http.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * Exercises `mcp/http.ts` as a real Fastify plugin (`app.inject()`, same pattern
@@ -54,13 +57,12 @@ describe('mcp/http', () => {
   }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       version: '3.0.0-test',
       sites: {
         [SITE_X]: { id: SITE_X, hostname: 'x.example.com', isEnabled: true, config: {} },
         [SITE_Y]: { id: SITE_Y, hostname: 'y.example.com', isEnabled: true, config: {} }
       },
-      logger: { debug: () => {} },
       models: {
         apiKeys: {
           verify: async (token: string) => {
@@ -84,7 +86,7 @@ describe('mcp/http', () => {
           }
         }
       }
-    }
+    })
 
     app = fastify()
     await app.register(fastifySensible)
@@ -94,7 +96,7 @@ describe('mcp/http', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -381,9 +383,8 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
   //    exactly which sessions are live at a given moment, which a store shared across tests would
   //    make flaky depending on run order and timing.
   beforeEach(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       version: '3.0.0-test',
-      logger: { debug: () => {} },
       models: {
         apiKeys: {
           verify: async () => ({
@@ -401,7 +402,7 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
           record: async () => {}
         }
       }
-    }
+    })
 
     app = fastify()
     await app.register(fastifySensible)
@@ -412,7 +413,7 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
 
   afterEach(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   function initializeRequest(id: number) {

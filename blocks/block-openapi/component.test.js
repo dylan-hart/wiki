@@ -1,5 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
+
 let resolveSpecSource
 
 beforeAll(async () => {
@@ -24,20 +27,8 @@ beforeAll(async () => {
  * `url` as an attribute, `body` as a fenced code block's light-DOM content — exactly as typed, since
  * that is what `firstUpdated()` reads with `textContent`.
  */
-async function mountOpenapi({ url = '', body = '' } = {}) {
-  const el = document.createElement('block-openapi')
-  if (url) {
-    el.setAttribute('url', url)
-  }
-  if (body) {
-    const pre = document.createElement('pre')
-    pre.textContent = body
-    el.appendChild(pre)
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountOpenapi = ({ url = '', body = '' } = {}) =>
+  mountBlock('block-openapi', { attrs: url ? { url } : undefined, pre: body || undefined })
 
 const VALID_SPEC = `openapi: 3.0.3
 info:
@@ -118,9 +109,7 @@ describe('resolveSpecSource', () => {
 })
 
 describe('block-openapi', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   it('shows the error panel, not a mounted swagger-ui, when there is nothing to render', async () => {
     const el = await mountOpenapi()
@@ -158,10 +147,7 @@ describe('block-openapi', () => {
   })
 
   it('reads the body from an unfenced light-DOM call the same way a fenced one is read', async () => {
-    const el = document.createElement('block-openapi')
-    el.textContent = VALID_SPEC
-    document.body.appendChild(el)
-    await el.updateComplete
+    const el = await mountBlock('block-openapi', { text: VALID_SPEC })
 
     expect(el.shadowRoot.querySelector('.error')).toBeNull()
     await vi.waitFor(() => {
@@ -170,15 +156,9 @@ describe('block-openapi', () => {
   })
 
   it('hides every "Execute" control when tryItOut is turned off', async () => {
-    const el = document.createElement('block-openapi')
     // -> Set on the property directly rather than as an attribute: see block-pdf's `boolean`
     //    converter for how the block picker's own `tryItOut="false"` attribute form is read.
-    el.tryItOut = false
-    const pre = document.createElement('pre')
-    pre.textContent = VALID_SPEC
-    el.appendChild(pre)
-    document.body.appendChild(el)
-    await el.updateComplete
+    const el = await mountBlock('block-openapi', { pre: VALID_SPEC, props: { tryItOut: false } })
 
     const container = el.shadowRoot.querySelector('.container')
     await vi.waitFor(() => {
@@ -186,4 +166,6 @@ describe('block-openapi', () => {
     })
     expect(container.querySelector('.btn.execute')).toBeNull()
   })
+
+  describeDarkMode(() => mountOpenapi())
 })

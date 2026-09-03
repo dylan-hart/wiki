@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminUsers from './AdminUsers.vue'
-import { useUserStore } from '@/stores/user'
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 const USERS_PAGE_1 = {
   total: 45,
@@ -22,24 +19,14 @@ const MESSAGES = {
 }
 
 async function mountPage() {
-  setActivePinia(createPinia())
-  const userStore = useUserStore()
-  userStore.permissions = ['manage:users']
-  userStore.id = 'me'
-
   API_CLIENT.get.mockImplementation(() => usersResponse())
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/users', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/users')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/users'], '/_admin/users')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
-
-  const wrapper = mount(AdminUsers, {
-    global: { plugins: [router, i18n] }
+  const { wrapper } = mountWithApp(AdminUsers, {
+    messages: MESSAGES,
+    router,
+    stores: { user: { permissions: ['manage:users'], id: 'me' } }
   })
   await vi.waitUntil(() => API_CLIENT.get.mock.calls.length >= 1)
 

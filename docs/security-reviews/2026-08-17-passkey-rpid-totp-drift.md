@@ -12,7 +12,7 @@ default and is recorded in `docs/variances.md` rather than left as a silent beha
 ## How the RP ID and origin actually get set
 
 Every passkey ceremony (`POST /users/profile/passkeys/challenge`, `PUT /sites/:siteId/auth/passkey/*`
-in `backend/api/users.ts` and `backend/api/authentication.ts`) calls into `passkeys.ts` with two values
+in `backend/api/users/profile.ts` and `backend/api/auth/site.ts`) calls into `passkeys.ts` with two values
 taken straight off the request:
 
 - `hostname: req.hostname` — becomes the WebAuthn `rpID` verbatim (`startRegistration`/`startLogin`).
@@ -107,7 +107,7 @@ of this check either — it's a clean input-sanity rejection, not a patch for a 
 `startRegistration`/`startLogin` resolve `WIKI.models.sites.getSiteByHostname({ hostname })` without
 `strict: true`, so an unmapped hostname falls back to the wildcard site rather than `null`. That
 matches every other hostname→site resolution in this codebase (`controllers/site.ts`,
-`controllers/files.ts`, `api/users.ts`'s own TFA-enforcement lookup) — it is the app's normal
+`controllers/files.ts`, `api/users/profile.ts`'s own TFA-enforcement lookup) — it is the app's normal
 "this hostname isn't explicitly configured, serve the default site" behavior, not something
 passkeys.ts invented. The resolved `site` is used only for the cosmetic `rpName` and to tag
 `pending.siteId`/the stored credential's `siteId` for the profile/admin passkey list — it is not a

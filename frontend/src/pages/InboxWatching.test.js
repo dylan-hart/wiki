@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import InboxWatching from './InboxWatching.vue'
-import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Task 535: the notifications section this page gained above the pre-existing watched-pages list.
@@ -38,40 +37,38 @@ const NOTIFICATION = {
 }
 
 const messages = {
-  en: {
-    common: {
-      actions: {
-        cancel: 'Cancel',
-        save: 'Save'
-      }
-    },
-    inbox: {
-      notificationsTitle: 'Notifications',
-      notificationsInfo: 'Changes to pages you watch, unread first.',
-      notificationsNone: 'You have no unread notifications.',
-      notificationsMarkRead: 'Mark as read',
-      notificationsMarkReadFailed: 'Could not mark this notification as read.',
-      notificationsLoadFailed: 'Failed to load your notifications.',
-      notificationActionUpdated: '{actor} edited {title}',
-      notificationActionMoved: '{actor} moved {title}',
-      notificationActionDeleted: '{actor} deleted {title}',
-      watching: 'Watching',
-      watchingInfo: 'Pages you asked to be told about, most recently added first.',
-      watchingNone: 'You are not watching any page yet.',
-      watchingHint: 'Open a page and press the bell in its header to start watching it.',
-      watchingLoadFailed: 'Failed to load your watched pages.',
-      watchingUnwatch: 'Stop watching',
-      watchingUnwatched: '{title} is no longer watched.',
-      watchingUnwatchFailed: 'Could not stop watching this page.',
-      watchingPreferences: 'Notification preferences',
-      watchingPreferencesMode: 'Delivery',
-      watchingPreferencesModeDigest: 'Digest',
-      watchingPreferencesModeImmediate: 'Immediate',
-      watchingPreferencesEdited: 'Notify when edited',
-      watchingPreferencesMoved: 'Notify when moved',
-      watchingPreferencesDeleted: 'Notify when deleted',
-      watchingPreferencesSaveFailed: 'Could not save your notification preferences.'
+  common: {
+    actions: {
+      cancel: 'Cancel',
+      save: 'Save'
     }
+  },
+  inbox: {
+    notificationsTitle: 'Notifications',
+    notificationsInfo: 'Changes to pages you watch, unread first.',
+    notificationsNone: 'You have no unread notifications.',
+    notificationsMarkRead: 'Mark as read',
+    notificationsMarkReadFailed: 'Could not mark this notification as read.',
+    notificationsLoadFailed: 'Failed to load your notifications.',
+    notificationActionUpdated: '{actor} edited {title}',
+    notificationActionMoved: '{actor} moved {title}',
+    notificationActionDeleted: '{actor} deleted {title}',
+    watching: 'Watching',
+    watchingInfo: 'Pages you asked to be told about, most recently added first.',
+    watchingNone: 'You are not watching any page yet.',
+    watchingHint: 'Open a page and press the bell in its header to start watching it.',
+    watchingLoadFailed: 'Failed to load your watched pages.',
+    watchingUnwatch: 'Stop watching',
+    watchingUnwatched: '{title} is no longer watched.',
+    watchingUnwatchFailed: 'Could not stop watching this page.',
+    watchingPreferences: 'Notification preferences',
+    watchingPreferencesMode: 'Delivery',
+    watchingPreferencesModeDigest: 'Digest',
+    watchingPreferencesModeImmediate: 'Immediate',
+    watchingPreferencesEdited: 'Notify when edited',
+    watchingPreferencesMoved: 'Notify when moved',
+    watchingPreferencesDeleted: 'Notify when deleted',
+    watchingPreferencesSaveFailed: 'Could not save your notification preferences.'
   }
 }
 
@@ -106,24 +103,19 @@ function findButtonByText(text) {
 }
 
 async function mountInboxWatching(sitePatch = {}) {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.$patch({ id: 'site-1', ...sitePatch })
+  const router = await createTestRouter(['/', '/:path(.*)'])
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/', component: { template: '<div />' } },
-      { path: '/:path(.*)', component: { template: '<div />' } }
-    ]
-  })
-  router.push('/')
-  await router.isReady()
-
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
-
-  const wrapper = mount(InboxWatching, {
-    global: { plugins: [router, i18n] }
+  const { wrapper } = mountWithApp(InboxWatching, {
+    messages,
+    router,
+    stores: {
+      site: (store) => {
+        store.$patch({ id: 'site-1', ...sitePatch })
+      }
+    },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the preferences dialog really
+    //    teleports its body to `document.body`, which is where `findButtonByText` looks.
+    stubs: {}
   })
   await flushLoads()
   notifyQueue.splice(0, notifyQueue.length)
@@ -142,12 +134,7 @@ beforeEach(() => {
 
 describe('InboxWatching notifications', () => {
   it('lists unread notifications from GET .../notifications', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([NOTIFICATION]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
 
     const { wrapper } = await mountInboxWatching()
 
@@ -164,12 +151,7 @@ describe('InboxWatching notifications', () => {
   })
 
   it('marking a notification read removes it from the list and notifies the header badge', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([NOTIFICATION]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
     API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
 
     const { wrapper } = await mountInboxWatching()
@@ -190,12 +172,10 @@ describe('InboxWatching notifications', () => {
   })
 
   it('a non-primary-locale notification shows and links to a locale-prefixed path', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([{ ...NOTIFICATION, pageLocale: 'fr' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi(
+      { 'sites/site-1/notifications': [{ ...NOTIFICATION, pageLocale: 'fr' }] },
+      { fallback: [] }
+    )
     API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
 
     const { wrapper, router } = await mountInboxWatching({
@@ -218,12 +198,7 @@ describe('InboxWatching notifications', () => {
   })
 
   it('shows a toast and keeps the row when marking read fails', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/notifications') {
-        return { json: () => Promise.resolve([NOTIFICATION]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
     API_CLIENT.patch.mockImplementationOnce(() => {
       throw new Error('network')
     })
@@ -242,12 +217,7 @@ describe('InboxWatching notifications', () => {
 
 describe('InboxWatching watching', () => {
   function mockWatchedPages() {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites/site-1/watching') {
-        return { json: () => Promise.resolve([WATCHED_PAGE]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ 'sites/site-1/watching': [WATCHED_PAGE] }, { fallback: [] })
   }
 
   it('unwatching a page via DELETE removes it from the list and toasts a positive notification', async () => {

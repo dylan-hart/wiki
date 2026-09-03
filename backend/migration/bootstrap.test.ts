@@ -8,6 +8,7 @@ import {
   loadModels,
   resolveUsersImportContext
 } from './bootstrap.ts'
+import { installTestWiki } from '../test/mocks.ts'
 import type { TestFixtures } from '../test/db.ts'
 
 /** A minimal `WikiGlobal`-shaped fake for `resolveUsersImportContext()` — a pure function of
@@ -189,38 +190,42 @@ describe(
       const models = WIKI.models
       const logger = WIKI.logger
 
-      global.WIKI = {
+      // -> `refreshStrategiesFromDisk()` only touches `SERVERPATH`/`logger`/`data`, and
+      //    `createWikiStub` supplies the `data`/`cache`/`events` members `buildWikiShell()`
+      //    deliberately does not — this asserts on the SHELL's own shape being enough for
+      //    `createStrategy()`, so those three are the only things layered over it.
+      const wikiHandle = installTestWiki({
         ...buildWikiShell('bootstrap-shape-regression-test'),
         logger,
-        dbManager: {} as any,
+        dbManager: {},
         db: fixtures.db,
-        models,
-        events: createEventsStub(),
-        cache: createCacheStub(),
-        // -> `refreshStrategiesFromDisk()` only touches `SERVERPATH`/`logger`/`data` (see
-        //    `models/authentication.test.ts`'s own minimal-WIKI precedent) — `data: {}` is enough for
-        //    it to assign `WIKI.data.authentication` onto.
-        data: {}
-      } as unknown as WikiGlobal
-
-      await WIKI.models.authentication.refreshStrategiesFromDisk()
-
-      // -> Before Task 15's review fix, this throws `TypeError: Cannot set properties of undefined
-      //    (setting 'strategies')` from inside `activateStrategies()`, after the row has already been
-      //    inserted — `assert.doesNotReject` on the whole call is what proves both halves: the throw
-      //    is gone, and the row insert that precedes it in `createStrategy()` still ran.
-      let id: string | undefined
-      await assert.doesNotReject(async () => {
-        id = await WIKI.models.authentication.createStrategy({
-          module: 'local',
-          displayName: 'Bootstrap Shape Regression Test'
-        })
+        models
       })
-      assert.equal(typeof id, 'string')
-      assert.ok(
-        WIKI.auth.strategies[id!],
-        'activateStrategies() actually ran and populated WIKI.auth.strategies for the new strategy, not merely avoided throwing'
-      )
+
+      try {
+        await WIKI.models.authentication.refreshStrategiesFromDisk()
+
+        // -> Before Task 15's review fix, this throws `TypeError: Cannot set properties of undefined
+        //    (setting 'strategies')` from inside `activateStrategies()`, after the row has already
+        //    been inserted — `assert.doesNotReject` on the whole call is what proves both halves: the
+        //    throw is gone, and the row insert that precedes it in `createStrategy()` still ran.
+        let id: string | undefined
+        await assert.doesNotReject(async () => {
+          id = await WIKI.models.authentication.createStrategy({
+            module: 'local',
+            displayName: 'Bootstrap Shape Regression Test'
+          })
+        })
+        assert.equal(typeof id, 'string')
+        assert.ok(
+          WIKI.auth.strategies[id!],
+          'activateStrategies() actually ran and populated WIKI.auth.strategies for the new strategy, not merely avoided throwing'
+        )
+      } finally {
+        // -> Puts `setupTestDb()`'s own WIKI back, so `teardownTestDb()` in `after()` tears down the
+        //    global it actually installed.
+        wikiHandle.restore()
+      }
     })
   }
 )

@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { CustomError } from '../../helpers/common.ts'
 import { handleUpdatePage } from './updatePage.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const SITE_ID = 'site-a'
 const GROUP_ID = 'group-a'
 const PAGE_ID = 'page-1'
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let updateCalls: any[]
 let auditCalls: any[]
 
@@ -20,7 +21,7 @@ function ctx({
 } = {}) {
   updateCalls = []
   auditCalls = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
     models: {
       groups: {
@@ -51,7 +52,7 @@ function ctx({
         }
       }
     }
-  }
+  })
   return {
     keyId: 'key-1',
     permissions,
@@ -62,12 +63,8 @@ function ctx({
   }
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
-
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 function textOf(result: any) {

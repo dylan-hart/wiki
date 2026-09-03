@@ -1,4 +1,4 @@
-import { actorFrom, loadReadablePage, mayOnPage } from './pages.ts'
+import { actorFrom, mayOnPage, requireReadablePage } from '../helpers/pageAccess.ts'
 import { limitGuestComments } from '../helpers/rateLimit.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
@@ -21,7 +21,7 @@ import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
  *     every comment on the site").
  *   - Feature 394's version (kept here) evaluates `manage:comments` per PAGE via `accessiblePageIdsForAdmin`
  *     below, so a moderator only ever sees comments on pages they can actually moderate — no such gap,
- *     and it matches the page-rule permission pattern `api/pages.ts`/`api/assets.ts` already use.
+ *     and it matches the page-rule permission pattern `api/pages/`/`api/assets.ts` already use.
  * Feature 391's `mayManageCommentsAnywhere`/`listForSite`-based route was discarded in favor of this one;
  * nothing else depended on it.
  *
@@ -30,33 +30,6 @@ import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
  * `resolveAuthorName` below fills that gap for the POST/PATCH responses at the route layer rather than
  * widening every model method's query, since it's needed in exactly two places.
  */
-const siteIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId']
-}
-
-const pageIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' },
-    pageId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId', 'pageId']
-}
-
-const pageCommentIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' },
-    pageId: { type: 'string', format: 'uuid' },
-    commentId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId', 'pageId', 'commentId']
-}
-
 const commentIdParam = {
   type: 'object',
   properties: {
@@ -71,7 +44,7 @@ const commentIdParam = {
  *
  * `manage:comments` is a page-rule permission (`helpers/pageRules.ts`), not a global one, so this
  * route cannot ask "may this actor moderate comments on this site?" as a single yes/no the way
- * `config.permissions` would — it has to be decided per page, individually, exactly as `api/pages.ts`
+ * `config.permissions` would — it has to be decided per page, individually, exactly as `api/pages/`
  * and `api/assets.ts` already do for their own page-rule permissions (the `No route-level
  * permissions:` pattern this route follows below).
  *
@@ -219,16 +192,7 @@ async function routes(app: FastifyInstance) {
         description:
           'One entry per comments module installed in `modules/comments`, whether or not it has ever been enabled — same pattern as `GET /sites/:siteId/storage/targets`. At most one entry has `isEnabled` true: comments have a single active provider per site, not several simultaneous targets.',
         tags: ['Comments'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of comment providers',
@@ -240,11 +204,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.commentProviders.getSiteProviders(req.params.siteId, { mask: true })
     }
   )
@@ -263,16 +223,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Activates the named module and stores its config values, disabling whichever provider was active before. There is exactly one active provider per site at any time; there is no endpoint to turn comments off short of activating a module and leaving its config at defaults, since "no provider active" is not itself a supported state past initial site creation.',
         tags: ['Comments'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: { $ref: 'CommentProviderInput#' },
         response: {
           200: {
@@ -285,10 +236,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       try {
         const provider = await WIKI.models.commentProviders.setActiveProvider(
           req.params.siteId,
@@ -323,7 +270,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: `manage:comments` is a page-rule permission, granted by a
-        group's rules and not the group-wide list that hook checks — same pattern as `api/pages.ts`,
+        group's rules and not the group-wide list that hook checks — same pattern as `api/pages/`,
         `api/assets.ts` and `api/watching.ts`. Every comment below is included only after its own
         page individually passes `checkAccess(actor, 'manage:comments', page)` — see
         `accessiblePageIdsForAdmin` above for how that is done without an N+1 per-comment check.
@@ -333,7 +280,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every comment on every page the requesting actor holds `manage:comments` on, across the whole site — distinct from `GET .../pages/:pageId/comments`, which is scoped to one page and needs only `read:comments`. Nothing here is granted by a single site-wide flag: a comment is included only after the page it lives on individually passes a `manage:comments` check, so two administrators with different rules see different, correctly scoped lists from the same request shape.\n\nPaginated (`offset`/`limit`, `totalHits` ignores both) and filterable by page path (prefix match), author (substring match against the account name or guest name), and a `createdAt` date range.',
         tags: ['Comments'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -388,12 +335,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
+    async (req) => {
       const actor = WIKI.models.groups.actorForRequest(req)
       const pageIds = await accessiblePageIdsForAdmin(actor, req.params.siteId, req.query.pagePath)
 
@@ -435,11 +377,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       const comment = await WIKI.models.comments.getWithPage(req.params.commentId)
       // -> Existence is checked only after confirming it belongs to this site, so a comment id from a
       //    different site is indistinguishable from one that does not exist at all.
@@ -485,7 +422,7 @@ async function routes(app: FastifyInstance) {
         description:
           "The full threaded comment list for a page, oldest first at every level. `authorEmail` is always null here — this endpoint is read by anonymous visitors as often as logged in ones, so a commenter's address is never published through it.",
         tags: ['Comments'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'Comments on this page, threaded',
@@ -496,15 +433,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:comments',
+        forbiddenMessage: 'You are not allowed to read comments on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to read comments on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       const thread = await WIKI.models.comments.listForPage(page.id)
       return thread.map((comment) => toPublicComment(comment))
@@ -548,7 +482,7 @@ async function routes(app: FastifyInstance) {
           'Refused with 403 when the site has comments turned off (`features.comments`) or this page ' +
           'does (`allowComments`) — both otherwise only hide the form client-side.',
         tags: ['Comments'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         body: { $ref: 'CommentInput#' },
         response: {
           200: {
@@ -560,15 +494,12 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'write:comments',
+        forbiddenMessage: 'You are not allowed to comment on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'write:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to comment on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       // -> Both flags only ever hid the form client-side (`PageComments.vue` gates its own mount on
       //    `siteStore.features.comments && pageStore.allowComments`) -- neither was checked here, so
@@ -678,7 +609,7 @@ async function routes(app: FastifyInstance) {
           '`manage:comments` on this page. A guest-authored comment (no account behind it) can only ' +
           'be edited via `manage:comments`.',
         tags: ['Comments'],
-        params: pageCommentIdParam,
+        params: { $ref: 'SitePageCommentParams#' },
         body: { $ref: 'CommentUpdateInput#' },
         response: {
           200: {
@@ -690,15 +621,12 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:comments',
+        forbiddenMessage: 'You are not allowed to read comments on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to read comments on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
 
       // -> Existence is checked only after the page-level read gate above, so a comment's presence
@@ -761,7 +689,7 @@ async function routes(app: FastifyInstance) {
           '`manage:comments` on this page. A guest-authored comment (no account behind it) can only ' +
           'be deleted via `manage:comments`.',
         tags: ['Comments'],
-        params: pageCommentIdParam,
+        params: { $ref: 'SitePageCommentParams#' },
         response: {
           204: {
             description: 'The comment was deleted',
@@ -772,15 +700,12 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:comments',
+        forbiddenMessage: 'You are not allowed to read comments on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to read comments on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
 
       // -> Same ordering as PATCH: existence is only checked past the page-level read gate.

@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import UploadPendingAssetsDialog from './UploadPendingAssetsDialog.vue'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { queue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 const MESSAGES = {
   'editor.pendingAssetsCancel': 'Cancel Upload',
@@ -30,7 +31,7 @@ async function mountDialog({ path, pendingAssets }) {
   pageStore.content = pendingAssets.map((a) => a.blobUrl).join('\n')
   editorStore.pendingAssets = pendingAssets
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(UploadPendingAssetsDialog, {
     global: { plugins: [i18n], stubs: { teleport: true } }
   })

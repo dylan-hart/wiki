@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createRouter, createWebHistory } from 'vue-router'
 
 import FileManager from './FileManager.vue'
 import { usePageStore } from '@/stores/page'
@@ -10,6 +8,9 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { queue as notifyQueue } from '@/composables/notify'
 import { closeDialog, openDialogs } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * OpenProject #790: `FileManager.vue` had no drag-and-drop upload on-ramp, only the file-picker's
@@ -22,45 +23,39 @@ import { closeDialog, openDialogs } from '@/composables/dialog'
  * pattern already in use.
  */
 
-const i18n = createI18n({
-  legacy: false,
-  locale: 'en',
-  messages: {
-    en: {
-      common: {
-        datetime: '{date} at {time}',
-        pageSelector: {
-          folderEmptyWarning: 'This folder is empty.'
-        }
-      },
-      fileman: {
-        dropToUpload: 'Drop files to upload',
-        dropFoldersRejected: "Folders can't be uploaded by drag-and-drop.",
-        dropFoldersRejectedCount: '{count} folders were skipped',
-        uploadSuccess: 'File(s) uploaded successfully.',
-        // -> WP #1610: these render through t() now rather than as literal template text, so the
-        //    "Duplicate..." assertion below needs its resolved string present here to keep matching.
-        browseUsing: 'Browse using...',
-        browseUsingPaths: 'Browse Using Paths',
-        browseUsingTitles: 'Browse Using Titles',
-        compactList: 'Compact List',
-        showFolders: 'Show Folders',
-        fetchingFolderContents: 'Fetching folder contents...',
-        duplicateItem: 'Duplicate...',
-        renameItem: 'Rename...',
-        renameMovePage: 'Rename / Move Page...'
-      },
-      pages: {
-        homepageGuard: {
-          deleteTitle: 'Delete the Home Page?',
-          deleteMessage:
-            "**{name}** is set as this site's home page. Deleting it will leave the site root with no page until another one takes its place at `home`.",
-          moveTitle: 'Move the Home Page?',
-          moveMessage:
-            "**{name}** is set as this site's home page. Moving it away from `home` will leave the site root with no page until another one takes its place there.",
-          proceed: 'Continue'
-        }
-      }
+const i18n = createTestI18n({
+  common: {
+    datetime: '{date} at {time}',
+    pageSelector: {
+      folderEmptyWarning: 'This folder is empty.'
+    }
+  },
+  fileman: {
+    dropToUpload: 'Drop files to upload',
+    dropFoldersRejected: "Folders can't be uploaded by drag-and-drop.",
+    dropFoldersRejectedCount: '{count} folders were skipped',
+    uploadSuccess: 'File(s) uploaded successfully.',
+    // -> WP #1610: these render through t() now rather than as literal template text, so the
+    //    "Duplicate..." assertion below needs its resolved string present here to keep matching.
+    browseUsing: 'Browse using...',
+    browseUsingPaths: 'Browse Using Paths',
+    browseUsingTitles: 'Browse Using Titles',
+    compactList: 'Compact List',
+    showFolders: 'Show Folders',
+    fetchingFolderContents: 'Fetching folder contents...',
+    duplicateItem: 'Duplicate...',
+    renameItem: 'Rename...',
+    renameMovePage: 'Rename / Move Page...'
+  },
+  pages: {
+    homepageGuard: {
+      deleteTitle: 'Delete the Home Page?',
+      deleteMessage:
+        "**{name}** is set as this site's home page. Deleting it will leave the site root with no page until another one takes its place at `home`.",
+      moveTitle: 'Move the Home Page?',
+      moveMessage:
+        "**{name}** is set as this site's home page. Moving it away from `home` will leave the site root with no page until another one takes its place there.",
+      proceed: 'Continue'
     }
   }
 })
@@ -70,7 +65,7 @@ async function mountFileManager() {
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
 
-  const router = createRouter({ history: createWebHistory(), routes: [] })
+  const router = buildTestRouter([])
 
   const wrapper = mount(FileManager, {
     global: {
@@ -321,7 +316,7 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
 
-    const router = createRouter({ history: createWebHistory(), routes: [] })
+    const router = buildTestRouter([])
 
     const wrapper = mount(FileManager, {
       global: {
@@ -435,7 +430,7 @@ describe('FileManager detail thumbnail markup (WP #1728)', () => {
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
 
-    const router = createRouter({ history: createWebHistory(), routes: [] })
+    const router = buildTestRouter([])
 
     const wrapper = mount(FileManager, {
       global: {
@@ -491,7 +486,7 @@ describe('FileManager homepage guard (WP #1149)', () => {
     //    bare `createPinia()` never runs it, and `pageMove` dereferences it for the moved page
     pageStore.router = { replace: vi.fn() }
 
-    const router = createRouter({ history: createWebHistory(), routes: [] })
+    const router = buildTestRouter([])
 
     const wrapper = mount(FileManager, {
       global: {
@@ -654,7 +649,7 @@ describe('FileManager page detail dates (OpenProject #1755)', () => {
     userStore.dateFormat = 'YYYY-MM-DD'
     userStore.timeFormat = '24h'
 
-    const router = createRouter({ history: createWebHistory(), routes: [] })
+    const router = buildTestRouter([])
 
     const wrapper = mount(FileManager, {
       global: {

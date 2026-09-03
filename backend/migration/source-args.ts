@@ -27,10 +27,21 @@ const POSTGRES_SOURCE_FIELDS = [
   ['sourcePassword', '--source-password']
 ] as const
 
-/** Adds the source-selection flags (`--bundle-path` or the discrete `--source-*` Postgres fields)
- * shared by every migration-CLI entry point onto `program`, returning it for chaining. */
-export function addSourceOptions(program: Command): Command {
-  return program
+/**
+ * Builds one migration-CLI entry point's commander program: its own name/description/flags (added by
+ * `options`), then the source-selection flags every entry point shares, then the two settings that
+ * make `parseArgv()` able to report a plain `Error` — `exitOverride()` so commander throws instead of
+ * calling `process.exit`, and a silenced output so its own usage text never reaches the console.
+ */
+export function buildSourceProgram(config: {
+  name: string
+  description: string
+  options: (program: Command) => void
+}): Command {
+  const program = new Command()
+  program.name(config.name).description(config.description)
+  config.options(program)
+  program
     .option('--bundle-path <path>', 'Path to a 2.x "export to disk" bundle directory')
     .option('--source-host <host>', 'Source Postgres host (live-connection source)')
     .option('--source-port <port>', 'Source Postgres port', '5432')
@@ -38,6 +49,37 @@ export function addSourceOptions(program: Command): Command {
     .option('--source-user <user>', 'Source Postgres user')
     .option('--source-password <password>', 'Source Postgres password')
     .option('--source-ssl', 'Use SSL for the source Postgres connection', false)
+  program.exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
+  return program
+}
+
+/**
+ * Parses bare argv (no `node`/script path prefix) with `program` and returns its resolved options.
+ *
+ * @throws A plain `Error` (never commander's own `CommanderError`) describing what was wrong.
+ */
+export function parseArgv<TOptions extends Record<string, any>>(
+  program: Command,
+  argv: string[]
+): TOptions {
+  try {
+    program.parse(argv, { from: 'user' })
+  } catch (err: any) {
+    throw new Error(err.message)
+  }
+  return program.opts<TOptions>()
+}
+
+/** Splits a comma-separated CLI value into trimmed, non-empty items. `undefined` when the flag was
+ * not given at all — which every caller distinguishes from "given, but naming nothing". */
+export function splitCommaList(raw: string | undefined): string[] | undefined {
+  if (!raw) {
+    return undefined
+  }
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
 }
 
 export function parsePort(raw: string): number {

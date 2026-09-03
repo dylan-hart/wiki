@@ -1,15 +1,13 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import tagsRoutes from './tags.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import type { GroupRule } from '../models/groups.ts'
 import type { PageActor } from '../models/pages.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * DB-backed route test for `PATCH`/`DELETE /sites/:siteId/tags/:tag` (OpenProject #1873).
@@ -39,36 +37,16 @@ describe('PATCH/DELETE /sites/:siteId/tags/:tag (DB-backed)', { skip: !hasTestDa
     ;({ search: searchModel } = await import('../models/search.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
-    app = fastify()
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = testSession
-    })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s own `setErrorHandler`, which is what shapes `reply.notFound()` etc. into
-    //    the `ApiError` schema (`ok`/`error`/`statusCode`/`message`) the routes' own 404 response
-    //    schemas declare — without it, `@fastify/sensible`'s bare `{statusCode, error, message}` fails
-    //    schema serialization (missing `ok`) and the route answers 500 instead of 404. Registered
-    //    BEFORE the routes, same ordering `api/pages.classification.test.ts` uses — a route captures
-    //    whichever error handler is current on its context at definition time, so setting this after
-    //    `app.register(tagsRoutes)` would silently never apply to them.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply
-        .code(error.statusCode ?? 500)
-        .type('application/json')
-        .send({
-          ok: false,
-          error: error.name ?? 'Internal Server Error',
-          statusCode: error.statusCode ?? 500,
-          message: error.message ?? 'Internal Server error'
-        })
-    })
-    await registerErrorSchema(app)
-    await app.register(tagsRoutes)
-    await app.ready()
+    // -> `buildTestApp` installs the REAL error handler, which is what shapes `reply.notFound()`
+    //    etc. into the `ApiError` schema (`ok`/`error`/`statusCode`/`message`) the routes' own 404
+    //    response schemas declare — without it, `@fastify/sensible`'s bare
+    //    `{statusCode, error, message}` fails schema serialization (missing `ok`) and the route
+    //    answers 500 instead of 404. No `wiki`: `setupTestDb()` already installed the real one.
+    app = await buildTestApp({ routes: tagsRoutes, session: () => testSession })
   })
 
   after(async () => {
-    await app.close()
+    await closeTestApp(app)
     await teardownTestDb()
   })
 

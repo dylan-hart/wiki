@@ -3,33 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { listSourceFiles } from '../test/sourceFiles.js'
+
 const SRC_ROOT = path.dirname(fileURLToPath(import.meta.url))
-
-/**
- * WP #1598: a structural regression guard for the census the audit ran by hand
- * (`docs/audit-2026-08-24/accessibility-i18n.md` §4) -- every `<w-btn>` (and `<w-btn-toggle>`, which
- * renders its own focusable segments and needs the same `aria-label`) must carry an accessible name,
- * either a `label`/`aria-label`/`title` attribute or real text in its own body. Runs the same shape of
- * check the audit's one-off census did, but as a real `npm run test` assertion, so a new icon-only
- * button added later fails CI instead of silently joining the next audit's findings.
- *
- * Deliberately re-implemented here rather than imported from a build script: unlike
- * `scripts/generate-icons.mjs` (which produces a committed artifact `npm run icons` regenerates),
- * this check has no output to commit -- it only ever needs to run as an assertion, so a script
- * entry point would just be an extra file this test re-invokes for no benefit.
- */
-
-function walk(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      walk(full, out)
-    } else if (entry.name.endsWith('.vue')) {
-      out.push(full)
-    }
-  }
-  return out
-}
 
 /**
  * Parses one tag starting at `text[start]` (`text[start] === '<'`), respecting quoted attribute
@@ -165,7 +141,7 @@ function findUnnamedButtons(filePath) {
 
 describe('every w-btn has an accessible name', () => {
   it('finds no <w-btn>/<w-btn-toggle> with no label, aria-label, title or visible text', () => {
-    const files = walk(SRC_ROOT)
+    const files = listSourceFiles(SRC_ROOT, { ext: ['.vue'] })
     const findings = files.flatMap((f) => findUnnamedButtons(f))
 
     expect(findings, JSON.stringify(findings, null, 2)).toEqual([])

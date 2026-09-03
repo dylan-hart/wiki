@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import iconsRoutes from './icons.ts'
-import { registerSchemas as registerIconSchema } from './schemas/icon.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * OpenProject #931: `GET /sets`, `GET /search`, `GET /sets/:prefix/icons` and `POST /materialize`
@@ -57,54 +54,41 @@ describe('icons picker permissions (task #931)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        icons: { getSets, searchIcons, listSetIcons, materializeIcons },
-        groups: {
-          actorForRequest,
-          // -> Overridden per-request by the preHandler hook below, which is what actually reads
-          //    `x-test-rule-roles` -- this placeholder only exists so the shape is present before
-          //    the hook runs at all.
-          mayHoldPermissionSomewhere: () => false
+    app = await buildTestApp({
+      routes: iconsRoutes,
+      // -> `mayHoldPermissionSomewhere` is rebound per request, from the `x-test-rule-roles` header
+      //    this suite grants page-rule roles through; returning `undefined` leaves the request's own
+      //    session alone.
+      session: (req: any) => {
+        WIKI.models.groups.mayHoldPermissionSomewhere = (
+          actor: { permissions: string[] },
+          permissions: string[]
+        ) => {
+          if (actor.permissions.includes('manage:system')) {
+            return true
+          }
+          const header = req.headers['x-test-rule-roles']
+          const roles = typeof header === 'string' ? header.split(',').filter(Boolean) : []
+          return permissions.some((p) => roles.includes(p))
         }
+        return undefined
       },
-      logger: { warn: () => {} }
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerIconSchema(app)
-    app.addHook('preHandler', (req: any, reply, done) => {
-      ;(globalThis as any).WIKI.models.groups.mayHoldPermissionSomewhere = (
-        actor: { permissions: string[] },
-        permissions: string[]
-      ) => {
-        if (actor.permissions.includes('manage:system')) {
-          return true
+      wiki: {
+        models: {
+          icons: { getSets, searchIcons, listSetIcons, materializeIcons },
+          groups: {
+            actorForRequest,
+            // -> Overridden per-request by the `session` hook above, which is what actually reads
+            //    `x-test-rule-roles` -- this placeholder only exists so the shape is present before
+            //    the hook runs at all.
+            mayHoldPermissionSomewhere: () => false
+          }
         }
-        const header = req.headers['x-test-rule-roles']
-        const roles = typeof header === 'string' ? header.split(',').filter(Boolean) : []
-        return permissions.some((p) => roles.includes(p))
       }
-      done()
     })
-    await app.register(iconsRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     getSetsCalls = 0

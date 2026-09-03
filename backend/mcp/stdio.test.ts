@@ -6,6 +6,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import { ApiKeyError } from '../models/apiKeys.ts'
 import type { McpAuthContext } from './auth.ts'
 import { reverifyOnToolCall } from './stdio.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * Two kinds of coverage for the MCP stdio entry point's re-verification (OpenProject #2197):
@@ -73,22 +74,21 @@ const IDENTITY_FULL = {
   allowedClassifications: null
 }
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let verifyImpl: (token: string) => Promise<any>
 
 before(() => {
-  previousWiki = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     models: {
       apiKeys: {
         verify: async (token: string) => verifyImpl(token)
       }
     }
-  }
+  })
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 beforeEach(() => {

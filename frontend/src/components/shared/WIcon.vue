@@ -38,6 +38,7 @@
 <script setup>
 import { computed } from 'vue'
 import { BUNDLED_ICONS } from '@/assets/icons.generated'
+import { resolveSize } from './metrics'
 
 /**
  * An icon reference, in any of the forms the wiki has to draw:
@@ -87,15 +88,6 @@ const props = defineProps({
 
 // -> Deliberately strict, so that `img:/_assets/x.svg` stays out of the Iconify branch
 const ICONIFY_REF = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*$/
-
-/** Quasar's named icon sizes, so `size="sm"` means what it always did. */
-const NAMED_SIZES = {
-  xs: '18px',
-  sm: '24px',
-  md: '32px',
-  lg: '38px',
-  xl: '46px'
-}
 
 // COMPUTED
 
@@ -154,7 +146,7 @@ const sizeStyle = computed(() => {
   if (!props.size) {
     return undefined
   }
-  return { fontSize: NAMED_SIZES[props.size] ?? props.size }
+  return { fontSize: resolveSize(props.size) }
 })
 </script>
 

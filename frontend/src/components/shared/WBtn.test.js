@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
-import { meetsWcagAA } from '@/helpers/accessibility'
+import { contrastRatio, WCAG_AA_CONTRAST } from '@/helpers/accessibility'
 import WBtn from './WBtn.vue'
 
 describe('WBtn', () => {
@@ -96,7 +96,7 @@ describe('WBtn solid-button foreground contrast', () => {
 
       const foreground = wrapper.element.style.color
       expect(foreground).toBeTruthy()
-      expect(meetsWcagAA(foreground, hex)).toBe(true)
+      expect(contrastRatio(foreground, hex)).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
     })
   }
 

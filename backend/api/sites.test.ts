@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import sitesRoutes from './sites.ts'
-import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { createSiteAdminAccessStub } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Regression test for `GET /_api/sites/:siteIdorHostname`'s `strict` querystring flag: the handler
@@ -56,7 +53,7 @@ async function getSiteBlocks(_siteId: string) {
 
 let app: FastifyInstance
 
-/** Toggled per-test to drive `WIKI.models.rendering.isAvailable()`'s stubbed answer. */
+/** Toggled per-test to drive `WIKI.models.renderQueue.isAvailable()`'s stubbed answer. */
 let renderingAvailable = true
 
 /**
@@ -121,6 +118,8 @@ function checkSiteAccess(actor: { permissions: string[] }, permission: string, s
 }
 let currentSitePermissionHeader: string | undefined
 
+const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSiteAccess)
+
 /**
  * Regression test for `POST /_api/sites`'s hand-rolled hostname check: the handler validated
  * `req.body.hostname` against `/^(\*)|([a-z0-9\-.:]+)$/`, but the alternation is ungrouped and the
@@ -162,7 +161,7 @@ async function deleteSite(id: string) {
 }
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     config: {
       security: { disallowOpenRedirect: true },
       docsBase: 'https://test.docs.example/docs'
@@ -182,12 +181,13 @@ before(async () => {
       },
       groups: {
         actorForRequest,
-        checkSiteAccess
+        checkSiteAccess,
+        checkSiteAdminAccess
       },
       locales: {
         getLocales: async () => [{ code: 'en' }]
       },
-      rendering: {
+      renderQueue: {
         isAvailable: async () => renderingAvailable
       },
       blocks: {
@@ -196,73 +196,29 @@ before(async () => {
       auditLog: {
         record: mock.fn(async () => {})
       }
-    },
-    logger: { warn: () => {} }
+    }
   }
 
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any],
-      onCreate: (ajv: any) => {
-        ajv.addFormat('hexcolor', (data: unknown) => {
-          return (
-            typeof data === 'string' &&
-            /^#(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(data)
-          )
-        })
-      }
-    }
-  })
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()` etc. is a thrown
-  //    `@fastify/sensible` error, and it is THIS handler — not fastify's default — that shapes it
-  //    into the `{ ok, error, statusCode, message }` the `ApiError` schema below expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  await registerErrorSchema(app)
-  await registerSiteSchema(app)
-  // -> Mirrors the real route-level permission hook from `index.ts`, reading permissions off a
-  //    stubbed session instead of a real one, so the route-level OR-list is exercised too, not just
-  //    the handler's own body check.
-  app.addHook('preHandler', (req: any, reply, done) => {
-    // -> `checkSiteAccess()` takes no `req`, so the stub reads the per-test site-permission grants
-    //    off a module-level variable populated here, once per request, from the same header the
-    //    handler-level tests set.
-    currentSitePermissionHeader = req.headers['x-test-site-permissions']
-    const routePermissions = req.routeOptions.config?.permissions
-    if (routePermissions && routePermissions.length > 0) {
+  app = await buildTestApp({
+    routes: sitesRoutes,
+    wiki,
+    ajv: true,
+    // -> `session: 'header'` promotes `x-test-permissions` into a real session, so the REAL
+    //    route-permission hook exercises the route-level OR-list, not just the handler's own body
+    //    check. The function form also captures `x-test-site-permissions` once per request:
+    //    `checkSiteAccess()` takes no `req`, so the stub reads the per-test site grants off a
+    //    module-level variable.
+    session: (req: any) => {
+      currentSitePermissionHeader = req.headers['x-test-site-permissions']
       const header = req.headers['x-test-permissions']
       const permissions = typeof header === 'string' ? header.split(',').filter(Boolean) : []
-      if (permissions.length < 1) {
-        return reply.unauthorized()
-      }
-      if (!permissions.includes('manage:system')) {
-        const isAllowed = routePermissions.some((perms: any) =>
-          Array.isArray(perms)
-            ? perms.every((perm: string) => permissions.includes(perm))
-            : permissions.includes(perms)
-        )
-        if (!isAllowed) {
-          return reply.forbidden()
-        }
-      }
-    }
-    done()
+      return permissions.length > 0 ? { authenticated: true, permissions, groups: [] } : undefined
+    },
+    permissions: true
   })
-  await app.register(sitesRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('strict=true does not fall back to the wildcard site', async () => {
   const res = await app.inject({
@@ -886,7 +842,7 @@ test('site:general on this site may NOT clear a loginBg', async () => {
  * Task #684: `GET /:siteId/userPermissions` is what `frontend/src/composables/siteAdminAccess.js`
  * asks to decide whether to show the sidebar link / render the page / redirect to
  * `/_error/unauthorized`, for each of the nine site-scoped `Admin*.vue` pages. Mirrors
- * `pages/userPermissions` in `api/pages.ts`, but for `site:*` instead of page permissions.
+ * `pages/userPermissions` in `api/pages/read.ts`, but for `site:*` instead of page permissions.
  */
 
 const OTHER_SITE_ID = '9f2c9a3e-3b8e-4a4c-9a3b-3c9a3e3b8e4a'
@@ -932,7 +888,7 @@ test('userPermissions returns every site: permission for manage:system', async (
 /**
  * `manage:sites` deliberately is NOT folded into this list -- `sitePermissionsFor`'s own comment
  * explains why (it would tell the caller they hold `site:navigation`, which `manage:sites` alone
- * does not grant against the real `canManageNavigation` check in `api/navigation.ts`). The frontend
+ * does not grant against the real `checkSiteAdminAccess` check in `api/navigation.ts`). The frontend
  * combines this list with `manage:sites` / `manage:theme` / `manage:navigation` itself, per surface.
  */
 test('userPermissions does NOT fold in manage:sites', async () => {
@@ -957,7 +913,7 @@ test('userPermissions returns an empty array for an anonymous caller', async () 
 })
 
 /**
- * Task 500: `pdfExportAvailable` surfaces `WIKI.models.rendering.isAvailable()` (whether the
+ * Task 500: `pdfExportAvailable` surfaces `WIKI.models.renderQueue.isAvailable()` (whether the
  * Puppeteer extension is installed) on the same payload `siteStore.loadSite` already fetches, so the
  * frontend can gate the PDF export option without a second round trip.
  */

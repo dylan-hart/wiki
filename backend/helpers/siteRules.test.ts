@@ -1,22 +1,13 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveSiteRule, rulesAllowSite, SITE_PERMISSIONS } from './siteRules.ts'
+import { resolveSiteRule, SITE_PERMISSIONS } from './siteRules.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { makeGroupRule } from '../test/builders.ts'
 
-/** A rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
-function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
-  return {
-    id: 'rule-1',
-    name: 'Test Rule',
-    roles: ['site:theme'],
-    match: 'START',
-    mode: 'ALLOW',
-    path: '',
-    locales: [],
-    sites: [],
-    ...overrides
-  }
-}
+/** `roles: ['site:theme']`, not the shared builder's page-rule default: every case here is about a
+ *  site-scoped delegation permission. */
+const makeRule = (overrides: Partial<GroupRule> = {}): GroupRule =>
+  makeGroupRule({ roles: ['site:theme'], ...overrides })
 
 describe('SITE_PERMISSIONS', () => {
   test('is the closed, namespaced vocabulary from the decision record', () => {
@@ -33,34 +24,28 @@ describe('SITE_PERMISSIONS', () => {
   })
 })
 
-describe('resolveSiteRule / rulesAllowSite', () => {
+describe('resolveSiteRule', () => {
   test('a rule that does not name the permission is ignored', () => {
     const rules = [makeRule({ roles: ['site:general'] })]
     assert.equal(resolveSiteRule(rules, 'site:theme', 'site-a'), null)
-    assert.equal(rulesAllowSite(rules, 'site:theme', 'site-a'), false)
   })
 
   test('no matching rule at all denies by default', () => {
     assert.equal(resolveSiteRule([], 'site:theme', 'site-a'), null)
-    assert.equal(rulesAllowSite([], 'site:theme', 'site-a'), false)
   })
 
   test("an admin's group granting the permission for all sites allows every site", () => {
     const rules = [makeRule({ id: 'admin-all-sites', sites: [], mode: 'ALLOW' })]
     assert.equal(resolveSiteRule(rules, 'site:theme', 'site-a')?.id, 'admin-all-sites')
     assert.equal(resolveSiteRule(rules, 'site:theme', 'site-b')?.id, 'admin-all-sites')
-    assert.equal(rulesAllowSite(rules, 'site:theme', 'site-a'), true)
-    assert.equal(rulesAllowSite(rules, 'site:theme', 'site-b'), true)
   })
 
   test('a rule scoped to one specific site allows that site and implicitly denies others', () => {
     const rules = [makeRule({ id: 'site-a-only', sites: ['site-a'], mode: 'ALLOW' })]
     assert.equal(resolveSiteRule(rules, 'site:theme', 'site-a')?.id, 'site-a-only')
-    assert.equal(rulesAllowSite(rules, 'site:theme', 'site-a'), true)
 
     // -> No rule addresses site-b at all, which is denied by default, not merely un-granted
     assert.equal(resolveSiteRule(rules, 'site:theme', 'site-b'), null)
-    assert.equal(rulesAllowSite(rules, 'site:theme', 'site-b'), false)
   })
 
   test('a DENY rule from one group overrides a broader ALLOW from a second group the actor belongs to', () => {
@@ -71,11 +56,9 @@ describe('resolveSiteRule / rulesAllowSite', () => {
     const pooled = [broadAllow, scopedDeny]
 
     assert.equal(resolveSiteRule(pooled, 'site:theme', 'site-a')?.id, 'scoped-deny')
-    assert.equal(rulesAllowSite(pooled, 'site:theme', 'site-a'), false)
 
     // -> site-b is untouched by the DENY, so the broad ALLOW still decides it
     assert.equal(resolveSiteRule(pooled, 'site:theme', 'site-b')?.id, 'broad-allow')
-    assert.equal(rulesAllowSite(pooled, 'site:theme', 'site-b'), true)
   })
 
   test('a FORCEALLOW rule overrides a DENY from another group, which itself overrode a broader ALLOW', () => {
@@ -86,10 +69,6 @@ describe('resolveSiteRule / rulesAllowSite', () => {
     assert.equal(
       resolveSiteRule([broadAllow, scopedDeny, scopedForceAllow], 'site:theme', 'site-a')?.id,
       'scoped-force'
-    )
-    assert.equal(
-      rulesAllowSite([broadAllow, scopedDeny, scopedForceAllow], 'site:theme', 'site-a'),
-      true
     )
   })
 
@@ -118,6 +97,6 @@ describe('resolveSiteRule / rulesAllowSite', () => {
       match: 'EXACT',
       locales: ['fr']
     })
-    assert.equal(rulesAllowSite([rule], 'site:theme', 'site-a'), true)
+    assert.equal(resolveSiteRule([rule], 'site:theme', 'site-a')?.id, 'rule-1')
   })
 })

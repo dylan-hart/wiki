@@ -14,14 +14,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import App from './App.vue'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../test/i18n.js'
+
+import { buildTestRouter } from '../test/router.js'
 
 const UNSAVED_WARNING = 'You have unsaved edits. Are you sure you want to leave the editor?'
 
@@ -52,15 +54,8 @@ describe('App.vue window beforeunload guard', () => {
     flagsStore.loaded = true
     userStore.profileLoaded = true
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: { en: { editor: { unsavedWarning: UNSAVED_WARNING } } }
-    })
+    const router = buildTestRouter(['/'])
+    const i18n = createTestI18n({ editor: { unsavedWarning: UNSAVED_WARNING } })
 
     addEventListenerSpy = vi.spyOn(window, 'addEventListener')
     mount(App, { global: { plugins: [router, i18n] } })

@@ -9,6 +9,7 @@ import {
   type PageExportLocaleInfo,
   type PageExportRow
 } from './pages.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
 
@@ -39,17 +40,9 @@ function makeRow(overrides: Partial<PageExportRow> = {}): PageExportRow {
 }
 
 function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
-  return {
+  return makeStorageTarget('sftp', {
     id: 'target-1',
-    siteId: 'site-1',
-    module: 'sftp',
-    isEnabled: true,
     title: 'SFTP',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
     contentTypes: { activeTypes: ['pages'], largeThreshold: '5MB' },
     assetDelivery: {
       isStreamingSupported: false,
@@ -57,7 +50,6 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       streaming: false,
       directAccess: false
     },
-    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
     sync: {
       supportedModes: ['push'],
       schedule: false,
@@ -65,11 +57,9 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       scheduleOverride: null,
       supportsContentSync: false
     },
-    props: {},
     config: { basePath: '/srv/wiki' },
-    actions: [],
     ...overrides
-  }
+  })
 }
 
 function makeStubClient(overrides: Record<string, any> = {}): any {

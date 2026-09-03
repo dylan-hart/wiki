@@ -1,7 +1,9 @@
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+
+import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
  * OpenProject #1605 ("Replace the 110 'An unexpected error occured.' literals with
@@ -22,25 +24,12 @@ import { describe, expect, it } from 'vitest'
  * future edit (copy-pasting an old call site, say) would otherwise ship silently.
  */
 describe('frontend/src source scan: misspelled unexpected-error literal', () => {
-  const srcDir = dirname(fileURLToPath(import.meta.url))
-
-  /** @returns {string[]} absolute paths of every .vue/.js file under `frontend/src`, this test file excluded */
-  function collectSourceFiles(dir) {
-    const self = fileURLToPath(import.meta.url)
-    const files = []
-    for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-      if (!entry.isFile()) continue
-      if (!/\.(vue|js)$/.test(entry.name)) continue
-      const full = join(entry.parentPath ?? entry.path, entry.name)
-      if (full === self) continue
-      files.push(full)
-    }
-    return files
-  }
+  const self = fileURLToPath(import.meta.url)
+  const srcDir = dirname(self)
 
   it('never reintroduces the misspelled "An unexpected error occured" literal', () => {
     const offenders = []
-    for (const file of collectSourceFiles(srcDir)) {
+    for (const file of listSourceFiles(srcDir, { ext: ['.vue', '.js'], skip: [self] })) {
       const content = readFileSync(file, 'utf-8')
       if (content.includes('An unexpected error occured')) {
         offenders.push(file)

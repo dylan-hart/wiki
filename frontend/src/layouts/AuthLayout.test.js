@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AuthLayout from './AuthLayout.vue'
 import { useSiteStore } from '@/stores/site'
+
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression for task 749: `AuthLayout` (the shell behind `Login.vue` and every other auth route)
@@ -13,31 +12,17 @@ import { useSiteStore } from '@/stores/site'
  * include this footer, so its absence was a gap, not an intentional redesign.
  */
 function mountLayout() {
-  setActivePinia(createPinia())
-
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
+  const { wrapper } = mountWithApp(AuthLayout, {
     messages: {
-      en: {
-        common: {
-          footerCopyright: '© {year} {company}. All rights reserved.',
-          footerLicense: 'Content is available under the {license}, by {company}.',
-          footerGeneric: 'Powered by {link}, an open source project.',
-          footerPoweredBy: 'Powered by {link}',
-          license: { alr: 'All Rights Reserved' }
-        }
+      common: {
+        footerCopyright: '© {year} {company}. All rights reserved.',
+        footerLicense: 'Content is available under the {license}, by {company}.',
+        footerGeneric: 'Powered by {link}, an open source project.',
+        footerPoweredBy: 'Powered by {link}',
+        license: { alr: 'All Rights Reserved' }
       }
     },
-    missingWarn: false,
-    fallbackWarn: false
-  })
-
-  const wrapper = mount(AuthLayout, {
-    global: {
-      plugins: [i18n],
-      stubs: { 'router-view': true }
-    }
+    stubs: { 'router-view': true }
   })
 
   return wrapper

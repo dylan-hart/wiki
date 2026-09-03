@@ -1,22 +1,10 @@
 import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { fetchIcon, iconImageUrl } from '../shared/icons.js'
+import { boolean } from '../shared/props.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 import { getSiteId, getSiteLocales, getCurrentPage } from '../shared/site.js'
-
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value, and Lit's own Boolean converter reads any string at all as
- * true — `showIcons="false"` included. The picker never writes that one, since it leaves a prop out
- * while it holds its default, but a page written by hand can say it and means it.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
 
 /**
  * What to draw for a page carrying no icon of its own.
@@ -121,12 +109,14 @@ export class BlockIndexElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      /*
+        /*
         The gap below a block lives on this element, not on :host.
 
         The app resets the margin on every element, and a rule in the page beats a :host rule in the
@@ -134,17 +124,17 @@ export class BlockIndexElement extends LitElement {
         inside the shadow root it is out of that rule's reach, and collapses out through the host,
         which carries no padding or border of its own.
       */
-      ul {
-        padding: 0;
-        margin: 0 0 16px;
-        list-style: none;
-        display: grid;
-        grid-auto-flow: row;
-        grid-template-columns: repeat(1, minmax(0, 1fr));
-        gap: 0.5rem;
-      }
+        ul {
+          padding: 0;
+          margin: 0 0 16px;
+          list-style: none;
+          display: grid;
+          grid-auto-flow: row;
+          grid-template-columns: repeat(1, minmax(0, 1fr));
+          gap: 0.5rem;
+        }
 
-      /*
+        /*
         The columns prop is a ceiling, not a count: the listing starts at one column and widens with
         the window, stopping at whatever the author asked for. A phone gets one column whichever value
         it carries, which is the whole reason the choice cannot simply be the number of columns -- a
@@ -160,128 +150,131 @@ export class BlockIndexElement extends LitElement {
         has to be applied per breakpoint -- and clamping one is math inside repeat(), which is not
         something an engine can be relied on to take.
       */
-      @media (min-width: 1024px) {
-        :host(:not([columns='1'])) ul {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+        @media (min-width: 1024px) {
+          :host(:not([columns='1'])) ul {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
-      }
-      @media (min-width: 1600px) {
-        :host([columns='3']) ul {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+        @media (min-width: 1600px) {
+          :host([columns='3']) ul {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
         }
-      }
 
-      li {
-        background-color: #fafafa;
-        background-image: linear-gradient(to bottom, #fff, #fafafa);
-        border-right: 1px solid rgba(0, 0, 0, 0.05);
-        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-        border-left: 5px solid rgba(0, 0, 0, 0.1);
-        box-shadow: 0 3px 8px 0 rgba(116, 129, 141, 0.1);
-        padding: 0;
-        border-radius: 5px;
-        font-weight: 500;
-        display: flex;
-        align-items: stretch;
-        justify-content: stretch;
-      }
-      :host([dark]) li {
-        background-color: #222;
-        background-image: linear-gradient(to bottom, #161b22, #0d1117);
-        border-right: 1px solid rgba(0, 0, 0, 0.5);
-        border-bottom: 1px solid rgba(0, 0, 0, 0.5);
-        border-left: 5px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 3px 8px 0 rgba(0, 0, 0, 0.25);
-      }
-      li:hover {
-        background-color: var(--q-primary, #1976d2);
-        background-image: linear-gradient(to bottom, #fff, rgba(255, 255, 255, 0.95));
-        border-left-color: var(--q-primary, #1976d2);
-        cursor: pointer;
-      }
-      :host([dark]) li:hover {
-        background-image: linear-gradient(to bottom, #1e232a, #161b22);
-        border-left-color: var(--q-primary, #1976d2);
-      }
-      /*
+        li {
+          background-color: #fafafa;
+          background-image: linear-gradient(to bottom, #fff, #fafafa);
+          border-right: 1px solid rgba(0, 0, 0, 0.05);
+          border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+          border-left: 5px solid rgba(0, 0, 0, 0.1);
+          box-shadow: 0 3px 8px 0 rgba(116, 129, 141, 0.1);
+          padding: 0;
+          border-radius: 5px;
+          font-weight: 500;
+          display: flex;
+          align-items: stretch;
+          justify-content: stretch;
+        }
+        :host([dark]) li {
+          background-color: #222;
+          background-image: linear-gradient(to bottom, #161b22, #0d1117);
+          border-right: 1px solid rgba(0, 0, 0, 0.5);
+          border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+          border-left: 5px solid rgba(255, 255, 255, 0.2);
+          box-shadow: 0 3px 8px 0 rgba(0, 0, 0, 0.25);
+        }
+        li:hover {
+          background-color: var(--q-primary, #1976d2);
+          background-image: linear-gradient(to bottom, #fff, rgba(255, 255, 255, 0.95));
+          border-left-color: var(--q-primary, #1976d2);
+          cursor: pointer;
+        }
+        :host([dark]) li:hover {
+          background-image: linear-gradient(to bottom, #1e232a, #161b22);
+          border-left-color: var(--q-primary, #1976d2);
+        }
+        /*
         -> The row runs across rather than down, so an icon can sit beside the writing rather than
            above it. The title and its description stack inside .text, which is the column the
            anchor itself used to be.
       */
-      li a {
-        display: flex;
-        color: var(--q-primary, #1976d2);
-        /* -> Vertical only: the horizontal inset is what the arrow's own offset is set against */
-        padding: 0.75rem 1rem;
-        text-decoration: none;
-        flex: 1;
-        flex-direction: row;
-        align-items: center;
-        gap: 14px;
-        position: relative;
-      }
-      .text {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        /* -> The row less the icon. min-width is what lets a long title wrap inside the card
+        li a {
+          display: flex;
+          color: var(--q-primary, #1976d2);
+          /* -> Vertical only: the horizontal inset is what the arrow's own offset is set against */
+          padding: 0.75rem 1rem;
+          text-decoration: none;
+          flex: 1;
+          flex-direction: row;
+          align-items: center;
+          gap: 14px;
+          position: relative;
+        }
+        .text {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          /* -> The row less the icon. min-width is what lets a long title wrap inside the card
               rather than pushing the row wider than it. */
-        flex: 1;
-        min-width: 0;
-      }
-      .text span {
-        display: block;
-        color: #666;
-        font-size: 0.8em;
-        font-weight: normal;
-        pointer-events: none;
-      }
+          flex: 1;
+          min-width: 0;
+        }
+        .text span {
+          display: block;
+          color: #666;
+          font-size: 0.8em;
+          font-weight: normal;
+          pointer-events: none;
+        }
 
-      /*
+        /*
         The page's own icon. Sized in em so it keeps its place beside writing at whatever size the
         article is set in, and left to take the anchor's colour: an Iconify SVG paints with
         currentColor, which is the whole reason it is inlined rather than pointed at with an an <img>.
       */
-      /*
+        /*
         -> The width is on the slot as well as on the drawing, so a row whose icon could not be had
            keeps its place in the column rather than sliding its writing left of every other row's.
       */
-      .icon {
-        display: flex;
-        align-items: center;
-        flex: none;
-        width: 1.75em;
-      }
-      .icon svg,
-      .icon img {
-        width: 1.75em;
-        height: 1.75em;
-      }
-      li a > svg {
-        width: 32px;
-        position: absolute;
-        right: 16px;
-        pointer-events: none;
-      }
-      li a > svg path {
-        fill: rgba(0, 0, 0, 0.2);
-      }
-      :host([dark]) li a > svg path {
-        fill: rgba(255, 255, 255, 0.2);
-      }
-      li:hover a > svg path,
-      :host([dark]) li:hover a > svg path {
-        fill: color-mix(in srgb, currentColor 50%, transparent);
-      }
+        .icon {
+          display: flex;
+          align-items: center;
+          flex: none;
+          width: 1.75em;
+        }
+        .icon svg,
+        .icon img {
+          width: 1.75em;
+          height: 1.75em;
+        }
+        li a > svg {
+          width: 32px;
+          position: absolute;
+          right: 16px;
+          pointer-events: none;
+        }
+        li a > svg path {
+          fill: rgba(0, 0, 0, 0.2);
+        }
+        :host([dark]) li a > svg path {
+          fill: rgba(255, 255, 255, 0.2);
+        }
+        li:hover a > svg path,
+        :host([dark]) li:hover a > svg path {
+          fill: color-mix(in srgb, currentColor 50%, transparent);
+        }
 
-      .no-links {
-        margin-bottom: 16px;
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-      }
-    `
+        /*
+        "Nothing here" is drawn in the shared error box (see ../shared/styles.js), which is what this
+        rule used to be a copy of -- hence the second class on the element itself. The name stays its
+        own: a listing that matched nothing is an outcome, not a failure, and noResultMsg is the
+        author's to word.
+      */
+        .no-links {
+          margin-bottom: 16px;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -491,7 +484,7 @@ export class BlockIndexElement extends LitElement {
             )}
           </ul>
         `
-      : html` <div class="no-links">${this.noResultMsg}</div> `
+      : html` <div class="no-links error">${this.noResultMsg}</div> `
   }
 
   /*

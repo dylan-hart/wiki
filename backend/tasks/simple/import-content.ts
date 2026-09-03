@@ -1,7 +1,7 @@
 import { importModel as siteImport } from '../../models/siteImport.ts'
 import { groups } from '../../models/groups.ts'
 import { glossary } from '../../models/glossary.ts'
-import { assets } from '../../models/assets.ts'
+import { assetServing } from '../../models/assetServing.ts'
 import { jobs } from '../../models/jobs.ts'
 
 /**
@@ -38,7 +38,7 @@ export async function task(
     siteImport?: typeof siteImport
     groups?: typeof groups
     glossary?: typeof glossary
-    assets?: typeof assets
+    assetServing?: typeof assetServing
     jobs?: typeof jobs
     addJob?: typeof WIKI.scheduler.addJob
   } = {}
@@ -47,7 +47,7 @@ export async function task(
     siteImport: siteImportDep = siteImport,
     groups: groupsDep = groups,
     glossary: glossaryDep = glossary,
-    assets: assetsDep = assets,
+    assetServing: assetServingDep = assetServing,
     jobs: jobsDep = jobs,
     addJob = (opts) => WIKI.scheduler.addJob(opts)
   } = deps
@@ -64,7 +64,7 @@ export async function task(
     //    failed/partial import never reloads caches as though it had landed.
     await groupsDep.broadcastReload()
     glossaryDep.invalidateCache(payload.targetSiteId)
-    assetsDep.forgetAllPaths()
+    assetServingDep.forgetAllPaths()
     await addJob({ task: 'rebuildSearchIndex', payload: { siteId: payload.targetSiteId } })
 
     if (jobId) {

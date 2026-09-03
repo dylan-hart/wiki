@@ -47,6 +47,38 @@ describe('authentication module definitions: refs guidance', () => {
 })
 
 /**
+ * A failed scan must still leave `WIKI.data.authentication` an array.
+ *
+ * `base.yml` declares no `authentication` key, so this field only ever exists because
+ * `refreshStrategiesFromDisk()` put it there — and `models/users.ts`'s login and registration paths
+ * (`WIKI.data.authentication.find(...)`) and `api/auth/strategies.ts`'s strategy listing all read it
+ * unguarded. Left `undefined` by a scan that threw, the very next login answers a `TypeError` 500
+ * instead of "no such strategy", which is the failure mode this locks down.
+ */
+describe('authentication.refreshStrategiesFromDisk: a scan that fails', () => {
+  let previousServerPath: string
+
+  before(() => {
+    previousServerPath = (globalThis as any).WIKI.SERVERPATH
+    // -> A directory that does not exist: `readdir` rejects, so the scan fails before it can read a
+    //    single definition — the same shape as an unreadable or missing `modules/authentication`.
+    ;(globalThis as any).WIKI.SERVERPATH = path.join(import.meta.dirname, '..', '__no-such-dir__')
+    ;(globalThis as any).WIKI.data = {}
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI.SERVERPATH = previousServerPath
+    ;(globalThis as any).WIKI.data = {}
+  })
+
+  test('leaves WIKI.data.authentication an empty array rather than undefined', async () => {
+    await authentication.refreshStrategiesFromDisk()
+    assert.deepEqual(WIKI.data.authentication, [])
+    assert.deepEqual(authentication.getModules(), [])
+  })
+})
+
+/**
  * `validateStrategy`'s `mappableGroups` check mirrors `autoEnrollGroups`'s own validation
  * (guests refused, unknown group id refused) — this is the allow-list column added for the group
  * mapping constraint. `WIKI.db` is stubbed to a fixed group list rather than run against a real
@@ -142,7 +174,7 @@ describe(
       let strategy = await authentication.getStrategyById(id)
       assert.equal(strategy?.config.clientSecret, 'super-secret-value')
 
-      // -> `{ mask: true }`: what the admin GET routes (api/authentication.ts) actually return.
+      // -> `{ mask: true }`: what the admin GET routes (api/auth/strategies.ts) actually return.
       strategy = await authentication.getStrategyById(id, { mask: true })
       assert.equal(strategy?.config.clientSecret, '********')
       // -> A non-sensitive prop on the same strategy is untouched by masking.

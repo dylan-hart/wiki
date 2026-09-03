@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminAnalytics from './AdminAnalytics.vue'
-import { useAdminStore } from '@/stores/admin'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Coverage for Task 597: the rebuilt page fetches `GET /_api/analytics/modules` (the disk-discovered
@@ -90,15 +88,12 @@ const SITE = {
 }
 
 async function mountLoaded() {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = SITE.id
-
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(MODULES) })
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(SITE) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  const wrapper = mount(AdminAnalytics, { global: { plugins: [i18n] } })
+  const { wrapper } = mountWithApp(AdminAnalytics, {
+    stores: { admin: { currentSiteId: SITE.id } }
+  })
   await flushPromises()
 
   return wrapper
@@ -140,7 +135,7 @@ describe('AdminAnalytics provider load/save round-trip', () => {
     expect(enabledToggle.exists()).toBe(true)
     await enabledToggle.trigger('click')
 
-    const trackingInput = wrapper.find('[aria-label="Property Tracking ID"] input')
+    const trackingInput = wrapper.find('input[aria-label="Property Tracking ID"]')
     expect(trackingInput.exists()).toBe(true)
     await trackingInput.setValue('G-NEW-VALUE')
 

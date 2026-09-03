@@ -6,6 +6,7 @@ import fastifyWebsocket from '@fastify/websocket'
 import { isSameOriginWebSocketHandshake } from '../helpers/common.ts'
 import terminalRoutes from '../controllers/terminal.ts'
 import collabRoutes from '../controllers/collab.ts'
+import { installTestWiki } from './mocks.ts'
 
 /**
  * OpenProject #2120: the `verifyClient` cross-origin gate on the single `@fastify/websocket`
@@ -34,6 +35,7 @@ import collabRoutes from '../controllers/collab.ts'
  */
 describe('WebSocket verifyClient (OpenProject #2120)', () => {
   let app: FastifyInstance
+  let wikiHandle: { restore(): void }
 
   /**
    * `app.injectWS()`'s synthetic upgrade request (`@fastify/websocket/index.js`) carries no `socket`
@@ -48,7 +50,7 @@ describe('WebSocket verifyClient (OpenProject #2120)', () => {
   const NON_TLS_SOCKET = { authorized: false, encrypted: false } as any
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       collab: {
         // -> Called before `controllers/collab.ts` checks anything else; a no-op session object is
         //    all the paths this suite exercises ever touch.
@@ -68,7 +70,7 @@ describe('WebSocket verifyClient (OpenProject #2120)', () => {
           reason: string
         ) => conn.close(code, reason)
       }
-    }
+    })
 
     app = fastify()
 
@@ -95,7 +97,7 @@ describe('WebSocket verifyClient (OpenProject #2120)', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   for (const [name, path] of [

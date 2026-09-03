@@ -40,7 +40,7 @@ import {
 import { encodeTreePath } from '../helpers/common.ts'
 import type { WikiDb } from '../core/db.ts'
 import type { NavigationMode } from '../models/navigation.ts'
-import { createCacheStub, createEventsStub, createSchedulerStub } from './mocks.ts'
+import { installTestWiki } from './mocks.ts'
 
 /** Same list `core/db.ts` installs before migrating — some migration's SQL depends on each. */
 const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm', 'pgcrypto']
@@ -66,10 +66,10 @@ export function hasTestDatabase(): boolean {
 
 let pool: Pool | null = null
 let currentSchema: string | null = null
-/** Whatever `globalThis.WIKI` held before `installTestWiki()` overwrote it — `undefined` if unset.
- *  Captured once per `setupTestDb()` call so `teardownTestDb()` can put it back rather than leaving
- *  this fixture's `WIKI` in place for whatever runs next in the same file (see #1021). */
-let previousWiki: WikiGlobal | undefined
+/** The restore handle `installTestWiki()` hands back, held so `teardownTestDb()` can put back
+ *  whatever `globalThis.WIKI` was before rather than leaving this fixture's `WIKI` in place for
+ *  whatever runs next in the same file (see #1021). */
+let wikiHandle: { restore(): void } | null = null
 
 /**
  * Connect, create a fresh schema, migrate, install `WIKI`, and seed one site/user/group.
@@ -111,7 +111,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
   currentSchema = schema
 
   const models = (await import('../models/index.ts')).default
-  installTestWiki(db, models)
+  installDbTestWiki(db, models)
 
   const [site] = await db
     .insert(sitesTable)
@@ -278,8 +278,8 @@ export async function teardownTestDb(): Promise<void> {
   await pool?.end()
   pool = null
   currentSchema = null
-  global.WIKI = previousWiki as WikiGlobal
-  previousWiki = undefined
+  wikiHandle?.restore()
+  wikiHandle = null
 }
 
 export interface SeedLocaleInput {
@@ -321,35 +321,19 @@ export async function seedLocale(db: WikiDb, input: SeedLocaleInput) {
  * starts the HTTP server, the scheduler's thread pool and the postgres LISTEN/NOTIFY subscription,
  * none of which model-layer logic touches, and any one of which is a reason a test could hang or
  * flake for a cause unrelated to the code under test.
+ *
+ * The shape itself is `test/mocks.ts#createWikiStub()`'s (TEST-F1) — this adds only the three members
+ * a DB-backed run needs on top of it, and keeps the restore handle for `teardownTestDb()`.
  */
-function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts').default): void {
-  previousWiki = global.WIKI
+function installDbTestWiki(db: WikiDb, models: typeof import('../models/index.ts').default): void {
   // -> Puppeteer is never installed in this test environment, so the real `ensureCanRender()` would
   //    refuse every render-less `createPage()`/`updatePage()` call (OpenProject #1716) -- stubbed out
-  //    here, the same way `cache`/`events`/`scheduler` are below, so a suite with no reason to care
+  //    here, the same way `cache`/`events`/`scheduler` are, so a suite with no reason to care
   //    about server-side rendering doesn't have to mock it just to call `createPage()` with plain
   //    content. A suite that DOES care (`models/pages.test.ts`'s own describe block) re-wraps this
   //    with `mock.method()`, which fully replaces this implementation rather than layering on it.
-  models.rendering.ensureCanRender = async () => {}
-  global.WIKI = {
-    IS_DEBUG: false,
-    ROOTPATH: process.cwd(),
-    // -> Derived from this file's own location (`backend/test/db.ts`), not `process.cwd()`: every
-    //    workspace's tests run with `backend/` as the cwd already (`npm test` from `backend/`, per
-    //    CLAUDE.md), so `path.join(process.cwd(), 'backend')` pointed at a `backend/backend` that does
-    //    not exist. Invisible until a DB-backed suite actually hit disk-based module loading —
-    //    `WIKI.models.search.ensureModule()`'s `hasImplementation()` check — which is what surfaced it.
-    SERVERPATH: path.join(import.meta.dirname, '..'),
-    INSTANCE_ID: 'test',
-    // -> Not `Temporal.Now.instant()`: nothing under test reads `startedAt`, and this file otherwise
-    //    has no reason to depend on the runtime actually having native `Temporal` support.
-    startedAt: new Date(),
-    version: 'test',
-    releaseDate: 'test',
-    devMode: true,
-    auth: { groups: {}, strategies: {} },
-    config: {},
-    data: {},
+  models.renderQueue.ensureCanRender = async () => {}
+  wikiHandle = installTestWiki({
     db,
     // -> `helpers/advisoryLock.ts#getLockPool()` lazily builds its dedicated lock pool from
     //    `WIKI.dbManager.config` (a real boot populates this once `dbManager.init()` runs) --
@@ -358,18 +342,6 @@ function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts')
     //    `undefined` (OpenProject #2347). Only `config.connectionString` is provided: nothing
     //    under a DB-backed suite reaches `dbManager.pool`/`listenerPool`/etc. through this stub.
     dbManager: { config: { connectionString: process.env.DATABASE_URL } },
-    logger: createSilentLogger(),
-    cache: createCacheStub(),
-    events: createEventsStub(),
-    scheduler: createSchedulerStub(),
-    sites: {},
-    sitesMappings: {},
     models
-  } as unknown as WikiGlobal
-}
-
-/** `error`/`warn`/`info`/`debug`, all no-ops — a test run should not scroll past a model's own logging. */
-function createSilentLogger(): any {
-  const noop = () => {}
-  return { error: noop, warn: noop, info: noop, debug: noop, verbose: noop, silly: noop }
+  })
 }

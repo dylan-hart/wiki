@@ -80,8 +80,8 @@ import { useI18n } from 'vue-i18n'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { passwordStrengthScore } from '@/helpers/passwordStrength'
-import { randomPassword } from '@/helpers/randomPassword'
+import { passwordStrengthBadge } from '@/helpers/passwordStrength'
+import { PASSWORD_CHARSET, randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
 // PROPS
@@ -122,42 +122,7 @@ const iptPassword = ref(null)
 
 // COMPUTED
 
-const passwordStrength = computed(() => {
-  if (state.userPassword.length < 8) {
-    return {
-      color: 'negative',
-      label: t('admin.users.pwdStrengthWeak')
-    }
-  } else {
-    switch (passwordStrengthScore(state.userPassword)) {
-      case 1:
-        return {
-          color: 'deep-orange-7',
-          label: t('admin.users.pwdStrengthPoor')
-        }
-      case 2:
-        return {
-          color: 'purple-7',
-          label: t('admin.users.pwdStrengthMedium')
-        }
-      case 3:
-        return {
-          color: 'blue-7',
-          label: t('admin.users.pwdStrengthGood')
-        }
-      case 4:
-        return {
-          color: 'green-7',
-          label: t('admin.users.pwdStrengthStrong')
-        }
-      default:
-        return {
-          color: 'negative',
-          label: t('admin.users.pwdStrengthWeak')
-        }
-    }
-  }
-})
+const passwordStrength = computed(() => passwordStrengthBadge(state.userPassword, t))
 
 // VALIDATION RULES
 
@@ -169,8 +134,7 @@ const userPasswordValidation = [
 // METHODS
 
 function randomizePassword() {
-  const pwdChars = 'abcdefghkmnpqrstuvwxyzABCDEFHJKLMNPQRSTUVWXYZ23456789_*=?#!()+'
-  state.userPassword = randomPassword(16, pwdChars)
+  state.userPassword = randomPassword(16, PASSWORD_CHARSET)
 }
 
 async function save() {

@@ -161,16 +161,15 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { computed, onMounted, reactive, watch } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
+import { useAdminOverlayRoute } from '@/composables/adminOverlayRoute'
 
-import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -188,14 +187,8 @@ const dark = useDark()
 
 // STORES
 
-const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
-
-// ROUTER
-
-const router = useRouter()
-const route = useRoute()
 
 // I18N
 
@@ -264,19 +257,15 @@ const headers = [
   }
 ]
 
+// OVERLAY ROUTE
+
+useAdminOverlayRoute({
+  overlay: 'UserEditOverlay',
+  listPath: '/_admin/users',
+  onClosed: load
+})
+
 // WATCHERS
-
-watch(
-  () => adminStore.overlay,
-  (newValue, oldValue) => {
-    if (newValue === '' && oldValue === 'UserEditOverlay') {
-      router.push('/_admin/users')
-      load()
-    }
-  }
-)
-
-watch(() => route.params.id, checkOverlay)
 
 /**
  * Set by the search watcher just before it resets `state.currentPage` to 1, so the `currentPage`
@@ -333,19 +322,6 @@ async function load({ page } = {}) {
   state.loading--
 }
 
-function checkOverlay() {
-  if (route.params?.id) {
-    adminStore.$patch({
-      overlayOpts: { id: route.params.id },
-      overlay: 'UserEditOverlay'
-    })
-  } else {
-    adminStore.$patch({
-      overlay: ''
-    })
-  }
-}
-
 function createUser() {
   dialog({
     component: UserCreateDialog
@@ -366,16 +342,7 @@ function deleteUser(usr) {
 // MOUNTED
 
 onMounted(() => {
-  checkOverlay()
   load({ page: 1 })
-})
-
-// BEFORE UNMOUNT
-
-onBeforeUnmount(() => {
-  adminStore.$patch({
-    overlay: ''
-  })
 })
 </script>
 

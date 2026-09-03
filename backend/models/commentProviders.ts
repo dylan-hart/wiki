@@ -1,15 +1,15 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
-import { load } from 'js-yaml'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
+import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
-  maskSensitiveConfig,
-  parseModuleProps,
-  requestOrigin,
-  unmaskSensitiveConfig
-} from '../helpers/common.ts'
+  mergeModuleConfig,
+  moduleHasFile,
+  readModuleDefinitions,
+  syncSiteModuleRows,
+  validateModuleConfig
+} from '../helpers/moduleRegistry.ts'
 import { commentProviders as commentProvidersTable, sites as sitesTable } from '../db/schema.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 
 /**
  * A comment provider module, as declared by its `definition.yml`.
@@ -89,7 +89,7 @@ export interface CommentProvider {
  * Disqus/Commento/Artalk have no server-side code of their own to gate.
  *
  * The `default` provider's comments are read through `models/comments.ts` calls a route makes, and
- * any such route checks `mayOnPage(req, 'read:comments', page)` (`api/pages.ts`) before returning
+ * any such route checks `mayOnPage(req, 'read:comments', page)` (`helpers/pageAccess.ts`) before returning
  * anything — the same page-rule boundary every other page-scoped permission in this codebase goes
  * through (see CLAUDE.md's "Permissions" section: `read:comments` is a **page rule** permission,
  * bound to path/locale/tags via a group's rules, not a global one — it cannot be enforced by
@@ -121,13 +121,16 @@ export interface CommentProvider {
  * from the site's real public address — behind a reverse proxy, on a non-default port, or just
  * because an admin-typed "Site URL" setting went stale.
  *
- * `canonicalPageUrl()` below is the fix, and it is mandatory: **whatever future code renders a
- * `codeTemplate` provider's embed must build the page URL it hands the vendor's script by calling
- * `canonicalPageUrl(req.protocol, req.hostname, page.path)`, never by re-deriving `protocol://host`
- * itself and never from a separately stored/configured URL.** `req.protocol`/`req.hostname` are
- * already correct behind a reverse proxy and on a non-default port *as long as `security.trustProxy`
- * is on* (see `requestOrigin`'s own doc comment in `helpers/common.ts`), so there is nothing left to
- * get wrong once every caller goes through the one formula.
+ * The rule that follows from it is mandatory: **whatever future code renders a `codeTemplate`
+ * provider's embed must build the page URL it hands the vendor's script from the request that served
+ * the page — `` `${requestOrigin(req.protocol, req.hostname)}/${page.path}` `` (`helpers/common.ts`,
+ * with `page.path`'s leading slash stripped) — never by re-deriving `protocol://host` itself and
+ * never from a separately stored/configured URL.** `req.protocol`/`req.hostname` are already correct
+ * behind a reverse proxy and on a non-default port *as long as `security.trustProxy` is on* (see
+ * `requestOrigin`'s own doc comment), so there is nothing left to get wrong once every caller goes
+ * through the one formula. This model carried that formula as a `canonicalPageUrl()` one-liner until
+ * it was removed for having no caller but its own test — the boundary is the rule above, not a
+ * wrapper kept alive for it.
  */
 class CommentProviders {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -135,12 +138,7 @@ class CommentProviders {
 
   /** Whether the module has any server-side code to run, as opposed to only a definition. */
   async hasImplementation(key: string, modulesPath: string): Promise<boolean> {
-    try {
-      await fs.access(path.join(modulesPath, key, 'comments.ts'))
-      return true
-    } catch {
-      return false
-    }
+    return moduleHasFile(modulesPath, key, 'comments.ts')
   }
 
   /**
@@ -161,22 +159,6 @@ class CommentProviders {
   }
 
   /**
-   * The absolute URL of a page on this site, as it was actually reached — the value any
-   * `codeTemplate` provider's embed script must be given to identify the page. See the class doc
-   * comment's "Canonical URL boundary" section for why this must be the *only* way that URL is ever
-   * built.
-   *
-   * @param protocol `req.protocol`, verbatim
-   * @param hostname `req.hostname`, verbatim — already includes a non-default port, and already
-   *   honors `X-Forwarded-Host` behind a reverse proxy when `security.trustProxy` is on
-   * @param pagePath The page's own path, without a leading slash (as `models/pages.ts` stores it)
-   */
-  canonicalPageUrl(protocol: string, hostname: string, pagePath: string): string {
-    const normalizedPath = pagePath.replace(/^\/+/, '')
-    return `${requestOrigin(protocol, hostname)}/${normalizedPath}`
-  }
-
-  /**
    * Load the comment provider module definitions from disk.
    *
    * @param modulesPath Defaults to `modules/comments` under `WIKI.SERVERPATH`; overridable so tests
@@ -185,33 +167,18 @@ class CommentProviders {
   async refreshFromDisk(
     modulesPath: string = path.join(WIKI.SERVERPATH, 'modules/comments')
   ): Promise<void> {
-    const definitions: CommentProviderDefinition[] = []
     try {
-      // -> Filtered to directories only: a loose per-module test file sitting alongside the module
-      //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
-      //    -- one such file would abort the whole scan and silently lose every real provider.
-      const commentEntries = await fs.readdir(modulesPath, { withFileTypes: true })
-      const commentDirs = commentEntries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-      for (const dir of commentDirs) {
-        const raw = await fs.readFile(path.join(modulesPath, dir, 'definition.yml'), 'utf8')
-        const parsed = load(raw) as Record<string, any>
-        // -> The directory name is the key, as it is for every other module type
-        parsed.key = dir
-        // -> Absent in YAML means "not a client-side embed", i.e. false — only ever `true` when the
-        //    module says so explicitly
-        parsed.codeTemplate = parsed.codeTemplate === true
-        parsed.hasImplementation = await this.hasImplementation(dir, modulesPath)
-        // -> Props carry a display `order`, applied once here so that every consumer — the admin
-        //    area included — reads them in the order the module meant them to be shown in
-        parsed.props = Object.fromEntries(
-          Object.entries(parseModuleProps(parsed.props ?? {})).sort(
-            ([, a], [, b]) => a.order - b.order
-          )
-        )
-        definitions.push(parsed as CommentProviderDefinition)
-      }
+      const definitions = await readModuleDefinitions<CommentProviderDefinition>(modulesPath, {
+        parseProps: true,
+        sortPropsByOrder: true,
+        decorate: async (parsed, key) => {
+          // -> Absent in YAML means "not a client-side embed", i.e. false — only ever `true` when the
+          //    module says so explicitly
+          parsed.codeTemplate = parsed.codeTemplate === true
+          parsed.hasImplementation = await this.hasImplementation(key, modulesPath)
+          return parsed as CommentProviderDefinition
+        }
+      })
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
       WIKI.logger.info(`Found ${this.definitions.length} comment provider modules [ OK ]`)
     } catch (err: any) {
@@ -235,37 +202,15 @@ class CommentProviders {
    * definition declares is read from disk on every request rather than copied into the row.
    */
   async syncSite(siteId: string): Promise<void> {
-    const existing = await WIKI.db
-      .select({ module: commentProvidersTable.module })
-      .from(commentProvidersTable)
-      .where(eq(commentProvidersTable.siteId, siteId))
-    const existingKeys = existing.map((t) => t.module)
-    const definedKeys = this.definitions.map((d) => d.key)
-
-    for (const definition of this.definitions) {
-      if (existingKeys.includes(definition.key)) {
-        continue
-      }
-      await WIKI.db.insert(commentProvidersTable).values({
-        siteId,
-        module: definition.key,
+    await syncSiteModuleRows(
+      commentProvidersTable,
+      siteId,
+      this.definitions,
+      (definition): Omit<typeof commentProvidersTable.$inferInsert, 'siteId' | 'module'> => ({
         isEnabled: false,
         config: this.buildConfig(definition.key)
       })
-    }
-
-    // -> A module removed from disk should not linger in the admin list
-    const orphaned = existingKeys.filter((key) => !definedKeys.includes(key))
-    if (orphaned.length > 0) {
-      await WIKI.db
-        .delete(commentProvidersTable)
-        .where(
-          and(
-            eq(commentProvidersTable.siteId, siteId),
-            inArray(commentProvidersTable.module, orphaned)
-          )
-        )
-    }
+    )
   }
 
   /** Register the installed comment provider modules for every site. Called at boot, after storage. */
@@ -285,7 +230,7 @@ class CommentProviders {
    * after a provider was configured is returned with its default rather than as a missing key.
    *
    * @param opts.mask When true, a `sensitive` prop's stored value (the Akismet API key, ...) is
-   *   replaced with a mask before being returned -- see `helpers/common.ts#maskSensitiveConfig`.
+   *   replaced with a mask before being returned -- see `helpers/moduleProps.ts#maskSensitiveConfig`.
    *   Defaults to false: `setActiveProvider()`'s own merge reads through this method too, and needs
    *   the real values to preserve an untouched secret correctly. Only an admin-facing read that
    *   serializes `config` straight into an HTTP response should pass `{ mask: true }`.
@@ -339,97 +284,26 @@ class CommentProviders {
   }
 
   /**
-   * The provider actually driving comment rendering for a site (OpenProject #1962).
-   *
-   * `setActiveProvider` below refuses to ever *store* a non-selectable module, but that alone does
-   * not make a stored `isEnabled` row permanently safe to trust: a module can lose its
-   * `codeTemplate`/implementation status on disk after a site already activated it -- most plausibly
-   * the parent epic here (#1950) marking Disqus/Commento/Artalk `isAvailable`/`codeTemplate` off
-   * without also touching every site that had already picked one of them. Whichever branch that
-   * parent takes, a site must not be left pointing at a provider the registry now refuses to select
-   * -- this falls back to the `default` provider instead, so a caller rendering comments (or the
-   * admin area explaining what is actually live) always gets back something that renders.
-   *
-   * Returns null only when the site has no `default` row to fall back to at all (a `syncSite()` that
-   * has never run for this site) -- a genuinely unconfigured site, not a dead end this method can fix.
-   */
-  async getActiveProvider(siteId: string): Promise<CommentProvider | null> {
-    const providers = await this.getSiteProviders(siteId)
-    const enabled = providers.find((p) => p.isEnabled)
-    if (enabled?.isSelectable) {
-      return enabled
-    }
-    return providers.find((p) => p.module === 'default') ?? null
-  }
-
-  /**
-   * Merge incoming config values onto the ones already stored, keeping only what the module declares.
-   *
-   * Read-only props are never taken from the client: they are declarations of something the server
-   * does not support changing, so the stored value (or the module default) always wins.
+   * Merge incoming config values onto the ones already stored, keeping only what the module declares
+   * — see `helpers/moduleRegistry.ts#mergeModuleConfig`.
    */
   buildConfig(
     moduleKey: string,
     incoming: Record<string, any> = {},
     existing: Record<string, any> = {}
   ): Record<string, any> {
-    const props = this.getDefinition(moduleKey)?.props ?? {}
-    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
-    //    through to `current` below instead of overwriting the real stored secret with the mask
-    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
-    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
-    const config: Record<string, any> = {}
-    for (const [key, prop] of Object.entries(props)) {
-      const current = existing[key] !== undefined ? existing[key] : prop.default
-      config[key] =
-        prop.readOnly || cleanedIncoming[key] === undefined ? current : cleanedIncoming[key]
-    }
-    return config
+    return mergeModuleConfig(this.getDefinition(moduleKey)?.props ?? {}, incoming, existing)
   }
 
   /**
-   * Check incoming config values against what the module declares.
-   *
-   * The props are a runtime declaration read from a YAML file, so no JSON Schema can cover them —
-   * without this, a boolean prop would happily store the string `"maybe"`.
+   * Check incoming config values against what the module declares — see
+   * `helpers/moduleRegistry.ts#validateModuleConfig`. An unknown key is dropped by `buildConfig`
+   * rather than refused here, so a module losing a prop can never make the admin area unable to save.
    *
    * @returns The reason it is invalid, or null when it is fine
    */
   validateConfig(moduleKey: string, incoming: Record<string, any> = {}): string | null {
-    const props = this.getDefinition(moduleKey)?.props ?? {}
-    for (const [key, value] of Object.entries(incoming)) {
-      const prop = props[key]
-      // -> Unknown keys are dropped by buildConfig rather than refused: a module losing a prop must
-      //    not make the admin area unable to save
-      if (!prop || prop.readOnly || value === undefined) {
-        continue
-      }
-      if (prop.enum) {
-        // -> Enum entries are declared as `value` or `value|label`
-        const allowed = prop.enum.map((entry) => entry.split('|')[0])
-        if (!allowed.includes(`${value}`)) {
-          return `"${value}" is not a valid value for ${prop.title}.`
-        }
-        continue
-      }
-      switch (prop.type) {
-        case 'boolean':
-          if (typeof value !== 'boolean') {
-            return `${prop.title} must be true or false.`
-          }
-          break
-        case 'number':
-          if (typeof value !== 'number' || !Number.isFinite(value)) {
-            return `${prop.title} must be a number.`
-          }
-          break
-        default:
-          if (typeof value !== 'string') {
-            return `${prop.title} must be a string.`
-          }
-      }
-    }
-    return null
+    return validateModuleConfig(this.getDefinition(moduleKey)?.props ?? {}, incoming)
   }
 
   /**
@@ -452,8 +326,10 @@ class CommentProviders {
       return null
     }
     // -> A non-selectable module (no server-side implementation) must never be stored as active in the
-    //    first place -- see `getActiveProvider` above for the read-side half of this, covering a
-    //    module that becomes non-selectable AFTER a site already activated it.
+    //    first place. There is no read-side counterpart to this: `api/comments.ts` reads the site's
+    //    providers through `getSiteProviders({ mask: true })` and picks client-side, so a stored row
+    //    whose module loses its implementation on disk AFTER activation surfaces as a non-selectable
+    //    provider there rather than being silently swapped for `default`.
     if (!this.isSelectable(definition)) {
       throw new Error(
         `${definition.title} cannot be activated: it has no server-side implementation.`

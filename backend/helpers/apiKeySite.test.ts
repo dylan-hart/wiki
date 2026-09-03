@@ -4,13 +4,9 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { apiKeySitePinHook, enforceApiKeySite, isBearerAuthenticatedPath } from './apiKeySite.ts'
-import pagesRoutes from '../api/pages.ts'
+import pagesRoutes from '../api/pages/index.ts'
 import assetsRoutes from '../api/assets.ts'
-import { registerSchemas as registerAssetSchema } from '../api/schemas/asset.ts'
-import { registerSchemas as registerApprovalSchemas } from '../api/schemas/approval.ts'
-import { registerSchemas as registerErrorSchema } from '../api/schemas/error.ts'
-import { registerSchemas as registerPageImportSchema } from '../api/schemas/pageImport.ts'
-import { registerSchemas as registerPageSchema } from '../api/schemas/page.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * `enforceApiKeySite` writes the 403 itself via `reply.forbidden()`, so — like `limitApiKey` in
@@ -252,70 +248,44 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
   let deletePageCalls: any[] = []
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      config: { security: {} },
-      models: {
-        pages: {
-          getPage: async (args: any) => {
-            getPageCalls.push(args)
-            return null
+    app = await buildTestApp({
+      routes: [
+        { plugin: pagesRoutes, prefix: '/_api' },
+        { plugin: assetsRoutes, prefix: '/_api' }
+      ],
+      apiKeySitePin: true,
+      session: 'header',
+      wiki: {
+        config: { security: {} },
+        models: {
+          pages: {
+            getPage: async (args: any) => {
+              getPageCalls.push(args)
+              return null
+            },
+            deletePage: async (...args: any[]) => {
+              deletePageCalls.push(args)
+              return true
+            }
           },
-          deletePage: async (...args: any[]) => {
-            deletePageCalls.push(args)
-            return true
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true,
+            groupIdsForRequest: () => []
           }
-        },
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          checkAccess: () => true,
-          groupIdsForRequest: () => []
         }
-      },
-      sites: {}
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    app.addHook('onRequest', async (req) => {
-      const rawKey = req.headers['x-test-api-key']
-      if (typeof rawKey === 'string') {
-        ;(req as any).apiKey = JSON.parse(rawKey)
       }
     })
-    app.addHook('preHandler', apiKeySitePinHook)
-
-    await registerApprovalSchemas(app)
-    await registerPageSchema(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerAssetSchema(app)
-    await app.register(pagesRoutes, { prefix: '/_api' })
-    await app.register(assetsRoutes, { prefix: '/_api' })
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     getPageCalls = []
     deletePageCalls = []
   })
 
-  /** An API key with a `userId` acts as its own actor (`actorFrom` in `api/pages.ts`) -- no session needed. */
+  /** An API key with a `userId` acts as its own actor (`actorFrom` in `helpers/pageAccess.ts`) -- no session needed. */
   function apiKeyHeader(siteId: string | null) {
     return {
       'x-test-api-key': JSON.stringify({
@@ -429,11 +399,156 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
 })
 
 /**
+ * Route-wiring proof for `apiKeySitePinHook`, on two representative routes:
+ * `GET /_api/sites/:siteId/pages/:pageIdOrHash` and `POST /_api/sites/:siteId/pages`. OpenProject
+ * #2194 moved enforcement off these two routes' own per-route `enforceApiKeySite()` calls (deleted)
+ * onto the global hook `index.ts` registers alongside the permissions hook — this file registers that
+ * same hook directly (not `index.ts` itself, which boots a real database connection) under the same
+ * `/_api` prefix it checks, so the routes are exercised exactly as they are wired in production. This
+ * describe's own `app` registers only `pagesRoutes` (no `assetsRoutes`), which is why it lives
+ * alongside, rather than merged into, "real page and asset routes" above — a different route set
+ * needs its own `before()`/`after()`. `req.apiKey` is attached by a fixture `onRequest` hook that
+ * reads it off an `x-test-api-key` test header, the same shape `models/apiKeys.ts#verify()` produces
+ * at runtime — nothing about the routes themselves is test-specific.
+ *
+ * `WIKI.models.pages.getPage` is stubbed to return `null` so a request that clears the site-scope gate
+ * falls through to the ordinary "page does not exist" 404 — which needs no `Page#` response payload —
+ * rather than requiring a full page object satisfying that schema just to prove the gate was passed.
+ *
+ * This describe's own `apiKeyHeader()` deliberately omits `userId` (unlike the one above): the last
+ * test below depends on that, refusing an unscoped, session-less CREATE by the ordinary
+ * unauthenticated check rather than the site-pin gate.
+ */
+describe('pages API — apiKeySitePinHook site-scoping', () => {
+  const PAGE_HASH = 'ab'.repeat(16)
+
+  let getPageCalls: any[] = []
+  let createPageCalls: any[] = []
+
+  let app: FastifyInstance
+
+  before(async () => {
+    app = await buildTestApp({
+      // -> `/_api` prefix, matching `api/index.ts`'s real registration -- the hook only checks
+      //    `/_api/sites/...` (see its own doc comment), so mounting bare would silently exercise
+      //    nothing.
+      routes: pagesRoutes,
+      prefix: '/_api',
+      // -> The REAL hook, at the same stage the real boot registers it (`preHandler`, beside the
+      //    permissions hook).
+      apiKeySitePin: true,
+      session: 'header',
+      wiki: {
+        models: {
+          pages: {
+            getPage: async (args: any) => {
+              getPageCalls.push(args)
+              return null
+            },
+            createPage: async (...args: any[]) => {
+              createPageCalls.push(args)
+              return { id: 'new-page-id' }
+            }
+          },
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true,
+            groupIdsForRequest: () => []
+          }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    getPageCalls = []
+    createPageCalls = []
+  })
+
+  function apiKeyHeader(siteId: string | null) {
+    return { 'x-test-api-key': JSON.stringify({ id: 'key-1', permissions: [], siteId }) }
+  }
+
+  test('GET page: refuses with 403 before touching the model when the key is scoped to a different site', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      headers: apiKeyHeader(SITE_B)
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(getPageCalls.length, 0)
+  })
+
+  test('GET page: reaches the model when the key is scoped to the matching site', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      headers: apiKeyHeader(SITE_A)
+    })
+    assert.equal(res.statusCode, 404) // -> past the gate, into the ordinary "page not found" path
+    assert.equal(getPageCalls.length, 1)
+  })
+
+  test('GET page: reaches the model when the key is unscoped (siteId: null)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      headers: apiKeyHeader(null)
+    })
+    assert.equal(res.statusCode, 404)
+    assert.equal(getPageCalls.length, 1)
+  })
+
+  test('CREATE page: refuses with 403 before touching the model when the key is scoped to a different site', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/_api/sites/${SITE_A}/pages`,
+      headers: apiKeyHeader(SITE_B),
+      payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(createPageCalls.length, 0)
+  })
+
+  test('CREATE page: passes the gate and reaches the model when the key is scoped to the matching site', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/_api/sites/${SITE_A}/pages`,
+      headers: {
+        ...apiKeyHeader(SITE_A),
+        'x-test-session': JSON.stringify({
+          authenticated: true,
+          user: { id: 'user-1' },
+          permissions: []
+        })
+      },
+      payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('CREATE page: refused by the ordinary unauthenticated check, not the site gate, when the key is unscoped and there is no session', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/_api/sites/${SITE_A}/pages`,
+      headers: apiKeyHeader(null),
+      payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    // -> Past the site-scope gate (unscoped key): refused next by `actorFrom` (no session).
+    assert.equal(res.statusCode, 401)
+    assert.equal(createPageCalls.length, 0)
+  })
+})
+
+/**
  * `apiKeySitePinHook` (OpenProject #2194): the global `preHandler` covering every `/_api/sites/:siteId/
  * ...` route in one place, registered once in `index.ts` rather than a call added to each route. Built
  * against a small representative slice of that surface — a GET, a PATCH, a DELETE and an upload-shaped
  * POST, all under the real `/_api/sites/:siteId/...` prefix — rather than the full 175-route table,
- * which `test/apiKeySitePinCoverage.test.ts` covers structurally instead (every real registered route
+ * which `helpers/apiKeySite.coverage.test.ts` covers structurally instead (every real registered route
  * carrying a `:siteId` param really does sit under this prefix, so this hook really does reach it).
  */
 describe('apiKeySitePinHook', () => {

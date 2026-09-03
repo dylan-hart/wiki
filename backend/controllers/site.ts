@@ -1,5 +1,7 @@
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
-import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
+import { replyWithFile } from '../helpers/common.ts'
+import { guardSiteEnabled, resolveSiteParam } from '../helpers/siteResolution.ts'
+import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import { SVG_CSP } from '../helpers/security.ts'
 import path from 'node:path'
@@ -59,14 +61,7 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string; resource: string } }>(
     '/:siteId/:resource',
     async (req, reply) => {
-      let site: any
-      if (req.params.siteId === 'current' && req.hostname) {
-        site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
-      } else if (isValidUuid(req.params.siteId)) {
-        site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      } else {
-        site = await WIKI.models.sites.getSiteByHostname({ hostname: req.params.siteId })
-      }
+      const site = await resolveSiteParam(req.params.siteId, req.hostname)
       if (!site) {
         return reply.notFound('Site not found')
       }
@@ -109,14 +104,11 @@ async function routes(app: FastifyInstance) {
       // -> Answered from the hash column alone whenever possible: a conditional request never has to
       //    read the blob back out of the database or hash it. The blob is only read below, to build
       //    the 200 response, when the ETag does not match.
-      const etag = `"${hash}"`
-      reply.header('ETag', etag)
-      reply.header('Cache-Control', SITE_ASSET_CACHE)
-      // -> The bytes were uploaded, so the browser must take the type at its word rather than looking
-      //    for something more interesting in them
-      reply.header('X-Content-Type-Options', 'nosniff')
-      if (req.headers['if-none-match'] === etag) {
-        return reply.code(304).send()
+      // -> `notModifiedOrPrepare` also sends `X-Content-Type-Options: nosniff`: the bytes were
+      //    uploaded, so the browser must take the type at its word rather than looking for something
+      //    more interesting in them
+      if (notModifiedOrPrepare(req, reply, { etag: `"${hash}"`, cacheControl: SITE_ASSET_CACHE })) {
+        return
       }
 
       // -> Theoretical only (`hash` and `data` are written together by `setAsset` and removed

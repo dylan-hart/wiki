@@ -1,5 +1,3 @@
-import { isNil, isPlainObject } from 'es-toolkit/predicate'
-import { startCase } from 'es-toolkit/string'
 import crypto from 'node:crypto'
 import mime from 'mime'
 import fs from 'node:fs'
@@ -152,8 +150,8 @@ export function stripPageExtension(urlPath: string, extensions?: string[] | null
  * setting) that nothing kept in sync with what the request was actually reached on. Passing
  * `req.protocol`/`req.hostname` straight through — never a stored setting, never assembled by hand a
  * second time — makes that drift structurally impossible: there is only one source, the request
- * itself. `controllers/seo.ts`'s sitemap/robots.txt and `commentProviders.ts`'s `canonicalPageUrl`
- * (for any future `codeTemplate` provider's embed) both go through this.
+ * itself. `controllers/seo.ts`'s sitemap/robots.txt goes through this, and so must any future
+ * embed/canonical-URL builder.
  */
 export function requestOrigin(protocol: string, hostname: string): string {
   return `${protocol}://${hostname}`
@@ -208,321 +206,6 @@ export function isSameOriginWebSocketHandshake(
     }
   }
   return false
-}
-
-/** What a page/shell request's hostname resolved to, for the site-resolution hook in `index.ts`. */
-export type RequestSiteResolution =
-  | { outcome: 'exempt' }
-  | { outcome: 'not-found' }
-  | { outcome: 'disabled'; site: Record<string, any> }
-  | { outcome: 'ok'; site: Record<string, any> }
-
-/**
- * Decide what a page/shell request's hostname resolves to, and whether the request should be let
- * through at all.
- *
- * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[normalizeHostname(hostname)]
- * || sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide
- * whether to strip a page extension.
- *
- * `exemptSegments` is the caller's list of first path segments that must reach the app shell
- * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to
- * survive the very thing it exists to correct.
- *
- * `hostname` is trusted as-is here — the refusal of a forwarded host that names a different site than
- * the socket's own `Host` (task 2085, `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6)
- * happens one layer up, in Fastify itself: `index.ts` passes `security.trustProxy` straight through
- * as Fastify's own `trustProxy` option, and once that is a genuine address/CIDR spec rather than a
- * bare `true`, Fastify's vendored `request.hostname` getter (`fastify/lib/request.js`) only reads
- * `X-Forwarded-Host` from a peer address the spec covers, falling back to the raw `Host` header for
- * everyone else. So by the time `hostname` reaches this function it has already been through that
- * check — there is nothing left to compare it against.
- */
-export function resolveRequestSite({
-  firstSegment,
-  hostname,
-  sitesMappings,
-  sites,
-  exemptSegments
-}: {
-  firstSegment: string
-  hostname: string
-  sitesMappings: Record<string, string>
-  sites: Record<string, any>
-  exemptSegments: ReadonlySet<string>
-}): RequestSiteResolution {
-  if (exemptSegments.has(firstSegment)) {
-    return { outcome: 'exempt' }
-  }
-  const siteId = sitesMappings[normalizeHostname(hostname)] || sitesMappings['*']
-  const site = siteId ? sites[siteId] : null
-  if (!site) {
-    return { outcome: 'not-found' }
-  }
-  if (site.isEnabled === false) {
-    return { outcome: 'disabled', site }
-  }
-  return { outcome: 'ok', site }
-}
-
-/** The message every disabled-site `403` answers with — see `guardSiteEnabled`. */
-export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
-
-/**
- * Response contract for a site resolved OUTSIDE the page/shell hook in `index.ts` — an API route or
- * static controller that already has a siteId or hostname of its own (a JSON endpoint, an image, a
- * downloaded file) rather than one arriving through `resolveRequestSite` above. Those requests are
- * not navigations a browser can be bounced away from, so where the hook redirects to a distinct
- * `/_error/*` page per outcome, these tell the same two outcomes apart by status code instead:
- *
- * - No site at all behind the id/hostname is indistinguishable from any other missing resource, so
- *   the caller keeps answering its own `reply.notFound(...)` with whatever message fits what it was
- *   looking up — this function has nothing to add there.
- * - A site that exists but has `isEnabled === false` answers `403` here — "exists, access refused",
- *   the same shape a page-rule denial already answers with elsewhere in these routes — rather than
- *   `404`, so a client can tell "wrong id" apart from "right id, wait for it to come back".
- *
- * A caller that already resolved a site row (`bootstrap.ts`, `controllers/site.ts`,
- * `controllers/files.ts`) passes it directly. A caller scoped only to a bare `siteId` (the
- * `/sites/:siteId/...` API routes) passes `WIKI.sites[siteId]` — `undefined` for an id that does not
- * exist, which this deliberately treats as "nothing to guard here" rather than a second 404: those
- * routes already answer "no such thing" through their own lookup once this guard lets the request
- * through.
- *
- * Returns `true` once a reply has been sent, so the caller can `return` immediately after.
- */
-/**
- * The one place a hostname is folded to the form `WIKI.sitesMappings` is keyed and looked up by
- * (OpenProject #2127).
- *
- * DNS names are case-insensitive, but `models/sites.ts#reloadCache()` used to key
- * `WIKI.sitesMappings` by `site.hostname` exactly as stored (already constrained to lowercase by
- * the site create/update schemas — see `api/sites.ts`'s `^(\*|[a-z0-9.-]+)$` pattern — so the
- * WRITE side was already fine) while every READ side indexed it with `req.hostname` exactly as
- * Fastify's `hostname` getter delivers it — case preserved, only the port stripped. A `Host:
- * Wiki.Example.Com` request for a site stored as `wiki.example.com` therefore matched nothing and
- * fell through to the `*` catch-all, or to "not found" with none configured — an unauthenticated
- * correctness/availability defect for any client or intermediary that preserves `Host` case (curl,
- * some HTTP libraries, some proxies), not an escalation, since a mixed-case `Host` already landed
- * on the same catch-all any unknown hostname reaches.
- *
- * Every lookup (and the write side, belt and braces) routes through this rather than each call
- * site lowercasing for itself, so a future lookup added elsewhere cannot silently reintroduce the
- * mismatch.
- */
-export function normalizeHostname(hostname: string): string {
-  return hostname.toLowerCase()
-}
-
-export function guardSiteEnabled(
-  site: { isEnabled?: boolean } | null | undefined,
-  reply: FastifyReply
-): boolean {
-  if (site?.isEnabled === false) {
-    reply.forbidden(SITE_DISABLED_MESSAGE)
-    return true
-  }
-  return false
-}
-
-/**
- * Fastify `preHandler`, registered once for the whole `/_api` tree in `api/index.ts`, that applies
- * `guardSiteEnabled()` to every route whose path names `siteId` (OpenProject #1587/#1593).
- *
- * Before this existed, the guard was nine hand-applied call sites (`bootstrap.ts`, three in
- * `pages.ts`, two in `assets.ts`, one in `graph.ts`, plus the three `controllers/` sites outside
- * `/_api`), which is how a dozen-plus other `:siteId` routes across `pages.ts` (GET PAGE, UNLOCK,
- * page history, the export routes), every read route in `tree.ts`, `assets.ts`'s upload/rename/
- * delete, and everything in `comments.ts`/`navigation.ts`/`liveData.ts`/`glossary.ts` went on
- * answering a disabled site's content indefinitely to a caller that already held its id. A single
- * plugin-level hook closes all of them at once, and a route file added later needs no call of its
- * own to be covered — it inherits this the moment it registers a route under `api/index.ts`.
- *
- * A plain, exported function rather than an inline `addHook` callback specifically so it can be
- * exercised directly, with a synthetic `req`/`reply`, against every `:siteId` route this instance
- * actually declares (`api/index.test.ts`) without booting a real HTTP server per route or hand-filling
- * each one's querystring/body schema just to get a request past validation and into the hook chain.
- *
- * `req.params.siteId` reads as `undefined` on a route with no such param, which `guardSiteEnabled` is
- * not even asked about — exactly "nothing to guard here", not a second 404. `bootstrap.ts`'s own
- * `guardSiteEnabled` call is the one deliberate exception this preHandler does not subsume: that route
- * resolves its site by hostname (`getSiteByHostname`), not a `:siteId` param, so nothing keyed off
- * `req.params.siteId` would ever reach it — its call stays in place.
- */
-export function siteEnabledPreHandler(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  done: (err?: Error) => void
-): void {
-  const siteId = (req.params as { siteId?: string } | undefined)?.siteId
-  if (siteId && guardSiteEnabled(WIKI.sites[siteId], reply)) {
-    return
-  }
-  done()
-}
-
-/**
- * A site's `config.locales` shape, as far as URL routing cares about it.
- */
-export interface LocaleRoutingConfig {
-  primary: string
-  active: string[]
-  forcePrefix?: boolean
-}
-
-/**
- * The locale content belongs to when a request does not say.
- *
- * A site always has a primary locale, and an instance that never turned locales on has exactly that
- * one — so this is the answer for most requests rather than a fallback. The single source for what
- * used to be three separately-maintained copies (`api/tree.ts`, `api/pages.ts`,
- * `models/pages.ts#defaultLocale`).
- */
-export function defaultLocale(siteId: string): string {
-  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
-}
-
-/**
- * Find a candidate locale code's canonically-cased form within a site's active list, matching
- * case-insensitively. A link or query string can carry a code in any casing (`/FR/page`,
- * `?locale=FR`), but everything downstream — storage, comparison, the path a redirect lands on —
- * works off the casing `active` itself stores, never the request's own. Returns null when nothing
- * in `active` matches.
- */
-export function matchLocaleCode(candidate: string, active?: string[] | null): string | null {
-  if (!active || active.length < 1) {
-    return null
-  }
-  const lower = candidate.toLowerCase()
-  return active.find((code) => code.toLowerCase() === lower) ?? null
-}
-
-/**
- * Split the recognized leading locale segment off a URL path.
- *
- * A locale-prefixed URL (`/fr/some/page`) and an ordinary one (`/some/page`) are the same shape —
- * the only thing that tells them apart is whether the first segment happens to be one of the site's
- * active locale codes, which is why this takes the site's `locales` config rather than trying to
- * recognize a locale code on its own. Matching is case-insensitive (a link typed as `/FR/page` still
- * counts), but the code returned is always the one as stored in `active`, never the request's casing.
- *
- * Only the presence of a match is decided here — what to do about it (redirect, strip, neither) is
- * the caller's call, same division as `stripPageExtension`.
- *
- * @returns The matched locale code and the path with it removed, or null if the first segment isn't
- *   one of `active`'s codes
- */
-export function stripLocalePrefix(
-  urlPath: string,
-  locales?: LocaleRoutingConfig | null
-): { locale: string; path: string } | null {
-  if (!locales?.active || locales.active.length < 1) {
-    return null
-  }
-  const segments = urlPath.split('/')
-  const firstSegment = segments[1] ?? ''
-  if (!firstSegment) {
-    return null
-  }
-  const match = matchLocaleCode(firstSegment, locales.active)
-  if (!match) {
-    return null
-  }
-  const rest = '/' + segments.slice(2).join('/')
-  return { locale: match, path: rest === '/' ? '/' : rest }
-}
-
-/**
- * Whether a page URL should be redirected to carry its site's forced locale prefix, and if so, where.
- *
- * A site with more than one active locale can require every page URL to name one up front
- * (`locales.forcePrefix`), so a link copied out of the address bar unambiguously encodes which
- * translation it points at. There is nothing to disambiguate with a single active locale, and a site
- * with `forcePrefix` off has chosen to leave its primary locale unprefixed — both cases return null
- * without even asking `stripLocalePrefix` whether the path already names one.
- *
- * @returns The path to redirect to (query string still needs reattaching, as with
- *   `stripPageExtension`'s result), or null if no redirect is warranted
- */
-export function localePrefixRedirectTarget(
-  urlPath: string,
-  locales?: LocaleRoutingConfig | null
-): string | null {
-  if (!locales?.forcePrefix || !locales.active || locales.active.length <= 1) {
-    return null
-  }
-  if (stripLocalePrefix(urlPath, locales)) {
-    return null
-  }
-  return `/${locales.primary}${urlPath === '/' ? '' : urlPath}`
-}
-
-/**
- * Whether a page URL carries a locale prefix it should not (or spells one wrong), and if so, where
- * to redirect.
- *
- * The other half of `localePrefixRedirectTarget`: that one ADDS the prefix `forcePrefix` requires;
- * this one REMOVES an explicit prefix the site's rules leave bare (`/en/page` and `/page` are
- * otherwise two URLs for the same document — the sitemap, hreflang and caches all want exactly
- * one), and re-cases a recognized-but-mis-cased prefix to the code as stored in `active`. Returns
- * null when the URL is already canonical.
- *
- * @returns The canonical path to redirect to (query string reattached by the caller), or null
- */
-export function localePrefixStripTarget(
-  urlPath: string,
-  locales?: LocaleRoutingConfig | null
-): string | null {
-  const stripped = stripLocalePrefix(urlPath, locales)
-  if (!stripped) {
-    return null
-  }
-  if (shouldPrefixLocale(stripped.locale, locales)) {
-    const canonical = `/${stripped.locale}${stripped.path === '/' ? '' : stripped.path}`
-    return canonical === urlPath ? null : canonical
-  }
-  return stripped.path
-}
-
-/**
- * Whether a link addressed at `locale` should carry a locale segment, under a site's locale-prefix
- * rules.
- *
- * The link-building counterpart to `localePrefixRedirectTarget`'s redirect check, and the backend
- * mirror of the frontend's `shouldPrefixLocale` in `helpers/pagePaths.js`: the site's primary locale
- * is left unprefixed and every other active locale is prefixed, so a link built for the common case
- * -- the primary locale -- isn't cluttered with a code nobody chose to see. `forcePrefix` turns that
- * off and prefixes the primary locale too. There is nothing to disambiguate with a single active
- * locale (or none configured), same as `localePrefixRedirectTarget`, so that case never prefixes
- * either -- this is `active.length` standing in for the frontend's `useLocales` flag, which this
- * config shape has no field for.
- *
- * @param locale The link's own locale
- * @param locales The site's locale routing config
- */
-export function shouldPrefixLocale(locale: string, locales?: LocaleRoutingConfig | null): boolean {
-  if (!locales?.active || locales.active.length <= 1) {
-    return false
-  }
-  return locale !== locales.primary || Boolean(locales.forcePrefix)
-}
-
-/**
- * Build a link to a bare page path, prefixed with its locale segment when `shouldPrefixLocale`
- * calls for one. The backend mirror of `localizedPagePath` in `frontend/src/helpers/pagePaths.js`,
- * and the inverse of `stripLocalePrefix`.
- *
- * @param path Bare page path, without a leading slash, as `pages.path` stores it
- * @param locale The path's own locale
- * @returns The slash-leading path to link to
- */
-export function localizedPagePath(
-  path: string,
-  locale: string,
-  locales?: LocaleRoutingConfig | null
-): string {
-  const bare = `/${path}`
-  return shouldPrefixLocale(locale, locales) ? `/${locale}${bare}` : bare
 }
 
 /** A vite build's `[name]-[hash].[ext]` filename, whose hash segment can never point at different bytes. */
@@ -610,149 +293,6 @@ export function durationToSeconds(value: unknown, fallback: number): number {
 }
 
 /**
- * Get default value of type
- *
- * @param type primitive type name
- * @returns Default value
- */
-export function getTypeDefaultValue(type: string): string | number | boolean | undefined {
-  switch (type.toLowerCase()) {
-    case 'string':
-      return ''
-    case 'number':
-      return 0
-    case 'boolean':
-      return false
-  }
-}
-
-/**
- * A single prop, as declared in a module `definition.yml`. Either the bare primitive type name
- * (e.g. `String`) or an object describing the prop in full.
- */
-export type ModulePropDeclaration = ModulePropDefinition | string
-
-export interface ModulePropDefinition {
-  type: string
-  default?: unknown
-  title?: string
-  hint?: string
-  enum?: string[] | false
-  enumDisplay?: string
-  multiline?: boolean
-  sensitive?: boolean
-  readOnly?: boolean
-  /** Must resolve to a non-empty value (after merging with what is already stored) to validate. */
-  required?: boolean
-  /** A regular expression (as a string) the value must match to validate, when non-empty. */
-  pattern?: string
-  icon?: string
-  order?: number
-  if?: unknown[]
-}
-
-/** A prop after normalization, with every field resolved to a concrete value. */
-export interface ModuleProp {
-  default: unknown
-  type: string
-  title: string
-  hint: string
-  enum: string[] | false
-  enumDisplay: string
-  multiline: boolean
-  sensitive: boolean
-  /** Shown but not editable — the module declares something this server cannot currently change. */
-  readOnly: boolean
-  /** See `ModulePropDefinition.required`. */
-  required: boolean
-  /** See `ModulePropDefinition.pattern`. Empty string when the module declares none. */
-  pattern: string
-  icon: string
-  order: number
-  if: unknown[]
-}
-
-export function parseModuleProps(
-  props: Record<string, ModulePropDeclaration>
-): Record<string, ModuleProp> {
-  const result: Record<string, ModuleProp> = {}
-  for (const [key, value] of Object.entries(props)) {
-    const def: Partial<ModulePropDefinition> = isPlainObject(value) ? value : {}
-    const type = def.type || (value as string)
-    const defaultValue = !isNil(def.default) ? def.default : getTypeDefaultValue(type)
-    result[key] = {
-      default: defaultValue,
-      type: type.toLowerCase(),
-      title: def.title || startCase(key),
-      hint: def.hint || '',
-      enum: def.enum || false,
-      enumDisplay: def.enumDisplay || 'select',
-      multiline: def.multiline || false,
-      sensitive: def.sensitive || false,
-      readOnly: def.readOnly || false,
-      required: def.required || false,
-      pattern: def.pattern || '',
-      icon: def.icon || 'rename',
-      order: def.order || 100,
-      if: def.if ?? []
-    }
-  }
-  return result
-}
-
-/**
- * Placeholder returned in place of a module-config prop declared `sensitive: true`, once it holds a
- * real value -- mirrors `PASSWORD_MASK` in `api/mail.ts`, which predates `ModuleProp` and stores the
- * SMTP password as a single flat config rather than a per-module prop list.
- */
-export const SENSITIVE_CONFIG_MASK = '********'
-
-/**
- * Replace every `sensitive` prop's stored value with `SENSITIVE_CONFIG_MASK`, for a config about to
- * leave the server -- an admin API response, a log line, anything a caller might see. A prop with
- * nothing stored (`''`, `null`, `undefined`) is left alone: there is no secret to hide, and masking
- * it would make the admin form show a password field as "already set" when it isn't.
- *
- * Deliberately not applied inside a model's own merge (`buildConfig`/`buildEngineConfig`), nor to a
- * config handed to a module's own implementation to actually connect with -- storage's
- * `dispatch()`/`executeAction()`/`runDailyBackups()` and search's `selectEngine()`/
- * `initActiveEngines()` all need the real value to function. Call sites choose this explicitly (an
- * admin list/detail route serializing straight to JSON), never as a read method's default.
- */
-export function maskSensitiveConfig(
-  props: Record<string, ModuleProp>,
-  config: Record<string, any>
-): Record<string, any> {
-  const masked: Record<string, any> = { ...config }
-  for (const [key, prop] of Object.entries(props)) {
-    if (prop.sensitive && typeof masked[key] === 'string' && masked[key].length > 0) {
-      masked[key] = SENSITIVE_CONFIG_MASK
-    }
-  }
-  return masked
-}
-
-/**
- * Drop a `sensitive` prop's value from `incoming` when it is exactly `SENSITIVE_CONFIG_MASK` -- an
- * admin form redisplaying a masked value it was never asked to change echoes it straight back on the
- * next save. Called on the way in, before a merge such as `buildConfig`'s own `incoming[key] ===
- * undefined ? current : incoming[key]` falls back to whatever is already stored, so a save that
- * leaves a password field untouched can never overwrite the real secret with the mask string itself.
- */
-export function unmaskSensitiveConfig(
-  props: Record<string, ModuleProp>,
-  incoming: Record<string, any>
-): Record<string, any> {
-  const unmasked: Record<string, any> = { ...incoming }
-  for (const [key, prop] of Object.entries(props)) {
-    if (prop.sensitive && unmasked[key] === SENSITIVE_CONFIG_MASK) {
-      delete unmasked[key]
-    }
-  }
-  return unmasked
-}
-
-/**
  * A file's bytes only change when this codebase's own on-disk contents change (a redeploy — a new
  * build, a new process), never in response to a request, so there is no per-instance revalidation
  * problem to solve for it and a long `max-age` is safe: this is not hash-named content though, so it
@@ -781,6 +321,41 @@ export async function replyWithFile(
   const stream = fs.createReadStream(filePath)
   return reply.send(stream)
 }
+
+/**
+ * Whether a failure is postgres' unique-violation (`23505`), however the driver wrapped it.
+ *
+ * Nine write paths — page create/move, a tree entry, a glossary term, a block, a user — race a
+ * uniqueness constraint deliberately: they check first, insert anyway, and treat the constraint as
+ * the real arbiter of who won, since another writer can always land between the check and the
+ * insert. Each one asked the same two-part question (`err.code`, and `err.cause?.code` for the same
+ * error re-thrown by the query builder), which is exactly the sort of predicate that drifts when a
+ * tenth site copies only one half of it.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  const candidate = err as { code?: unknown; cause?: { code?: unknown } } | null | undefined
+  return candidate?.code === '23505' || candidate?.cause?.code === '23505'
+}
+
+/**
+ * Escape the LIKE wildcards `%` and `_` (and the escape character itself) so that a user-supplied
+ * filter is matched literally. Values are still parameterized by the driver — this is about a `%`
+ * in the filter silently matching everything, not about injection.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+/**
+ * The bcrypt cost factor everything this codebase hashes is hashed at — account passwords, a page's
+ * own password, a 2FA recovery code, the random password an imported or seeded account gets.
+ *
+ * One constant rather than a `12` written at each call site (plus two identically-valued private
+ * constants of its own): the cost is a single security decision about this instance, and a hash
+ * written at a different cost than its neighbours is indistinguishable from a mistake when read
+ * back.
+ */
+export const BCRYPT_ROUNDS = 12
 
 export class CustomError extends Error {
   statusCode: number

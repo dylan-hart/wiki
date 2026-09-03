@@ -5,6 +5,9 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import userRoutes from './user.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * WP 1852: a conditional avatar request must be answered from the `hash` column alone — never by
@@ -31,17 +34,17 @@ describe('GET /_user/:userId/avatar', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
     getAvatar = mock.fn(async () => ({ data: AVATAR_DATA, mime: 'image/jpeg' }))
     getAvatarHash = mock.fn(async () => AVATAR_HASH)
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         users: { getAvatar, getAvatarHash }
       }
-    }
+    })
   })
 
   test('a first request (no If-None-Match) gets a 200 with the avatar bytes, ETag and headers, and does read the blob', async () => {

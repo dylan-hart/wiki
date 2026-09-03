@@ -182,6 +182,28 @@ export function enhanceRenderedContent(root, t) {
 }
 
 /**
+ * A link's resolved URL, or null when this app has no business intercepting it at all.
+ *
+ * The half of the decision `routableHref` and `sameDocumentHash` share: an anchor asking for a new
+ * context (`target`, `download`, `rel="external"`) is the browser's to handle whatever it points at,
+ * and an `href` that is not a URL at all is nobody's. Each of the two then goes on to ask its own
+ * question of what comes back.
+ *
+ * @param {object} link The anchor's own properties: `href` is the resolved absolute URL.
+ * @returns {URL|null}
+ */
+function interceptableUrl({ href, target, download, rel } = {}) {
+  if (!href || (target && target !== '_self') || download || /\bexternal\b/.test(rel ?? '')) {
+    return null
+  }
+  try {
+    return new URL(href)
+  } catch {
+    return null
+  }
+}
+
+/**
  * Where a link inside rendered content should take the reader, if the router should handle it.
  *
  * A page's HTML arrives through `v-html`, so every link in it is a plain anchor: left alone, the
@@ -199,15 +221,9 @@ export function enhanceRenderedContent(root, t) {
  * @param {Location|{origin: string, pathname: string}} current Where the reader is now.
  * @returns {string|null} A path to push, or null to let the browser do what it would have done.
  */
-export function routableHref({ href, target, download, rel } = {}, current) {
-  if (!href || (target && target !== '_self') || download || /\bexternal\b/.test(rel ?? '')) {
-    return null
-  }
-
-  let url
-  try {
-    url = new URL(href)
-  } catch {
+export function routableHref(link = {}, current) {
+  const url = interceptableUrl(link)
+  if (!url) {
     return null
   }
   if (url.origin !== current.origin || !/^https?:$/.test(url.protocol)) {
@@ -241,15 +257,9 @@ export function routableHref({ href, target, download, rel } = {}, current) {
  * @param {Location|{origin: string, pathname: string}} current Where the reader is now.
  * @returns {string|null} The `#fragment` to travel to, or null when this is not such a link.
  */
-export function sameDocumentHash({ href, target, download, rel } = {}, current) {
-  if (!href || (target && target !== '_self') || download || /\bexternal\b/.test(rel ?? '')) {
-    return null
-  }
-
-  let url
-  try {
-    url = new URL(href)
-  } catch {
+export function sameDocumentHash(link = {}, current) {
+  const url = interceptableUrl(link)
+  if (!url) {
     return null
   }
   if (url.origin !== current.origin || !url.hash || url.pathname !== current.pathname) {

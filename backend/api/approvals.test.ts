@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
+import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import approvalsRoutes from './approvals.ts'
-import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import { createRecordingApp, referencesApiError } from '../test/routeRecorder.ts'
 
 describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683)', () => {
   /**
    * Task #683: `/sites/:siteId/approvals/rules` (GET/POST/PUT/DELETE) — the routes behind
    * `AdminApprovals.vue` — used to gate on the blanket route-level `manage:sites`. They
    * now also accept the site-scoped `site:approvals` permission from task #682 (`checkSiteAccess()`),
-   * checked in-handler via `mayAdministerApprovals` since `config.permissions` cannot express a
+   * checked in-handler via `checkSiteAdminAccess` since `config.permissions` cannot express a
    * per-site check.
    *
    * The submission/review routes (`/sites/:siteId/approvals/submissions/...`,
@@ -28,9 +28,6 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   const REVIEWER_GROUP = 'c3d4e5f6-a7b8-49ab-cdef-012345678901'
 
   const sites: Record<string, any> = { [SITE_ID]: { id: SITE_ID } }
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   const existingRule = {
     id: RULE_ID,
@@ -55,8 +52,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   // -> Mutable per-test, task #1616: default empty (every group id resolves), one test below
   //    overrides it to prove `rejectUnknownGroups` now sends a coded `ERR_UNKNOWN_GROUPS` message.
   let unknownGroupIdsToReturn: string[] = []
-  async function getUnknownGroupIds() {
-    return unknownGroupIdsToReturn
+  async function hasUnknownGroupIds() {
+    return unknownGroupIdsToReturn.length > 0
   }
   async function createRule(siteId: string, body: any) {
     createRuleCalls.push({ siteId, body })
@@ -87,54 +84,50 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     return { groupIds: [], permissions }
   }
 
+  const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSiteAccess)
+
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        sites: { getSiteById },
-        groups: { actorForRequest, checkSiteAccess },
-        approvals: {
-          getRules,
-          getRule,
-          getUnknownGroupIds,
-          createRule,
-          updateRule,
-          deleteRule,
-          isReviewerSession: () => false,
-          getActorGroupIds: () => []
-        }
-      },
-      logger: { warn: () => {} }
+    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(approvalsRoutes)
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      // -> The site-permission stub takes no `req`, so it reads this suite's per-test grants off a
+      //    module-level variable, populated once per request.
+      session: (req: any) => {
+        currentSitePermissionHeader = req.headers['x-test-site-permissions']
+        return undefined
+      },
+      wiki: {
+        sites,
+        models: {
+          groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess, hasUnknownGroupIds },
+          // -> Rule CRUD moved to `models/approvalRules.ts` when `models/approvals.ts` was split;
+          //    the rule routes reach it there now.
+          approvalRules: {
+            getRules,
+            getRule,
+            createRule,
+            updateRule,
+            deleteRule
+          },
+          approvals: {
+            isReviewerSession: () => false,
+            getActorGroupIds: () => [],
+            reviewerScopeFor: () => ({ groupIds: [], reviewsAll: false })
+          }
+        }
+      }
     })
-    await registerErrorSchema(app)
-    await registerApprovalSchema(app)
-    app.addHook('preHandler', (req: any, reply, done) => {
-      currentSitePermissionHeader = req.headers['x-test-site-permissions']
-      done()
-    })
-    await app.register(approvalsRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     createRuleCalls = []
@@ -290,29 +283,6 @@ describe('approve/reject submission routes — response schema covers reachable 
    * it already had. This is a narrow regression guard for exactly that gap, using the same
    * recording-stub technique as `responseErrors.test.ts` rather than booting a real Fastify instance.
    */
-
-  function createRecordingApp() {
-    const routes: { method: string; path: string; options: any }[] = []
-    const app: any = {
-      addContentTypeParser: () => {},
-      addHook: () => {},
-      register: () => app
-    }
-    for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
-      app[method] = (routePath: string, options?: any) => {
-        routes.push({ method, path: routePath, options })
-        return app
-      }
-    }
-    return { app, routes }
-  }
-
-  /** Whether a response entry is (or resolves through `allOf`/`oneOf` to) `{ $ref: 'ApiError#' }`. */
-  function referencesApiError(entry: any): boolean {
-    if (!entry) return false
-    if (entry.$ref === 'ApiError#') return true
-    return [...(entry.allOf ?? []), ...(entry.oneOf ?? [])].some(referencesApiError)
-  }
 
   test('approve and reject routes both declare 401 and 404 as ApiError', async () => {
     const { app, routes } = createRecordingApp()

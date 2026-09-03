@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import checklistRoutes from './checklists.ts'
-import { registerSchemas as registerChecklistSchema } from './schemas/checklist.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Route-level tests for `api/checklists.ts` (OpenProject #869): permission gating and status-code
@@ -114,50 +110,32 @@ describe('checklist routes', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        pages: { getPage },
-        groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
-        checklists: { listExecutions, getLatestExecution, getExecutionDetail, checkItem }
-      }
-    }
-
-    app = fastify({
-      ajv: { plugins: [[ajvFormats.default, {}] as any] }
-    })
-    app.addHook('onRequest', async (req) => {
-      const userId = req.headers['x-test-user-id'] as string | undefined
-      const permissions = ((req.headers['x-test-permissions'] as string | undefined) ?? '')
-        .split(',')
-        .filter(Boolean)
-      req.session = (
-        userId
+    app = await buildTestApp({
+      routes: checklistRoutes,
+      ajv: true,
+      // -> This suite's own two headers, rather than the harness's `'header'` convention: it needs
+      //    an `authenticated: false` session present (not absent) for the guest cases, and a
+      //    `user.id` on the authenticated ones.
+      session: (req: any) => {
+        const userId = req.headers['x-test-user-id'] as string | undefined
+        const permissions = ((req.headers['x-test-permissions'] as string | undefined) ?? '')
+          .split(',')
+          .filter(Boolean)
+        return userId
           ? { authenticated: true, user: { id: userId }, permissions }
           : { authenticated: false, permissions }
-      ) as any
+      },
+      wiki: {
+        models: {
+          pages: { getPage },
+          groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
+          checklists: { listExecutions, getLatestExecution, getExecutionDetail, checkItem }
+        }
+      }
     })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler — not fastify's default — that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerChecklistSchema(app)
-    await app.register(checklistRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     listExecutionsCalls = []

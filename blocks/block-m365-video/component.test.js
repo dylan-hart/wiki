@@ -1,18 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * Appends a `<block-m365-video>` with `embed` set as a JS property, the way an author's saved prop
  * value arrives, and waits for Lit's first render.
  */
-async function mountPlayer(embed = '') {
-  const el = document.createElement('block-m365-video')
-  el.embed = embed
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountPlayer = (embed = '') => mountBlock('block-m365-video', { props: { embed } })
 
 const SHAREPOINT_SRC =
   'https://contoso-my.sharepoint.com/personal/jane_contoso_com/_layouts/15/embed.aspx?UniqueId=abc123&embed=%7B%22ust%22%3Atrue%7D'
@@ -21,10 +16,7 @@ const LEGACY_STREAM_SRC = 'https://web.microsoftstream.com/embed/video/abc-123-d
 const CLIPCHAMP_SRC = 'https://clipchamp.com/watch/abc123/embed'
 
 describe('block-m365-video', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
-  })
+  afterEach(resetBlockDom)
 
   it('shows a placeholder message when no embed code has been pasted', async () => {
     const el = await mountPlayer('')
@@ -136,5 +128,17 @@ describe('block-m365-video', () => {
 
     const style = el.shadowRoot.querySelector('.player').getAttribute('style')
     expect(style).toContain('aspect-ratio: 16 / 9')
+  })
+
+  /*
+   * Deliberately no `describeDarkMode` here: this block adds no `DarkMode` controller of its own and
+   * `shared/video-embed.js` constructs none either -- there is nothing in a Microsoft 365 frame for
+   * a `dark` attribute to restyle. See `shared/video-embed.test.js` for the full split.
+   */
+  it('never takes a dark attribute -- the shared video shell constructs no DarkMode controller', async () => {
+    document.body.classList.add('body--dark')
+    const el = await mountPlayer(STREAM_SRC)
+
+    expect(el.hasAttribute('dark')).toBe(false)
   })
 })

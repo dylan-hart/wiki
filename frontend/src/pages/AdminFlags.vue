@@ -132,17 +132,14 @@
 </template>
 
 <script setup>
-import { onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
-import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 
 import { useFlagsStore } from '@/stores/flags'
 
 import { omit } from 'es-toolkit/object'
-import { apiErrorMessage } from '@/helpers/apiError'
 
 // STORES
 
@@ -160,63 +157,43 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  flags: {
-    experimental: false,
-    authDebug: false,
-    sqlLog: false
-  }
+const {
+  state,
+  load,
+  save: commitFlags
+} = useAdminSettings({
+  i18nPrefix: 'admin.flags',
+  // -> Instance-wide, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    flags: {
+      experimental: false,
+      authDebug: false,
+      sqlLog: false
+    }
+  },
+  // -> Through the store, so that `experimental` is refreshed for the whole app at the same time
+  fetch: async () => {
+    await flagsStore.load()
+    return omit(flagsStore.$state, ['loaded'])
+  },
+  onLoaded: (flags) => {
+    state.flags = flags
+  },
+  commit: () => API_CLIENT.put('system/flags', { json: state.flags }).json(),
+  // -> Re-read through the store, so the whole app sees the flags it just stored
+  onSaved: () => load()
 })
 
 // METHODS
 
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    // -> Through the store, so that `experimental` is refreshed for the whole app at the same time
-    await flagsStore.load()
-    state.flags = omit(flagsStore.$state, ['loaded'])
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.flags.loadFailed'),
-      caption: err.message
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
+/** Refuses a second submit while a load or an earlier save is still in flight. */
 async function save() {
   if (state.loading > 0) {
     return
   }
-
-  state.loading++
-  try {
-    await API_CLIENT.put('system/flags', {
-      json: state.flags
-    }).json()
-    notify({
-      type: 'positive',
-      message: t('admin.flags.saveSuccess')
-    })
-    await load()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.flags.saveFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
+  await commitFlags()
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>
 
 <style lang="scss"></style>

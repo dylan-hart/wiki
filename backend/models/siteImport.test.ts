@@ -107,7 +107,7 @@ describe('readArchive size ceilings (pure, no DB)', () => {
 
 /**
  * `importModel.saveUpload` in isolation — no database, no real HTTP request. Feeds it a plain
- * `Readable` the way `api/system.ts`'s content-type parser hands it the raw request stream, and
+ * `Readable` the way `api/system/transfer.ts`'s content-type parser hands it the raw request stream, and
  * checks the same things that parser used to check against a fully-buffered `Buffer` before this
  * task streamed the save.
  */

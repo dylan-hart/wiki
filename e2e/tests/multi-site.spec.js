@@ -7,6 +7,7 @@ import {
   expectAuthenticatedShell,
   expectGuestShell,
   loginAsAdmin,
+  submitLogin,
   uniqueSlug
 } from '../helpers/admin.js'
 
@@ -71,9 +72,7 @@ test('creates a second site and confirms it is scoped independently', async ({ p
   // -> The same account works here too, once it logs in again -- a separate site, not a separate
   //    user directory.
   await page.getByRole('link', { name: 'Login' }).click()
-  await page.getByLabel('Email Address').fill(ADMIN_EMAIL)
-  await page.getByLabel('Password').fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: 'Log In', exact: true }).click()
+  await submitLogin(page, ADMIN_EMAIL, ADMIN_PASSWORD)
   await expectAuthenticatedShell(page)
 
   // -> And is a real, independently writable site, not just a read-only shell: create a page here

@@ -9,19 +9,12 @@ import {
 import {
   CustomError,
   generatePathHash,
-  localizedPagePath,
+  isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import { localizedPagePath } from '../helpers/localeRouting.ts'
 
-export interface GlossaryTerm {
-  id: string
-  term: string
-  definition: string
-  aliases: string[]
-  pageId: string | null
-  createdAt: Date
-  updatedAt: Date
-}
+export type GlossaryTerm = Omit<typeof glossaryTermsTable.$inferSelect, 'siteId'>
 
 export interface GlossaryTermInput {
   term: string
@@ -61,7 +54,7 @@ interface CachedGlossaryEntry {
  * incompatibly. Reused as-is for each stored version snapshot (OpenProject #1113) -- one
  * representation shared by export, import, and versioning, per the spec.
  */
-export const GLOSSARY_EXPORT_FORMAT_VERSION = 1
+const GLOSSARY_EXPORT_FORMAT_VERSION = 1
 
 export interface GlossaryExportTerm {
   term: string
@@ -202,7 +195,7 @@ class Glossary {
         return rows
       })
     } catch (err: any) {
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('glossaryDuplicateTerm', 'A term with this name already exists.', 409)
       }
       throw err
@@ -289,7 +282,7 @@ class Glossary {
         return rows
       })
     } catch (err: any) {
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('glossaryDuplicateTerm', 'A term with this name already exists.', 409)
       }
       throw err
@@ -480,7 +473,7 @@ class Glossary {
   /**
    * Resolves an export's `path` to a `pageId` against the site's primary locale, or rejects it.
    *
-   * Deliberately does NOT apply the `|| 'home'` default that `api/pages.ts` and `mcp/tools/getPage.ts`
+   * Deliberately does NOT apply the `|| 'home'` default that `api/pages/read.ts` and `mcp/tools/getPage.ts`
    * use at their own normalize-then-hash call sites (OpenProject #1936). Those two resolve a
    * *request* for "whatever's at this path", where an empty path legitimately means the site root.
    * Here `path` is a glossary term's user-typed canonical-page reference: the `!path` guard above

@@ -1,4 +1,6 @@
 import { LitElement, html, css } from 'lit'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
@@ -52,12 +54,14 @@ export class BlockCountdownElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
+        }
 
-      /*
+        /*
         The gap below a block lives on this element, not on :host.
 
         The app resets the margin on every element, and a rule in the page beats a :host rule in the
@@ -65,78 +69,72 @@ export class BlockCountdownElement extends LitElement {
         inside the shadow root it is out of that rule's reach, and collapses out through the host,
         which carries no padding or border of its own.
       */
-      .countdown,
-      .error {
-        margin-bottom: 16px;
-      }
+        .countdown,
+        .error {
+          margin-bottom: 16px;
+        }
 
-      .countdown {
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        border-radius: 5px;
-        padding: 1rem;
-        text-align: center;
-        background-image: linear-gradient(to bottom, #fff, #fafafa);
-      }
-      :host([dark]) .countdown {
-        border-color: rgba(255, 255, 255, 0.15);
-        background-image: linear-gradient(to bottom, #161b22, #0d1117);
-      }
+        .countdown {
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 5px;
+          padding: 1rem;
+          text-align: center;
+          background-image: linear-gradient(to bottom, #fff, #fafafa);
+        }
+        :host([dark]) .countdown {
+          border-color: rgba(255, 255, 255, 0.15);
+          background-image: linear-gradient(to bottom, #161b22, #0d1117);
+        }
 
-      .label {
-        font-weight: 500;
-        font-size: 1.1em;
-        margin-bottom: 0.75rem;
-      }
+        .label {
+          font-weight: 500;
+          font-size: 1.1em;
+          margin-bottom: 0.75rem;
+        }
 
-      .segments {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 0.5rem;
-      }
+        .segments {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 0.5rem;
+        }
 
-      .segment {
-        min-width: 72px;
-        padding: 0.5rem 0.75rem;
-        border-radius: 5px;
-        background-color: rgba(0, 0, 0, 0.04);
-      }
-      :host([dark]) .segment {
-        background-color: rgba(255, 255, 255, 0.06);
-      }
+        .segment {
+          min-width: 72px;
+          padding: 0.5rem 0.75rem;
+          border-radius: 5px;
+          background-color: rgba(0, 0, 0, 0.04);
+        }
+        :host([dark]) .segment {
+          background-color: rgba(255, 255, 255, 0.06);
+        }
 
-      .value {
-        font-size: 2rem;
-        font-weight: 500;
-        line-height: 1.1;
-        font-variant-numeric: tabular-nums;
-        color: var(--q-primary, #1976d2);
-      }
+        .value {
+          font-size: 2rem;
+          font-weight: 500;
+          line-height: 1.1;
+          font-variant-numeric: tabular-nums;
+          color: var(--q-primary, #1976d2);
+        }
 
-      .unit {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        opacity: 0.7;
-      }
+        .unit {
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          opacity: 0.7;
+        }
 
-      .target {
-        margin-top: 0.75rem;
-        font-size: 0.8em;
-        opacity: 0.7;
-      }
+        .target {
+          margin-top: 0.75rem;
+          font-size: 0.8em;
+          opacity: 0.7;
+        }
 
-      .ended {
-        font-weight: 500;
-      }
-
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-      }
-    `
+        .ended {
+          font-weight: 500;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -265,7 +263,7 @@ export class BlockCountdownElement extends LitElement {
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     if (!this._target) {
       return null

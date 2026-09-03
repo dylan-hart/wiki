@@ -1,22 +1,26 @@
 import { before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { mock } from 'node:test'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { createSilentLogger, installTestWiki } from '../../../test/mocks.ts'
+import { makeIndexablePage, makeRebuildPageSource } from '../../../test/builders.ts'
+import { runSearchModuleContract } from '../../../test/searchModuleContract.ts'
+import { search } from '../../../models/search.ts'
 import {
   AzureSearchModule,
   buildFilter,
   buildIndexSchema,
   buildOrderBy,
-  REBUILD_BATCH_SIZE,
   toIndexDocument,
   type AzureSearchIndexClient,
   type AzureSearchQueryClient,
-  type AzureSearchRow,
-  type RebuildPageSource
+  type AzureSearchRow
 } from './search.ts'
+import { REBUILD_BATCH_SIZE, type RebuildPageSource } from '../shared.ts'
 import defaultAzureSearchModule from './search.ts'
 import type { SearchIndex } from '@azure/search-documents'
-import type { SearchIndexablePage } from '../../../models/search.ts'
 
 /**
  * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`
@@ -25,6 +29,11 @@ import type { SearchIndexablePage } from '../../../models/search.ts'
  * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
  */
+const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+
+/** The engine config both this file's own suite and the shared contract run against. */
+const AZURE_CONFIG = { serviceName: 'demo', adminApiKey: 'key', indexName: 'wiki' }
+
 before(() => ensureTemporal())
 
 /**
@@ -36,17 +45,20 @@ before(() => ensureTemporal())
  *
  * A stub `WIKI.logger` is required because several hooks log — the same reason `test/mocks.ts` exists
  * for model-layer tests, just inlined here rather than imported, since this suite needs nothing else
- * off the `WIKI` global besides `sites` (per-site engine config) and `models.groups.checkAccess`
- * (page-permission filtering in `query()`).
+ * off the `WIKI` global besides `sites` (per-site engine config), `SERVERPATH` (so
+ * `search.refreshFromDisk()` below can read this engine's own `definition.yml`) and
+ * `models.groups.checkAccess` (page-permission filtering in `query()`).
  */
-;(globalThis as any).WIKI = {
-  logger: { info: mock.fn(), warn: mock.fn() },
+installTestWiki({
+  SERVERPATH: backendDir,
+  // -> Not the silent default: several tests assert on what the module logged.
+  logger: { ...createSilentLogger(), info: mock.fn(), warn: mock.fn() },
   sites: {
     'site-1': {
       config: {
         search: {
           engines: {
-            'azure-search': { serviceName: 'demo', adminApiKey: 'key', indexName: 'wiki' }
+            'azure-search': AZURE_CONFIG
           }
         }
       }
@@ -57,7 +69,19 @@ before(() => ensureTemporal())
       checkAccess: () => true
     }
   }
-}
+})
+
+/**
+ * `configFor()` resolves this engine's config through `search.getEngineConfig`, which completes it
+ * with the props declared in `definition.yml` — so the definitions have to be loaded off disk first,
+ * exactly as `index.ts` does (`refreshFromDisk()` before `initActiveEngines()`). The `algolia` and
+ * `elasticsearch` suites load them the same way.
+ *
+ * Registered here rather than beside the `ensureTemporal()` hook above, and this is load-bearing: a
+ * root-level `before()` in `node:test` runs before the top-level statements that FOLLOW it, so a hook
+ * declared above the `WIKI` assignment would run with no `WIKI.SERVERPATH` to read from.
+ */
+before(() => search.refreshFromDisk())
 
 function fakeClient(): AzureSearchIndexClient & { calls: SearchIndex[] } {
   const calls: SearchIndex[] = []
@@ -116,43 +140,8 @@ function fakeQueryClient(
   }
 }
 
-function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage {
-  return {
-    id: 'p1',
-    siteId: 'site-1',
-    locale: 'en',
-    path: 'docs/kangaroo',
-    hash: 'h',
-    alias: null,
-    title: 'The Wandering Kangaroo',
-    description: 'A page about kangaroos',
-    icon: 'mdi:file',
-    publishState: 'published',
-    publishStartDate: null,
-    publishEndDate: null,
-    config: {},
-    relations: [],
-    content: '# Hello',
-    render: null,
-    searchContent: 'Hello kangaroo content',
-    tags: ['animals'],
-    toc: null,
-    editor: 'markdown',
-    contentType: 'markdown',
-    isBrowsable: true,
-    isSearchable: true,
-    classification: 'classification-1',
-    password: null,
-    scripts: {},
-    historyData: {},
-    createdAt: new Date('2024-01-01T00:00:00Z'),
-    updatedAt: new Date('2024-01-02T03:04:05.678Z'),
-    authorId: 'u1',
-    creatorId: 'u1',
-    ownerId: 'u1',
-    ...overrides
-  } as any as SearchIndexablePage
-}
+/** The 28-field superset lives in `test/builders.ts` — this engine reads the widest set of them. */
+const page = makeIndexablePage
 
 describe('azure-search module: buildIndexSchema', () => {
   const schema = buildIndexSchema('wiki')
@@ -256,11 +245,30 @@ describe('azure-search module: init()', () => {
     assert.equal(client.calls[0]!.name, 'wiki')
   })
 
-  test('defaults the index name to "wiki" when unset', async () => {
+  test('an index name the operator CLEARED still provisions "wiki", not an unnamed index', async () => {
+    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
+    //    emptied text field is stored as `''` — so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| DEFAULT_INDEX_NAME`
+    //    used to cover, and dropping it without this would have sent Azure an empty index name.
     const client = fakeClient()
     const azureSearch = new AzureSearchModule(() => client)
 
-    await azureSearch.init('site-1', { serviceName: 'demo', adminApiKey: 'key' })
+    await azureSearch.init('site-1', { serviceName: 'demo', adminApiKey: 'key', indexName: '' })
+
+    assert.equal(client.calls[0]!.name, 'wiki')
+  })
+
+  test('the index name defaults to "wiki" for a site that never set one', async () => {
+    // -> The default lives in `definition.yml` and reaches this module through
+    //    `search.getEngineConfig` — which is what `selectEngine()`/`initActiveEngines()` hand `init()`
+    //    and what `configFor()` reads for every other hook. It is no longer re-applied as a local
+    //    `|| DEFAULT_INDEX_NAME` at each use site (CORE-F5 phase 4).
+    const config = search.getEngineConfig('site-with-no-stored-config', 'azure-search')
+    assert.equal(config.indexName, 'wiki')
+
+    const client = fakeClient()
+    const azureSearch = new AzureSearchModule(() => client)
+    await azureSearch.init('site-1', config)
 
     assert.equal(client.calls[0]!.name, 'wiki')
   })
@@ -422,53 +430,6 @@ describe('azure-search module: buildOrderBy', () => {
 })
 
 describe('azure-search module: created/updated/deleted/renamed', () => {
-  test('created() merges the page document into the index', async () => {
-    const client = fakeQueryClient()
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-
-    await azureSearch.created(page())
-
-    assert.equal(client.merged.length, 1)
-    assert.equal(client.merged[0]!.id, 'p1')
-  })
-
-  test('updated() merges the page document into the index', async () => {
-    const client = fakeQueryClient()
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-
-    await azureSearch.updated(page({ title: 'New Title' }))
-
-    assert.equal(client.merged[0]!.title, 'New Title')
-  })
-
-  test('renamed() reindexes under the new path, ignoring previousPath (the document key is id)', async () => {
-    const client = fakeQueryClient()
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-
-    await azureSearch.renamed('site-1', page({ path: 'docs/new-path' }), 'docs/old-path')
-
-    assert.equal(client.merged[0]!.path, 'docs/new-path')
-  })
-
-  test('deleted() removes the document by id', async () => {
-    const client = fakeQueryClient()
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-
-    await azureSearch.deleted('site-1', 'p1')
-
-    assert.deepEqual(client.deleted, [{ keyName: 'id', keyValues: ['p1'] }])
-  })
-
-  test('created() never throws when the client rejects -- logs and continues', async () => {
-    const client = fakeQueryClient()
-    client.mergeOrUploadDocuments = async () => {
-      throw new Error('boom')
-    }
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-
-    await assert.doesNotReject(azureSearch.created(page()))
-  })
-
   test('deleted() never throws when the client rejects -- logs and continues', async () => {
     const client = fakeQueryClient()
     client.deleteDocuments = async () => {
@@ -553,52 +514,6 @@ describe('azure-search module: query()', () => {
    * window from the start (`skip: 0`) and applies the caller's own pagination in JS, over the
    * filtered set. See `query()`'s own comment for the full reasoning.
    */
-  test('always scans from the start with a bounded top, regardless of the caller’s own offset/limit', async () => {
-    const client = fakeQueryClient([{ count: 1, rows: [row()] }])
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-
-    await azureSearch.query({
-      siteId: 'site-1',
-      query: 'kangaroo',
-      offset: 10,
-      limit: 5,
-      hideProtectedContent: false
-    })
-
-    assert.equal(client.searches.length, 1)
-    assert.equal(client.searches[0]!.options.skip, 0)
-    assert.ok(
-      client.searches[0]!.options.top > 5,
-      'expected a bounded scan window larger than the requested page size'
-    )
-  })
-
-  test('applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
-    const client = fakeQueryClient([
-      {
-        count: 3,
-        rows: [
-          row({ id: 'a', path: 'a' }, 3),
-          row({ id: 'b', path: 'b' }, 2),
-          row({ id: 'c', path: 'c' }, 1)
-        ]
-      }
-    ])
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-
-    const result = await azureSearch.query({
-      siteId: 'site-1',
-      query: 'kangaroo',
-      offset: 1,
-      limit: 1,
-      hideProtectedContent: false
-    })
-
-    assert.equal(result.results.length, 1)
-    assert.equal(result.results[0]!.id, 'b')
-    assert.equal(result.totalHits, 3)
-  })
-
   test('returns the exact SearchPagesResult shape', async () => {
     const client = fakeQueryClient([{ count: 1, rows: [row()] }])
     const azureSearch = new AzureSearchModule(undefined, () => client)
@@ -657,85 +572,6 @@ describe('azure-search module: query()', () => {
 
     assert.equal(client.searches[0]!.searchText, undefined)
     assert.equal(client.searches[0]!.options.highlightFields, undefined)
-  })
-
-  test('drops a row checkAccess denies, and adjusts totalHits accordingly', async () => {
-    const client = fakeQueryClient([
-      { count: 2, rows: [row(), row({ id: 'p2', path: 'docs/other' }, 0.5)] }
-    ])
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-    const actor = { groupIds: [], permissions: [] }
-    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
-      p.path !== 'docs/kangaroo'
-
-    const result = await azureSearch.query({
-      siteId: 'site-1',
-      query: 'kangaroo',
-      actor,
-      hideProtectedContent: false
-    })
-
-    assert.equal(result.results.length, 1)
-    assert.equal(result.results[0]!.id, 'p2')
-    // -> offset (0) plus how many of this page's rows survived checkAccess, never Azure's own count
-    assert.equal(result.totalHits, 1)
-    WIKI.models.groups.checkAccess = () => true
-  })
-
-  test('totalHits never reflects Azure’s own count when it exceeds what this page can vouch for', async () => {
-    const client = fakeQueryClient([
-      {
-        // -> Azure reports 100 total matches across many pages this call never fetched -- the old
-        //    arithmetic (count - rows.length + visible.length) would have leaked most of that into
-        //    totalHits even though only this one page was ever checked against checkAccess.
-        count: 100,
-        rows: [
-          row({ id: 'p1', path: 'docs/kangaroo' }, 3),
-          row({ id: 'p2', path: 'docs/secret' }, 2),
-          row({ id: 'p3', path: 'docs/other' }, 1)
-        ]
-      }
-    ])
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-    const actor = { groupIds: [], permissions: [] }
-    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
-      p.path !== 'docs/secret'
-
-    const result = await azureSearch.query({
-      siteId: 'site-1',
-      query: 'kangaroo',
-      offset: 0,
-      actor,
-      hideProtectedContent: false
-    })
-
-    assert.equal(result.results.length, 2)
-    // -> Exactly the readable count of this page (offset 0 + 2 visible), never Azure's 100
-    assert.equal(result.totalHits, 2)
-    WIKI.models.groups.checkAccess = () => true
-  })
-
-  test('passes each row’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
-    const client = fakeQueryClient([
-      { count: 1, rows: [row({ classification: 'classification-restricted' })] }
-    ])
-    const azureSearch = new AzureSearchModule(undefined, () => client)
-    const actor = { groupIds: [], permissions: [] }
-    const seen: any[] = []
-    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) => {
-      seen.push(p.classification)
-      return true
-    }
-
-    await azureSearch.query({
-      siteId: 'site-1',
-      query: 'kangaroo',
-      actor,
-      hideProtectedContent: false
-    })
-
-    assert.deepEqual(seen, ['classification-restricted'])
-    WIKI.models.groups.checkAccess = () => true
   })
 
   test('hideProtectedContent issues a title/description-only search for protected rows and merges it in', async () => {
@@ -825,31 +661,16 @@ describe('azure-search module: query()', () => {
   })
 })
 
-/**
- * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
- * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
- * the full set in the batches it should have, rather than only checking the final tally.
- */
-function fakePageSource(
-  pagesByLocale: Record<string, SearchIndexablePage[]>
-): RebuildPageSource & { calls: { locale: string; offset: number; limit: number }[] } {
-  const calls: { locale: string; offset: number; limit: number }[] = []
-  return {
-    calls,
-    async locales() {
-      return Object.keys(pagesByLocale)
-    },
-    async pageBatch(_siteId, locale, offset, limit) {
-      calls.push({ locale, offset, limit })
-      return (pagesByLocale[locale] ?? []).slice(offset, offset + limit)
-    }
-  }
-}
-
 describe('azure-search module: rebuild()', () => {
-  test('streams every locale through mergeOrUploadDocuments and reports a per-locale RebuildResult', async () => {
+  /**
+   * The batching and per-locale tally are `test/searchModuleContract.ts`'s to assert, once for every
+   * engine. What stays here is the one thing that is this engine's: no `dictionary` on any locale
+   * entry — Azure AI Search has no such concept (see `RebuildResult`'s own doc comment in
+   * `models/search.ts`), unlike `algolia`/`elasticsearch`, which report `'n/a'`.
+   */
+  test('names no per-locale dictionary in its RebuildResult', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({
+    const source = makeRebuildPageSource({
       en: [page({ id: 'en-1' }), page({ id: 'en-2' })],
       fr: [page({ id: 'fr-1', locale: 'fr' })]
     })
@@ -857,19 +678,12 @@ describe('azure-search module: rebuild()', () => {
 
     const result = await azureSearch.rebuild('site-1')
 
-    assert.equal(result.pages, 3)
-    assert.deepEqual(result.locales, [
-      { locale: 'en', pages: 2 },
-      { locale: 'fr', pages: 1 }
-    ])
-    // -> No `dictionary` on either entry: this engine has no such concept (see `RebuildResult`'s own
-    //    doc comment in `models/search.ts`).
     assert.ok(result.locales.every((l) => !('dictionary' in l)))
   })
 
   test('uploads the exact documents toIndexDocument would build for each page', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({ en: [page({ id: 'en-1' })] })
+    const source = makeRebuildPageSource({ en: [page({ id: 'en-1' })] })
     const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
     await azureSearch.rebuild('site-1')
@@ -883,7 +697,7 @@ describe('azure-search module: rebuild()', () => {
     const enPages = Array.from({ length: REBUILD_BATCH_SIZE + 3 }, (_, i) =>
       page({ id: `en-${i}` })
     )
-    const source = fakePageSource({ en: enPages })
+    const source = makeRebuildPageSource({ en: enPages })
     const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
     const result = await azureSearch.rebuild('site-1')
@@ -903,7 +717,7 @@ describe('azure-search module: rebuild()', () => {
 
   test('a locale with no pages contributes zero and no upload call', async () => {
     const client = fakeQueryClient()
-    const source = fakePageSource({ en: [] })
+    const source = makeRebuildPageSource({ en: [] })
     const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
     const result = await azureSearch.rebuild('site-1')
@@ -928,7 +742,7 @@ describe('azure-search module: rebuild()', () => {
           ]
         }
       ])
-      const source = fakePageSource({ en: [page({ id: 'stays' })] })
+      const source = makeRebuildPageSource({ en: [page({ id: 'stays' })] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')
@@ -938,7 +752,7 @@ describe('azure-search module: rebuild()', () => {
 
     test('deletes nothing when every previously-indexed id was re-uploaded', async () => {
       const client = fakeQueryClient([{ count: 1, rows: [{ document: { id: 'p1' }, score: 1 }] }])
-      const source = fakePageSource({ en: [page({ id: 'p1' })] })
+      const source = makeRebuildPageSource({ en: [page({ id: 'p1' })] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')
@@ -950,7 +764,7 @@ describe('azure-search module: rebuild()', () => {
       const client = fakeQueryClient([
         { count: 1, rows: [{ document: { id: 'ghost' }, score: 1 }] }
       ])
-      const source = fakePageSource({ en: [] })
+      const source = makeRebuildPageSource({ en: [] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')
@@ -965,7 +779,7 @@ describe('azure-search module: rebuild()', () => {
         score: 1
       }))
       const client = fakeQueryClient([{ count: ghostCount, rows }])
-      const source = fakePageSource({ en: [] })
+      const source = makeRebuildPageSource({ en: [] })
       const azureSearch = new AzureSearchModule(undefined, () => client, source)
 
       await azureSearch.rebuild('site-1')
@@ -982,4 +796,101 @@ describe('azure-search module: default export', () => {
   test('is an AzureSearchModule instance', () => {
     assert.ok(defaultAzureSearchModule instanceof AzureSearchModule)
   })
+})
+
+/**
+ * The thirteen claims every external engine owes `models/search.ts`, translated into Azure AI
+ * Search's own request and response shapes — see `test/searchModuleContract.ts` for what they are
+ * and why they live in one place. Everything above this line is this engine's alone, the
+ * protected-content split query and the ghost-document purge included.
+ */
+runSearchModuleContract('azure-search', {
+  config: AZURE_CONFIG,
+  siteConfig: { search: { engine: 'azure-search', engines: { 'azure-search': AZURE_CONFIG } } },
+  makeModule: () => {
+    let response: { count: number; rows: AzureSearchRow[] } = { count: 0, rows: [] }
+    let broken = false
+    const merged: Record<string, any>[] = []
+    const removed: string[] = []
+    const searches: Record<string, any>[] = []
+    let mergeCalls = 0
+    const client: AzureSearchQueryClient = {
+      async mergeOrUploadDocuments(documents) {
+        if (broken) {
+          throw new Error('boom')
+        }
+        mergeCalls++
+        merged.push(...documents)
+      },
+      async deleteDocuments(_keyName, keyValues) {
+        if (broken) {
+          throw new Error('boom')
+        }
+        removed.push(...keyValues)
+      },
+      async search(_searchText, options) {
+        searches.push(options)
+        const rows = response.rows
+        return {
+          count: response.count,
+          results: (async function* () {
+            for (const row of rows) {
+              yield row
+            }
+          })()
+        }
+      }
+    }
+    // -> `pageSource` is a constructor argument, so the contract's `setPages` swaps what this
+    //    indirection delegates to rather than rebuilding the module around a new source.
+    let pages = makeRebuildPageSource({})
+    const source: RebuildPageSource = {
+      locales: (siteId) => pages.locales(siteId),
+      pageBatch: (siteId, locale, offset, limit) => pages.pageBatch(siteId, locale, offset, limit)
+    }
+
+    return {
+      mod: new AzureSearchModule(undefined, () => client, source),
+      // -> This engine defaults `hideProtectedContent` on, whose two-query split has its own suite
+      //    above; the contract is about the single-query path every engine shares.
+      baseQuery: { hideProtectedContent: false },
+      breakClient() {
+        broken = true
+      },
+      setHits(hits, reportedTotal) {
+        response = {
+          count: reportedTotal ?? hits.length,
+          rows: hits.map((hit, index) => ({
+            document: {
+              id: hit.id,
+              siteId: 'site-1',
+              locale: hit.locale ?? 'en',
+              path: hit.path,
+              title: hit.title ?? hit.path,
+              description: '',
+              icon: null,
+              tags: hit.tags ?? [],
+              updatedAt: '2024-01-02T03:04:05.678Z',
+              hasPassword: false,
+              ...(hit.classification === undefined ? {} : { classification: hit.classification })
+            },
+            score: hits.length - index
+          })) as unknown as AzureSearchRow[]
+        }
+      },
+      windows: () => searches.map((options) => ({ offset: options.skip, size: options.top })),
+      indexedIds: () => merged.map((document) => document.id),
+      lastIndexedPath: () => merged.at(-1)?.path,
+      removedIds: () => removed,
+      setPages(sitePages) {
+        const byLocale: Record<string, typeof sitePages> = {}
+        for (const sitePage of sitePages) {
+          ;(byLocale[sitePage.locale] ??= []).push(sitePage)
+        }
+        pages = makeRebuildPageSource(byLocale)
+      },
+      rebuiltIds: () => merged.map((document) => document.id),
+      uploadCalls: () => mergeCalls
+    }
+  }
 })

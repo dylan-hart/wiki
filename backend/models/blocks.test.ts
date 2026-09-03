@@ -606,7 +606,7 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
   /**
    * OpenProject #1738: `setBlocksState` deliberately does not queue a re-render of pages that already
    * embed a block moved to disabled here — see the doc comments on this method and on
-   * `models/rendering.ts#blockAllowances` for why. Locks in the actual behavior (no `pageRenderQueue`
+   * `helpers/htmlSanitizePolicy.ts#blockAllowances` for why. Locks in the actual behavior (no `pageRenderQueue`
    * row, stored `render` left as-is) so neither doc comment can silently drift out of sync with the
    * code again.
    */

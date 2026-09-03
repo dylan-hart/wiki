@@ -15,7 +15,6 @@ import {
   extractNavigation,
   type StagedPage
 } from './content-staging.ts'
-import { IdMap } from './id-map.ts'
 
 /**
  * A minimal in-memory `SourceConnector` built from fixture rows, for exactly the entities this
@@ -259,8 +258,8 @@ const FIXTURE_NAVIGATION: SourceRecord[] = [
   { key: 'site', config: [{ id: 'home', title: 'Home', target: '/welcome' }] }
 ]
 
-function makeUserIdMap(): IdMap<number> {
-  const map = new IdMap<number>()
+function makeUserIdMap(): Map<number, string> {
+  const map = new Map<number, string>()
   map.set(10, 'uuid-user-10')
   map.set(11, 'uuid-user-11')
   // 999 deliberately absent.
@@ -268,7 +267,7 @@ function makeUserIdMap(): IdMap<number> {
 }
 
 describe('extractContentStaging', () => {
-  test('walks every page, joining locale-variant siblings by shared path', async () => {
+  test('walks every page in the source', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
     const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
@@ -276,13 +275,10 @@ describe('extractContentStaging', () => {
     })
 
     assert.equal(result.pages.length, 3)
-    const welcomeEn = result.pages.find((p) => p.oldId === 1)!
-    const welcomeFr = result.pages.find((p) => p.oldId === 2)!
-    assert.deepEqual(welcomeEn.localeSiblingOldIds, [2])
-    assert.deepEqual(welcomeFr.localeSiblingOldIds, [1])
-
-    const orphanAuthorPage = result.pages.find((p) => p.oldId === 3)!
-    assert.deepEqual(orphanAuthorPage.localeSiblingOldIds, [])
+    assert.deepEqual(
+      result.pages.map((p) => p.oldId),
+      [1, 2, 3]
+    )
   })
 
   test('resolves authorId/creatorId through the user id map', async () => {
@@ -489,10 +485,8 @@ describe('extractContentStaging', () => {
     }
 
     // -> The index itself — the only thing kept resident across the whole walk — never carries a
-    //    single heavy field: every location is exactly the three lightweight fields.
-    for (const location of index.locations) {
-      assert.deepEqual(Object.keys(location).sort(), ['locale', 'oldId', 'path'])
-    }
+    //    single heavy field: it is nothing but the set of page oldIds.
+    assert.deepEqual(Object.keys(index), ['pageOldIds'])
   })
 
   test("coerces an export-bundle source's integer-valued isPrivate/isPublished flags (OpenProject #1850)", async () => {

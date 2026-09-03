@@ -8,6 +8,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { resolveSize } from './metrics'
 
 /**
  * Status signal -- concentric rings pulsing outward from a beating core.
@@ -34,17 +35,8 @@ const props = defineProps({
   }
 })
 
-/** The named sizes the icon components use, so `size="md"` means the same thing everywhere. */
-const NAMED_SIZES = {
-  xs: '18px',
-  sm: '24px',
-  md: '32px',
-  lg: '38px',
-  xl: '46px'
-}
-
 const style = computed(() => ({
-  '--w-signal-size': NAMED_SIZES[props.size] ?? props.size,
+  '--w-signal-size': resolveSize(props.size),
   color: props.color ? `var(--color-${props.color})` : undefined
 }))
 </script>

@@ -13,26 +13,30 @@ import {
   SearchCommand,
   UploadDocumentsCommand
 } from '@aws-sdk/client-cloudsearch-domain'
-import { and, asc, eq } from 'drizzle-orm'
-import { pages as pagesTable } from '../../../db/schema.ts'
+import { search } from '../../../models/search.ts'
+import { ExternalSearchModule } from '../externalBase.ts'
+import {
+  defaultPageSource,
+  fillEmptyStringDefaults,
+  filterVisible,
+  HL_START,
+  HL_STOP,
+  localePageStream,
+  normalizeMarkers,
+  SCAN_CAP,
+  toSearchPagesResult
+} from '../shared.ts'
+import type { RebuildPageSource } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
-  SearchModule,
   SearchOrderBy,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'aws-cloudsearch'
-
-/** The region a site gets when it hasn't set one, matching `definition.yml`'s declared default. */
-const DEFAULT_REGION = 'us-east-1'
-
-/** The analysis scheme language a site gets when it hasn't set one, matching `definition.yml`. */
-const DEFAULT_ANALYSIS_SCHEME_LANG = 'en'
 
 /**
  * Name of the analysis scheme every domain is provisioned with. CloudSearch text fields must name an
@@ -47,27 +51,42 @@ const ANALYSIS_SCHEME_NAME = 'wiki_analysis_scheme'
 const SUGGESTER_NAME = 'wiki_title_suggester'
 
 /** A CloudSearch index field type this module ever declares. */
-export type CloudSearchFieldType = 'literal' | 'text' | 'literal-array'
+type CloudSearchFieldType = 'literal' | 'text' | 'literal-array'
 
-/** Narrowed field options this module ever sets — a subset of the SDK's own per-type `*Options`. */
-export interface CloudSearchFieldOptions {
-  facetEnabled?: boolean
-  searchEnabled?: boolean
-  returnEnabled?: boolean
-  analysisScheme?: string
+/** The `literal`/`literal-array` options this module ever sets, in the SDK's own casing. */
+export interface CloudSearchLiteralOptions {
+  SearchEnabled?: boolean
+  FacetEnabled?: boolean
+  ReturnEnabled?: boolean
+}
+
+/** The `text` options this module ever sets, in the SDK's own casing. */
+export interface CloudSearchTextOptions {
+  ReturnEnabled?: boolean
+  AnalysisScheme?: string
 }
 
 /**
- * One field this module wants defined on the domain, in the shape `init()` compares against what
- * `DescribeIndexFieldsCommand` reports back — a pure, testable description rather than the SDK's own
- * `IndexField` request shape, which splits options across a differently-named property per type
- * (`LiteralOptions`/`TextOptions`/`LiteralArrayOptions`) that `defaultAdminClient` below translates to
- * and from when it actually talks to AWS.
+ * One field this module wants defined on the domain — declared in the SDK's own `IndexField` shape,
+ * which is also the shape `DescribeIndexFieldsCommand` reports each field back in (as
+ * `IndexFieldStatus.Options`), so `init()` compares like with like and `defineIndexField` passes it
+ * straight through.
+ *
+ * This module used to declare its own flat `{ name, type, options: { searchEnabled, ... } }` shape
+ * and translate to and from the SDK's per-type option bags (`LiteralOptions`/`TextOptions`/
+ * `LiteralArrayOptions`) in both directions — 117 lines of translation whose only product was two
+ * spellings of the same field list. The `DefineIndexField` requests are unchanged by dropping it:
+ * where the translation set an option this module has no opinion about to `undefined`, this
+ * declaration simply omits the key, and the SDK's query serializer emits neither — verified against
+ * the real serializer for `updatedAt` and `hasPassword`, the only two fields where the shapes differ
+ * at all.
  */
-export interface CloudSearchFieldSpec {
-  name: string
-  type: CloudSearchFieldType
-  options: CloudSearchFieldOptions
+export interface CloudSearchIndexField {
+  IndexFieldName: string
+  IndexFieldType: CloudSearchFieldType
+  LiteralOptions?: CloudSearchLiteralOptions
+  TextOptions?: CloudSearchTextOptions
+  LiteralArrayOptions?: CloudSearchLiteralOptions
 }
 
 /**
@@ -85,91 +104,113 @@ export interface CloudSearchFieldSpec {
  * facet-enabled from the start so a caller gets the same filtering surface the `db` and `azure-search`
  * engines already offer, once task #562 wires a query adapter that can use it.
  */
-export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[] {
+export function buildIndexFields(analysisScheme: string): CloudSearchIndexField[] {
   return [
     {
-      name: 'id',
-      type: 'literal',
+      IndexFieldName: 'id',
+      IndexFieldType: 'literal',
       // -> Document key by convention (uploaded documents carry their `id` under this same field
       //    name); indexing/faceting on it would be meaningless.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: true }
     },
     {
-      name: 'siteId',
-      type: 'literal',
+      IndexFieldName: 'siteId',
+      IndexFieldType: 'literal',
       // -> OpenProject #2108: what `buildFilterQuery()` unconditionally terms every query against, so
       //    a query never returns another site's rows even when two sites' engine config happens to
-      //    point at the same domain. Same treatment as `hasPassword`/`classification` above: a literal
-      //    field is filterable via a `term` clause regardless of `searchEnabled`/`facetEnabled`, so
+      //    point at the same domain. Same treatment as `hasPassword`/`classification` below: a literal
+      //    field is filterable via a `term` clause regardless of `SearchEnabled`/`FacetEnabled`, so
       //    neither is needed here, and the value is never surfaced to a caller — `SearchResult` has no
-      //    `siteId` of its own — so it is not returned either. `hasUnbackfilledDocuments` below also
-      //    depends on this being a real provisioned field: it queries for its *absence* to gate
-      //    `rebuild()`'s purge.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: false }
-    },
-    { name: 'path', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'locale', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'title', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'description', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'content', type: 'text', options: { returnEnabled: false, analysisScheme } },
-    {
-      name: 'tags',
-      type: 'literal-array',
-      options: { facetEnabled: true, searchEnabled: true, returnEnabled: true }
+      //    `siteId` of its own — so it is not returned either.
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: false }
     },
     {
-      name: 'editor',
-      type: 'literal',
-      options: { facetEnabled: true, searchEnabled: true, returnEnabled: true }
+      IndexFieldName: 'path',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
     },
     {
-      name: 'publishState',
-      type: 'literal',
-      options: { facetEnabled: true, searchEnabled: true, returnEnabled: true }
+      IndexFieldName: 'locale',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
     },
     {
-      name: 'updatedAt',
-      type: 'literal',
+      IndexFieldName: 'title',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
+    },
+    {
+      IndexFieldName: 'description',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
+    },
+    {
+      IndexFieldName: 'content',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: false, AnalysisScheme: analysisScheme }
+    },
+    {
+      IndexFieldName: 'tags',
+      IndexFieldType: 'literal-array',
+      LiteralArrayOptions: { SearchEnabled: true, FacetEnabled: true, ReturnEnabled: true }
+    },
+    {
+      IndexFieldName: 'editor',
+      IndexFieldType: 'literal',
+      LiteralOptions: { SearchEnabled: true, FacetEnabled: true, ReturnEnabled: true }
+    },
+    {
+      IndexFieldName: 'publishState',
+      IndexFieldType: 'literal',
+      LiteralOptions: { SearchEnabled: true, FacetEnabled: true, ReturnEnabled: true }
+    },
+    {
+      IndexFieldName: 'updatedAt',
+      IndexFieldType: 'literal',
       // -> Task #562's own addition (this module's `query()`/hooks), same reasoning task #557 gave for
       //    adding fields to `azure-search`'s `buildIndexSchema`: an ISO-8601 string sorts
       //    lexicographically in chronological order, so a plain literal field is enough to satisfy
       //    `orderBy: 'updatedAt'` — CloudSearch has no dedicated field type this module needs beyond that.
-      options: { returnEnabled: true }
+      LiteralOptions: { ReturnEnabled: true }
     },
     {
-      name: 'icon',
-      type: 'literal',
+      IndexFieldName: 'icon',
+      IndexFieldType: 'literal',
       // -> Task #562's own addition. Same reasoning as `id`: carried through purely so `query()` can
       //    put it on `SearchResult.icon`, never searched or faceted.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: true }
     },
     {
-      name: 'hasPassword',
-      type: 'literal',
+      IndexFieldName: 'hasPassword',
+      IndexFieldType: 'literal',
       // -> Task #562's own addition. Stored as the literal strings `'true'`/`'false'` — CloudSearch has
       //    no boolean field type. Routes a document into the public or protected half of the
       //    `hideProtectedContent` split query (see `runProtectedSplitQuery` below), the same job
       //    `azure-search`'s own boolean `hasPassword` field does (task #557's design decision #1): an
       //    external index has no `password IS NULL` to check per-row the way postgres does. Never
       //    returned to a caller — `query()` only ever filters on it.
-      options: { searchEnabled: false, returnEnabled: false }
+      LiteralOptions: { SearchEnabled: false, ReturnEnabled: false }
     },
     {
-      name: 'classification',
-      type: 'literal',
+      IndexFieldName: 'classification',
+      IndexFieldType: 'literal',
       // -> OpenProject #1125: what `query()` checks a CLASSIFICATION rule against, populated at
       //    index time from `pages.classification` the same way `tags`/`editor`/`publishState` already
       //    are. Never searched or faceted, same treatment as `id`/`icon` above.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: true }
     }
   ]
 }
 
-/** One field as `DescribeIndexFieldsCommand` reports it back, narrowed to what `fieldMatches` compares. */
-export interface DescribedCloudSearchField {
-  name: string
-  type: string
-  options: CloudSearchFieldOptions
+/**
+ * The option bag a field of this type carries — exactly one of the three is ever set, so the first
+ * one present is the field's own.
+ */
+function optionsOf(field: CloudSearchIndexField): Record<string, unknown> {
+  return (field.LiteralOptions ?? field.TextOptions ?? field.LiteralArrayOptions ?? {}) as Record<
+    string,
+    unknown
+  >
 }
 
 /**
@@ -179,20 +220,19 @@ export interface DescribedCloudSearchField {
  * actually changed, so calling it unconditionally on every boot would mean an unconditional reindex
  * trigger too, defeating the point of checking at all.
  *
- * Only the keys `desired.options` sets are compared: `describedOptions` (built from the SDK's real
- * response by `defaultAdminClient` below) carries every option CloudSearch tracks for that field type,
- * most of them defaults this module never set and has no opinion about.
+ * Only the keys the desired field's options set are compared: what the domain reports back carries
+ * every option CloudSearch tracks for that field type, most of them defaults this module never set
+ * and has no opinion about.
  */
 export function fieldMatches(
-  desired: CloudSearchFieldSpec,
-  described: DescribedCloudSearchField | undefined
+  desired: CloudSearchIndexField,
+  described: CloudSearchIndexField | undefined
 ): boolean {
-  if (!described || described.type !== desired.type) {
+  if (!described || described.IndexFieldType !== desired.IndexFieldType) {
     return false
   }
-  return Object.entries(desired.options).every(
-    ([key, value]) => described.options[key as keyof CloudSearchFieldOptions] === value
-  )
+  const describedOptions = optionsOf(described)
+  return Object.entries(optionsOf(desired)).every(([key, value]) => describedOptions[key] === value)
 }
 
 /** One analysis scheme, as `DescribeAnalysisSchemesCommand` reports it back. */
@@ -218,8 +258,8 @@ export interface DescribedSuggester {
  * test never touches them directly.
  */
 export interface CloudSearchAdminClient {
-  describeIndexFields(domainName: string): Promise<DescribedCloudSearchField[]>
-  defineIndexField(domainName: string, field: CloudSearchFieldSpec): Promise<void>
+  describeIndexFields(domainName: string): Promise<CloudSearchIndexField[]>
+  defineIndexField(domainName: string, field: CloudSearchIndexField): Promise<void>
   describeAnalysisSchemes(domainName: string, name: string): Promise<DescribedAnalysisScheme[]>
   defineAnalysisScheme(domainName: string, name: string, language: string): Promise<void>
   describeSuggesters(domainName: string, name: string): Promise<DescribedSuggester[]>
@@ -227,66 +267,10 @@ export interface CloudSearchAdminClient {
   indexDocuments(domainName: string): Promise<void>
 }
 
-/** Turns this module's own field options into the SDK's per-type `*Options` request shape. */
-function toSdkIndexField(field: CloudSearchFieldSpec): {
-  IndexFieldName: string
-  IndexFieldType: CloudSearchFieldType
-  LiteralOptions?: { SearchEnabled?: boolean; FacetEnabled?: boolean; ReturnEnabled?: boolean }
-  TextOptions?: { ReturnEnabled?: boolean; AnalysisScheme?: string }
-  LiteralArrayOptions?: { SearchEnabled?: boolean; FacetEnabled?: boolean; ReturnEnabled?: boolean }
-} {
-  const base = { IndexFieldName: field.name, IndexFieldType: field.type }
-  switch (field.type) {
-    case 'text':
-      return {
-        ...base,
-        TextOptions: {
-          ReturnEnabled: field.options.returnEnabled,
-          AnalysisScheme: field.options.analysisScheme
-        }
-      }
-    case 'literal-array':
-      return {
-        ...base,
-        LiteralArrayOptions: {
-          SearchEnabled: field.options.searchEnabled,
-          FacetEnabled: field.options.facetEnabled,
-          ReturnEnabled: field.options.returnEnabled
-        }
-      }
-    default:
-      return {
-        ...base,
-        LiteralOptions: {
-          SearchEnabled: field.options.searchEnabled,
-          FacetEnabled: field.options.facetEnabled,
-          ReturnEnabled: field.options.returnEnabled
-        }
-      }
-  }
-}
-
-/** Turns the SDK's per-type `*Options` response shape back into this module's own field options. */
-function fromSdkIndexField(status: any): DescribedCloudSearchField {
-  const opts = status.Options ?? {}
-  const type = opts.IndexFieldType as string
-  const sdkOptions = opts.LiteralOptions ?? opts.TextOptions ?? opts.LiteralArrayOptions ?? {}
-  return {
-    name: opts.IndexFieldName,
-    type,
-    options: {
-      searchEnabled: sdkOptions.SearchEnabled,
-      facetEnabled: sdkOptions.FacetEnabled,
-      returnEnabled: sdkOptions.ReturnEnabled,
-      analysisScheme: sdkOptions.AnalysisScheme
-    }
-  }
-}
-
 /** Builds the real SDK admin client from a site's stored `region`/`accessKeyId`/`secretAccessKey` config. */
 function defaultAdminClientFactory(config: Record<string, any>): CloudSearchAdminClient {
   const client = new CloudSearchClient({
-    region: config.region || DEFAULT_REGION,
+    region: config.region,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey
@@ -295,14 +279,13 @@ function defaultAdminClientFactory(config: Record<string, any>): CloudSearchAdmi
   return {
     async describeIndexFields(domainName) {
       const res = await client.send(new DescribeIndexFieldsCommand({ DomainName: domainName }))
-      return (res.IndexFields ?? []).map(fromSdkIndexField)
+      // -> `IndexFieldStatus.Options` is the SDK's own `IndexField`, which is the shape
+      //    `buildIndexFields()` already declares, so there is nothing to translate here
+      return (res.IndexFields ?? []).map((f) => f.Options as CloudSearchIndexField)
     },
     async defineIndexField(domainName, field) {
       await client.send(
-        new DefineIndexFieldCommand({
-          DomainName: domainName,
-          IndexField: toSdkIndexField(field) as any
-        })
+        new DefineIndexFieldCommand({ DomainName: domainName, IndexField: field as any })
       )
     },
     async describeAnalysisSchemes(domainName, name) {
@@ -362,7 +345,7 @@ export interface SdfAddDocument {
 }
 
 /** One SDF entry removing a document. */
-export interface SdfDeleteDocument {
+interface SdfDeleteDocument {
   type: 'delete'
   id: string
 }
@@ -387,7 +370,7 @@ export function toIndexDocument(page: SearchIndexablePage): SdfAddDocument {
       icon: page.icon ?? '',
       hasPassword: page.password != null ? 'true' : 'false',
       classification: page.classification,
-      // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+      // -> Same conversion `api/pages/write.ts` uses for a `Date` column headed into an ISO string: an exact
       //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
       updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
     }
@@ -581,28 +564,6 @@ const PROTECTED_SEARCH_FIELDS = ['title', 'description']
 /** Fields `highlight` requests a fragment from — title is excluded, matching `azure-search`'s own choice. */
 const HIGHLIGHT_FIELDS = ['content', 'description']
 
-/**
- * Ceiling on how many of CloudSearch's own matches `query()` scans (per half, when split) before
- * deriving `totalHits` and the requested page from what survives `checkAccess()` (OpenProject
- * #2156, mirroring `db/search.ts`'s own `SCAN_CAP`). Bounded rather than unbounded, since page-rule
- * filtering cannot be expressed as a CloudSearch `filterQuery` and has to run per-row in this
- * process.
- */
-const SCAN_CAP = 500
-
-/**
- * Markers requested via each highlighted field's `pre_tag`/`post_tag`, in place of CloudSearch's own
- * default (`<em>`/`</em>`).
- *
- * Control characters, same reasoning as `azure-search`'s own `HL_START`/`HL_STOP` and the `db` engine's
- * `ts_headline` markers: the excerpt is page text that may itself contain anything, and it is
- * HTML-escaped before these are turned into `<b>` tags. Leaving CloudSearch's own `<em>`/`</em>` as the
- * markers would mean a page whose text happens to contain the literal string `<em>` gets it turned into
- * emphasis too.
- */
-const HL_START = ''
-const HL_STOP = ''
-
 /** The `highlight` request parameter: one fragment each from `content`/`description`, as plain text. */
 function highlightOption(): string {
   const options: Record<string, { format: 'text'; pre_tag: string; post_tag: string }> = {}
@@ -612,23 +573,13 @@ function highlightOption(): string {
   return JSON.stringify(options)
 }
 
-/** `escapeHtml` from the `db`/`azure-search` engines, copied rather than imported: each engine module stays self-contained. */
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-/** The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`. */
+/**
+ * The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`
+ * by the shared `normalizeMarkers` — which escapes it first, so the only markup that survives is the
+ * emphasis CloudSearch itself marked.
+ */
 function normalizeHighlight(highlights: Record<string, string> | undefined): string | null {
-  const fragment = highlights?.content ?? highlights?.description
-  if (!fragment) {
-    return null
-  }
-  // -> Escaped first, so the only markup that survives is the emphasis CloudSearch itself marked
-  return escapeHtml(fragment).replaceAll(HL_START, '<b>').replaceAll(HL_STOP, '</b>')
+  return normalizeMarkers(highlights?.content ?? highlights?.description)
 }
 
 /** All return-enabled fields, plus the relevance score — CloudSearch's `_all_fields` excludes `_score`. */
@@ -682,7 +633,7 @@ export interface CloudSearchHit {
 }
 
 /** The subset of a `SearchCommand` response this module reads. */
-export interface CloudSearchSearchResponse {
+interface CloudSearchSearchResponse {
   hits: { found: number; hit: CloudSearchHit[] }
 }
 
@@ -699,65 +650,11 @@ export interface CloudSearchQueryClient {
   search(request: CloudSearchSearchRequest): Promise<CloudSearchSearchResponse>
 }
 
-/**
- * Where `rebuild()` reads pages from — narrowed to what it needs, the same reasoning as
- * `CloudSearchAdminClient`/`CloudSearchQueryClient` above: a test hands it a fake that returns fixed
- * pages with no real postgres involved, rather than requiring a live database for logic that is really
- * about pagination and per-locale counting. Identical shape to `azure-search`'s own `RebuildPageSource`
- * (task #564), copied rather than imported — each engine module stays self-contained.
- */
-export interface RebuildPageSource {
-  /** Every distinct locale a site currently has at least one page in, in a stable order. */
-  locales(siteId: string): Promise<string[]>
-  /**
-   * One page of a site's rows for one locale, ordered by `id` so repeated calls with an increasing
-   * `offset` walk the whole set exactly once each, with no gaps or duplicates.
-   */
-  pageBatch(
-    siteId: string,
-    locale: string,
-    offset: number,
-    limit: number
-  ): Promise<SearchIndexablePage[]>
-}
-
-/** Rows read from postgres, and documents handed to `uploadBatch` (task #562's own SDF chunking), in one `rebuild()` step. */
-export const REBUILD_BATCH_SIZE = 500
-
-/**
- * The real, database-backed `RebuildPageSource`.
- *
- * Paginated rather than one `SELECT *`, the same reason `rebuild()` itself streams through
- * `uploadBatch` instead of building one giant document array: a site's full page set should never have
- * to fit in memory at once.
- */
-function defaultPageSource(): RebuildPageSource {
-  return {
-    async locales(siteId) {
-      const rows = await WIKI.db
-        .selectDistinct({ locale: pagesTable.locale })
-        .from(pagesTable)
-        .where(eq(pagesTable.siteId, siteId))
-        .orderBy(pagesTable.locale)
-      return rows.map((r) => r.locale)
-    },
-    async pageBatch(siteId, locale, offset, limit) {
-      return WIKI.db
-        .select()
-        .from(pagesTable)
-        .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale)))
-        .orderBy(asc(pagesTable.id))
-        .limit(limit)
-        .offset(offset)
-    }
-  }
-}
-
 /** Builds the real SDK document/query client from a site's stored `endpoint`/region/credentials config. */
 function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQueryClient {
   const client = new CloudSearchDomainClient({
     endpoint: config.endpoint,
-    region: config.region || DEFAULT_REGION,
+    region: config.region,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey
@@ -810,7 +707,7 @@ function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQuer
  * real AWS domain, network call, or credential involved — there is no local CloudSearch emulator either
  * (Feature #381).
  */
-export class AwsCloudSearchModule implements SearchModule {
+export class AwsCloudSearchModule extends ExternalSearchModule {
   private readonly clientFactory: (config: Record<string, any>) => CloudSearchAdminClient
   private readonly queryClientFactory: (config: Record<string, any>) => CloudSearchQueryClient
   private readonly pageSource: RebuildPageSource
@@ -839,6 +736,7 @@ export class AwsCloudSearchModule implements SearchModule {
     ) => CloudSearchQueryClient = defaultQueryClientFactory,
     pageSource: RebuildPageSource = defaultPageSource()
   ) {
+    super()
     this.clientFactory = clientFactory
     this.queryClientFactory = queryClientFactory
     this.pageSource = pageSource
@@ -867,18 +765,23 @@ export class AwsCloudSearchModule implements SearchModule {
   }
 
   /**
-   * The stored config for one site's `aws-cloudsearch` engine (`domain`/`endpoint`/region/credentials).
+   * The config for one site's `aws-cloudsearch` engine (`domain`/`endpoint`/region/credentials),
+   * completed with this engine's own `definition.yml` defaults.
    *
-   * Read straight off `WIKI.sites`, the same deliberate deviation `azure-search`'s own `configFor`
-   * documents (task #557's design decision #3): going through `models/search.ts`'s `getEngineConfig`
-   * needs `search.definitions` to already have been populated by `refreshFromDisk()` — a boot-time
-   * precondition this module has no reason to depend on. Every default that matters here is already
-   * applied locally wherever it's used (`region || DEFAULT_REGION` in the client factories above), so
-   * reading the stored value directly is equivalent for this module's purposes and keeps every hook
-   * usable in isolation.
+   * Read through `models/search.ts`'s `getEngineConfig`, the same path every other engine uses — see
+   * `azure-search`'s own `configFor` for the reasoning that replaced both modules' earlier
+   * read-straight-off-`WIKI.sites`: `index.ts` calls `refreshFromDisk()` before
+   * `initActiveEngines()`, so the definitions `getEngineConfig` completes against are always
+   * populated by the time any hook here runs, and `definition.yml` gets to be the single place
+   * `region` and `analysisSchemeLang`'s defaults are written down.
+   *
+   * `fillEmptyStringDefaults` is what keeps the *other* half of the `|| DEFAULT_REGION` behaviour
+   * this replaced: a value the operator cleared is stored as `''`, which `getEngineConfig`'s merge
+   * treats as a real value rather than as unset, so without it a blanked `region` would reach the
+   * AWS SDK as an empty string.
    */
   private configFor(siteId: string): Record<string, any> {
-    return (WIKI.sites[siteId]?.config?.search?.engines?.[MODULE_KEY] ?? {}) as Record<string, any>
+    return fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
   }
 
   /**
@@ -892,10 +795,15 @@ export class AwsCloudSearchModule implements SearchModule {
    * restarts. So this method describes what the domain already has first, only calls `DefineIndexField`
    * / `DefineAnalysisScheme` / `DefineSuggester` for what is missing or different, and requests a
    * reindex (`IndexDocumentsCommand`) only when at least one of those calls actually happened.
+   *
+   * `incoming` is completed the same way `configFor()` completes what it reads, so a cleared
+   * `analysisSchemeLang` or `region` falls back to its declared default rather than being sent as an
+   * empty string — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
     const domain = config.domain
-    const analysisSchemeLang = config.analysisSchemeLang || DEFAULT_ANALYSIS_SCHEME_LANG
+    const analysisSchemeLang = config.analysisSchemeLang
     const client = this.clientFor(siteId, config)
     let changed = false
 
@@ -907,9 +815,9 @@ export class AwsCloudSearchModule implements SearchModule {
     }
 
     const described = await client.describeIndexFields(domain)
-    const describedByName = new Map(described.map((f) => [f.name, f]))
+    const describedByName = new Map(described.map((f) => [f.IndexFieldName, f]))
     for (const field of buildIndexFields(ANALYSIS_SCHEME_NAME)) {
-      if (!fieldMatches(field, describedByName.get(field.name))) {
+      if (!fieldMatches(field, describedByName.get(field.IndexFieldName))) {
         await client.defineIndexField(domain, field)
         changed = true
       }
@@ -948,53 +856,27 @@ export class AwsCloudSearchModule implements SearchModule {
   /**
    * Write (or overwrite) one page's document in the index.
    *
-   * Never throws: a page that saved correctly must not report failure because its index entry could
-   * not be written — the same contract `indexPage` gives `models/search.ts`'s dispatcher in the `db`
-   * and `azure-search` engines. A later `rebuild()` (task #564) puts a missed write right.
+   * Never throws — see `ExternalSearchModule#neverThrows`: a page that saved correctly must not
+   * report failure because its index entry could not be written. A later `rebuild()` puts a missed
+   * write right.
    */
-  private async indexPage(page: SearchIndexablePage): Promise<void> {
-    try {
-      await this.uploadBatch(page.siteId, [toIndexDocument(page)])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to update the AWS CloudSearch index for page ${page.id}: ${err.message}`
-      )
-    }
+  protected async indexPage(page: SearchIndexablePage): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        await this.uploadBatch(page.siteId, [toIndexDocument(page)])
+      },
+      (message) => `Failed to update the AWS CloudSearch index for page ${page.id}: ${message}`
+    )
   }
 
   /** Remove one page's document from the index. Never throws — same contract as `indexPage`. */
-  private async removePage(siteId: string, pageId: string): Promise<void> {
-    try {
-      await this.uploadBatch(siteId, [{ type: 'delete', id: pageId }])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to remove page ${pageId} from the AWS CloudSearch index: ${err.message}`
-      )
-    }
-  }
-
-  async created(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async updated(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async deleted(siteId: string, pageId: string): Promise<void> {
-    await this.removePage(siteId, pageId)
-  }
-
-  /**
-   * `previousPath` goes unused: the document's key is the page's `id`, not its `path`, so a move is
-   * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
-   * under a new key. Same reasoning `azure-search`'s own `renamed` documents — unlike the `db` engine,
-   * whose `ts` vector never stores the path at all, this module's index does store `path` as a
-   * filterable field, so it does need rewriting here. A locale change is rewritten by the same
-   * reindex, which is why this module needs no `previousLocale` of its own either.
-   */
-  async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    await this.indexPage(page)
+  protected async removePage(siteId: string, pageId: string): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        await this.uploadBatch(siteId, [{ type: 'delete', id: pageId }])
+      },
+      (message) => `Failed to remove page ${pageId} from the AWS CloudSearch index: ${message}`
+    )
   }
 
   /** Runs one search against a site's domain. */
@@ -1015,9 +897,7 @@ export class AwsCloudSearchModule implements SearchModule {
    * site's ids too. `rebuild()`'s purge step (OpenProject #922) diffs this against what it just
    * re-uploaded for this site to find what should no longer be there — scoped to `siteId` so that diff
    * can never include a document belonging to a different site sharing the same domain
-   * (`buildFilterQuery`'s own doc comment explains why that is no longer a can't-happen case). See
-   * `hasUnbackfilledDocuments` below for why `rebuild()` only trusts this result once every document in
-   * the domain carries the field this filters on.
+   * (`buildFilterQuery`'s own doc comment explains why that is no longer a can't-happen case).
    */
   private async fetchAllIds(client: CloudSearchQueryClient, siteId: string): Promise<string[]> {
     const PAGE_SIZE = 1000
@@ -1041,31 +921,6 @@ export class AwsCloudSearchModule implements SearchModule {
       }
     }
     return ids
-  }
-
-  /**
-   * True when the domain still holds at least one document with no `siteId` value at all -- i.e. a
-   * document indexed before this module started stamping documents with their site (OpenProject
-   * #2108). A `siteId`-scoped `fetchAllIds()` can only be trusted as the *complete* list of what
-   * belongs to this site once every document in the domain -- this site's and any sibling site's
-   * sharing it -- carries the field: until then, an untagged document might be this site's own
-   * now-deleted page (a real ghost, invisible to the scoped list) or a sibling site's still-live page
-   * (which an unscoped list would wrongly purge), and there is no way to tell the two apart from the
-   * domain alone. `rebuild()` gates its purge step on this being `false` rather than guess, and skips
-   * the purge entirely (loudly, not silently) until it comes back clean.
-   *
-   * `(range field=siteId {,})` is CloudSearch's idiom for "this field has any value" (an unbounded
-   * range matches every document that set it, and there is no direct `IS NULL` operator); negating it
-   * finds the ones that didn't.
-   */
-  private async hasUnbackfilledDocuments(client: CloudSearchQueryClient): Promise<boolean> {
-    const { count } = await this.runQuery(client, {
-      query: 'matchall',
-      filterQuery: '(not (range field=siteId {,}))',
-      start: 0,
-      size: 1
-    })
-    return count > 0
   }
 
   /**
@@ -1146,54 +1001,29 @@ export class AwsCloudSearchModule implements SearchModule {
       rows = result.rows
     }
 
-    /*
-      Filtered here rather than in the filter query: a page rule can be a regular expression or a set
-      of tags, so the deciding rule is only knowable per row. Search must not be a way around page
-      permissions — a title and an excerpt are content too. Same discipline as the `db`/`azure-search`
-      engines.
-    */
-    const visible = actor
-      ? rows.filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: fieldValue(row, 'path'),
-            locale: fieldValue(row, 'locale'),
-            siteId,
-            tags: fieldValues(row, 'tags'),
-            // -> Indexed at write time by `toIndexDocument` (OpenProject #1125) -- a document written
-            //    before this field existed has none, which falls back to the same fail-closed `null`
-            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
-            //    full reindex (`rebuild()`) backfills every existing document with its real value.
-            classification: fieldValue(row, 'classification') || null
-          })
-        )
-      : rows
-
-    const results: SearchResult[] = visible.slice(offset, offset + limit).map((row) => ({
-      id: row.id,
+    const visible = filterVisible(rows, actor, siteId, (row) => ({
       path: fieldValue(row, 'path'),
       locale: fieldValue(row, 'locale'),
-      title: fieldValue(row, 'title'),
-      description: fieldValue(row, 'description') || null,
-      icon: fieldValue(row, 'icon') || null,
       tags: fieldValues(row, 'tags'),
-      updatedAt: fieldValue(row, 'updatedAt'),
-      relevancy: Number(fieldValue(row, '_score') || 0),
-      highlight: normalizeHighlight(row.highlights)
+      classification: fieldValue(row, 'classification') || null
     }))
 
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count CloudSearch
-      //    reported before filtering, and therefore never able to exceed what the actor can
-      //    actually read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: rows.length !== visible.length,
-      // -> No "did you mean" here: CloudSearch has no built-in fuzzy-title suggestion API comparable
-      //    to `db`'s `pg_trgm` similarity, and building one out of band is future scope, not this task's.
-      suggestion: null
-    }
+    return toSearchPagesResult(rows, visible, {
+      offset,
+      limit,
+      toResult: (row) => ({
+        id: row.id,
+        path: fieldValue(row, 'path'),
+        locale: fieldValue(row, 'locale'),
+        title: fieldValue(row, 'title'),
+        description: fieldValue(row, 'description') || null,
+        icon: fieldValue(row, 'icon') || null,
+        tags: fieldValues(row, 'tags'),
+        updatedAt: fieldValue(row, 'updatedAt'),
+        relevancy: Number(fieldValue(row, '_score') || 0),
+        highlight: normalizeHighlight(row.highlights)
+      })
+    })
   }
 
   /**
@@ -1277,14 +1107,9 @@ export class AwsCloudSearchModule implements SearchModule {
    * page deleted while this engine was unreachable -- the exact scenario `indexPage`'s own doc comment
    * names as what a later rebuild is supposed to put right -- stayed in the domain forever. Every id
    * belonging to this site currently in the domain (`fetchAllIds`, `siteId`-scoped since OpenProject
-   * #2108) that was not just re-uploaded is stale and gets removed with an SDF `delete` entry -- but
-   * only once `hasUnbackfilledDocuments` confirms every document in the domain already carries a
-   * `siteId` value, checked *after* this loop has re-uploaded every one of this site's own current
-   * pages: checking before it would count this site's own not-yet-backfilled pages as reason to skip,
-   * forcing a second rebuild before the purge could ever run. Checked after, the very first rebuild
-   * following this field's release can purge in the same pass it finishes backfilling, while still
-   * correctly deferring for as long as any neighbour site sharing the domain has pages of its own not
-   * yet reindexed.
+   * #2108) that was not just re-uploaded is stale and gets removed with an SDF `delete` entry. The
+   * purge runs *after* this loop has re-uploaded every one of this site's own current pages, so
+   * nothing it just wrote is ever mistaken for a ghost.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
@@ -1294,42 +1119,30 @@ export class AwsCloudSearchModule implements SearchModule {
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
-      let offset = 0
       let localePages = 0
-      let batch: SearchIndexablePage[]
-      do {
-        batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
-        if (batch.length > 0) {
-          await this.uploadBatch(siteId, batch.map(toIndexDocument))
-          for (const page of batch) {
-            uploadedIds.add(page.id)
-          }
-          localePages += batch.length
-          offset += batch.length
+      for await (const batch of localePageStream(this.pageSource, siteId, locale)) {
+        await this.uploadBatch(siteId, batch.map(toIndexDocument))
+        for (const page of batch) {
+          uploadedIds.add(page.id)
         }
-      } while (batch.length === REBUILD_BATCH_SIZE)
+        localePages += batch.length
+      }
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })
       WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
     }
 
-    if (await this.hasUnbackfilledDocuments(client)) {
-      WIKI.logger.info(
-        'Skipping stale-document purge for the AWS CloudSearch domain: some indexed documents predate the siteId field and have not yet been backfilled by a rebuild.'
+    const existingIds = await this.fetchAllIds(client, siteId)
+    const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
+    if (staleIds.length > 0) {
+      await this.uploadBatch(
+        siteId,
+        staleIds.map((id) => ({ type: 'delete' as const, id }))
       )
-    } else {
-      const existingIds = await this.fetchAllIds(client, siteId)
-      const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
-      if (staleIds.length > 0) {
-        await this.uploadBatch(
-          siteId,
-          staleIds.map((id) => ({ type: 'delete' as const, id }))
-        )
-        WIKI.logger.info(
-          `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
-        )
-      }
+      WIKI.logger.info(
+        `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
+      )
     }
 
     WIKI.logger.info(`AWS CloudSearch domain rebuild completed: ${result.pages} page(s) [ OK ]`)

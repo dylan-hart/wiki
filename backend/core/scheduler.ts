@@ -8,6 +8,7 @@ import crypto from 'node:crypto'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
 import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
 import { runWithJobExecutionContext } from '../helpers/jobExecutionContext.ts'
+import { withTimeout } from '../helpers/timeout.ts'
 import { camelCase } from 'es-toolkit/string'
 import { remove } from 'es-toolkit/array'
 import {
@@ -74,6 +75,31 @@ const SHUTDOWN_DRAIN_GRACE = 1000
  * and `processJob` runs concurrently with itself, so two notifications easily meet on the one client.
  */
 const notifier = createNotifier(() => WIKI.scheduler.pubsubClient, 'scheduler')
+
+/**
+ * Tell every instance that a job has finished, so an `addJob({ promise: true })` caller waiting on
+ * another instance's run of it settles (see `CompletionPromise` below).
+ *
+ * The three senders — a completed run, a failed one, and the sweep giving up on an interrupted job
+ * with no attempts left — wrote out the same envelope, which is exactly the sort of literal that
+ * drifts a field at a time until one listener silently stops matching.
+ */
+function notifyJobCompleted(
+  id: string,
+  state: 'success' | 'failed',
+  errorMessage?: string | null
+): void {
+  notifier.send(
+    'scheduler',
+    JSON.stringify({
+      source: WIKI.INSTANCE_ID,
+      event: 'jobCompleted',
+      state,
+      id,
+      ...(errorMessage !== undefined && { errorMessage })
+    })
+  )
+}
 
 /** A pending `addJob({ promise: true })` caller, waiting on the `jobCompleted` event. */
 interface CompletionPromise {
@@ -324,7 +350,7 @@ export default {
    * The only way a `completionPromises` entry ever otherwise settles is a `jobCompleted` NOTIFY
    * (`start()`'s `onNotification` handler above) — and postgres NOTIFY is not durable, so one missed
    * during a LISTEN reconnect is simply gone. Without this sweep that left the deferred, and everything
-   * awaiting it (`api/system.ts`'s check-update route, for one), pending forever, and the map entry
+   * awaiting it (`api/system/info.ts`'s check-update route, for one), pending forever, and the map entry
    * itself leaked for the life of the process. `added` (written by `addJob`, otherwise never read) is
    * what makes each entry's age checkable.
    */
@@ -361,27 +387,18 @@ export default {
    */
   async executeOnWorker(job: { task: string; payload?: any }): Promise<void> {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
-    let timer: NodeJS.Timeout | undefined
-    try {
-      await Promise.race([
-        this.workerPool!.execute(
-          { ...job, INSTANCE_ID: `${WIKI.INSTANCE_ID}:WKR` },
-          undefined,
-          AbortSignal.timeout(timeoutMs)
-        ),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            reject(
-              new Error(
-                `The worker running this task did not answer within ${timeoutMs / 1000}s. It may have crashed.`
-              )
-            )
-          }, timeoutMs + TASK_TIMEOUT_GRACE)
-        })
-      ])
-    } finally {
-      clearTimeout(timer)
-    }
+    await withTimeout(
+      this.workerPool!.execute(
+        { ...job, INSTANCE_ID: `${WIKI.INSTANCE_ID}:WKR` },
+        undefined,
+        AbortSignal.timeout(timeoutMs)
+      ),
+      timeoutMs + TASK_TIMEOUT_GRACE,
+      () =>
+        new Error(
+          `The worker running this task did not answer within ${timeoutMs / 1000}s. It may have crashed.`
+        )
+    )
   },
 
   /**
@@ -522,7 +539,7 @@ export default {
    * way, so one wedged task permanently costs `maxWorkers` slots (default 3), and the instance stops
    * claiming new jobs at all. Racing the call against a timer here is what makes that finite: the job
    * is recorded failed and retried with the usual backoff, exactly as a thrown task already is,
-   * `models/rendering.ts#drainQueue`'s `withRenderTimeout` is the in-repo precedent for this shape.
+   * through the shared `helpers/timeout.ts#withTimeout` every other bounded step in the repo uses.
    *
    * The task itself runs inside `runWithJobExecutionContext()` (OpenProject #2351): since it cannot
    * actually be cancelled, a task that calls `WIKI.models.jobs.setResult(jobId, ...)` after this
@@ -538,26 +555,21 @@ export default {
     retries?: number
   }): Promise<void> {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
-    let timer: NodeJS.Timeout | undefined
     const runTask = () => this.tasks![job.task](job.payload, job.id)
-    try {
-      await Promise.race([
+    // -> `Promise.resolve`, since a task may be written as a synchronous function: `Promise.race`
+    //    accepted a bare value, `withTimeout` takes a promise
+    await withTimeout(
+      Promise.resolve(
         job.id
           ? runWithJobExecutionContext({ jobId: job.id, attempt: (job.retries ?? 0) + 1 }, runTask)
-          : runTask(),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            reject(
-              new Error(
-                `Task ${job.task} did not complete within ${timeoutMs / 1000}s and was abandoned.`
-              )
-            )
-          }, timeoutMs)
-        })
-      ])
-    } finally {
-      clearTimeout(timer)
-    }
+          : runTask()
+      ),
+      timeoutMs,
+      () =>
+        new Error(
+          `Task ${job.task} did not complete within ${timeoutMs / 1000}s and was abandoned.`
+        )
+    )
   },
   /**
    * Run one already-claimed job and record how it went.
@@ -582,15 +594,7 @@ export default {
         })
         .where(eq(jobHistoryTable.id, job.id))
       WIKI.logger.info(`Completed job ${job.id}: ${job.task}`)
-      notifier.send(
-        'scheduler',
-        JSON.stringify({
-          source: WIKI.INSTANCE_ID,
-          event: 'jobCompleted',
-          state: 'success',
-          id: job.id
-        })
-      )
+      notifyJobCompleted(job.id, 'success')
     } catch (err: any) {
       // -> Only the terminal, retries-exhausted branch logs at `error`. A job that will still be
       //    retried logs at `warn`, matching the "Rescheduling new attempt" line below it — an
@@ -613,16 +617,7 @@ export default {
             lastErrorMessage: err.message
           })
           .where(eq(jobHistoryTable.id, job.id))
-        notifier.send(
-          'scheduler',
-          JSON.stringify({
-            source: WIKI.INSTANCE_ID,
-            event: 'jobCompleted',
-            state: 'failed',
-            id: job.id,
-            errorMessage: err.message
-          })
-        )
+        notifyJobCompleted(job.id, 'failed', err.message)
         // -> Reschedule for retry
         if (job.retries < job.maxRetries) {
           const backoffDelay = 2 ** job.retries * WIKI.config.scheduler.retryBackoff
@@ -692,16 +687,7 @@ export default {
           WIKI.logger.warn(
             `Job ${job.id}: ${job.task} was interrupted and has no attempts left [ SKIPPED ]`
           )
-          notifier.send(
-            'scheduler',
-            JSON.stringify({
-              source: WIKI.INSTANCE_ID,
-              event: 'jobCompleted',
-              state: 'failed',
-              id: job.id,
-              errorMessage: job.lastErrorMessage
-            })
-          )
+          notifyJobCompleted(job.id, 'failed', job.lastErrorMessage)
           continue
         }
         // -> `.onConflictDoNothing` makes this a no-op, not a duplicate-key throw, when the original
@@ -911,12 +897,15 @@ export default {
     WIKI.logger.info(
       `Waiting for ${this.inFlightJobs.size} in-flight job(s) to finish (up to ${timeoutMs}ms)...`
     )
-    let timer: NodeJS.Timeout
-    const bound = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, timeoutMs)
-      timer.unref?.()
-    })
-    await Promise.race([Promise.allSettled(Array.from(this.inFlightJobs)), bound])
-    clearTimeout(timer!)
+    // -> The bound expiring is this function doing its job, not a failure, so the rejection
+    //    `withTimeout` signals it with is swallowed here — `Promise.allSettled` itself never rejects,
+    //    so nothing else can reach this `catch`. `unref`, since this runs while the process is
+    //    already trying to exit and the ceiling must not by itself keep it alive.
+    await withTimeout(
+      Promise.allSettled(Array.from(this.inFlightJobs)),
+      timeoutMs,
+      () => new Error('Timed out waiting for in-flight jobs to finish.'),
+      { unref: true }
+    ).catch(() => [])
   }
 }

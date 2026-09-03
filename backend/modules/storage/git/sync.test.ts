@@ -18,6 +18,8 @@ import { simpleGit } from 'simple-git'
 import { sync, parseRenamedPaths, parseLocaleAndPath, processDiffEntry } from './sync.ts'
 import { ensureRepo } from './repo.ts'
 import { generatePathHash } from '../../../helpers/common.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'
@@ -49,9 +51,8 @@ function installWiki(
     upload: [] as any[]
   }
 
-  ;(globalThis as any).WIKI = {
+  installTestWiki({
     ROOTPATH: rootPath,
-    logger: { info: () => {}, warn: () => {}, error: () => {} },
     sites: {
       [SITE_ID]: {
         config: { locales: { primary: PRIMARY_LOCALE, active: [PRIMARY_LOCALE, 'fr'] } }
@@ -116,23 +117,16 @@ function installWiki(
         }))
       }
     }
-  }
+  })
 
   return calls
 }
 
 function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
-  return {
+  return makeStorageTarget('git', {
     id: 'target-1',
     siteId: SITE_ID,
-    module: 'git',
-    isEnabled: true,
     title: 'Local Git',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
     contentTypes: {
       activeTypes: ['pages', 'images', 'documents', 'others', 'large'],
       largeThreshold: '5MB'
@@ -150,7 +144,6 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       mode: 'sync',
       scheduleOverride: null
     },
-    props: {},
     config: {
       authType: 'basic',
       branch: 'main',
@@ -158,9 +151,8 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       defaultName: 'Fallback Name',
       defaultEmail: ADMIN_EMAIL
     },
-    actions: [],
     ...overrides
-  } as StorageTarget
+  })
 }
 
 /** A bare repo standing in for "origin", plus a working copy already pushed to it (`seedPath`). */
@@ -219,25 +211,25 @@ describe('git storage: parseRenamedPaths', () => {
 
 describe('git storage: parseLocaleAndPath', () => {
   test('a two-letter folder that is not an active locale stays a folder path', () => {
-    ;(globalThis as any).WIKI = {
+    installTestWiki({
       sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } }
-    }
+    })
     assert.deepEqual(parseLocaleAndPath(SITE_ID, 'it/setup'), { locale: 'en', path: 'it/setup' })
   })
 
   test('an active locale folder is recognized case-preservingly', () => {
-    ;(globalThis as any).WIKI = {
+    installTestWiki({
       sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'pt-BR'] } } } }
-    }
+    })
     assert.deepEqual(parseLocaleAndPath(SITE_ID, 'pt-BR/intro'), { locale: 'pt-BR', path: 'intro' })
     // -> A mis-cased folder still resolves to the code AS STORED, never a lowercased twin.
     assert.deepEqual(parseLocaleAndPath(SITE_ID, 'pt-br/intro'), { locale: 'pt-BR', path: 'intro' })
   })
 
   test('a file named after a locale code at the root is a primary-locale page, not an empty path', () => {
-    ;(globalThis as any).WIKI = {
+    installTestWiki({
       sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } }
-    }
+    })
     assert.deepEqual(parseLocaleAndPath(SITE_ID, 'fr'), { locale: 'en', path: 'fr' })
   })
 })

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { nextTick } from 'vue'
 
 import { dialog } from '@/composables/dialog'
@@ -9,6 +8,8 @@ import { dialog } from '@/composables/dialog'
 import EditorWysiwyg from './EditorWysiwyg.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /*
   `EditorWysiwyg.vue` opens `LinkPickerDialog` through the real `dialog()` composable, which just
@@ -37,7 +38,7 @@ function mountEditor(initialContent) {
   pageStore.content = initialContent
   const siteStore = useSiteStore()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(EditorWysiwyg, {
     global: { plugins: [i18n] }

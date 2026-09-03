@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { describe, test } from 'node:test'
-import { NotYetImplementedError } from '../connector.ts'
-import { IdMap } from '../id-map.ts'
 import { assetsPhase } from './assets.ts'
 import { contentPhase } from './content.ts'
 import { settingsPhase } from './settings.ts'
@@ -10,6 +8,7 @@ import { usersPhase } from './users.ts'
 import { MIGRATION_PHASES, MIGRATION_PHASE_IDS } from './index.ts'
 import type { MigrationContext } from '../context.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from '../connector.ts'
+import { stubSourceConnector } from '../../test/migrationFixtures.ts'
 
 /** Yields `count` bare records — enough for a phase to count, nothing about their shape matters. */
 async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
@@ -20,24 +19,7 @@ async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
 
 /** Every entity generator throws, matching both real connectors' current stub state. */
 function stubConnector(): SourceConnector {
-  const notImplemented = (method: string) => () => {
-    throw new NotYetImplementedError(method, 'some later task')
-  }
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'stub', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
-    pages: notImplemented('pages'),
-    pageHistory: notImplemented('pageHistory'),
-    tags: notImplemented('tags'),
-    navigation: notImplemented('navigation'),
-    settings: notImplemented('settings'),
-    comments: notImplemented('comments'),
-    assets: notImplemented('assets')
-  }
+  return stubSourceConnector()
 }
 
 /** A connector with working generators, so a phase's `run()` can be exercised to `status: 'ok'`. */
@@ -214,19 +196,17 @@ describe('migration phases', () => {
     assert.equal(result.notImplemented, undefined)
   })
 
-  test('usersPhase: bare records with no name/providerKey never reach a real create, so a run producing none stays not_implemented even once every entity generator works (Task 14 review fix)', async () => {
-    // -> Before the review fix, `phases/users.ts` counted every record `recorder.create()` was
-    //    handed as a create regardless of the importer's real per-record outcome, so this run's
-    //    bare `{id: i}` fixtures (no `name`/`providerKey`, so every one is `skipped`/`flagged`, never
-    //    `created`) looked exactly like a phase with real write capability. Corrected, zero records
-    //    are genuinely created here, so `define-phase.ts`'s write-capability tracking (a per-run
-    //    signal, not a structural one — see `phases/users.ts`'s own doc on this) folds `users` and
-    //    `userGroups` in alongside `groups`, which is `not_implemented` anyway (its connector
-    //    generator is still a stub in this fixture).
+  test('usersPhase: bare records with no name/providerKey are counted but never created, and only a still-stubbed entity generator is reported not_implemented', async () => {
+    // -> These bare `{id: i}` fixtures have no `name`/`providerKey`, so every one is
+    //    `skipped`/`flagged` by its converter and never `created` — read and counted all the same.
+    //    Only `groups` is not_implemented, because its connector generator is still a stub in this
+    //    fixture.
     const result = await usersPhase.run(contextWith(workingConnector({ users: 5 })))
     assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { users: 5, userGroups: 0 })
-    assert.deepEqual(result.notImplemented, ['groups', 'users', 'userGroups'])
+    assert.deepEqual(result.notImplemented, ['groups'])
+    assert.equal(result.report!.wouldCreate, 0)
+    assert.equal(result.report!.wouldSkipExisting, 5)
   })
 
   test('contentPhase reports not_implemented against the current connector stubs (both entities)', async () => {
@@ -311,28 +291,28 @@ describe('migration phases', () => {
     )
   })
 
-  test('assetsPhase (Task 16): bare records with no real stream/pageId never reach a real write, so a run producing none stays not_implemented (mirroring the same Task 14 review-fix pattern for users)', async () => {
+  test('assetsPhase (Task 16): bare records with no real stream all conflict, and only the still-stubbed comments generator is reported not_implemented', async () => {
     // -> workingConnector's bare `{id: i}` fixtures have no `stream` for importAsset() to read, so
     //    every one fails 'read-error' before ever reaching a real upload() call -- routed to
-    //    recorder.conflict(), never recorder.create(), so define-phase.ts's write-capability tracking
-    //    correctly folds 'assets' in alongside 'comments', which is not_implemented anyway (its
-    //    connector generator is still a stub in this fixture). `dryRun: true` (unlike
-    //    `contextWith()`'s own `dryRun: false` default) for the same reason every other assetsPhase
-    //    test in this file uses it: it is what keeps `entities()` construction fully WIKI-free (see
-    //    `phases/assets.ts`'s own "Dry run" doc section, and `resolvePrimaryLocale()` in `context.ts`)
-    //    — this test has no live `WIKI` global to read from, and doesn't need one either way, since no
-    //    record here ever reaches a real write regardless of `dryRun`.
+    //    recorder.conflict(), never recorder.create(). `dryRun: true` (unlike `contextWith()`'s own
+    //    `dryRun: false` default) for the same reason every other assetsPhase test in this file uses
+    //    it: it is what keeps `entities()` construction fully WIKI-free (see `phases/assets.ts`'s own
+    //    "Dry run" doc section, and `resolvePrimaryLocale()` in `context.ts`) — this test has no live
+    //    `WIKI` global to read from, and doesn't need one either way, since no record here ever
+    //    reaches a real write regardless of `dryRun`.
     const result = await assetsPhase.run({
       ...contextWith(workingConnector({ assets: 9 })),
       dryRun: true
     })
     assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { assets: 9 })
-    assert.deepEqual(result.notImplemented, ['comments', 'assets'])
+    assert.deepEqual(result.notImplemented, ['comments'])
+    assert.equal(result.report!.wouldCreate, 0)
+    assert.equal(result.report!.conflicts.length, 9)
   })
 
   test('assetsPhase (Task 16): a working connector with a genuinely importable asset and comments reports ok, correctly distinguishing success from failure per record', async () => {
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'fixture-page-uuid')
     const result = await assetsPhase.run({
       ...contextWith(creatableAssetsConnector()),
@@ -418,7 +398,7 @@ describe('migration phases', () => {
   test('usersPhase classifies an unsupported auth provider as unmappable; a flagged record is not counted as wouldCreate either (Task 14 review fix)', async () => {
     async function* users(): AsyncGenerator<SourceRecord> {
       // Alice: a local-provider user with no password hash to carry over -- `createLocalUserConverter`
-      // (`user-converters.ts`) flags rather than creates her. Before the review fix, `phases/users.ts`
+      // (`users-groups.ts`) flags rather than creates her. Before the review fix, `phases/users.ts`
       // counted her as `wouldCreate` regardless (every `recorder.create()` call it made counted
       // unconditionally, since the importer's real per-record outcome was discarded) -- this is the
       // exact case the fix corrects.
@@ -427,10 +407,9 @@ describe('migration phases', () => {
     }
     const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
     const result = await usersPhase.run(contextWith(connector))
-    // -> Neither Alice (flagged) nor Bob (unmappable) is ever created, so this particular run has no
-    //    genuine write-capability signal to give `define-phase.ts` -- see the `bare records...` test
-    //    above for the same, pre-existing, per-run (not structural) heuristic.
-    assert.equal(result.status, 'not_implemented')
+    // -> Every entity generator here is real, so the phase reports ok even though neither Alice
+    //    (flagged) nor Bob (unmappable) is ever created — the report, not the status, is what says so.
+    assert.equal(result.status, 'ok')
     assert.ok(result.report)
     assert.equal(result.report!.found, 2)
     assert.equal(result.report!.wouldCreate, 0)

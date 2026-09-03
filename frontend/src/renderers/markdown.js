@@ -14,6 +14,9 @@ import mdUnderline from './modules/markdown-it-underline'
 import mdImsize from './modules/markdown-it-imsize'
 import mdGithubAlerts from './modules/github-alerts'
 import mdGlossary from './modules/markdown-it-glossary'
+import mdMdcCompat from './modules/markdown-it-mdc-compat'
+import mdIconShortcode from './modules/markdown-it-icon-shortcode'
+import mdTex from './modules/markdown-it-tex'
 import twemoji from '@twemoji/api'
 
 // -> `lib/common`, not the `highlight.js` root: the root registers every language the package ships
@@ -25,7 +28,6 @@ import twemoji from '@twemoji/api'
 //    fence naming a language outside that set still renders -- see the `getLanguage` guard below --
 //    just without highlighting, the same as it always has for a typo'd or unknown language.
 import hljs from 'highlight.js/lib/common'
-import katex from 'katex'
 
 import { escape } from 'es-toolkit/string'
 
@@ -106,152 +108,6 @@ function closeIconTags(html) {
   return html.replace(SELF_CLOSED_ICON, '<iconify-icon$1></iconify-icon>')
 }
 
-/**
- * An icon written the way an emoji is: `:mdi:arrow-vertical-lock:`.
- *
- * The inner colon is what tells the two apart, and it is a reliable tell in both directions: an
- * Iconify reference is always `prefix:name` and an emoji shortcode never holds a colon. So the two
- * syntaxes can share the delimiter without either having to know about the other -- `:smile:` has
- * nothing here to match, and this rule runs while the inline is tokenized, well before the emoji
- * plugin's core rule ever looks at the text.
- *
- * Sticky rather than anchored, so it is matched at the cursor without slicing the source at every
- * colon in the document.
- *
- * The prefix must begin with a letter, which every Iconify set does. Without that, `10:30:45:` in a
- * line of prose is an icon reference as far as this is concerned.
- */
-const ICON_SHORTCODE = /:([a-z][a-z\d]*(?:-[a-z\d]+)*):([a-z\d]+(?:[-.][a-z\d]+)*):/y
-
-/** The inline rule behind it. `state.pos` is at a `:` for any of this to be worth trying. */
-function iconShortcode(state, silent) {
-  if (state.src.charCodeAt(state.pos) !== 0x3a /* : */) {
-    return false
-  }
-  ICON_SHORTCODE.lastIndex = state.pos
-  const match = ICON_SHORTCODE.exec(state.src)
-  // -> `posMax` is the end of what is being tokenized, which inside a link label is not the end of
-  //    the line: a match that runs past it belongs to the text after, not to this
-  if (!match || state.pos + match[0].length > state.posMax) {
-    return false
-  }
-  if (!silent) {
-    const token = state.push('iconify_icon', 'iconify-icon', 0)
-    token.markup = match[0]
-    token.content = `${match[1]}:${match[2]}`
-  }
-  state.pos += match[0].length
-  return true
-}
-
-/**
- * Inline TeX, `$x^2$` -- the literal single-dollar syntax 2.5.x authors wrote mid-sentence, confirmed
- * against upstream `markdown-it-katex`/`markdown-it-mathjax` and the false-positive class their own
- * guard existed for: `$5`, `$10` and the rest of ordinary currency prose. The rule (after Pandoc's own
- * `tex_math_dollars`, which solves exactly this) is adjacency, not content:
- *
- *  - `(?!\$)` on the open -- two dollars together are the START of display math (`$$`), never a
- *    zero-content inline formula, so this rule steps aside and lets `TEX_DISPLAY` have it.
- *  - `(?=\S)` right after the open, and `(?<=\S)` right before the close -- a real formula never has
- *    space touching its delimiters, but `$ 5 and $ 10` (space after the `$`) reads exactly like
- *    currency with awkward spacing, and this is what tells the two apart.
- *  - `(?!\d)` after the close -- the close of a genuine formula is never immediately followed by a
- *    digit, but the close of a currency figure usually is: "It costs $5 or $10" finds a candidate
- *    closing `$` right before "10" and rejects it on this alone, which is what keeps the whole phrase
- *    literal instead of reading "5 or " as a formula.
- *
- * `(?:\\.|[^\\$])+?` is the content itself: an escaped character (so `\$` inside a formula -- KaTeX's
- * own escape for a literal dollar sign glyph -- does not end the match early) or anything that is
- * neither a backslash nor a bare `$`. Non-greedy, so a formula ends at the NEAREST qualifying `$`
- * rather than swallowing everything up to the last one on the line.
- */
-const TEX_INLINE = /\$(?!\$)(?=\S)((?:\\.|[^\\$])+?)(?<=\S)\$(?!\d)/y
-
-/**
- * Display TeX, `$$x^2$$` -- centered, its own line typographically even mid-paragraph. No currency
- * amount is ever written with a doubled `$`, so none of `TEX_INLINE`'s adjacency guards apply here:
- * anything between the nearest pair of `$$` is the formula, including nothing at all -- an author who
- * scaffolds `$$` and has not typed a formula into it yet gets the same "this formula is empty" panel
- * `block-katex`/`block-mathjax` show for an empty fence, not a silently vanished pair of dollars.
- */
-const TEX_DISPLAY = /\$\$([\s\S]*?)\$\$/y
-
-/**
- * The literal HTML/MathML for one formula, or the error panel saying why it could not be typeset.
- *
- * Resolved here, synchronously, at markdown-it render time -- not deferred to a save-time pass in
- * `models/rendering.ts` the way `inlineIcons()` there resolves `<iconify-icon>` into a literal `<svg>`.
- * That deferral exists because an icon takes a network round trip (or a database lookup) to resolve;
- * a TeX formula does not; KaTeX runs synchronously in pure JS with nothing to await, exactly like the
- * syntax highlighter a few lines up in this same file (`hljs.highlight`, called synchronously inside
- * the `highlight` option). So the SAME literal-HTML outcome the icon path reaches through a second
- * backend pass, this reaches in one step, at the point the HTML is first produced -- which is also
- * the point whose OUTPUT is what gets sent up and stored, per this file's one-render-is-both-preview-
- * and-storage model. `models/rendering.ts`'s sanitiser already allow-lists the MathML tags and the
- * inline `style` attribute this produces -- see `BASE_ALLOWED_TAGS`'s "KaTeX renders to MathML" note.
- *
- * `trust` is left at its default (off), same reasoning as `block-katex`: it gates `\href`, `\url` and
- * `\includegraphics`, none of which belong to an author typing a formula into a sentence.
- */
-function texMathHtml(source, display) {
-  const trimmed = source.trim()
-  if (!trimmed) {
-    return texMathError(
-      'This formula is empty. Its TeX source goes directly between the $ delimiters.',
-      display
-    )
-  }
-  try {
-    return katex.renderToString(trimmed, {
-      displayMode: display,
-      output: 'htmlAndMathml',
-      throwOnError: true,
-      macros: {}
-    })
-  } catch (err) {
-    return texMathError(`This formula could not be typeset: ${err.message ?? err}`, display)
-  }
-}
-
-/**
- * The error panel itself -- reusing `block-katex`/`block-mathjax`'s own treatment (say why, don't
- * vanish) rather than inventing a second one, styled by `.tex-math-error` in `_page-contents.scss`.
- *
- * A `<span>` even for a display-mode failure, deliberately: this token sits inside a markdown-it
- * paragraph's inline content, and only a handful of tag names trigger an HTML parser's implied `</p>`
- * -- `span` is never one of them, so nesting stays valid however the CSS class then displays it.
- */
-function texMathError(message, display) {
-  return `<span class="tex-math-error${display ? ' tex-math-error--display' : ''}">${escape(message)}</span>`
-}
-
-/**
- * The inline rule behind both delimiters. `state.pos` is at a `$` for any of this to be worth trying;
- * a second `$` right there is what tells the two syntaxes apart.
- */
-function texMath(state, silent) {
-  if (state.src.charCodeAt(state.pos) !== 0x24 /* $ */) {
-    return false
-  }
-  const display = state.src.charCodeAt(state.pos + 1) === 0x24
-  const pattern = display ? TEX_DISPLAY : TEX_INLINE
-  pattern.lastIndex = state.pos
-  const match = pattern.exec(state.src)
-  // -> Bounded by `posMax` for the same reason `iconShortcode` is: inside a link label that is the end
-  //    of what is being tokenized, not the end of the line
-  if (!match || state.pos + match[0].length > state.posMax) {
-    return false
-  }
-  if (!silent) {
-    const token = state.push('tex_math', 'span', 0)
-    token.markup = match[0]
-    token.content = match[1]
-    token.meta = { display }
-  }
-  state.pos += match[0].length
-  return true
-}
-
 export class MarkdownRenderer {
   constructor(config = {}) {
     this.md = new MarkdownIt({
@@ -328,92 +184,13 @@ export class MarkdownRenderer {
       .use(mdImsize)
       .use(mdGithubAlerts)
       .use(mdGlossary, { terms: config.glossaryTerms })
-
-    /*
-      MDC's slot syntax, off for the same reason as inline components: it takes a line the author
-      meant as something else.
-
-      Inside a block body it claims every line starting with `#` whose second character is not a
-      space -- which is every markdown heading from `##` down. `::block-tabs` with a `### Step` in it
-      threw `Invalid block params: # Step` out of the renderer, leaving the editor's preview frozen on
-      the last good render with only a console error to say why, and a save then storing that stale
-      HTML. Nothing is lost by turning it off: a slot renders as `<template #name>`, and `template` is
-      not a tag a page may carry, so the server stripped every one of them anyway.
-    */
-    this.md.block.ruler.disable('mdc_block_slots')
-
-    /*
-      MDC's inline span, `[text]{.class}`, claims every `[` it meets — including the `[^1]` of a
-      footnote reference, which came out as `<span>^1</span>`. The note itself then vanished too,
-      since a definition nothing refers to is dropped. Rule order settles it whatever order the
-      plugins are added in: the span rule is registered before `link`, the footnote rule after
-      `image`, so the span always gets there first.
-
-      Wrapped rather than turned off, because the span is worth keeping and the two are only ever
-      confusable at `[^` — which is a footnote reference and nothing else. Reaching into `__rules__`
-      is the only way to get hold of the original: markdown-it can replace a rule by name but has no
-      way to read one back out.
-    */
-    const spanRule = this.md.inline.ruler.__rules__.find((rule) => rule.name === 'mdc_inline_span')
-    const inlineSpan = spanRule.fn
-    this.md.inline.ruler.at('mdc_inline_span', (state, silent) => {
-      if (state.src[state.pos] === '[' && state.src[state.pos + 1] === '^') {
-        return false
-      }
-      return inlineSpan(state, silent)
-    })
-
-    /*
-      MDC's inline props, `{.class}`, and `markdown-it-attrs` both claim `{`, and MDC gets there first
-      — it runs while the inline is being parsed, `markdown-it-attrs` in a core rule afterwards, so
-      whatever MDC takes is already gone by the time the braces would have become attributes.
-
-      That is what made `{.is-warning}` on the line under a blockquote do nothing at all: the braces
-      were eaten and the class never reached the element. The same collision crashed the render
-      outright — `Cannot read properties of undefined (reading 'tag')` out of MDC's own renderer —
-      when the braces opened an inline, since the props it parsed then had no node to attach to. In
-      the editor that reads as the preview freezing on the last good render, and a save then storing
-      that stale HTML.
-
-      The two are told apart by what comes before the brace, which is also what each one means by it:
-      MDC's props decorate the thing they are stuck to (`[text]{.cls}`, `![img](…){.cls}`), while a
-      brace opening a line, or standing off behind a space, is `markdown-it-attrs` addressing the
-      block as a whole. So MDC keeps every brace that abuts a preceding character and lets the rest
-      fall through to the core rule.
-    */
-    const propsRule = this.md.inline.ruler.__rules__.find(
-      (rule) => rule.name === 'mdc_inline_props'
-    )
-    const inlineProps = propsRule.fn
-    this.md.inline.ruler.at('mdc_inline_props', (state, silent) => {
-      const preceding = state.src[state.pos - 1]
-      if (preceding === undefined || /\s/.test(preceding)) {
-        return false
-      }
-      return inlineProps(state, silent)
-    })
-
-    /*
-      Icons written as shortcodes, `:mdi:home:`.
-
-      Registered ahead of every other inline rule so that the whole reference is claimed in one go.
-      Nothing else wants it -- MDC's inline component syntax, the only other rule that would take a
-      colon, is off above -- but the alternative is the emoji plugin's core rule, which runs over the
-      TEXT of a token that by then has already been split around the colons.
-    */
-    this.md.inline.ruler.before('text', 'iconify_icon', iconShortcode)
-    this.md.renderer.rules.iconify_icon = (tokens, idx) =>
-      `<iconify-icon icon="${tokens[idx].content}"></iconify-icon>`
-
-    /*
-      TeX authoring, `$x^2$` and `$$x^2$$` -- see `TEX_INLINE`/`TEX_DISPLAY` above for the currency
-      guard and `texMathHtml` for the rendering strategy. Registered the same way as the icon
-      shortcode just above: ahead of `text`, so the whole delimited span is claimed in one go rather
-      than reaching `text` already split around the `$` characters.
-    */
-    this.md.inline.ruler.before('text', 'tex_math', texMath)
-    this.md.renderer.rules.tex_math = (tokens, idx) =>
-      texMathHtml(tokens[idx].content, tokens[idx].meta.display)
+      /*
+        MDC's own quirks, told apart from the syntax this wiki already spends on footnotes,
+        `markdown-it-attrs` braces and markdown headings -- see the module for each case.
+      */
+      .use(mdMdcCompat)
+      .use(mdIconShortcode)
+      .use(mdTex)
 
     if (config.underline) {
       this.md.use(mdUnderline)

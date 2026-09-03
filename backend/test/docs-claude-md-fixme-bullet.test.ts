@@ -1,8 +1,9 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { listSourceFiles } from './sourceFiles.ts'
 
 import { GLOBAL_PERMISSIONS, PAGE_PERMISSIONS } from '../helpers/permissions.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
@@ -31,27 +32,11 @@ const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..
 const claudeMdPath = path.join(REPO_ROOT, 'CLAUDE.md')
 const backendDir = path.join(REPO_ROOT, 'backend')
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'compiled'])
 const SKIP_FILE_SUFFIXES = ['.test.ts', '.test.js', '.test.mjs']
-
-function walk(dir: string, out: string[]): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry)
-    const st = statSync(full)
-    if (st.isDirectory()) {
-      if (SKIP_DIR_NAMES.has(entry)) continue
-      walk(full, out)
-    } else if (st.isFile()) {
-      if (SKIP_FILE_SUFFIXES.some((suf) => entry.endsWith(suf))) continue
-      out.push(full)
-    }
-  }
-  return out
-}
 
 function countBackendFixmeMarkers(): number {
   let count = 0
-  for (const file of walk(backendDir, [])) {
+  for (const file of listSourceFiles(backendDir, { skip: SKIP_FILE_SUFFIXES })) {
     let content: string
     try {
       content = readFileSync(file, 'utf8')

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { DOMWrapper, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import EditorCodeBlockMenu from './EditorCodeBlockMenu.vue'
 import WMenu from './shared/WMenu.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression coverage for the filter/keyboard-Enter-selects-first-match flow named in task 481
@@ -24,7 +25,7 @@ afterEach(() => {
 })
 
 async function mountShown() {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   activeWrapper = mount(EditorCodeBlockMenu, { global: { plugins: [i18n] } })
   // -> `w-menu`'s content is `v-if="shown"`; the menu is empty until this fires
   await activeWrapper.findComponent(WMenu).vm.show()

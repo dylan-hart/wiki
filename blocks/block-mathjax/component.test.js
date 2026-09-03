@@ -2,24 +2,18 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { PACKAGES } from './component.js'
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * Appends a `<block-mathjax>` carrying `source` as its light-DOM body (the way the wiki's own
  * markdown renderer leaves it for an unfenced call — see block-gallery's component.test.js for the
  * precedent) and waits for Lit's first render.
  */
-async function mountMathjax(source) {
-  const el = document.createElement('block-mathjax')
-  el.textContent = source
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountMathjax = (source) => mountBlock('block-mathjax', { text: source })
 
 describe('block-mathjax', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   /*
     Feature 366 / Task 634 audited PACKAGES against 2.5.x's actual MathJax setup
@@ -86,4 +80,6 @@ describe('block-mathjax', () => {
 
     expect(el.shadowRoot.querySelector('.error')).not.toBeNull()
   })
+
+  describeDarkMode(() => mountMathjax(String.raw`x = y`))
 })

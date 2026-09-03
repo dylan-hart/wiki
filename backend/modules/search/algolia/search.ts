@@ -1,58 +1,46 @@
 import { algoliasearch } from 'algoliasearch'
-import { and, asc, eq, gt } from 'drizzle-orm'
-import { pages as pagesTable } from '../../../db/schema.ts'
 import { search } from '../../../models/search.ts'
+import { ExternalSearchModule } from '../externalBase.ts'
+import {
+  batchBySize,
+  buildSearchDocument,
+  fillEmptyStringDefaults,
+  filterVisible,
+  MAX_INDEXING_BYTES,
+  MAX_INDEXING_COUNT,
+  pageStream,
+  SCAN_CAP,
+  toSearchPagesResult
+} from '../shared.ts'
 import type { Algoliasearch } from 'algoliasearch'
-import type { SQL } from 'drizzle-orm'
+import type { SearchDocument } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
-  SearchModule,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'algolia'
 
 /**
- * Algolia's documented per-object and per-batch indexing limits, carried over unchanged from 2.5.x's
+ * Algolia's documented per-object indexing limit, carried over unchanged from 2.5.x's
  * `server/modules/search/algolia/engine.js` (`git show 343d4db0:server/modules/search/algolia/engine.js`),
- * which is the reference this module's `rebuild()` batching reproduces.
+ * which is the reference this module's `rebuild()` batching reproduces. The per-batch caps it is used
+ * alongside (`MAX_INDEXING_BYTES`/`MAX_INDEXING_COUNT`) are shared with the Elasticsearch module,
+ * which ported the identical pair from its own 2.5.x engine — see `modules/search/shared.ts`.
  */
 export const MAX_DOCUMENT_BYTES = 10 * 2 ** 10 // 10 KB
-export const MAX_INDEXING_BYTES = 10 * 2 ** 20 - Buffer.byteLength('[') - Buffer.byteLength(']') // 10 MB
-export const MAX_INDEXING_COUNT = 1000
-const COMMA_BYTES = Buffer.byteLength(',')
 
 /**
- * Ceiling on how many of Algolia's own matches `query()` scans before deriving `totalHits` and the
- * requested page from what survives `checkAccess()` (OpenProject #2156, mirroring `db/search.ts`'s
- * own `SCAN_CAP`). Bounded rather than unbounded, since page-rule filtering cannot be expressed as
- * an Algolia `filters` clause and has to run per-hit in this process.
+ * An Algolia record, as written by `pageToDocument` and read back by `query()`: the document every
+ * external engine writes, plus the two fields only Algolia needs — its own primary key, and the
+ * materialized path prefixes `buildFilters()` needs because Algolia has no prefix filter.
  */
-const SCAN_CAP = 500
-
-/** An Algolia record, as written by `pageToDocument` and read back by `query()`. */
-export interface AlgoliaPageDocument {
+export interface AlgoliaPageDocument extends SearchDocument {
   objectID: string
-  siteId: string
-  locale: string
-  path: string
   pathAncestors: string[]
-  title: string
-  description: string
-  icon: string | null
-  tags: string[]
-  editor: string
-  publishState: string
-  isSearchable: boolean
-  /** Classification level id (OpenProject #1079) — what `query()` checks a CLASSIFICATION rule against. */
-  classification: string
-  updatedAt: string
-  /** Absent for a password-protected page — see `pageToDocument`'s doc comment for why. */
-  content?: string
 }
 
 /**
@@ -141,48 +129,26 @@ export function buildFilters(params: SearchPagesParams): string {
 }
 
 /**
- * A page row, as an Algolia record.
- *
- * `content` is omitted entirely for a password-protected page, rather than sent and relied on to stay
- * hidden by a query-time flag: Algolia is a third party, and once a value has been transmitted to it,
- * a bug in a later `hideProtectedContent` check can no longer un-send it. Leaving `content` out means
- * such a page is only ever findable by its title or description -- which is exactly the set
- * `db/search.ts`'s `ts_filter(p.ts, '{a,b}')` restricts a protected page to -- without this module ever
- * depending on that restriction being re-checked correctly on every read.
+ * A page row, as an Algolia record: the shared `buildSearchDocument` plus Algolia's own primary key
+ * and the materialized path prefixes `buildFilters()` filters on.
  */
 export function pageToDocument(page: SearchIndexablePage): AlgoliaPageDocument {
-  const updatedAt =
-    page.updatedAt instanceof Date
-      ? page.updatedAt.toISOString()
-      : (page.updatedAt as unknown as string)
   return {
     objectID: page.id,
-    siteId: page.siteId,
-    locale: page.locale,
-    path: page.path,
     pathAncestors: pathAncestors(page.path),
-    title: page.title,
-    description: page.description ?? '',
-    icon: page.icon ?? null,
-    tags: page.tags ?? [],
-    editor: page.editor,
-    publishState: page.publishState,
-    isSearchable: page.isSearchable,
-    classification: page.classification,
-    updatedAt,
-    ...(page.password ? {} : { content: page.searchContent ?? '' })
+    ...buildSearchDocument(page)
   }
 }
 
 /** One page dropped from a batch by `batchDocuments()` for exceeding `MAX_DOCUMENT_BYTES` on its own. */
-export interface OversizedDocument {
+interface OversizedDocument {
   objectID: string
   path: string
   bytes: number
 }
 
 /** `batchDocuments()`'s return: the batches to send, plus what could not be. */
-export interface BatchDocumentsResult {
+interface BatchDocumentsResult {
   batches: AlgoliaPageDocument[][]
   skipped: OversizedDocument[]
 }
@@ -190,13 +156,10 @@ export interface BatchDocumentsResult {
 /**
  * Group an already-built list of Algolia documents into batches no larger than Algolia's documented
  * limits, based on 2.5.x's `processDocument`/`flushBuffer` buffering
- * (`server/modules/search/algolia/engine.js`, `git show 343d4db0:...`): a soft cap of
- * `MAX_INDEXING_COUNT` objects per batch and a hard cap of `MAX_INDEXING_BYTES` serialized bytes per
- * batch (accounting for the `,` joining each object once stringified into a JSON array).
- *
- * Pure and synchronous on purpose: `rebuild()` is the only caller, and keeping the size arithmetic
- * separate from anything that awaits a network call is what lets it be exercised directly, with plain
- * arrays, rather than through a live or faked Algolia client.
+ * (`server/modules/search/algolia/engine.js`, `git show 343d4db0:...`). The arithmetic itself is
+ * `shared.ts`'s `batchBySize` — the Elasticsearch module ported the identical algorithm from its own
+ * 2.5.x engine — and this wrapper is what names Algolia's own caps and shapes the diverted documents
+ * into what `rebuild()`'s warning needs to say about each.
  *
  * A document that alone exceeds Algolia's per-object cap (`MAX_DOCUMENT_BYTES`) is diverted into
  * `skipped` rather than included in any batch — no batch boundary could make it fit, and Algolia's
@@ -210,37 +173,20 @@ export interface BatchDocumentsResult {
  * page's own findability, not the rest of the site's.
  */
 export function batchDocuments(docs: AlgoliaPageDocument[]): BatchDocumentsResult {
-  const batches: AlgoliaPageDocument[][] = []
-  const skipped: OversizedDocument[] = []
-  let current: AlgoliaPageDocument[] = []
-  let bytes = 0
-
-  for (const doc of docs) {
-    const docBytes = Buffer.byteLength(JSON.stringify(doc))
-    if (docBytes >= MAX_DOCUMENT_BYTES) {
-      skipped.push({ objectID: doc.objectID, path: doc.path, bytes: docBytes })
-      continue
-    }
-    if (current.length > 0 && docBytes + COMMA_BYTES + bytes >= MAX_INDEXING_BYTES) {
-      batches.push(current)
-      current = []
-      bytes = 0
-    }
-    if (current.length > 0) {
-      bytes += COMMA_BYTES
-    }
-    bytes += docBytes
-    current.push(doc)
-    if (current.length >= MAX_INDEXING_COUNT) {
-      batches.push(current)
-      current = []
-      bytes = 0
-    }
+  const { batches, oversized } = batchBySize(docs, {
+    sizeOf: (doc) => Buffer.byteLength(JSON.stringify(doc)),
+    maxBytes: MAX_INDEXING_BYTES,
+    maxCount: MAX_INDEXING_COUNT,
+    maxItemBytes: MAX_DOCUMENT_BYTES
+  })
+  return {
+    batches,
+    skipped: oversized.map(({ item, bytes }) => ({
+      objectID: item.objectID,
+      path: item.path,
+      bytes
+    }))
   }
-  if (current.length > 0) {
-    batches.push(current)
-  }
-  return { batches, skipped }
 }
 
 /** One site's live Algolia client, plus the index it was built for. */
@@ -264,8 +210,13 @@ interface SiteClient {
  * `initActiveEngines()` do call `init()` now (OpenProject #920), but every hook below still resolves
  * its own client through `getClient()` independently, so this module keeps working the same way even
  * for a client built before either of those existed, or if `init()` itself ever fails.
+ *
+ * `created`/`updated`/`deleted`/`renamed` come from `ExternalSearchModule` — they forward to
+ * `indexPage`/`removePage` below and are identical across all four external engines. That includes
+ * `renamed`'s "a move is an ordinary re-index of the same `objectID`" reasoning, which used to be
+ * spelled out here and is now in the base class's own doc comment.
  */
-export class AlgoliaSearchModule implements SearchModule {
+export class AlgoliaSearchModule extends ExternalSearchModule {
   private clients = new Map<string, SiteClient>()
 
   /**
@@ -303,14 +254,14 @@ export class AlgoliaSearchModule implements SearchModule {
 
   /** Build (or reuse) the Algolia client for a site, from whatever config is currently stored for it. */
   private async getClient(siteId: string): Promise<SiteClient> {
-    const config = search.getEngineConfig(siteId, MODULE_KEY)
+    const config = fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
     const configKey = `${config.appId}:${config.apiKey}:${config.indexName}`
     const cached = this.clients.get(siteId)
     if (cached && cached.configKey === configKey) {
       return cached
     }
     const client = this.createClient(config.appId, config.apiKey)
-    const indexName = config.indexName || 'wiki'
+    const indexName = config.indexName
     await this.setSettings(client, indexName)
     const entry: SiteClient = { client, indexName, configKey }
     this.clients.set(siteId, entry)
@@ -321,10 +272,14 @@ export class AlgoliaSearchModule implements SearchModule {
    * Push the index configuration (`searchableAttributes`, facets) for a site as soon as it is
    * (re)configured, and cache the client `query`/`created`/etc. reuse afterwards -- see the class doc
    * comment for why every other hook does not strictly depend on this having been called first.
+   *
+   * `incoming` is completed the same way `getClient()` completes what it reads, so a cleared
+   * `indexName` provisions `wiki` rather than an unnamed index — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
     const client = this.createClient(config.appId, config.apiKey)
-    const indexName = config.indexName || 'wiki'
+    const indexName = config.indexName
     await this.setSettings(client, indexName)
     this.clients.set(siteId, {
       client,
@@ -333,49 +288,28 @@ export class AlgoliaSearchModule implements SearchModule {
     })
   }
 
-  async created(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async updated(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
   /**
-   * Never throws: a page that saved correctly must not report failure because Algolia could not be
-   * reached -- same reasoning, and same try/catch shape, as `db/search.ts`'s `indexPage`.
+   * Never throws — see `ExternalSearchModule#neverThrows`: a page that saved correctly must not
+   * report failure because Algolia could not be reached.
    */
-  private async indexPage(page: SearchIndexablePage): Promise<void> {
-    try {
-      const { client, indexName } = await this.getClient(page.siteId)
-      await client.saveObject({ indexName, body: pageToDocument(page) })
-    } catch (err: any) {
-      WIKI.logger.warn(`(SEARCH/ALGOLIA) Failed to index page ${page.id}: ${err.message}`)
-    }
+  protected async indexPage(page: SearchIndexablePage): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const { client, indexName } = await this.getClient(page.siteId)
+        await client.saveObject({ indexName, body: pageToDocument(page) })
+      },
+      (message) => `(SEARCH/ALGOLIA) Failed to index page ${page.id}: ${message}`
+    )
   }
 
-  async deleted(siteId: string, pageId: string): Promise<void> {
-    try {
-      const { client, indexName } = await this.getClient(siteId)
-      await client.deleteObject({ indexName, objectID: pageId })
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `(SEARCH/ALGOLIA) Failed to remove page ${pageId} from the index: ${err.message}`
-      )
-    }
-  }
-
-  /**
-   * Unlike 2.5.x -- which derived an object's `objectID` from a hash of its path and locale, so a
-   * rename had to `deleteObject` the old id and `addObject` a new one -- this schema's `pages.id` is a
-   * stable UUID a move never touches (`models/pages.ts`'s `movePage` updates the row in place). A
-   * rename is therefore an ordinary update of the same Algolia object via `saveObject`, which keeps the
-   * page continuously findable instead of briefly missing between a delete and an add. A locale
-   * change is rewritten by the same update, which is why this module needs no `previousLocale` of
-   * its own either.
-   */
-  async renamed(_siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    await this.indexPage(page)
+  protected async removePage(siteId: string, pageId: string): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const { client, indexName } = await this.getClient(siteId)
+        await client.deleteObject({ indexName, objectID: pageId })
+      },
+      (message) => `(SEARCH/ALGOLIA) Failed to remove page ${pageId} from the index: ${message}`
+    )
   }
 
   async query(params: SearchPagesParams): Promise<SearchPagesResult> {
@@ -400,42 +334,21 @@ export class AlgoliaSearchModule implements SearchModule {
     })
     const hits = response.hits ?? []
 
-    /*
-      Algolia has no server-side permission model of its own, so a result it returns has to be
-      filtered the same way `db/search.ts` filters its own rows: per-row, against the actor's page
-      rules, since which rule applies can depend on a regular expression or a page's tags that no
-      Algolia `filters` clause could express.
-    */
-    // -> Paired with its ORIGINAL position in `hits` before filtering, so relevancy (below) still
-    //    reflects Algolia's own overall ordering after a denied hit is dropped and after the
-    //    caller's own page is sliced out of the filtered set.
-    const visible = (
-      actor
-        ? hits
-            .map((hit, originalIndex) => ({ hit, originalIndex }))
-            .filter(({ hit }) =>
-              WIKI.models.groups.checkAccess(actor, 'read:pages', {
-                path: hit.path,
-                locale: hit.locale,
-                siteId,
-                tags: hit.tags ?? [],
-                // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document
-                //    written before this field existed has none, which falls back to the same
-                //    fail-closed `null` treatment `helpers/pageRules.ts` documents for a genuinely
-                //    unknown classification. A full reindex (`rebuild()`) backfills every existing
-                //    document with its real value.
-                classification: hit.classification ?? null
-              })
-            )
-        : hits.map((hit, originalIndex) => ({ hit, originalIndex }))
-    ) as {
-      hit: AlgoliaPageDocument
-      originalIndex: number
-    }[]
+    // -> Each hit is paired with its ORIGINAL position in `hits` before filtering, so relevancy
+    //    (below) still reflects Algolia's own overall ordering after a denied hit is dropped and
+    //    after the caller's own page is sliced out of the filtered set.
+    const scanned = hits.map((hit, originalIndex) => ({ hit, originalIndex }))
+    const visible = filterVisible(scanned, actor, siteId, ({ hit }) => ({
+      path: hit.path,
+      locale: hit.locale,
+      tags: hit.tags ?? [],
+      classification: hit.classification ?? null
+    }))
 
-    const results: SearchResult[] = visible
-      .slice(offset, offset + limit)
-      .map(({ hit, originalIndex }) => ({
+    return toSearchPagesResult(scanned, visible, {
+      offset,
+      limit,
+      toResult: ({ hit, originalIndex }) => ({
         id: hit.objectID,
         path: hit.path,
         locale: hit.locale,
@@ -453,23 +366,8 @@ export class AlgoliaSearchModule implements SearchModule {
         //    and every protected page's `content` is never indexed in the first place (`pageToDocument`),
         //    so there would be nothing to snippet from for those regardless.
         highlight: null
-      }))
-
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- the whole `SCAN_CAP` window,
-      //    filtered, before `offset`/`limit` slices this page's `results` out of it -- never
-      //    Algolia's own `nbHits`, and therefore never able to exceed what the actor can actually
-      //    read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: hits.length !== visible.length,
-      // -> No "did you mean" here: Algolia's own typo-tolerance already retries a query internally,
-      //    which is a different mechanism from `db`'s pg_trgm-based post-hoc suggestion and not
-      //    something this module surfaces as a distinct suggestion string.
-      suggestion: null
-    }
+      })
+    })
   }
 
   /**
@@ -498,41 +396,10 @@ export class AlgoliaSearchModule implements SearchModule {
 
     const pageCounts: Record<string, number> = {}
     let total = 0
-    let cursor: string | null = null
     const skippedTotal: OversizedDocument[] = []
 
-    for (;;) {
-      const condition: SQL = cursor
-        ? and(eq(pagesTable.siteId, siteId), gt(pagesTable.id, cursor))!
-        : eq(pagesTable.siteId, siteId)
-      const rows = await WIKI.db
-        .select({
-          id: pagesTable.id,
-          siteId: pagesTable.siteId,
-          locale: pagesTable.locale,
-          path: pagesTable.path,
-          title: pagesTable.title,
-          description: pagesTable.description,
-          icon: pagesTable.icon,
-          tags: pagesTable.tags,
-          editor: pagesTable.editor,
-          publishState: pagesTable.publishState,
-          isSearchable: pagesTable.isSearchable,
-          classification: pagesTable.classification,
-          password: pagesTable.password,
-          searchContent: pagesTable.searchContent,
-          updatedAt: pagesTable.updatedAt
-        })
-        .from(pagesTable)
-        .where(condition)
-        .orderBy(asc(pagesTable.id))
-        .limit(PAGE_SIZE)
-
-      if (rows.length === 0) {
-        break
-      }
-
-      const docs = rows.map((row) => pageToDocument(row as unknown as SearchIndexablePage))
+    for await (const rows of pageStream(siteId, { pageSize: PAGE_SIZE })) {
+      const docs = rows.map((row) => pageToDocument(row))
       const { batches, skipped } = batchDocuments(docs)
       for (const doc of skipped) {
         WIKI.logger.warn(
@@ -558,11 +425,6 @@ export class AlgoliaSearchModule implements SearchModule {
           continue
         }
         pageCounts[row.locale] = (pageCounts[row.locale] ?? 0) + 1
-      }
-
-      cursor = rows[rows.length - 1]!.id
-      if (rows.length < PAGE_SIZE) {
-        break
       }
     }
 

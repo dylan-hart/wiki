@@ -1,24 +1,8 @@
-import { LitElement, html, css } from 'lit'
+import { css } from 'lit'
 
+import { I18n } from '../shared/i18n.js'
 import { DarkMode } from '../shared/theme.js'
-
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value — `autoplay="false"` is what the block picker produces for a
- * toggle that was switched on and off again — and Lit's own Boolean converter reads any string at all
- * as true, that one included.
- *
- * It is also what lets a prop here default to ON, which the note in `block-index` rules out for a
- * block using the stock converter: `controls` is left out of the markup while it holds its default,
- * and written as `controls="false"` the moment it does not, which this reads back correctly.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
+import { VideoEmbedElement } from '../shared/video-embed.js'
 
 /** Every Vimeo host a link can arrive on: the share link and the player's own address. */
 const HOSTS = /^(?:www\.)?vimeo\.com$/
@@ -67,7 +51,7 @@ function parseUrl(source) {
  * and the frame is the only thing here: the player, its controls and everything it does are Vimeo's,
  * driven by the parameters below.
  */
-export class BlockVimeoElement extends LitElement {
+export class BlockVimeoElement extends VideoEmbedElement {
   /**
    * Metadata for the admin area and the editor's block picker. Collected at build time into
    * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
@@ -129,113 +113,47 @@ export class BlockVimeoElement extends LitElement {
     ]
   }
 
-  static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
-
-      /*
-        The frame's box, and the gap below the block. On this element rather than :host: see
-        block-index.
-
-        -> A max-width rather than a plain width, so a player asked for at 1280 on a phone is the
-           width of the phone instead of pushing the page sideways. The aspect ratio then keeps it
-           widescreen at whatever width it ends up with, which is what a fixed height would not.
-      */
+  /*
+    The shared player shell, plus the border this one draws around it — a Vimeo player's own frame
+    sits flush to its edges, so without one it has no boundary against the page.
+  */
+  static styles = [
+    ...VideoEmbedElement.styles,
+    css`
       .player {
-        max-width: 100%;
-        margin-bottom: 16px;
-        border-radius: 5px;
-        overflow: hidden;
         border: 1px solid #e0e0e0;
-        background-color: #000;
       }
 
       :host([dark]) .player {
         border-color: rgba(255, 255, 255, 0.15);
       }
-
-      iframe {
-        display: block;
-        width: 100%;
-        height: 100%;
-        border: 0;
-      }
-
-      .error {
-        margin-bottom: 16px;
-        padding: 1rem;
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        color: var(--q-negative, #c10015);
-      }
     `
-  }
-
-  static get properties() {
-    return {
-      /**
-       * Address of the video
-       * @type {string}
-       */
-      url: { type: String },
-
-      /**
-       * Width of the player in pixels
-       * @type {number}
-       */
-      width: { type: Number },
-
-      /**
-       * Height of the player in pixels
-       * @type {number}
-       */
-      height: { type: Number },
-
-      /**
-       * Whether to start without being asked
-       * @type {boolean}
-       */
-      autoplay: boolean,
-
-      /**
-       * Whether the play bar is shown
-       * @type {boolean}
-       */
-      controls: boolean,
-
-      /**
-       * Whether the fullscreen button is offered
-       * @type {boolean}
-       */
-      fs: boolean,
-
-      /**
-       * Whether to start again at the end
-       * @type {boolean}
-       */
-      loop: boolean
-    }
-  }
+  ]
 
   constructor() {
     super()
-    this.url = ''
-    this.width = null
-    this.height = null
-    this.autoplay = false
-    this.controls = true
-    this.fs = true
-    this.loop = false
     // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
+    // -> Resolves the two messages below against the page's locale; see `../shared/i18n.js`
+    this._i18n = new I18n(this)
   }
 
-  /** A prop given a usable number, or null for one left empty. */
-  _size(value) {
-    const size = Number(value)
-    return Number.isFinite(size) && size > 0 ? size : null
+  _providerName() {
+    return 'Vimeo'
+  }
+
+  _parse(source) {
+    return parseUrl(source)
+  }
+
+  _missingSourceMessage() {
+    return this._i18n.t('blocks.vimeo.errors.missingUrl', super._missingSourceMessage())
+  }
+
+  _invalidSourceMessage(source) {
+    return this._i18n.t('blocks.vimeo.errors.invalidUrl', super._invalidSourceMessage(source), {
+      url: source
+    })
   }
 
   /**
@@ -273,45 +191,6 @@ export class BlockVimeoElement extends LitElement {
     }
     const query = params.toString()
     return `https://player.vimeo.com/video/${id}${query ? `?${query}` : ''}`
-  }
-
-  render() {
-    const video = parseUrl(this.url ?? '')
-    if (!video) {
-      return html`
-        <div class="error">
-          ${
-            this.url?.trim()
-              ? `${this.url} is not the address of a Vimeo video.`
-              : 'This player needs the address of a Vimeo video.'
-          }
-        </div>
-      `
-    }
-
-    const width = this._size(this.width)
-    const height = this._size(this.height)
-    /*
-      A height that was asked for wins outright; without one the frame is widescreen, which is the
-      shape all but the oldest videos are. Letterboxing inside the frame is Vimeo's business either
-      way -- the player fits the video to whatever box it is given.
-    */
-    const style = [
-      width ? `width: ${width}px` : 'width: 100%',
-      height ? `height: ${height}px` : 'aspect-ratio: 16 / 9'
-    ].join('; ')
-
-    return html`
-      <div class="player" style=${style}>
-        <iframe
-          src=${this._embedUrl(video)}
-          title="Vimeo video player"
-          loading="lazy"
-          referrerpolicy="strict-origin-when-cross-origin"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          ?allowfullscreen=${this.fs}></iframe>
-      </div>
-    `
   }
 }
 

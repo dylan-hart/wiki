@@ -1,9 +1,11 @@
 import { sql } from 'drizzle-orm'
+import { escapeLikePattern } from '../../../helpers/common.ts'
 import {
   search,
   SUGGEST_TITLE_CANDIDATES,
   SUGGEST_TITLE_THRESHOLD
 } from '../../../models/search.ts'
+import { filterVisible, HL_START, HL_STOP, normalizeMarkers } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -20,7 +22,7 @@ import type {
  *
  * An operator can override or extend this from the admin area, which is what `dictOverrides` is for.
  */
-export const DEFAULT_DICTIONARIES: Record<string, string> = {
+const DEFAULT_DICTIONARIES: Record<string, string> = {
   ar: 'arabic',
   ca: 'catalan',
   da: 'danish',
@@ -53,7 +55,7 @@ export const DEFAULT_DICTIONARIES: Record<string, string> = {
 }
 
 /** The dictionary used when a locale has no mapping, or when its mapping is not installed. */
-export const FALLBACK_DICTIONARY = 'simple'
+const FALLBACK_DICTIONARY = 'simple'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'db'
@@ -78,29 +80,6 @@ const OVERFETCH_GROWTH_FACTOR = 4
  * the site.
  */
 const OVERFETCH_HARD_CAP = 5000
-
-/**
- * Markers `ts_headline` wraps a matched term in.
- *
- * Control characters, because the excerpt is page text that may itself contain anything: it is HTML
- * escaped before these are turned into tags, so a page whose text reads `<script>` cannot come back as
- * markup. Anything that could occur in real text would defeat that.
- */
-const HL_START = '\u0002'
-const HL_STOP = '\u0003'
-
-/** Escape the LIKE wildcards, so that a path filter is a prefix rather than a pattern. */
-function escapeLikePrefix(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
 
 /**
  * The `db` search module: postgres full-text search against the wiki's own database.
@@ -164,7 +143,7 @@ class DbSearchModule implements SearchModule {
    */
   async getAvailableDictionaries(): Promise<string[]> {
     const rows = await WIKI.db.execute(sql`SELECT cfgname FROM pg_ts_config ORDER BY cfgname`)
-    return (rows.rows ?? rows).map((r: any) => r.cfgname as string)
+    return rows.rows.map((r: any) => r.cfgname as string)
   }
 
   /**
@@ -288,7 +267,9 @@ class DbSearchModule implements SearchModule {
       conditions.push(sql`p."publishState" = ${publishState}`)
     }
     if (path) {
-      conditions.push(sql`p.path LIKE ${`${escapeLikePrefix(path)}%`}`)
+      // -> `escapeLikePattern` makes the filter literal; the trailing `%` is what turns it into a
+      //    prefix match rather than an exact one.
+      conditions.push(sql`p.path LIKE ${`${escapeLikePattern(path)}%`}`)
     }
     if (locales.length > 0) {
       // -> `sql.param`, because a bare array is expanded into a list of placeholders rather than
@@ -365,25 +346,22 @@ class DbSearchModule implements SearchModule {
     `
 
     /*
-      Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
-      the deciding rule is only knowable per row. Search must not be a way around page permissions —
-      a title and an excerpt are content too.
+      Filtered by `shared.ts`'s `filterVisible` rather than in SQL: a page rule can be a regular
+      expression or a set of tags, so the deciding rule is only knowable per row. Search must not be
+      a way around page permissions — a title and an excerpt are content too. The same helper, and
+      the same discipline, as all four external engines.
 
       This runs over every scanned row in the candidate window (see the over-fetch loop below), not
       just the caller's page of `limit` results -- `totalHits` further down is derived from
       `visibleRows.length`, so it has to see every row that survived the query before the caller's
       `offset`/`limit` window is sliced out of it.
     */
-    const filterVisible = (candidates: any[]): any[] =>
-      candidates.filter((row) =>
-        WIKI.models.groups.checkAccess(actor!, 'read:pages', {
-          path: row.path as string,
-          locale: row.locale as string,
-          siteId,
-          tags: (row.tags ?? []) as string[],
-          classification: (row.classification as string | null) ?? null
-        })
-      )
+    const toRef = (row: any) => ({
+      path: row.path as string,
+      locale: row.locale as string,
+      tags: (row.tags ?? []) as string[],
+      classification: (row.classification as string | null) ?? null
+    })
 
     /*
       A plain `LIMIT`/`OFFSET` window filtered afterward shrinks whenever a rule denies a row inside
@@ -408,8 +386,8 @@ class DbSearchModule implements SearchModule {
       let candidateLimit = Math.min(needed + OVERFETCH_MARGIN, OVERFETCH_HARD_CAP)
       for (;;) {
         const fetched = await WIKI.db.execute(rowsQuery(candidateLimit, 0))
-        rawRows = (fetched.rows ?? fetched) as any[]
-        visibleRows = filterVisible(rawRows)
+        rawRows = fetched.rows as any[]
+        visibleRows = filterVisible(rawRows, actor, siteId, toRef)
         const exhausted = rawRows.length < candidateLimit
         if (visibleRows.length >= needed || exhausted || candidateLimit >= OVERFETCH_HARD_CAP) {
           break
@@ -418,7 +396,7 @@ class DbSearchModule implements SearchModule {
       }
     } else {
       const fetched = await WIKI.db.execute(rowsQuery(limit, offset))
-      rawRows = (fetched.rows ?? fetched) as any[]
+      rawRows = fetched.rows as any[]
       visibleRows = rawRows
     }
 
@@ -435,11 +413,7 @@ class DbSearchModule implements SearchModule {
       updatedAt: row.updatedAt as string,
       relevancy: Number(row.relevancy ?? 0),
       // -> Escaped first, so the only markup that survives is the emphasis postgres marked
-      highlight: row.highlight
-        ? escapeHtml(row.highlight as string)
-            .replaceAll(HL_START, '<b>')
-            .replaceAll(HL_STOP, '</b>')
-        : null
+      highlight: normalizeMarkers(row.highlight as string | null)
     }))
 
     /*
@@ -510,17 +484,12 @@ class DbSearchModule implements SearchModule {
 
     // -> Same reasoning as `query`: which rule covers a candidate can depend on a regular
     //    expression or its tags, neither of which the query above could express.
-    const visible = actor
-      ? ((rows.rows ?? rows) as any[]).filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: row.path as string,
-            locale: row.locale as string,
-            siteId,
-            tags: (row.tags ?? []) as string[],
-            classification: (row.classification as string | null) ?? null
-          })
-        )
-      : ((rows.rows ?? rows) as any[])
+    const visible = filterVisible(rows.rows as any[], actor, siteId, (row) => ({
+      path: row.path as string,
+      locale: row.locale as string,
+      tags: (row.tags ?? []) as string[],
+      classification: (row.classification as string | null) ?? null
+    }))
 
     return (visible[0]?.title as string | undefined) ?? null
   }
@@ -543,7 +512,7 @@ class DbSearchModule implements SearchModule {
     const localeRows = await WIKI.db.execute(
       sql`SELECT DISTINCT locale FROM pages WHERE "siteId" = ${siteId} ORDER BY locale`
     )
-    const locales = ((localeRows.rows ?? localeRows) as any[]).map((r) => r.locale as string)
+    const locales = (localeRows.rows as any[]).map((r) => r.locale as string)
 
     WIKI.logger.info(`Rebuilding the search index for ${locales.length} locale(s)...`)
     const result: RebuildResult = { pages: 0, locales: [] }

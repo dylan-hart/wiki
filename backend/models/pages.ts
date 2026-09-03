@@ -1,29 +1,29 @@
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
+  BCRYPT_ROUNDS,
   CustomError,
-  defaultLocale,
   generatePathHash,
+  isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import {
+  assertLocaleActive,
+  assertPathNotReservedLocale,
+  defaultLocale
+} from '../helpers/localeRouting.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
+import { announce } from './hooks.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
-import type { RenderPermissions, TocNode } from './rendering.ts'
+import type { RenderPermissions } from '../helpers/htmlSanitizePolicy.ts'
+import type { TocNode } from './rendering.ts'
 import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
-import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
-
-/**
- * Cost factor `bcrypt` hashes a page's password at — the same one `models/users.ts` hashes account
- * passwords and recovery codes with (OpenProject #2232). `pages.password` stores this hash, never the
- * cleartext: `unlockPage()` checks a guess against it with `bcrypt.compare`, the same shape a login
- * check uses.
- */
-const pagePasswordBcryptRounds = 12
+import type { WikiTx } from '../core/db.ts'
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -207,7 +207,7 @@ export interface PageInput {
   /**
    * Backdates the new page's `createdAt` column instead of stamping the moment `createPage()` runs.
    * The editor UI has no field for this and never sets it, so ordinary saves keep the column's
-   * `now()` default; only the migration importer (`backend/migration/page-import.ts`) supplies it, to
+   * `now()` default; only the migration importer (`backend/migration/importers/page-import.ts`) supplies it, to
    * carry a source page's real creation time across rather than replacing it with import time — the
    * bug upstream requarks/wiki#4631 describes ("Importing from Local File System is ignoring
    * dateCreated and date fields").
@@ -278,7 +278,7 @@ export interface BacklinkRow {
  * structurally an `AccessActor` (`models/groups.ts`) too, and `hasPermission()` passes it straight
  * into `checkAccess()`, so a scoped key's `write:scripts`/`write:styles` grant is narrowed the same
  * way `checkAccess()` narrows every other page-rule permission (OpenProject #930) — omitting it here
- * would leave `api/pages.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
+ * would leave `api/pages/write.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
  *
  * `siteId`, likewise, is the same key's site pin (`ApiKeyIdentity.siteId`, OpenProject #2189) —
  * omitting it here is exactly what would have left a personal access token's `write:scripts`/
@@ -310,7 +310,7 @@ export interface PageActor {
  *
  * `write:scripts`/`write:styles` are granted by a group's page rules, not by the group-wide
  * permission list (`PageActor.permissions` alone), so this asks `WIKI.models.groups.checkAccess()` —
- * the same per-page decision `mayOnPage()` makes in `api/pages.ts` — rather than scanning
+ * the same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — rather than scanning
  * `actor.permissions`, which a page-rule-only grant would never appear in.
  */
 export function hasPermission(actor: PageActor, permission: string, page: RulePageRef): boolean {
@@ -490,7 +490,7 @@ class Pages {
    * are exactly two: the `GET` route, and `unlockPage` below.
    *
    * @param unlocked Whether the password has been satisfied for this requester. Route-level concern:
-   *                 see `unlockedFor` in `api/pages.ts`. A function is called with the row's path,
+   *                 see `unlockedFor` in `helpers/pageAccess.ts`. A function is called with the row's path,
    *                 locale and tags once it is in hand — not just the id — because `unlockedFor` needs
    *                 them to ask `mayOnPage()` whether a page RULE bypasses the password, and the row is
    *                 the only place that has them when the caller only knew a path hash going in.
@@ -642,65 +642,6 @@ class Pages {
       .from(pagesTable)
       .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
     return new Map(rows.map((row) => [row.id, row]))
-  }
-
-  /**
-   * The immediate-parent classification floor for a set of `(locale, path)` pairs, in one query over
-   * their distinct parent paths — the batched form of `parentClassification`, for a caller checking
-   * the floor invariant against many targets at once (the classification-conflicts resolve route,
-   * OpenProject #1897/#1902).
-   *
-   * @returns A Map keyed by `${locale}\0${path}` (the ORIGINAL pair passed in, not the derived parent
-   *          path) so a caller looks up each of its own targets directly without re-deriving the
-   *          parent path itself. Every input pair gets an entry — `null` when `path` is root-level or
-   *          its parent has no page (an empty folder), the same "null means no floor" contract
-   *          `parentClassification` itself has.
-   */
-  async parentClassifications(
-    siteId: string,
-    entries: { locale: string; path: string }[]
-  ): Promise<Map<string, string | null>> {
-    const keyOf = (locale: string, path: string) => `${locale}\0${path}`
-    const result = new Map<string, string | null>()
-    const parentOf = new Map<string, { locale: string; parentPath: string }>()
-    for (const { locale, path } of entries) {
-      result.set(keyOf(locale, path), null)
-      const parentPath = path.split('/').slice(0, -1).join('/')
-      if (parentPath) {
-        parentOf.set(keyOf(locale, path), { locale, parentPath })
-      }
-    }
-    if (parentOf.size < 1) {
-      return result
-    }
-    const distinctParents = new Map<string, { locale: string; parentPath: string }>()
-    for (const parent of parentOf.values()) {
-      distinctParents.set(keyOf(parent.locale, parent.parentPath), parent)
-    }
-    const rows = await WIKI.db
-      .select({
-        locale: pagesTable.locale,
-        path: pagesTable.path,
-        classification: pagesTable.classification
-      })
-      .from(pagesTable)
-      .where(
-        and(
-          eq(pagesTable.siteId, siteId),
-          or(
-            ...[...distinctParents.values()].map(({ locale, parentPath }) =>
-              and(eq(pagesTable.locale, locale), eq(pagesTable.path, parentPath))
-            )
-          )
-        )
-      )
-    const floorByParent = new Map(
-      rows.map((row) => [keyOf(row.locale, row.path), row.classification])
-    )
-    for (const [entryKey, parent] of parentOf) {
-      result.set(entryKey, floorByParent.get(keyOf(parent.locale, parent.parentPath)) ?? null)
-    }
-    return result
   }
 
   /**
@@ -858,147 +799,6 @@ class Pages {
   }
 
   /**
-   * The immediate parent PAGE's classification, or null when there is none -- either because `path`
-   * is at the root, or because nothing is actually published at the parent path (an empty folder).
-   *
-   * "Immediate parent only" is the floor invariant's own scope (OpenProject #1080): a page is checked
-   * against its immediate parent's classification, not the whole ancestor chain, since a real parent
-   * already satisfies the floor against ITS OWN parent by induction.
-   *
-   * Public rather than private: `api/pages.ts`'s classification-conflicts resolve route needs it to
-   * enforce the same floor invariant against an admin-chosen target level (see that route's own
-   * comment on why `bulkSetClassification` alone was not enough).
-   */
-  async parentClassification(
-    siteId: string,
-    locale: string,
-    path: string,
-    db: WikiDbOrTx = WIKI.db
-  ): Promise<string | null> {
-    const parentPath = path.split('/').slice(0, -1).join('/')
-    if (!parentPath) {
-      return null
-    }
-    const rows = await db
-      .select({ classification: pagesTable.classification })
-      .from(pagesTable)
-      .where(
-        and(
-          eq(pagesTable.siteId, siteId),
-          eq(pagesTable.locale, locale),
-          eq(pagesTable.path, parentPath)
-        )
-      )
-      .limit(1)
-    return rows[0]?.classification ?? null
-  }
-
-  /**
-   * The classification a new page should be created with, and the floor-invariant check on an
-   * explicitly requested one (OpenProject #1079/#1080).
-   *
-   * No parent page to inherit a floor from (root-level, or an empty folder) means no constraint: an
-   * explicit request is honored as given, and the default is the most-open configured level.
-   */
-  private async resolveCreateClassification(
-    siteId: string,
-    locale: string,
-    path: string,
-    requested: string | undefined
-  ): Promise<string> {
-    const floorId = await this.parentClassification(siteId, locale, path)
-    if (requested) {
-      if (!WIKI.models.classificationLevels.byId(requested)) {
-        throw new CustomError(
-          'classificationInvalid',
-          'This classification level does not exist.',
-          400
-        )
-      }
-      if (floorId && !WIKI.models.classificationLevels.meetsFloor(requested, floorId)) {
-        throw new CustomError(
-          'classificationBelowFloor',
-          "A page's classification cannot be more open than its parent page's.",
-          400
-        )
-      }
-      return requested
-    }
-    return floorId ?? WIKI.models.classificationLevels.defaultLevel().id
-  }
-
-  /**
-   * Every published page under `parentPath` (any depth) whose classification sits below `floorId` --
-   * what a retroactive parent-classification raise surfaces for an admin to resolve explicitly rather
-   * than cascading silently (OpenProject #1080's "classification resolution dialog").
-   */
-  async descendantsBelowFloor(
-    siteId: string,
-    locale: string,
-    parentPath: string,
-    floorId: string
-  ): Promise<{ id: string; path: string; title: string; classification: string }[]> {
-    const prefix = `${parentPath}/`
-    const rows = await WIKI.db
-      .select({
-        id: pagesTable.id,
-        path: pagesTable.path,
-        title: pagesTable.title,
-        classification: pagesTable.classification
-      })
-      .from(pagesTable)
-      .where(
-        and(
-          eq(pagesTable.siteId, siteId),
-          eq(pagesTable.locale, locale),
-          sql`${pagesTable.path} LIKE ${prefix + '%'}`
-        )
-      )
-    return rows.filter(
-      (row) => !WIKI.models.classificationLevels.meetsFloor(row.classification, floorId)
-    )
-  }
-
-  /**
-   * Bump a set of pages (by id, all on this site) to a classification, in one transaction -- what
-   * resolving a classification-resolution-dialog conflict actually does to the descendants an admin
-   * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
-   * place that decides who may call this and validates the target level, the same layering
-   * `updatePage`'s own caller (`api/pages.ts`) already follows for the declassification guardrail.
-   *
-   * `.returning()` gets the raw rows for free off the same write -- exactly what
-   * `WIKI.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above
-   * explains why), and without it every external search module keeps indexing the old
-   * classification, so a raise leaves those pages searchable at their prior, more open level (an
-   * external module decides `read:pages` visibility per-hit off the indexed copy -- see
-   * `modules/search/algolia/search.ts`). And since `pageClassification` is part of what
-   * `glossary.ts#getRawCachedTerms` caches per term, a batch that changes it needs the cache dropped
-   * too -- one call after the loop covers the whole batch, same as `deleteOrphaned`'s glossary
-   * invalidation.
-   */
-  async bulkSetClassification(
-    siteId: string,
-    ids: string[],
-    classification: string
-  ): Promise<number> {
-    if (ids.length < 1) {
-      return 0
-    }
-    const rows = await WIKI.db
-      .update(pagesTable)
-      .set({ classification, updatedAt: sql`now()` })
-      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
-      .returning()
-    for (const row of rows) {
-      await WIKI.models.search.updated(row)
-    }
-    if (rows.length > 0) {
-      WIKI.models.glossary.invalidateCache(siteId)
-    }
-    return rows.length
-  }
-
-  /**
    * Create a page.
    *
    * @param actor Who is saving it. Their permissions decide what survives sanitizing.
@@ -1009,28 +809,12 @@ class Pages {
     }
 
     const path = normalizePath(input.path)
-    const firstSegment = path.split('/')[0] ?? ''
-    if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
-      throw new CustomError(
-        'pageReservedLocaleSegment',
-        `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
-        400
-      )
-    }
+    await assertPathNotReservedLocale(path)
     const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
     //    into a locale that no longer exists
-    const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-      defaultLocale(siteId)
-    ]
-    if (!activeLocales.includes(locale)) {
-      throw new CustomError(
-        'pageInvalidLocale',
-        `This site does not have the "${locale}" locale enabled.`,
-        400
-      )
-    }
+    assertLocaleActive(siteId, locale)
     const title = (input.title ?? '').trim()
     if (title.length < 1) {
       throw new CustomError('pageTitleMissing', 'A page needs a title.')
@@ -1045,19 +829,10 @@ class Pages {
     }
 
     const hash = generatePathHash(path)
-    const duplicate = await WIKI.db
-      .select({ id: pagesTable.id })
-      .from(pagesTable)
-      .where(
-        and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale), eq(pagesTable.path, path))
-      )
-      .limit(1)
-    if (duplicate.length > 0) {
-      throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
-    }
+    await this.assertNoPageAt(siteId, locale, path)
 
     const alias = await this.validateAlias(siteId, input.alias)
-    const classification = await this.resolveCreateClassification(
+    const classification = await WIKI.models.pageClassification.resolveCreateClassification(
       siteId,
       locale,
       path,
@@ -1079,7 +854,7 @@ class Pages {
     */
     const hasRenderInput = input.render !== undefined
     if (!hasRenderInput) {
-      await WIKI.models.rendering.ensureCanRender(editor)
+      await WIKI.models.renderQueue.ensureCanRender(editor)
     }
 
     const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
@@ -1115,9 +890,7 @@ class Pages {
           //    doorway to the page the reader actually wanted, which is the one search should offer
           isSearchable: isRedirect ? false : (input.isSearchable ?? true),
           locale,
-          password: input.password
-            ? await bcrypt.hash(input.password, pagePasswordBcryptRounds)
-            : null,
+          password: input.password ? await bcrypt.hash(input.password, BCRYPT_ROUNDS) : null,
           path,
           publishState: input.publishState ?? 'published',
           publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
@@ -1137,7 +910,7 @@ class Pages {
     } catch (err: any) {
       // -> The probe above already covers the common case; this catches the race it cannot close --
       //    two requests that both pass the probe before either inserts
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
       throw err
@@ -1177,27 +950,17 @@ class Pages {
     //    change this, and why it doesn't apply yet.
 
     await WIKI.models.search.created(page)
-    await WIKI.models.hooks.emit('page:create', siteId, {
-      id: page.id,
-      path: page.path,
-      locale,
+    await announce(
+      'page:create',
       siteId,
-      authorId: actor.id,
-      metadata: { title: page.title, description: page.description, editor }
-    })
-    await WIKI.models.storage.dispatch('page:create', {
-      id: page.id,
-      path: page.path,
-      locale,
-      siteId,
-      authorId: actor.id
-    })
+      { id: page.id, path: page.path, locale, siteId, authorId: actor.id },
+      { metadata: { title: page.title, description: page.description, editor } }
+    )
     // -> A freshly created page defaults to published and browsable, so it can join the sitemap
-    //    immediately -- the cached list has to reflect that on the very next request.
-    this.invalidateSitemapCache(siteId)
-    // -> A brand new page is a brand new graph node (and possibly new edges, if its relations/links
-    //    point at existing pages) -- the cached graph bundle has to reflect it too.
-    invalidateGraphCache(siteId)
+    //    immediately -- the cached list has to reflect that on the very next request. A brand new page
+    //    is also a brand new graph node (and possibly new edges, if its relations/links point at
+    //    existing pages), so the cached graph bundle has to reflect it too.
+    this.invalidateSiteCaches(siteId)
 
     const finalPage = (await this.getPage({ siteId, id: page.id })) as Page
 
@@ -1293,9 +1056,7 @@ class Pages {
       values.isSearchable = isRedirect ? false : patch.isSearchable
     }
     if (patch.password !== undefined) {
-      values.password = patch.password
-        ? await bcrypt.hash(patch.password, pagePasswordBcryptRounds)
-        : null
+      values.password = patch.password ? await bcrypt.hash(patch.password, BCRYPT_ROUNDS) : null
     }
     if (patch.relations !== undefined) {
       values.relations = patch.relations
@@ -1304,7 +1065,7 @@ class Pages {
       values.tags = patch.tags
     }
     // -> The declassification GUARDRAIL permission (`manage:classification`, OpenProject #1080) is
-    //    checked one layer up, in `api/pages.ts` -- the same layering every other page-rule
+    //    checked one layer up, in `api/pages/write.ts` -- the same layering every other page-rule
     //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
     //    page's classification, whichever direction it moves, may never end up below its immediate
     //    parent's floor.
@@ -1316,21 +1077,12 @@ class Pages {
     const classificationChanged =
       patch.classification !== undefined && patch.classification !== existing.classification
     if (patch.classification !== undefined) {
-      if (!WIKI.models.classificationLevels.byId(patch.classification)) {
-        throw new CustomError(
-          'classificationInvalid',
-          'This classification level does not exist.',
-          400
-        )
-      }
-      const floorId = await this.parentClassification(siteId, existing.locale, existing.path)
-      if (floorId && !WIKI.models.classificationLevels.meetsFloor(patch.classification, floorId)) {
-        throw new CustomError(
-          'classificationBelowFloor',
-          "A page's classification cannot be more open than its parent page's.",
-          400
-        )
-      }
+      const floorId = await WIKI.models.pageClassification.parentClassification(
+        siteId,
+        existing.locale,
+        existing.path
+      )
+      WIKI.models.pageClassification.assertClassificationMeetsFloor(patch.classification, floorId)
       values.classification = patch.classification
     }
 
@@ -1351,7 +1103,7 @@ class Pages {
     const hasRenderInput = patch.render !== undefined
     const needsRerenderQueue = patch.content !== undefined && !hasRenderInput
     if (needsRerenderQueue) {
-      await WIKI.models.rendering.ensureCanRender(existing.editor)
+      await WIKI.models.renderQueue.ensureCanRender(existing.editor)
     }
 
     // -> A render only means anything next to the content it came from, so the two move together --
@@ -1468,6 +1220,9 @@ class Pages {
       authorId: actor.id,
       metadata: { title: updated.title, description: updated.description }
     })
+    // -> The `page:edit` pair is split around this one rather than going through `announce()`: a
+    //    classification change emits its own webhook (with no storage dispatch of its own) BETWEEN
+    //    the edit's emit and its dispatch, and that ordering is what a subscriber sees.
     if (classificationChanged) {
       await WIKI.models.hooks.emit('page:classification-changed', siteId, {
         id,
@@ -1487,16 +1242,14 @@ class Pages {
       authorId: actor.id
     })
     // -> Any of title/icon/tags/classification/relations/links can move in a plain edit, all of
-    //    which the graph's nodes or edges reflect -- unconditional, since there is no single field
-    //    this cache turns on.
-    invalidateGraphCache(siteId)
-
-    // -> Any of `publishState`, `isBrowsable`, `tags`, `classification` moving could change whether
-    //    this page belongs in the sitemap (`listPagesForSitemap`'s guest-rule filter reads all four),
-    //    and `updatedAt` (touched on every save) is its `<lastmod>` when it does -- invalidating
-    //    unconditionally, same as the graph cache above, is what keeps the cached list from ever
-    //    describing a page as it was rather than as it is now (OpenProject #2267).
-    this.invalidateSitemapCache(siteId)
+    //    which the graph's nodes or edges reflect. Any of `publishState`, `isBrowsable`, `tags`,
+    //    `classification` moving could change whether this page belongs in the sitemap
+    //    (`listPagesForSitemap`'s guest-rule filter reads all four), and `updatedAt` (touched on every
+    //    save) is its `<lastmod>` when it does. Both unconditional, since there is no single field
+    //    either cache turns on, which is what keeps them from ever describing a page as it was rather
+    //    than as it is now (OpenProject #2267). The glossary's own drop above is conditional and stays
+    //    where it is, ahead of the emit.
+    this.invalidateSiteCaches(siteId)
 
     if (needsRerenderQueue) {
       // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
@@ -1548,7 +1301,7 @@ class Pages {
     */
     const newFloorId =
       newPath !== current.path || destLocale !== current.locale
-        ? await this.parentClassification(siteId, destLocale, newPath, tx)
+        ? await WIKI.models.pageClassification.parentClassification(siteId, destLocale, newPath, tx)
         : null
     const classification = newFloorId
       ? WIKI.models.classificationLevels.stricterOf(current.classification, newFloorId)
@@ -1650,24 +1403,14 @@ class Pages {
     )
     await WIKI.models.search.renamed(siteId, rawMoved, previousPath, previousLocale)
     // -> A moved page's `<loc>` is built from its path and locale, so any move -- not only one that
-    //    also affects the glossary's canonical-page cache below -- has to drop the cached sitemap list.
-    this.invalidateSitemapCache(siteId)
-    // -> A moved page's path is what every edge pointing at it is keyed by (`assembleGraph` matches
+    //    also affects the glossary's canonical-page cache -- has to drop the cached sitemap list. Its
+    //    path is also what every edge pointing at it is keyed by (`assembleGraph` matches
     //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
-    invalidateGraphCache(siteId)
+    this.invalidateSiteCaches(siteId)
     // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
     //    that has to find what the page used to be (the git target's own file for it, say) needs the
     //    whole of where it was, not half of it
-    await WIKI.models.hooks.emit('page:rename', siteId, {
-      id: pageId,
-      path: moved.path,
-      previousPath,
-      locale: moved.locale,
-      previousLocale,
-      siteId,
-      authorId: actor.id
-    })
-    await WIKI.models.storage.dispatch('page:rename', {
+    await announce('page:rename', siteId, {
       id: pageId,
       path: moved.path,
       previousPath,
@@ -1721,29 +1464,13 @@ class Pages {
     //    so it applies identically to every twin the cascade below moves to the same destination --
     //    no need to repeat it per twin.
     if (newPath !== page.path) {
-      const firstSegment = newPath.split('/')[0] ?? ''
-      if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
-        throw new CustomError(
-          'pageReservedLocaleSegment',
-          `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
-          400
-        )
-      }
+      await assertPathNotReservedLocale(newPath)
     }
     const destLocale = locale ?? page.locale
     // -> Same rule as `createPage`: a locale that is not enabled on this site is not a place a page
     //    may end up, whether by being created there or by being moved there
     if (destLocale !== page.locale) {
-      const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-        defaultLocale(siteId)
-      ]
-      if (!activeLocales.includes(destLocale)) {
-        throw new CustomError(
-          'pageInvalidLocale',
-          `This site does not have the "${destLocale}" locale enabled.`,
-          400
-        )
-      }
+      assertLocaleActive(siteId, destLocale)
     }
     if (
       newPath === page.path &&
@@ -1754,21 +1481,7 @@ class Pages {
     }
 
     if (newPath !== page.path || destLocale !== page.locale) {
-      const duplicate = await WIKI.db
-        .select({ id: pagesTable.id })
-        .from(pagesTable)
-        .where(
-          and(
-            ne(pagesTable.id, id),
-            eq(pagesTable.siteId, siteId),
-            eq(pagesTable.locale, destLocale),
-            eq(pagesTable.path, newPath)
-          )
-        )
-        .limit(1)
-      if (duplicate.length > 0) {
-        throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
-      }
+      await this.assertNoPageAt(siteId, destLocale, newPath, { exceptId: id })
     }
 
     // -> Twins share this page's CURRENT path -- found before anything moves, since the primary no
@@ -1782,25 +1495,13 @@ class Pages {
         : []
 
     for (const twin of twins) {
-      const duplicate = await WIKI.db
-        .select({ id: pagesTable.id })
-        .from(pagesTable)
-        .where(
-          and(
-            ne(pagesTable.id, twin.id),
-            eq(pagesTable.siteId, siteId),
-            eq(pagesTable.locale, twin.locale),
-            eq(pagesTable.path, newPath)
-          )
-        )
-        .limit(1)
-      if (duplicate.length > 0) {
-        throw new CustomError(
-          'pageDuplicatePath',
-          `A page already exists at this path in the "${twin.locale}" locale.`,
-          409
-        )
-      }
+      await this.assertNoPageAt(siteId, twin.locale, newPath, {
+        exceptId: twin.id,
+        // -> Names the locale: the caller asked to move one page and is being refused because of a
+        //    translation it did not name, so "a page already exists at this path" alone would not say
+        //    which of the batch is in the way
+        message: `A page already exists at this path in the "${twin.locale}" locale.`
+      })
     }
 
     // -> Every page in the batch -- the one being moved, plus every twin `includeTranslations` pulls
@@ -1838,7 +1539,7 @@ class Pages {
     } catch (err: any) {
       // -> The probes above already cover the common case; this catches the race they cannot close --
       //    two requests that both pass a probe before either writes
-      if (err.cause?.code === '23505' || err.code === '23505') {
+      if (isUniqueViolation(err)) {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
       throw err
@@ -1916,26 +1617,16 @@ class Pages {
     //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
     //    link needs the same drop or it would keep pointing at a page that no longer exists
     //    (OpenProject #870).
-    WIKI.models.glossary.invalidateCache(siteId)
-    // -> Same reasoning as the glossary cache above: a deleted page must not linger in the cached
-    //    sitemap list.
-    this.invalidateSitemapCache(siteId)
-    // -> Nor in the cached graph bundle, as a node or as an edge target.
-    invalidateGraphCache(siteId)
+    // -> Same reasoning as the glossary cache: a deleted page must not linger in the cached sitemap
+    //    list, nor in the cached graph bundle as a node or as an edge target.
+    this.invalidateSiteCaches(siteId, { glossary: true })
 
     // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
     //    at the db level drops the sync-state rows for this page on its own.
     await WIKI.models.contentSync.forgetContent('page', id)
 
     await WIKI.models.search.deleted(siteId, id)
-    await WIKI.models.hooks.emit('page:delete', siteId, {
-      id,
-      path: page.path,
-      locale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
-    await WIKI.models.storage.dispatch('page:delete', {
+    await announce('page:delete', siteId, {
       id,
       path: page.path,
       locale: page.locale,
@@ -2013,12 +1704,9 @@ class Pages {
       )
     )
     // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
-    //    a now-stale cached link (OpenProject #870). One call covers the whole batch.
-    WIKI.models.glossary.invalidateCache(siteId)
-    // -> Same reasoning: any of these pages may have been in the cached sitemap list.
-    this.invalidateSitemapCache(siteId)
-    // -> ...and in the cached graph bundle.
-    invalidateGraphCache(siteId)
+    //    a now-stale cached link (OpenProject #870), and any of them may have been in the cached
+    //    sitemap list or the cached graph bundle. One call covers the whole batch.
+    this.invalidateSiteCaches(siteId, { glossary: true })
 
     // -> Same reasoning as `deletePage`: one batched call rather than one per page.
     await WIKI.models.contentSync.forgetContentBatch(
@@ -2031,14 +1719,7 @@ class Pages {
     for (const entry of entries) {
       const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
       await WIKI.models.search.deleted(siteId, entry.id)
-      await WIKI.models.hooks.emit('page:delete', siteId, {
-        id: entry.id,
-        path,
-        locale: entry.locale,
-        siteId,
-        authorId: actor.id
-      })
-      await WIKI.models.storage.dispatch('page:delete', {
+      await announce('page:delete', siteId, {
         id: entry.id,
         path,
         locale: entry.locale,
@@ -2056,7 +1737,7 @@ class Pages {
    * did — and there is nobody with the page open to re-save it. The rendering goes through the very
    * same frontend pipeline, driven in a headless browser, so the result is what the editor would have
    * produced; because that costs a browser it is queued rather than done here, one page at a time
-   * across the whole instance. See `models/rendering.ts`.
+   * across the whole instance. See `models/renderQueue.ts`.
    *
    * What the render may carry is settled here, while there is still an actor to ask, and travels with
    * the queued request.
@@ -2080,7 +1761,7 @@ class Pages {
     if (!page) {
       return false
     }
-    await WIKI.models.rendering.ensureCanRender(page.editor)
+    await WIKI.models.renderQueue.ensureCanRender(page.editor)
     await this.enqueueRerender(siteId, page, actor, renderPermissions)
     return true
   }
@@ -2097,7 +1778,7 @@ class Pages {
     actor: PageActor,
     renderPermissions?: RenderPermissions
   ): Promise<void> {
-    await WIKI.models.rendering.queuePage({
+    await WIKI.models.renderQueue.queuePage({
       siteId,
       pageId: page.id,
       permissions: renderPermissions ?? {
@@ -2163,71 +1844,6 @@ class Pages {
       .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.alias, alias)))
       .limit(1)
     return results[0] ?? null
-  }
-
-  /**
-   * How many pages currently carry each classification level, instance-wide or narrowed to one site
-   * (OpenProject #1081) -- the coverage half of the epic's auditability goal: what does the wiki
-   * actually consider sensitive, at a glance, before drilling into any one level's pages.
-   *
-   * Every level is included even at zero, in level order (most-open first) -- a level nothing is
-   * classified as is itself worth an admin seeing, not a row silently missing from the report.
-   */
-  async classificationReport(
-    siteId?: string
-  ): Promise<{ levelId: string; name: string; sortOrder: number; count: number }[]> {
-    const rows = await WIKI.db
-      .select({ classification: pagesTable.classification, count: sql<number>`count(*)::int` })
-      .from(pagesTable)
-      .where(siteId ? eq(pagesTable.siteId, siteId) : undefined)
-      .groupBy(pagesTable.classification)
-    const counts = new Map(rows.map((row) => [row.classification, row.count]))
-    return WIKI.models.classificationLevels.list().map((level) => ({
-      levelId: level.id,
-      name: level.name,
-      sortOrder: level.sortOrder,
-      count: counts.get(level.id) ?? 0
-    }))
-  }
-
-  /**
-   * Every page currently at one classification level, instance-wide or narrowed to one site
-   * (OpenProject #1081) -- the drill-down `classificationReport()`'s counts point into. Paginated,
-   * newest-updated first; metadata only, matching `listAllForSite()`'s own reasoning for staying out
-   * of content.
-   */
-  async listByClassification(
-    levelId: string,
-    { siteId, limit = 50, offset = 0 }: { siteId?: string; limit?: number; offset?: number } = {}
-  ): Promise<{
-    total: number
-    entries: { id: string; path: string; locale: string; title: string; siteId: string }[]
-  }> {
-    const conditions = [
-      eq(pagesTable.classification, levelId),
-      ...(siteId ? [eq(pagesTable.siteId, siteId)] : [])
-    ]
-    const where = and(...conditions)
-    const [totals, rows] = await Promise.all([
-      WIKI.db
-        .select({ total: sql<number>`count(*)::int` })
-        .from(pagesTable)
-        .where(where),
-      WIKI.db
-        .select({
-          id: pagesTable.id,
-          path: pagesTable.path,
-          locale: pagesTable.locale,
-          title: pagesTable.title,
-          siteId: pagesTable.siteId
-        })
-        .from(pagesTable)
-        .where(where)
-        .orderBy(desc(pagesTable.updatedAt))
-        .limit(limit)
-        .offset(offset)
-    ])
-    return { total: totals[0]?.total ?? 0, entries: rows }
   }
 
   /**
@@ -2302,6 +1918,65 @@ class Pages {
    */
   invalidateSitemapCache(siteId: string): void {
     WIKI.cache.delete(sitemapCacheKey(siteId))
+  }
+
+  /**
+   * Drop the per-site caches a page write can invalidate, in the order every write path dropped them.
+   *
+   * The sitemap list and the graph bundle are dropped unconditionally: a page's existence, path,
+   * locale, publish state, tags or classification all feed one or both, and there is no single field
+   * either turns on. The glossary's resolved canonical-page cache is not — only a write that can
+   * change which page a term points at, or who may read it, needs it dropped, which is why it is a
+   * flag rather than a third unconditional call (`createPage` and `movePage` deliberately do not, and
+   * `updatePage`'s own conditional drop happens earlier, ahead of its webhook emit).
+   */
+  private invalidateSiteCaches(siteId: string, opts: { glossary?: boolean } = {}): void {
+    if (opts.glossary) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
+    this.invalidateSitemapCache(siteId)
+    invalidateGraphCache(siteId)
+  }
+
+  /**
+   * Refuse a `(siteId, locale, path)` another page already occupies.
+   *
+   * The probe every write that puts a page somewhere makes first — a create, a move, and each
+   * translation a move cascades to. It is a probe, not the arbiter: the `(siteId, locale, path)`
+   * uniqueness constraint is, and a writer that lands between this read and the insert is caught by
+   * `isUniqueViolation` at the write itself. This is what turns the common case into a 409 the caller
+   * can act on rather than a constraint error.
+   *
+   * @param opts.exceptId Ignore this page — the one being moved, which is allowed to already be here
+   * @param opts.message Overrides the refusal's message where the caller can say something more useful
+   * @throws CustomError `pageDuplicatePath` (409)
+   */
+  private async assertNoPageAt(
+    siteId: string,
+    locale: string,
+    path: string,
+    opts: { exceptId?: string; message?: string } = {}
+  ): Promise<void> {
+    const conditions = [
+      eq(pagesTable.siteId, siteId),
+      eq(pagesTable.locale, locale),
+      eq(pagesTable.path, path)
+    ]
+    if (opts.exceptId) {
+      conditions.unshift(ne(pagesTable.id, opts.exceptId))
+    }
+    const duplicate = await WIKI.db
+      .select({ id: pagesTable.id })
+      .from(pagesTable)
+      .where(and(...conditions))
+      .limit(1)
+    if (duplicate.length > 0) {
+      throw new CustomError(
+        'pageDuplicatePath',
+        opts.message ?? 'A page already exists at this path.',
+        409
+      )
+    }
   }
 
   /**

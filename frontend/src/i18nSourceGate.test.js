@@ -1,7 +1,9 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+
+import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
  * OpenProject #1615 ("Add a CI source-text gate that fails on newly reintroduced untranslated
@@ -48,19 +50,6 @@ const ALLOWED_NOTIFY_MESSAGES = new Set(['Not implemented'])
 const ALLOWED_ARIA_LABELS = new Set(['Developer tools'])
 
 const MISSPELLED_UNEXPECTED_ERROR = 'An unexpected error occured'
-
-function listFiles(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    const st = statSync(full)
-    if (st.isDirectory()) {
-      listFiles(full, out)
-    } else if ((entry.endsWith('.vue') || entry.endsWith('.js')) && !entry.endsWith('.test.js')) {
-      out.push(full)
-    }
-  }
-  return out
-}
 
 /**
  * A capitalised, multi-word English sentence literal -- `[A-Z][a-z]+` followed by a space rules out
@@ -181,7 +170,7 @@ describe('detectors', () => {
 })
 
 describe('frontend/src source tree', () => {
-  const allFiles = listFiles(SRC_ROOT)
+  const allFiles = listSourceFiles(SRC_ROOT, { ext: ['.vue', '.js'], skip: ['.test.js'] })
   const componentAndPageFiles = allFiles.filter(
     (f) => f.includes(`${SRC_ROOT}/components/`) || f.includes(`${SRC_ROOT}/pages/`)
   )

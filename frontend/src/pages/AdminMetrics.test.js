@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminMetrics from './AdminMetrics.vue'
+
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Covers task 594: `/metrics` was implemented for real (not descoped), which means the admin page's
@@ -17,25 +16,13 @@ import AdminMetrics from './AdminMetrics.vue'
  * which is exactly the part this test needs to inspect.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
+  return mountWithApp(AdminMetrics, {
     messages: {
-      en: {
-        'admin.metrics.auth':
-          'You must provide the {headerName} header with a {tokenType} token. Generate an API key for a group with the {permission} global permission and use it as the token — the same permission this admin area itself requires.',
-        'admin.metrics.endpoint': 'The metrics endpoint can be scraped at {endpoint}'
-      }
+      'admin.metrics.auth':
+        'You must provide the {headerName} header with a {tokenType} token. Generate an API key for a group with the {permission} global permission and use it as the token — the same permission this admin area itself requires.',
+      'admin.metrics.endpoint': 'The metrics endpoint can be scraped at {endpoint}'
     }
-  })
-
-  return mount(AdminMetrics, {
-    global: {
-      plugins: [i18n]
-    }
-  })
+  }).wrapper
 }
 
 describe('AdminMetrics auth documentation', () => {

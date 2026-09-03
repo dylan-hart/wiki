@@ -1,7 +1,9 @@
-import { dirname, join, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+
+import { listSourceFiles } from '../../test/sourceFiles.js'
 
 /**
  * OpenProject #1909 ("Delete dead Quasar CSS and the seven `q-*` utility classes still written in
@@ -26,21 +28,8 @@ import { describe, expect, it } from 'vitest'
 const CSS_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_DIR = resolve(CSS_DIR, '..')
 
-function listFiles(dir, predicate, acc = []) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    const stats = statSync(full)
-    if (stats.isDirectory()) {
-      listFiles(full, predicate, acc)
-    } else if (predicate(entry)) {
-      acc.push(full)
-    }
-  }
-  return acc
-}
-
 describe('no dead Quasar .q-* CSS remains', () => {
-  const cssFiles = listFiles(CSS_DIR, (name) => /\.(scss|css)$/.test(name))
+  const cssFiles = listSourceFiles(CSS_DIR, { ext: ['.scss', '.css'] })
 
   it('has at least one stylesheet to check (scan is not silently matching nothing)', () => {
     expect(cssFiles.length).toBeGreaterThan(0)
@@ -59,7 +48,7 @@ describe('no dead Quasar .q-* CSS remains', () => {
 })
 
 describe('no dead Quasar q-* utility classes remain in templates', () => {
-  const vueFiles = listFiles(SRC_DIR, (name) => name.endsWith('.vue'))
+  const vueFiles = listSourceFiles(SRC_DIR, { ext: ['.vue'] })
 
   it('has at least one component to check (scan is not silently matching nothing)', () => {
     expect(vueFiles.length).toBeGreaterThan(0)

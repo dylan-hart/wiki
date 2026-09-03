@@ -198,7 +198,7 @@ export async function consumeAccountAuthAttempt(identifier: string): Promise<Rat
 
 /**
  * Thrown by `models/users.ts#login`/`#loginTFA` when {@link consumeAccountAuthAttempt} refuses an
- * attempt. Carries the verdict's `retryAfter` so the route handler (`api/authentication.ts`) can
+ * attempt. Carries the verdict's `retryAfter` so the route handler (`api/auth/site.ts`) can
  * answer with the same 429 + `Retry-After` contract {@link limitAuthAttempts} already uses for the
  * IP-keyed limiter, instead of falling through the generic `ERR_`-prefix convention's 400 — the two
  * limiters used to disagree on this (OpenProject #2361). The message stays `ERR_RATE_LIMITED` (still

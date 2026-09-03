@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import type { ApprovalMatchMode } from '../helpers/approvalMatch.ts'
 import {
   type AnyPgColumn,
   bigint,
@@ -175,7 +176,7 @@ export const approvalRules = pgTable(
     // -> One of START / EXACT / END / REGEX / TAG / TAGALL, the same set group page rules use. A
     //    varchar rather than an enum so that adding a mode does not need a migration; the API schema
     //    is what rejects an unknown one.
-    match: varchar({ length: 16 }).notNull().default('START'),
+    match: varchar({ length: 16 }).$type<ApprovalMatchMode>().notNull().default('START'),
     path: varchar({ length: 2048 }).notNull().default(''),
     // -> Group IDs. Resolved on use rather than joined, so deleting a group takes effect at once, the
     //    way `apiKeys.groups` works.
@@ -1293,7 +1294,7 @@ export const pageWatchEvents = pgTable(
  * graph sizing nodes by visit volume) can count DISTINCT visitors over any trailing window it likes
  * (30 days / 6 months / 2 years) rather than being stuck with whatever a running total already
  * collapsed away. `models/pageviews.ts#record()` is the only writer, called best-effort from both
- * places a page is actually read -- `GET /sites/:siteId/pages/:pageIdOrHash` (`api/pages.ts`) and the
+ * places a page is actually read -- `GET /sites/:siteId/pages/:pageIdOrHash` (`api/pages/read.ts`) and the
  * MCP `get_page` tool (`mcp/tools/getPage.ts`) -- so `clientType` genuinely distinguishes the two,
  * rather than being a column only one call site ever set.
  *
@@ -1365,7 +1366,7 @@ export const pageviews = pgTable(
  * The markdown pipeline lives in the frontend, so rendering a page here means driving a headless
  * browser — too heavy to hold a request open for, and ruinous to do several times at once. A row is a
  * request for a render, and the `renderPages` task drains the table one page at a time through a
- * single browser (`models/rendering.ts`).
+ * single browser (`models/renderQueue.ts`).
  *
  * A row IS the request, so asking twice for the same page updates the row instead of adding a second:
  * what gets rendered is the content as it stands when the browser reaches it, and rendering it twice
@@ -1499,8 +1500,10 @@ export const storage = pgTable(
     lastTickAt: timestamp({ withTimezone: true }),
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
-    // -> Where the module stands, as opposed to how it is configured: `{ setup: 'notconfigured' |
-    //    'pendinginstall' | 'configured' }` for a module that has a setup process to go through.
+    // -> Currently unused: the setup-wizard states this once held (`{ setup: 'notconfigured' |
+    //    'pendinginstall' | 'configured' }`) were removed with the feature they tracked. Kept as a
+    //    column rather than dropped because doing so needs a migration, not because anything still
+    //    reads or writes it.
     state: jsonb().notNull().default({}),
     siteId: uuid()
       .notNull()

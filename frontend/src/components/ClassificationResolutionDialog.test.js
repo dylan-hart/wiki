@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import ClassificationResolutionDialog from './ClassificationResolutionDialog.vue'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #1080: `PageHeader.vue` opens this dialog when a save raises a page's own
@@ -17,7 +18,7 @@ async function mountDialog(conflicts) {
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(ClassificationResolutionDialog, {
     props: { conflicts, floorClassification: 'level-restricted' },
     global: { plugins: [i18n], stubs: { teleport: true } }

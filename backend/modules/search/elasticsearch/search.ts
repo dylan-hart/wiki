@@ -1,67 +1,43 @@
 import fs from 'node:fs'
 import { Client } from '@elastic/elasticsearch'
-import { and, asc, eq, gt } from 'drizzle-orm'
-import { pages as pagesTable } from '../../../db/schema.ts'
 import { search } from '../../../models/search.ts'
+import { ExternalSearchModule } from '../externalBase.ts'
+import {
+  batchBySize,
+  buildSearchDocument,
+  fillEmptyStringDefaults,
+  filterVisible,
+  MAX_INDEXING_BYTES,
+  MAX_INDEXING_COUNT,
+  pageStream,
+  SCAN_CAP,
+  toSearchPagesResult
+} from '../shared.ts'
 import type { ConnectionOptions as TlsConnectionOptions } from 'node:tls'
-import type { SQL } from 'drizzle-orm'
+import type { SearchDocument } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
-  SearchModule,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'elasticsearch'
 
 /**
- * Batching limits for `rebuild()`'s `client.bulk` calls, carried over unchanged from 2.5.x's
- * `server/modules/search/elasticsearch/engine.js` (`git show main:server/modules/search/elasticsearch/engine.js`,
- * the last version of that file, on the 2.x line this fork's history never merged from — see
- * `docs/variances.md`). Unlike its Algolia sibling, 2.5.x's Elasticsearch engine has no per-document
- * byte cap: Elasticsearch's bulk API is bounded by the overall HTTP body size, not a fixed per-object
- * limit the way Algolia's API is, so only the batch-level caps are ported.
+ * One `rebuild()` bulk operation: the page id (the document's Elasticsearch `_id`) plus its body.
+ *
+ * The body is `shared.ts`'s `SearchDocument` unchanged — this module needs none of the extra fields
+ * Algolia's own record carries, so what it indexes is exactly what every external engine indexes.
+ * Batching limits (`MAX_INDEXING_BYTES`/`MAX_INDEXING_COUNT`) live there too: 2.5.x's Elasticsearch
+ * and Algolia engines declared the identical pair separately. Unlike its Algolia sibling, this
+ * module has no per-document byte cap to pass alongside them — Elasticsearch's bulk API is bounded
+ * by the overall HTTP body size, not a fixed per-object limit the way Algolia's API is.
  */
-export const MAX_INDEXING_BYTES = 10 * 2 ** 20 - Buffer.byteLength('[') - Buffer.byteLength(']') // 10 MB
-export const MAX_INDEXING_COUNT = 1000
-const COMMA_BYTES = Buffer.byteLength(',')
-
-/**
- * Ceiling on how many of Elasticsearch's own matches `query()` scans before deriving `totalHits`
- * and the requested page from what survives `checkAccess()` (OpenProject #2156, mirroring
- * `db/search.ts`'s own `SCAN_CAP` — see that module's `query()` for the full reasoning). Bounded
- * rather than unbounded, since page-rule filtering cannot be expressed as an Elasticsearch query
- * clause and has to run per-hit in this process.
- */
-const SCAN_CAP = 500
-
-/** An Elasticsearch document, as written by `pageToDocument` and read back by `query()`. */
-export interface ElasticsearchPageDocument {
-  siteId: string
-  locale: string
-  path: string
-  title: string
-  description: string
-  icon: string | null
-  tags: string[]
-  editor: string
-  publishState: string
-  isSearchable: boolean
-  /** Classification level id (OpenProject #1079) — what `query()` checks a CLASSIFICATION rule against. */
-  classification: string
-  updatedAt: string
-  /** Absent for a password-protected page — same reasoning as the Algolia module's `pageToDocument`:
-   *  a value once sent to an external service can't be un-sent by a later query-time bug. */
-  content?: string
-}
-
-/** One `rebuild()` bulk operation: the page id (the document's Elasticsearch `_id`) plus its body. */
 export interface BulkOperation {
   id: string
-  document: ElasticsearchPageDocument
+  document: SearchDocument
 }
 
 /**
@@ -130,32 +106,6 @@ export function getTlsOptions(config: Record<string, any>): TlsConnectionOptions
  */
 export function toSniffIntervalMs(sniffInterval: unknown): number | false {
   return typeof sniffInterval === 'number' && sniffInterval > 0 ? sniffInterval * 1000 : false
-}
-
-/**
- * A page row, as an Elasticsearch document. See `INDEX_MAPPINGS`'s doc comment for why `siteId`
- * travels on every document despite not being one of `SearchPagesParams`' own filters.
- */
-export function pageToDocument(page: SearchIndexablePage): ElasticsearchPageDocument {
-  const updatedAt =
-    page.updatedAt instanceof Date
-      ? page.updatedAt.toISOString()
-      : (page.updatedAt as unknown as string)
-  return {
-    siteId: page.siteId,
-    locale: page.locale,
-    path: page.path,
-    title: page.title,
-    description: page.description ?? '',
-    icon: page.icon ?? null,
-    tags: page.tags ?? [],
-    editor: page.editor,
-    publishState: page.publishState,
-    isSearchable: page.isSearchable,
-    classification: page.classification,
-    updatedAt,
-    ...(page.password ? {} : { content: page.searchContent ?? '' })
-  }
 }
 
 /**
@@ -229,37 +179,19 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
 /**
  * Group a flat list of `(id, document)` pairs into batches no larger than Elasticsearch's bulk
  * batching limits (`MAX_INDEXING_BYTES`, `MAX_INDEXING_COUNT`), exactly reproducing 2.5.x's
- * `processDocument`/`flushBuffer` buffering. Pure and synchronous on purpose, the same reasoning as
- * the Algolia module's `batchDocuments`: `rebuild()` is the only caller, and keeping the size
- * arithmetic separate from anything that awaits a network call is what lets it be exercised directly.
+ * `processDocument`/`flushBuffer` buffering — via `shared.ts`'s `batchBySize`, which is that same
+ * buffering, since the Algolia module ported it from its own 2.5.x engine identically.
+ *
+ * A batch is sized by its documents alone, not by the `{ index: { _index, _id } }` action line each
+ * one rides with in the bulk body — as it was before this became a shared helper, and as 2.5.x
+ * sized it too.
  */
 export function batchOperations(ops: BulkOperation[]): BulkOperation[][] {
-  const batches: BulkOperation[][] = []
-  let current: BulkOperation[] = []
-  let bytes = 0
-
-  for (const op of ops) {
-    const opBytes = Buffer.byteLength(JSON.stringify(op.document))
-    if (current.length > 0 && opBytes + COMMA_BYTES + bytes >= MAX_INDEXING_BYTES) {
-      batches.push(current)
-      current = []
-      bytes = 0
-    }
-    if (current.length > 0) {
-      bytes += COMMA_BYTES
-    }
-    bytes += opBytes
-    current.push(op)
-    if (current.length >= MAX_INDEXING_COUNT) {
-      batches.push(current)
-      current = []
-      bytes = 0
-    }
-  }
-  if (current.length > 0) {
-    batches.push(current)
-  }
-  return batches
+  return batchBySize(ops, {
+    sizeOf: (op) => Buffer.byteLength(JSON.stringify(op.document)),
+    maxBytes: MAX_INDEXING_BYTES,
+    maxCount: MAX_INDEXING_COUNT
+  }).batches
 }
 
 /** One site's live Elasticsearch client, plus the index it was built for. */
@@ -288,7 +220,7 @@ interface SiteClient {
  * resolves its own client through `getClient()` independently rather than depending on `init()` having
  * run first.
  */
-export class ElasticsearchSearchModule implements SearchModule {
+export class ElasticsearchSearchModule extends ExternalSearchModule {
   private clients = new Map<string, SiteClient>()
 
   /**
@@ -329,15 +261,15 @@ export class ElasticsearchSearchModule implements SearchModule {
 
   /** Build (or reuse) the Elasticsearch client for a site, from whatever config is currently stored. */
   private async getClient(siteId: string): Promise<SiteClient> {
-    const config = search.getEngineConfig(siteId, MODULE_KEY)
+    const config = fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
     const configKey = JSON.stringify(config)
     const cached = this.clients.get(siteId)
     if (cached && cached.configKey === configKey) {
       return cached
     }
     const client = this.createClient(config)
-    const indexName = config.indexName || 'wiki'
-    await this.ensureIndex(client, indexName, config.analyzer || 'standard')
+    const indexName = config.indexName
+    await this.ensureIndex(client, indexName, config.analyzer)
     const entry: SiteClient = { client, indexName, configKey }
     this.clients.set(siteId, entry)
     return entry
@@ -347,62 +279,47 @@ export class ElasticsearchSearchModule implements SearchModule {
    * Connect and ensure the index exists for a site as soon as it is (re)configured, and cache the
    * client `query`/`created`/etc. reuse afterwards -- see the class doc comment for why every other
    * hook does not strictly depend on this having been called first.
+   *
+   * `incoming` is completed the same way `getClient()` completes what it reads, so a cleared
+   * `indexName` or `analyzer` falls back to its declared default rather than reaching the cluster as
+   * an empty string — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
     const client = this.createClient(config)
-    const indexName = config.indexName || 'wiki'
-    await this.ensureIndex(client, indexName, config.analyzer || 'standard')
+    const indexName = config.indexName
+    await this.ensureIndex(client, indexName, config.analyzer)
     this.clients.set(siteId, { client, indexName, configKey: JSON.stringify(config) })
   }
 
-  async created(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async updated(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
   /**
-   * Never throws: a page that saved correctly must not report failure because Elasticsearch could not
-   * be reached -- same reasoning, and same try/catch shape, as `db/search.ts` and the Algolia module.
+   * Never throws — see `ExternalSearchModule#neverThrows`: a page that saved correctly must not
+   * report failure because Elasticsearch could not be reached.
    */
-  private async indexPage(page: SearchIndexablePage): Promise<void> {
-    try {
-      const { client, indexName } = await this.getClient(page.siteId)
-      await client.index({
-        index: indexName,
-        id: page.id,
-        document: pageToDocument(page),
-        refresh: true
-      })
-    } catch (err: any) {
-      WIKI.logger.warn(`(SEARCH/ELASTICSEARCH) Failed to index page ${page.id}: ${err.message}`)
-    }
+  protected async indexPage(page: SearchIndexablePage): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const { client, indexName } = await this.getClient(page.siteId)
+        await client.index({
+          index: indexName,
+          id: page.id,
+          document: buildSearchDocument(page),
+          refresh: true
+        })
+      },
+      (message) => `(SEARCH/ELASTICSEARCH) Failed to index page ${page.id}: ${message}`
+    )
   }
 
-  async deleted(siteId: string, pageId: string): Promise<void> {
-    try {
-      const { client, indexName } = await this.getClient(siteId)
-      await client.delete({ index: indexName, id: pageId, refresh: true })
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `(SEARCH/ELASTICSEARCH) Failed to remove page ${pageId} from the index: ${err.message}`
-      )
-    }
-  }
-
-  /**
-   * Unlike 2.5.x -- which derived a document's `_id` from a hash of its path and locale, so a rename
-   * had to `delete` the old id and `index` a new one -- this schema's `pages.id` is a stable UUID a
-   * move never touches (`models/pages.ts`'s `movePage` updates the row in place). A rename is
-   * therefore an ordinary re-index of the same document via `client.index`, same as `created`/
-   * `updated` -- the identical reasoning already recorded for the Algolia module's `renamed()` in
-   * `docs/variances.md`. A locale change is rewritten by the same reindex, which is why this module
-   * needs no `previousLocale` of its own either.
-   */
-  async renamed(_siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    await this.indexPage(page)
+  protected async removePage(siteId: string, pageId: string): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const { client, indexName } = await this.getClient(siteId)
+        await client.delete({ index: indexName, id: pageId, refresh: true })
+      },
+      (message) =>
+        `(SEARCH/ELASTICSEARCH) Failed to remove page ${pageId} from the index: ${message}`
+    )
   }
 
   async query(params: SearchPagesParams): Promise<SearchPagesResult> {
@@ -417,7 +334,7 @@ export class ElasticsearchSearchModule implements SearchModule {
       `visible` alone -- see `db/search.ts#query()`'s own comment for the full reasoning; this is
       the same fix, ported to Elasticsearch's `from`/`size` pagination.
     */
-    const response = await client.search<ElasticsearchPageDocument>({
+    const response = await client.search<SearchDocument>({
       index: indexName,
       from: 0,
       size: SCAN_CAP,
@@ -435,62 +352,35 @@ export class ElasticsearchSearchModule implements SearchModule {
     })
     const hits = (response.hits?.hits ?? []).filter((hit) => hit._source)
 
-    /*
-      Elasticsearch has no application-aware permission model of its own, so a hit it returns has to be
-      filtered the same way `db/search.ts` filters its own rows: per-row, against the actor's page
-      rules, since which rule applies can depend on a regular expression or a page's tags that no
-      Elasticsearch filter clause could express.
-    */
-    const visible = actor
-      ? hits.filter((hit) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: hit._source!.path,
-            locale: hit._source!.locale,
-            siteId,
-            tags: hit._source!.tags ?? [],
-            // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document written
-            //    before this field existed has none, which falls back to the same fail-closed `null`
-            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
-            //    full reindex (`rebuild()`) backfills every existing document with its real value.
-            classification: hit._source!.classification ?? null
-          })
-        )
-      : hits
+    const visible = filterVisible(hits, actor, siteId, (hit) => ({
+      path: hit._source!.path,
+      locale: hit._source!.locale,
+      tags: hit._source!.tags ?? [],
+      classification: hit._source!.classification ?? null
+    }))
 
-    const results: SearchResult[] = visible.slice(offset, offset + limit).map((hit) => {
-      const source = hit._source!
-      return {
-        id: hit._id!,
-        path: source.path,
-        locale: source.locale,
-        title: source.title,
-        description: source.description || null,
-        icon: source.icon ?? null,
-        tags: source.tags ?? [],
-        updatedAt: source.updatedAt,
-        relevancy: hit._score ?? 0,
-        // -> 2.5.x parity: its `query()` returned no excerpt either. A protected page's `content` is
-        //    never indexed in the first place (`pageToDocument`), so there is nothing to highlight from
-        //    for those regardless.
-        highlight: null
+    return toSearchPagesResult(hits, visible, {
+      offset,
+      limit,
+      toResult: (hit) => {
+        const source = hit._source!
+        return {
+          id: hit._id!,
+          path: source.path,
+          locale: source.locale,
+          title: source.title,
+          description: source.description || null,
+          icon: source.icon ?? null,
+          tags: source.tags ?? [],
+          updatedAt: source.updatedAt,
+          relevancy: hit._score ?? 0,
+          // -> 2.5.x parity: its `query()` returned no excerpt either. A protected page's `content` is
+          //    never indexed in the first place (`buildSearchDocument`), so there is nothing to
+          //    highlight from for those regardless.
+          highlight: null
+        }
       }
     })
-
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count Elasticsearch
-      //    reported before filtering, and therefore never able to exceed what the actor can
-      //    actually read. Exact whenever the true match count is within SCAN_CAP; a floor beyond
-      //    that (see the `query()` comment above), never an overcount.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a hit from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: hits.length !== visible.length,
-      // -> No "did you mean" here: Elasticsearch's own fuzzy-suggestion features (a "suggest"
-      //    context or a completion suggester) need dedicated index-side setup this module does not
-      //    configure, unlike `db`'s pg_trgm similarity which needs nothing beyond the extension.
-      suggestion: null
-    }
   }
 
   /**
@@ -520,42 +410,11 @@ export class ElasticsearchSearchModule implements SearchModule {
 
     const pageCounts: Record<string, number> = {}
     let total = 0
-    let cursor: string | null = null
 
-    for (;;) {
-      const condition: SQL = cursor
-        ? and(eq(pagesTable.siteId, siteId), gt(pagesTable.id, cursor))!
-        : eq(pagesTable.siteId, siteId)
-      const rows = await WIKI.db
-        .select({
-          id: pagesTable.id,
-          siteId: pagesTable.siteId,
-          locale: pagesTable.locale,
-          path: pagesTable.path,
-          title: pagesTable.title,
-          description: pagesTable.description,
-          icon: pagesTable.icon,
-          tags: pagesTable.tags,
-          editor: pagesTable.editor,
-          publishState: pagesTable.publishState,
-          isSearchable: pagesTable.isSearchable,
-          classification: pagesTable.classification,
-          password: pagesTable.password,
-          searchContent: pagesTable.searchContent,
-          updatedAt: pagesTable.updatedAt
-        })
-        .from(pagesTable)
-        .where(condition)
-        .orderBy(asc(pagesTable.id))
-        .limit(PAGE_SIZE)
-
-      if (rows.length === 0) {
-        break
-      }
-
+    for await (const rows of pageStream(siteId, { pageSize: PAGE_SIZE })) {
       const ops = rows.map((row) => ({
         id: row.id,
-        document: pageToDocument(row as unknown as SearchIndexablePage)
+        document: buildSearchDocument(row)
       }))
       for (const batch of batchOperations(ops)) {
         await client.bulk({
@@ -570,11 +429,6 @@ export class ElasticsearchSearchModule implements SearchModule {
       }
       for (const row of rows) {
         pageCounts[row.locale] = (pageCounts[row.locale] ?? 0) + 1
-      }
-
-      cursor = rows[rows.length - 1]!.id
-      if (rows.length < PAGE_SIZE) {
-        break
       }
     }
 

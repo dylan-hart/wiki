@@ -166,12 +166,12 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, watch } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 import { apiErrorMessage } from '@/helpers/apiError'
 
@@ -206,14 +206,32 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  locales: [],
-  primary: 'en',
-  forcePrefix: false,
-  showMenu: true,
-  active: [],
-  sideloading: false
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.locale',
+  extraState: {
+    locales: [],
+    primary: 'en',
+    forcePrefix: false,
+    showMenu: true,
+    active: [],
+    sideloading: false
+  },
+  fetch: (siteId) =>
+    Promise.all([
+      API_CLIENT.get('locales').json(),
+      API_CLIENT.get(`sites/${siteId}?strict=true`).json()
+    ]),
+  onLoaded: ([locales, site]) => {
+    state.locales = sortBy(locales ?? [], ['nativeName', 'name'])
+    state.primary = site?.locales?.primary ?? 'en'
+    state.forcePrefix = site?.locales?.forcePrefix ?? false
+    state.showMenu = site?.locales?.showMenu ?? true
+    state.active = [...(site?.locales?.active ?? [])]
+    // -> The primary locale is always active, and its toggle is disabled to keep it that way
+    if (!state.active.includes(state.primary)) {
+      state.active.push(state.primary)
+    }
+  }
 })
 
 // -> `POST locales/sideload` (backend/api/locales.ts) is `manage:system`-only, stricter than this
@@ -223,12 +241,6 @@ const canSideload = computed(() => userStore.can('manage:system'))
 
 // WATCHERS
 
-watch(
-  () => adminStore.currentSiteId,
-  (newValue) => {
-    load()
-  }
-)
 // -> Selecting a primary locale that isn't active yet activates it, since its toggle is disabled
 watch(
   () => state.primary,
@@ -260,34 +272,6 @@ function completenessColor(value) {
 }
 
 // METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const [locales, site] = await Promise.all([
-      API_CLIENT.get('locales').json(),
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-    ])
-    state.locales = sortBy(locales ?? [], ['nativeName', 'name'])
-    state.primary = site?.locales?.primary ?? 'en'
-    state.forcePrefix = site?.locales?.forcePrefix ?? false
-    state.showMenu = site?.locales?.showMenu ?? true
-    state.active = [...(site?.locales?.active ?? [])]
-    // -> The primary locale is always active, and its toggle is disabled to keep it that way
-    if (!state.active.includes(state.primary)) {
-      state.active.push(state.primary)
-    }
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.locale.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  loading.hide()
-  state.loading--
-}
 
 async function save() {
   if (state.loading > 0) {
@@ -325,7 +309,7 @@ async function save() {
       type: 'negative',
       message: t(
         `admin.locale.${err.data?.error}`,
-        apiErrorMessage(err, 'An unexpected error occured.')
+        apiErrorMessage(err, t('common.error.unexpected'))
       )
     })
   }
@@ -380,12 +364,4 @@ async function sideload() {
   }
   state.sideloading = false
 }
-
-// MOUNTED
-
-onMounted(() => {
-  if (adminStore.currentSiteId) {
-    load()
-  }
-})
 </script>

@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import analyticsRoutes from './analytics.ts'
-import { registerSchemas as registerAnalyticsSchema } from './schemas/analytics.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Coverage for Task 592's `GET /_api/analytics/modules` route: mirrors
@@ -47,32 +44,30 @@ let app: FastifyInstance
 const routeConfigs: Record<string, any> = {}
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
-    models: {
-      analytics: {
-        getModules: () => FIXTURE_MODULES
-      }
-    }
+  // -> Captures each route's `config.permissions` as it is registered, since Fastify does not expose
+  //    a public, stable API to read it back afterwards — the same list the real permission
+  //    `preHandler` hook is driven by. Wrapped around the route plugin, since an `onRoute` hook only
+  //    fires for routes registered into the same encapsulation or below it.
+  const capturingRoutes: FastifyPluginAsync = async (instance) => {
+    instance.addHook('onRoute', (routeOptions: any) => {
+      routeConfigs[`${routeOptions.method}:${routeOptions.url}`] = routeOptions.config
+    })
+    await instance.register(analyticsRoutes)
   }
 
-  app = fastify()
-  // -> Captures each route's `config.permissions` as it is registered, since Fastify does not expose
-  //    a public, stable API to read it back afterwards — the same technique `index.ts`'s own
-  //    permission `preHandler` hook is driven by.
-  app.addHook('onRoute', (routeOptions: any) => {
-    routeConfigs[`${routeOptions.method}:${routeOptions.url}`] = routeOptions.config
+  app = await buildTestApp({
+    routes: capturingRoutes,
+    wiki: {
+      models: {
+        analytics: {
+          getModules: () => FIXTURE_MODULES
+        }
+      }
+    }
   })
-  await app.register(fastifySensible)
-  await registerErrorSchema(app)
-  await registerAnalyticsSchema(app)
-  await app.register(analyticsRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('GET /analytics/modules returns what the model discovered, unchanged', async () => {
   const res = await app.inject({ method: 'GET', url: '/analytics/modules' })

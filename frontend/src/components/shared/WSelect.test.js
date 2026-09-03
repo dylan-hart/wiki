@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import WSelect from './WSelect.vue'
+
+import { createTestI18n } from '../../../test/i18n.js'
 
 /*
   WSelect's popup is a <w-menu>, which teleports its content to document.body -- outside the
@@ -292,11 +293,7 @@ describe('WSelect', () => {
 
   describe('i18n', () => {
     it('resolves the empty-state label from the dictionary when noOptionsLabel is not overridden', async () => {
-      const i18n = createI18n({
-        legacy: false,
-        locale: 'en',
-        messages: { en: { 'common.select.noOptions': 'Keine Optionen' } }
-      })
+      const i18n = createTestI18n({ 'common.select.noOptions': 'Keine Optionen' })
       const wrapper = mount(WSelect, {
         props: { modelValue: null, options: [], ariaLabel: 'Pick one' },
         global: { plugins: [i18n] },
@@ -309,11 +306,7 @@ describe('WSelect', () => {
     })
 
     it('still prefers an explicit noOptionsLabel prop over the dictionary', async () => {
-      const i18n = createI18n({
-        legacy: false,
-        locale: 'en',
-        messages: { en: { 'common.select.noOptions': 'Keine Optionen' } }
-      })
+      const i18n = createTestI18n({ 'common.select.noOptions': 'Keine Optionen' })
       const wrapper = mount(WSelect, {
         props: {
           modelValue: null,

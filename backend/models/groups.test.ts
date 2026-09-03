@@ -225,7 +225,7 @@ describe('groups.actorForRequest', () => {
 })
 
 /**
- * OpenProject #1127: the actor `models/rendering.ts`'s background re-render job passes to
+ * OpenProject #1127: the actor `models/renderQueue.ts`'s background re-render job passes to
  * `glossary.getCachedTerms` when reprocessing already-published content with no specific reader to
  * speak for.
  */
@@ -843,7 +843,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   /**
    * OpenProject #2119: `allowedClassifications` used to be compared AFTER the `manage:system`
    * short-circuit, so a `manage:system`-holding actor's allow-set was dead code -- the exact bypass
-   * `api/users.ts:677-681` promises a PAT holder it will not have. The comparison now runs first, so
+   * `api/users/profile.ts`'s personal-token create route promises a PAT holder it will not have. The comparison now runs first, so
    * a `manage:system` actor with a non-null allow-set is refused outside it and still allowed inside
    * it, alongside `manage:system bypasses every rule` above, which stays true for a null allow-set.
    */
@@ -1364,6 +1364,81 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(groupsModel.checkSiteAccess(nullPin, 'site:theme', siteA), true)
     assert.equal(groupsModel.checkSiteAccess(nullPin, 'site:theme', siteB), true)
     assert.equal(groupsModel.checkSiteAccess(absentPin, 'site:theme', siteB), true)
+  })
+
+  /**
+   * `checkSiteAdminAccess` is the "or the global permission still covers it" wrapper five route files
+   * used to each carry their own copy of (finding API-F3). It resolves the request's own actor, so
+   * these drive it through a synthetic `req` rather than an `AccessActor` — the four cases below are
+   * exactly the ones each of those wrappers was written to answer.
+   */
+  const reqWith = (permissions: string[], groupIds: string[] = []): any => ({
+    session: { authenticated: true, user: { id: 'u1' }, groups: groupIds, permissions }
+  })
+
+  test('checkSiteAdminAccess allows on the global permission alone, with no rule at all', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const req = reqWith(['manage:sites'], [fixtures.groupId])
+    assert.equal(
+      groupsModel.checkSiteAdminAccess(req, 'manage:sites', 'site:theme', fixtures.siteId),
+      true
+    )
+  })
+
+  test('checkSiteAdminAccess allows on the delegated site permission alone', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [fixtures.siteId] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const req = reqWith([], [fixtures.groupId])
+    assert.equal(
+      groupsModel.checkSiteAdminAccess(req, 'manage:sites', 'site:theme', fixtures.siteId),
+      true
+    )
+    // -> The rule names one site; another is not delegated, and no global permission covers it either
+    assert.equal(
+      groupsModel.checkSiteAdminAccess(req, 'manage:sites', 'site:theme', 'some-other-site'),
+      false
+    )
+  })
+
+  test('checkSiteAdminAccess refuses a caller holding neither', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const req = reqWith(['manage:navigation'], [fixtures.groupId])
+    assert.equal(
+      groupsModel.checkSiteAdminAccess(req, 'manage:sites', 'site:theme', fixtures.siteId),
+      false
+    )
+  })
+
+  /**
+   * The global half is site-blind on purpose: `manage:sites` is not addressed by any rule, so it
+   * covers every site — which is what "keeps working exactly as before delegation existed" means.
+   */
+  test('checkSiteAdminAccess treats the global permission as covering every site', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [fixtures.siteId] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const req = reqWith(['manage:sites'], [fixtures.groupId])
+    assert.equal(
+      groupsModel.checkSiteAdminAccess(req, 'manage:sites', 'site:theme', 'some-other-site'),
+      true
+    )
   })
 })
 

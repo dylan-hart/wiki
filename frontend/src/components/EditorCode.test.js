@@ -1,14 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { nextTick } from 'vue'
-
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
-import WTooltip from '@/components/shared/WTooltip.vue'
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `monaco-editor` needs real browser layout/measurement APIs (`ResizeObserver`, text metrics, a
@@ -56,7 +53,7 @@ function mountEditor(initialContent = '') {
   pageStore.content = initialContent
   const siteStore = useSiteStore()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const editorStore = useEditorStore()
 
@@ -110,15 +107,6 @@ describe('EditorCode', () => {
     expect(pageStore.contentLoaded).toBe(true)
   })
 
-  it('opens the file manager in insert mode from the sidebar button', async () => {
-    const { wrapper, siteStore } = mountEditor('')
-
-    await wrapper.find('[aria-label="editor.markup.insertAssets"]').trigger('click')
-
-    expect(siteStore.overlay).toBe('FileManager')
-    expect(siteStore.overlayOpts).toEqual({ insertMode: true })
-  })
-
   it('inserts an <img> tag at the cursor for an image asset picked from the file manager', () => {
     mountEditor('')
 
@@ -170,16 +158,6 @@ describe('EditorCode', () => {
     expect(edits[0].text).toBe('<a href="/docs/getting-started">Getting Started</a>')
   })
 
-  it('stops listening for insertAsset and disposes the editor on unmount', () => {
-    const { wrapper } = mountEditor('')
-
-    wrapper.unmount()
-    expect(fakeEditor.dispose).toHaveBeenCalledTimes(1)
-
-    EVENT_BUS.emit('insertAsset', { type: 'asset', mimeType: 'image/png', title: 'x' })
-    expect(fakeEditor.executeEdits).not.toHaveBeenCalled()
-  })
-
   /**
    * OpenProject #943: `pageSave()` calls `editorStore.contentFlusher?.()` before saving specifically
    * because the content-change handler is debounced -- without a registered flusher, typing then
@@ -221,35 +199,10 @@ describe('EditorCode', () => {
     expect(pageStore.content).toBe('original')
   })
 
-  /**
-   * OpenProject #834 (discussion #1738's editor-toolbar-mirroring gap): the side toolbar's tooltip
-   * used to pop outward toward a hardcoded physical `right`, which is the reading-START edge of the
-   * `Insert Assets` button only under LTR -- under RTL that edge is the visual left, and a tooltip
-   * still anchored `right` pops away from the toolbar instead of back toward it. Same bug
-   * `EditorMarkdown.vue`'s own `sideToolbarTooltip` already covers; this editor was outside task
-   * 721/727's audit.
-   */
-  describe('side toolbar tooltip mirroring', () => {
-    afterEach(() => {
-      document.documentElement.removeAttribute('dir')
-    })
-
-    it('anchors outward to the right under ltr (the default)', () => {
-      document.documentElement.dir = 'ltr'
-      const { wrapper } = mountEditor('')
-
-      const tooltip = wrapper.findComponent(WTooltip)
-      expect(tooltip.props('anchor')).toBe('center right')
-      expect(tooltip.props('self')).toBe('center left')
-    })
-
-    it('mirrors outward to the left under rtl', () => {
-      document.documentElement.dir = 'rtl'
-      const { wrapper } = mountEditor('')
-
-      const tooltip = wrapper.findComponent(WTooltip)
-      expect(tooltip.props('anchor')).toBe('center left')
-      expect(tooltip.props('self')).toBe('center right')
-    })
-  })
+  /*
+    `opens the file manager in insert mode from the sidebar button`, `stops listening for insertAsset
+    and disposes the editor on unmount` and the whole `side toolbar tooltip mirroring` describe are
+    byte-identical between this suite and its sibling markup editor's, so they live once, as a
+    `describe.each` over both components, in `editorMarkupShared.test.js`.
+  */
 })

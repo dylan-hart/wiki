@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { nextTick } from 'vue'
 import * as Y from 'yjs'
 
@@ -16,6 +15,9 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { queue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Split into its own file, separate from `EditorWysiwyg.test.js`, matching
@@ -88,19 +90,13 @@ async function mountEditor(initialContent = 'Hello from Wiki.js') {
 
   const collabStore = useCollabStore()
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        editor: {
-          collab: {
-            activeEditors:
-              'No one else has this page open | 1 other person has this page open | {count} other people have this page open',
-            notAllowed: 'You are no longer allowed to edit this page collaboratively.',
-            savedBy: '{name} saved this page.'
-          }
-        }
+  const i18n = createTestI18n({
+    editor: {
+      collab: {
+        activeEditors:
+          'No one else has this page open | 1 other person has this page open | {count} other people have this page open',
+        notAllowed: 'You are no longer allowed to edit this page collaboratively.',
+        savedBy: '{name} saved this page.'
       }
     }
   })
@@ -125,14 +121,10 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
   })
 
   it('does not start a session when collaboration is not enabled', async () => {
-    setActivePinia(createPinia())
-    const pageStore = usePageStore()
-    pageStore.content = 'Hello'
     // -> No `pageStore.id`, no `siteStore.features.collaborativeEditing`, no authenticated user --
     //    the exact gaps `collabEnabled` checks for, matching `EditorWysiwyg.test.js`'s default
     //    `mountEditor`.
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-    const wrapper = mount(EditorWysiwyg, { global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(EditorWysiwyg, { stores: { page: { content: 'Hello' } } })
     await nextTick()
     await nextTick()
 

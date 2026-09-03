@@ -17,19 +17,25 @@ import { startCase } from 'es-toolkit/string'
 import { asc, and, eq, inArray } from 'drizzle-orm'
 import { create as createTarball } from 'tar'
 import { CustomError, decodeTreePath, normalizePagePath } from '../../../helpers/common.ts'
+import {
+  CONTENT_TYPE_EXTENSIONS,
+  DEFAULT_CONTENT_TYPE_EXTENSION
+} from '../../../helpers/pageSerialization.ts'
 import { tree as treeTable } from '../../../db/schema.ts'
 import { getContentTypeFromExtension } from '../../../models/storage.ts'
 import { getEditorForContentType } from '../../../models/pages.ts'
 import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
 
-/** File extension a dumped page is written with, keyed by its `contentType`. */
+/**
+ * File extension a dumped page is written with, keyed by its `contentType` — the shared table every
+ * file-backed target writes pages under, with one deliberate override.
+ */
 const PAGE_EXTENSIONS: Record<string, string> = {
-  markdown: 'md',
-  asciidoc: 'adoc',
-  html: 'html',
+  ...CONTENT_TYPE_EXTENSIONS,
   // -> A redirection's `content` is already the JSON `RedirectContent` shape (see `models/pages.ts`),
   //    not prose, so it round-trips through a plain `.json` file rather than one of the editor
-  //    extensions above.
+  //    extensions above. The only place this module diverges from the shared map (which writes a
+  //    redirect as `.txt`, as `sftp` does).
   redirect: 'json'
 }
 
@@ -51,7 +57,7 @@ function pageContentTypeFromExtension(ext: string): string | null {
 }
 
 /** Extension a dumped page falls back to for a `contentType` not listed above. */
-const DEFAULT_PAGE_EXTENSION = 'txt'
+const DEFAULT_PAGE_EXTENSION = DEFAULT_CONTENT_TYPE_EXTENSION
 
 /** The subfolder `backup()` writes manual archives into. */
 const MANUAL_BACKUP_DIR = '_manual'

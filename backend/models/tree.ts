@@ -8,6 +8,7 @@ import {
   decodeTreePath,
   encodeTreePath,
   generatePathHash,
+  isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
 
@@ -57,7 +58,7 @@ export interface TreeItem {
   editor?: string
   description?: string
   /** Pages only — classification level id (OpenProject #1079), for the permission filter layered on
-   *  top of this listing (see `visibleTreeItems` in `api/tree.ts`). Never returned to the client: no
+   *  top of this listing (see `visibleTreeItems` in `helpers/pageAccess.ts`). Never returned to the client: no
    *  API schema declares this field, so Fastify's response serialization drops it. */
   classification?: string | null
 }
@@ -148,7 +149,7 @@ export interface DescendantAsset {
   /** Slash-separated path of the asset, built from its tree row's `folderPath`/`fileName` -- what an
    *  asset `read:assets`/`manage:assets` ref is built from. */
   path: string
-  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset` (`api/assets.ts`)
+  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset` (`helpers/pageAccess.ts`)
    *  takes alongside `fileName` to build the same ref, rather than the combined `path` above. */
   folderPath: string
   fileName: string
@@ -195,6 +196,62 @@ const MAX_BROWSE = 500
 
 /** How many `name-1`, `name-2`… variants an upload will try before giving up on the name. */
 const MAX_NAME_ATTEMPTS = 100
+
+/**
+ * Whether a folder holds a page a reader may open, at any depth below it — as an `EXISTS` correlated
+ * to the outer `tree` row being tested.
+ *
+ * A folder is created for whatever is put in it, so it can end up holding only assets, only drafts,
+ * or nothing at all — descending into any of those lands on an empty menu, which is why both places
+ * that list a folder's contents (`tree.browse()` and `navigation.generateFromTree()`) drop a folder
+ * that answers false. `EXISTS` stops at the first hit, so this costs an index lookup per folder in
+ * the level rather than a count.
+ *
+ * @param encodedParentPath The ltree path of the folder being listed, so a child's own path is built
+ *   as `<prefix>.<name>` from a bound string and the row's own name — text concatenation rather than
+ *   an ltree operator, since the prefix is a parameter and the name is a column
+ * @param publicOnly Passed straight to `pageIsVisible`: true restricts to what an anonymous reader
+ *   may see, which is what a generated menu always asks for
+ * @param aliasSuffix Names the two table aliases this subquery introduces. Each call site needs its
+ *   own, since two `EXISTS` clauses in one statement cannot share an alias name.
+ */
+export function holdsVisiblePagesUnder(
+  encodedParentPath: string,
+  publicOnly: boolean,
+  aliasSuffix: string
+): SQL {
+  const descendant = alias(treeTable, `descendantTree${aliasSuffix}`)
+  const descendantPage = alias(pagesTable, `descendantPage${aliasSuffix}`)
+  const childPathPrefix = encodedParentPath ? `${encodedParentPath}.` : ''
+  return exists(
+    WIKI.db
+      .select({ one: sql`1` })
+      .from(descendant)
+      .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
+      .where(
+        and(
+          eq(descendant.siteId, treeTable.siteId),
+          eq(descendant.locale, treeTable.locale),
+          eq(descendant.type, 'page'),
+          sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
+          ...pageIsVisible(descendantPage, publicOnly)
+        )
+      )
+  )
+}
+
+/**
+ * The one refusal for "a tree row already sits at this name in this folder".
+ *
+ * Five sites raise it: the pre-insert probe in `addEntry`, `resolveName`'s `onConflict: 'error'`
+ * branch, and the three `isUniqueViolation` catches that close the race those probes cannot — the
+ * constraint, not the probe, is the arbiter of who won. Written once so all five stay the same error
+ * a client can act on. (`resolveName`'s "too many files are already named this" is deliberately not
+ * this one: it names a different problem.)
+ */
+function duplicateEntryError(): CustomError {
+  return new CustomError('treeEntryDuplicate', 'Something with this name already exists here.', 409)
+}
 
 /**
  * The ltree path of a folder's *contents*, i.e. the value its children carry in `folderPath`.
@@ -319,7 +376,7 @@ class Tree {
    *                   anonymous reader — a draft/scheduled page, or one marked `isBrowsable: false` —
    *                   so BROWSE THE TREE (OpenProject #1587 §2) cannot enumerate them to a guest
    *                   session holding `read:pages`, the one thing `visibleTreeItems`' page-RULE
-   *                   filter in `api/tree.ts` never checked. `false` (an authenticated caller, and
+   *                   filter in `helpers/pageAccess.ts` never checked. `false` (an authenticated caller, and
    *                   every other current caller of this method) keeps every entry, same as before
    *                   this parameter existed — a folder or asset entry is never affected either way.
    */
@@ -575,34 +632,7 @@ class Tree {
       title = folder[0].title
     }
 
-    const descendant = alias(treeTable, 'descendantTree')
-    const descendantPage = alias(pagesTable, 'descendantPage')
-    // -> Text rather than an ltree operator, so that the child path can be built from a bound prefix
-    //    and the row's own name: `foo.bar.` + `baz`
-    const childPathPrefix = encodedPath ? `${encodedPath}.` : ''
-
-    /*
-      Whether a folder holds a page a reader may open, at any depth below it.
-
-      A folder is created for whatever is put in it, so it can end up holding only assets, only
-      drafts, or nothing at all — descending into any of those lands on an empty menu. `EXISTS` stops
-      at the first hit, so this costs an index lookup per folder in the level rather than a count.
-    */
-    const holdsVisiblePages = exists(
-      WIKI.db
-        .select({ one: sql`1` })
-        .from(descendant)
-        .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
-        .where(
-          and(
-            eq(descendant.siteId, treeTable.siteId),
-            eq(descendant.locale, treeTable.locale),
-            eq(descendant.type, 'page'),
-            sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
-            ...pageIsVisible(descendantPage, publicOnly)
-          )
-        )
-    )
+    const holdsVisiblePages = holdsVisiblePagesUnder(encodedPath, publicOnly, '')
 
     /*
       Ordered by file name rather than by title, so that a page and the folder at the same path are
@@ -670,9 +700,14 @@ class Tree {
   }
 
   /**
-   * A single tree row by ID, or null if there is no such row
+   * A single tree row by ID, or null if there is no such row.
+   *
+   * Private on purpose: it is the one lookup here that takes no `siteId`, so a caller outside this
+   * model could reach another site's row with an id alone -- exactly the leak `getFolderById`'s
+   * required `siteId` closes (OpenProject #2127/#2131). Internal callers pair it with their own
+   * site check.
    */
-  async getById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+  private async getById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
     const results = await db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
     return (results[0] as TreeRow) ?? null
   }
@@ -696,6 +731,71 @@ class Tree {
       .where(and(eq(treeTable.id, id), eq(treeTable.siteId, siteId), eq(treeTable.type, 'folder')))
       .limit(1)
     return (results[0] as TreeRow) ?? null
+  }
+
+  /**
+   * `getFolderById`, but refusing rather than answering null — what the six callers that cannot carry
+   * on without the folder each wrote out by hand. The nullable form stays public: `api/tree.ts` and
+   * `api/assets.ts` genuinely want to know whether a folder is there without a 404 being raised for
+   * them.
+   *
+   * @throws CustomError `treeInvalidFolder` (404)
+   */
+  private async requireFolderById(
+    id: string,
+    siteId: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<TreeRow> {
+    const folder = await this.getFolderById(id, siteId, db)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    return folder
+  }
+
+  /**
+   * Refuse a folder name something that is not a page already occupies, inside one folder path.
+   *
+   * A page here is not in the way: a folder alongside it is how `/guide` gets to be both a page and
+   * the way into `/guide/…`. An asset is, since it is served at that URL itself — the same rule
+   * `resolveName` applies coming the other way. Asked identically on the way in (`createFolder`) and
+   * on a rename, which only adds "except myself".
+   *
+   * @param exceptId The row allowed to already hold the name — the folder being renamed
+   * @throws CustomError `treeFolderDuplicate` (409)
+   */
+  private async assertFolderNameFree(
+    siteId: string,
+    locale: string,
+    folderPath: string,
+    name: string,
+    exceptId?: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<void> {
+    const conditions = [
+      eq(treeTable.siteId, siteId),
+      eq(treeTable.locale, locale),
+      eq(treeTable.folderPath, folderPath),
+      eq(treeTable.fileName, name),
+      ne(treeTable.type, 'page')
+    ]
+    if (exceptId) {
+      conditions.unshift(ne(treeTable.id, exceptId))
+    }
+    const existing = await db
+      .select({ type: treeTable.type })
+      .from(treeTable)
+      .where(and(...conditions))
+      .limit(1)
+    if (existing.length > 0) {
+      throw new CustomError(
+        'treeFolderDuplicate',
+        existing[0].type === 'folder'
+          ? 'A folder with this path name already exists.'
+          : 'A file with this path name already exists here.',
+        409
+      )
+    }
   }
 
   /**
@@ -776,11 +876,7 @@ class Tree {
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     if (id) {
-      const folder = await this.getFolderById(id, siteId, db)
-      if (!folder) {
-        throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
-      }
-      return folder
+      return this.requireFolderById(id, siteId, db)
     }
 
     const { folderPath, fileName } = splitPath(encodeTreePath(path))
@@ -874,31 +970,7 @@ class Tree {
       )
     }
 
-    // -> A page here is not in the way: a folder alongside it is how `/guide` gets to be both a page
-    //    and the way into `/guide/…`. An asset is, since it is served at that URL itself — the same
-    //    rule `resolveName` applies coming the other way.
-    const existing = await db
-      .select({ type: treeTable.type })
-      .from(treeTable)
-      .where(
-        and(
-          eq(treeTable.siteId, siteId),
-          eq(treeTable.locale, effectiveLocale),
-          eq(treeTable.folderPath, path),
-          eq(treeTable.fileName, name),
-          ne(treeTable.type, 'page')
-        )
-      )
-      .limit(1)
-    if (existing.length > 0) {
-      throw new CustomError(
-        'treeFolderDuplicate',
-        existing[0].type === 'folder'
-          ? 'A folder with this path name already exists.'
-          : 'A file with this path name already exists here.',
-        409
-      )
-    }
+    await this.assertFolderNameFree(siteId, effectiveLocale, path, name, undefined, db)
 
     // -> A path can be created from the middle out — by an upload into a folder nobody made yet, or by
     //    a rename that left a gap — so every level above the new folder is filled in first
@@ -951,12 +1023,8 @@ class Tree {
         } catch (err: any) {
           // -> The check above already covers the common case; this catches the race it cannot close --
           //    two requests both filling in the same missing ancestor folder
-          if (err.cause?.code === '23505' || err.code === '23505') {
-            throw new CustomError(
-              'treeEntryDuplicate',
-              'Something with this name already exists here.',
-              409
-            )
+          if (isUniqueViolation(err)) {
+            throw duplicateEntryError()
           }
           throw err
         }
@@ -981,12 +1049,8 @@ class Tree {
     } catch (err: any) {
       // -> The check above already covers the common case; this catches the race it cannot close --
       //    two requests both creating the same folder
-      if (err.cause?.code === '23505' || err.code === '23505') {
-        throw new CustomError(
-          'treeEntryDuplicate',
-          'Something with this name already exists here.',
-          409
-        )
+      if (isUniqueViolation(err)) {
+        throw duplicateEntryError()
       }
       throw err
     }
@@ -999,53 +1063,6 @@ class Tree {
 
     WIKI.logger.debug(`Created folder ${inserted[0].id} successfully.`)
     return inserted[0] as TreeRow
-  }
-
-  /**
-   * List every page under a folder, at any depth, with what authorizing the whole subtree needs:
-   * its current path, tags and classification (OpenProject #2102).
-   *
-   * Unbounded, like `refreshDescendantPaths` below and unlike `getTree()`'s `MAX_DEPTH`-capped
-   * listing: a permission check that stopped ten levels down would leave everything past that depth
-   * unchecked, which is exactly the kind of gap this exists to close for a rename (or delete) that
-   * cascades to every descendant regardless of how deep it goes.
-   */
-  async listDescendantPages(
-    folderId: string,
-    siteId: string
-  ): Promise<{ path: string; tags: string[]; classification: string | null }[]> {
-    const folder = await this.getFolderById(folderId, siteId)
-    if (!folder) {
-      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
-    }
-    const path = childPathOf(folder)
-
-    const rows = await WIKI.db
-      .select({
-        folderPath: treeTable.folderPath,
-        fileName: treeTable.fileName,
-        tags: treeTable.tags,
-        classification: pagesTable.classification
-      })
-      .from(treeTable)
-      .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
-      .where(
-        and(
-          eq(treeTable.siteId, folder.siteId),
-          eq(treeTable.locale, folder.locale),
-          eq(treeTable.type, 'page'),
-          sql`${treeTable.folderPath} <@ ${path}::ltree`
-        )
-      )
-
-    return rows.map((row) => {
-      const rowFolderPath = decodeTreePath(row.folderPath ?? '') ?? ''
-      return {
-        path: rowFolderPath ? `${rowFolderPath}/${row.fileName}` : row.fileName,
-        tags: row.tags ?? [],
-        classification: row.classification
-      }
-    })
   }
 
   /**
@@ -1067,10 +1084,7 @@ class Tree {
     pathName: string
     title: string
   }): Promise<TreeRow> {
-    const folder = await this.getFolderById(folderId, siteId)
-    if (!folder) {
-      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
-    }
+    const folder = await this.requireFolderById(folderId, siteId)
     // -> Normalized as it is on the way in, since this renames the segment every page path under the
     //    folder is built from
     const name = normalizePagePath(pathName)
@@ -1108,29 +1122,13 @@ class Tree {
     }
 
     // -> As on the way in: a page may share the name, an asset may not
-    const existing = await WIKI.db
-      .select({ type: treeTable.type })
-      .from(treeTable)
-      .where(
-        and(
-          ne(treeTable.id, folder.id),
-          eq(treeTable.siteId, folder.siteId),
-          eq(treeTable.locale, folder.locale),
-          eq(treeTable.folderPath, folder.folderPath ?? ''),
-          eq(treeTable.fileName, name),
-          ne(treeTable.type, 'page')
-        )
-      )
-      .limit(1)
-    if (existing.length > 0) {
-      throw new CustomError(
-        'treeFolderDuplicate',
-        existing[0].type === 'folder'
-          ? 'A folder with this path name already exists.'
-          : 'A file with this path name already exists here.',
-        409
-      )
-    }
+    await this.assertFolderNameFree(
+      folder.siteId,
+      folder.locale,
+      folder.folderPath ?? '',
+      name,
+      folder.id
+    )
 
     const oldPath = childPathOf(folder)
     const newPath = folder.folderPath ? `${folder.folderPath}.${name}` : name
@@ -1183,7 +1181,7 @@ class Tree {
 
     // -> Every asset under it is served from a different path now, and nothing about the assets
     //    themselves changed for the file cache to notice
-    WIKI.models.assets.forgetAllPaths()
+    WIKI.models.assetServing.forgetAllPaths()
 
     // -> Fired after the transaction resolves, never inside `tx` -- `movePage`'s own boundary (writes
     //    inside, I/O outside) is the reference. One `search.renamed`/`storage.dispatch` per descendant
@@ -1343,7 +1341,7 @@ class Tree {
    * carries its real `tags` and `classification` (joined from `pages`, since `tree` carries no
    * classification column of its own -- the same root cause as OpenProject #1128); each descendant
    * asset carries both its combined `path` and the separate `folderPath`/`fileName` pair `mayOnAsset`
-   * (`api/assets.ts`) builds its own ref from.
+   * (`helpers/pageAccess.ts`) builds its own ref from.
    *
    * @param folderId UUID of the folder whose descendants to list.
    * @param siteId The site the folder must belong to (OpenProject #2131) -- passed straight to
@@ -1356,10 +1354,7 @@ class Tree {
     siteId: string,
     db: WikiDbOrTx = WIKI.db
   ): Promise<{ pages: DescendantPage[]; assets: DescendantAsset[] }> {
-    const folder = await this.getFolderById(folderId, siteId, db)
-    if (!folder) {
-      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
-    }
+    const folder = await this.requireFolderById(folderId, siteId, db)
     const path = childPathOf(folder)
 
     const rows = await db
@@ -1424,10 +1419,7 @@ class Tree {
     folderId: string,
     siteId: string
   ): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
-    const folder = await this.getFolderById(folderId, siteId)
-    if (!folder) {
-      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
-    }
+    const folder = await this.requireFolderById(folderId, siteId)
     const path = childPathOf(folder)
     WIKI.logger.debug(`Deleting folder ${folder.id} at path ${path}...`)
 
@@ -1625,11 +1617,7 @@ class Tree {
         )
         .limit(1)
       if (existing.length > 0) {
-        throw new CustomError(
-          'treeEntryDuplicate',
-          'Something with this name already exists here.',
-          409
-        )
+        throw duplicateEntryError()
       }
     }
 
@@ -1740,12 +1728,8 @@ class Tree {
     } catch (err: any) {
       // -> `resolveName` already covers the common case; this catches the race it cannot close -- two
       //    requests that both resolve the same free name before either inserts
-      if (err.cause?.code === '23505' || err.code === '23505') {
-        throw new CustomError(
-          'treeEntryDuplicate',
-          'Something with this name already exists here.',
-          409
-        )
+      if (isUniqueViolation(err)) {
+        throw duplicateEntryError()
       }
       throw err
     }
@@ -1807,11 +1791,7 @@ class Tree {
       return fileName
     }
     if (onConflict === 'error') {
-      throw new CustomError(
-        'treeEntryDuplicate',
-        'Something with this name already exists here.',
-        409
-      )
+      throw duplicateEntryError()
     }
 
     const dot = fileName.lastIndexOf('.')

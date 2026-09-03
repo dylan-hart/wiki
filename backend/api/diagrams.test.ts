@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import diagramRoutes from './diagrams.ts'
-import { registerSchemas as registerDiagramSchema } from './schemas/diagram.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Route-level test for `POST /diagrams/render`.
@@ -24,42 +20,28 @@ let render: ReturnType<typeof mock.fn>
 before(async () => {
   render = mock.fn(async () => ({ contentType: 'image/svg+xml', data: Buffer.from('<svg/>') }))
 
-  ;(globalThis as any).WIKI = {
-    models: {
-      diagramRender: { render },
-      rateLimits: {
-        consume: mock.fn(async () => ({ allowed: true, retryAfter: 0 }))
-      }
-    },
-    // -> Resolved and passed to the model on every render, same as `index.ts`'s SEO hook does for its
-    //    own non-site-scoped lookups — see `diagrams.ts`'s handler comment.
-    sitesMappings: { '*': 'default-site-id', 'site-b.example.com': 'site-b-id' }
-  }
-
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
+  app = await buildTestApp({
+    routes: diagramRoutes,
+    ajv: true,
+    session: (req: any) =>
+      req.headers['x-test-anon'] === 'true'
+        ? { authenticated: false }
+        : { authenticated: true, user: { id: 'user-1' }, permissions: [] },
+    wiki: {
+      models: {
+        diagramRender: { render },
+        rateLimits: {
+          consume: mock.fn(async () => ({ allowed: true, retryAfter: 0 }))
+        }
+      },
+      // -> Resolved and passed to the model on every render, same as the SEO hook does for its own
+      //    non-site-scoped lookups — see `diagrams.ts`'s handler comment.
+      sitesMappings: { '*': 'default-site-id', 'site-b.example.com': 'site-b-id' }
     }
   })
-  await app.register(fastifySensible)
-  app.addHook('onRequest', (req, _reply, done) => {
-    if (req.headers['x-test-anon'] !== 'true') {
-      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-    } else {
-      ;(req as any).session = { authenticated: false }
-    }
-    done()
-  })
-  await registerErrorSchema(app)
-  await registerDiagramSchema(app)
-  await app.register(diagramRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   render.mock.resetCalls()

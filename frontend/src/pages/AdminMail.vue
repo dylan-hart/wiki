@@ -284,49 +284,6 @@
       </div>
       <div class="col-span-12 lg:col-span-5">
         <!-- ----------------------- -->
-        <!-- MAIL TEMPLATES -->
-        <!-- Descoped: this section drives MailTemplateEditorOverlay.vue, UI for a DB-backed
-             editable-template system that was never built (there is no template-storage table in
-             db/schema.ts). Left behind the experimental flag on purpose; see backend/models/mail.ts
-             for the plain inline-HTML templates actually in use. -->
-        <!-- ----------------------- -->
-        <w-card class="pb-2 mb-4" v-if="flagStore.experimental">
-          <w-card-header>{{ t('admin.mail.templates') }}</w-card-header>
-          <w-list>
-            <w-item>
-              <blueprint-icon icon="resume-template" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.mail.templateWelcome`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section side>
-                <w-btn
-                  outline
-                  no-caps
-                  icon="la:edit"
-                  color="primary"
-                  @click="editTemplate(`welcome`)"
-                  :label="t(`common.actions.edit`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator inset />
-            <w-item>
-              <blueprint-icon icon="resume-template" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.mail.templateResetPwd`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section side>
-                <w-btn
-                  outline
-                  no-caps
-                  icon="la:edit"
-                  color="primary"
-                  @click="editTemplate(`pwdreset`)"
-                  :label="t(`common.actions.edit`)" />
-              </w-item-section>
-            </w-item>
-          </w-list>
-        </w-card>
-        <!-- ----------------------- -->
         <!-- SMTP TEST -->
         <!-- ----------------------- -->
         <w-card class="pb-2">
@@ -361,22 +318,18 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
-import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
-
-import { toMerged } from 'es-toolkit/object'
 
 // STORES
 
 const adminStore = useAdminStore()
-const flagStore = useFlagsStore()
 const siteStore = useSiteStore()
 
 // I18N
@@ -414,32 +367,30 @@ function defaultConfig() {
   }
 }
 
-const state = reactive({
-  config: defaultConfig(),
-  testEmail: '',
-  testLoading: false,
-  loading: 0
-})
-
-// METHODS
-async function load() {
-  state.loading++
-  try {
-    const resp = await API_CLIENT.get('mail/config').json()
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.mail',
+  // -> Instance-wide settings, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  // -> This form has never raised the full-screen overlay to read its own values
+  overlay: false,
+  defaults: defaultConfig,
+  extraState: {
+    testEmail: '',
+    testLoading: false
+  },
+  fetch: () => API_CLIENT.get('mail/config').json(),
+  pick: (resp) => {
     if (!resp) {
       throw new Error(t('admin.mail.loadFailed'))
     }
-    state.config = toMerged(defaultConfig(), resp)
+    return resp
+  },
+  onLoaded: () => {
     adminStore.info.isMailConfigured = state.config?.host?.length > 2
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.mail.loadFailed'),
-      caption: err.message
-    })
   }
-  state.loading--
-}
+})
+
+// METHODS
 
 async function save() {
   if (state.loading > 0) {
@@ -476,18 +427,11 @@ async function save() {
       type: 'negative',
       message: t(
         `admin.mail.${err.data?.error}`,
-        apiErrorMessage(err, 'An unexpected error occured.')
+        apiErrorMessage(err, t('common.error.unexpected'))
       )
     })
   }
   state.loading--
-}
-
-function editTemplate(tmplId) {
-  adminStore.$patch({
-    overlayOpts: { id: tmplId },
-    overlay: 'MailTemplateEditorOverlay'
-  })
 }
 
 async function sendTest() {
@@ -512,12 +456,6 @@ async function sendTest() {
   }
   state.testLoading = false
 }
-
-// MOUNTED
-
-onMounted(() => {
-  load()
-})
 </script>
 
 <style lang="scss"></style>

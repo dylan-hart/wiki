@@ -6,6 +6,7 @@ import {
 } from '../db/schema.ts'
 import { and, count, desc, eq, inArray, lte, not, sql } from 'drizzle-orm'
 import { getJobExecutionContext } from '../helpers/jobExecutionContext.ts'
+import { paginate } from '../helpers/pagination.ts'
 
 /** The states a job can be in once it has been picked up for execution. */
 export const JOB_STATES = ['active', 'completed', 'failed', 'interrupted'] as const
@@ -301,20 +302,18 @@ class Jobs {
     limit = 100
   }: { states?: JobState[]; limit?: number } = {}): Promise<JobHistoryPage> {
     const where = states.length > 0 ? inArray(jobHistoryTable.state, states) : undefined
-    const [jobs, totals] = await Promise.all([
-      WIKI.db
-        .select()
-        .from(jobHistoryTable)
-        .where(where)
-        .orderBy(desc(jobHistoryTable.startedAt))
-        .limit(limit),
-      WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
-    ])
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select()
+          .from(jobHistoryTable)
+          .where(where)
+          .orderBy(desc(jobHistoryTable.startedAt))
+          .limit(limit),
+      total: () => WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    })
 
-    return {
-      total: totals[0]?.total ?? 0,
-      jobs
-    }
+    return { total, jobs: rows }
   }
 
   /**

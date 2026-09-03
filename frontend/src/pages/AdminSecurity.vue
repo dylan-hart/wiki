@@ -579,15 +579,13 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
-import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 
 import { useSiteStore } from '@/stores/site'
 
-import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 import { formatFileSize, parseFileSize } from '@/helpers/fileSize'
 
@@ -607,9 +605,12 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  config: {
+/**
+ * Fallbacks for every control on this page, so each renders with a defined value before
+ * `GET system/security` has answered.
+ */
+function defaultConfig() {
+  return {
     corsConfig: '',
     corsMode: 'OFF',
     cspDirectives: '',
@@ -632,8 +633,44 @@ const state = reactive({
     apiRateLimitBan: '15m',
     uploadMaxFileSize: 0,
     uploadScanSVG: false
+  }
+}
+
+const { state, load, save } = useAdminSettings({
+  i18nPrefix: 'admin.security',
+  // -> Instance-wide settings, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  defaults: defaultConfig,
+  extraState: { humanUploadMaxFileSize: '0' },
+  fetch: () => API_CLIENT.get('system/security').json(),
+  // -> Over whatever the form currently holds, not over a fresh `defaultConfig()`: the reload that
+  //    follows a save is what re-reads the server's normalised values, and a key it does not send
+  //    back keeps the value already on screen rather than snapping to a default.
+  pick: (resp) => ({ ...state.config, ...resp }),
+  onLoaded: () => {
+    if (typeof state.config.trustProxy === 'string') {
+      trustProxyAddressCache.value = state.config.trustProxy
+    }
+    state.humanUploadMaxFileSize = formatFileSize(state.config.uploadMaxFileSize)
   },
-  humanUploadMaxFileSize: '0'
+  commit: (siteId, config) => {
+    let uploadMaxFileSize
+    try {
+      uploadMaxFileSize = parseFileSize(state.humanUploadMaxFileSize || '0')
+    } catch {
+      throw new Error(t('admin.security.maxUploadSizeInvalid'))
+    }
+    if (!(uploadMaxFileSize > 0)) {
+      throw new Error(t('admin.security.maxUploadSizeInvalid'))
+    }
+    // -> ky throws above 400 -- the server rejects combinations that would store a setting doing
+    //    nothing, e.g. enforcing a CSP with no directives
+    return API_CLIENT.put('system/security', {
+      json: { ...config, uploadMaxFileSize }
+    }).json()
+  },
+  // -> Re-read rather than trusting the sent values: the server normalises some of them
+  onSaved: () => load()
 })
 
 const hstsDurations = [
@@ -687,71 +724,6 @@ const trustProxyAddresses = computed({
     //    address list configured yet," the same state as just having flipped the toggle on.
     state.config.trustProxy = val.trim() === '' ? true : val
   }
-})
-
-// METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const resp = await API_CLIENT.get('system/security').json()
-    state.config = { ...state.config, ...resp }
-    if (typeof state.config.trustProxy === 'string') {
-      trustProxyAddressCache.value = state.config.trustProxy
-    }
-    state.humanUploadMaxFileSize = formatFileSize(state.config.uploadMaxFileSize)
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.security.loadFailed'),
-      caption: err.message
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
-async function save() {
-  state.loading++
-  try {
-    let uploadMaxFileSize
-    try {
-      uploadMaxFileSize = parseFileSize(state.humanUploadMaxFileSize || '0')
-    } catch {
-      throw new Error(t('admin.security.maxUploadSizeInvalid'))
-    }
-    if (!(uploadMaxFileSize > 0)) {
-      throw new Error(t('admin.security.maxUploadSizeInvalid'))
-    }
-
-    await API_CLIENT.put('system/security', {
-      json: {
-        ...state.config,
-        uploadMaxFileSize
-      }
-    }).json()
-    notify({
-      type: 'positive',
-      message: t('admin.security.saveSuccess')
-    })
-    await load()
-  } catch (err) {
-    // -> ky throws above 400 — the server rejects combinations that would store a setting doing
-    //    nothing, e.g. enforcing a CSP with no directives
-    notify({
-      type: 'negative',
-      message: t('admin.security.saveFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-// MOUNTED
-
-onMounted(() => {
-  load()
 })
 </script>
 

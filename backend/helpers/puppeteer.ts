@@ -149,7 +149,7 @@ export async function launchUnderSemaphore(
  * rather than claim the extension is ready to use in a process that already tried and failed to load
  * its module.
  *
- * Shared by `models/rendering.ts` (re-rendering a page's markdown from a headless shell),
+ * Shared by `models/renderQueue.ts` (re-rendering a page's markdown from a headless shell),
  * `models/pdfExport.ts` (driving the live page view to produce a PDF) and `models/diagramRender.ts`
  * (drawing a Mermaid diagram) — three different reasons to open a browser that should still open the
  * exact same browser, and all three funnel through the one semaphore here.
@@ -176,4 +176,50 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
       args: getPuppeteerLaunchArgs()
     })
   )
+}
+
+/**
+ * Whether the Puppeteer extension is installed on this instance.
+ *
+ * Puppeteer is an operator-installed extension rather than a declared dependency, so every feature
+ * that needs a browser has to ask first — page re-rendering, PDF export and Mermaid diagram
+ * rendering each asked with a byte-identical two-liner of their own. One question, one answer.
+ */
+export async function isPuppeteerAvailable(): Promise<boolean> {
+  const definition = WIKI.models.extensions.getDefinition('puppeteer')
+  return Boolean(definition) && (await WIKI.models.extensions.isInstalled(definition!))
+}
+
+/**
+ * Refuse the caller, with their own error name and message, when no browser can be opened here.
+ *
+ * Asked before any work is queued or a browser is launched: a missing extension is a clean 503 the
+ * client can act on, not a launch left to fail on its own terms. The name and message stay per
+ * caller — a client can tell a failed page render from a failed export from a failed diagram — which
+ * is the whole of what differed between the three copies of this.
+ */
+export async function assertPuppeteerAvailable(errorName: string, message: string): Promise<void> {
+  if (!(await isPuppeteerAvailable())) {
+    throw new CustomError(errorName, message, 503)
+  }
+}
+
+/**
+ * Close a browser (or anything else with a `close()`), and keep any trouble doing so to itself.
+ *
+ * Always the last act of a render/export/diagram attempt, which by then either has its result or has
+ * already failed for its own reason — neither should be replaced by a failure to hang up. Accepts a
+ * null/undefined closable so a `finally` can call it against a browser that never opened.
+ *
+ * @param label What is being closed, for the debug line: "Could not close the <label> cleanly: ..."
+ */
+export async function closeQuietly(
+  closable: { close(): Promise<unknown> } | null | undefined,
+  label: string
+): Promise<void> {
+  try {
+    await closable?.close()
+  } catch (err: any) {
+    WIKI.logger.debug(`Could not close the ${label} cleanly: ${err.message}`)
+  }
 }

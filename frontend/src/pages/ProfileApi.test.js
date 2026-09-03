@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import ProfileApi from './ProfileApi.vue'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * OpenProject #788: `ProfileApi.vue` is the self-service counterpart to `AdminApi.vue` -- it lists
@@ -22,31 +24,25 @@ function mountPage({ freshPinia = true } = {}) {
     setActivePinia(createPinia())
   }
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        // -> Real wording from backend/locales/en.json:2060, needed so humanizeDate()'s
-        //    t('common.datetime', …) call renders actual text rather than the raw key.
-        common: {
-          datetime: '{date} at {time}'
-        },
-        profile: {
-          api: {
-            title: 'API Access',
-            subtitle: 'Personal access tokens',
-            none: 'You have not created any personal access tokens yet.',
-            keyEndingIn: 'Ending in {suffix}',
-            newKeyFullAccess: 'Full Access',
-            scopedTo: 'Scoped to {scope}',
-            keySite: 'Site: {site}',
-            newKeySiteAllSites: 'All Sites',
-            createdOn: 'Created on {date}',
-            expiresOn: 'Expires on {date}',
-            loadFailed: 'Failed to load'
-          }
-        }
+  const i18n = createTestI18n({
+    // -> Real wording from backend/locales/en.json:2060, needed so humanizeDate()'s
+    //    t('common.datetime', …) call renders actual text rather than the raw key.
+    common: {
+      datetime: '{date} at {time}'
+    },
+    profile: {
+      api: {
+        title: 'API Access',
+        subtitle: 'Personal access tokens',
+        none: 'You have not created any personal access tokens yet.',
+        keyEndingIn: 'Ending in {suffix}',
+        newKeyFullAccess: 'Full Access',
+        scopedTo: 'Scoped to {scope}',
+        keySite: 'Site: {site}',
+        newKeySiteAllSites: 'All Sites',
+        createdOn: 'Created on {date}',
+        expiresOn: 'Expires on {date}',
+        loadFailed: 'Failed to load'
       }
     }
   })
@@ -57,8 +53,8 @@ function mountPage({ freshPinia = true } = {}) {
 
 describe('ProfileApi', () => {
   it("lists the caller's own tokens from users/profile/api-keys, not the admin api-keys resource", async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      const payloads = {
+    stubApi(
+      {
         'users/profile/api-keys': [
           {
             id: 'key-1',
@@ -74,9 +70,9 @@ describe('ProfileApi', () => {
           }
         ],
         sites: []
-      }
-      return { json: () => Promise.resolve(payloads[resource] ?? []) }
-    })
+      },
+      { fallback: [] }
+    )
 
     const wrapper = mountPage()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -147,8 +143,8 @@ describe('ProfileApi', () => {
   // Temporal.Instant#toLocaleString() call of its own -- so a viewer's stored timezone preference
   // must change what's rendered, the same instant included.
   it('renders createdOn through the store formatter, so a stored timezone changes it', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      const payloads = {
+    stubApi(
+      {
         'users/profile/api-keys': [
           {
             id: 'key-1',
@@ -164,9 +160,9 @@ describe('ProfileApi', () => {
           }
         ],
         sites: []
-      }
-      return { json: () => Promise.resolve(payloads[resource] ?? []) }
-    })
+      },
+      { fallback: [] }
+    )
 
     setActivePinia(createPinia())
     const userStore = useUserStore()

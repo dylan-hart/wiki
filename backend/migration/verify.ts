@@ -45,10 +45,9 @@ import type { PhaseReport } from './report.ts'
 // Entities
 // ----------------------------------------
 
-/** Every entity type task 748's description names for row-count reconciliation. Deliberately
- * `navigation` too, even though no `MigrationPhase` reads `SourceConnector.navigation()` yet (see
- * `phases/settings.ts`) — the description names it explicitly, and the connector interface already
- * has the generator waiting for Task 420 to wire it up. */
+/** Every entity type reconciled by row count. `navigation` is included even though no phase gives it
+ * a 1:1 countable entity of its own (see `ENTITY_OWNING_PHASE` below): the source and destination
+ * counts are still worth comparing directly. */
 export const VERIFY_ENTITIES = [
   'users',
   'groups',
@@ -66,8 +65,8 @@ export type VerifyEntity = (typeof VERIFY_ENTITIES)[number]
  * reads it yet or because a phase reads it but cannot report a matching per-record count for it (see
  * below).
  *
- * `pageHistory`/`tags` are `undefined`, not `'content'`: as of Task 13's content-staging rewrite,
- * `phases/content.ts` no longer gives either one its own entity — both are merged into `StagedPage`
+ * `pageHistory`/`tags` are `undefined`, not `'content'`: `phases/content.ts` gives neither one its
+ * own entity — both are merged into `StagedPage`
  * (`content-staging.ts`'s merge-join for history, its denormalized-tags-on-page-rows design for tags),
  * so there is no separate `readEntity()` count for either any more (`content.ts`'s own doc comment:
  * "there is no separate raw connector.pageHistory()/connector.tags() read left at the phase level to
@@ -76,9 +75,8 @@ export type VerifyEntity = (typeof VERIFY_ENTITIES)[number]
  * counted either of them at all — not an off-by-one, a completely different quantity.
  *
  * `navigation` is `undefined` for a related but distinct reason: `phases/content.ts`'s `navigation`
- * entity *does* read every `connector.navigation()` row now (via `extractNavigation`, Task 741) — this
- * is no longer "nothing reads it yet" the way it was before Task 13. But that entity is a one-record
- * sentinel (`{ key: 'site-navigation' }`) whose `classify` drains the real navigation rows internally
+ * entity *does* read every `connector.navigation()` row (via `extractNavigation`), but that entity is
+ * a one-record sentinel (`{ key: 'site-navigation' }`) whose `classify` drains the real navigation rows internally
  * and always reports exactly 1 to `readEntity()`'s count, regardless of how many navigation rows the
  * source actually has (`report.ts`'s own doc comment on this). There is therefore still no 1:1
  * `VerifyEntity` count to compare against `PhaseReport.found` for it — its constant contribution is
@@ -117,7 +115,7 @@ const PHASE_FOUND_SENTINEL_OFFSET: Partial<Record<MigrationPhaseId, number>> = {
  *   `users`-phase `PhaseReport.found` (`groups + users + userGroups`) was undercounted by exactly the
  *   membership count on every source where any user belongs to any group, which is effectively always.
  * - `comments`: the `assets` phase's second entity, read directly off `SourceConnector.comments()` — a
- *   real generator since Task 16 built a write path for it, but never added to `VERIFY_ENTITIES` (see
+ *   real generator, but never added to `VERIFY_ENTITIES` (see
  *   that array's own doc comment: record-count reconciliation and this phase-found comparison are
  *   different concerns). A real `assets`-phase `PhaseReport.found` (`assets + comments`) was
  *   undercounted by the comment count on every source with at least one comment.
@@ -148,10 +146,10 @@ async function countAsyncIterable(iterable: AsyncIterable<unknown>): Promise<num
   return count
 }
 
-/** Wraps `body` the same way `countSourceEntities()` wraps each `VERIFY_ENTITIES` read: a
- * `NotYetImplementedError` — thrown either synchronously when a stub generator method is called, or
- * from inside the async iteration itself, both real shapes across the two connectors — resolves to
- * `'not_implemented'` for this one count rather than aborting the whole verify run. */
+/** Counts one source entity's records, resolving to `'not_implemented'` rather than aborting the whole
+ * verify run when the generator is still a stub. A `NotYetImplementedError` is caught whether thrown
+ * synchronously as the generator method is called or from inside the async iteration itself — both are
+ * real shapes across the two connectors. */
 async function countOrNotImplemented(
   body: () => AsyncIterable<unknown>
 ): Promise<number | 'not_implemented'> {
@@ -192,15 +190,7 @@ export async function countPhaseOnlySourceCounts(
 export async function countSourceEntities(source: SourceConnector): Promise<SourceEntityCounts> {
   const result = {} as SourceEntityCounts
   for (const entity of VERIFY_ENTITIES) {
-    try {
-      result[entity] = await countAsyncIterable(source[entity]() as AsyncIterable<unknown>)
-    } catch (err: any) {
-      if (err instanceof NotYetImplementedError) {
-        result[entity] = 'not_implemented'
-      } else {
-        throw err
-      }
-    }
+    result[entity] = await countOrNotImplemented(() => source[entity]() as AsyncIterable<unknown>)
   }
   return result
 }
@@ -368,7 +358,7 @@ export interface PhaseReportComparison {
  * only carries one `found` total per phase (e.g. the `content` phase's `found` is its `pages` entity's
  * count plus its `site-navigation` sentinel's constant 1 — see `ENTITY_OWNING_PHASE`'s and
  * `PHASE_FOUND_SENTINEL_OFFSET`'s doc comments — not `pages` + `pageHistory` + `tags`, which is what
- * this compared before Task 13's content-staging rewrite folded both of those into `pages`), so that is
+ * this compared before content staging folded both of those into `pages`), so that is
  * the finest grain this comparison can honestly make.
  *
  * `phaseOnlyCounts` folds in `userGroups`/`comments` (whole-branch review Critical #2 fix) — real,
@@ -538,7 +528,7 @@ function pagePath(record: SourceRecord): string | undefined {
 }
 
 /** Normalizes a raw 2.x source path into the 3.0 tree path an import would have actually placed it
- * at — the same `normalizeMigratedPath` fold (lowercase, `_` → `-`) `assignTreePaths` applies to
+ * at — the same `normalizeMigratedPath` fold (lowercase, `_` → `-`) `page-import.ts` applies to
  * every imported page. Returns `undefined` when the path doesn't normalize to anything valid (in
  * which case the page was never importable in the first place, so there is nothing to look up). */
 function destinationLookupPath(rawPath: string): string | undefined {

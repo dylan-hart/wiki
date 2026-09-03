@@ -48,12 +48,20 @@ export async function runBootPhaseOrExit(
  * down with nothing in `WIKI.logger`'s own backlog (`core/logger.ts`, replayed to the admin
  * terminal) to show for it.
  *
+ * `exit`, when given, is called with `1` after logging: the process gives up rather than continuing
+ * in a state some in-flight operation already abandoned, which is what `index.ts` wants (it passes
+ * `process.exit`). `@gquittet/graceful-server`'s own `uncaughtException` handler already treats a
+ * *synchronous* throw as fatal (`stop({ value: 2 })`); exiting here closes the same gap on the async
+ * side. Omitted, the handler logs and lets the process carry on. Injectable rather than a bare
+ * boolean for the same reason `runBootPhaseOrExit`'s is: a test can assert the call without actually
+ * terminating the test runner's process.
+ *
  * `target` is injectable — defaulting to the real `process` — so a test can register against a plain
  * `EventEmitter` stand-in instead of touching the actual process-wide event target.
  */
 export function registerUnhandledRejectionHandler(
   logger: BootLogger,
-  opts: { debug?: boolean; target?: NodeJS.EventEmitter } = {}
+  opts: { debug?: boolean; target?: NodeJS.EventEmitter; exit?: (code: number) => void } = {}
 ): void {
   const target = opts.target ?? process
   target.on('unhandledRejection', (reason: unknown) => {
@@ -62,5 +70,6 @@ export function registerUnhandledRejectionHandler(
     if (opts.debug && reason instanceof Error) {
       logger.error(reason)
     }
+    opts.exit?.(1)
   })
 }

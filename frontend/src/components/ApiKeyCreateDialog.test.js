@@ -1,11 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { DOMWrapper, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
+import { DOMWrapper } from '@vue/test-utils'
 
-import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
 import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -28,24 +27,14 @@ afterEach(() => {
  * these tests already set up.
  */
 function mountDialog() {
-  setActivePinia(createPinia())
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  return mount(ApiKeyCreateDialog, {
-    global: {
-      plugins: [i18n],
-      components: { BlueprintIcon }
-    }
-  })
+  // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports its
+  //    body to `document.body`, which is where the layout and scope-tree describes below assert.
+  return mountWithApp(ApiKeyCreateDialog, { stubs: {} }).wrapper
 }
 
 describe('ApiKeyCreateDialog site picker', () => {
   it('prepends an "All Sites" (id: null) entry to the fetched sites list', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ sites: [{ id: 'site-1', title: 'Docs' }] }, { fallback: [] })
 
     const wrapper = mountDialog()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -57,15 +46,10 @@ describe('ApiKeyCreateDialog site picker', () => {
   })
 
   it('defaults keySiteId to null and sends it as siteId on create', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      if (resource === 'groups') {
-        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi(
+      { sites: [{ id: 'site-1', title: 'Docs' }], groups: [{ id: 'group-1', name: 'Editors' }] },
+      { fallback: [] }
+    )
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })
@@ -87,15 +71,10 @@ describe('ApiKeyCreateDialog site picker', () => {
   })
 
   it('sends the picked site as siteId on create', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Docs' }]) }
-      }
-      if (resource === 'groups') {
-        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi(
+      { sites: [{ id: 'site-1', title: 'Docs' }], groups: [{ id: 'group-1', name: 'Editors' }] },
+      { fallback: [] }
+    )
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })
@@ -304,56 +283,15 @@ describe('ApiKeyCreateDialog scope tree', () => {
     return [...body().findAll('[role="checkbox"]')].find((el) => el.text().includes(scope))
   }
 
-  it('renders the closed scope vocabulary as one group per verb, including a single-member group', async () => {
-    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
-    mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(groupCheckbox('manage').exists()).toBe(true)
-    expect(groupCheckbox('read').exists()).toBe(true)
-    // -> `review:pages` is the only `review:*` scope today -- still its own group, not folded away
-    expect(groupCheckbox('review').exists()).toBe(true)
-  })
-
-  it('toggling one leaf scope checkbox narrows keyScope to just that scope', async () => {
-    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
-    const wrapper = mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    await groupToggleButton('manage').trigger('click')
-    await leafCheckbox('manage:users').trigger('click')
-
-    expect(wrapper.vm.state.keyScope).toEqual(['manage:users'])
-  })
-
-  it('clicking a group checkbox selects every scope in that group, and a second click deselects them', async () => {
-    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
-    const wrapper = mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    await groupCheckbox('read').trigger('click')
-    expect(wrapper.vm.state.keyScope).toEqual(
-      expect.arrayContaining([
-        'read:pages',
-        'read:source',
-        'read:history',
-        'read:assets',
-        'read:comments'
-      ])
-    )
-    expect(groupCheckbox('read').attributes('aria-checked')).toBe('true')
-
-    await groupCheckbox('read').trigger('click')
-    expect(wrapper.vm.state.keyScope).toEqual([])
-  })
+  /*
+    The three assertions about how the scope picker groups, toggles and narrows are byte-identical
+    between this suite and its sibling key-create dialog's, so they live once, as a `describe.each`
+    over both dialogs, in `apiKeyScopeTree.test.js`. The one below is not shared: it asserts on the
+    route and body THIS dialog posts, which is what differs between the two.
+  */
 
   it('shows the group checkbox as mixed once only some of its scopes are checked, and sends the narrowed list on create', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'groups') {
-        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ groups: [{ id: 'group-1', name: 'Editors' }] }, { fallback: [] })
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })

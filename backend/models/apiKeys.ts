@@ -8,6 +8,7 @@ import {
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { flatten, uniq } from 'es-toolkit/array'
 import { epochSeconds, signJwt, verifyJwt } from '../helpers/jwt.ts'
+import type { AuditActor } from './auditLog.ts'
 
 /**
  * The `aud` claim every key carries, and the one value `verify()` accepts.
@@ -20,7 +21,7 @@ import { epochSeconds, signJwt, verifyJwt } from '../helpers/jwt.ts'
 const TOKEN_AUDIENCE = 'urn:wiki.js'
 
 /** An API key signing keypair, with the passphrase its private half is encrypted under. */
-export interface SigningCertificates {
+interface SigningCertificates {
   /** Protects the private key at rest. Belongs to the keypair, and is rotated with it. */
   passphrase: string
   /**
@@ -82,30 +83,7 @@ export const KEY_EXPIRATIONS = {
 export type KeyExpiration = keyof typeof KEY_EXPIRATIONS
 
 /** An API key as exposed by the API. Never includes the token itself, which is not stored. */
-export interface ApiKey {
-  id: string
-  name: string
-  keyShort: string
-  groups: string[]
-  // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing (the key
-  //    carries the full union of its groups' permissions). See `narrowToScope()`.
-  scope: string[] | null
-  // -> A per-level allow-set (OpenProject #1205), or null for unrestricted (today's only behavior
-  //    for a key created before this existed, and the default). Checked in `groups.checkAccess()`
-  //    alongside `scope` above, on every page-rule decision.
-  allowedClassifications: string[] | null
-  // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
-  //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
-  siteId: string | null
-  // -> The user this is a personal access token for, or null for an admin-issued key. See the
-  //    `userId` column comment in `db/schema.ts` and this module's own doc comment for what that
-  //    changes about how the key's permissions are resolved.
-  userId: string | null
-  expiration: Date
-  isRevoked: boolean
-  createdAt: Date
-  updatedAt: Date
-}
+export type ApiKey = typeof apiKeysTable.$inferSelect
 
 /**
  * A key as the admin area lists it: the row, plus whether the certificates have moved on without it.
@@ -161,21 +139,6 @@ export interface ApiKeyIdentity {
 
 /** Raised by `verify()` when a token is not usable, with a reason safe to return to the caller. */
 export class ApiKeyError extends Error {}
-
-const keySelection = {
-  id: apiKeysTable.id,
-  name: apiKeysTable.name,
-  keyShort: apiKeysTable.keyShort,
-  groups: apiKeysTable.groups,
-  scope: apiKeysTable.scope,
-  allowedClassifications: apiKeysTable.allowedClassifications,
-  siteId: apiKeysTable.siteId,
-  userId: apiKeysTable.userId,
-  expiration: apiKeysTable.expiration,
-  isRevoked: apiKeysTable.isRevoked,
-  createdAt: apiKeysTable.createdAt,
-  updatedAt: apiKeysTable.updatedAt
-}
 
 /**
  * Narrow a group-derived permission set down to a key's stored scope.
@@ -276,12 +239,9 @@ class ApiKeys {
    * chose to revoke.
    */
   async getKeys(): Promise<ApiKeyListEntry[]> {
-    const results = await WIKI.db
-      .select(keySelection)
-      .from(apiKeysTable)
-      .orderBy(desc(apiKeysTable.createdAt))
+    const results = await WIKI.db.select().from(apiKeysTable).orderBy(desc(apiKeysTable.createdAt))
     const generatedAt = Temporal.Instant.from(WIKI.config.auth.certs.generatedAt)
-    return (results as ApiKey[]).map((key) => ({
+    return results.map((key) => ({
       ...key,
       isInvalidated: Temporal.Instant.compare(key.createdAt.toTemporalInstant(), generatedAt) < 0
     }))
@@ -298,12 +258,12 @@ class ApiKeys {
    */
   async listKeysForUser(userId: string): Promise<ApiKeyListEntry[]> {
     const results = await WIKI.db
-      .select(keySelection)
+      .select()
       .from(apiKeysTable)
       .where(eq(apiKeysTable.userId, userId))
       .orderBy(desc(apiKeysTable.createdAt))
     const generatedAt = Temporal.Instant.from(WIKI.config.auth.certs.generatedAt)
-    return (results as ApiKey[]).map((key) => ({
+    return results.map((key) => ({
       ...key,
       isInvalidated: Temporal.Instant.compare(key.createdAt.toTemporalInstant(), generatedAt) < 0
     }))
@@ -380,11 +340,11 @@ class ApiKeys {
    */
   async getKeyById(id: string): Promise<ApiKey | null> {
     const results = await WIKI.db
-      .select(keySelection)
+      .select()
       .from(apiKeysTable)
       .where(eq(apiKeysTable.id, id))
       .limit(1)
-    return (results[0] as ApiKey) ?? null
+    return results[0] ?? null
   }
 
   /**
@@ -568,3 +528,66 @@ class ApiKeys {
 }
 
 export const apiKeys = new ApiKeys()
+
+/** The fields both key-creation routes accept and validate the same way. */
+export interface ApiKeyCreateInput {
+  name: string
+  siteId?: string | null
+  allowedClassifications?: string[] | null
+}
+
+/**
+ * Check what an admin-issued key and a personal access token are checked for identically: a name
+ * with no markup characters in it, a `siteId` that names a real site (or null for instance-wide),
+ * and an `allowedClassifications` list naming only real levels (or null for unrestricted).
+ *
+ * Both routes wrote all three out; only the noun in the name message differed, which is the one
+ * thing passed in. Admin-issued keys additionally validate their `groups`, which has no counterpart
+ * on the personal side and so stays at that route (see `hasUnknownGroupIds` on `models/groups.ts`).
+ *
+ * @param label What the route calls the thing being created, for the name message: `Key`/`Token`
+ * @returns The message to answer `400` with, or null when the input is acceptable
+ */
+export function validateApiKeyInput(body: ApiKeyCreateInput, label: string): string | null {
+  if (!/^[^<>"]+$/.test(body.name)) {
+    return `${label} name contains invalid characters.`
+  }
+  // -> null pins nothing (instance-wide, today's only behavior); any other value must name a real
+  //    site, the same way every entry in an admin key's `groups` must name a real group
+  if (body.siteId != null && !WIKI.sites[body.siteId]) {
+    return 'This site does not exist.'
+  }
+  // -> null is unrestricted; any other value must be a list naming only real classification levels
+  if (
+    body.allowedClassifications != null &&
+    body.allowedClassifications.some((id) => !WIKI.models.classificationLevels.byId(id))
+  ) {
+    return 'One of the classification levels does not exist.'
+  }
+  return null
+}
+
+/**
+ * Mint a key and record that it was issued, which is one act rather than two: a key that exists with
+ * no audit trail is exactly what the audit log is there to make impossible (OpenProject #989). The
+ * `detail` differs between the two routes — an admin key names the groups it draws permissions from,
+ * a personal token says only that it is personal — so it is passed in rather than derived.
+ *
+ * A plain function rather than a method on the model: it composes two models (`apiKeys`,
+ * `auditLog`), and neither owns the other.
+ */
+export async function issueKey(
+  input: Parameters<ApiKeys['createKey']>[0],
+  audit: { actor: AuditActor; detail: Record<string, unknown> }
+): Promise<{ id: string; key: string }> {
+  const { id, key } = await WIKI.models.apiKeys.createKey(input)
+  await WIKI.models.auditLog.record({
+    event: 'apiKey.issued',
+    actor: audit.actor,
+    targetType: 'apiKey',
+    targetId: id,
+    targetLabel: input.name,
+    detail: audit.detail
+  })
+  return { id, key }
+}

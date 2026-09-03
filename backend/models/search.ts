@@ -1,9 +1,15 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
-import { load } from 'js-yaml'
-import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
+import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
+import {
+  loadModule,
+  mergeModuleConfig,
+  moduleHasFile,
+  readModuleDefinitions,
+  validateModuleConfig
+} from '../helpers/moduleRegistry.ts'
+import { withTimeout } from '../helpers/timeout.ts'
 import type { AccessActor } from './groups.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { pages as pagesTable } from '../db/schema.ts'
 
 /**
@@ -210,7 +216,7 @@ export interface SearchEngineDefinition {
    * Engine-specific config fields, e.g. an API key or an index name.
    *
    * `dictOverrides` (a locale -> text search dictionary map) is deliberately not declared here:
-   * `parseModuleProps` (`helpers/common.ts`) only knows how to validate boolean/number/string/enum
+   * `parseModuleProps` (`helpers/moduleProps.ts`) only knows how to validate boolean/number/string/enum
    * scalars, and an override map is a free-form object with no fixed set of keys. It stays a JSON
    * config field a provider reads directly off its stored config — same as `AdminSearch.vue`'s
    * `util-code-editor` already edits it today — rather than being forced through prop validation that
@@ -302,29 +308,11 @@ class Search {
    */
   async refreshFromDisk(): Promise<void> {
     const searchPath = path.join(WIKI.SERVERPATH, 'modules/search')
-    const definitions: SearchEngineDefinition[] = []
     try {
-      // -> Filtered to directories only: a loose per-module test file sitting alongside the module
-      //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
-      //    -- one such file would abort the whole scan and silently lose every real engine.
-      const searchEntries = await fs.readdir(searchPath, { withFileTypes: true })
-      const searchDirs = searchEntries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-      for (const dir of searchDirs) {
-        const raw = await fs.readFile(path.join(searchPath, dir, 'definition.yml'), 'utf8')
-        const parsed = load(raw) as Record<string, any>
-        // -> The directory name is the key, as it is for every other module type
-        parsed.key = dir
-        // -> Props carry a display `order`, applied once here so that every consumer — the admin
-        //    area included — reads them in the order the module meant them to be shown in
-        parsed.props = Object.fromEntries(
-          Object.entries(parseModuleProps(parsed.props ?? {})).sort(
-            ([, a], [, b]) => a.order - b.order
-          )
-        )
-        definitions.push(parsed as SearchEngineDefinition)
-      }
+      const definitions = await readModuleDefinitions<SearchEngineDefinition>(searchPath, {
+        parseProps: true,
+        sortPropsByOrder: true
+      })
       // -> The database engine first, then alphabetically: it is the one every site starts with
       this.definitions = definitions.sort((a, b) =>
         a.key === DB_MODULE ? -1 : b.key === DB_MODULE ? 1 : a.title.localeCompare(b.title)
@@ -341,12 +329,7 @@ class Search {
    * Whether the module has any code to run, as opposed to only a definition
    */
   async hasImplementation(key: string): Promise<boolean> {
-    try {
-      await fs.access(path.join(WIKI.SERVERPATH, 'modules/search', key, 'search.ts'))
-      return true
-    } catch {
-      return false
-    }
+    return moduleHasFile(WIKI.SERVERPATH, 'modules/search', key, 'search.ts')
   }
 
   /**
@@ -362,22 +345,14 @@ class Search {
    * @returns The implementation, or null when the module has none or it failed to load
    */
   async ensureModule(key: string): Promise<SearchModule | null> {
-    if (this.modules[key]) {
-      return this.modules[key]
-    }
-    if (!(await this.hasImplementation(key))) {
-      return null
-    }
-    try {
+    return loadModule(
+      this.modules,
+      key,
       // -> Extension-sensitive dynamic import, invisible to the type checker
-      this.modules[key] = (await import(`../modules/search/${key}/search.ts`)).default
-      WIKI.logger.debug(`Activated search module ${key} [ OK ]`)
-      return this.modules[key]
-    } catch (err: any) {
-      WIKI.logger.warn(`Failed to load search module ${key} [ FAILED ]`)
-      WIKI.logger.warn(err)
-      return null
-    }
+      () => import(`../modules/search/${key}/search.ts`),
+      'search',
+      () => this.hasImplementation(key)
+    )
   }
 
   /**
@@ -388,7 +363,7 @@ class Search {
    * restart is simply absent, rather than half-present with no metadata behind it.
    *
    * @param opts.mask When true, a `sensitive` prop's stored value (Algolia's `apiKey`, ...) is
-   *   replaced with a mask before being returned -- see `helpers/common.ts#maskSensitiveConfig`.
+   *   replaced with a mask before being returned -- see `helpers/moduleProps.ts#maskSensitiveConfig`.
    *   Defaults to false; `selectEngine()`/`initActiveEngines()` never call this at all (they read
    *   `getEngineConfig()` directly), but the default stays false here too so a caller other than the
    *   admin list route never gets a masked value it did not ask for.
@@ -437,28 +412,20 @@ class Search {
    * Merge incoming config values for one engine onto what is already stored for it, keeping only what
    * the engine declares.
    *
-   * Same shape as `Storage.buildConfig`, kept as its own method rather than shared: a search engine is
-   * a per-site *selection*, not a set of independently-enabled rows, so config for an engine that
-   * isn't currently active still needs somewhere to live -- under its own key in
-   * `site.config.search.engines` -- so that switching back to it does not lose what was entered.
+   * The merge itself is the shared one every module-backed model uses
+   * (`helpers/moduleRegistry.ts#mergeModuleConfig`); what stays specific to search is *where* the
+   * config it merges lives. A search engine is a per-site *selection*, not a set of
+   * independently-enabled rows, so config for an engine that isn't currently active still needs
+   * somewhere to live -- under its own key in `site.config.search.engines` -- so that switching back
+   * to it does not lose what was entered. Hence this wrapper, and its `existing` argument being read
+   * off the site rather than off a row of its own.
    */
   buildEngineConfig(
     key: string,
     incoming: Record<string, any> = {},
     existing: Record<string, any> = {}
   ): Record<string, any> {
-    const props = this.getDefinition(key)?.props ?? {}
-    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
-    //    through to `current` below instead of overwriting the real stored secret with the mask
-    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
-    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
-    const config: Record<string, any> = {}
-    for (const [propKey, prop] of Object.entries(props)) {
-      const current = existing[propKey] !== undefined ? existing[propKey] : prop.default
-      config[propKey] =
-        prop.readOnly || cleanedIncoming[propKey] === undefined ? current : cleanedIncoming[propKey]
-    }
-    return config
+    return mergeModuleConfig(this.getDefinition(key)?.props ?? {}, incoming, existing)
   }
 
   /**
@@ -488,57 +455,12 @@ class Search {
     existing: Record<string, any> = {}
   ): string | null {
     const definition = this.getDefinition(key)
-    const props = definition?.props ?? {}
-    for (const [propKey, value] of Object.entries(incoming)) {
-      const prop = props[propKey]
-      if (!prop) {
-        return `"${propKey}" is not a config value ${definition?.title ?? key} accepts.`
-      }
-      if (prop.readOnly || value === undefined) {
-        continue
-      }
-      if (prop.enum) {
-        // -> Enum entries are declared as `value` or `value|label`
-        const allowed = prop.enum.map((entry) => entry.split('|')[0])
-        if (!allowed.includes(`${value}`)) {
-          return `"${value}" is not a valid value for ${prop.title}.`
-        }
-        continue
-      }
-      switch (prop.type) {
-        case 'boolean':
-          if (typeof value !== 'boolean') {
-            return `${prop.title} must be true or false.`
-          }
-          break
-        case 'number':
-          if (typeof value !== 'number' || !Number.isFinite(value)) {
-            return `${prop.title} must be a number.`
-          }
-          break
-        default:
-          if (typeof value !== 'string') {
-            return `${prop.title} must be a string.`
-          }
-      }
-    }
-
-    const effective = this.buildEngineConfig(key, incoming, existing)
-    for (const [propKey, prop] of Object.entries(props)) {
-      const value = effective[propKey]
-      if (prop.required && (value === undefined || value === null || value === '')) {
-        return `${prop.title} is required for ${definition?.title ?? key}.`
-      }
-      if (
-        prop.pattern &&
-        typeof value === 'string' &&
-        value !== '' &&
-        !new RegExp(prop.pattern).test(value)
-      ) {
-        return `${prop.title} is not valid for ${definition?.title ?? key}.`
-      }
-    }
-    return null
+    return validateModuleConfig(definition?.props ?? {}, incoming, {
+      refuseUnknown: true,
+      requiredAndPattern: true,
+      moduleTitle: definition?.title ?? key,
+      existing
+    })
   }
 
   /**
@@ -606,27 +528,20 @@ class Search {
         if (!module) {
           return
         }
-        let timer: NodeJS.Timeout | undefined
         try {
-          await Promise.race([
+          await withTimeout(
             module.init(siteId, this.getEngineConfig(siteId, key)),
-            new Promise<never>((_resolve, reject) => {
-              timer = setTimeout(() => {
-                reject(
-                  new Error(
-                    `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
-                  )
-                )
-              }, ENGINE_INIT_TIMEOUT_MS)
-            })
-          ])
+            ENGINE_INIT_TIMEOUT_MS,
+            () =>
+              new Error(
+                `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
+              )
+          )
         } catch (err: any) {
           WIKI.logger.warn(
             `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
           )
           WIKI.logger.warn(err.message)
-        } finally {
-          clearTimeout(timer)
         }
       })
     )
@@ -651,7 +566,7 @@ class Search {
    * The text search configurations this postgres installation actually has, e.g. `english`, `simple`.
    *
    * Not site-scoped — postgres itself is one installation shared by every site — so this always asks
-   * the `db` module specifically rather than going through `getActiveEngine`. Used by the admin area to
+   * the `db` module specifically rather than the site's active engine. Used by the admin area to
    * validate a `dictOverrides` mapping before it's saved, and by `db`'s own indexing, regardless of
    * whether `db` is any given site's active engine: an operator can still configure its dictionaries
    * from the search settings screen even while another engine serves queries.
@@ -675,16 +590,14 @@ class Search {
    * one guaranteed to have an implementation. A site that names an engine whose implementation is
    * missing or failed to load also falls back to `db`, rather than search breaking outright for it.
    *
-   * Public (task #549's `getActiveEngine(siteId)` resolver): `query`/`rebuild`/`created`/`updated`/
-   * `deleted`/`renamed` below already resolve through this and forward straight to it, which is what
-   * keeps every existing caller (`api/pages.ts`, `models/pages.ts`,
-   * `tasks/simple/rebuild-search-index.ts`) off any specific engine implementation — they only ever
-   * call `WIKI.models.search.*`. This is exposed as its own method too, for a caller that genuinely
-   * needs the resolved module itself rather than one of the dispatcher's pass-through calls — e.g. a
-   * future admin action specific to one engine, the way `db.getAvailableDictionaries()` above already
-   * reaches past the dispatcher for a `db`-only capability.
+   * Internal to the dispatcher: `query`/`rebuild`/`created`/`updated`/`deleted`/`renamed` below all
+   * resolve through this and forward straight to it, which is what keeps every caller
+   * (`api/pages/read.ts`, `models/pages.ts`, `tasks/simple/rebuild-search-index.ts`) off any specific
+   * engine implementation — they only ever call `WIKI.models.search.*`. A `db`-only capability that
+   * genuinely has to reach past the dispatcher asks `ensureModule(DB_MODULE)` directly, the way
+   * `getAvailableDictionaries()` above does.
    */
-  async getActiveEngine(siteId: string): Promise<SearchModule> {
+  private async getActiveEngine(siteId: string): Promise<SearchModule> {
     const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
     const module = (await this.ensureModule(key)) ?? (await this.ensureModule(DB_MODULE))
     if (!module) {

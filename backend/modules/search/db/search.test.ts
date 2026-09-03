@@ -9,6 +9,7 @@ import {
   type TestFixtures
 } from '../../../test/db.ts'
 import { groups as groupsTable } from '../../../db/schema.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 import type { PageActor, PageInput } from '../../../models/pages.ts'
 import type { GroupRule } from '../../../models/groups.ts'
 
@@ -183,7 +184,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const vectorOf = async (id: string): Promise<string> => {
       const rows = await fixtures.db.execute(sql`SELECT ts::text AS ts FROM pages WHERE id = ${id}`)
-      return ((rows as any).rows ?? rows)[0].ts
+      return (rows as any).rows[0].ts
     }
 
     assert.notEqual(await vectorOf(moved.id), await vectorOf(reference.id))
@@ -220,7 +221,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   /**
    * OpenProject #830 (upstream #6541, permission-filtered instant-search suggestions): the endpoint
    * behind the header's live preview (`GET /sites/:siteId/pages/search`) is this same `query()` --
-   * `api/pages.ts` passes it the requester's `accessActor` and nothing else narrows the result set for
+   * `api/pages/read.ts` passes it the requester's `accessActor` and nothing else narrows the result set for
    * an anonymous or under-privileged caller. So a match this actor has no `read:pages` access to must
    * never come back in `results`, not merely be excluded from the `suggestion` -- the "did you mean"
    * suggestion test below covers the latter already; this covers the former, which is what a reader
@@ -573,11 +574,10 @@ describe('db search module query() siteId threading (task 678)', () => {
    */
 
   let checkAccessCalls: any[] = []
+  let wikiHandle: { restore(): void }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      config: {},
-      sites: {},
+    wikiHandle = installTestWiki({
       db: {
         execute: async () => ({
           rows: [
@@ -605,11 +605,11 @@ describe('db search module query() siteId threading (task 678)', () => {
           }
         }
       }
-    }
+    })
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('query: threads siteId into the RulePageRef passed to checkAccess', async () => {
@@ -665,19 +665,19 @@ describe('db search module query() totalHitsApproximate (OpenProject #2006)', ()
     ]
   }
 
+  let wikiHandle: { restore(): void }
+
   function installWiki(checkAccess: (page: any) => boolean) {
-    ;(globalThis as any).WIKI = {
-      config: {},
-      sites: {},
+    wikiHandle = installTestWiki({
       db: { execute: async () => ({ rows: rowFixtures() }) },
       models: {
         groups: { checkAccess: (_actor: any, _permission: string, page: any) => checkAccess(page) }
       }
-    }
+    })
   }
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('is true when the rules filter drops a row the engine counted', async () => {

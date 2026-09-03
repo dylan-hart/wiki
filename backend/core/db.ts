@@ -20,7 +20,6 @@ import {
 } from '../helpers/pubsub.ts'
 import { acquireAdvisoryLock, type AdvisoryLockHandle } from '../helpers/advisoryLock.ts'
 import maintenance from './maintenance.ts'
-// import migrationSource from '../db/migrator-source.js'
 
 /**
  * Sends the event bus's cross-instance notifications, one at a time.
@@ -162,7 +161,7 @@ export type WikiTx = Parameters<Parameters<WikiDb['transaction']>[0]>[0]
  * Either the ambient `WIKI.db` or a transaction handle carved out of it. A model method that writes
  * more than one row and wants those writes to share a caller-controlled transaction takes this as an
  * optional `db` parameter, defaulting to the ambient `WIKI.db` — see `models/tree.ts`'s `addAsset`
- * call chain and `importer/assets.ts`'s batch runner for the worked example.
+ * call chain for the worked example.
  */
 export type WikiDbOrTx = WikiDb | WikiTx
 
@@ -476,7 +475,7 @@ export default {
     maintenance.subscribeToEvents()
     WIKI.models.groups.subscribeToEvents()
     WIKI.models.sites.subscribeToEvents()
-    WIKI.models.approvals.subscribeToEvents()
+    WIKI.models.approvalRules.subscribeToEvents()
     WIKI.models.classificationLevels.subscribeToEvents()
     WIKI.models.glossary.subscribeToEvents()
     WIKI.models.locales.subscribeToEvents()

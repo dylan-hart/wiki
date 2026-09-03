@@ -1,5 +1,6 @@
-import { Command, InvalidArgumentError } from 'commander'
-import { addSourceOptions, resolveSource } from './source-args.ts'
+import { InvalidArgumentError } from 'commander'
+import { buildSourceProgram, parseArgv, resolveSource, splitCommaList } from './source-args.ts'
+import type { Command } from 'commander'
 import type { ParsedSource, SourceRawOptions } from './source-args.ts'
 
 export type { ParsedSource } from './source-args.ts'
@@ -33,41 +34,29 @@ function parseSampleSize(raw: string): number {
 }
 
 function buildProgram(): Command {
-  const program = new Command()
-  program
-    .name('verify-migration')
-    .description(
+  return buildSourceProgram({
+    name: 'verify-migration',
+    description:
       'Verify a completed Wiki.js 2.5.x -> 3.0 migration: compare per-entity record counts and ' +
-        'spot-check page content against the same source the import ran against.'
-    )
-    .requiredOption('--site-id <id>', 'Destination site ID that was imported into')
-    .option(
-      '--sample-size <n>',
-      'Number of random pages to content-spot-check when --sample-paths is not given',
-      '20'
-    )
-    .option(
-      '--sample-paths <paths>',
-      'Comma-separated list of specific page paths to spot-check instead of a random sample'
-    )
-    .option(
-      '--against-report <path>',
-      'Path to a dry-run report JSON (written by "migrate --report-file") to diff live phase totals against'
-    )
-  addSourceOptions(program)
-  program.exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
-  return program
-}
-
-function parseSamplePaths(raw: string | undefined): string[] | undefined {
-  if (!raw) {
-    return undefined
-  }
-  const paths = raw
-    .split(',')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-  return paths.length > 0 ? paths : undefined
+      'spot-check page content against the same source the import ran against.',
+    options: (program) => {
+      program
+        .requiredOption('--site-id <id>', 'Destination site ID that was imported into')
+        .option(
+          '--sample-size <n>',
+          'Number of random pages to content-spot-check when --sample-paths is not given',
+          '20'
+        )
+        .option(
+          '--sample-paths <paths>',
+          'Comma-separated list of specific page paths to spot-check instead of a random sample'
+        )
+        .option(
+          '--against-report <path>',
+          'Path to a dry-run report JSON (written by "migrate --report-file") to diff live phase totals against'
+        )
+    }
+  })
 }
 
 /**
@@ -81,15 +70,10 @@ function parseSamplePaths(raw: string | undefined): string[] | undefined {
  * @throws A plain `Error` (never commander's own `CommanderError`) describing what was wrong.
  */
 export function parseVerifyArgs(argv: string[]): ParsedVerifyArgs {
-  const program = buildProgram()
-  try {
-    program.parse(argv, { from: 'user' })
-  } catch (err: any) {
-    throw new Error(err.message)
-  }
-
-  const opts = program.opts<RawOptions>()
-  const samplePaths = parseSamplePaths(opts.samplePaths)
+  const opts = parseArgv<RawOptions>(buildProgram(), argv)
+  // -> `--sample-paths=,,` names nothing, which is the same as not asking for explicit paths at all.
+  const parsed = splitCommaList(opts.samplePaths)
+  const samplePaths = parsed && parsed.length > 0 ? parsed : undefined
   return {
     source: resolveSource(opts),
     siteId: opts.siteId,

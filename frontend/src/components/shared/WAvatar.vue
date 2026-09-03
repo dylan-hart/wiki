@@ -20,6 +20,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { resolveSize } from './metrics'
 
 /**
  * Circular (or squared) container for an image, icon or initials.
@@ -63,8 +64,6 @@ const props = defineProps({
   }
 })
 
-const NAMED_SIZES = { xs: '18px', sm: '24px', md: '32px', lg: '38px', xl: '46px' }
-
 const shapeClass = computed(() => {
   if (props.square) {
     return 'rounded-none'
@@ -76,7 +75,7 @@ const shapeClass = computed(() => {
 })
 
 const styles = computed(() => {
-  const size = props.size ? (NAMED_SIZES[props.size] ?? props.size) : null
+  const size = props.size ? resolveSize(props.size) : null
   return {
     width: size ?? undefined,
     height: size ?? undefined,

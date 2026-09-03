@@ -4,6 +4,9 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import blocksRoutes from './blocks.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * `/_blocks/custom/:siteId/:fileName` — a unit-level test of the controller's own wiring (id
@@ -22,7 +25,7 @@ let app: FastifyInstance
 let getCustomBlockCodeCalls: { siteId: string; id: string }[]
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     models: {
       blocks: {
         getCustomBlockCode: async (siteId: string, id: string) => {
@@ -31,7 +34,7 @@ before(async () => {
         }
       }
     }
-  }
+  })
 
   app = fastify()
   await app.register(fastifySensible)
@@ -41,7 +44,7 @@ before(async () => {
 
 after(async () => {
   await app.close()
-  delete (globalThis as any).WIKI
+  wikiHandle.restore()
 })
 
 test('streams a known custom block’s code with an immutable cache header', async () => {

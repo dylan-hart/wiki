@@ -54,7 +54,7 @@ actually populates are:
 
 | Path                     | What's in it                                                                                             | Recoverable without a backup?                                                            |
 | ------------------------ | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `<dataPath>/cache/files` | Served copies of uploaded asset bytes, trimmed to `files.cacheMaxSize` (`models/assets.ts`)              | Yes — it's a cache of the `assets` table's `bytea` data, rebuilt on demand               |
+| `<dataPath>/cache/files` | Served copies of uploaded asset bytes, trimmed to `files.cacheMaxSize` (`models/assetServing.ts`)              | Yes — it's a cache of the `assets` table's `bytea` data, rebuilt on demand               |
 | `<dataPath>/cache/icons` | One JSON file per resolved Iconify icon (`models/icons.ts`)                                              | Yes — same tier as the `icons` DB table, itself just a cache in front of the Iconify API |
 | `<dataPath>/exports/`    | In-progress and completed "Export content" tarballs (`models/export.ts`)                                 | Yes, but an in-flight export job would need to be re-run                                 |
 | `<dataPath>/imports/`    | Uploaded site-import archives awaiting their job (`models/siteImport.ts`)                                | Yes, but an in-flight import would need to be re-uploaded                                |
@@ -134,7 +134,7 @@ into 3.x for the first time is a different, one-time procedure with its own tool
 
 ### Certificate rotation invalidates every API key
 
-`POST /_api/system/certificates` (`backend/api/system.ts`, requires `manage:system`) generates a new
+`POST /_api/system/certificates` (`backend/api/system/maintenance.ts`, requires `manage:system`) generates a new
 API-key signing keypair and passphrase. This is a legitimate recovery action — the way to take back a
 key that has leaked and cannot be revoked individually — but its blast radius is total and immediate:
 **every API key ever issued, on every instance sharing this database, stops authenticating at once.**
@@ -180,7 +180,7 @@ separate writers each put real, non-derived state under one of its siblings:
 | ------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `locales/`    | `models/locales.ts` (`sideloadPath`, `backend/models/locales.ts:116`)      | Sideloaded locale packs added to a running instance without a rebuild — see `docs/offline-deployment.md`.                                 |
 | `cache/icons` | `models/icons.ts` (`cachePath`, `backend/models/icons.ts:126`)             | Nothing durable — this is a derived disk cache of icon data also held in the `icons` DB table; losing it costs a refill, not data.        |
-| `cache/files` | `models/assets.ts` (`cachePath`, `backend/models/assets.ts:1033`)          | Nothing durable — same as `cache/icons`: a derived serving cache, refilled from the `assets` table's `bytea` columns on the next request. |
+| `cache/files` | `models/assetServing.ts` (`cachePath`, `backend/models/assetServing.ts:400`) | Nothing durable — same as `cache/icons`: a derived serving cache, refilled from the `assets` table's `bytea` columns on the next request. |
 | `exports/`    | `models/export.ts` (`exportsPath`, `backend/models/export.ts:65`)          | In-flight and recently-completed "Export content" tarballs, TTL-purged; not a source of truth.                                            |
 | `imports/`    | `models/siteImport.ts` (`importsPath`, `backend/models/siteImport.ts:108`) | Uploaded import archives staged for the queued import job; job-scoped, not a source of truth.                                             |
 

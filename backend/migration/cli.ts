@@ -1,6 +1,6 @@
-import { Command } from 'commander'
 import { MIGRATION_PHASE_IDS } from './phases/index.ts'
-import { addSourceOptions, resolveSource } from './source-args.ts'
+import { buildSourceProgram, parseArgv, resolveSource, splitCommaList } from './source-args.ts'
+import type { Command } from 'commander'
 import type { MigrationPhaseId } from './context.ts'
 import type { ParsedSource, SourceRawOptions } from './source-args.ts'
 
@@ -26,33 +26,30 @@ interface RawOptions extends SourceRawOptions {
 }
 
 function buildProgram(): Command {
-  const program = new Command()
-  program
-    .name('migrate')
-    .description('Import a Wiki.js 2.5.x installation into this 3.0 instance.')
-    .requiredOption('--site-id <id>', 'Destination site ID to import into')
-    .option('--dry-run', 'Compute what would change without writing anything', false)
-    .option(
-      '--only <phases>',
-      `Comma-separated phase id(s) to (re-)run, e.g. "content" or "users,content". One of: ${MIGRATION_PHASE_IDS.join(', ')}.`
-    )
-    .option(
-      '--report-file <path>',
-      'Also write the aggregate dry-run report as JSON to this path, in addition to the console table'
-    )
-  addSourceOptions(program)
-  program.exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
-  return program
+  return buildSourceProgram({
+    name: 'migrate',
+    description: 'Import a Wiki.js 2.5.x installation into this 3.0 instance.',
+    options: (program) => {
+      program
+        .requiredOption('--site-id <id>', 'Destination site ID to import into')
+        .option('--dry-run', 'Compute what would change without writing anything', false)
+        .option(
+          '--only <phases>',
+          `Comma-separated phase id(s) to (re-)run, e.g. "content" or "users,content". One of: ${MIGRATION_PHASE_IDS.join(', ')}.`
+        )
+        .option(
+          '--report-file <path>',
+          'Also write the aggregate dry-run report as JSON to this path, in addition to the console table'
+        )
+    }
+  })
 }
 
 function parseOnly(raw: string | undefined): MigrationPhaseId[] | undefined {
-  if (!raw) {
+  const ids = splitCommaList(raw)
+  if (!ids) {
     return undefined
   }
-  const ids = raw
-    .split(',')
-    .map((id) => id.trim())
-    .filter((id) => id.length > 0)
   const unknown = ids.filter((id) => !MIGRATION_PHASE_IDS.includes(id as MigrationPhaseId))
   if (unknown.length > 0) {
     throw new Error(
@@ -74,14 +71,7 @@ function parseOnly(raw: string | undefined): MigrationPhaseId[] | undefined {
  * @throws A plain `Error` (never commander's own `CommanderError`) describing what was wrong.
  */
 export function parseMigrationArgs(argv: string[]): ParsedMigrationArgs {
-  const program = buildProgram()
-  try {
-    program.parse(argv, { from: 'user' })
-  } catch (err: any) {
-    throw new Error(err.message)
-  }
-
-  const opts = program.opts<RawOptions>()
+  const opts = parseArgv<RawOptions>(buildProgram(), argv)
   return {
     source: resolveSource(opts),
     siteId: opts.siteId,

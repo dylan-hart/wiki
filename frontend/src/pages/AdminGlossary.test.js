@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminGlossary from './AdminGlossary.vue'
 import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
 import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDialog.vue'
-import { useAdminStore } from '@/stores/admin'
 import { dialog, confirm } from '@/composables/dialog'
+
+import { mountWithApp } from '../../test/mount.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -39,21 +38,12 @@ const EXPORT_TERMS = [
 ]
 
 function mountAdminGlossary(terms = EXPORT_TERMS) {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-1'
-
   API_CLIENT.get.mockReturnValue({
     json: () => Promise.resolve({ formatVersion: 1, terms })
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-  const wrapper = mount(AdminGlossary, {
-    global: {
-      plugins: [i18n],
-      stubs: { BlueprintIcon: true }
-    }
+  const { wrapper } = mountWithApp(AdminGlossary, {
+    stores: { admin: { currentSiteId: 'site-1' } }
   })
   return wrapper
 }
@@ -93,7 +83,10 @@ describe('AdminGlossary: load()', () => {
     await flushPromises()
 
     const row = wrapper.find('.w-item')
-    const [termSection, definitionSection] = row.findAll('.w-item-section')
+    // -> The first section is `BlueprintIcon`'s own `<w-item-section avatar>` (registered globally
+    //    by `test/setup.js`, exactly as `boot/components.js` registers it in the app); the term and
+    //    its definition are the two after it.
+    const [, termSection, definitionSection] = row.findAll('.w-item-section')
 
     expect(termSection.text()).not.toContain('Application Programming Interface.')
     expect(definitionSection.text()).toBe('Application Programming Interface.')

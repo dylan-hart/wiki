@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import PageDeleteDialog from './PageDeleteDialog.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 const MESSAGES = {
   'pageDeleteDialog.title': 'Delete Page',
@@ -25,7 +26,7 @@ async function mountDialog({ siteId = 'site-1', currentNavigationId = 'nav-1' } 
   const pageStore = usePageStore()
   pageStore.navigationId = currentNavigationId
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(PageDeleteDialog, {
     props: { pageId: 'page-1', pageName: 'Some Page' },
     global: { plugins: [i18n], stubs: { teleport: true } }

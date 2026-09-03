@@ -32,17 +32,18 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  * This set is sized against the model calls the built importers actually make, not just the ones
  * they call directly:
  * - `sites`, `settings`, `users`, `groups`, `authentication`, `storage`, `tags`, `tree`, `pages`,
- *   `pageHistory`, `assets` — called directly by `importers/users-groups.ts` and `page-import.ts`.
- * - `comments` — called directly by `importers/comment-import.ts` (Task 16), via `phases/assets.ts`'s
+ *   `pageHistory`, `assets` — called directly by `importers/users-groups.ts` and
+ *   `importers/page-import.ts`.
+ * - `comments` — called directly by `importers/comment-import.ts`, via `phases/assets.ts`'s
  *   `commentsModel.create()`.
  * - `locales`, `rendering`, `search`, `hooks`, `flags`, `classificationLevels` — reached
  *   transitively via `WIKI.models.pages.createPage()` (`models/pages.ts:681,688,697,728,766,825,
  *   918,919,927`), the only page write path an importer calls today.
- * - `navigation` — called directly by `navigation-import.ts` (`WIKI.models.navigation.ensureSiteNav`
+ * - `navigation` — called directly by `phases/content.ts` (`WIKI.models.navigation.ensureSiteNav`
  *   et al.).
- * - `security` — called directly by `phases/settings.ts` (Task 15's review fix): the settings phase's
+ * - `security` — called directly by `phases/settings.ts`: the settings phase's
  *   `security`-keyed instance-settings patch goes through the real `WIKI.models.security.updateConfig()`
- *   (the same merge-then-`saveToDb()` path `api/system.ts` uses), not a raw
+ *   (the same merge-then-`saveToDb()` path `api/system/settings.ts` uses), not a raw
  *   `WIKI.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
  *   that would silently delete every 3.0-only `security` field the 2.x mapper's patch doesn't produce.
  *
@@ -66,6 +67,7 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     { assets },
     { comments },
     { locales },
+    { renderQueue },
     { rendering },
     { search },
     { hooks },
@@ -87,6 +89,7 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     import('../models/assets.ts'),
     import('../models/comments.ts'),
     import('../models/locales.ts'),
+    import('../models/renderQueue.ts'),
     import('../models/rendering.ts'),
     import('../models/search.ts'),
     import('../models/hooks.ts'),
@@ -109,6 +112,7 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     assets,
     comments,
     locales,
+    renderQueue,
     rendering,
     search,
     hooks,
@@ -211,7 +215,7 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   WIKI.events = createEventsStub()
   WIKI.cache = createCacheStub()
 
-  // The `settings` phase (Task 15) reads/writes through `WIKI.models.authentication`/
+  // The `settings` phase reads/writes through `WIKI.models.authentication`/
   // `WIKI.models.storage` as the mappers' own `AuthModuleResolver`/`StorageModuleResolver` — both
   // resolve every module through `WIKI.data.authentication`/`WIKI.models.storage.definitions`, which
   // start out empty (`{}`/`[]`) until something loads them from disk. `index.ts`'s `postBoot()` does
@@ -222,7 +226,7 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   await WIKI.models.authentication.refreshStrategiesFromDisk()
   await WIKI.models.storage.refreshFromDisk()
 
-  // The `users` phase (Task 14) needs `WIKI.config.auth.rootAdminGroupId`/`rootAdminUserId` —
+  // The `users` phase needs `WIKI.config.auth.rootAdminGroupId`/`rootAdminUserId` —
   // real, per-install ids `Settings.init()` persisted to the `settings` table at seed time, not
   // anything `configSvc.init()` above (config.yml + base.yml only) ever populates. `index.ts`'s
   // `preBoot()` calls `configSvc.ensureSeeded()` (which calls `loadFromDb()` internally) for the
@@ -246,7 +250,7 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
 }
 
 /**
- * Resolves the three identifiers the `users` phase (Task 14) and the `content` phase (Task 13) need
+ * Resolves the three identifiers the `users` and `content` phases need
  * from the destination install but cannot derive from the 2.x source: this install's local-auth
  * strategy id, its real system Administrators/Guests group ids, and the root admin user id to use as a
  * fallback content author. Called once, after `bootstrapMigrationRuntime()` has returned, by whichever
@@ -258,16 +262,13 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
  * `rootAdminGroupId`/`rootAdminUserId` are per-install ids `Settings.init()` generated once and
  * persisted under the `auth` settings key (`models/settings.ts`) — reading them requires the
  * `WIKI.configSvc.loadFromDb()` call `bootstrapMigrationRuntime()` now makes. See
- * `importers/users-groups.ts`'s own module doc (Task 731 paragraph) for the full trace of where the
- * admin/guest group ids live at runtime.
+ * `importers/users-groups.ts`'s `SystemGroupIds` doc for the full trace of where the admin/guest
+ * group ids live at runtime.
  *
- * This used to also resolve a fourth identifier, the target site's primary locale (Task 13), as a
- * `siteId`-scoped fifth parameter — removed by the whole-branch review's Critical #1 fix. That value
- * was captured once, here, before any migration phase had run, so the `content`/`assets` phases (both
- * transitively `dependsOn: ['settings']`) always saw the destination's PRE-migration locale even after
- * the `settings` phase had already changed it. `context.ts#resolvePrimaryLocale()` is the replacement:
- * a phase that needs the site's current primary locale reads it fresh, at the point it actually needs
- * it, off `WIKI.sites` — see that function's own doc comment for the full trace.
+ * The target site's primary locale is deliberately NOT resolved here: a value captured before any
+ * phase had run would leave the `content`/`assets` phases seeing the destination's PRE-migration
+ * locale even after the `settings` phase had changed it. `context.ts#resolvePrimaryLocale()` reads it
+ * fresh instead, at the point a phase actually needs it.
  */
 export function resolveUsersImportContext(WIKI: WikiGlobal): {
   localStrategyId: string

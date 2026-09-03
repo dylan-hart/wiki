@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { mock } from 'node:test'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { afterEach, beforeEach, describe, test } from 'node:test'
 import type Client from 'ssh2-sftp-client'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -12,41 +14,30 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * logging, and that the connection always closes) without a real SFTP server or database.
  */
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let loggerCalls: { level: string; message: string }[]
-
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
 
 beforeEach(() => {
   loggerCalls = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
+    // -> Not the silent default: several tests assert on WHAT was logged and at which level.
     logger: {
       info: mock.fn((message: string) => loggerCalls.push({ level: 'info', message })),
       warn: mock.fn((message: string) => loggerCalls.push({ level: 'warn', message })),
       error: mock.fn((message: string) => loggerCalls.push({ level: 'error', message })),
       debug: mock.fn((message: string) => loggerCalls.push({ level: 'debug', message }))
     }
-  }
+  })
 })
 
-after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+afterEach(() => {
+  wikiHandle.restore()
 })
 
 function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
-  return {
+  return makeStorageTarget('sftp', {
     id: 'target-1',
-    siteId: 'site-1',
-    module: 'sftp',
-    isEnabled: true,
     title: 'SFTP',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
     contentTypes: {
       activeTypes: ['pages', 'images', 'documents', 'others', 'large'],
       largeThreshold: '5MB'
@@ -57,7 +48,6 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       streaming: false,
       directAccess: false
     },
-    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
     sync: {
       supportedModes: ['push'],
       schedule: false,
@@ -65,11 +55,9 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       scheduleOverride: null,
       supportsContentSync: false
     },
-    props: {},
     config: { host: 'files.example.com', port: 22, username: 'wiki', basePath: '/srv/wiki' },
-    actions: [],
     ...overrides
-  }
+  })
 }
 
 function makeStubClient(overrides: Record<string, any> = {}): any {

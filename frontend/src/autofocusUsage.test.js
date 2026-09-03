@@ -3,50 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { listSourceFiles } from '../test/sourceFiles.js'
+
 const SRC_ROOT = path.dirname(fileURLToPath(import.meta.url))
-
-/**
- * OpenProject #1676: a structural regression guard for the dead-`autofocus`-attribute defect the
- * 2026-08-24 audit found (`docs/audit-2026-08-24/maintainability.md` §3 / `ux-flows.md` §9).
- *
- * `WInput.vue`'s root element used to be a non-focusable wrapping `<div>`, so a bare `autofocus`
- * attribute on a `<w-input>` tag landed there and did nothing -- 25 call sites across 20 files had
- * exactly that dead markup. Three of them (`ApprovalRuleDialog.vue`, `GlossaryTermDialog.vue`,
- * `SuggestionGuestDialog.vue`) already focused their field correctly through
- * `useDialogComponent({ autofocus: () => iptX.value })` (`composables/dialog.js`), which made their
- * template attribute redundant rather than broken -- but redundant dead markup is exactly the kind of
- * thing that silently reappears once nobody remembers why it was removed, which is what this guards.
- *
- * Ground truth as of this WP (see its OpenProject comment thread for the full account): the epic's
- * two children that were supposed to fix the 17 genuinely-broken call sites (#1668, #1671) wired every
- * one of them through `useDialogComponent`'s per-call-site `autofocus` option, deleting the dead
- * attribute at each. A sibling WP (#1649) separately -- and, per its own closing comment, without the
- * decision child #1664 ever formally arbitrating -- gave `WInput.vue` a real, working `autofocus` prop
- * (it focuses the control in its own `onMounted`). That prop is now used exactly once in the whole
- * tree, on `AuthLoginPanel.vue`'s TFA recovery-code field, which isn't behind `useDialogComponent` and
- * so has no dialog re-mount timing problem for `onMounted` to trip over -- a legitimate, working use,
- * not dead markup, and this test must not flag it.
- *
- * So the shape of the remaining defect this test can actually guard against, without re-litigating
- * #1664's still-open decision, is the concrete pattern the three named files had: a `<w-input>` (or
- * `<w-select>`, which grew the same prop) tag carrying a literal `autofocus` attribute in a file that
- * *also* calls `useDialogComponent({ autofocus: ... })` -- i.e. two focus mechanisms wired for the
- * same dialog, one of them necessarily inert or redundant. Should a future change settle #1664 in
- * favor of the component prop everywhere, this guard's premise changes and it should be revisited
- * then, not guessed at now.
- */
-
-function walk(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      walk(full, out)
-    } else if (entry.name.endsWith('.vue')) {
-      out.push(full)
-    }
-  }
-  return out
-}
 
 /**
  * Parses one tag starting at `text[start]` (`text[start] === '<'`), respecting quoted attribute
@@ -108,7 +67,7 @@ function findDuplicateWiring(filePath) {
 
 describe('no dead <w-input>/<w-select> autofocus attribute duplicates useDialogComponent wiring', () => {
   it('finds no file that both calls useDialogComponent({ autofocus }) and carries a literal autofocus attribute on a w-input/w-select tag', () => {
-    const files = walk(SRC_ROOT)
+    const files = listSourceFiles(SRC_ROOT, { ext: ['.vue'] })
     const findings = files.flatMap((f) => findDuplicateWiring(f))
 
     expect(findings, JSON.stringify(findings, null, 2)).toEqual([])

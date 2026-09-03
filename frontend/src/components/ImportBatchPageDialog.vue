@@ -266,7 +266,7 @@ const MAX_PATH_ATTEMPTS = 25
  *
  * - A base of `IMPORT_BATCH_TIMEOUT_BASE`: past the server's own single-conversion ceiling
  *   (`backend/models/import.ts`'s `IMPORT_TIMEOUT`, 30s -- one pandoc process killed if it stalls),
- *   with margin. The batch route converts every file in parallel (one `Promise.all`, `api/pages.ts`),
+ *   with margin. The batch route converts every file in parallel (one `Promise.all`, `api/pages/import.ts`),
  *   so this is not "30s times file count" -- it is what one file alone would already need.
  * - `IMPORT_BATCH_TIMEOUT_PER_FILE` per file: even run in parallel, more files mean more pandoc
  *   processes contending for the same CPU, more disk I/O staging each upload, and a slower parallel

@@ -72,7 +72,7 @@ class Security {
    * `false`). As of task 2109 that is no longer true: the session cookie's `Secure`, `SameSite` and
    * `__Host-` name are all pinned unconditionally in `index.ts`'s `fastifySession` registration, so
    * this misdetection can no longer weaken it. What it still breaks is everything else that reads
-   * `request.protocol` to decide what scheme it is talking: `api/authentication.ts#callbackUrl()`
+   * `request.protocol` to decide what scheme it is talking: `api/auth/provider.ts#callbackUrl()`
    * builds the OAuth/SAML return URL from it (wrong scheme there fails the whole federated login,
    * not just the cookie), and `controllers/seo.ts` builds the sitemap/robots URLs the same way. The
    * field name and trigger stay as they are -- same underlying misconfiguration, same fix (turn on

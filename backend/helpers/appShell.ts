@@ -17,8 +17,8 @@
 
 import { readFile as fsReadFile } from 'node:fs/promises'
 import { stat as fsStat } from 'node:fs/promises'
-import type { LocaleRoutingConfig } from './common.ts'
-import { matchLocaleCode, stripLocalePrefix } from './common.ts'
+import type { LocaleRoutingConfig } from './localeRouting.ts'
+import { matchLocaleCode, stripLocalePrefix } from './localeRouting.ts'
 
 const HTML_TAG_PATTERN = /<html\b[^>]*>/i
 

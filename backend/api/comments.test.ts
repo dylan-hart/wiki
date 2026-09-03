@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
+import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import commentsRoutes from './comments.ts'
-import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
-import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { createSilentLogger } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Two independently-built route test suites merged at merge-review time (see `comments.ts`'s own
@@ -25,7 +22,7 @@ describe('comment provider routes', () => {
    * `WIKI.models.sites` and `WIKI.models.commentProviders` are stubbed rather than pulling in the real
    * db/schema/drizzle graph — `models/commentProviders.test.ts` is what covers the model's own logic
    * (discovery, sync, the single-active-provider invariant) against a real database. This file only
-   * proves the route wiring: site existence checks, status codes, and how the model's return values and
+   * proves the route wiring: the shared site preHandler, status codes, and how the model's return values and
    * thrown errors map onto the HTTP response.
    */
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
@@ -48,10 +45,6 @@ describe('comment provider routes', () => {
   }
 
   let setActiveProviderCalls: Array<{ siteId: string; module: string; config: Record<string, any> }>
-
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   async function getSiteProviders(siteId: string) {
     return siteId === SITE_ID ? [ALPHA_PROVIDER] : []
@@ -76,26 +69,25 @@ describe('comment provider routes', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        sites: { getSiteById },
-        commentProviders: { getSiteProviders, setActiveProvider }
-      }
+    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(commentsRoutes)
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerCommentSchema(app)
-    await registerCommentProviderSchema(app)
-    await app.register(commentsRoutes)
-    await app.ready()
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      wiki: {
+        sites,
+        models: {
+          commentProviders: { getSiteProviders, setActiveProvider }
+        }
+      }
+    })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('GET .../comments/providers 404s for a site that does not exist', async () => {
     const res = await app.inject({
@@ -450,54 +442,46 @@ describe('page-scoped comment routes', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      // -> OpenProject #935: the site-level `features.comments` flag POST now checks, defaulted on
-      //    so every pre-existing test in this describe keeps passing unchanged.
-      sites: { [SITE_ID]: { id: SITE_ID, config: { features: { comments: true } } } },
-      // -> `limitGuestComments` (OpenProject #2256) logs a debug line when it refuses a request.
-      logger: { debug: () => {} },
-      models: {
-        pages: { getPage },
-        groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
-        users: { getById },
-        comments: {
-          listForPage,
-          create,
-          get: getComment,
-          update: updateComment,
-          delete: deleteComment
-        },
-        hooks: { emit },
-        rateLimits: { consume: consumeRateLimit }
-      }
-    }
-
-    app = fastify({
-      ajv: { plugins: [[ajvFormats.default, {}] as any] }
-    })
-    app.addHook('onRequest', async (req) => {
-      const userId = req.headers['x-test-user-id'] as string | undefined
-      const permissions = ((req.headers['x-test-permissions'] as string | undefined) ?? '')
-        .split(',')
-        .filter(Boolean)
-      req.session = (
-        userId
+    app = await buildTestApp({
+      routes: commentsRoutes,
+      ajv: true,
+      // -> This suite's own two headers rather than the harness's `'header'` convention: it needs an
+      //    `authenticated: false` session PRESENT (not absent) for the guest cases, and a `user.id`
+      //    on the authenticated ones.
+      session: (req: any) => {
+        const userId = req.headers['x-test-user-id'] as string | undefined
+        const permissions = ((req.headers['x-test-permissions'] as string | undefined) ?? '')
+          .split(',')
+          .filter(Boolean)
+        return userId
           ? { authenticated: true, user: { id: userId }, permissions }
           : { authenticated: false, permissions }
-      ) as any
+      },
+      wiki: {
+        // -> OpenProject #935: the site-level `features.comments` flag POST now checks, defaulted on
+        //    so every pre-existing test in this describe keeps passing unchanged.
+        sites: { [SITE_ID]: { id: SITE_ID, config: { features: { comments: true } } } },
+        // -> `limitGuestComments` (OpenProject #2256) logs a debug line when it refuses a request.
+        logger: createSilentLogger(),
+        models: {
+          pages: { getPage },
+          groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
+          users: { getById },
+          comments: {
+            listForPage,
+            create,
+            get: getComment,
+            update: updateComment,
+            delete: deleteComment
+          },
+          hooks: { emit },
+          rateLimits: { consume: consumeRateLimit }
+        }
+      }
     })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerCommentSchema(app)
-    await registerCommentProviderSchema(app)
-    await app.register(commentsRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     created.length = 0

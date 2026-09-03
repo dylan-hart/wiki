@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { flushPromises } from '@vue/test-utils'
 import { fileOpen } from 'browser-fs-access'
 
 import GroupEditOverlay from './GroupEditOverlay.vue'
@@ -10,8 +7,8 @@ import UserSearchDialog from './UserSearchDialog.vue'
 import WConfirmDialog from './shared/WConfirmDialog.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
-import { useAdminStore } from '@/stores/admin'
-import { useUserStore } from '@/stores/user'
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 vi.mock('browser-fs-access', () => ({
   fileOpen: vi.fn(),
@@ -42,12 +39,6 @@ const SITE_PERMISSION_TITLES = {
 }
 
 async function mountRulesSection(groupId) {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.overlayOpts = { id: groupId }
-  adminStore.sites = []
-  adminStore.locales = []
-
   API_CLIENT.get.mockReturnValueOnce({
     json: () =>
       Promise.resolve({
@@ -70,34 +61,22 @@ async function mountRulesSection(groupId) {
       })
   })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:section', component: { template: '<div />' } }]
-  })
-  router.push(`/rules`)
-  await router.isReady()
+  const router = await createTestRouter(['/:section'], `/rules`)
 
   // -> Task #1602: the catalog's `title:`/`hint:` now resolve through `t()` from
   //    `admin.groups.permissions.<permission>.title`, not a hardcoded literal in the module-scope
   //    array -- so this bundle must actually carry those keys for the rendered chip to show the
   //    expected text instead of the raw untranslated key.
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: Object.fromEntries(
-        Object.entries(SITE_PERMISSION_TITLES).map(([permission, title]) => [
-          `admin.groups.permissions.${permission}.title`,
-          title
-        ])
-      )
-    }
-  })
 
-  const wrapper = mount(GroupEditOverlay, {
-    global: {
-      plugins: [router, i18n]
-    }
+  const { wrapper } = mountWithApp(GroupEditOverlay, {
+    messages: Object.fromEntries(
+      Object.entries(SITE_PERMISSION_TITLES).map(([permission, title]) => [
+        `admin.groups.permissions.${permission}.title`,
+        title
+      ])
+    ),
+    router,
+    stores: { admin: { overlayOpts: { id: groupId }, sites: [], locales: [] } }
   })
 
   await flushPromises()
@@ -122,39 +101,11 @@ async function mountRulesSection(groupId) {
  * multi-selecting a batch and confirming, not a reimplementation of the dialog.
  */
 async function mountWithGroup() {
-  setActivePinia(createPinia())
-
-  const adminStore = useAdminStore()
-  adminStore.overlayOpts = { id: 'group-1' }
-
-  const userStore = useUserStore()
-  userStore.permissions = ['manage:groups']
-
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:id?/:section?', component: { template: '<div />' } }]
-  })
-  router.push('/group-1/users')
-  await router.isReady()
+  const router = await createTestRouter(['/:id?/:section?'], '/group-1/users')
 
   // -> Real strings (backend/locales/en.json), not the raw i18n keys the empty bundle used
   //    elsewhere in this suite falls back to: this test asserts on the actual interpolated text
   //    (the failing user's name, the pluralized success count), so the keys need real values.
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: {
-          groups: {
-            assignUserFailed: 'Failed to assign {userName} to this group.',
-            assignUserSuccess:
-              'User was assigned to the group successfully. | {count} users were assigned to the group successfully.'
-          }
-        }
-      }
-    }
-  })
 
   // -> onMounted() calls checkRoute() before fetchGroup(); on the `users` section, checkRoute()
   //    calls refreshUsers() synchronously first, so its GET is issued (and must be mocked) ahead of
@@ -170,10 +121,18 @@ async function mountWithGroup() {
     json: () => Promise.resolve({ id: 'group-1', name: 'Test Group', userCount: 1, rules: [] })
   })
 
-  const wrapper = mount(GroupEditOverlay, {
-    global: {
-      plugins: [router, i18n]
-    }
+  const { wrapper } = mountWithApp(GroupEditOverlay, {
+    messages: {
+      admin: {
+        groups: {
+          assignUserFailed: 'Failed to assign {userName} to this group.',
+          assignUserSuccess:
+            'User was assigned to the group successfully. | {count} users were assigned to the group successfully.'
+        }
+      }
+    },
+    router,
+    stores: { admin: { overlayOpts: { id: 'group-1' } }, user: { permissions: ['manage:groups'] } }
   })
 
   await flushPromises()
@@ -199,12 +158,6 @@ describe('GroupEditOverlay: fork-mismatched permission-model help links removed'
   })
 
   it('renders no help link on the permissions section', async () => {
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.overlayOpts = { id: 'group-perms' }
-    adminStore.sites = []
-    adminStore.locales = []
-
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -216,17 +169,11 @@ describe('GroupEditOverlay: fork-mismatched permission-model help links removed'
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:section', component: { template: '<div />' } }]
-    })
-    router.push('/permissions')
-    await router.isReady()
+    const router = await createTestRouter(['/:section'], '/permissions')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-    const wrapper = mount(GroupEditOverlay, {
-      global: { plugins: [router, i18n] }
+    const { wrapper } = mountWithApp(GroupEditOverlay, {
+      router,
+      stores: { admin: { overlayOpts: { id: 'group-perms' }, sites: [], locales: [] } }
     })
     await flushPromises()
 
@@ -256,10 +203,6 @@ describe('GroupEditOverlay rule editor: site: permission vocabulary', () => {
  */
 describe('GroupEditOverlay global permissions: hint resolves from the i18n dictionary', () => {
   it("renders a permission row's hint from a mounted translation, not a literal", async () => {
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.overlayOpts = { id: 'group-perms' }
-
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -271,28 +214,16 @@ describe('GroupEditOverlay global permissions: hint resolves from the i18n dicti
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:section', component: { template: '<div />' } }]
-    })
-    router.push('/permissions')
-    await router.isReady()
+    const router = await createTestRouter(['/:section'], '/permissions')
 
     const dictionaryHint = 'DICTIONARY-SOURCED HINT TEXT, NOT A COMPONENT LITERAL'
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: {
-        en: {
-          'admin.groups.permissions.access:admin.hint': dictionaryHint
-        }
-      }
-    })
 
-    const wrapper = mount(GroupEditOverlay, {
-      global: {
-        plugins: [router, i18n]
-      }
+    const { wrapper } = mountWithApp(GroupEditOverlay, {
+      messages: {
+        'admin.groups.permissions.access:admin.hint': dictionaryHint
+      },
+      router,
+      stores: { admin: { overlayOpts: { id: 'group-perms' } } }
     })
 
     await flushPromises()
@@ -311,12 +242,6 @@ describe('GroupEditOverlay global permissions: hint resolves from the i18n dicti
  */
 describe('GroupEditOverlay rule editor: manage:classification permission', () => {
   async function mountWithClassificationPermissionRule() {
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.overlayOpts = { id: 'group-manage-classification' }
-    adminStore.sites = []
-    adminStore.locales = []
-
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -339,29 +264,19 @@ describe('GroupEditOverlay rule editor: manage:classification permission', () =>
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:section', component: { template: '<div />' } }]
-    })
-    router.push('/rules')
-    await router.isReady()
+    const router = await createTestRouter(['/:section'], '/rules')
 
     // -> Task #1602's i18n conversion of the `rules` catalog means the rendered chip title now comes
     //    from this mounted dictionary, not a component literal -- see the `site:` permission test
     //    above for the same requirement.
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: {
-        en: {
-          'admin.groups.permissions.manage:classification.title': 'Manage Classification'
-        }
-      }
-    })
 
-    const wrapper = mount(GroupEditOverlay, {
-      global: {
-        plugins: [router, i18n]
+    const { wrapper } = mountWithApp(GroupEditOverlay, {
+      messages: {
+        'admin.groups.permissions.manage:classification.title': 'Manage Classification'
+      },
+      router,
+      stores: {
+        admin: { overlayOpts: { id: 'group-manage-classification' }, sites: [], locales: [] }
       }
     })
 
@@ -514,16 +429,6 @@ describe('GroupEditOverlay unassignUser confirmation', () => {
  */
 describe('GroupEditOverlay rule editor: CLASSIFICATION match kind', () => {
   async function mountWithClassificationRule() {
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.overlayOpts = { id: 'group-classification' }
-    adminStore.sites = []
-    adminStore.locales = []
-    adminStore.classificationLevels = [
-      { id: 'level-public', name: 'Public', sortOrder: 0 },
-      { id: 'level-internal', name: 'Internal', sortOrder: 1 }
-    ]
-
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -547,18 +452,20 @@ describe('GroupEditOverlay rule editor: CLASSIFICATION match kind', () => {
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:section', component: { template: '<div />' } }]
-    })
-    router.push('/rules')
-    await router.isReady()
+    const router = await createTestRouter(['/:section'], '/rules')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-    const wrapper = mount(GroupEditOverlay, {
-      global: {
-        plugins: [router, i18n]
+    const { wrapper } = mountWithApp(GroupEditOverlay, {
+      router,
+      stores: {
+        admin: {
+          overlayOpts: { id: 'group-classification' },
+          sites: [],
+          locales: [],
+          classificationLevels: [
+            { id: 'level-public', name: 'Public', sortOrder: 0 },
+            { id: 'level-internal', name: 'Internal', sortOrder: 1 }
+          ]
+        }
       }
     })
 
@@ -584,16 +491,6 @@ describe('GroupEditOverlay rule editor: CLASSIFICATION match kind', () => {
  */
 describe('GroupEditOverlay import rules confirmation', () => {
   async function mountRulesSectionWithOneRule() {
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.overlayOpts = { id: 'group-import' }
-    adminStore.sites = []
-    adminStore.locales = []
-    adminStore.classificationLevels = []
-
-    const userStore = useUserStore()
-    userStore.permissions = ['manage:groups']
-
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
@@ -616,18 +513,18 @@ describe('GroupEditOverlay import rules confirmation', () => {
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:section', component: { template: '<div />' } }]
-    })
-    router.push('/rules')
-    await router.isReady()
+    const router = await createTestRouter(['/:section'], '/rules')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-    const wrapper = mount(GroupEditOverlay, {
-      global: {
-        plugins: [router, i18n]
+    const { wrapper } = mountWithApp(GroupEditOverlay, {
+      router,
+      stores: {
+        admin: {
+          overlayOpts: { id: 'group-import' },
+          sites: [],
+          locales: [],
+          classificationLevels: []
+        },
+        user: { permissions: ['manage:groups'] }
       }
     })
 

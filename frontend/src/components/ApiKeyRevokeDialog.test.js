@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import ApiKeyRevokeDialog from './ApiKeyRevokeDialog.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #788: `ApiKeyRevokeDialog` is reused by both `AdminApi.vue` (an admin revoking any key)
@@ -12,15 +13,9 @@ import ApiKeyRevokeDialog from './ApiKeyRevokeDialog.vue'
  * needed no change to keep working.
  */
 function mountDialog(props) {
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: { api: { revoke: 'Revoke', revokeConfirm: 'Revoke API Key?' } },
-        profile: { api: { revoke: 'Revoke Token', revokeConfirm: 'Revoke Personal Access Token?' } }
-      }
-    }
+  const i18n = createTestI18n({
+    admin: { api: { revoke: 'Revoke', revokeConfirm: 'Revoke API Key?' } },
+    profile: { api: { revoke: 'Revoke Token', revokeConfirm: 'Revoke Personal Access Token?' } }
   })
   return mount(ApiKeyRevokeDialog, {
     props: { apiKey: { id: 'key-1', name: 'My Key' }, ...props },

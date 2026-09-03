@@ -2,6 +2,9 @@ import { beforeEach, vi } from 'vitest'
 import { config } from '@vue/test-utils'
 import mitt from 'mitt'
 
+import BlueprintIcon from '@/components/BlueprintIcon.vue'
+import LoadingGeneric from '@/components/LoadingGeneric.vue'
+import StatusLight from '@/components/StatusLight.vue'
 import { sharedComponents } from '@/components/shared'
 
 import { createApiClientStub } from './mocks.js'
@@ -28,6 +31,21 @@ if (typeof Temporal === 'undefined') {
   exactly as it does at runtime, with no per-test import list to keep in sync as components are added.
 */
 config.global.components = { ...config.global.components, ...sharedComponents }
+
+/*
+  `boot/components.js` registers three more globals alongside that library, and they were reached for
+  under test the same inconsistent way: 12 suites registered the real `BlueprintIcon` through
+  `global.components`, 7 replaced it with `stubs: { BlueprintIcon: true }`, and `AdminLayout.test.js`
+  registered `StatusLight` by hand -- so the same component rendered two different ways depending on
+  which file you were reading, and `AdminGeneral.test.js:50` carried a comment explaining that its
+  per-file registration existed only to reproduce the app's global one. Registering all three here,
+  from the same imports `boot/components.js` uses, makes a mounted component see exactly what the app
+  renders with nothing to opt into; the assertions that had been written against the
+  `<blueprint-icon-stub />` placeholder read the real avatar markup instead.
+*/
+config.global.components.BlueprintIcon = BlueprintIcon
+config.global.components.LoadingGeneric = LoadingGeneric
+config.global.components.StatusLight = StatusLight
 
 /*
   `API_CLIENT` and `EVENT_BUS` exist nowhere outside `boot/*` (see `src/boot/api.js`,

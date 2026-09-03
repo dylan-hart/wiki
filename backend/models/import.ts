@@ -33,7 +33,7 @@ export const MAX_IMPORT_BATCH_FILES = 20
  *
  * `MAX_IMPORT_SIZE` bounds one file; `MAX_IMPORT_BATCH_FILES` bounds how many a batch may carry —
  * but nothing bounded their product, so a full batch of maximum-size files meant ~500 MB of Node
- * heap resident at once before `api/pages.ts`'s batch handler converted a single one of them
+ * heap resident at once before `api/pages/import.ts`'s batch handler converted a single one of them
  * (OpenProject #2204, audit `09-dos-resource.md` §10). Set to four times a single file's own limit:
  * generous for an ordinary batch of real documents, while keeping the peak well under what the old,
  * unbounded aggregate could reach. The batch handler also converts each file as soon as it finishes
@@ -53,7 +53,7 @@ const importErrorLength = 800
  * concurrent batch imports could still fork ~240 pandoc children between them (OpenProject #2209,
  * audit `09-dos-resource.md` §10). Gating here, in front of every caller of {@link Import.runPandoc}
  * — the batch route and the single-file route both funnel through it — covers both in one place.
- * `models/rendering.ts`'s single-browser render queue is the same idea taken to a stricter
+ * `models/renderQueue.ts`'s single-browser render queue is the same idea taken to a stricter
  * one-at-a-time ceiling; a pandoc process is far cheaper than a full browser, so a small concurrency
  * window is the right trade here rather than a strict queue.
  */
@@ -99,14 +99,7 @@ function releasePandocSlot(): void {
  * its own JSON AST — that either aren't "somebody's wiki page" or need options this endpoint doesn't
  * expose, and are deliberately left out rather than accepted and left to confuse whoever picks them.
  */
-export const PANDOC_IMPORT_FORMATS = [
-  'mediawiki',
-  'textile',
-  'docbook',
-  'rst',
-  'docx',
-  'odt'
-] as const
+const PANDOC_IMPORT_FORMATS = ['mediawiki', 'textile', 'docbook', 'rst', 'docx', 'odt'] as const
 
 export type PandocImportFormat = (typeof PANDOC_IMPORT_FORMATS)[number]
 
@@ -161,7 +154,7 @@ function isSupportedFormat(format: string): format is ImportFormat {
  * uses to resolve a per-file format from its name (OpenProject #1209), rather than one format applied
  * across an entire batch.
  */
-export const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
+const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
   md: 'markdown',
   markdown: 'markdown',
   wiki: 'mediawiki',
@@ -202,7 +195,7 @@ export interface ImportConversionResult {
  * and, if present, splitting a leading YAML front-matter header into title/description/tags
  * (OpenProject #1092). Every other supported format is converted by shelling out to Pandoc — an
  * extension like Puppeteer, not a bundled dependency, and one this instance may not have.
- * `ensureCanImport` is the same kind of guard `models/rendering.ts`'s `ensureCanRender` is for
+ * `ensureCanImport` is the same kind of guard `models/renderQueue.ts`'s `ensureCanRender` is for
  * Puppeteer: asked before any pandoc-backed work starts, so a missing tool is reported as a clean 503
  * rather than discovered mid-conversion — the markdown pass-through never calls it, since it has
  * nothing to be missing.

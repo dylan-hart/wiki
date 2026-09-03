@@ -12,25 +12,36 @@ import { dump, load } from 'js-yaml'
 
 /**
  * File extension for each value `pages.contentType` can hold (`EDITOR_CONTENT_TYPES` in
- * `models/pages.ts`). `text` and `redirect` have no dedicated markup of their own, so both fall back
- * to plain text.
+ * `models/pages.ts`), without its leading dot. `text` and `redirect` have no dedicated markup of their
+ * own, so both fall back to plain text.
+ *
+ * The one such table in the backend: `models/storage.ts`'s `getFileExtension`, `modules/storage/git`'s
+ * extension probe and `modules/storage/disk`'s dump map are all derived from it (disk overriding
+ * `redirect` — see there), so a new page content type cannot land in one file-backed target and go
+ * missing from the next.
  */
 export const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
-  markdown: '.md',
-  asciidoc: '.adoc',
-  html: '.html',
-  text: '.txt',
-  redirect: '.txt'
+  markdown: 'md',
+  asciidoc: 'adoc',
+  html: 'html',
+  text: 'txt',
+  redirect: 'txt'
 }
 
 /** Used for a `contentType` the map above doesn't recognize, so a file always gets written. */
-const DEFAULT_EXTENSION = '.txt'
+export const DEFAULT_CONTENT_TYPE_EXTENSION = 'txt'
+
+/** The bare file extension (no leading dot) a page's `contentType` is written under. */
+export function fileExtensionForContentType(contentType: string): string {
+  return CONTENT_TYPE_EXTENSIONS[contentType] ?? DEFAULT_CONTENT_TYPE_EXTENSION
+}
 
 /**
- * The file extension a page's content should be written with, based on its `contentType`.
+ * The file extension a page's content should be written with, based on its `contentType` — dotted, as
+ * a file name needs it.
  */
 export function extensionForContentType(contentType: string): string {
-  return CONTENT_TYPE_EXTENSIONS[contentType] ?? DEFAULT_EXTENSION
+  return `.${fileExtensionForContentType(contentType)}`
 }
 
 /** The subset of a page row that goes into its front-matter header. */

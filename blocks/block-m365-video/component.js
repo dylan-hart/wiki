@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit'
+import { VideoEmbedElement } from '../shared/video-embed.js'
 
 /**
  * Hostnames Microsoft serves these embeds from. Deliberately the whole allow-list, checked as a
@@ -59,7 +59,7 @@ function isAllowedHost(hostname) {
  * public-sharing option at all — see the block's `hint` text, which says so wherever an author fills
  * this prop in.
  */
-export class BlockM365VideoElement extends LitElement {
+export class BlockM365VideoElement extends VideoEmbedElement {
   /**
    * Metadata for the admin area and the editor's block picker. Collected at build time into
    * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
@@ -94,123 +94,76 @@ export class BlockM365VideoElement extends LitElement {
     ]
   }
 
-  static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
-
-      /*
-        The frame's box, and the gap below the block. On this element rather than :host: see
-        block-index.
-
-        -> A max-width rather than a plain width, so a player asked for at a fixed size on a phone is
-           the width of the phone instead of pushing the page sideways.
-      */
-      .player {
-        max-width: 100%;
-        margin-bottom: 16px;
-        border-radius: 5px;
-        overflow: hidden;
-        background-color: #000;
-      }
-
-      iframe {
-        display: block;
-        width: 100%;
-        height: 100%;
-        border: 0;
-      }
-
-      .error {
-        margin-bottom: 16px;
-        padding: 1rem;
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        color: var(--q-negative, #c10015);
-      }
-    `
-  }
-
-  static get properties() {
-    return {
-      /**
-       * The pasted embed code or address
-       * @type {string}
-       */
-      embed: { type: String },
-
-      /**
-       * Width of the player in pixels
-       * @type {number}
-       */
-      width: { type: Number },
-
-      /**
-       * Height of the player in pixels
-       * @type {number}
-       */
-      height: { type: Number }
-    }
+  static properties = {
+    /**
+     * The pasted embed code or address
+     * @type {string}
+     */
+    embed: { type: String }
   }
 
   constructor() {
     super()
     this.embed = ''
-    this.width = null
-    this.height = null
   }
 
-  /** A prop given a usable number, or null for one left empty. */
-  _size(value) {
-    const size = Number(value)
-    return Number.isFinite(size) && size > 0 ? size : null
+  /*
+    The only one of these blocks whose input is not a `url` prop: what an author pastes here is a
+    whole `<iframe>` snippet out of Microsoft's own Share panel, so the source hook is overridden and
+    the inherited `url` prop is simply never set.
+  */
+  _source() {
+    return (this.embed ?? '').trim()
   }
 
-  render() {
-    const raw = (this.embed ?? '').trim()
-    if (!raw) {
-      return html` <div class="error">This player needs a Microsoft 365 video's embed code.</div> `
-    }
+  _providerName() {
+    return 'Microsoft 365'
+  }
 
-    const src = extractSrc(raw)
+  _frameAllow() {
+    return 'autoplay; encrypted-media; fullscreen; picture-in-picture'
+  }
+
+  /**
+   * The address to embed, passed through untouched — unlike `block-youtube`, this never rebuilds it
+   * from parameters, since Microsoft's snippet already carries whatever the tenant's sharing
+   * settings require and there is no safe way to guess which of them can be dropped.
+   */
+  _parse(source) {
+    const src = extractSrc(source)
     const url = src ? parseHttpsUrl(src) : null
-    if (!url) {
-      return html`
-        <div class="error">
-          That doesn't look like a Microsoft 365 video embed. Paste the iframe embed code from the
-          video's Share &gt; Manage Access panel, or just its src address.
-        </div>
-      `
-    }
-    if (!isAllowedHost(url.hostname)) {
-      return html`
-        <div class="error">
-          ${url.hostname} is not a Microsoft-owned video host, so this will not be rendered. This
-          block only embeds Clipchamp or Stream-on-SharePoint videos — a *.sharepoint.com,
-          stream.microsoft.com, *.microsoftstream.com or *.clipchamp.com address.
-        </div>
-      `
-    }
+    return url && isAllowedHost(url.hostname) ? src : null
+  }
 
-    const width = this._size(this.width)
-    const height = this._size(this.height)
-    const style = [
-      width ? `width: ${width}px` : 'width: 100%',
-      height ? `height: ${height}px` : 'aspect-ratio: 16 / 9'
-    ].join('; ')
+  _embedUrl(src) {
+    return src
+  }
 
-    return html`
-      <div class="player" style=${style}>
-        <iframe
-          src=${src}
-          title="Microsoft 365 video player"
-          loading="lazy"
-          referrerpolicy="strict-origin-when-cross-origin"
-          allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-          allowfullscreen></iframe>
-      </div>
-    `
+  _missingSourceMessage() {
+    return "This player needs a Microsoft 365 video's embed code."
+  }
+
+  /**
+   * Two different messages, told apart by re-reading the input `_parse` just refused: a host that is
+   * simply not Microsoft's is worth naming, since the paste is otherwise a perfectly good embed.
+   * Recomputed rather than remembered — this runs only on the failure path, once, and a hook that
+   * returned a reason alongside its result would put that branch in every block here for the sake of
+   * this one.
+   */
+  _invalidSourceMessage(source) {
+    const src = extractSrc(source)
+    const url = src ? parseHttpsUrl(src) : null
+    if (url) {
+      return (
+        `${url.hostname} is not a Microsoft-owned video host, so this will not be rendered. This ` +
+        'block only embeds Clipchamp or Stream-on-SharePoint videos — a *.sharepoint.com, ' +
+        'stream.microsoft.com, *.microsoftstream.com or *.clipchamp.com address.'
+      )
+    }
+    return (
+      "That doesn't look like a Microsoft 365 video embed. Paste the iframe embed code from the " +
+      "video's Share > Manage Access panel, or just its src address."
+    )
   }
 }
 

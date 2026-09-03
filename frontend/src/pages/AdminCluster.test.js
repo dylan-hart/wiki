@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminCluster from './AdminCluster.vue'
 import WTable from '@/components/shared/WTable.vue'
+
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Task 605 verification pass, ported to this file's task-711 rename (AdminInstances.vue ->
  * AdminCluster.vue, state.instances -> state.nodes, admin.instances.* -> admin.cluster.*).
  *
  * `<w-table row-key="name">` was wired to a property no row object has — `getClusterNodes()` in
- * `backend/api/system.ts` returns `id`/`activeConnections`/`dbUser`/... with no `name` field at all.
+ * `backend/api/system/info.ts` returns `id`/`activeConnections`/`dbUser`/... with no `name` field at all.
  * Every row therefore keyed on the same `undefined`.
  *
  * That is a real bug of intent (the prop's own docstring says it wants "a row property holding a
@@ -24,31 +23,19 @@ import WTable from '@/components/shared/WTable.vue'
  * zero, one, and multiple rows, which is the actual behavior the task asked to be confirmed.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
+  return mountWithApp(AdminCluster, {
     messages: {
-      en: {
-        'admin.cluster.title': 'Cluster',
-        'admin.cluster.subtitle': 'Connected cluster nodes',
-        'admin.cluster.activeConnections': 'Connections',
-        'admin.cluster.activeListeners': 'Listeners',
-        'admin.cluster.firstSeen': 'First seen',
-        'admin.cluster.lastSeen': 'Last seen',
-        'common.field.id': 'ID',
-        'common.actions.viewDocs': 'View docs',
-        'common.actions.refresh': 'Refresh'
-      }
+      'admin.cluster.title': 'Cluster',
+      'admin.cluster.subtitle': 'Connected cluster nodes',
+      'admin.cluster.activeConnections': 'Connections',
+      'admin.cluster.activeListeners': 'Listeners',
+      'admin.cluster.firstSeen': 'First seen',
+      'admin.cluster.lastSeen': 'Last seen',
+      'common.field.id': 'ID',
+      'common.actions.viewDocs': 'View docs',
+      'common.actions.refresh': 'Refresh'
     }
-  })
-
-  return mount(AdminCluster, {
-    global: {
-      plugins: [i18n]
-    }
-  })
+  }).wrapper
 }
 
 const NODE_A = {

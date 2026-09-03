@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
+import { flushPromises } from '@vue/test-utils'
 
 import EditorMarkdownConfigOverlay from './EditorMarkdownConfigOverlay.vue'
+
+import { mountWithApp } from '../../test/mount.js'
 
 const MESSAGES = {
   'admin.editors.markdownName': 'Markdown',
@@ -31,11 +31,7 @@ const MESSAGES = {
 }
 
 function mountOverlay() {
-  setActivePinia(createPinia())
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
-  return mount(EditorMarkdownConfigOverlay, {
-    global: { plugins: [i18n] }
-  })
+  return mountWithApp(EditorMarkdownConfigOverlay, { messages: MESSAGES }).wrapper
 }
 
 function findSaveButton(wrapper) {

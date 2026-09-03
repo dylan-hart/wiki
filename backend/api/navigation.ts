@@ -1,4 +1,5 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
+import { maySiteAdmin } from '../helpers/siteRules.ts'
 import {
   assertValidNavItems,
   NAV_COPY_MODES,
@@ -10,19 +11,11 @@ import {
   type NavigationSourceMode
 } from '../models/navigation.ts'
 
-/**
- * Whether the requester may see and edit a menu whole, rather than only the parts meant for them.
- *
- * `manage:navigation` keeps working exactly as before delegation existed; `site:navigation` (see
- * `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
- */
-function canManageNavigation(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:navigation') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:navigation', siteId)
-  )
-}
+/*
+  Seeing and editing a menu whole — rather than only the parts meant for the reader — is gated by
+  `manage:navigation` or the narrower per-site `site:navigation` delegation, asked of
+  `models/groups.ts#checkSiteAdminAccess` at each route below.
+*/
 
 /**
  * Navigation API Routes
@@ -74,7 +67,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const unfiltered = Boolean(req.query.full)
-      if (unfiltered && !canManageNavigation(req, req.params.siteId)) {
+      if (
+        unfiltered &&
+        !maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)
+      ) {
         return reply.forbidden(
           'Reading a menu in full requires manage:navigation, or site:navigation on this site.'
         )
@@ -95,7 +91,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "Get a menu's source mode",
@@ -125,7 +121,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return { mode: await WIKI.models.navigation.getMode(req.params.siteId, req.params.navId) }
@@ -140,21 +136,14 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may see this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `canManageNavigation`.
+        hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Get the menu a page inherits',
         description:
           "The id of the menu this page falls back to while it inherits: the nearest ancestor that overrides one, or the site-wide menu when no ancestor does.\n\nWhat the navigation editor asks so that a page which inherits can edit the sidebar it shows without being opened on the ancestor that owns it. Null when the nearest ancestor hides the sidebar, which leaves nothing to inherit — and nothing to edit. Not the same question as the page's own `navigationId`, which is what the CURRENT mode resolved to.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' },
-            pageId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId', 'pageId']
-        },
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'The inherited menu',
@@ -173,7 +162,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return {
@@ -193,20 +182,14 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "Get a locale's site-wide default menu row id",
         description:
           "The site-wide default menu's own row id for one locale — created empty on demand, exactly like editing a page into it would. Not the site id: the default menu is identified by `(siteId, locale)` rather than by an id equal to the site's own, since a site with more than one active locale has one such menu per locale. What an admin screen editing the default menu directly (rather than through a page) asks for, since it otherwise has no way to learn that id.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -228,7 +211,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return {
@@ -248,20 +231,14 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "List a site's default menu roots, one per active locale",
         description:
           "The site-wide default menu's own row id for every one of this site's active locales (`site.config.locales.active`) — created empty on demand, exactly like `GET .../navigation/default` does for a single locale. What a 'copy from' picker lists so an admin can choose a source menu by locale, or by site via `GET /sites` followed by this same call against the chosen site, without needing to know a raw navigation uuid up front.\n\nDeliberately scoped to the site-wide default only, not every override — copying a specific page-level override across sites isn't a use case this covers; see `GET .../navigation/overrides` for those.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: "This site's default menu roots, one per active locale",
@@ -280,11 +257,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
-      }
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
       }
       return WIKI.models.navigation.siteRoots(req.params.siteId)
     }
@@ -298,20 +272,14 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'List navigation overrides',
         description:
           'Every tree entry in the site whose navigation mode is not `inherit` — the pages and folders that override or hide the sidebar, rather than falling back to whatever an ancestor decides. A flat list across the whole site, not scoped to one subtree, which is what an admin screen managing overrides needs to show them all at once.\n\n`locale` restricts it to one locale; every locale comes back when omitted.\n\nRequires `manage:navigation`, or `site:navigation` on this site.',
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -343,7 +311,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.navigation.listOverrides(req.params.siteId, {
@@ -363,7 +331,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "Set a menu's items directly",
@@ -404,7 +372,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       assertValidNavItems(req.body.items)
@@ -427,8 +395,8 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`. Checked against BOTH the target site and, when it differs, the
-        resolved source site: `site:navigation` is granted per site (OpenProject #933's own
+        `models/groups.ts#checkSiteAdminAccess`. Checked against BOTH the target site and, when it
+        differs, the resolved source site: `site:navigation` is granted per site (OpenProject #933's own
         `helpers/siteRules.ts` — a rule's `sites` array can scope it to exactly one), so a caller
         delegated only on the target could otherwise use `sourceSiteId` to read and duplicate a
         DIFFERENT site's menu into the target without ever holding a permission on that site at all.
@@ -479,11 +447,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       const sourceSiteId = req.body.sourceSiteId ?? req.params.siteId
-      if (sourceSiteId !== req.params.siteId && !canManageNavigation(req, sourceSiteId)) {
+      if (
+        sourceSiteId !== req.params.siteId &&
+        !maySiteAdmin(req, 'manage:navigation', 'site:navigation', sourceSiteId)
+      ) {
         return reply.forbidden()
       }
       await WIKI.models.navigation.copyNav({
@@ -511,21 +482,14 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET above — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Set how a page resolves its navigation',
         description:
           "Records the mode on the tree entry and repoints every descendant that still inherits, stopping at any that overrides or hides in between.\n\nSending `items` stores them as the menu the mode resolves to, and leaving them out changes only the mode. With `inherit` that menu belongs to an ancestor — the same one `navigation/pages/{pageId}/inherited` names — so editing a menu from a page that inherits it edits it where it lives, for every page using it; for the home page that is the site-wide menu, which is what every other page inherits by default. Refused when the mode is `inherit` and the sidebar above the page is hidden, since then there is no menu to store items in.\n\n`mode` and `menuMode` are different axes: `mode` is this ENTRY's cascade setting (how it and its descendants pick a menu), `menuMode` is the RESOLVED MENU's own source (`static`/`auto`/`mixed` — whether its items are hand-authored, tree-generated, or both). Sending `menuMode` sets it on the same row `items` would write to; either can be sent without the other.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' },
-            pageId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId', 'pageId']
-        },
+        params: { $ref: 'SitePageParams#' },
         body: {
           type: 'object',
           required: ['mode'],
@@ -574,7 +538,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       if (req.body.items) {

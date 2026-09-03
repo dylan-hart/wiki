@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminTheme from './AdminTheme.vue'
-import BlueprintIcon from '@/components/BlueprintIcon.vue'
-import { useAdminStore } from '@/stores/admin'
-import { useUserStore } from '@/stores/user'
 import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
+
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Task 754: `getAccessibleColor` now has real substitutes for every themeable color name, and this
@@ -19,50 +17,28 @@ import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
  * chrome text, matching the fg/bg pairing `WBtn.vue` uses for every solid button in the app).
  */
 async function mountPage(theme, cvd = 'none') {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-a'
-  const userStore = useUserStore()
-  userStore.cvd = cvd
+  stubApi({ 'sites/site-a?strict=true': { id: 'site-a', theme } })
 
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'sites/site-a?strict=true') {
-      return { json: () => Promise.resolve({ id: 'site-a', theme }) }
-    }
-    return { json: () => Promise.resolve(undefined) }
-  })
+  const router = await createTestRouter(['/'])
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  // -> Real message for the one key a test needs to read back (the computed ratio); everything else
+  //    stays untranslated (`createTestI18n` keeps `missingWarn`/`fallbackWarn` off), matching
+  //    upstream `en.json`.
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    // -> Real message for the one key a test needs to read back (the computed ratio); everything
-    // else stays untranslated (`missingWarn`/`fallbackWarn` off), matching upstream `en.json`.
+  const { wrapper } = mountWithApp(AdminTheme, {
     messages: {
-      en: {
-        admin: {
-          theme: {
-            contrastWarning:
-              'Contrast ratio is {ratio}, below the WCAG AA minimum of 4.5:1 for this color against the text drawn over it.'
-          }
+      admin: {
+        theme: {
+          contrastWarning:
+            'Contrast ratio is {ratio}, below the WCAG AA minimum of 4.5:1 for this color against the text drawn over it.'
         }
       }
     },
-    missingWarn: false,
-    fallbackWarn: false
-  })
-
-  const wrapper = mount(AdminTheme, {
-    global: {
-      plugins: [router, i18n],
-      components: { BlueprintIcon }
-    }
+    router,
+    stores: { admin: { currentSiteId: 'site-a' }, user: { cvd } },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the contrast-warning test below
+    //    reads the tooltip back out of `document.body`, where `WTooltip` really teleports it.
+    stubs: {}
   })
   await flushPromises()
 

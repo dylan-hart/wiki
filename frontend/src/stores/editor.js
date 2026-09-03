@@ -19,15 +19,7 @@ export const useEditorStore = defineStore('editor', {
     editor: '',
     originPageId: '',
     mode: 'edit',
-    activeModal: '',
-    activeModalData: null,
     hideSideNav: false,
-    media: {
-      folderTree: [],
-      currentFolderId: 0,
-      currentFileId: null
-    },
-    checkoutDateActive: '',
     lastSaveTimestamp: null,
     lastChangeTimestamp: null,
     editors: {},
@@ -80,6 +72,42 @@ export const useEditorStore = defineStore('editor', {
     }
   },
   actions: {
+    /**
+     * Record that the editor holds nothing the reader has not saved.
+     *
+     * `hasPendingChanges` above is exactly "these two timestamps differ", so equalizing them IS the
+     * editor being clean -- which is what starting a session (`pageLoad`, `pageCreate`,
+     * `pageSuggest`) and finishing a save (`pageSave`) each mean by it. Every one of those has some
+     * further patch of its own to make in the same breath, which `extra` carries so the session's
+     * mode and the timestamps land together rather than as two renders.
+     *
+     * @param {object} [extra] Merged into the same `$patch`.
+     */
+    markClean(extra) {
+      const curDate = Temporal.Now.instant()
+      this.$patch({ lastChangeTimestamp: curDate, lastSaveTimestamp: curDate, ...extra })
+    },
+    /**
+     * Record that the reader has changed something since the last save.
+     *
+     * The counterpart to `markClean`, and what every editor component calls when its own content,
+     * title, tags or path changed -- rather than writing `lastChangeTimestamp` bare, which leaves
+     * eight files each having to know which of the two timestamps means "dirty".
+     */
+    markDirty() {
+      this.lastChangeTimestamp = Temporal.Now.instant()
+    },
+    /**
+     * Fetch the editor configs unless they are already loaded.
+     *
+     * Every editor-session entry point in `stores/page.js` needs them and none of them wants a
+     * second request for a site whose configs are already in hand.
+     */
+    async ensureConfigs() {
+      if (!this.configIsLoaded) {
+        await this.fetchConfigs()
+      }
+    },
     /**
      * `generateUniqueName` forces a fresh, collision-proof name even for a `File` instance whose own
      * `name` would otherwise be trusted verbatim.

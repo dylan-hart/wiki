@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import watchingRoutes from './watching.ts'
-import { registerSchemas as registerPageSchemas } from './schemas/page.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 describe('watch preference routes (task 530)', () => {
   /**
@@ -36,44 +32,34 @@ describe('watch preference routes (task 530)', () => {
   }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        pages: {
-          getPage: (...args: any[]) => getPageMock(...args)
-        },
-        groups: {
-          actorForRequest: () => ({ groupIds: [], permissions: [] }),
-          checkAccess: () => true,
-          groupIdsForRequest: () => []
-        },
-        pageWatching: {
-          watch: (...args: any[]) => watchMock(...args),
-          setPreference: (...args: any[]) => setPreferenceMock(...args),
-          getPreference: (...args: any[]) => getPreferenceMock(...args),
-          unwatch: async () => {},
-          listForUser: async () => []
+    app = await buildTestApp({
+      routes: watchingRoutes,
+      // -> Stand-in for `@fastify/session` (registered app-wide in the real boot, not here) —
+      //    mutable per-test via the `session` module variable.
+      session: () => session,
+      wiki: {
+        models: {
+          pages: {
+            getPage: (...args: any[]) => getPageMock(...args)
+          },
+          groups: {
+            actorForRequest: () => ({ groupIds: [], permissions: [] }),
+            checkAccess: () => true,
+            groupIdsForRequest: () => []
+          },
+          pageWatching: {
+            watch: (...args: any[]) => watchMock(...args),
+            setPreference: (...args: any[]) => setPreferenceMock(...args),
+            getPreference: (...args: any[]) => getPreferenceMock(...args),
+            unwatch: async () => {},
+            listForUser: async () => []
+          }
         }
       }
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Stand-in for `@fastify/session` (registered app-wide in `index.ts`, not here), same pattern
-    //    `api/authentication.test.ts` uses — mutable per-test via the `session` module variable.
-    app.decorateRequest('session', null as any)
-    app.addHook('onRequest', async (req) => {
-      req.session = session
     })
-    await registerPageSchemas(app)
-    await registerErrorSchema(app)
-    await app.register(watchingRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     session = { authenticated: true, user: { id: USER_ID }, permissions: [] }
@@ -191,51 +177,40 @@ describe('WATCH route — siteId threading (task 673)', () => {
 
   before(async () => {
     checkAccessCalls = []
-    ;(globalThis as any).WIKI = {
-      models: {
-        pages: {
-          getPage: async () => ({ id: PAGE_ID, path: 'some/page', locale: 'en', tags: [] })
-        },
-        pageWatching: {
-          watch: async () => {},
-          getPreference: async () => ({
-            notifyMode: 'digest',
-            notifyOnEdited: true,
-            notifyOnMoved: true,
-            notifyOnDeleted: true
-          })
-        },
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          groupIdsForRequest: () => [],
-          checkAccess: (_actor: any, _permission: string, page: any) => {
-            checkAccessCalls.push(page)
-            return true
+    app = await buildTestApp({
+      routes: watchingRoutes,
+      ajv: true,
+      // -> Minimal stand-in for the real session plugin: enough for `actorFrom` to see a logged-in
+      //    user.
+      session: { authenticated: true, user: { id: USER_ID }, permissions: [] },
+      wiki: {
+        models: {
+          pages: {
+            getPage: async () => ({ id: PAGE_ID, path: 'some/page', locale: 'en', tags: [] })
+          },
+          pageWatching: {
+            watch: async () => {},
+            getPreference: async () => ({
+              notifyMode: 'digest',
+              notifyOnEdited: true,
+              notifyOnMoved: true,
+              notifyOnDeleted: true
+            })
+          },
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            groupIdsForRequest: () => [],
+            checkAccess: (_actor: any, _permission: string, page: any) => {
+              checkAccessCalls.push(page)
+              return true
+            }
           }
         }
       }
-    }
-
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
     })
-    await app.register(fastifySensible)
-    app.addHook('onRequest', async (req) => {
-      // -> Minimal stand-in for the real session plugin: enough for `actorFrom` to see a logged-in user.
-      ;(req as any).session = { authenticated: true, user: { id: USER_ID }, permissions: [] }
-    })
-    await registerPageSchemas(app)
-    await registerErrorSchema(app)
-    await app.register(watchingRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('WATCH: passes the route siteId through to checkAccess', async () => {
     checkAccessCalls = []
