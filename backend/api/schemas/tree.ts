@@ -140,6 +140,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'boolean',
         description:
           'Whether a page a reader may open sits nested under this page, at any depth — the signal a nested tree view uses to draw a book icon rather than a file icon.'
+      },
+      depth: {
+        type: 'integer',
+        description:
+          'How many folders below the queried path this page sits, 0 being directly inside it -- relative to the query, not the site root.'
       }
     }
   })

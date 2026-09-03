@@ -858,6 +858,83 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2461: `listPages()` used to carry no depth at all -- `block-index` had no way to draw
+   * anything but a flat list. `depth` is relative to the queried `path`, the same way the `depth`
+   * query param it is built from already is (0 = directly inside the listed folder), not counted from
+   * the site root.
+   */
+  describe('listPages() depth (OpenProject #2461)', () => {
+    test('reports 0 for a page directly in the listed folder, and deeper values below it', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'nested-depth/direct', title: 'Direct', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'nested-depth/child/deep/leaf', title: 'Leaf', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'nested-depth',
+        depth: 2,
+        publicOnly: false
+      })
+
+      const direct = pages.find((p) => p.path === 'nested-depth/direct')!
+      // -> `leaf`'s own folder ('nested-depth/child/deep') sits two levels below the listed folder
+      //    ('nested-depth'), which is what `depth` reports -- not how deep `leaf` itself is from the
+      //    site root.
+      const leaf = pages.find((p) => p.path === 'nested-depth/child/deep/leaf')!
+      assert.equal(direct.depth, 0)
+      assert.equal(leaf.depth, 2)
+    })
+
+    test('reports depth relative to the query, not the site root, when listing a nested path', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'depth-root/branch/leaf', title: 'Leaf', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'depth-root/branch',
+        depth: 1,
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      // -> Absolute site depth would be 2 (depth-root/branch/leaf); relative to `depth-root/branch`
+      //    it is 0, since `leaf` sits directly inside the listed folder.
+      assert.equal(pages[0]!.depth, 0)
+    })
+
+    test('reports 0 for every page when listing the site root', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'root-depth-page', title: 'Root Page', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: '',
+        depth: 0,
+        publicOnly: false
+      })
+
+      const page = pages.find((p) => p.path === 'root-depth-page')!
+      assert.equal(page.depth, 0)
+    })
+  })
+
+  /**
    * OpenProject #2098: `deleteFolder`/`renameFolder`'s callers need to authorize every descendant
    * before committing to the cascade -- `listDescendants` resolves that same at-or-below set without
    * mutating anything, carrying each page's real tags and classification (the same join #1128 added

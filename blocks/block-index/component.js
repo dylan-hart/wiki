@@ -174,6 +174,14 @@ export class BlockIndexElement extends LitElement {
           display: flex;
           align-items: stretch;
           justify-content: stretch;
+          /*
+          -> Renders the tree nested/indented (OpenProject #2461): --depth is set inline per row
+             from the page's own depth (how many folders below the listed path it sits -- see
+             render()). Indentation rather than a real nested list, because the listing is ordered
+             by title/date/etc. across every depth at once -- a depth-2 page can sort ahead of its own
+             depth-0 ancestor, so there is no sibling order to build an actual parent/child tree from.
+        */
+          margin-left: calc(var(--depth, 0) * 1.5rem);
         }
         :host([dark]) li {
           background-color: #222;
@@ -460,12 +468,17 @@ export class BlockIndexElement extends LitElement {
   }
 
   render() {
+    // -> A depth-0-only listing still lays out in the usual 1-3 columns; the moment any row is
+    //    indented, an inline single-column override (which always beats the CSS grid rules, media
+    //    queries included) keeps a deep row from having its `--depth` indent read against the wrong
+    //    column's width.
+    const nested = this._pages.some((p) => (p.depth || 0) > 0)
     return this._pages.length > 0 || this._loading
       ? html`
-          <ul>
+          <ul style="${nested ? 'grid-template-columns: repeat(1, minmax(0, 1fr))' : ''}">
             ${this._pages.map(
               (p) =>
-                html`<li>
+                html`<li style="--depth: ${p.depth || 0}">
                   <a href="${p.href}" @click="${this._navigate}">
                     ${this.showIcons ? this._icon(p) : null}
                     <div class="text">

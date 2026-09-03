@@ -110,6 +110,11 @@ export interface ListedPage {
    *  `pageIsVisible` rule as the listing itself, so a caller never learns of a child it could not
    *  otherwise see. */
   hasChildren: boolean
+  /** How many folders below the listed `path` this page sits, 0 being directly inside it (OpenProject
+   *  #2461) -- relative to the query, not the site root, so a block listing `/docs/tools` at depth 2
+   *  reports 0/1/2 there rather than counting from the root. What lets `block-index` draw a genuinely
+   *  nested/indented tree instead of a flat list. */
+  depth: number
   /** Classification level id (OpenProject #1079), for the reader-permission filter layered on top of
    *  this listing (see `api/tree.ts`'s "LIST PAGES AS A READER" route). Never returned to the client:
    *  no API schema declares this field, so Fastify's response serialization drops it. */
@@ -619,8 +624,14 @@ class Tree {
       .orderBy(direction(treeTable[orderBy]))
       .limit(limit)
 
+    // -> `row.folderPath` is still the raw dot-separated ltree form, so its segment count IS its
+    //    nlevel -- the same quantity `getTree()` reads via SQL `nlevel()`, computed here in JS
+    //    instead since every row is already in hand and a second query isn't needed for it. `depth`
+    //    is relative to `encodedPath` (the folder actually being listed), not the site root.
+    const baseDepth = encodedPath ? encodedPath.split('.').length : 0
     return rows.map((row) => {
       const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      const rowDepth = row.folderPath ? row.folderPath.split('.').length : 0
       return {
         id: row.id,
         path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
@@ -628,6 +639,7 @@ class Tree {
         description: row.description ?? '',
         icon: row.icon ?? '',
         hasChildren: row.hasChildren,
+        depth: rowDepth - baseDepth,
         classification: row.classification
       }
     })
