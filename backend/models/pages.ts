@@ -16,6 +16,8 @@ import {
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import { rewriteLinkText, rewriteRedirectTarget } from '../helpers/pageLinkRewrite.ts'
+import { computeTranslationStaleness } from '../helpers/translationStaleness.ts'
+import type { TranslationStalenessEntry } from '../helpers/translationStaleness.ts'
 import { announce } from './hooks.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
@@ -1318,6 +1320,44 @@ class Pages {
       )
     const pages = await Promise.all(rows.map((row) => this.getPage({ siteId, id: row.id })))
     return pages.filter((candidate): candidate is Page => candidate !== null)
+  }
+
+  /**
+   * Staleness/missing status of every active, non-primary locale's translation against its
+   * primary-locale twin, via the same `(siteId, path)` join `getTranslations` uses (see
+   * `docs/decisions/locale-translation-linking.md`) -- shared by the locale-switcher badge (pass a
+   * single-element `paths`) and the admin pages-view staleness column (omit `paths` for the whole
+   * site). One `SELECT` plus an in-memory comparison (`helpers/translationStaleness.ts`), never a
+   * per-page/per-locale round trip. A site with one or no active locale short-circuits to `[]`
+   * without querying at all -- there is nothing to compare.
+   *
+   * @param paths Restrict to these paths; omit for every page in the site.
+   */
+  async getTranslationStaleness(
+    siteId: string,
+    paths?: string[]
+  ): Promise<TranslationStalenessEntry[]> {
+    const localesConfig = WIKI.sites[siteId]?.config?.locales
+    const primaryLocale = defaultLocale(siteId)
+    const activeLocales: string[] = localesConfig?.active ?? [primaryLocale]
+    if (activeLocales.length < 2) {
+      return []
+    }
+
+    const rows = await WIKI.db
+      .select({
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        updatedAt: pagesTable.updatedAt
+      })
+      .from(pagesTable)
+      .where(
+        paths && paths.length > 0
+          ? and(eq(pagesTable.siteId, siteId), inArray(pagesTable.path, paths))
+          : eq(pagesTable.siteId, siteId)
+      )
+
+    return computeTranslationStaleness(rows, { primaryLocale, activeLocales })
   }
 
   /**

@@ -2437,6 +2437,165 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.ok(rows.map((r) => r.path).includes('graph-visibility-default/draft'))
     })
   })
+
+  /**
+   * `helpers/translationStaleness.test.ts` covers the comparison logic itself as a pure function;
+   * this proves `getTranslationStaleness` wires it to a real `(siteId, path)` join off the actual
+   * `pages` table -- `test/db.ts#setupTestDb()` already seeds this site's locale config with
+   * `active: ['en', 'fr']`, matching `docs/decisions/locale-translation-linking.md`'s convention.
+   */
+  describe('getTranslationStaleness (OpenProject #2477)', () => {
+    test('flags a translation older than the primary page as stale', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/stale-case',
+          locale: 'en',
+          title: 'Primary',
+          updatedAt: '2026-06-01T00:00:00Z'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/stale-case',
+          locale: 'fr',
+          title: 'Traduction',
+          updatedAt: '2026-01-01T00:00:00Z'
+        }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/stale-case'
+      ])
+
+      assert.deepEqual(
+        entries.map((e) => ({ locale: e.locale, status: e.status })),
+        [{ locale: 'fr', status: 'stale' }]
+      )
+    })
+
+    test('marks a translation at least as new as the primary page as current', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/current-case',
+          locale: 'en',
+          title: 'Primary',
+          updatedAt: '2026-01-01T00:00:00Z'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/current-case',
+          locale: 'fr',
+          title: 'Traduction',
+          updatedAt: '2026-06-01T00:00:00Z'
+        }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/current-case'
+      ])
+
+      assert.deepEqual(
+        entries.map((e) => ({ locale: e.locale, status: e.status })),
+        [{ locale: 'fr', status: 'current' }]
+      )
+    })
+
+    test('reports missing when an active locale has no translation page at all', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'staleness/missing-case', locale: 'en', title: 'Primary Only' }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/missing-case'
+      ])
+
+      assert.deepEqual(entries, [
+        { path: 'staleness/missing-case', locale: 'fr', status: 'missing', updatedAt: null }
+      ])
+    })
+
+    test('a `paths` filter excludes every other path in the site', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'staleness/scoped-a', locale: 'en', title: 'A' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'staleness/scoped-b', locale: 'en', title: 'B' }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/scoped-a'
+      ])
+
+      assert.ok(entries.length > 0)
+      assert.ok(entries.every((e) => e.path === 'staleness/scoped-a'))
+    })
+
+    test('with no `paths` given, covers the whole site rather than just an explicitly scoped page', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/whole-site',
+          locale: 'en',
+          title: 'Whole',
+          updatedAt: '2026-06-01T00:00:00Z'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/whole-site',
+          locale: 'fr',
+          title: 'Toute',
+          updatedAt: '2026-01-01T00:00:00Z'
+        }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId)
+      const forThisPath = entries.filter((e) => e.path === 'staleness/whole-site')
+
+      assert.deepEqual(
+        forThisPath.map((e) => ({ locale: e.locale, status: e.status })),
+        [{ locale: 'fr', status: 'stale' }]
+      )
+    })
+
+    test('a site with only its primary locale active short-circuits to an empty list', async () => {
+      const originalLocales = WIKI.sites[fixtures.siteId]!.config.locales
+      WIKI.sites[fixtures.siteId]!.config.locales = { primary: 'en', active: ['en'] }
+      try {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: 'staleness/single-locale', locale: 'en', title: 'Solo' }),
+          actor
+        )
+
+        const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+          'staleness/single-locale'
+        ])
+
+        assert.deepEqual(entries, [])
+      } finally {
+        WIKI.sites[fixtures.siteId]!.config.locales = originalLocales
+      }
+    })
+  })
 })
 
 /**
