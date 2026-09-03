@@ -138,6 +138,11 @@ async function routes(app: FastifyInstance) {
                 type: 'boolean',
                 description: 'Whether page views are logged (OpenProject #1238).'
               },
+              isReplicationEnabled: {
+                type: 'boolean',
+                description:
+                  'Whether scheduled instance replication is turned on (OpenProject #2491).'
+              },
               isSchedulerHealthy: {
                 type: 'boolean',
                 description:
@@ -205,6 +210,7 @@ async function routes(app: FastifyInstance) {
         isMailConfigured: WIKI.config?.mail?.host?.length > 2,
         isMetricsEnabled: WIKI.config.metrics.isEnabled === true,
         isPageviewsEnabled: WIKI.config.pageviews.isEnabled === true,
+        isReplicationEnabled: WIKI.config.replication?.isEnabled === true,
         isSchedulerHealthy: await WIKI.models.jobs.isHealthy(),
         latestVersion: WIKI.config.update.version,
         latestVersionReleaseDate: WIKI.config.update.versionDate,

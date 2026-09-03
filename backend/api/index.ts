@@ -39,6 +39,7 @@ export async function registerAllSchemas(app: FastifyInstance) {
   //    registers path-PARAMETER shapes, not an entity, and the distinct name is what keeps a route
   //    file's `params: { $ref: 'SiteIdParams#' }` traceable to it.
   await import('./schemas/params.ts').then((m) => m.registerParamsSchemas(app))
+  await import('./schemas/replication.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/scheduler.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/search.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/security.ts').then((m) => m.registerSchemas(app))
@@ -101,6 +102,7 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./navigation.ts'))
     contentApp.register(import('./notifications.ts'))
     contentApp.register(import('./pages/index.ts'))
+    contentApp.register(import('./replication.ts'), { prefix: '/replication' })
     contentApp.register(import('./scheduler.ts'), { prefix: '/scheduler' })
     contentApp.register(import('./search.ts'))
     contentApp.register(import('./storage.ts'))
