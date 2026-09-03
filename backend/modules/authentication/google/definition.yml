@@ -1,6 +1,10 @@
 key: google
 title: Google
-description: Sign in with a Google account or a Google Workspace domain.
+description: >-
+  Sign in with a Google account or a Google Workspace domain. Plain Google sign-in carries no group
+  membership — for group-based sync, configure a custom SAML app in Google Workspace's admin console
+  (Apps → Web and mobile apps → Add custom SAML app, with a group attribute mapped under its
+  Attribute mapping step) and use the SAML 2.0 module against it instead.
 author: requarks.io
 logo: https://static.requarks.io/logo/google.svg
 icon: /_assets/icons/ultraviolet-google.svg
