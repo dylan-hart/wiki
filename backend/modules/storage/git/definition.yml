@@ -127,7 +127,7 @@ props:
     type: Number
     title: Sync Safety Threshold (%)
     default: 50
-    hint: 'If a pull would delete this percentage (or more) of the wiki''s pages, the sync applies everything else but skips the deletions and logs a warning instead of applying them — run Force Sync again with confirmation to proceed anyway. Only applies once the wiki has a meaningful number of pages.'
+    hint: "If a pull would delete this percentage (or more) of the wiki's pages, the sync applies everything else but skips the deletions and logs a warning instead of applying them — run Force Sync again with confirmation to proceed anyway. Only applies once the wiki has a meaningful number of pages."
     icon: security-configuration
     order: 40
   gitBinaryPath:
