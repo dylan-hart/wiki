@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import LocaleSelectorMenu from './LocaleSelectorMenu.vue'
@@ -19,16 +19,17 @@ const LOCALES = [
  * see the doc comment on `switchLocale` in `LocaleSelectorMenu.vue` for what that got wrong and why
  * this replaces it with navigation.
  */
-async function mountMenu({ path, locale = 'en', forcePrefix = false }) {
+async function mountMenu({ path, locale = 'en', forcePrefix = false, id = 'page-1' }) {
   setActivePinia(createPinia())
 
   const siteStore = useSiteStore()
   siteStore.$patch({
+    id: 'site-1',
     locales: { primary: 'en', showMenu: true, forcePrefix, active: LOCALES }
   })
 
   const pageStore = usePageStore()
-  pageStore.$patch({ path, locale })
+  pageStore.$patch({ id, path, locale })
 
   const router = await createTestRouter(['/:pathMatch(.*)*'], `/${path}`)
 
@@ -50,6 +51,10 @@ async function mountMenu({ path, locale = 'en', forcePrefix = false }) {
     rather than one further up that a bubbling click would never reach it from.
   */
   wrapper.element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await wrapper.vm.$nextTick()
+  // -> `@show` kicks off `loadTranslationStatus()`'s async fetch; let it settle before a test reads
+  //    the rendered menu, same as `App.locale.test.js`'s own `flushPromises()` convention.
+  await flushPromises()
   await wrapper.vm.$nextTick()
 
   return { wrapper, router }
@@ -93,5 +98,72 @@ describe('LocaleSelectorMenu', () => {
     findItemByText('English').dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
     expect(pushSpy).toHaveBeenCalledWith('/en/docs/intro')
+  })
+
+  describe('staleness/missing badge (OpenProject #2475)', () => {
+    it('fetches translation status for the current page once the menu opens', async () => {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+      await mountMenu({ path: 'docs/intro', locale: 'en', id: 'page-42' })
+
+      expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/page-42/translationStatus')
+    })
+
+    it('badges a locale whose translation predates the primary', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve([
+            { locale: 'en', exists: true, stale: false },
+            { locale: 'fr', exists: true, stale: true }
+          ])
+      })
+
+      await mountMenu({ path: 'docs/intro', locale: 'en' })
+
+      expect(findItemByText('English').querySelector('.w-badge')).toBeFalsy()
+      expect(findItemByText('Français').querySelector('.w-badge')).toBeTruthy()
+    })
+
+    it('badges a locale with no translation at all, the same as a stale one', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve([
+            { locale: 'en', exists: true, stale: false },
+            { locale: 'fr', exists: false, stale: false }
+          ])
+      })
+
+      await mountMenu({ path: 'docs/intro', locale: 'en' })
+
+      expect(findItemByText('Français').querySelector('.w-badge')).toBeTruthy()
+    })
+
+    it('never badges the primary locale against itself', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve([{ locale: 'en', exists: true, stale: false }])
+      })
+
+      await mountMenu({ path: 'docs/intro', locale: 'en' })
+
+      expect(findItemByText('English').querySelector('.w-badge')).toBeFalsy()
+    })
+
+    it('never fetches for a page that has no id yet (mid-creation)', async () => {
+      await mountMenu({ path: 'docs/intro', locale: 'en', id: '' })
+
+      expect(API_CLIENT.get).not.toHaveBeenCalled()
+      expect(findItemByText('Français').querySelector('.w-badge')).toBeFalsy()
+    })
+
+    it('leaves every item unbadged when the fetch fails, rather than throwing', async () => {
+      API_CLIENT.get.mockImplementationOnce(() => {
+        throw new Error('network')
+      })
+
+      await mountMenu({ path: 'docs/intro', locale: 'en' })
+
+      expect(findItemByText('English').querySelector('.w-badge')).toBeFalsy()
+      expect(findItemByText('Français').querySelector('.w-badge')).toBeFalsy()
+    })
   })
 })

@@ -265,6 +265,20 @@ export interface BacklinkRow {
   classification: string
 }
 
+/** One page row for `GET .../translationStatus` (OpenProject #2475) -- every locale's page sharing
+ *  a given `(siteId, path)`, carrying `tags`/`classification` alongside `updatedAt` so the route
+ *  can both run `mayOnPage` per row (same shape as `BacklinkRow` above) and feed
+ *  `helpers/translationStatus.ts#computeTranslationStatus` its staleness comparison. */
+export interface TranslationStatusRow {
+  id: string
+  path: string
+  locale: string
+  tags: string[]
+  classification: string
+  publishState: 'draft' | 'published' | 'scheduled'
+  updatedAt: Date
+}
+
 /**
  * Who is saving, and what they are allowed to put in a page.
  *
@@ -736,6 +750,32 @@ class Pages {
           sql`${pagesTable.links} @> ${JSON.stringify([targetPath])}::jsonb`
         )
       ) as Promise<BacklinkRow[]>
+  }
+
+  /**
+   * Every locale's page sharing this `(siteId, path)` -- the same translation-link query
+   * `getTranslations()` runs, but lightweight (no content, no per-row `getPage()` round trip) and
+   * with no `manage:pages` gate, since `GET .../translationStatus` (OpenProject #2475) is meant for
+   * any reader viewing the page, not just someone who may move it. The caller filters rows to what
+   * THIS requester may actually see (published-only for anonymous, `read:pages` per row) before
+   * handing them to `helpers/translationStatus.ts#computeTranslationStatus` -- this method itself
+   * applies no visibility narrowing of its own.
+   */
+  async listTranslationStatusRows(siteId: string, path: string): Promise<TranslationStatusRow[]> {
+    return WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification,
+        publishState: pagesTable.publishState,
+        updatedAt: pagesTable.updatedAt
+      })
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.path, path))) as Promise<
+      TranslationStatusRow[]
+    >
   }
 
   /**
