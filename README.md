@@ -17,6 +17,8 @@
 - **[Official Website](https://beta.js.wiki)**
 - **[Documentation](https://beta.js.wiki/docs)**
 - **[Operations Guide](docs/operations.md)** — backup/restore scope and container mounts
+- **[MCP Getting Started](docs/mcp-getting-started.md)** — connect an LLM agent via the built-in
+  Model Context Protocol server
 
 :red_square: :warning: :warning: :red_square:  
 **THIS IS A VERY BUGGY, INCOMPLETE AND NON-SECURE DEVELOPMENT BRANCH!**  
