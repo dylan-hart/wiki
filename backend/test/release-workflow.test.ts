@@ -96,6 +96,43 @@ describe('publish workflow split (build.yml + release.yml)', () => {
         'release.yml has a commented-out platforms: line'
       )
     })
+
+    // OpenProject #2435/#2486: the amd64-only decision above was revisited once arm64 image
+    // availability was actually requested (Issue #2388, a Raspberry Pi user report) — both
+    // workflows now target linux/arm64 too, cross-built via QEMU emulation since GitHub-hosted
+    // runners are amd64-only.
+    test('both workflows include linux/arm64 alongside linux/amd64', () => {
+      for (const [label, doc] of [
+        ['build.yml', buildDoc],
+        ['release.yml', releaseDoc]
+      ] as const) {
+        const platforms = platformsOf(doc)
+          .split(',')
+          .map((p) => p.trim())
+        assert.ok(
+          platforms.includes('linux/amd64'),
+          `expected ${label} to still target linux/amd64`
+        )
+        assert.ok(platforms.includes('linux/arm64'), `expected ${label} to target linux/arm64`)
+      }
+    })
+
+    test('both workflows set up QEMU before Buildx, so the arm64 layer can cross-build via emulation', () => {
+      for (const [label, doc] of [
+        ['build.yml', buildDoc],
+        ['release.yml', releaseDoc]
+      ] as const) {
+        const steps = allSteps(doc)
+        const qemuIndex = findStepIndex(steps, /docker\/setup-qemu-action/)
+        const buildxIndex = findStepIndex(steps, /docker\/setup-buildx-action/)
+        assert.ok(qemuIndex !== -1, `expected ${label} to have a docker/setup-qemu-action step`)
+        assert.ok(buildxIndex !== -1, `expected ${label} to have a docker/setup-buildx-action step`)
+        assert.ok(
+          qemuIndex < buildxIndex,
+          `expected ${label}'s QEMU setup (step ${qemuIndex}) to run before Buildx setup (step ${buildxIndex})`
+        )
+      }
+    })
   })
 
   describe('release.yml — gated release channel', () => {
