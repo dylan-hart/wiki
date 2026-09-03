@@ -66,6 +66,9 @@ export const AUDIT_EVENTS = [
   'system.pageHistoryPurged',
   'system.contentExported',
   'system.contentImported',
+  // -> Feature #2437: a whole-instance wipe-and-replace snapshot restore, distinct from
+  //   `system.contentImported` (one site's content) — see `models/replicationImport.ts`.
+  'system.replicationImported',
   /**
    * OpenProject #2237: the audit log auditing its own configuration. `retentionChanged`'s `detail`
    * carries `{ from, to }` (days); `purged`'s carries `{ count, cutoff }` -- see `purge()`'s own
