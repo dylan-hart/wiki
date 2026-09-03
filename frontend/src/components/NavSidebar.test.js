@@ -9,8 +9,10 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import NavSidebar from './NavSidebar.vue'
+import PageNewMenu from './PageNewMenu.vue'
 import routes from '@/router/routes'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 /**
  * Task 466 (feature 362): verify -- rather than assume -- every combination `destination()` feeds
@@ -494,6 +496,106 @@ describe('NavSidebar mixed folder/page side-tree (OpenProject #832)', () => {
 
     expect(headerFor(wrapper, 'Parent Folder').attributes('aria-expanded')).toBe('true')
     expect(headerFor(wrapper, 'Sub Folder').attributes('aria-expanded')).toBe('false')
+  })
+})
+
+describe('NavSidebarItem context menu', () => {
+  function generatedTree() {
+    return [
+      {
+        id: 'folder-1',
+        type: 'link',
+        icon: 'mdi:folder',
+        label: 'Docs',
+        path: 'docs',
+        folderId: null,
+        generated: true,
+        children: [
+          {
+            id: 'page-1',
+            type: 'link',
+            icon: 'mdi:file',
+            label: 'Setup',
+            path: 'docs/setup',
+            folderId: 'folder-1',
+            target: '/docs/setup',
+            generated: true
+          }
+        ]
+      }
+    ]
+  }
+
+  async function mountWithPermission(items, canWrite) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.nav.items = items
+    const userStore = useUserStore()
+    userStore.permissions = canWrite ? ['write:pages'] : []
+
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+    })
+
+    const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  it('renders a PageNewMenu on a generated item when the viewer can write pages', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), true)
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(true)
+  })
+
+  it('renders no PageNewMenu when the viewer cannot write pages', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), false)
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+
+  it('renders no PageNewMenu on a non-generated (static) item, even when the viewer can write pages', async () => {
+    const staticItems = [
+      { id: 'static-1', type: 'link', icon: 'mdi:link', label: 'Static Link', target: '/somewhere' }
+    ]
+    const wrapper = await mountWithPermission(staticItems, true)
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+
+  it('resolves basePath/parentId for a folder item as "create inside it"', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), true)
+    const folderMenu = wrapper.findComponent(PageNewMenu)
+    expect(folderMenu.props('basePath')).toBe('docs')
+  })
+
+  it('resolves basePath for a page item as "create as a sibling"', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    // -> Expanded so the page's own row (not just its folder ancestor's) is in the mounted tree
+    siteStore.nav.items = generatedTree()
+    const userStore = useUserStore()
+    userStore.permissions = ['write:pages']
+
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/docs/setup')
+    await router.isReady()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+    })
+
+    const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
+    await wrapper.vm.$nextTick()
+
+    const menus = wrapper.findAllComponents(PageNewMenu)
+    const pageMenu = menus.find((m) => m.props('basePath') === 'docs')
+    expect(pageMenu).toBeTruthy()
   })
 })
 
