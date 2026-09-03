@@ -1,7 +1,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedTreeEntry,
@@ -1489,11 +1489,82 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     assert.ok(labels.includes('Sibling Page'))
   })
 
+  /**
+   * OpenProject #2442: a page/folder-level override's generated menu resolves to the override's own
+   * section root (its siblings, per the test just above), not the locale root -- so a TOP-LEVEL
+   * generated item's own `folderId` must be that section's folder id, and `getNavRoot` must hand the
+   * same path/id back for the sidebar's own root-level "create here" action to target. Both used to
+   * be wrong: `generateFromTree`'s initial call always defaulted `parentFolderId` to `null`
+   * regardless of `rootFolderPath`, and there was no `getNavRoot` at all.
+   */
+  test("an override's generated top-level items and getNavRoot both resolve to the override's own section root, not the locale root", async () => {
+    const [sectionFolder] = await WIKI.db
+      .select()
+      .from(treeTable)
+      .where(
+        and(
+          eq(treeTable.siteId, fixtures.siteId),
+          eq(treeTable.locale, 'en'),
+          eq(treeTable.type, 'folder'),
+          eq(treeTable.folderPath, ''),
+          eq(treeTable.fileName, 'sibling-scope')
+        )
+      )
+      .limit(1)
+    // -> Created by the previous test's page, which auto-creates its own containing folder --
+    //    confirmed present rather than re-created, so a fixture ordering change fails loudly here
+    //    instead of silently asserting against `undefined`.
+    assert.ok(sectionFolder, "expected the 'sibling-scope' folder auto-created above to exist")
+
+    const overriddenPage = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'sibling-scope/root-fix-target',
+        title: 'Root Fix Target',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+    )
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: overriddenPage.id,
+      mode: 'override',
+      items: []
+    })
+    await setMode(overriddenPage.id, 'auto')
+
+    const items = await navigationModel.getNav(fixtures.siteId, overriddenPage.id, {
+      actor: ADMIN_ACTOR
+    })
+    for (const item of items) {
+      assert.equal(
+        item.folderId,
+        sectionFolder!.id,
+        `expected top-level item "${item.label}" to carry the section's own folderId, not the locale root's null`
+      )
+    }
+
+    const root = await navigationModel.getNavRoot(fixtures.siteId, overriddenPage.id)
+    assert.deepEqual(root, { rootPath: 'sibling-scope', rootId: sectionFolder!.id })
+  })
+
+  test("getNavRoot resolves the site-wide default menu's root as the locale root (empty path, null id)", async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    const root = await navigationModel.getNavRoot(fixtures.siteId, siteNavId)
+    assert.deepEqual(root, { rootPath: '', rootId: null })
+  })
+
   test('a nonexistent menu id returns an empty list rather than throwing', async () => {
     const result = await navigationModel.getNav(fixtures.siteId, crypto.randomUUID(), {
       actor: ADMIN_ACTOR
     })
     assert.deepEqual(result, [])
+  })
+
+  test('getNavRoot mirrors getNav for a nonexistent menu id: resolves to the empty root rather than throwing', async () => {
+    const root = await navigationModel.getNavRoot(fixtures.siteId, crypto.randomUUID())
+    assert.deepEqual(root, { rootPath: '', rootId: null })
   })
 
   test('auto mode tags every generated item as generated, which static mode never does', async () => {

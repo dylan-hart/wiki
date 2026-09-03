@@ -22,16 +22,19 @@
           <w-separator v-else-if="item.type === `separator`" dark />
         </template>
       </w-list>
-      <!-- -> Right-click empty space to create at the locale root -- only meaningful when there is
-              a real tree backing this menu (auto/mixed); a static menu's links may not correspond
-              to any page at all -->
+      <!-- -> Right-click empty space to create at this menu's own generator root -- only meaningful
+              when there is a real tree backing this menu (auto/mixed); a static menu's links may not
+              correspond to any page at all. The root is `siteStore.nav.rootPath`/`rootId`, not
+              always the locale root: a page/folder-level navigation override's own generator root is
+              its own section (OpenProject #2442), and only a site-wide menu's root is the locale
+              root. -->
       <page-new-menu
         v-if="canCreateAtRoot"
         context-menu
         show-new-folder
-        base-path=""
+        :base-path="siteStore.nav.rootPath"
         :hide-asset-btn="!canUploadAsset"
-        @new-folder="openFolderDialog(null)" />
+        @new-folder="openFolderDialog(siteStore.nav.rootId)" />
     </nav>
   </w-scroll-area>
 </template>

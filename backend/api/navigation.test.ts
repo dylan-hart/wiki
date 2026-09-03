@@ -77,6 +77,9 @@ before(async () => {
           }),
           getNav: async () => DEEP_NAV_TREE,
           getMode: async () => 'static',
+          // -> A distinguishable, non-default value (OpenProject #2442): a test below asserts the
+          //    route echoes exactly this through the response rather than merely being present.
+          getNavRoot: async () => ({ rootPath: 'stub-section', rootId: 'stub-folder-id' }),
           ensureSiteNav: async () => 'default-nav-id',
           siteRoots: async () => [{ locale: 'en', navigationId: 'root-nav-id' }],
           listOverrides: async () => [],
@@ -185,6 +188,23 @@ test('a menu nested three levels deep reaches the response intact', async () => 
   assert.equal(res.statusCode, 200)
   const body = res.json()
   assert.equal(body.items[0].children[0].children[0].id, 'grandchild')
+})
+
+/**
+ * OpenProject #2442: the route wires `getNavRoot` in alongside `getMode`/`getNav` and folds its
+ * result straight into the response, so `NavSidebar.vue`'s root-level "create here" action can read
+ * the override's own section root off the same request instead of the hardcoded locale-root values
+ * that were wrong for a page/folder-level override.
+ */
+test('GET .../navigation/:navId includes the generator root alongside mode and items', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/navigation/${PAGE_ID}`
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.rootPath, 'stub-section')
+  assert.equal(body.rootId, 'stub-folder-id')
 })
 
 /**
@@ -472,6 +492,9 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
           },
           async getMode(_siteId: string, _id: string) {
             return 'static'
+          },
+          async getNavRoot(_siteId: string, _id: string) {
+            return { rootPath: '', rootId: null }
           },
           async setNavItems(siteId: string, navId: string, items: any[]) {
             lastSetNavItemsCall = { siteId, navId, items }
