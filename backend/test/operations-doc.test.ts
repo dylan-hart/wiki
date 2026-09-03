@@ -185,6 +185,38 @@ describe('docs/operations.md — operations reference', () => {
     })
   })
 
+  describe('disaster recovery: multi-site / multi-instance topology (OpenProject #2436)', () => {
+    test('has the section', () => {
+      assert.match(raw, /## Disaster recovery: multi-site \/ multi-instance topology/)
+    })
+
+    test('recommends Postgres streaming replication', () => {
+      assert.match(raw, /streaming replication/i)
+    })
+
+    test('recommends an object-storage backend (s3\\/azure\\/gcs) for DR, not a filesystem-based one', () => {
+      assert.match(raw, /object-storage backend/i)
+      assert.match(raw, /`s3`, `azure` or `gcs`/)
+    })
+
+    test('names the bidirectional-file-sync hazard for the disk/git/sftp storage modules', () => {
+      assert.match(raw, /bidirectional file-sync/i)
+      assert.match(raw, /`disk`, `git`, or `sftp`/)
+    })
+
+    test('explains the git storage target corruption risk specifically', () => {
+      assert.match(raw, /corrupt the\s+local repo state/i)
+    })
+
+    test('explains the silent asset divergence risk specifically', () => {
+      assert.match(raw, /diverge/i)
+    })
+
+    test('cross-references the section from the See also list', () => {
+      assert.match(raw, /#disaster-recovery-multi-site-multi-instance-topology/)
+    })
+  })
+
   describe('troubleshooting', () => {
     test('covers the unknownsite redirect', () => {
       assert.match(raw, /unknownsite/)
