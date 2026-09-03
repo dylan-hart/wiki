@@ -177,6 +177,7 @@ import { forceCenter, forceCollide } from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { zoomIdentity } from 'd3-zoom'
 import { localizedPagePath } from '@/helpers/pagePaths'
+import { useDark } from '@/composables/dark'
 import { useSiteStore } from '@/stores/site'
 import GraphClientTypeFilter from '@/components/GraphClientTypeFilter.vue'
 import {
@@ -204,6 +205,7 @@ import {
 const siteStore = useSiteStore()
 const router = useRouter()
 const { t } = useI18n()
+const dark = useDark()
 
 const containerRef = ref(null)
 const canvasRef = ref(null)
@@ -400,14 +402,15 @@ const graphAccessibleName = computed(() => {
 })
 
 /*
-  The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), light-surface
-  hex values, in the skill's own fixed (CVD-safe adjacent-pair) order -- assigned in that order as
-  new group keys are first seen, never reordered per group. Graph.vue's canvas rendering has no
-  dark-mode color swap anywhere yet (drawEdges'/drawLabels' stroke/fill strings are hardcoded the
-  same way), so this palette isn't threaded through a light/dark variant either -- revisit together
-  if dark-mode canvas theming is ever added.
+  The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), in the skill's
+  own fixed (CVD-safe adjacent-pair) order -- assigned in that order as new group keys are first
+  seen, never reordered per group. Light is the palette's light-surface column; dark is its
+  dark-surface column -- the same eight hues stepped for the dark surface, not a separate palette
+  (OpenProject #2412: `colorForGroup()` below picks the column live off `dark.isActive`, and
+  `drawEdges()`/`drawLabels()` in `graphDraw.js` carry their own light/dark stroke/fill pair the
+  same way).
 */
-const CATEGORICAL_PALETTE = [
+const CATEGORICAL_PALETTE_LIGHT = [
   '#2a78d6', // blue
   '#eb6834', // orange
   '#1baf7a', // aqua
@@ -417,23 +420,43 @@ const CATEGORICAL_PALETTE = [
   '#4a3aa7', // violet
   '#e34948' // red
 ]
+const CATEGORICAL_PALETTE_DARK = [
+  '#3987e5', // blue
+  '#d95926', // orange
+  '#199e70', // aqua
+  '#c98500', // yellow
+  '#d55181', // magenta
+  '#008300', // green
+  '#9085e9', // violet
+  '#e66767' // red
+]
 
 /** Fixed neutral color for every synthetic node (OpenProject #997/#1001) -- deliberately outside
- *  `CATEGORICAL_PALETTE` so a synthetic folder/tag-hub marker never gets mistaken for a real group. */
+ *  `CATEGORICAL_PALETTE_LIGHT`/`_DARK` so a synthetic folder/tag-hub marker never gets mistaken for
+ *  a real group. A mid-gray reads clearly against both the light and dark canvas surface, so unlike
+ *  the two palettes above it needs no dark variant of its own. */
 const SYNTHETIC_NODE_COLOR = '#9e9e9e'
 
-const groupColors = new Map()
+/** Keyed on the group's palette SLOT INDEX, never the resolved hex -- so a mode flip repaints every
+ *  already-assigned group in its new palette's color instead of freezing it at whichever mode first
+ *  assigned it (OpenProject #2412). */
+const groupColorSlots = new Map()
 
 /** Assigns the palette's next unused slot to a not-yet-seen group key, then always returns that
- *  same color for that key going forward -- stable across redraws within a session, and stable
- *  across a reload too since the backend returns nodes in a consistent order (insertion order
- *  drives slot assignment). Past 8 distinct groups the palette wraps rather than leaving a group
- *  undrawn -- a graph view has no "fold into Other" fallback the way a chart legend would. */
+ *  same slot's color for that key going forward -- stable across redraws within a session, and
+ *  stable across a reload too since the backend returns nodes in a consistent order (insertion
+ *  order drives slot assignment). Past 8 distinct groups the palette wraps rather than leaving a
+ *  group undrawn -- a graph view has no "fold into Other" fallback the way a chart legend would.
+ *  Reads `dark.isActive` on every call (not just when a slot is first assigned), which is what
+ *  lets a dark-mode toggle repaint existing groups in the other palette's color -- and, since every
+ *  caller of this function ends up read from a Vue computed or watcher, is also what makes that
+ *  toggle a tracked reactive dependency of the legend and the canvas repaint alike. */
 function colorForGroup(key) {
-  if (!groupColors.has(key)) {
-    groupColors.set(key, CATEGORICAL_PALETTE[groupColors.size % CATEGORICAL_PALETTE.length])
+  if (!groupColorSlots.has(key)) {
+    groupColorSlots.set(key, groupColorSlots.size % CATEGORICAL_PALETTE_LIGHT.length)
   }
-  return groupColors.get(key)
+  const palette = dark.isActive ? CATEGORICAL_PALETTE_DARK : CATEGORICAL_PALETTE_LIGHT
+  return palette[groupColorSlots.get(key)]
 }
 
 /** One entry per distinct group currently in the graph, in first-seen order -- the legend panel's
@@ -670,7 +693,8 @@ function repaint() {
     nodes: nodes.value,
     edges: edges.value,
     clusters: clusters.value,
-    radiusFor
+    radiusFor,
+    dark: dark.isActive
   })
 }
 
@@ -838,6 +862,19 @@ watch(groupBy, () => {
   recomputeClusters()
   simulation?.alpha(0.3).restart()
 })
+
+/** OpenProject #2412: no node/cluster moved and the visible set didn't change, only which palette
+ *  column every color comes from -- `recomputeClusters()` alone (no simulation restart) re-derives
+ *  `node.color`/cluster hull colors off the new mode, and `repaint()` is what actually redraws the
+ *  canvas layer (edges/labels) in its own light/dark pair; the legend swatches update on their own
+ *  since `legendEntries` reads `colorForGroup()`, which itself reads `dark.isActive`. */
+watch(
+  () => dark.isActive,
+  () => {
+    recomputeClusters()
+    repaint()
+  }
+)
 
 /** Re-attaching `collide` (rather than mutating it in place) is what makes `forceCollide` re-read
  *  every node's radius through `collideRadiusFor()` -- see that function's own doc comment on why a

@@ -10,8 +10,17 @@
  * page's current "Size by" mode, which is the page's question, not the canvas's.
  */
 
-export function drawEdges(ctx, edges) {
-  ctx.strokeStyle = 'rgba(128, 128, 128, 0.35)'
+/** Edge stroke color, light/dark (OpenProject #2412) -- the light value is the original hardcoded
+ *  `rgba(128, 128, 128, 0.35)`. The dark value lightens the gray (128 -> 200) rather than just
+ *  raising alpha: on the app's near-black dark surface, 128-gray at 0.35 alpha blends down to
+ *  roughly the same near-black it sits on, which is exactly the illegibility this fixes. */
+const EDGE_COLOR = {
+  light: 'rgba(128, 128, 128, 0.35)',
+  dark: 'rgba(200, 200, 200, 0.35)'
+}
+
+export function drawEdges(ctx, edges, dark) {
+  ctx.strokeStyle = dark ? EDGE_COLOR.dark : EDGE_COLOR.light
   ctx.lineWidth = 1
   for (const edge of edges) {
     const source = edge.source
@@ -79,13 +88,22 @@ const LABEL_MAX_EFFECTIVE_FONT_PX = 24
  *  the node so a label never overlaps a larger node's fill (OpenProject #2297). */
 export const LABEL_GAP = 3
 
-export function drawLabels(ctx, nodes, radiusFor, scale) {
+/** Label fill color, light/dark (OpenProject #2412) -- the light value is the original hardcoded
+ *  `#333`. The dark value is a near-white rather than a plain invert, matching this app's dark-mode
+ *  primary-ink convention (`composables/dark.js`'s surfaces, and the dataviz skill's own
+ *  light/dark "Primary ink" pair) rather than a bespoke gray picked just for this canvas. */
+const LABEL_COLOR = {
+  light: '#333',
+  dark: '#e8e8e8'
+}
+
+export function drawLabels(ctx, nodes, radiusFor, scale, dark) {
   if (scale < LABEL_VISIBILITY_ZOOM_THRESHOLD) {
     return
   }
   const fontPx = Math.min(LABEL_BASE_FONT_PX, LABEL_MAX_EFFECTIVE_FONT_PX / scale)
   ctx.font = `${fontPx}px sans-serif`
-  ctx.fillStyle = '#333'
+  ctx.fillStyle = dark ? LABEL_COLOR.dark : LABEL_COLOR.light
   for (const node of nodes) {
     if (node.x === undefined) {
       continue
@@ -97,7 +115,7 @@ export function drawLabels(ctx, nodes, radiusFor, scale) {
 /** Paints the current layout to the canvas -- the `ctx` save/clear/transform/draw/restore sequence
  *  only, no layout recomputation. Safe to call on every zoom/pan frame since it draws the `nodes`,
  *  `edges` and `clusters` it is handed as they last stood rather than rebuilding any of them. */
-export function paintGraph({ ctx, canvas, transform, nodes, edges, clusters, radiusFor }) {
+export function paintGraph({ ctx, canvas, transform, nodes, edges, clusters, radiusFor, dark }) {
   if (!ctx) {
     return
   }
@@ -108,9 +126,9 @@ export function paintGraph({ ctx, canvas, transform, nodes, edges, clusters, rad
     ctx.translate(transform.x, transform.y)
     ctx.scale(transform.k, transform.k)
   }
-  drawEdges(ctx, edges)
+  drawEdges(ctx, edges, dark)
   drawClusterHulls(ctx, clusters)
   drawNodes(ctx, nodes, radiusFor)
-  drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1)
+  drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark)
   ctx.restore()
 }
