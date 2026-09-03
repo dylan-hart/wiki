@@ -122,3 +122,81 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2440: unlike the rest of this file, `GET /authentication/synced-groups` is reachable
+ * without `manage:system` — it names no secrets, only group/strategy ids and display names, so the
+ * admin group-assignment warning UI (gated on `manage:users`/`manage:groups`) can call it directly.
+ */
+describe('GET /authentication/synced-groups', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    wikiHandle = installTestWiki({
+      models: {
+        authentication: {
+          getGroupSyncWarnings: async () => [
+            {
+              groupId: 'group-editors',
+              strategies: [{ id: 'strategy-1', displayName: 'Corp OIDC' }]
+            }
+          ]
+        }
+      }
+    })
+
+    app = await buildTestApp({
+      routes: authenticationRoutes,
+      permissions: true,
+      session: { authenticated: true, permissions: ['manage:users'], groups: [] }
+    })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  test('a manage:users holder (no manage:system) can read the warnings', async () => {
+    const res = await app.inject({ method: 'GET', url: '/authentication/synced-groups' })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), [
+      { groupId: 'group-editors', strategies: [{ id: 'strategy-1', displayName: 'Corp OIDC' }] }
+    ])
+  })
+})
+
+describe('GET /authentication/synced-groups (none of the four allowed permissions)', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    wikiHandle = installTestWiki({
+      models: {
+        authentication: {
+          getGroupSyncWarnings: async () => {
+            throw new Error('should not be called')
+          }
+        }
+      }
+    })
+
+    app = await buildTestApp({
+      routes: authenticationRoutes,
+      permissions: true,
+      // -> Authenticated, but holding an unrelated permission -- distinct from holding none at all,
+      //    which `permissionPreHandler` answers 401 for instead (an empty/absent permission list is
+      //    treated as not authenticated, not merely as lacking this route's permission).
+      session: { authenticated: true, permissions: ['read:pages'], groups: [] }
+    })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  test('is refused 403', async () => {
+    const res = await app.inject({ method: 'GET', url: '/authentication/synced-groups' })
+    assert.equal(res.statusCode, 403)
+  })
+})

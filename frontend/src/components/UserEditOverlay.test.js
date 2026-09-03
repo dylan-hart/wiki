@@ -276,6 +276,116 @@ describe('UserEditOverlay unassignGroup', () => {
 })
 
 /**
+ * OpenProject #2440: picking a group to assign that is currently on an enabled strategy's
+ * `mappableGroups` allow-list warns before the admin clicks "Assign Group" -- the group may be
+ * silently reverted the next time that user logs in through the provider.
+ */
+describe('UserEditOverlay groups tab: provider-sync warning', () => {
+  async function mountGroupsTab({ syncWarnings }) {
+    const router = await createTestRouter(['/:id?/:section?'], '/user-1/groups')
+
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'groups') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'group-editors', name: 'Editors' },
+              { id: 'group-reviewers', name: 'Reviewers' }
+            ])
+        }
+      }
+      if (url === 'users/user-1') {
+        return {
+          json: () =>
+            Promise.resolve({
+              id: 'user-1',
+              name: 'Test User',
+              email: 'test@example.com',
+              isVerified: true,
+              isActive: true,
+              meta: {},
+              prefs: {},
+              groups: [{ id: 'group-reviewers', name: 'Reviewers' }]
+            })
+        }
+      }
+      if (url === 'authentication/synced-groups') {
+        return { json: () => Promise.resolve(syncWarnings) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const { wrapper } = mountWithApp(UserEditOverlay, {
+      router,
+      messages: {
+        admin: {
+          users: { groupSyncWarning: 'Synced from {provider}, may be reverted on next login' }
+        }
+      },
+      stores: { admin: { overlayOpts: { id: 'user-1' } }, user: { permissions: ['manage:users'] } }
+    })
+    await flushPromises()
+
+    return wrapper
+  }
+
+  /** Opens the Groups tab's "group to add" picker and clicks the option matching `groupName`. */
+  async function pickGroupToAdd(wrapper, groupName) {
+    const control = wrapper.find('[role="combobox"]')
+    await control.trigger('click')
+    await flushPromises()
+    const option = wrapper.findAll('[role="option"]').find((el) => el.text().trim() === groupName)
+    await option.trigger('click')
+    await flushPromises()
+  }
+
+  it('shows no warning when nothing is selected to add', async () => {
+    const wrapper = await mountGroupsTab({
+      syncWarnings: [
+        { groupId: 'group-editors', strategies: [{ id: 'strat-1', displayName: 'Corp OIDC' }] }
+      ]
+    })
+
+    expect(wrapper.text()).not.toContain('Synced from')
+
+    wrapper.unmount()
+  })
+
+  it('warns, naming the provider, once a synced-and-mappable group is selected to add', async () => {
+    const wrapper = await mountGroupsTab({
+      syncWarnings: [
+        { groupId: 'group-editors', strategies: [{ id: 'strat-1', displayName: 'Corp OIDC' }] }
+      ]
+    })
+
+    await pickGroupToAdd(wrapper, 'Editors')
+
+    expect(wrapper.text()).toContain('Synced from')
+    expect(wrapper.text()).toContain('Corp OIDC')
+
+    wrapper.unmount()
+  })
+
+  it('does not warn for a group absent from the synced-groups response', async () => {
+    const wrapper = await mountGroupsTab({
+      syncWarnings: [
+        { groupId: 'group-editors', strategies: [{ id: 'strat-1', displayName: 'Corp OIDC' }] }
+      ]
+    })
+
+    // -> Only group-editors is in the synced-groups response above; group-reviewers is already
+    //    assigned and is still offered by the picker (nothing filters an already-assigned group
+    //    out of it -- `assignGroup()` itself is what refuses a duplicate), so this exercises the
+    //    "no warning" path against a group that IS a real, selectable option.
+    await pickGroupToAdd(wrapper, 'Reviewers')
+
+    expect(wrapper.text()).not.toContain('Synced from')
+
+    wrapper.unmount()
+  })
+})
+
+/**
  * The operations panel's "Delete user" proceed button was wired to `async function deleteUser() {}`
  * -- a live, `canManage`-gated button that did nothing at all when clicked. It now opens the same
  * `UserDeleteDialog` the users list opens (`pages/AdminUsers.vue#deleteUser`), which owns the

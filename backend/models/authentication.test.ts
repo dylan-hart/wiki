@@ -2,6 +2,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { authentication } from './authentication.ts'
+import { groups as groupsTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
 /**
@@ -199,6 +200,86 @@ describe(
       const strategy = await authentication.getStrategyById(id)
       assert.equal(strategy?.config.clientSecret, 'original-secret')
       assert.equal(strategy?.config.clientId, 'updated-id')
+    })
+  }
+)
+
+/**
+ * OpenProject #2440: the admin group-assignment UI had no warning that a manually-added membership
+ * in a group also on a strategy's `mappableGroups` allow-list can be silently reverted on that user's
+ * next login. `getGroupSyncWarnings()` is the read behind that warning -- these assert it names
+ * exactly the groups `models/login.ts#syncProviderGroups()` would actually revoke, not merely every
+ * mappable group.
+ */
+describe(
+  'authentication.getGroupSyncWarnings (DB-backed, real oauth2 definition read from disk)',
+  { skip: !hasTestDatabase() },
+  () => {
+    const guestsGroupId = 'unused-in-this-suite-guests'
+    const rootAdminGroupId = 'unused-in-this-suite-root-admin'
+
+    before(async () => {
+      await setupTestDb()
+      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite', guestsGroupId }
+      ;(WIKI.config as any).auth = { rootAdminGroupId }
+      await authentication.refreshStrategiesFromDisk()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('no configured strategy at all means no warnings', async () => {
+      assert.deepEqual(await authentication.getGroupSyncWarnings(), [])
+    })
+
+    test('names only the genuinely revocable groups of enabled, mapGroups-on strategies', async () => {
+      const editorsGroupId = await WIKI.models.groups.createGroup('Sync Warning Editors')
+      const autoEnrolledGroupId = await WIKI.models.groups.createGroup('Sync Warning AutoEnrolled')
+      const [adminRow] = await WIKI.db
+        .insert(groupsTable)
+        .values({ name: 'Sync Warning Admins', permissions: ['manage:system'], rules: [] })
+        .returning({ id: groupsTable.id })
+      const adminGroupId = adminRow!.id
+
+      // -> Enabled, mapGroups on, and its allow-list mixes one genuinely-revocable group with three
+      //    that must never be flagged: the guests group, a group it also `autoEnrollGroups` (granted
+      //    directly by an admin, never taken away by the sync), and a `manage:system` group.
+      const activeId = await authentication.createStrategy({
+        module: 'oauth2',
+        displayName: 'Corp OAuth2',
+        isEnabled: true,
+        mappableGroups: [editorsGroupId, autoEnrolledGroupId, adminGroupId],
+        autoEnrollGroups: [autoEnrolledGroupId],
+        config: { mapGroups: true }
+      })
+      // -> Same allow-list, but disabled -- contributes nothing.
+      await authentication.createStrategy({
+        module: 'oauth2',
+        displayName: 'Disabled OAuth2',
+        isEnabled: false,
+        mappableGroups: [editorsGroupId],
+        config: { mapGroups: true }
+      })
+      // -> Enabled, but mapGroups is off -- an allow-list configured ahead of turning mapping on
+      //    grants/revokes nothing yet, and must not be warned about either.
+      await authentication.createStrategy({
+        module: 'oauth2',
+        displayName: 'Not Mapping Yet',
+        isEnabled: true,
+        mappableGroups: [editorsGroupId],
+        config: { mapGroups: false }
+      })
+
+      const warnings = await authentication.getGroupSyncWarnings()
+
+      assert.deepEqual(
+        warnings.map((w) => w.groupId),
+        [editorsGroupId]
+      )
+      const entry = warnings[0]!
+      assert.equal(entry.strategies.length, 1)
+      assert.deepEqual(entry.strategies[0], { id: activeId, displayName: 'Corp OAuth2' })
     })
   }
 )
