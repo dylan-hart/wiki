@@ -96,6 +96,31 @@ describe('publish workflow split (build.yml + release.yml)', () => {
         'release.yml has a commented-out platforms: line'
       )
     })
+
+    // OpenProject #2435/#2487: both linux/amd64 and linux/arm64 are published, and since GitHub's
+    // hosted runners are amd64-only, cross-building the arm64 leg needs QEMU emulation registered
+    // before Buildx is set up -- docker/setup-buildx-action's docker-container driver does not
+    // provide that emulation on its own.
+    test('both workflows declare linux/amd64 and linux/arm64', () => {
+      for (const doc of [buildDoc, releaseDoc]) {
+        const platforms = platformsOf(doc)
+          .split(',')
+          .map((p: string) => p.trim())
+        assert.ok(platforms.includes('linux/amd64'), `expected linux/amd64, got ${platforms}`)
+        assert.ok(platforms.includes('linux/arm64'), `expected linux/arm64, got ${platforms}`)
+      }
+    })
+
+    test('both workflows set up QEMU before Buildx', () => {
+      for (const doc of [buildDoc, releaseDoc]) {
+        const steps = allSteps(doc)
+        const qemuIndex = findStepIndex(steps, /docker\/setup-qemu-action/)
+        const buildxIndex = findStepIndex(steps, /docker\/setup-buildx-action/)
+        assert.ok(qemuIndex !== -1, 'expected a docker/setup-qemu-action step')
+        assert.ok(buildxIndex !== -1, 'expected a docker/setup-buildx-action step')
+        assert.ok(qemuIndex < buildxIndex, 'expected QEMU setup to run before Buildx setup')
+      }
+    })
   })
 
   describe('release.yml — gated release channel', () => {
