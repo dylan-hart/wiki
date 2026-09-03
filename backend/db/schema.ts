@@ -1399,6 +1399,42 @@ export const pageRenderQueue = pgTable(
   (table) => [index('pageRenderQueue_createdAt_idx').on(table.createdAt)]
 )
 
+// PAGE DRAFTS --------------------------
+/**
+ * One row per page currently holding unsaved collaborative-editing content, the durable half of
+ * OpenProject #2454's autosave: `core/collab.ts` debounce-persists a room's live Yjs document state
+ * here as edits happen, and prefers this over the plain stored `pages` content the next time a room
+ * for the page has to be built from scratch (no peer instance already holding it) — which is what
+ * lets a crash or tab-close mid-edit recover the in-progress text on reopening rather than losing it,
+ * without a separate periodic-save mechanism of its own.
+ *
+ * `state` is a raw Yjs update (`Y.encodeStateAsUpdate(doc)`), not the plain markdown — restoring it
+ * has to reconstruct the whole shared document (text, header fields, and cursor-independent CRDT
+ * metadata), not just a string.
+ *
+ * The row is deleted, not merely made stale, once the content it describes is genuinely committed —
+ * see `core/collab.ts#pageSaved()`, the same hook that already tells every collaborator's editor a
+ * save has landed. A row surviving past that point would offer to restore content a save has already
+ * superseded. What is left to accumulate is a page abandoned mid-edit and never reopened, which
+ * `purgePageDrafts` (`models/pageDrafts.ts#purgeStale()`) sweeps on a retention window, the same
+ * shape as `rateLimits`/`sessions`'s own housekeeping below.
+ */
+export const pageDrafts = pgTable(
+  'pageDrafts',
+  {
+    pageId: uuid()
+      .primaryKey()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    state: bytea().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  // -> How the purge finds rows nothing has touched in a long while
+  (table) => [index('pageDrafts_updatedAt_idx').on(table.updatedAt)]
+)
+
 // RATE LIMITS -------------------------
 /**
  * One counter per rate-limited client, and the ban it has earned itself.

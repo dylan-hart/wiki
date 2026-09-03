@@ -152,6 +152,16 @@ export const JOB_SCHEDULE_SEED = [
     task: 'purgePageWatchEvents',
     cron: '50 0 * * *',
     type: 'system'
+  },
+  // -> Sweeps `pageDrafts` rows past the 30-day retention window -- an autosaved collaborative-editing
+  // draft (OpenProject #2454) for a page abandoned mid-edit and never reopened. Everything else is
+  // already cleared on save by `core/collab.ts#pageSaved()`; this is only the backstop for what that
+  // path never sees. See `tasks/simple/purge-page-drafts.ts` / `models/pageDrafts.ts#purgeStale()`.
+  // Offset alongside the other midnight housekeeping jobs above.
+  {
+    task: 'purgePageDrafts',
+    cron: '58 0 * * *',
+    type: 'system'
   }
 ] as const
 
