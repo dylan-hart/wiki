@@ -29,6 +29,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { POPUP_CLOSE } from '@/composables/popup'
 import { useAnchoredFloat } from '@/composables/anchoredFloat'
+import { pushEscapeHandler } from '@/composables/escapeStack'
 
 /*
   The root is a fragment -- an inline placeholder that marks the trigger, plus a teleported popup --
@@ -207,13 +208,28 @@ function restoreFocus() {
 // -> `modelValue` is opt-in: null means uncontrolled, so only mirror it when actually provided
 const isControlled = () => props.modelValue !== null
 
+/**
+ * This instance's current registration on the shared Escape stack (`composables/escapeStack.js`),
+ * or `null` while closed. Pushed in `show()`, released in `hide()` -- see `handleEscape` and the
+ * import above for why this replaced a bare `document` listener (OpenProject #2370).
+ */
+let releaseEscapeHandler = null
+
+function handleEscape() {
+  hide()
+}
+
 async function show() {
+  if (shown.value) {
+    return
+  }
   focusReturnEl = document.activeElement
   shown.value = true
   if (isControlled()) {
     emit('update:modelValue', true)
   }
   emit('show')
+  releaseEscapeHandler = pushEscapeHandler(handleEscape)
   await reposition()
   focusPanel()
 }
@@ -228,6 +244,8 @@ function hide() {
     emit('update:modelValue', false)
   }
   emit('hide')
+  releaseEscapeHandler?.()
+  releaseEscapeHandler = null
   restoreFocus()
 }
 
@@ -260,29 +278,6 @@ function onTriggerContextMenu(ev) {
 
 function onContentClick() {
   if (props.autoClose) {
-    hide()
-  }
-}
-
-/*
-  Bubble phase, deliberately -- NOT the capture phase this used to run in (OpenProject #2364). A
-  capture-phase document listener fires before the event ever reaches whatever is focused inside the
-  panel, so an editable field's own `@keydown.esc` (its "discard the in-progress edit" handler) never
-  got a turn: this handler ran first, stopped propagation, and `hide()` -> `restoreFocus()`
-  synchronously blurred the field -- which committed its draft instead of discarding it, for any
-  field whose commit lives on blur (the app's standard pattern, see `PageHeader.vue`'s
-  `onEditableBlur` and `PageActionsCol.vue`'s pending-asset rename field).
-
-  Listening on the bubble phase instead means the normal DOM order applies: a focused field's own
-  Escape handler runs first (target phase), can discard/clear its own state, and only afterward does
-  the key bubble up to this document listener, which closes the menu and moves focus -- by which
-  point there is nothing left for a blur to commit. This also brings WMenu in line with the
-  cascading-Escape convention `WSelect`'s own dropdown already relies on (`ev.stopPropagation()` on
-  Escape to keep an outer popup from also closing on the same keypress).
-*/
-function onKeydown(ev) {
-  if (ev.key === 'Escape' && shown.value) {
-    ev.stopPropagation()
     hide()
   }
 }
@@ -358,7 +353,6 @@ onMounted(() => {
     triggerEl.value.addEventListener('click', onTriggerClick)
     triggerEl.value.addEventListener('contextmenu', onTriggerContextMenu)
   }
-  document.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', hide)
 
   if (props.modelValue === true) {
@@ -371,8 +365,12 @@ onBeforeUnmount(() => {
     triggerEl.value.removeEventListener('click', onTriggerClick)
     triggerEl.value.removeEventListener('contextmenu', onTriggerContextMenu)
   }
-  document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', hide)
+  // -> An unmount while still shown (route change, host teardown) would otherwise leak this
+  //    instance's registration on the shared Escape stack -- `hide()`'s own release runs only on
+  //    the ordinary close paths, none of which fire on an unmount.
+  releaseEscapeHandler?.()
+  releaseEscapeHandler = null
 })
 
 /*
