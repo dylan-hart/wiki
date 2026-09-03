@@ -83,6 +83,8 @@
   "admin.api.none": "There are no API keys yet.",
   "admin.api.permissionGroups": "Group Permissions",
   "admin.api.permissionsFrom": "Permissions from {groups}",
+  "admin.api.personalTokenNote": "Looking for a token to use as yourself (e.g. with an MCP client)? Create a personal access token instead, from {link}.",
+  "admin.api.personalTokenNoteLink": "Profile > API Access",
   "admin.api.personalTokenOf": "Personal token of {user}",
   "admin.api.refreshSuccess": "List of API keys has been refreshed.",
   "admin.api.revoke": "Revoke",
