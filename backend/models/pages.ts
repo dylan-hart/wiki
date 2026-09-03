@@ -15,6 +15,7 @@ import {
 } from '../helpers/localeRouting.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
+import { rewriteInternalLinkReferences } from '../helpers/linkRewrite.ts'
 import { announce } from './hooks.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
@@ -1426,6 +1427,72 @@ class Pages {
   }
 
   /**
+   * After a move changes `oldPath` to `newPath` (same site), rewrite every other page's stored
+   * render — and, best-effort, raw content — so an in-site link that pointed at the old path
+   * points at the new one instead: Feature #2424's "moving a page updates all in-site referencing
+   * links, no dead links left behind" acceptance, scoped to same-site links only (cross-site
+   * rewriting is explicitly out of scope). See `helpers/linkRewrite.ts` for why this needs no
+   * per-format link parser.
+   *
+   * Runs candidate-by-candidate through the ordinary `updatePage()` path rather than writing to
+   * `pages` directly, so a relink gets the exact same side effects a manual edit would -- history,
+   * search reindex, watcher notifications, hooks, storage dispatch, cache invalidation -- with
+   * nothing to duplicate or drift out of sync here. `renderPermissions` is passed explicitly as
+   * `{ scripts: true, styles: true }`: this edit only touches `href` attributes on content that was
+   * already sanitized under ITS OWN author's permissions, so re-deriving permissions from whoever
+   * happened to trigger the move would risk stripping a `<script>`/`<style>` the mover simply isn't
+   * personally allowed to author.
+   *
+   * Deliberately not scoped by page-rule permissions the way a route handler would be: like the
+   * move's own history/search/hooks side effects, this is a system-triggered consequence of an
+   * already-authorized move, not a new edit the mover is personally making.
+   *
+   * Candidates come from `listBacklinks()` (locale-agnostic, matching its own existing semantics),
+   * so this also catches the moved page's own self-links: nothing in the move transaction touches
+   * `links`/`render`/`content`, so a page that linked to itself is its own backlink candidate under
+   * its OLD path immediately after the move, exactly like any other referencing page. `relations`
+   * (the separate authored "See Also"-style callouts `PageRelationDialog.vue` writes) are out of
+   * scope: they are not `<a href>` links inside content, and rewriting them would be new
+   * link-parsing this WP's scope explicitly avoids -- see
+   * docs/decisions/move-time-relink-data-audit.md.
+   */
+  private async rewriteInboundLinks(
+    siteId: string,
+    oldPath: string,
+    newPath: string,
+    actor: PageActor
+  ): Promise<void> {
+    const candidates = await this.listBacklinks(siteId, oldPath)
+    for (const candidate of candidates) {
+      const referencing = await this.getPage({ siteId, id: candidate.id, withContent: true })
+      if (!referencing || !referencing.render) {
+        continue
+      }
+      const rewritten = rewriteInternalLinkReferences(
+        referencing.render,
+        referencing.content ?? '',
+        referencing.path,
+        oldPath,
+        newPath
+      )
+      if (!rewritten) {
+        continue
+      }
+      await this.updatePage(
+        siteId,
+        referencing.id,
+        {
+          content: rewritten.content,
+          render: rewritten.render,
+          reasonForChange: `Automatic link update: "${oldPath}" moved to "${newPath}"`
+        },
+        actor,
+        { scripts: true, styles: true }
+      )
+    }
+  }
+
+  /**
    * Move a page to another path and/or another locale, taking its tree entry with it.
    *
    * `locale` re-homes the page into another of the site's locales, which is a move in exactly the
@@ -1566,6 +1633,13 @@ class Pages {
     }
     if (glossaryInvalidate) {
       WIKI.models.glossary.invalidateCache(siteId)
+    }
+    // -> Twins share the PRIMARY's pre-move path by definition (that shared path is what made them
+    //    twins -- see `getTranslations`), so the whole batch has exactly one (oldPath -> newPath)
+    //    pair to relink, not one per moved page. A locale-only move (path unchanged) has nothing to
+    //    relink: `listBacklinks` matches by path alone.
+    if (newPath !== page.path) {
+      await this.rewriteInboundLinks(siteId, page.path, newPath, actor)
     }
     return primaryMoved!
   }
