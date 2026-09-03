@@ -86,10 +86,12 @@ export const AUDIT_TARGET_TYPES = [
   'site',
   'storageTarget',
   'authStrategy',
-  // -> #1118: `mcp.writeToolCalled`'s target is the page the tool call wrote, not the calling key
-  //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
-  //   answer "what did the agent write", not just "an agent wrote something".
+  // -> #1118: `mcp.writeToolCalled`'s target is the page (or, per #2446, the asset) the tool call
+  //   wrote, not the calling key (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the target
+  //   is what makes the log entry answer "what did the agent write", not just "an agent wrote
+  //   something".
   'page',
+  'asset',
   'glossaryTerm',
   // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
   //   so `targetId` for these stays '' and `targetLabel` names the setting/module changed instead.
