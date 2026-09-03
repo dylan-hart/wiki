@@ -341,6 +341,10 @@ const ALLOWED_STYLES: Record<string, Record<string, RegExp[]>> = {
  *
  * `javascript:` is absent, which is the point; `data:` is allowed only for images, where it is how a
  * small inline graphic is written and where it cannot script.
+ *
+ * This is the floor, not the ceiling: a site may additionally allow custom schemes (`discord:`,
+ * `steam:`, `obsidian:`, ...) through its `allowedUrlSchemes` config (Feature #2418) -- see
+ * `mergeAllowedSchemes()` below for how those are merged in at `sanitizeOptions()` time.
  */
 const ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel', 'ftp']
 
@@ -542,11 +546,11 @@ export function unwrapOrphanedChildBlocks($: cheerio.CheerioAPI): void {
  * cannot.
  *
  * @param additionalSchemes A site's admin-configured extra URL schemes (OpenProject #2457/#2459),
- *   additive to the hardcoded `ALLOWED_SCHEMES` defaults. Defaults to none, so today's one caller
- *   (`models/rendering.ts`) is unaffected until #2459 wires a site's setting through. Whatever is
- *   passed here is filtered through `mergeAllowedSchemes()` -- see OpenProject #2458 -- so a
- *   `javascript:`/`vbscript:`/non-img `data:` entry can never survive into `sanitize-html`'s options
- *   regardless of what the caller (ultimately: an admin) put in the list.
+ *   additive to the hardcoded `ALLOWED_SCHEMES` defaults. Defaults to none, so a caller with no site
+ *   config in scope behaves identically to passing `[]`. Whatever is passed here is filtered through
+ *   `mergeAllowedSchemes()` -- see OpenProject #2458 -- so a `javascript:`/`vbscript:`/non-img `data:`
+ *   entry can never survive into `sanitize-html`'s options regardless of what the caller (ultimately:
+ *   an admin) put in the list.
  */
 export function sanitizeOptions(
   permissions: RenderPermissions,
