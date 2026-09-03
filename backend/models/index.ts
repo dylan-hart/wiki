@@ -33,6 +33,7 @@ import { navigation } from './navigation.ts'
 import { pageHistory } from './pageHistory.ts'
 import { pageProblems } from './pageProblems.ts'
 import { pageClassification } from './pageClassification.ts'
+import { pageDrafts } from './pageDrafts.ts'
 import { pages } from './pages.ts'
 import { pageWatchEvents } from './pageWatchEvents.ts'
 import { pageWatching } from './pageWatching.ts'
@@ -88,6 +89,7 @@ export default {
   navigation,
   pageHistory,
   pageClassification,
+  pageDrafts,
   pageProblems,
   pages,
   pageWatchEvents,
