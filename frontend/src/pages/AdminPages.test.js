@@ -30,7 +30,12 @@ const ROW = {
   tags: ['b-tag', 'a-tag'],
   updatedAt: '2026-08-20T12:00:00.000Z',
   relevancy: 0,
-  highlight: null
+  highlight: null,
+  localeStatus: [
+    { locale: 'en', state: 'primary', updatedAt: '2026-08-20T12:00:00.000Z' },
+    { locale: 'fr', state: 'stale', updatedAt: '2026-01-01T00:00:00.000Z' },
+    { locale: 'de', state: 'missing', updatedAt: null }
+  ]
 }
 
 const SELECTION_ROWS = [
@@ -80,7 +85,14 @@ async function mountPage() {
     return siteResponse()
   })
 
-  const i18n = createTestI18n()
+  const i18n = createTestI18n({
+    // -> The four strings `translationStatusTitle()` resolves, so the Translations column's
+    //    badge tooltips are testable rather than showing the raw i18n key (OpenProject #2476)
+    'admin.pages.translationStatusPrimary': '{locale}: primary',
+    'admin.pages.translationStatusCurrent': '{locale}: current',
+    'admin.pages.translationStatusStale': '{locale}: stale',
+    'admin.pages.translationStatusMissing': '{locale}: missing'
+  })
   const wrapper = mount(AdminPages, { global: { plugins: [makeRouter(), i18n] } })
   await flushPromises()
 
@@ -178,6 +190,31 @@ describe('AdminPages', () => {
     expect(opts.searchParams.get('publishState')).toBe('published')
     expect(opts.searchParams.get('offset')).toBe('0')
     expect(opts.searchParams.get('limit')).toBe('50')
+
+    wrapper.unmount()
+  })
+
+  it('always sends includeLocaleStatus=true, so the Translations column has data to render (OpenProject #2476)', async () => {
+    const { wrapper } = await mountPage()
+
+    const call = API_CLIENT.get.mock.calls.find(([url]) => String(url).endsWith('/pages/search'))
+    const [, opts] = call
+    expect(opts.searchParams.get('includeLocaleStatus')).toBe('true')
+
+    wrapper.unmount()
+  })
+
+  it('renders one badge per localeStatus entry, colored by state (OpenProject #2476)', async () => {
+    const { wrapper } = await mountPage()
+
+    const row = wrapper.find('tbody tr')
+    const badgeLabels = row.findAll('.w-badge').map((b) => b.text())
+    expect(badgeLabels).toContain('en')
+    expect(badgeLabels).toContain('fr')
+    expect(badgeLabels).toContain('de')
+
+    const frBadge = row.findAll('.w-badge').find((b) => b.text() === 'fr')
+    expect(frBadge.attributes('title')).toContain('fr')
 
     wrapper.unmount()
   })

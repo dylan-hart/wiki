@@ -15,6 +15,7 @@ import {
   pageRenderQueue as pageRenderQueueTable,
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
+  sites as sitesTable,
   tree as treeTable,
   userGroups as userGroupsTable,
   users as usersTable
@@ -1880,6 +1881,119 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
       const listed = await pagesModel.listPagesForSitemap(fixtures.siteId)
       assert.ok(!listed.some((p) => p.path === 'sitemap/no-rules'))
+    })
+  })
+
+  /**
+   * The join half of translation staleness/missing detection (OpenProject #2476) --
+   * `helpers/translationStatus.test.ts` covers the pure compare over rows shaped like these.
+   */
+  describe('getTranslationRows', () => {
+    test('returns one row per locale that actually has a page at the given path', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/both', title: 'English', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/both', title: 'French', locale: 'fr' }),
+        actor
+      )
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, ['translations/both'])
+
+      assert.equal(rows.length, 2)
+      const locales = rows.map((r) => r.path === 'translations/both' && r.locale).sort()
+      assert.deepEqual(locales, ['en', 'fr'])
+      for (const row of rows) {
+        assert.ok(row.updatedAt instanceof Date)
+      }
+    })
+
+    test('a path with only one locale returns just that one row', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/en-only', title: 'English only', locale: 'en' }),
+        actor
+      )
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, ['translations/en-only'])
+
+      assert.equal(rows.length, 1)
+      assert.equal(rows[0]!.locale, 'en')
+    })
+
+    test('batches several paths in one call, each path only carrying its own rows', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/batch-a', title: 'A', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/batch-b', title: 'B', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/batch-b', title: 'B (fr)', locale: 'fr' }),
+        actor
+      )
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, [
+        'translations/batch-a',
+        'translations/batch-b'
+      ])
+
+      const byPath = new Map<string, string[]>()
+      for (const row of rows) {
+        byPath.set(row.path, [...(byPath.get(row.path) ?? []), row.locale])
+      }
+      assert.deepEqual(byPath.get('translations/batch-a')?.sort(), ['en'])
+      assert.deepEqual(byPath.get('translations/batch-b')?.sort(), ['en', 'fr'])
+    })
+
+    test('an empty path list is answered with no query and no rows', async () => {
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, [])
+      assert.deepEqual(rows, [])
+    })
+
+    test('never returns a row from another site, even at the identical path', async () => {
+      const [otherSite] = await fixtures.db
+        .insert(sitesTable)
+        .values({
+          hostname: `translations-other-${fixtures.siteId}`,
+          isEnabled: true,
+          config: {}
+        })
+        .returning()
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/scoped', title: 'This site', locale: 'en' }),
+        actor
+      )
+      // -> A raw insert, not `createPage()`: `createPage` refuses any siteId absent from the
+      //    in-memory `WIKI.sites` cache, which a site row inserted straight into the DB (rather than
+      //    through `models/sites.ts`) never populates. Only the WHERE clause's site scoping is under
+      //    test here, so a hand-built row bypassing that whole cache/business-rule layer is enough.
+      await fixtures.db.insert(pagesTable).values({
+        locale: 'en',
+        path: 'translations/scoped',
+        hash: generatePathHash('translations/scoped'),
+        title: 'Other site',
+        editor: 'markdown',
+        contentType: 'markdown',
+        authorId: fixtures.userId,
+        creatorId: fixtures.userId,
+        ownerId: fixtures.userId,
+        siteId: otherSite!.id,
+        classification: fixtures.classificationId
+      })
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, ['translations/scoped'])
+
+      assert.equal(rows.length, 1)
     })
   })
 
