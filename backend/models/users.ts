@@ -93,6 +93,14 @@ export interface UserProfilePatch {
   locale?: string
 }
 
+/**
+ * One boolean per event type a user may opt into receiving an email for (Feature #2425). Keyed by
+ * {@link HookEvent} rather than a separate vocabulary, since `#2481` (extending webhook dispatch to
+ * also emit email) fires against exactly this same event list -- a subscriber map with its own set
+ * of names would need translating between the two at delivery time for no benefit.
+ */
+export type NotificationSubscriptions = Record<HookEvent, boolean>
+
 /** The `meta` keys the profile owns, and the `prefs` keys it owns. */
 const profileMetaKeys = ['location', 'jobTitle', 'pronouns'] as const
 const profilePrefsKeys = [
@@ -743,6 +751,75 @@ class Users {
           sql`jsonb_exists(${usersTable.prefs} -> 'notifications' -> 'events', ${event})`
         )
       )
+  }
+
+  /**
+   * A user's own per-event-type email notification subscriptions (Feature #2425), as the boolean
+   * map the profile UI and `UserNotificationSubscriptions` schema deal in. A thin adapter over
+   * {@link getEmailNotificationEvents} rather than a second storage location -- `#2481`'s
+   * `Hooks.emit()` already reads that array (via {@link listEmailSubscribers}), so a competing
+   * `prefs.eventSubscriptions` blob would leave this settings page changing something the trigger
+   * side never looks at. Always returns a fully populated map over every {@link HOOK_EVENTS} entry
+   * rather than only the events a user has actually subscribed to -- opting in is explicit, so an
+   * event the user has never set, or one added to `HOOK_EVENTS` after they last saved, both default
+   * to `false` here rather than being silently absent from the response.
+   *
+   * @returns The full subscription map, or null if no such user exists
+   */
+  async getNotificationSubscriptions(id: string): Promise<NotificationSubscriptions | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const subscribed = new Set(await this.getEmailNotificationEvents(id))
+    const subscriptions = {} as NotificationSubscriptions
+    for (const event of HOOK_EVENTS) {
+      subscriptions[event] = subscribed.has(event)
+    }
+    return subscriptions
+  }
+
+  /**
+   * Merge a patch into a user's per-event-type email notification subscriptions, translating the
+   * boolean-map patch the route accepts into the subscribed-event array
+   * {@link setEmailNotificationEvents} actually stores.
+   *
+   * Only the keys present in `patch` change; every other event type -- including one the caller
+   * simply didn't send -- is left as it was. `patch` is trusted to carry only known
+   * {@link HookEvent} keys: the route schema (`UserNotificationSubscriptionsUpdate`) is what
+   * actually rejects an unknown one, so this only ever writes keys `HOOK_EVENTS` already lists.
+   *
+   * @returns The full, freshly merged subscription map, or null if no such user exists
+   */
+  async setNotificationSubscriptions(
+    id: string,
+    patch: Partial<NotificationSubscriptions>
+  ): Promise<NotificationSubscriptions | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const existing = new Set(await this.getEmailNotificationEvents(id))
+    for (const event of HOOK_EVENTS) {
+      if (patch[event] === undefined) {
+        continue
+      }
+      if (patch[event]) {
+        existing.add(event)
+      } else {
+        existing.delete(event)
+      }
+    }
+    const saved = await this.setEmailNotificationEvents(id, [...existing])
+    if (!saved) {
+      return null
+    }
+    const savedSet = new Set(saved)
+    const subscriptions = {} as NotificationSubscriptions
+    for (const event of HOOK_EVENTS) {
+      subscriptions[event] = savedSet.has(event)
+    }
+    return subscriptions
   }
 
   /**

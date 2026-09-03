@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { HOOK_EVENTS } from '../../models/hooks.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
@@ -223,6 +224,37 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 35
       }
     }
+  })
+
+  /**
+   * USER NOTIFICATION SUBSCRIPTIONS - one boolean per event type the logged in user may opt into
+   * receiving an email for (Feature #2425)
+   *
+   * Both this and its `...Update` sibling below generate their `properties` from `HOOK_EVENTS`
+   * (`models/hooks.ts`) rather than listing the 18 keys by hand, so a future event added there needs
+   * no schema edit here to become selectable. This is a distinct concept from the unrelated
+   * `Notification` schema (`schemas/notification.ts`, the in-app page-watch inbox backed by
+   * `pageWatchEvents`) -- this one is a per-user, per-event-TYPE toggle read by `#2481`'s email
+   * dispatch, not a per-page watch.
+   */
+  app.addSchema({
+    $id: 'UserNotificationSubscriptions',
+    type: 'object',
+    description:
+      'Per-event-type email notification subscription, keyed by event (e.g. `page:create`). Every event this instance can fire is always present; one never explicitly set defaults to false.',
+    properties: Object.fromEntries(HOOK_EVENTS.map((event) => [event, { type: 'boolean' }])),
+    additionalProperties: false
+  })
+
+  /**
+   * USER NOTIFICATION SUBSCRIPTIONS UPDATE - any subset of event types to change
+   */
+  app.addSchema({
+    $id: 'UserNotificationSubscriptionsUpdate',
+    type: 'object',
+    description: 'Any subset of event types to change; omitted ones are left as they are.',
+    properties: Object.fromEntries(HOOK_EVENTS.map((event) => [event, { type: 'boolean' }])),
+    additionalProperties: false
   })
 
   /**
