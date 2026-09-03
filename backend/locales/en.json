@@ -670,6 +670,8 @@
   "admin.groups.permissions.manage:system.hint": "Can manage and access everything. Root administrator.",
   "admin.groups.permissions.manage:theme.hint": "Can modify site theme settings",
   "admin.groups.permissions.manage:users.hint": "Can create / manage users (but not users with manage:system permissions)",
+  "admin.groups.permissions.publish:pages.hint": "Can publish, unpublish or otherwise change the publish state of pages, even ones they cannot otherwise edit. Standalone -- does not require write:pages.",
+  "admin.groups.permissions.publish:pages.title": "Publish Pages",
   "admin.groups.permissions.read:assets.hint": "Can view / use assets (such as images and files) in pages.",
   "admin.groups.permissions.read:assets.title": "View Assets",
   "admin.groups.permissions.read:comments.hint": "Can view page comments.",

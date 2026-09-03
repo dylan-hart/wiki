@@ -374,6 +374,7 @@ const RULES_DATA = [
     restrictedForSystem: true,
     disabled: false
   },
+  { permission: 'publish:pages', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:general', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:theme', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:navigation', warning: false, restrictedForSystem: true, disabled: false },

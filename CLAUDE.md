@@ -534,7 +534,7 @@ editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, ar
 **Page rule permissions** are bound to paths, and to locales and sites: `read:pages`, `write:pages`,
 `review:pages`, `manage:pages`, `delete:pages`, `write:styles`, `write:scripts`, `read:source`,
 `read:history`, `read:assets`, `write:assets`, `manage:assets`, `read:comments`, `write:comments`,
-`manage:comments`, `manage:classification` (`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts`
+`manage:comments`, `manage:classification`, `publish:pages` (`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts`
 and imported by `helpers/pageAccess.ts`). A group grants them through **rules**:
 each rule names some of them (`roles`) plus how it addresses pages (`match` + `path`, or tags) and
 what it does with them (`mode`: ALLOW / DENY / FORCEALLOW). Nothing is granted by default, and when
@@ -597,6 +597,11 @@ Consequences worth knowing:
   required (`reviewerFor` in `api/approvals.ts` is the worked example).
 - **Never invent a permission name.** All three lists above are closed; `can('browse:fileman')` and
   friends matched nothing and silently hid the controls they guarded.
+- **`publish:pages` is a standalone grant, not an add-on to `write:pages`.** Holding it alone lets an
+  actor toggle a page's `publishState` even on a page they otherwise cannot edit at all, and it is
+  the ONLY thing that can change `publishState` — holding `write:pages` (or `manage:pages`) without
+  it does not, unlike every other content field (OpenProject #2421/#2466). A request that changes
+  `publishState` together with anything else still needs `write:pages` for that anything else.
 - **`write:scripts`/`write:styles` gate content sanitization, not a per-page script/style injection
   feature.** A separate `pages.scripts` column (`scriptJsLoad`/`scriptJsUnload`/`scriptCss`) and its
   `PageScriptsDialog.vue` editor once existed but nothing ever executed the stored values; both were

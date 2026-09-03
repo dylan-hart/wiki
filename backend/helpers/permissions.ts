@@ -49,7 +49,15 @@ export const PAGE_PERMISSIONS: string[] = [
    * silently declassify a sensitive page by editing metadata. Raising it (making it stricter) needs
    * only the ordinary write permission -- see `api/pages/write.ts`'s PATCH route.
    */
-  'manage:classification'
+  'manage:classification',
+  /**
+   * OpenProject #2421/#2465: the publish/unpublish role, separable from ordinary content editing.
+   * Holding this alone (with no `write:pages`) is a valid, standalone grant -- a publish-only actor
+   * may toggle a page's `publishState` even on a page they otherwise cannot edit. Changing
+   * `publishState` always needs this permission regardless of what else is granted; `write:pages`
+   * alone is not enough. See `api/pages/write.ts`'s PATCH route (OpenProject #2466).
+   */
+  'publish:pages'
 ]
 
 /** Every permission string that means anything anywhere — the union of both closed lists above. */

@@ -221,8 +221,39 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
-        return reply.forbidden('You are not allowed to edit this page.')
+      /*
+        Publish/write role separation (OpenProject #2421/#2466): `publishState` is carved out of the
+        ordinary write gate below rather than folded into it, in BOTH directions --
+          - a `publish:pages` holder may change `publishState` even with no `write:pages` at all, but
+            ONLY when nothing else in the body needs `write:pages` (`bodyTouchesOnlyPublishState`
+            below), so this substitutes for the write gate rather than bypassing it for a mixed
+            request that also touches other fields;
+          - a plain `write:pages` holder may not change `publishState` at all -- unlike every other
+            content field, holding `write:pages` says nothing about publish/unpublish authority.
+        `mayOnPage(req, 'publish:pages', ...)` is checked only where it can actually change the
+        outcome (same short-circuiting style as the declassification guardrail just below), so a
+        request that never touches `publishState` never evaluates it at all.
+      */
+      const hasWrite = mayOnPage(req, 'write:pages', req.params.siteId, target)
+      if (!hasWrite) {
+        const bodyTouchesOnlyPublishState = Object.keys(req.body).every(
+          (key) => key === 'publishState' || key === 'expectedUpdatedAt'
+        )
+        if (
+          !bodyTouchesOnlyPublishState ||
+          !mayOnPage(req, 'publish:pages', req.params.siteId, target)
+        ) {
+          return reply.forbidden('You are not allowed to edit this page.')
+        }
+      }
+      if (
+        req.body.publishState !== undefined &&
+        req.body.publishState !== target.publishState &&
+        !mayOnPage(req, 'publish:pages', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Changing this page’s publish state requires the publish:pages permission on it.'
+        )
       }
       /*
         Declassification guardrail (OpenProject #1080): lowering a page's classification (making it
