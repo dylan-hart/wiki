@@ -601,3 +601,111 @@ describe('WDialog', () => {
     expect(panel.find('div[style*="min-width"]').exists()).toBe(true)
   })
 })
+
+/**
+ * OpenProject #2370: `WDialog`'s Escape handler used to listen on `document` in the CAPTURE phase,
+ * which fires before a nested `WMenu` dropdown's own (bubble-phase, #2364) handler ever gets a turn
+ * -- so pressing Escape to close just the dropdown closed the whole dialog instead, discarding an
+ * in-progress form (`UserCreateDialog.vue`'s Groups multi-select was the reproduction). Both
+ * `WDialog` and `WMenu` teleport to `document.body`, so real (unstubbed) teleport is used throughout,
+ * the same as the "WDialog interaction" suite above -- what is under test is genuine DOM event order,
+ * which a stubbed teleport wouldn't exercise.
+ */
+describe('WDialog + nested WMenu Escape', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+    delete document.body.dataset.wDialogDepth
+    document.body.style.overflow = ''
+  })
+
+  async function mountDialogWithMenu(dialogProps = {}) {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, ...dialogProps },
+      attachTo: document.body,
+      slots: {
+        // -> Mirrors WMenu.test.js's own Host: a real, natively-focusable <button> wraps <w-menu>,
+        //    since WMenu resolves its trigger by climbing from its placeholder span's parent.
+        default: `
+          <button id="menu-trigger" type="button">
+            Open menu
+            <w-menu>
+              <button id="menu-row" type="button">Row</button>
+            </w-menu>
+          </button>
+        `
+      }
+    })
+    await flushPromises()
+
+    const trigger = document.getElementById('menu-trigger')
+    trigger.focus()
+    await new DOMWrapper(trigger).trigger('click')
+    await flushPromises()
+    expect(document.querySelector('.w-menu')).not.toBeNull()
+
+    return wrapper
+  }
+
+  it('one Escape closes only the nested WMenu dropdown, leaving a non-persistent dialog open', async () => {
+    const wrapper = await mountDialogWithMenu()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+
+    expect(document.querySelector('.w-menu')).toBeNull()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it('a second Escape, after the dropdown has closed, then closes the dialog', async () => {
+    const wrapper = await mountDialogWithMenu()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+
+    wrapper.unmount()
+  })
+
+  it('a WMenu dropdown inside a persistent dialog still closes on its own Escape', async () => {
+    const wrapper = await mountDialogWithMenu({ persistent: true })
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+
+    // -> The persistent dialog declines Escape outright rather than consuming it, so the menu
+    //    underneath it on the stack still gets a turn
+    expect(document.querySelector('.w-menu')).toBeNull()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
+  /**
+   * Not this WP's reported bug, but the same code path: moving Escape onto the shared LIFO stack
+   * means the topmost (most recently opened) of two stacked, non-persistent dialogs now closes
+   * first -- matching every other "topmost wins" convention in this file (Tab-trapping, initial
+   * focus) rather than the old capture-phase registration-order behaviour, which closed whichever
+   * dialog had opened FIRST.
+   */
+  it('closes only the topmost of two stacked, non-persistent dialogs on Escape', async () => {
+    const outer = mount(WDialog, { props: { modelValue: true }, attachTo: document.body })
+    await flushPromises()
+    const inner = mount(WDialog, { props: { modelValue: true }, attachTo: document.body })
+    await flushPromises()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+
+    expect(inner.emitted('update:modelValue')).toEqual([[false]])
+    expect(outer.emitted('update:modelValue')).toBeUndefined()
+
+    outer.unmount()
+    inner.unmount()
+  })
+})

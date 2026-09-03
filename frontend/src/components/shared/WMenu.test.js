@@ -428,6 +428,50 @@ describe('WMenu', () => {
     expect(body().find('.w-menu').exists()).toBe(false)
   })
 
+  /**
+   * OpenProject #2370: `WMenu` registers its Escape handling on the shared stack
+   * (`composables/escapeStack.js`) only while shown, releasing it in `hide()` -- not a bare
+   * `document` listener kept alive for the component's whole lifetime, the way it worked before.
+   * A later Escape must be a no-op once closed, same guarantee `WDialog.test.js` asserts for its
+   * own listener.
+   */
+  it('a later Escape does nothing once already closed', async () => {
+    const { wrapper, button } = mountBasicMenu()
+    await new DOMWrapper(button).trigger('click')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+    expect(body().find('.w-menu').exists()).toBe(false)
+
+    expect(wrapper.emitted('hide')).toHaveLength(1)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+
+    // -> No second 'hide' -- the stack registration was released, not fired again
+    expect(wrapper.emitted('hide')).toHaveLength(1)
+  })
+
+  it('releases its Escape-stack registration on unmount while still open', async () => {
+    // -> A self-contained mount/cleanup, deliberately not `mountBasicMenu()`'s shared
+    //    `mountedWrappers`/`triggerButtons` arrays -- this test unmounts mid-test, and the
+    //    describe's own `afterEach` would otherwise try to unmount the same wrapper again.
+    const button = document.createElement('button')
+    document.body.appendChild(button)
+    const wrapper = mount(WMenu, {
+      slots: { default: '<div class="menu-item">Item one</div>' },
+      attachTo: button
+    })
+    await new DOMWrapper(button).trigger('click')
+    expect(body().find('.w-menu').exists()).toBe(true)
+
+    wrapper.unmount()
+    button.remove()
+
+    // -> Must not throw reaching into the unmounted instance's own reactive state
+    expect(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    ).not.toThrow()
+  })
+
   it('toggles closed on a second trigger click', async () => {
     const { button } = mountBasicMenu()
 

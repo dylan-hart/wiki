@@ -42,6 +42,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { pushEscapeHandler } from '@/composables/escapeStack'
 
 /**
  * Modal dialog shell.
@@ -167,16 +168,33 @@ function onBackdropClick() {
   }
 }
 
+/*
+  Tab-trapping only -- Escape is handled separately, through the shared stack `handleEscape` below
+  registers into (OpenProject #2370). This stays a raw, capture-phase `document` listener because Tab
+  is never something a nested popup needs to intercept first; only Escape has that cascading-consumer
+  problem.
+*/
 function onKeydown(ev) {
-  if (ev.key === 'Escape' && !props.persistent) {
-    // -> Stops the key also reaching a dialog underneath this one
-    ev.stopPropagation()
-    close()
-    return
-  }
   if (ev.key === 'Tab' && isTopmost()) {
     trapTab(ev)
   }
+}
+
+/**
+ * This dialog's own Escape handling, registered on the shared stack (`composables/escapeStack.js`)
+ * rather than as a `document` listener of its own. That stack is what makes "let the innermost
+ * popup handle Escape first" hold regardless of DOM position -- both `WDialog` and a nested `WMenu`
+ * dropdown teleport to `<body>`, so DOM containment cannot express "the menu is inside the dialog"
+ * at all, and a `document`-level CAPTURE listener (this used to be one) fires before a bubble-phase
+ * one on any node, so it always won even when opened first. Declining (`return false`) while
+ * `persistent` is what lets a `WMenu` opened inside a persistent dialog still close on its own
+ * Escape -- this handler never consumes the keypress at all in that case.
+ */
+function handleEscape() {
+  if (props.persistent) {
+    return false
+  }
+  close()
 }
 
 /**
@@ -285,8 +303,13 @@ function trapTab(ev) {
 // mounts closed -- without this flag that immediate run would decrement a counter it never touched.
 const hasLocked = ref(false)
 
+/** This instance's release from the shared Escape stack -- see `handleEscape` above. */
+let releaseEscapeHandler = null
+
 function releaseLock() {
   document.removeEventListener('keydown', onKeydown, true)
+  releaseEscapeHandler?.()
+  releaseEscapeHandler = null
   const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
   document.body.dataset.wDialogDepth = String(depth)
   if (depth === 0) {
@@ -312,6 +335,7 @@ watch(
   (isOpen) => {
     if (isOpen) {
       document.addEventListener('keydown', onKeydown, true)
+      releaseEscapeHandler = pushEscapeHandler(handleEscape)
       const depth = Number(document.body.dataset.wDialogDepth ?? 0) + 1
       document.body.dataset.wDialogDepth = String(depth)
       ownDepth = depth
