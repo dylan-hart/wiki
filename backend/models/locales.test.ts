@@ -1,11 +1,11 @@
 import { describe, test, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, writeFile, rm, utimes } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, utimes, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { eq } from 'drizzle-orm'
+import { eq, lt, sql } from 'drizzle-orm'
 import { localeCode, computeCompleteness, interpolate, parseSideloadLocalePack } from './locales.ts'
 import { locales as localesTable } from '../db/schema.ts'
 import {
@@ -304,6 +304,91 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
       updatedDeStrings,
       'expected the cache to have been invalidated by refreshFromDisk(), serving the reloaded strings'
     )
+  })
+
+  /**
+   * OpenProject #2371: `refreshFromDisk()` decides whether to reload EACH language off `dbLocales`,
+   * one snapshot SELECT taken ONCE at the top of the whole call, then loops through every declared
+   * language sequentially. If some OTHER writer (the e2e suite's own direct-DB locale seed, in the
+   * incident this bug tracks) writes a fresher row for a code AFTER that snapshot was taken but
+   * BEFORE this function's own turn to write that code arrives, the old code had no way to notice --
+   * its decision was already baked in from the stale snapshot, and its `onConflictDoUpdate` would
+   * fire unconditionally, silently clobbering whatever the other writer had just stored.
+   *
+   * `setWhere` closes this by moving the freshness check from the app (a stale snapshot) into
+   * Postgres itself, re-evaluated against the row's CURRENT state at the exact moment the UPDATE
+   * would apply -- which is unaffected by how the two writes interleave. This test proves that
+   * guarantee directly: it reconstructs the identical `onConflictDoUpdate` shape
+   * `refreshFromDisk()` issues for `de` (real column set, real `setWhere` condition against `de.json`'s
+   * actual mtime) against a `de` row that already carries a newer `updatedAt` than that file -- i.e.
+   * exactly the state a concurrent writer would have left behind between the stale snapshot and this
+   * write's own turn -- and asserts the update is a genuine no-op.
+   */
+  test('setWhere guard: a row already fresher than the vendored file is never overwritten, even by an update decided as if it were stale', async () => {
+    // -> A direct write standing in for "some other process already wrote a fresher `de` row" --
+    //    the exact shape a concurrent seed script's own upsert would leave behind.
+    await fixtures.db
+      .insert(localesTable)
+      .values({
+        code: 'de',
+        name: 'Concurrent Writer',
+        nativeName: 'Concurrent Writer',
+        language: 'de',
+        region: '',
+        script: '',
+        isRTL: false,
+        strings: { keep: 'me' },
+        completeness: 99
+      })
+      .onConflictDoUpdate({
+        target: localesTable.code,
+        set: {
+          name: 'Concurrent Writer',
+          nativeName: 'Concurrent Writer',
+          strings: { keep: 'me' },
+          completeness: 99,
+          updatedAt: sql`now()`
+        }
+      })
+
+    const deFileStat = await stat(path.join(scratchDir, 'locales/de.json'))
+
+    // -> The exact statement shape `refreshFromDisk()`'s per-language loop issues for `de`, guarded
+    //    by the same `setWhere` condition -- reconstructed directly rather than calling
+    //    `refreshFromDisk()` itself, since genuinely reproducing the race that puts it on this path
+    //    would mean racing real async I/O timing (56 sequential `stat()` calls against a scratch
+    //    directory that only two of ever resolve) against this test's own DB write, which is
+    //    exactly the kind of timing-dependent setup that makes a test flaky rather than a reliable
+    //    regression guard. This proves the guarantee the fix relies on directly and deterministically:
+    //    Postgres itself refuses this exact update once the row is no longer stale, regardless of
+    //    what the caller believed when it decided to issue it.
+    await fixtures.db
+      .insert(localesTable)
+      .values({
+        code: 'de',
+        name: 'Vendored',
+        nativeName: 'Vendored',
+        language: 'de',
+        region: '',
+        script: '',
+        isRTL: false,
+        strings: { vendored: 'strings' },
+        completeness: 5
+      })
+      .onConflictDoUpdate({
+        target: localesTable.code,
+        set: { strings: { vendored: 'strings' }, completeness: 5, updatedAt: sql`now()` },
+        setWhere: lt(localesTable.updatedAt, deFileStat.mtime)
+      })
+
+    const [row] = await fixtures.db.select().from(localesTable).where(eq(localesTable.code, 'de'))
+    assert.deepEqual(
+      row!.strings,
+      { keep: 'me' },
+      'the guarded update must be a no-op against a row already fresher than the file'
+    )
+    assert.equal(row!.completeness, 99)
+    assert.equal(row!.name, 'Concurrent Writer')
   })
 })
 

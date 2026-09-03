@@ -917,17 +917,28 @@ document forever or wiping a neighbour site's still-unbackfilled pages.
 
 ## Feature 413 ("RTL support end-to-end")
 
-### No real Arabic/Hebrew locale data (task 727)
+### No deterministic Arabic locale data for e2e assertions (task 727, updated OpenProject #2371)
 
-`backend/locales/metadata.js` (Localazy-generated) lists only de/en/fr/pt-BR/ru/zh — none RTL — and
-only `en.json` exists on disk. Getting real Arabic or Hebrew strings requires enabling those
-languages on the Localazy project and re-running the download, which is an external/ops dependency
-outside this feature's engineering scope.
+`backend/locales/metadata.js` (Localazy-generated) has grown considerably since this note was first
+written: it now lists 56 languages including `ar` (Arabic, RTL) and `es`, each with a real, vendored
+`locales/<code>.json` file on disk — this section used to claim only de/en/fr/pt-BR/ru/zh existed at
+all, which is no longer true and was corrected as part of #2371's investigation. Real Arabic UI
+strings do exist now, but as a crowd-sourced translation their completeness is whatever fraction of
+the ~2,800-key catalog Localazy contributors happen to have translated at any given moment (42% as of
+this writing) — an unpredictable, shifting subset of keys an e2e spec cannot reliably assert specific
+translated strings against. Hebrew still has no vendored data at all.
 
-**Workaround**: `backend/scripts/seed-rtl-test-locale.ts` inserts a synthetic `ar` locale directly
-into the `locales` table (`isRTL: true`, hand-translated strings across `common.*`/`editor.markup.*`/
-`admin.*`/`auth.*`/`welcome.*`) for validation purposes. Not a substitute for real Localazy-sourced
-Arabic/Hebrew — a follow-up for whoever owns the Localazy project.
+**Workaround**: `backend/scripts/seed-rtl-test-locale.ts` inserts two synthetic locales directly into
+the `locales` table for deterministic e2e coverage instead — `RTL_TEST_LOCALE` (`ar`, `isRTL: true`,
+hand-translated strings across `common.*`/`editor.markup.*`/`admin.*`/`auth.*`/`welcome.*`) and
+`LTR_TEST_LOCALE` (`es`, `isRTL: false`, WP #1662). Both deliberately reuse a real vendored locale's
+own code rather than avoiding the collision: `models/locales.ts#refreshFromDisk()`'s
+`onConflictDoUpdate` carries a `setWhere` freshness guard (#2371) that re-checks a row's _current_
+`updatedAt` at write time rather than trusting a stale in-memory snapshot, so this seed's own,
+always-freshly-timestamped write can never be silently clobbered by a boot's vendored-locale resync,
+regardless of how the two interleave. (An earlier version of this seed picked codes believed to be
+collision-free by construction; that premise silently broke once Localazy's sync grew past the
+original six languages, which is what #2371 root-caused and fixed at the source instead.)
 
 ### Admin chrome direction: mirrors with the rest of the app (task 727)
 
