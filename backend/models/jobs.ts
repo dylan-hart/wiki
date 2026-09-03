@@ -152,6 +152,14 @@ export const JOB_SCHEDULE_SEED = [
     task: 'purgePageWatchEvents',
     cron: '50 0 * * *',
     type: 'system'
+  },
+  // -> Sweeps `pageDrafts` rows abandoned mid-edit and never reopened -- see
+  //    `tasks/simple/purge-page-drafts.ts` / `models/pageDrafts.ts#purgeStale()`. Offset alongside the
+  //    other midnight housekeeping jobs above.
+  {
+    task: 'purgePageDrafts',
+    cron: '52 0 * * *',
+    type: 'system'
   }
 ] as const
 

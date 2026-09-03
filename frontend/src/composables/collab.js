@@ -152,7 +152,8 @@ export function startCollabSession({ siteId, pageId }) {
     status: 'connecting',
     hasSynced: false,
     participants: [],
-    lastSave: null
+    lastSave: null,
+    draftRestored: null
   })
 
   provider.awareness.setLocalStateField('user', {
@@ -200,6 +201,17 @@ export function startCollabSession({ siteId, pageId }) {
     */
     adoptProps()
     refreshParticipants()
+    /*
+      Unlike `lastSave`, this IS something a joining editor inherits rather than only news that
+      arrives mid-session -- the server sets it once, before anyone has connected (`initRoom()` in
+      `core/collab.ts`), specifically so the very first sync can carry it. Read here rather than left
+      to `ymeta.observe` below, which only fires on a *later* change and would otherwise miss the one
+      case that matters: a room that already carried it by the time this client ever synced.
+    */
+    const restored = ymeta.get('draftRestored')
+    if (restored) {
+      collabStore.draftRestored = restored
+    }
   })
 
   provider.on('connection-close', (event) => {

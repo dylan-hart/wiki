@@ -116,6 +116,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'purgeExports',
       'purgeGuestPii',
       'purgeImports',
+      'purgePageDrafts',
       'purgePageviews',
       'purgePageWatchEvents',
       'purgeRateLimits',

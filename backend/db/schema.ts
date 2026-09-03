@@ -1399,6 +1399,33 @@ export const pageRenderQueue = pgTable(
   (table) => [index('pageRenderQueue_createdAt_idx').on(table.createdAt)]
 )
 
+// PAGE DRAFTS --------------------------
+/**
+ * The last-synced Yjs document state for a page's collaborative-editing room, one row per page — the
+ * autosave source behind Feature #2426 ("Autosave draft while editing").
+ *
+ * A collaboration room (`core/collab.ts`) otherwise lives only in memory: it survives one participant
+ * leaving because the others are still holding it, but a crash or tab-close that empties the room
+ * entirely used to take any unsaved text with it. This table is what makes that state outlive an empty
+ * room — `core/collab.ts` debounce-persists a room's encoded Yjs state here as real edits land, clears
+ * the row once the page is actually saved (`pageSaved()`), and prefers a persisted draft over the
+ * stored page when a room has to rebuild itself from nothing.
+ *
+ * `pageId` is the primary key rather than a separate `id`: there is at most one live draft per page,
+ * and an upsert-by-`pageId` is exactly the write this needs. `state` is `Y.encodeStateAsUpdate(doc)`
+ * bytes, opaque to everything but Yjs itself.
+ */
+export const pageDrafts = pgTable('pageDrafts', {
+  pageId: uuid()
+    .primaryKey()
+    .references(() => pages.id, { onDelete: 'cascade' }),
+  siteId: uuid()
+    .notNull()
+    .references(() => sites.id),
+  state: bytea().notNull(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+})
+
 // RATE LIMITS -------------------------
 /**
  * One counter per rate-limited client, and the ban it has earned itself.

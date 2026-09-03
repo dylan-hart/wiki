@@ -19,10 +19,15 @@ import type { WebSocket } from 'ws'
  * message framing below is byte-compatible with `y-websocket`'s client rather than something of our
  * own: the browser side is that library, unmodified.
  *
- * **A room is not storage.** Nothing here is ever written back to the page — saving is still an
- * explicit act, `PATCH /pages/:id` as it always was, and a room that empties out takes any unsaved text
- * with it exactly as closing the editor always has. What a room adds is that the text survives *one*
- * participant leaving, because the others are still holding it.
+ * **A room is not the page.** Nothing here is ever written back to the page directly — saving is still
+ * an explicit act, `PATCH /pages/:id` as it always was. What a room adds is that the text survives one
+ * participant leaving, because the others are still holding it — and, since Feature #2426 ("Autosave
+ * draft while editing"), that it also survives *every* participant leaving at once (a crash, a tab
+ * closed without saving): real edits are debounce-persisted into the `pageDrafts` table
+ * ({@link schedulePersist}/{@link persistNow}, `models/pageDrafts.ts`) as they land, flushed
+ * synchronously one last time when the room empties out ({@link closeRoomIfEmpty}), and preferred over
+ * the stored page the next time nobody is left to hand the new room a copy ({@link initRoom}). A real
+ * save clears the row ({@link pageSaved}) — committed content needs no recovery copy of itself.
  *
  * ## Across instances
  *
@@ -112,6 +117,22 @@ export const PEER_STATE_TIMEOUT = 500
 const PEER_PRESENCE_TTL = 15 * 1000
 
 /**
+ * How long a room's content sits idle before its state is persisted as a draft — see
+ * {@link schedulePersist}. Short enough that a crash a couple of seconds after the last keystroke
+ * still loses at most that couple of seconds; long enough that a burst of keystrokes debounces into
+ * one write rather than one per character. Exported for `core/collab.draftPersistence.test.ts`.
+ */
+export const DRAFT_PERSIST_DEBOUNCE_MS = 2 * 1000
+
+/**
+ * Ceiling on how long a *continuously* typing author's draft can go unpersisted — {@link
+ * schedulePersist} shortens the debounce as this deadline nears rather than letting it be pushed out
+ * indefinitely by a stream of edits that never lets the idle window elapse. Exported for
+ * `core/collab.draftPersistence.test.ts`.
+ */
+export const DRAFT_PERSIST_MAX_WAIT_MS = 10 * 1000
+
+/**
  * Per-user and per-address ceilings on concurrent collaboration sockets.
  *
  * Nothing else caps how many `Y.Doc` rooms one account (or one address) can pin in memory:
@@ -196,12 +217,25 @@ interface CollabRoom {
   ready: Promise<void>
   /** Whether this room is still filling itself, i.e. has nothing worth handing to a peer yet. */
   provisional: boolean
+  /**
+   * The pending debounced draft-persist for this room, or `null` when nothing is waiting to be
+   * written — see {@link schedulePersist}. Also doubles as "there is an edit not yet on disk": a room
+   * closing with this set flushes it synchronously rather than losing it.
+   */
+  draftPersistTimer: NodeJS.Timeout | null
+  /** Epoch ms by which a pending debounce must flush regardless — see {@link schedulePersist}. */
+  draftPersistDeadline: number | null
 }
 
 interface SaveInfo {
   versionDate: string
   authorId: string
   authorName: string
+}
+
+/** What `initRoom()` writes to `meta.draftRestored` when a room starts from a persisted draft. */
+interface DraftRestoredInfo {
+  at: string
 }
 
 interface RelayEnvelope {
@@ -268,6 +302,59 @@ export function buildSeed(page: {
   const update = Y.encodeStateAsUpdate(seed)
   seed.destroy()
   return update
+}
+
+/**
+ * Cancel a room's pending debounced persist, if there is one. Called both by {@link persistNow}
+ * (about to write, so nothing should be left scheduled) and directly wherever a pending write is
+ * being discarded rather than fired — {@link pageSaved}, once a real save has made it moot.
+ */
+function cancelPersist(room: CollabRoom): void {
+  if (room.draftPersistTimer) {
+    clearTimeout(room.draftPersistTimer)
+  }
+  room.draftPersistTimer = null
+  room.draftPersistDeadline = null
+}
+
+/**
+ * Write a room's current state to `pageDrafts` right now, synchronously encoding it first so the
+ * bytes are captured before anything the caller does next (most importantly, {@link closeRoomIfEmpty}
+ * destroying the very doc this reads) can invalidate them. Returns the write's promise so a caller
+ * that can afford to wait for it does ({@link shutdown}); one that cannot ({@link closeRoomIfEmpty}
+ * itself, reacting to an ordinary room emptying out) leaves it to run in the background.
+ */
+function persistNow(room: CollabRoom): Promise<void> {
+  cancelPersist(room)
+  const state = Y.encodeStateAsUpdate(room.doc)
+  return WIKI.models.pageDrafts.save(room.pageId, room.siteId, state).catch((err: any) => {
+    WIKI.logger.warn(
+      `Failed to persist the collaboration draft for page ${room.pageId}: ${err.message}`
+    )
+  })
+}
+
+/**
+ * Debounce a room's content toward {@link persistNow}: idle {@link DRAFT_PERSIST_DEBOUNCE_MS} after
+ * the last edit, but never longer than {@link DRAFT_PERSIST_MAX_WAIT_MS} after the first unpersisted
+ * one — a burst of keystrokes collapses into one write, and a continuously typing author still gets
+ * persisted periodically rather than only once they stop.
+ *
+ * Called only for a genuine local edit to the shared text or header fields (see the `ytext`/`yprops`
+ * observers in {@link ensureRoom}) — never for a relayed one (this instance did not originate
+ * it, and the instance that did is already persisting it) and never for the `meta` map alone (a
+ * `lastSave`/`draftRestored` notice is not content to recover).
+ */
+function schedulePersist(room: CollabRoom): void {
+  const now = Date.now()
+  if (room.draftPersistTimer) {
+    clearTimeout(room.draftPersistTimer)
+  } else {
+    room.draftPersistDeadline = now + DRAFT_PERSIST_MAX_WAIT_MS
+  }
+  const wait = Math.min(DRAFT_PERSIST_DEBOUNCE_MS, Math.max(0, room.draftPersistDeadline! - now))
+  room.draftPersistTimer = setTimeout(() => persistNow(room), wait)
+  room.draftPersistTimer.unref?.()
 }
 
 /**
@@ -354,14 +441,24 @@ export default {
       clearTimeout(partial.timer)
     }
     this.partials.clear()
+    const pendingPersists: Promise<void>[] = []
     for (const room of this.rooms.values()) {
       for (const conn of room.conns.keys()) {
         conn.close(1001, 'Server is shutting down')
+      }
+      // -> An instance restart is not a crash, but from a pending draft's point of view it is the
+      //    same moment: nothing is left running to flush it later, so it goes now, encoded before
+      //    the doc it came from is destroyed on the next line — see closeRoomIfEmpty(). Unlike that
+      //    method, shutdown() is already async and can afford to actually wait for it, so the
+      //    process does not exit mid-write.
+      if (room.draftPersistTimer) {
+        pendingPersists.push(persistNow(room))
       }
       room.awareness.destroy()
       room.doc.destroy()
     }
     this.rooms.clear()
+    await Promise.all(pendingPersists)
     if (this.listenerHandle) {
       // -> Whatever is still on its way out goes out first: releasing the client from under a
       //    notification in flight would fail that one for no reason
@@ -600,7 +697,9 @@ export default {
       awareness,
       conns: new Map(),
       ready: Promise.resolve(),
-      provisional: true
+      provisional: true,
+      draftPersistTimer: null,
+      draftPersistDeadline: null
     }
     this.rooms.set(page.id, room)
 
@@ -616,6 +715,25 @@ export default {
         this.relay({ r: room.pageId, t: 'update', p: Buffer.from(update).toString('base64') })
       }
     })
+
+    /*
+      The draft-persistence half of the update above, kept as separate observers on `content`/`props`
+      rather than folded into the whole-doc handler on purpose: that handler fires for `meta` writes
+      too (`lastSave`, `draftRestored`), and neither is content worth recovering — persisting after one
+      would leave a `pageDrafts` row indistinguishable from a real unsaved edit the next time the room
+      falls back to it. `RELAYED` is excluded the same way relaying itself is: the instance that
+      originated an edit is already the one debouncing it toward disk.
+    */
+    const schedulePersistOnLocalEdit = (
+      _event: unknown,
+      transaction: { origin: unknown }
+    ): void => {
+      if (transaction.origin !== RELAYED) {
+        schedulePersist(room)
+      }
+    }
+    doc.getText('content').observe(schedulePersistOnLocalEdit)
+    doc.getMap('props').observe(schedulePersistOnLocalEdit)
 
     awareness.on(
       'update',
@@ -658,8 +776,17 @@ export default {
   },
 
   /**
-   * Fill a newly created room with the state it should start from: a peer's copy if the cluster
-   * already has this page open, and the stored page if not.
+   * Fill a newly created room with the state it should start from, in order: a peer's copy if the
+   * cluster already has this page open; failing that, a persisted draft if the last room here ever
+   * got as far as `pageDrafts` before it emptied out (Feature #2426 — the whole point of persisting
+   * one); failing that, the stored page.
+   *
+   * A restored draft is a full snapshot of a real document, not `buildSeed`'s deterministic scratch
+   * seed — safe to apply wholesale into a brand new, empty room the same way a peer's state is, since
+   * there is by definition nobody else's independently-seeded replica for it to collide with. Marked
+   * on `meta` (`draftRestored`, mirroring the existing `lastSave` convention) so
+   * `composables/collab.js` can tell the author their unsaved work came back, rather than silently
+   * handing them text that quietly differs from what they last saw stored.
    */
   async initRoom(room: CollabRoom): Promise<void> {
     try {
@@ -667,14 +794,21 @@ export default {
       if (fromPeer) {
         Y.applyUpdate(room.doc, fromPeer, RELAYED)
       } else {
-        const page = await WIKI.models.pages.getPage({
-          siteId: room.siteId,
-          id: room.pageId,
-          withContent: true
-        })
-        // -> A page that went away between the permission check and here leaves an empty room, which
-        //    the first disconnect clears away again
-        Y.applyUpdate(room.doc, buildSeed(page ?? {}), RELAYED)
+        const draft = await WIKI.models.pageDrafts.get(room.pageId)
+        if (draft) {
+          Y.applyUpdate(room.doc, draft, RELAYED)
+          const restoredInfo: DraftRestoredInfo = { at: new Date().toISOString() }
+          room.doc.getMap('meta').set('draftRestored', restoredInfo)
+        } else {
+          const page = await WIKI.models.pages.getPage({
+            siteId: room.siteId,
+            id: room.pageId,
+            withContent: true
+          })
+          // -> A page that went away between the permission check and here leaves an empty room,
+          //    which the first disconnect clears away again
+          Y.applyUpdate(room.doc, buildSeed(page ?? {}), RELAYED)
+        }
       }
     } catch (err: any) {
       WIKI.logger.warn(
@@ -783,10 +917,14 @@ export default {
   /**
    * Drop a room nobody on this instance is in.
    *
-   * Immediately, with no grace period: an editor closed without saving has always lost its unsaved
-   * text, and a room outliving its last participant would quietly resurrect it on the next visit.
-   * Discarding an edit is that same act and needs nothing of its own — the socket closes and the state
-   * goes with it.
+   * Immediately, with no grace period: a room outliving its last participant would quietly
+   * resurrect it on the next visit, and the in-memory room itself is not what the text needs to
+   * survive on any more. What it does need is one last chance at the disk copy: a pending debounced
+   * persist ({@link schedulePersist}) means there is an edit made since the last write, and that
+   * edit is flushed here, synchronously encoded before the doc it came from is destroyed — the whole
+   * reason Feature #2426 exists is so *this* moment (a crash, a tab closed without saving) is no
+   * longer when the text is lost. A room with nothing pending skips the write entirely rather than
+   * persisting a byte-identical copy of what is already on disk.
    *
    * Peers are not told. A room elsewhere is a replica in its own right whose participants are still
    * editing; this instance simply asks for their state again next time someone here opens the page.
@@ -796,6 +934,9 @@ export default {
       return
     }
     this.rooms.delete(room.pageId)
+    if (room.draftPersistTimer) {
+      persistNow(room)
+    }
     room.awareness.destroy()
     room.doc.destroy()
   },
@@ -809,15 +950,22 @@ export default {
    * what is stored, and their Save button can go quiet.
    *
    * The save does not necessarily land on an instance that has the room, so an instance without one
-   * passes the news along instead.
+   * passes the news along instead. Either way, the persisted draft is cleared: real content has just
+   * been committed, so there is nothing left for it to recover. A pending debounced persist for this
+   * room is cancelled rather than left to race the clear — it would otherwise write the pre-save
+   * state right back a moment later.
    */
   pageSaved(pageId: string, info: SaveInfo): void {
     const room = this.rooms.get(pageId)
     if (room) {
       room.doc.getMap('meta').set('lastSave', info)
+      cancelPersist(room)
     } else {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
     }
+    WIKI.models.pageDrafts.clear(pageId).catch((err: any) => {
+      WIKI.logger.warn(`Failed to clear the persisted draft for page ${pageId}: ${err.message}`)
+    })
   },
 
   // ----------------------------------------

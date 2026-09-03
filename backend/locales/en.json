@@ -2356,6 +2356,7 @@
   "editor.codeBlock.noResults": "No language matches that.",
   "editor.collab.activeEditors": "No one else has this page open | 1 other person has this page open | {count} other people have this page open",
   "editor.collab.disconnected": "Live collaboration is unavailable. Your changes are kept locally and can still be saved.",
+  "editor.collab.draftRestored": "An unsaved draft from a previous session was restored.",
   "editor.collab.editingWithYou": "{name} is editing this page with you.",
   "editor.collab.notAllowed": "You are no longer allowed to edit this page collaboratively.",
   "editor.collab.participants": "People editing this page",

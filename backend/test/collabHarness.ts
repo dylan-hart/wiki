@@ -106,6 +106,31 @@ export const STORED_PAGE = {
   icon: 'stored-icon'
 }
 
+/**
+ * An in-memory stand-in for `WIKI.models.pageDrafts`, for a suite that needs draft persistence
+ * present but does not want a real Postgres round trip -- exactly what `installCollabHarness`'s
+ * `getPage` mock already is for `WIKI.models.pages`. `models/pageDrafts.db.test.ts` is what proves
+ * the real model behaves the same way this stub does.
+ */
+export function makePageDraftsStub(): {
+  get: any
+  save: any
+  clear: any
+  rows: Map<string, Uint8Array>
+} {
+  const rows = new Map<string, Uint8Array>()
+  return {
+    rows,
+    get: mock.fn(async (pageId: string) => rows.get(pageId) ?? null),
+    save: mock.fn(async (pageId: string, _siteId: string, state: Uint8Array) => {
+      rows.set(pageId, state)
+    }),
+    clear: mock.fn(async (pageId: string) => {
+      rows.delete(pageId)
+    })
+  }
+}
+
 /** What {@link installCollabHarness} hands back: the room bookkeeping its hooks own. */
 export interface CollabHarness {
   /** Open a room on an instance and register it for teardown. */
@@ -114,6 +139,8 @@ export interface CollabHarness {
   trackRoom(room: any): void
   /** This test's `WIKI.models.pages.getPage` mock, rebuilt fresh before every test. */
   getPage(): any
+  /** This test's `WIKI.models.pageDrafts` stub, rebuilt fresh before every test. */
+  pageDrafts(): ReturnType<typeof makePageDraftsStub>
 }
 
 /**
@@ -126,6 +153,7 @@ export interface CollabHarness {
 export function installCollabHarness(): CollabHarness {
   let wikiHandle: { restore(): void }
   let getPageMock: any
+  let pageDraftsStub: ReturnType<typeof makePageDraftsStub>
   /**
    * `awarenessProtocol.Awareness` (a room's cursor/presence tracker) starts a real `setInterval` of
    * its own to expire stale states - nothing above ever cleans it up on the happy path except a room
@@ -137,15 +165,25 @@ export function installCollabHarness(): CollabHarness {
 
   beforeEach(() => {
     getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
+    pageDraftsStub = makePageDraftsStub()
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'unset',
-      models: { pages: { getPage: getPageMock } }
+      models: { pages: { getPage: getPageMock }, pageDrafts: pageDraftsStub }
     })
     createdRooms = []
   })
 
   afterEach(() => {
     for (const room of createdRooms) {
+      // -> A local edit in the test just now may have scheduled a real (if unref'd)
+      //    DRAFT_PERSIST_DEBOUNCE_MS setTimeout via schedulePersist() — left running past this room's
+      //    doc.destroy() below, it would fire later against a destroyed doc. Suites that specifically
+      //    want to observe that debounce cancel it themselves before this hook ever sees the room.
+      if (room.draftPersistTimer) {
+        clearTimeout(room.draftPersistTimer)
+        room.draftPersistTimer = null
+        room.draftPersistDeadline = null
+      }
       room.awareness.destroy()
       room.doc.destroy()
     }
@@ -164,6 +202,7 @@ export function installCollabHarness(): CollabHarness {
     trackRoom(room) {
       createdRooms.push(room)
     },
-    getPage: () => getPageMock
+    getPage: () => getPageMock,
+    pageDrafts: () => pageDraftsStub
   }
 }

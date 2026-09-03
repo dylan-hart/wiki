@@ -30,6 +30,7 @@ import { locales } from './locales.ts'
 import { login } from './login.ts'
 import { mail } from './mail.ts'
 import { navigation } from './navigation.ts'
+import { pageDrafts } from './pageDrafts.ts'
 import { pageHistory } from './pageHistory.ts'
 import { pageProblems } from './pageProblems.ts'
 import { pageClassification } from './pageClassification.ts'
@@ -86,6 +87,7 @@ export default {
   login,
   mail,
   navigation,
+  pageDrafts,
   pageHistory,
   pageClassification,
   pageProblems,

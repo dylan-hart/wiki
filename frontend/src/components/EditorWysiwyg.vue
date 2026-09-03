@@ -147,14 +147,15 @@ const collabEnabled = computed(
 
 let editor = null
 /**
- * Stop handles for the two collab watchers started in `onMounted`, kept for the same reason
- * `EditorMarkdown.vue`'s own pair are (see its matching comment, OpenProject #942): both are
+ * Stop handles for the three collab watchers started in `onMounted`, kept for the same reason
+ * `EditorMarkdown.vue`'s own trio are (see its matching comment, OpenProject #942): all three are
  * registered inside a callback Vue does not auto-bind to this component's effect scope the way it
  * does an unconditional top-level `watch()`, so left running past unmount they fire against a
  * disposed editor and duplicate "saved by X" notifications on a later mount of the same page.
  */
 let stopCollabStatusWatch = null
 let stopCollabLastSaveWatch = null
+let stopCollabDraftRestoredWatch = null
 
 /**
  * The hex values behind the "Text Color" dropdown's named entries (OpenProject #944). `Color`
@@ -527,6 +528,22 @@ onMounted(() => {
       }
     }
   )
+
+  /*
+    This room started from an unsaved draft recovered after a crash or a closed tab (Feature #2426)
+    rather than the stored page -- identical to `composables/markdownCollab.js`'s own watcher.
+  */
+  stopCollabDraftRestoredWatch = watch(
+    () => collabStore.draftRestored,
+    (draftRestored) => {
+      if (draftRestored) {
+        notify({
+          type: 'info',
+          message: t('editor.collab.draftRestored')
+        })
+      }
+    }
+  )
 })
 
 onBeforeUnmount(() => {
@@ -535,6 +552,7 @@ onBeforeUnmount(() => {
   //    running they fire past unmount against a disposed editor (OpenProject #942).
   stopCollabStatusWatch?.()
   stopCollabLastSaveWatch?.()
+  stopCollabDraftRestoredWatch?.()
   // -> Before the editor goes: leaving the room is what takes this author's avatar out of everyone
   //    else's header
   stopCollabSession()

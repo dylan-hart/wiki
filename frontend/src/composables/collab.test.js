@@ -219,6 +219,63 @@ describe('startCollabSession reconnect behavior', () => {
 })
 
 /**
+ * Feature #2426 ("Autosave draft while editing"): a room that started from a persisted draft rather
+ * than the stored page (`core/collab.ts#initRoom()`) marks it on `meta.draftRestored`, and the very
+ * first sync is what has to surface it -- unlike `lastSave`, this is inherited room state a joining
+ * editor needs to see, not only news that arrives mid-session.
+ */
+describe('draftRestored (Feature #2426)', () => {
+  function boot() {
+    const siteStore = useSiteStore()
+    const pageStore = usePageStore()
+    const userStore = useUserStore()
+    siteStore.id = 'site-1'
+    pageStore.id = 'page-1'
+    userStore.id = 'user-1'
+    userStore.name = 'Ada Lovelace'
+    const { doc } = startCollabSession({ siteId: siteStore.id, pageId: pageStore.id })
+    return { collabStore: useCollabStore(), provider: latestProvider(), doc }
+  }
+
+  it('is null before anything has synced', () => {
+    const { collabStore } = boot()
+    expect(collabStore.draftRestored).toBe(null)
+  })
+
+  it('is read off the room´s meta map the moment the first sync lands', () => {
+    const { collabStore, provider, doc } = boot()
+    // -> Set the way `core/collab.ts#initRoom()` sets it, before this client ever connects -- the
+    //    real server writes this into the document itself, not a message this client reacts to.
+    doc.getMap('meta').set('draftRestored', { at: '2026-09-03T00:00:00.000Z' })
+
+    provider.emit('status', { status: 'connecting' })
+    provider.emit('sync', true)
+
+    expect(collabStore.draftRestored).toEqual({ at: '2026-09-03T00:00:00.000Z' })
+  })
+
+  it('stays null for an ordinary room that started from the stored page, not a draft', () => {
+    const { collabStore, provider } = boot()
+
+    provider.emit('status', { status: 'connecting' })
+    provider.emit('sync', true)
+
+    expect(collabStore.draftRestored).toBe(null)
+  })
+
+  it('is cleared by stopCollabSession(), like the rest of the session state', () => {
+    const { collabStore, provider, doc } = boot()
+    doc.getMap('meta').set('draftRestored', { at: '2026-09-03T00:00:00.000Z' })
+    provider.emit('sync', true)
+    expect(collabStore.draftRestored).not.toBe(null)
+
+    stopCollabSession()
+
+    expect(collabStore.draftRestored).toBe(null)
+  })
+})
+
+/**
  * Task 485: `bindCollabEditor` must not assume Monaco.
  *
  * Prior to this task it constructed `y-monaco`'s `MonacoBinding` directly, so any other editor --

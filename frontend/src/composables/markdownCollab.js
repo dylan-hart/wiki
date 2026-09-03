@@ -54,17 +54,19 @@ export function useMarkdownCollab() {
   )
 
   /**
-   * Stop handles for the two collab watchers started by `start()`, kept because both are created after
-   * the mount hook's first `await` (the settings/blocks fetch), and Vue only auto-binds a `watch()` to
-   * the component's effect scope when it is created synchronously during setup -- one created after an
-   * `await` is never auto-stopped on unmount, and fires on for the life of the store. Left running past
-   * unmount, the `status` watcher calls `editor.updateOptions()` against an editor the component has
-   * already `dispose()`d (a console error on every exit from a collab-enabled edit), and the `lastSave`
-   * watcher fires once per past mount for a save from another collaborator -- duplicate "saved by X"
-   * notifications (OpenProject #942). Explicitly `stop()`ed by `stop()` below instead.
+   * Stop handles for the three collab watchers started by `start()`, kept because all three are
+   * created after the mount hook's first `await` (the settings/blocks fetch), and Vue only auto-binds
+   * a `watch()` to the component's effect scope when it is created synchronously during setup -- one
+   * created after an `await` is never auto-stopped on unmount, and fires on for the life of the store.
+   * Left running past unmount, the `status` watcher calls `editor.updateOptions()` against an editor
+   * the component has already `dispose()`d (a console error on every exit from a collab-enabled edit),
+   * and the `lastSave` watcher fires once per past mount for a save from another collaborator --
+   * duplicate "saved by X" notifications (OpenProject #942). Explicitly `stop()`ed by `stop()` below
+   * instead.
    */
   let stopCollabStatusWatch = null
   let stopCollabLastSaveWatch = null
+  let stopCollabDraftRestoredWatch = null
 
   /**
    * Join the room for this page, if there is one to join, and keep the editor in step with it.
@@ -141,6 +143,23 @@ export function useMarkdownCollab() {
         }
       }
     )
+
+    /*
+      This room started from an unsaved draft recovered after a crash or a closed tab (Feature #2426)
+      rather than the stored page — unlike a save from someone else, the author has no other way to
+      learn that what is in front of them may not match what they last saw published.
+    */
+    stopCollabDraftRestoredWatch = watch(
+      () => collabStore.draftRestored,
+      (draftRestored) => {
+        if (draftRestored) {
+          notify({
+            type: 'info',
+            message: t('editor.collab.draftRestored')
+          })
+        }
+      }
+    )
   }
 
   /** Leave the room and stop the two watchers. Safe to call when `start()` never joined one. */
@@ -151,6 +170,7 @@ export function useMarkdownCollab() {
     //    #942).
     stopCollabStatusWatch?.()
     stopCollabLastSaveWatch?.()
+    stopCollabDraftRestoredWatch?.()
     stopCollabSession()
   }
 

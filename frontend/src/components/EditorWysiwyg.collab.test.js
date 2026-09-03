@@ -96,7 +96,8 @@ async function mountEditor(initialContent = 'Hello from Wiki.js') {
         activeEditors:
           'No one else has this page open | 1 other person has this page open | {count} other people have this page open',
         notAllowed: 'You are no longer allowed to edit this page collaboratively.',
-        savedBy: '{name} saved this page.'
+        savedBy: '{name} saved this page.',
+        draftRestored: 'An unsaved draft from a previous session was restored.'
       }
     }
   })
@@ -165,6 +166,22 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
 
     expect(queue.filter((n) => n.message?.includes('Someone Else'))).toHaveLength(1)
     expect(userStore.id).toBe('me')
+  })
+
+  it('notifies once on collabStore.draftRestored, and stops once unmounted (Feature #2426)', async () => {
+    const { wrapper: firstWrapper } = await mountEditor()
+    firstWrapper.unmount()
+
+    const { collabStore } = await mountEditor()
+
+    collabStore.draftRestored = { at: '2026-09-03T00:00:00.000Z' }
+    await flushPromises()
+
+    expect(
+      queue.filter((n) =>
+        n.message?.includes('An unsaved draft from a previous session was restored')
+      )
+    ).toHaveLength(1)
   })
 
   describe('binding to the shared document', () => {

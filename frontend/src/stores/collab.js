@@ -32,7 +32,15 @@ export const useCollabStore = defineStore('collab', {
      * it. Set only for a save that arrives during the session — the value a joining editor inherits
      * from the room is history, not news.
      */
-    lastSave: null
+    lastSave: null,
+    /**
+     * Set once the very first sync hands this session a room that started from a persisted draft
+     * rather than the stored page (`core/collab.ts#initRoom()`, Feature #2426) — unlike `lastSave`,
+     * this IS history the author needs to see: it is what tells them the text in front of them is not
+     * what is stored, but a recovered copy of what they had unsaved before a crash or a closed tab.
+     * `{ at }`, the restore's own timestamp, or `null` when this session's room started normally.
+     */
+    draftRestored: null
   }),
   getters: {
     isLive: (state) => state.status === 'connected',
@@ -57,7 +65,13 @@ export const useCollabStore = defineStore('collab', {
   },
   actions: {
     reset() {
-      this.$patch({ status: 'off', hasSynced: false, participants: [], lastSave: null })
+      this.$patch({
+        status: 'off',
+        hasSynced: false,
+        participants: [],
+        lastSave: null,
+        draftRestored: null
+      })
     }
   }
 })
