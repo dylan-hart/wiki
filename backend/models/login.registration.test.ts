@@ -276,6 +276,64 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
+  test('accepts and creates the account for an address matching allowedEmailRegex', async () => {
+    const strategyId = await createStrategy({
+      allowedEmailRegex: '^[^@]+@allowed\\.example$',
+      emailValidation: false
+    })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
+    registerLiveStrategy(strategyId)
+
+    const result = await login.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Ada Lovelace',
+        email: 'ada@allowed.example',
+        password: 'longenough1'
+      },
+      req()
+    )
+
+    assert.equal(result.authenticated, true)
+    assert.equal(result.nextAction, 'redirect')
+
+    const created = await users.getByEmail('ada@allowed.example')
+    assert.ok(created)
+    assert.equal(created!.name, 'Ada Lovelace')
+  })
+
+  test('matches allowedEmailRegex case-insensitively against the submitted address', async () => {
+    // -> The pattern itself is written in lowercase, matching how a real admin would enter a domain;
+    //    what proves case-insensitivity is the mixed-case address below still matching, because
+    //    register() tests the pattern against `normalizedEmail` (already lowercased), not the raw
+    //    submitted casing.
+    const strategyId = await createStrategy({
+      allowedEmailRegex: '^[^@]+@allowed\\.example$',
+      emailValidation: false
+    })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
+    registerLiveStrategy(strategyId)
+
+    const result = await login.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Grace Hopper',
+        email: 'Grace.Hopper@Allowed.Example',
+        password: 'longenough1'
+      },
+      req()
+    )
+
+    assert.equal(result.authenticated, true)
+
+    const created = await users.getByEmail('grace.hopper@allowed.example')
+    assert.ok(created)
+  })
+
   test('a duplicate of an already-verified address, with emailValidation on, answers the same generic result a fresh registration would and notifies the real owner instead of confirming the address is taken', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
