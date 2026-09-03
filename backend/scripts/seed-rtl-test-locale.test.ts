@@ -18,10 +18,24 @@ import {
   seedRtlTestLocale
 } from './seed-rtl-test-locale.ts'
 import { locales as localesTable } from '../db/schema.ts'
+import { localeCode } from '../models/locales.ts'
+import type { LocalazyLanguage } from '../locales/metadata.d.ts'
 
 const enStrings: Record<string, string> = JSON.parse(
   readFileSync(path.join(import.meta.dirname, '../locales/en.json'), 'utf8')
 )
+
+/**
+ * Every code a real vendored locale could resolve to, straight off the live `metadata.js` -- what
+ * `models/locales.ts#refreshFromDisk()` itself iterates. Used below to confirm (not merely assume)
+ * that `RTL_TEST_LOCALE`/`LTR_TEST_LOCALE` really do share a code with a real locale today, which is
+ * the premise the `setWhere` freshness guard (OpenProject #2371, see `refreshFromDisk()`'s own
+ * comment) exists to make safe.
+ */
+async function realVendoredLocaleCodes(): Promise<string[]> {
+  const metadata = (await import('../locales/metadata.js')).default
+  return metadata.languages.map((lang: LocalazyLanguage) => localeCode(lang))
+}
 
 describe('RTL_TEST_LOCALE', () => {
   it('is a genuine right-to-left locale row', () => {
@@ -38,6 +52,13 @@ describe('RTL_TEST_LOCALE', () => {
     // -> `textInfo` is a TC39 stage-3 addition (`Intl.Locale.prototype.textInfo`) not yet reflected
     //    in TypeScript's lib types, hence the cast -- same runtime API `describeLocales()` calls.
     assert.equal((new Intl.Locale(RTL_TEST_LOCALE.code) as any).textInfo.direction, 'rtl')
+  })
+
+  it('shares its code with a real, currently-vendored Localazy locale', async () => {
+    // -> See `LTR_TEST_LOCALE`'s mirrored test below for why this collision is asserted rather than
+    //    avoided (OpenProject #2371).
+    const realLocalazyCodes = await realVendoredLocaleCodes()
+    assert.ok(realLocalazyCodes.includes(RTL_TEST_LOCALE.code))
   })
 
   it('covers at least the common, editor and admin namespaces the task calls for', () => {
@@ -114,13 +135,19 @@ describe('LTR_TEST_LOCALE', () => {
     assert.notEqual((new Intl.Locale(LTR_TEST_LOCALE.code) as any).textInfo.direction, 'rtl')
   })
 
-  it('is not one of the six languages the Localazy pipeline already has real files for', () => {
-    // -> `de`, `en`, `fr`, `pt-BR`, `ru`, `zh` -- see the seed script's own header comment for why a
-    //    code outside that set was picked: any of those six could plausibly gain a real
-    //    `locales/<code>.json` file on disk at any time, which `refreshFromDisk()` would then load
-    //    over this synthetic row on the next boot.
-    const realLocalazyCodes = ['de', 'en', 'fr', 'pt-BR', 'ru', 'zh']
-    assert.ok(!realLocalazyCodes.includes(LTR_TEST_LOCALE.code))
+  it('shares its code with a real, currently-vendored Localazy locale', async () => {
+    // -> `es` (like `RTL_TEST_LOCALE`'s `ar`) genuinely is one of the languages
+    //    `locales/metadata.js` currently declares, with a real `locales/es.json` on disk --
+    //    `models/locales.ts#refreshFromDisk()` treats it as a real locale it owns and resyncs on
+    //    every boot. This is safe (OpenProject #2371) specifically because that function's
+    //    `onConflictDoUpdate` now carries a `setWhere` freshness guard checked against the row's
+    //    live `updatedAt`, not a stale snapshot -- see its own comment. Asserting the collision here
+    //    (rather than merely asserting it away, as this test used to) is what would catch a
+    //    regression if that guard were ever removed: a future edit reverting it has nothing else in
+    //    this file to fail against, since this fixture no longer avoids the collision by picking an
+    //    unclaimed code.
+    const realLocalazyCodes = await realVendoredLocaleCodes()
+    assert.ok(realLocalazyCodes.includes(LTR_TEST_LOCALE.code))
   })
 
   it('only uses keys that actually exist in the real en.json catalog', () => {

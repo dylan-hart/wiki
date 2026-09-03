@@ -3,6 +3,9 @@ import { watch } from 'vue'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 
+import { i18n } from '@/boot/i18n'
+import { confirm } from '@/composables/dialog'
+import { notify } from '@/composables/notify'
 import { useCollabStore } from '@/stores/collab'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -85,6 +88,11 @@ let stopWatchers = []
  * store back into the document does not send it round again.
  */
 let applyingRemote = false
+/**
+ * Whether this session has already offered to restore a recovery draft (OpenProject #2455) — at most
+ * once per session, even across a reconnect's trip back through `sync`. Reset in `startCollabSession`.
+ */
+let draftOffered = false
 
 /**
  * A stable colour for a user.
@@ -130,6 +138,7 @@ export function startCollabSession({ siteId, pageId }) {
   if (doc) {
     stopCollabSession()
   }
+  draftOffered = false
 
   const collabStore = useCollabStore()
   const pageStore = usePageStore()
@@ -200,6 +209,7 @@ export function startCollabSession({ siteId, pageId }) {
     */
     adoptProps()
     refreshParticipants()
+    offerDraftRestore({ siteId, pageId })
   })
 
   provider.on('connection-close', (event) => {
@@ -289,6 +299,38 @@ export function bindCollabEditor(createBinding) {
   binding = createBinding(doc.getText('content'), provider.awareness) || null
 }
 
+/**
+ * Apply a restored recovery draft (OpenProject #2455) into the live shared document.
+ *
+ * Writing it here rather than into `pageStore` directly is what makes it reach both editors and the
+ * room in one move: Monaco and TipTap are each bound to this same `ytext`/`yprops` (`bindCollabEditor`
+ * above), so the change shows up in whichever editor is mounted, syncs to the room like any other
+ * edit, and is picked up by every other participant exactly as if it had just been typed. No-op once
+ * the session has already ended -- there is nothing left to apply it to.
+ */
+export function applyRestoredDraft({ content, title, description, icon }) {
+  if (!doc) {
+    return
+  }
+  const ytext = doc.getText('content')
+  const yprops = doc.getMap('props')
+  doc.transact(() => {
+    ytext.delete(0, ytext.length)
+    if (content) {
+      ytext.insert(0, content)
+    }
+    writeProp(yprops, 'title', title)
+    writeProp(yprops, 'description', description)
+    writeProp(yprops, 'icon', icon)
+  })
+  /*
+    The body reaches the editor on its own -- Monaco/TipTap are bound straight to `ytext` -- but the
+    header fields only flow FROM `pageStore` into the doc (the watcher below); this write goes the
+    other way, so pull it into the store explicitly, the same way a REMOTE header edit does.
+  */
+  adoptProps()
+}
+
 /** Close the session and put everything back the way an ordinary editor leaves it. */
 export function stopCollabSession() {
   clearTimeout(syncTimer)
@@ -320,6 +362,7 @@ export function stopCollabSession() {
     styleEl = null
   }
   applyingRemote = false
+  draftOffered = false
   useCollabStore().reset()
 }
 
@@ -402,6 +445,58 @@ function applySave(info) {
     authorName: info.authorName
   })
   collabStore.lastSave = info
+}
+
+/**
+ * Offer to restore a recovery draft (OpenProject #2455), once per session and only once this room's
+ * first sync has actually landed -- `pageStore.draft` came in on the page's own GET, so it is already
+ * known by the time the collab session starts, but only worth asking about once there is a live
+ * document to restore it into.
+ *
+ * Never awaited by its caller: this is a fire-and-forget prompt hung off `provider.on('sync', ...)`,
+ * not something the rest of session start-up needs to wait on.
+ */
+async function offerDraftRestore({ siteId, pageId }) {
+  if (draftOffered) {
+    return
+  }
+  draftOffered = true
+
+  const pageStore = usePageStore()
+  const draftInfo = pageStore.draft
+  pageStore.draft = null
+  if (!draftInfo) {
+    return
+  }
+
+  const { t } = i18n.global
+  confirm({
+    title: t('editor.collab.draftRecovery.title'),
+    message: draftInfo.authorName
+      ? t('editor.collab.draftRecovery.messageBy', { authorName: draftInfo.authorName })
+      : t('editor.collab.draftRecovery.message'),
+    okLabel: t('editor.collab.draftRecovery.restore'),
+    cancelLabel: t('editor.collab.draftRecovery.discard'),
+    persistent: true
+  })
+    .onOk(async () => {
+      try {
+        const restored = await API_CLIENT.get(`sites/${siteId}/pages/${pageId}/draft`).json()
+        applyRestoredDraft(restored)
+        notify({ type: 'positive', message: t('editor.collab.draftRecovery.restored') })
+      } catch (err) {
+        console.warn(err)
+        notify({ type: 'negative', message: t('editor.collab.draftRecovery.restoreFailed') })
+      }
+    })
+    .onCancel(async () => {
+      try {
+        await API_CLIENT.delete(`sites/${siteId}/pages/${pageId}/draft`)
+      } catch (err) {
+        // -> Best-effort: worst case, the same draft is offered again next time this page is opened.
+        console.warn(err)
+      }
+    })
 }
 
 function refreshParticipants() {

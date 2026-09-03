@@ -73,6 +73,7 @@ function installWiki(
           const found = pages.find((p) => generatePathHash(p.path) === hash && p.locale === locale)
           return found ? { ...found } : null
         }),
+        listAllForSite: mock.fn(async () => pages.map((p) => ({ ...p }))),
         createPage: mock.fn(async (siteId: string, input: any, actor: any) => {
           calls.createPage.push({ siteId, input, actor })
           return { id: 'new-page', ...input }
@@ -444,6 +445,129 @@ describe('git storage: sync', () => {
 
     assert.equal(calls.deletePage.length, 1)
     assert.equal(calls.deletePage[0].id, 'p1')
+  })
+
+  describe('mass-delete safety guard (OpenProject #2429)', () => {
+    /** Ten pages, seeded into the peer repo and pushed, matching the `pages` given for the DB. */
+    async function seedTenPages(peer: ReturnType<typeof simpleGit>, peerPath: string) {
+      const pages = Array.from({ length: 10 }, (_, i) => ({
+        id: `p${i + 1}`,
+        path: `page${i + 1}`,
+        locale: PRIMARY_LOCALE,
+        contentType: 'markdown'
+      }))
+      for (const p of pages) {
+        await fs.writeFile(path.join(peerPath, `${p.path}.md`), `body of ${p.path}`)
+      }
+      await peer.add(pages.map((p) => `${p.path}.md`))
+      await peer.commit('docs: create ten pages')
+      await peer.push('origin', 'main')
+      return pages
+    }
+
+    test('holds back page deletions at/above the default 50% threshold, but still applies everything else in the same diff', async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      const pages = await seedTenPages(peer, peerPath)
+
+      installWiki(localPath, { pages })
+      await ensureRepo(target)
+      const localGit = simpleGit(target.config.localRepoPath)
+      await localGit.pull('origin', 'main')
+
+      // -> 6 of 10 deleted (60%, above the 50% default) in the same commit as an unrelated new page —
+      //    the new page must still land even though the deletions are held back.
+      const toDelete = pages.slice(0, 6).map((p) => `${p.path}.md`)
+      await peer.rm(toDelete)
+      await fs.writeFile(path.join(peerPath, 'unrelated.md'), 'a normal, unrelated change')
+      await peer.add('unrelated.md')
+      await peer.commit('docs: revert most pages, add one unrelated page')
+      await peer.push('origin', 'main')
+
+      const calls = installWiki(localPath, { pages })
+      await sync(target)
+
+      assert.equal(calls.deletePage.length, 0)
+      assert.equal(calls.createPage.length, 1)
+      assert.equal(calls.createPage[0].input.path, 'unrelated')
+    })
+
+    test('an explicit confirmMassDelete override applies the held-back deletions', async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      const pages = await seedTenPages(peer, peerPath)
+
+      installWiki(localPath, { pages })
+      await ensureRepo(target)
+      const localGit = simpleGit(target.config.localRepoPath)
+      await localGit.pull('origin', 'main')
+
+      const toDelete = pages.slice(0, 6).map((p) => `${p.path}.md`)
+      await peer.rm(toDelete)
+      await peer.commit('docs: revert most pages')
+      await peer.push('origin', 'main')
+
+      const calls = installWiki(localPath, { pages })
+      await sync(target, { confirmMassDelete: true })
+
+      assert.equal(calls.deletePage.length, 6)
+      assert.deepEqual(calls.deletePage.map((c: any) => c.id).sort(), [
+        'p1',
+        'p2',
+        'p3',
+        'p4',
+        'p5',
+        'p6'
+      ])
+    })
+
+    test('a deletion under the configured threshold still applies without needing an override', async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      const pages = await seedTenPages(peer, peerPath)
+
+      installWiki(localPath, { pages })
+      await ensureRepo(target)
+      const localGit = simpleGit(target.config.localRepoPath)
+      await localGit.pull('origin', 'main')
+
+      // -> 1 of 10 deleted (10%), well under the 50% default threshold.
+      await peer.rm('page1.md')
+      await peer.commit('docs: delete a single page')
+      await peer.push('origin', 'main')
+
+      const calls = installWiki(localPath, { pages })
+      await sync(target)
+
+      assert.equal(calls.deletePage.length, 1)
+      assert.equal(calls.deletePage[0].id, 'p1')
+    })
+
+    test('a lower configured maxDeletePercent blocks a smaller fraction than the default', async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      const pages = await seedTenPages(peer, peerPath)
+
+      const strictTarget = makeTarget({
+        config: {
+          ...makeTarget().config,
+          repoUrl: originPath,
+          localRepoPath: path.join(localPath, 'repo'),
+          maxDeletePercent: 10
+        }
+      })
+
+      installWiki(localPath, { pages })
+      await ensureRepo(strictTarget)
+      const localGit = simpleGit(strictTarget.config.localRepoPath)
+      await localGit.pull('origin', 'main')
+
+      // -> 2 of 10 deleted (20%) — under the 50% default, but at/above this target's own 10% cap.
+      await peer.rm(['page1.md', 'page2.md'])
+      await peer.commit('docs: delete two pages')
+      await peer.push('origin', 'main')
+
+      const calls = installWiki(localPath, { pages })
+      await sync(strictTarget)
+
+      assert.equal(calls.deletePage.length, 0)
+    })
   })
 
   test('pulls a new asset and uploads it', async () => {

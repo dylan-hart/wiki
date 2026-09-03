@@ -56,12 +56,24 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'Enforced identically by both routes that serve a stored asset — `GET /sites/:siteId/assets/:assetId/content` and the public `/_files/*` path: neither ever forces an inline-renderable extension (image types) to download, and both attach `Content-Disposition: attachment` to every other extension only when this is on (SVG still gets a sandboxing Content-Security-Policy either way). Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
-        // -> Two real (non-null) types, so `oneOf` rather than `type: ['boolean', 'string']` -- AJV's
-        //    strict mode (`allowUnionTypes`) only special-cases a type array of exactly one real type
-        //    plus `'null'`, which `[X, 'null']` throughout this file's other properties relies on; two
-        //    non-null types warns unless declared this way. `api/schemas/storage.ts`'s `sync.schedule`
-        //    is the existing precedent for the identical shape (string-or-boolean).
-        oneOf: [{ type: 'boolean' }, { type: 'string' }],
+        // -> Two real (non-null) types, so a union combinator rather than `type: ['boolean',
+        //    'string']` -- AJV's strict mode (`allowUnionTypes`) only special-cases a type array of
+        //    exactly one real type plus `'null'`, which `[X, 'null']` throughout this file's other
+        //    properties relies on; two non-null types warns unless declared this way.
+        //    `anyOf`, not `oneOf` (OpenProject #2366): Fastify's default AJV options set
+        //    `coerceTypes: 'array'` (`@fastify/ajv-compiler`'s `default-ajv-options.js`), and `oneOf`
+        //    must evaluate every branch to count how many match -- so a real JSON boolean matches the
+        //    `boolean` branch, AJV then also tries to coerce it against the `string` branch (a
+        //    boolean coerces to `"true"`/`"false"` under this option), that branch "passes" too, and
+        //    `oneOf` (which requires *exactly* one match) rejects the whole property with a 400 for a
+        //    value that was never actually invalid. `anyOf` short-circuits on the first branch that
+        //    validates, so with `boolean` listed first a real boolean matches immediately -- with no
+        //    coercion ever attempted against the `string` branch -- and a real address/CIDR string
+        //    fails the `boolean` branch outright (AJV only coerces a string to boolean from the
+        //    literal `"true"`/`"false"`/`"1"`/`"0"`, never an arbitrary string) and falls through to
+        //    match the `string` branch as-is. `api/schemas/storage.ts`'s `sync.schedule` is the
+        //    existing precedent for the identical string-or-boolean shape.
+        anyOf: [{ type: 'boolean' }, { type: 'string' }],
         description:
           '`false` trusts nothing (the default); a comma-separated address/CIDR list (e.g. `10.0.0.0/8, 192.168.1.1`, or the named ranges `loopback`/`linklocal`/`uniquelocal`) trusts `X-Forwarded-*` headers only when the request arrived from one of those addresses -- this is the setting a reverse-proxy deployment should use. `true` also validates, but trusts every request unconditionally: it makes `req.ip`, and therefore the IP-keyed auth rate limiter, controllable by the client, and lets any request steer which site it resolves against via `X-Forwarded-Host`. Use the address/CIDR form instead.'
       },

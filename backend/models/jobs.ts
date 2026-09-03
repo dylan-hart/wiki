@@ -152,6 +152,28 @@ export const JOB_SCHEDULE_SEED = [
     task: 'purgePageWatchEvents',
     cron: '50 0 * * *',
     type: 'system'
+  },
+  // -> Sweeps `pageDrafts` rows past the 30-day retention window -- an autosaved collaborative-editing
+  // draft (OpenProject #2454) for a page abandoned mid-edit and never reopened. Everything else is
+  // already cleared on save by `core/collab.ts#pageSaved()`; this is only the backstop for what that
+  // path never sees. See `tasks/simple/purge-page-drafts.ts` / `models/pageDrafts.ts#purgeStale()`.
+  // Offset alongside the other midnight housekeeping jobs above.
+  {
+    task: 'purgePageDrafts',
+    cron: '58 0 * * *',
+    type: 'system'
+  },
+  // -> Checks the configured replication schedule (`WIKI.config.replication`, OpenProject #2437) and
+  //    queues a `replicationPull` job when it's due -- same "comparison happens inside the task
+  //    itself" shape as `storageSyncTick` above. Every 5 minutes rather than `storageSyncTick`'s
+  //    every-minute cron, both because a replication schedule is realistically daily/weekly (no need
+  //    for minute-level precision) and because `* * * * *` is already claimed by `storageSyncTick` --
+  //    see `models/jobs.test.ts`'s uniqueness check. See `models/replication.ts#tick()` /
+  //    `tasks/simple/replication-tick.ts`.
+  {
+    task: 'replicationTick',
+    cron: '*/5 * * * *',
+    type: 'system'
   }
 ] as const
 

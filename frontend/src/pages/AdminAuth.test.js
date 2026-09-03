@@ -22,7 +22,10 @@ const MESSAGES = {
       noModulesToAdd: 'No other authentication module is installed on this server.',
       noModulesMatchFilter: 'No installed module matches your filter.',
       mappableGroups: 'Mappable group(s)',
-      mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.'
+      mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.',
+      allowedEmailDomains: 'Allowed Email Domains',
+      allowedEmailDomainsHint: 'Only allow self-registration from these domains.',
+      allowedEmailDomainsPlaceholder: 'example.com'
     }
   }
 }
@@ -336,6 +339,240 @@ describe('AdminAuth mappable-groups picker', () => {
     // -> The `#selected` slot's empty-list branch renders a bare `<span>`, no selection caption
     expect(picker.text()).not.toContain('Editors')
     expect(picker.text()).not.toContain('Reviewers')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2440: the mappable-groups picker selected which groups a provider login may sync,
+ * without ever calling out that a manual grant of one of them can be silently reverted on that
+ * user's next login. `revocableMappableGroupNames` computes exactly the subset of the current
+ * selection this applies to -- everything except a group the same strategy also grants directly via
+ * `autoEnrollGroups`, which the sync never takes back.
+ */
+describe('AdminAuth mappable-groups sync warning', () => {
+  const LDAP_MODULE_WITH_MAP_GROUPS = {
+    key: 'ldap',
+    title: 'LDAP / AD',
+    icon: 'ultraviolet-ldap.svg',
+    description: 'LDAP.',
+    props: {
+      mapGroups: { type: 'boolean', title: 'Map Groups', default: false, hint: '', order: 1 }
+    }
+  }
+
+  async function mountWithStrategy({ mappableGroups, autoEnrollGroups = [] }) {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'authentication/modules') {
+        return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
+      }
+      if (url === 'authentication/strategies') {
+        return {
+          json: () =>
+            Promise.resolve([
+              {
+                id: 's-ldap',
+                module: 'ldap',
+                displayName: 'Directory login',
+                isEnabled: true,
+                isNew: false,
+                config: { mapGroups: true },
+                mappableGroups,
+                autoEnrollGroups
+              }
+            ])
+        }
+      }
+      if (url === 'groups') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'g-editors', name: 'Editors' },
+              { id: 'g-reviewers', name: 'Reviewers' }
+            ])
+        }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: {
+        admin: {
+          auth: {
+            ...MESSAGES.admin.auth,
+            mappableGroupsSyncWarning: 'Subject to reconciliation on login: {groups}'
+          }
+        }
+      }
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('shows nothing when the allow-list is empty', async () => {
+    const wrapper = await mountWithStrategy({ mappableGroups: [] })
+
+    expect(wrapper.text()).not.toContain('Subject to reconciliation on login')
+
+    wrapper.unmount()
+  })
+
+  it('names every selected group not also granted by Auto Enroll Groups', async () => {
+    const wrapper = await mountWithStrategy({ mappableGroups: ['g-editors', 'g-reviewers'] })
+
+    expect(wrapper.text()).toContain('Subject to reconciliation on login')
+    expect(wrapper.text()).toContain('Editors')
+    expect(wrapper.text()).toContain('Reviewers')
+
+    wrapper.unmount()
+  })
+
+  it('omits a selected group the same strategy also auto-enrolls', async () => {
+    const wrapper = await mountWithStrategy({
+      mappableGroups: ['g-editors', 'g-reviewers'],
+      autoEnrollGroups: ['g-editors']
+    })
+
+    expect(wrapper.text()).toContain('Subject to reconciliation on login')
+    expect(wrapper.text()).toContain('Reviewers')
+    // -> "Editors" must not appear inside the warning banner specifically -- it still appears
+    //    elsewhere on the page (the picker's own selected-groups caption), so this checks the
+    //    banner's own text, not the whole page.
+    const banner = wrapper.find('.w-banner')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).not.toContain('Editors')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2469: `allowedEmailDomains` is a per-strategy config field, a friendlier alternative to
+ * `allowedEmailRegex` for the common case. Scoped like `selfRegistration` itself: shown only for a
+ * form-based (`useForm`) module, never for a redirect-based provider's `autoProvision` half.
+ */
+describe('AdminAuth allowed-email-domains field', () => {
+  const LOCAL_MODULE = {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  }
+  const OIDC_MODULE = {
+    key: 'oidc',
+    title: 'Generic OIDC',
+    icon: 'ultraviolet-oidc.svg',
+    description: 'Generic OIDC.',
+    useForm: false
+  }
+
+  // -> `useInput` moves `aria-label` onto the `<input>` itself rather than a wrapping control (same
+  //    distinction the project's own testing notes make for `WInput`), so this selects the input
+  //    directly rather than a `w-select` container carrying the label.
+  function domainsFieldNode(wrapper) {
+    return wrapper.find('input[aria-label="Allowed Email Domains"]')
+  }
+
+  it('renders for a form-based strategy', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          selfRegistration: true,
+          config: {},
+          allowedEmailDomains: []
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
+    await flushPromises()
+
+    expect(domainsFieldNode(wrapper).exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('is not rendered for a redirect-based (autoProvision) strategy', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'authentication/modules') {
+        return { json: () => Promise.resolve([OIDC_MODULE]) }
+      }
+      if (url === 'authentication/strategies') {
+        return {
+          json: () =>
+            Promise.resolve([
+              {
+                id: 's-oidc',
+                module: 'oidc',
+                displayName: 'OIDC login',
+                isEnabled: true,
+                isNew: false,
+                autoProvision: true,
+                config: {},
+                allowedEmailDomains: []
+              }
+            ])
+        }
+      }
+      if (url === 'groups') {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
+    await flushPromises()
+
+    expect(domainsFieldNode(wrapper).exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('typing a domain and pressing Enter adds it, trimmed and lower-cased, with no duplicates', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          selfRegistration: true,
+          config: {},
+          allowedEmailDomains: ['already.example']
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
+    await flushPromises()
+
+    const input = domainsFieldNode(wrapper)
+    await input.trigger('focus')
+    await input.setValue(' Example.COM ')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    // -> A duplicate, differently-cased entry must not create a second chip
+    await input.trigger('focus')
+    await input.setValue('already.example')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    // -> Nothing else on this screen renders a `w-chip` for this fixture (no other `use-chips`
+    //    field has a selection, and the add-strategy menu is not open), so scoping to the whole
+    //    page is safe here.
+    expect(wrapper.text()).toContain('example.com')
+    expect(wrapper.text()).toContain('already.example')
+    expect(wrapper.findAll('.w-chip')).toHaveLength(2)
 
     wrapper.unmount()
   })

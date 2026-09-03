@@ -15,9 +15,12 @@ import { createAndPublishPage, loginAsAdmin, uniqueSlug } from '../helpers/admin
 /**
  * Feature 413 ("RTL support end-to-end"), task 727, and WP #1662 (content-vs-interface locale
  * split): seed both synthetic test locales directly into the same database the backend under test
- * boots against (its own `refreshFromDisk()` boot step never touches either -- see the seed
- * script's header comment -- so this is safe to do once, ahead of every test in this file, rather
- * than per test).
+ * boots against. `ar`/`es` are both real, vendored Localazy locales the backend's own boot-time
+ * `refreshFromDisk()` resyncs -- this seed's own write is safe against that regardless of ordering
+ * (OpenProject #2371: `refreshFromDisk()`'s `onConflictDoUpdate` only overwrites a row whose CURRENT
+ * `updatedAt` is still older than the vendored file's mtime, re-checked atomically at write time --
+ * see the seed script's header comment and `models/locales.ts#refreshFromDisk`'s own), which is what
+ * makes seeding this once, ahead of every test in this file, safe rather than a race against boot.
  */
 test.beforeAll(async () => {
   await Promise.all([runSeedRtlTestLocale(), runSeedLtrTestLocale()])

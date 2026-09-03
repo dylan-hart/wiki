@@ -767,6 +767,174 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2460: `listPages()` carries no signal for whether a page has children of its own
+   * nested below it, so a nested tree view (block-index) has no way to tell a "book" (has children)
+   * from a "file" (leaf) apart from re-querying per row. `hasChildren` is a per-row correlated EXISTS
+   * over the same `pageIsVisible` gate the listing itself uses.
+   */
+  describe('listPages() hasChildren (OpenProject #2460)', () => {
+    test('false for a leaf page with no page nested under its own path', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-leaf-folder/only', title: 'Leaf', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-leaf-folder',
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      assert.equal(pages[0]!.hasChildren, false)
+    })
+
+    test('true for a page with a page nested under its own path, at any depth', async () => {
+      // -> 'toc' is the page under test; 'toc/section' sits nested under 'toc''s own path, the way a
+      //    "chapter" page would sit under a "book" page's path in a nested tree view.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-book-folder/toc', title: 'Book', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'has-children-book-folder/toc/section',
+          title: 'Nested Section',
+          locale: 'en'
+        }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-book-folder',
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      assert.equal(pages[0]!.hasChildren, true)
+    })
+
+    test('false for an anonymous (publicOnly) caller when the only nested page is a draft', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-draft-folder/toc', title: 'Draft Parent', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'has-children-draft-folder/toc/draft-section',
+          title: 'Draft Child',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+
+      const anonymous = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-draft-folder',
+        publicOnly: true
+      })
+      const authenticated = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-draft-folder',
+        publicOnly: false
+      })
+
+      assert.equal(anonymous.length, 1)
+      assert.equal(anonymous[0]!.hasChildren, false)
+      assert.equal(authenticated.length, 1)
+      assert.equal(authenticated[0]!.hasChildren, true)
+    })
+  })
+
+  /**
+   * OpenProject #2461: `listPages()` used to carry no depth at all -- `block-index` had no way to draw
+   * anything but a flat list. `depth` is relative to the queried `path`, the same way the `depth`
+   * query param it is built from already is (0 = directly inside the listed folder), not counted from
+   * the site root.
+   */
+  describe('listPages() depth (OpenProject #2461)', () => {
+    test('reports 0 for a page directly in the listed folder, and deeper values below it', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'nested-depth/direct', title: 'Direct', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'nested-depth/child/deep/leaf', title: 'Leaf', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'nested-depth',
+        depth: 2,
+        publicOnly: false
+      })
+
+      const direct = pages.find((p) => p.path === 'nested-depth/direct')!
+      // -> `leaf`'s own folder ('nested-depth/child/deep') sits two levels below the listed folder
+      //    ('nested-depth'), which is what `depth` reports -- not how deep `leaf` itself is from the
+      //    site root.
+      const leaf = pages.find((p) => p.path === 'nested-depth/child/deep/leaf')!
+      assert.equal(direct.depth, 0)
+      assert.equal(leaf.depth, 2)
+    })
+
+    test('reports depth relative to the query, not the site root, when listing a nested path', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'depth-root/branch/leaf', title: 'Leaf', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'depth-root/branch',
+        depth: 1,
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      // -> Absolute site depth would be 2 (depth-root/branch/leaf); relative to `depth-root/branch`
+      //    it is 0, since `leaf` sits directly inside the listed folder.
+      assert.equal(pages[0]!.depth, 0)
+    })
+
+    test('reports 0 for every page when listing the site root', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'root-depth-page', title: 'Root Page', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: '',
+        depth: 0,
+        publicOnly: false
+      })
+
+      const page = pages.find((p) => p.path === 'root-depth-page')!
+      assert.equal(page.depth, 0)
+    })
+  })
+
+  /**
    * OpenProject #2098: `deleteFolder`/`renameFolder`'s callers need to authorize every descendant
    * before committing to the cascade -- `listDescendants` resolves that same at-or-below set without
    * mutating anything, carrying each page's real tags and classification (the same join #1128 added
@@ -929,6 +1097,208 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       // -> No site cleanup here: `folder`'s tree row still references it (a bare site delete would
       //    23503 on the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
+    })
+  })
+
+  /**
+   * OpenProject #2447: `moveEntry` reparents a leaf tree row (in practice an asset — pages get their
+   * own path-aware `movePage`, which also has to keep the `pages` table's own copy of the path in
+   * step) into another folder, keeping both folders' children counts straight and refusing a
+   * destination that already holds the name.
+   */
+  describe('moveEntry (OpenProject #2447)', () => {
+    test("moves an asset into another folder, updating both folders' children counts", async () => {
+      const source = await treeModel.createFolder({
+        pathName: 'move-source',
+        title: 'Source',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const destination = await treeModel.createFolder({
+        pathName: 'move-destination',
+        title: 'Destination',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        parentId: source.id,
+        fileName: 'diagram.png',
+        title: 'diagram.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({
+        id: asset.id,
+        siteId: fixtures.siteId,
+        folderId: destination.id
+      })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, 'move-destination')
+      // -> `getFolderById`, not `readTreeRow`: its return is typed as a real `TreeRow` (`meta:
+      //    Record<string, any>`), unlike a bare `.select()` off a `jsonb()` column with no
+      //    generic, which infers `unknown`.
+      const sourceAfter = await treeModel.getFolderById(source.id, fixtures.siteId)
+      const destinationAfter = await treeModel.getFolderById(destination.id, fixtures.siteId)
+      assert.equal(sourceAfter!.meta.children, 0, "the source folder's count must drop")
+      assert.equal(destinationAfter!.meta.children, 1, "the destination folder's count must rise")
+    })
+
+    test('moving into the site root (no folderId, no parentPath) clears folderPath and decrements the old folder', async () => {
+      const source = await treeModel.createFolder({
+        pathName: 'move-to-root',
+        title: 'Source',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        parentId: source.id,
+        fileName: 'root-bound.png',
+        title: 'root-bound.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, '')
+      const sourceAfter = await treeModel.getFolderById(source.id, fixtures.siteId)
+      assert.equal(sourceAfter!.meta.children, 0)
+    })
+
+    test('parentPath resolves-or-creates the destination folder, the same as an upload', async () => {
+      const asset = await treeModel.addAsset({
+        fileName: 'via-path.png',
+        title: 'via-path.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({
+        id: asset.id,
+        siteId: fixtures.siteId,
+        parentPath: 'brand-new/nested'
+      })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, 'brand-new.nested')
+      const createdFolder = await treeModel.getFolder({
+        path: 'brand-new/nested',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      assert.ok(createdFolder, 'the missing ancestor folder must have been created')
+    })
+
+    test('moving into the folder it already sits in is a no-op: unchanged row, folder count untouched', async () => {
+      const source = await treeModel.createFolder({
+        pathName: 'move-noop',
+        title: 'Source',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        parentId: source.id,
+        fileName: 'stays-put.png',
+        title: 'stays-put.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({
+        id: asset.id,
+        siteId: fixtures.siteId,
+        folderId: source.id
+      })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, 'move-noop')
+      const sourceAfter = await treeModel.getFolderById(source.id, fixtures.siteId)
+      assert.equal(
+        sourceAfter!.meta.children,
+        1,
+        'the count must not have been decremented then re-incremented'
+      )
+    })
+
+    test('refuses a destination that already holds the name (treeEntryDuplicate, 409)', async () => {
+      const destination = await treeModel.createFolder({
+        pathName: 'move-collision',
+        title: 'Destination',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await treeModel.addAsset({
+        parentId: destination.id,
+        fileName: 'taken.png',
+        title: 'taken.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        fileName: 'taken.png',
+        title: 'taken.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      await assert.rejects(
+        treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId, folderId: destination.id }),
+        (err: any) => err.name === 'treeEntryDuplicate' && err.statusCode === 409
+      )
+    })
+
+    test('returns null for an entry that does not exist on this site', async () => {
+      const result = await treeModel.moveEntry({
+        id: '00000000-0000-0000-0000-000000000000',
+        siteId: fixtures.siteId
+      })
+      assert.equal(result, null)
+    })
+
+    test('returns null for an entry belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `moveentry-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+      const asset = await treeModel.addAsset({
+        fileName: 'foreign.png',
+        title: 'foreign.png',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+
+      const result = await treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId })
+      assert.equal(result, null)
+      // -> No site cleanup here: `asset`'s tree row still references it, and this test's whole
+      //    schema is dropped by teardownTestDb() regardless.
+    })
+
+    test('throws for a folderId belonging to a different site (treeInvalidFolder, 404)', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `moveentry-foreignfolder-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+      const foreignFolder = await treeModel.createFolder({
+        pathName: 'foreign-dest',
+        title: 'Foreign',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+      const asset = await treeModel.addAsset({
+        fileName: 'wants-to-move.png',
+        title: 'wants-to-move.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      await assert.rejects(
+        treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId, folderId: foreignFolder.id }),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+      // -> No site cleanup here, same reasoning as above.
     })
   })
 

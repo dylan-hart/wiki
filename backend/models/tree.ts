@@ -105,6 +105,16 @@ export interface ListedPage {
   description: string
   /** The page's icon, as an Iconify reference. Empty when it has none. */
   icon: string
+  /** Whether a page a reader may open sits nested under this page's own path, at any depth (OpenProject
+   *  #2460) — the book-vs-file signal a nested tree view draws off of. Judged by the same
+   *  `pageIsVisible` rule as the listing itself, so a caller never learns of a child it could not
+   *  otherwise see. */
+  hasChildren: boolean
+  /** How many folders below the listed `path` this page sits, 0 being directly inside it (OpenProject
+   *  #2461) -- relative to the query, not the site root, so a block listing `/docs/tools` at depth 2
+   *  reports 0/1/2 there rather than counting from the root. What lets `block-index` draw a genuinely
+   *  nested/indented tree instead of a flat list. */
+  depth: number
   /** Classification level id (OpenProject #1079), for the reader-permission filter layered on top of
    *  this listing (see `api/tree.ts`'s "LIST PAGES AS A READER" route). Never returned to the client:
    *  no API schema declares this field, so Fastify's response serialization drops it. */
@@ -241,6 +251,46 @@ export function holdsVisiblePagesUnder(
 }
 
 /**
+ * Whether a PAGE holds a page a reader may open nested under its own path, at any depth below it —
+ * as an `EXISTS` correlated to the outer `tree` row being tested (OpenProject #2460's has-children
+ * signal for `listPages()`).
+ *
+ * The same question `holdsVisiblePagesUnder` answers for a folder, but that one takes the parent
+ * path as a fixed JS string shared by every row in the query — right for `browse()`, which only
+ * ever lists one folder level at a time. `listPages()` can return rows sitting at different depths
+ * in a single result set (its own `depth` option), so this variant builds each row's own path from
+ * its `folderPath`/`fileName` COLUMNS instead, correlated per row. It uses the `ltree || ltree`
+ * concatenation operator rather than `holdsVisiblePagesUnder`'s text-then-cast idiom, since that
+ * idiom relies on the caller knowing ahead of time whether the parent path is empty (to omit the
+ * joining dot) — impossible here, where the prefix is a column value evaluated per row. `||` needs
+ * no such special-casing: concatenating the zero-level root path is a no-op.
+ *
+ * @param publicOnly Passed straight to `pageIsVisible`: true restricts to what an anonymous reader
+ *   may see, matching `listPages()`'s own gate on the outer rows.
+ * @param aliasSuffix Names the two table aliases this subquery introduces. Each call site needs its
+ *   own, since two `EXISTS` clauses in one statement cannot share an alias name.
+ */
+export function holdsVisibleChildPages(publicOnly: boolean, aliasSuffix: string): SQL {
+  const descendant = alias(treeTable, `childTree${aliasSuffix}`)
+  const descendantPage = alias(pagesTable, `childPage${aliasSuffix}`)
+  return exists(
+    WIKI.db
+      .select({ one: sql`1` })
+      .from(descendant)
+      .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
+      .where(
+        and(
+          eq(descendant.siteId, treeTable.siteId),
+          eq(descendant.locale, treeTable.locale),
+          eq(descendant.type, 'page'),
+          sql`${descendant.folderPath} <@ (${treeTable.folderPath} || ${treeTable.fileName}::ltree)`,
+          ...pageIsVisible(descendantPage, publicOnly)
+        )
+      )
+  )
+}
+
+/**
  * The one refusal for "a tree row already sits at this name in this folder".
  *
  * Five sites raise it: the pre-insert probe in `addEntry`, `resolveName`'s `onConflict: 'error'`
@@ -274,8 +324,12 @@ export function compareFoldersFirst(
 
 /**
  * Split an ltree path into the (folderPath, fileName) pair that addresses the entry itself.
+ *
+ * Exported for `navigation.ts#resolveGeneratorRoot`, which needs the same split to look up the
+ * tree id of the folder an `auto`/`mixed` menu's root path names (OpenProject #2442) -- one owner
+ * for the question, per CLAUDE.md's "Cross-model reuse is an explicit export" rule.
  */
-function splitPath(path: string): { folderPath: string; fileName: string } {
+export function splitPath(path: string): { folderPath: string; fileName: string } {
   const parts = path.split('.')
   return {
     folderPath: parts.slice(0, -1).join('.'),
@@ -543,6 +597,7 @@ class Tree {
     const pathQuery = encodedPath ? `${encodedPath}.${levels}` : levels
 
     const direction = orderByDirection === 'desc' ? desc : asc
+    const hasChildren = holdsVisibleChildPages(publicOnly, '')
     const rows = await WIKI.db
       .select({
         id: treeTable.id,
@@ -551,7 +606,8 @@ class Tree {
         title: treeTable.title,
         description: pagesTable.description,
         icon: pagesTable.icon,
-        classification: pagesTable.classification
+        classification: pagesTable.classification,
+        hasChildren: sql<boolean>`${hasChildren}`.mapWith(Boolean)
       })
       .from(treeTable)
       .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
@@ -568,14 +624,22 @@ class Tree {
       .orderBy(direction(treeTable[orderBy]))
       .limit(limit)
 
+    // -> `row.folderPath` is still the raw dot-separated ltree form, so its segment count IS its
+    //    nlevel -- the same quantity `getTree()` reads via SQL `nlevel()`, computed here in JS
+    //    instead since every row is already in hand and a second query isn't needed for it. `depth`
+    //    is relative to `encodedPath` (the folder actually being listed), not the site root.
+    const baseDepth = encodedPath ? encodedPath.split('.').length : 0
     return rows.map((row) => {
       const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      const rowDepth = row.folderPath ? row.folderPath.split('.').length : 0
       return {
         id: row.id,
         path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
         title: row.title,
         description: row.description ?? '',
         icon: row.icon ?? '',
+        hasChildren: row.hasChildren,
+        depth: rowDepth - baseDepth,
         classification: row.classification
       }
     })
@@ -1630,6 +1694,93 @@ class Tree {
       })
       .where(eq(treeTable.id, entry.id))
       .returning()
+    return updated[0] as TreeRow
+  }
+
+  /**
+   * Move a page or asset entry into another folder, keeping its name, locale and contents.
+   *
+   * The destination is resolved the same way `addEntry`/an upload resolves where to land:
+   * `folderId` wins over `parentPath` when both are given, `parentPath` is created (with any missing
+   * ancestor) if it does not exist yet, and neither given means the site root. Moving an entry into
+   * the folder it is already in is a no-op — it returns the entry unchanged rather than touching
+   * anything, so a caller cannot be told a move happened when nothing did.
+   *
+   * @param siteId Required (OpenProject #2127 precedent) so this method is itself closed to a
+   *               foreign entry or `folderId`, rather than relying solely on the caller.
+   * @returns The updated row, or null if there is no such entry on this site
+   * @throws CustomError `treeInvalidFolder` (404) for an unresolvable `folderId`,
+   *         `treeEntryDuplicate` (409) if the destination already holds this name — the same
+   *         asymmetric page/folder exception `renameEntry` applies above, reused rather than
+   *         re-derived: a page does not block a folder taking its name, everything else does.
+   */
+  async moveEntry({
+    id,
+    siteId,
+    folderId,
+    parentPath
+  }: {
+    id: string
+    siteId: string
+    folderId?: string | null
+    parentPath?: string | null
+  }): Promise<TreeRow | null> {
+    const entry = await this.getById(id)
+    if (!entry || entry.siteId !== siteId) {
+      return null
+    }
+
+    const destination = folderId
+      ? await this.requireFolderById(folderId, siteId)
+      : parentPath
+        ? await this.getFolder({
+            path: parentPath,
+            locale: entry.locale,
+            siteId,
+            createIfMissing: true
+          })
+        : null
+    const newPath = destination ? childPathOf(destination) : ''
+    const oldPath = entry.folderPath ?? ''
+
+    if (newPath === oldPath) {
+      return entry
+    }
+
+    const collision = await WIKI.db
+      .select({ id: treeTable.id })
+      .from(treeTable)
+      .where(
+        and(
+          ne(treeTable.id, entry.id),
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, entry.locale),
+          eq(treeTable.folderPath, newPath),
+          eq(treeTable.fileName, entry.fileName),
+          ...(entry.type === 'page' ? [ne(treeTable.type, 'folder')] : [])
+        )
+      )
+      .limit(1)
+    if (collision.length > 0) {
+      throw duplicateEntryError()
+    }
+
+    const updated = await WIKI.db.transaction(async (tx) => {
+      const moved = await tx
+        .update(treeTable)
+        .set({ folderPath: newPath, updatedAt: sql`now()` })
+        .where(eq(treeTable.id, entry.id))
+        .returning()
+      await this.countTowardsFolderAt(siteId, entry.locale, oldPath, -1, tx)
+      await this.countTowardsFolderAt(siteId, entry.locale, newPath, 1, tx)
+      return moved
+    })
+
+    // -> A moved entry changes what an ancestor `auto`/`mixed` menu's cached tree walk returns
+    //    (OpenProject #1825), the same invalidation `deleteEntry`/`createFolder` already fire.
+    WIKI.models.navigation.invalidateCache(siteId)
+
+    WIKI.logger.debug(`Moved entry ${entry.id} to folder "${newPath}" successfully.`)
     return updated[0] as TreeRow
   }
 

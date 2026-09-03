@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import './component.js'
+import { BlockIndexElement } from './component.js'
 import { _resetSiteCache } from '../shared/site.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } from '../test/mount.js'
@@ -121,6 +121,46 @@ describe('block-index', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  /*
+    OpenProject #2462: a "book" page -- one with a page nested below its own path -- draws a
+    different default icon than a leaf "file" page, driven by the `hasChildren` signal
+    `GET tree/pages` now carries. Asserted off which icon reference was fetched rather than off
+    rendered SVG content, since `stubFetch`'s `onRequest` answers every hop with the same page-list
+    JSON body -- `fetchIcon`'s `resp.text()` on that body rejects and resolves to `''`, which
+    `fetchIcon` already treats as "no icon" (see its own doc comment), leaving the request itself as
+    the one observable signal.
+
+    `settle: 2`: connectedCallback is a third hop deeper than the two `mountIndex` (settle: 1)
+    covers elsewhere in this file -- site lookup, then the tree fetch, then `_loadIcons()`'s icon
+    fetches once `showIcons` is on.
+  */
+  it('requests the book icon for a page with children and the file icon for a leaf (OpenProject #2462)', async () => {
+    const fetchMock = stubFetch({
+      pages: [
+        stubPage({ path: 'docs/guide', title: 'Guide', hasChildren: true }),
+        stubPage({ path: 'docs/leaf', title: 'Leaf', hasChildren: false })
+      ]
+    })
+
+    await mountBlock('block-index', { props: { showIcons: true }, settle: 2 })
+
+    const requestedUrls = fetchMock.mock.calls.map(([url]) => url)
+    expect(requestedUrls).toContain('/_icons/mdi/book-open-page-variant-outline.svg')
+    expect(requestedUrls).toContain('/_icons/mdi/file-document-outline.svg')
+  })
+
+  it("does not let hasChildren override a page's own chosen icon (OpenProject #2462)", async () => {
+    const fetchMock = stubFetch({
+      pages: [stubPage({ path: 'docs/guide', title: 'Guide', icon: 'mdi:star', hasChildren: true })]
+    })
+
+    await mountBlock('block-index', { props: { showIcons: true }, settle: 2 })
+
+    const requestedUrls = fetchMock.mock.calls.map(([url]) => url)
+    expect(requestedUrls).toContain('/_icons/mdi/star.svg')
+    expect(requestedUrls).not.toContain('/_icons/mdi/book-open-page-variant-outline.svg')
+  })
+
   it("navigates through WIKI_ROUTER instead of a full page load on a row's click", async () => {
     stubFetch()
     const el = await mountIndex()
@@ -175,5 +215,85 @@ describe('block-index', () => {
   describeDarkMode(() => {
     stubFetch()
     return mountIndex()
+  })
+
+  /**
+   * OpenProject #2461: `block-index` used to render a flat list regardless of a page's `depth`. Each
+   * row's `--depth` custom property is what now draws it nested/indented, and a listing carrying any
+   * depth > 0 forces a single column so the indent reads against the right width.
+   */
+  describe('nested/indented rendering (OpenProject #2461)', () => {
+    it('draws every row flush (depth 0) when every page has no depth', async () => {
+      stubFetch({ pages: [stubPage({ path: 'docs/a', title: 'A', depth: 0 })] })
+      const el = await mountIndex()
+
+      const row = el.shadowRoot.querySelector('li')
+      expect(row.style.getPropertyValue('--depth')).toBe('0')
+    })
+
+    it("indents each row by its own page's depth, independent of its siblings", async () => {
+      stubFetch({
+        pages: [
+          stubPage({ path: 'docs/parent', title: 'Parent', depth: 0 }),
+          stubPage({ path: 'docs/parent/child', title: 'Child', depth: 1 }),
+          stubPage({ path: 'docs/parent/child/grand', title: 'Grandchild', depth: 2 })
+        ]
+      })
+      const el = await mountIndex({ depth: 2 })
+
+      const rows = [...el.shadowRoot.querySelectorAll('li')]
+      expect(rows.map((row) => row.style.getPropertyValue('--depth'))).toEqual(['0', '1', '2'])
+    })
+
+    it('treats a missing depth (e.g. an older API response) as 0 rather than throwing', async () => {
+      stubFetch({ pages: [stubPage({ path: 'docs/a', title: 'A' })] })
+      const el = await mountIndex()
+
+      expect(el.shadowRoot.querySelector('li').style.getPropertyValue('--depth')).toBe('0')
+    })
+
+    it('lays out the normal multi-column grid when nothing is nested', async () => {
+      stubFetch({
+        pages: [
+          stubPage({ path: 'docs/a', title: 'A', depth: 0 }),
+          stubPage({ path: 'docs/b', title: 'B', depth: 0 })
+        ]
+      })
+      const el = await mountIndex({ columns: '2' })
+
+      expect(el.shadowRoot.querySelector('ul').getAttribute('style')).toBeFalsy()
+    })
+
+    it('forces a single column once any row is nested, so the indent is not squeezed by a second column', async () => {
+      stubFetch({
+        pages: [
+          stubPage({ path: 'docs/a', title: 'A', depth: 0 }),
+          stubPage({ path: 'docs/a/b', title: 'B', depth: 1 })
+        ]
+      })
+      const el = await mountIndex({ columns: '2' })
+
+      expect(el.shadowRoot.querySelector('ul').style.gridTemplateColumns).toBe(
+        'repeat(1, minmax(0, 1fr))'
+      )
+    })
+  })
+
+  // -> OpenProject #2463 (docs/discoverability pass): the block picker and Admin > Blocks both
+  //    render this text verbatim as the only way an author learns what the block is for, so a
+  //    reader looking for a "book/chapter" or nested table-of-contents feature needs to recognize
+  //    it from here -- this guards the wording that fixes that against a silent regression back to
+  //    the old, use-case-free "Displays a list of pages contained in a folder."
+  describe('discoverability (OpenProject #2463)', () => {
+    it("describes the nested/book-chapter use case in the block's own metadata", () => {
+      expect(BlockIndexElement.definition.description).toMatch(/book\/chapter/i)
+      expect(BlockIndexElement.definition.description).toMatch(/table of contents/i)
+    })
+
+    it('explains what raising Depth above 0 does for the depth prop', () => {
+      const depthProp = BlockIndexElement.definition.props.find((prop) => prop.name === 'depth')
+      expect(depthProp.hint).toMatch(/subfolders/i)
+      expect(depthProp.hint).toMatch(/book\/chapter/i)
+    })
   })
 })

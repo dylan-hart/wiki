@@ -21,6 +21,7 @@ export const HOOK_EVENTS = [
   'asset:edit',
   'asset:rename',
   'asset:delete',
+  'asset:move',
   'comment:new',
   'comment:edit',
   'comment:delete',
@@ -55,6 +56,7 @@ export const EMITTED_EVENTS: HookEvent[] = [
   'asset:edit',
   'asset:rename',
   'asset:delete',
+  'asset:move',
   'comment:new',
   'comment:edit',
   'comment:delete',
@@ -326,13 +328,16 @@ class Hooks {
    *                permissions don't extend to an action that has no page/site context either.
    * @param data Event-specific payload. `metadata` and `content` are stripped per webhook, according
    *             to what each one asked for.
-   * @returns How many deliveries were queued
+   * @returns How many webhook deliveries were queued. Does not count the email fan-out below — see
+   *          {@link notifyEmailSubscribers} — which is an independent channel with its own count
+   *          nobody outside this method has ever needed to know.
    */
   async emit(
     event: HookEvent,
     siteId: string | null,
     data: Record<string, any> = {}
   ): Promise<number> {
+    let queued = 0
     try {
       const siteFilter = siteId
         ? sql`(${hooksTable.siteId} IS NULL OR ${hooksTable.siteId} = ${siteId})`
@@ -347,7 +352,6 @@ class Hooks {
         .where(and(sql`${event} = ANY(${hooksTable.events})`, siteFilter))
 
       const policy = webhookRateLimitPolicy()
-      let queued = 0
       for (const hook of subscribed) {
         const verdict = await WIKI.models.rateLimits.consume(`webhook:${hook.id}`, policy)
         if (!verdict.allowed) {
@@ -377,10 +381,90 @@ class Hooks {
           queued++
         }
       }
-      return queued
     } catch (err: any) {
       WIKI.logger.warn(`Failed to queue webhook deliveries for ${event}: ${err.message}`)
-      return 0
+    }
+
+    // -> Two further, independent fan-outs for the same event — see `notifyEmailSubscribers`'s and
+    //    `queueEventSubscriberNotifications`'s own doc comments for why each is separate from (and
+    //    cannot affect) the webhook queueing above, or each other.
+    await this.notifyEmailSubscribers(event, siteId, data)
+    await this.queueEventSubscriberNotifications(event, data)
+
+    return queued
+  }
+
+  /**
+   * Queue an email notification job for every user subscribed (`WIKI.models.users
+   * .listEmailSubscribers`) to this event type — the email half of `emit()`'s fan-out, alongside the
+   * webhook queueing above. Independent of it on purpose: a broken webhook lookup must not stop a
+   * subscribed user from being emailed, and vice versa, so each has its own `try`/`catch` rather than
+   * sharing one — the same "safe to call from anywhere, never throws" contract `emit()` itself
+   * documents.
+   *
+   * Resolves the subscriber list once, here, and hands the resolved ids to the job — never re-queries
+   * at delivery time — matching `models/pages.ts#notifyWatchers`'s convention for
+   * `notifyPageWatchers` (see that job's own doc comment for why: an event's context can be gone by
+   * the time a queued job actually runs, e.g. a delete).
+   */
+  private async notifyEmailSubscribers(
+    event: HookEvent,
+    siteId: string | null,
+    data: Record<string, any>
+  ): Promise<void> {
+    try {
+      const subscribers = await WIKI.models.users.listEmailSubscribers(event)
+      if (subscribers.length < 1) {
+        return
+      }
+      await WIKI.scheduler.addJob({
+        task: 'notifyEventSubscribers',
+        payload: {
+          event,
+          siteId,
+          data,
+          subscribers: subscribers.map((user) => ({ userId: user.id }))
+        }
+      })
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to queue email notifications for ${event}: ${err.message}`)
+    }
+  }
+
+  /**
+   * Queue one batched notification job for every user subscribed to this event
+   * (`models/eventSubscriptions.ts`) -- the per-user counterpart to the webhook fan-out `emit()`
+   * already does above, added for OpenProject #2484. A single job carrying every subscriber's id,
+   * mirroring `models/pages.ts#notifyWatchers`'s own one-job-per-change batching, rather than one job
+   * per subscriber.
+   *
+   * A separate task (`notifyEventSubscriptionSubscribers`, not `notifyEventSubscribers`) from
+   * {@link notifyEmailSubscribers}'s job above on purpose: the two read from different subscription
+   * stores (`models/eventSubscriptions.ts`'s dedicated table here, vs. `users.prefs.notifications
+   * .events` there) and hand their task a differently-shaped payload, so sharing one task name would
+   * mean one task guessing which shape it received.
+   *
+   * Never throws, matching `emit()`'s own "safe to call from anywhere" contract: a failure here must
+   * not affect `emit()`'s webhook-queued count, which is why this is a separate try/catch from the
+   * webhook loop above rather than folded into it.
+   */
+  private async queueEventSubscriberNotifications(
+    event: HookEvent,
+    data: Record<string, any>
+  ): Promise<void> {
+    try {
+      const subscriberIds = await WIKI.models.eventSubscriptions.listSubscribers(event)
+      if (subscriberIds.length < 1) {
+        return
+      }
+      await WIKI.scheduler.addJob({
+        task: 'notifyEventSubscriptionSubscribers',
+        payload: { event, data, subscriberIds }
+      })
+    } catch (err: any) {
+      WIKI.logger.warn(
+        `Failed to queue event-subscriber notifications for ${event}: ${err.message}`
+      )
     }
   }
 

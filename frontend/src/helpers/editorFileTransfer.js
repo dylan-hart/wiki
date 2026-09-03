@@ -9,9 +9,33 @@
  * still being claimed, and `dragover`'s files-are-empty-until-drop quirk.
  */
 
+/**
+ * The actual `File` objects a paste or drop is carrying.
+ *
+ * `.files` is the fast path and is what a current desktop paste/drop populates. `.items`
+ * (`DataTransferItemList`) is the historically broader-supported fallback -- entries typed `'file'`
+ * resolve to the same `File` via `getAsFile()` -- read only when `.files` comes back empty. This is
+ * the defensive fix for the cross-browser gap flagged during the original editor-hardening pass (task
+ * 481, Feature 364) and resolved here (OpenProject #2450): a browser whose paste event ever leaves
+ * `clipboardData.files` empty for a pasted image while still populating `.items` would otherwise
+ * silently swallow the paste rather than insert it.
+ */
+export function pastedFiles(transfer) {
+  if (transfer?.files?.length) {
+    return Array.from(transfer.files)
+  }
+  if (!transfer?.items) {
+    return []
+  }
+  return Array.from(transfer.items)
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter(Boolean)
+}
+
 /** Whether a paste or drop is carrying files, as opposed to text. */
 export function hasFiles(transfer) {
-  return (transfer?.files?.length ?? 0) > 0
+  return pastedFiles(transfer).length > 0
 }
 
 /*

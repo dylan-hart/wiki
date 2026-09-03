@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { asc, eq } from 'drizzle-orm'
+import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
 import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
   mergeModuleConfig,
@@ -9,6 +10,18 @@ import {
 import { authentication as authenticationTable, groups as groupsTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { SystemIds } from './types.ts'
+
+/** One enabled, group-mapping strategy that could revoke a given group on the account's next login. */
+export interface GroupSyncWarningStrategy {
+  id: string
+  displayName: string
+}
+
+/** One group currently at risk of a `mapGroups` strategy silently reverting a manual grant. */
+export interface GroupSyncWarning {
+  groupId: string
+  strategies: GroupSyncWarningStrategy[]
+}
 
 /** An authentication module, as declared by its `definition.yml`. */
 export interface AuthModule {
@@ -147,6 +160,15 @@ export interface AuthStrategy {
    *  `models/users.ts#findOrCreateProviderUser()`. */
   autoProvision: boolean
   allowedEmailRegex: string
+  /**
+   * Admin-facing alternative to `allowedEmailRegex` for the common case: a list of domains instead
+   * of a hand-written pattern. Matched case-insensitively, stored here already normalized (trimmed,
+   * lower-cased, deduped) by `createStrategy`/`updateStrategy`. Only ever enforced for local
+   * self-registration (`models/login.ts#register()`, `assertAllowedRegistrationDomain`) -- unlike
+   * `allowedEmailRegex` above, this does not gate provider auto-provisioning. Empty means
+   * unrestricted. Independent of `allowedEmailRegex`; both may be set on the same strategy.
+   */
+  allowedEmailDomains: string[]
   autoEnrollGroups: string[]
   /**
    * Off by default. An existing account is only ever claimed by a provider login when this is on for
@@ -161,6 +183,27 @@ export interface AuthStrategy {
 
 /** The module every wiki ships with. */
 const LOCAL_MODULE = 'local'
+
+/** A bare domain: at least one label, a dot, and a TLD label -- no `@`, no scheme, no path. */
+const DOMAIN_PATTERN =
+  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i
+
+/**
+ * Trim, lower-case and dedupe a submitted domain list, dropping empty entries.
+ *
+ * Case-insensitivity is applied at write time rather than left to whatever later reads the column,
+ * so every consumer (enforcement, the admin form re-showing it) sees the one canonical form.
+ */
+function normalizeEmailDomains(domains: string[]): string[] {
+  const seen = new Set<string>()
+  for (const raw of domains) {
+    const domain = raw.trim().toLowerCase()
+    if (domain) {
+      seen.add(domain)
+    }
+  }
+  return [...seen]
+}
 
 /**
  * Whether this is the strategy the instance was seeded with.
@@ -225,6 +268,7 @@ class Authentication {
         const config = this.buildConfig(stg.module, {}, stg.config as Record<string, any>)
         return {
           ...stg,
+          allowedEmailDomains: stg.allowedEmailDomains ?? [],
           autoEnrollGroups: stg.autoEnrollGroups ?? [],
           mappableGroups: stg.mappableGroups ?? [],
           config: mask
@@ -240,6 +284,43 @@ class Authentication {
    */
   async getStrategyById(id: string, opts?: { mask?: boolean }): Promise<AuthStrategy | null> {
     return (await this.getActiveStrategies(opts)).find((stg) => stg.id === id) ?? null
+  }
+
+  /**
+   * Every group currently at risk of being silently reverted by `models/login.ts#syncProviderGroups()`
+   * on the account's next login through an enabled, group-mapping strategy — one entry per group,
+   * naming every strategy that could do the reverting (WP #2440: the admin UI had no warning that a
+   * manually-added membership in one of these groups may not survive the user's next provider login).
+   *
+   * Carries no secrets — only group ids and strategy display names — unlike `getActiveStrategies()`,
+   * so it is reachable by a `manage:users`/`manage:groups` holder, not only `manage:system`.
+   */
+  async getGroupSyncWarnings(): Promise<GroupSyncWarning[]> {
+    const strategies = await this.getActiveStrategies()
+    const mapping = strategies.filter((stg) => stg.isEnabled && stg.config?.mapGroups)
+    if (mapping.length < 1) {
+      return []
+    }
+    const guestsGroupId = WIKI.data.systemIds.guestsGroupId
+    const rootAdminGroupId = WIKI.config.auth.rootAdminGroupId
+    const systemGroupIds = await WIKI.models.groups.systemGroupIds()
+
+    const byGroup = new Map<string, GroupSyncWarningStrategy[]>()
+    for (const stg of mapping) {
+      for (const groupId of syncRevocableGroupIds(stg, {
+        guestsGroupId,
+        rootAdminGroupId,
+        systemGroupIds
+      })) {
+        const strategiesForGroup = byGroup.get(groupId) ?? []
+        strategiesForGroup.push({ id: stg.id, displayName: stg.displayName })
+        byGroup.set(groupId, strategiesForGroup)
+      }
+    }
+    return [...byGroup.entries()].map(([groupId, strategiesForGroup]) => ({
+      groupId,
+      strategies: strategiesForGroup
+    }))
   }
 
   /**
@@ -278,6 +359,7 @@ class Authentication {
     displayName?: string
     isEnabled?: boolean
     allowedEmailRegex?: string
+    allowedEmailDomains?: string[]
     autoEnrollGroups?: string[]
     mappableGroups?: string[]
   }): Promise<string | null> {
@@ -292,6 +374,14 @@ class Authentication {
         new RegExp(strategy.allowedEmailRegex)
       } catch (err: any) {
         return `The allowed email pattern is not a valid regular expression: ${err.message}`
+      }
+    }
+    if (strategy.allowedEmailDomains) {
+      const invalidDomain = normalizeEmailDomains(strategy.allowedEmailDomains).find(
+        (domain) => !DOMAIN_PATTERN.test(domain)
+      )
+      if (invalidDomain) {
+        return `"${invalidDomain}" is not a valid domain.`
       }
     }
     if (strategy.autoEnrollGroups && strategy.autoEnrollGroups.length > 0) {
@@ -331,6 +421,7 @@ class Authentication {
     selfRegistration?: boolean
     autoProvision?: boolean
     allowedEmailRegex?: string
+    allowedEmailDomains?: string[]
     autoEnrollGroups?: string[]
     trustEmailForLinking?: boolean
     mappableGroups?: string[]
@@ -346,6 +437,7 @@ class Authentication {
         selfRegistration: values.selfRegistration ?? false,
         autoProvision: values.autoProvision ?? false,
         allowedEmailRegex: values.allowedEmailRegex ?? '',
+        allowedEmailDomains: normalizeEmailDomains(values.allowedEmailDomains ?? []),
         autoEnrollGroups: values.autoEnrollGroups ?? [],
         trustEmailForLinking: values.trustEmailForLinking ?? false,
         mappableGroups: values.mappableGroups ?? [],
@@ -373,6 +465,7 @@ class Authentication {
       selfRegistration?: boolean
       autoProvision?: boolean
       allowedEmailRegex?: string
+      allowedEmailDomains?: string[]
       autoEnrollGroups?: string[]
       trustEmailForLinking?: boolean
       mappableGroups?: string[]
@@ -399,6 +492,9 @@ class Authentication {
     }
     if (patch.allowedEmailRegex !== undefined) {
       values.allowedEmailRegex = patch.allowedEmailRegex
+    }
+    if (patch.allowedEmailDomains !== undefined) {
+      values.allowedEmailDomains = normalizeEmailDomains(patch.allowedEmailDomains)
     }
     if (patch.autoEnrollGroups !== undefined) {
       values.autoEnrollGroups = patch.autoEnrollGroups

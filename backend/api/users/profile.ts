@@ -5,7 +5,11 @@ import { detectImageMime, imageMimeTypes } from '../../helpers/images.ts'
 import { issueKey, validateApiKeyInput } from '../../models/apiKeys.ts'
 import type { KeyExpiration } from '../../models/apiKeys.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
-import type { UserProfile, UserProfilePatch } from '../../models/users.ts'
+import type {
+  NotificationSubscriptions,
+  UserProfile,
+  UserProfilePatch
+} from '../../models/users.ts'
 
 /** How large an avatar upload may be, before any resizing. */
 const avatarUploadLimit = 2 * 1024 * 1024
@@ -706,6 +710,74 @@ async function routes(app: FastifyInstance) {
         return reply.unauthorized()
       }
       return { ok: true, config }
+    }
+  )
+
+  /**
+   * GET OWN NOTIFICATION SUBSCRIPTIONS
+   *
+   * Feature #2425: which event types email the logged in user when they fire on this instance's
+   * existing webhook-dispatch triggers. Session-scoped like the rest of `/profile`, since a user can
+   * only ever read or change its own.
+   */
+  app.get(
+    '/profile/notifications',
+    {
+      schema: {
+        summary: "Get the logged in user's per-event-type email notification subscriptions",
+        description:
+          'One boolean per event type this instance can fire (see `HookEvent`). An event never explicitly set defaults to false — receiving email is opt-in.',
+        tags: ['Users'],
+        response: {
+          200: { $ref: 'UserNotificationSubscriptions#' },
+          401: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      reply.preventCache()
+      const userId = sessionUserId(req)
+      const subscriptions = await WIKI.models.users.getNotificationSubscriptions(userId)
+      if (!subscriptions) {
+        // -> The session outlived the user it points at
+        return reply.unauthorized()
+      }
+      return subscriptions
+    }
+  )
+
+  /**
+   * UPDATE OWN NOTIFICATION SUBSCRIPTIONS
+   */
+  app.put<{ Body: Partial<NotificationSubscriptions> }>(
+    '/profile/notifications',
+    {
+      schema: {
+        summary: "Update the logged in user's per-event-type email notification subscriptions",
+        description: 'Merges into the existing set; omitted event types are left as they are.',
+        tags: ['Users'],
+        body: { $ref: 'UserNotificationSubscriptionsUpdate#' },
+        response: {
+          200: {
+            description: 'Notification subscriptions updated successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              subscriptions: { $ref: 'UserNotificationSubscriptions#' }
+            }
+          },
+          401: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const userId = sessionUserId(req)
+      const subscriptions = await WIKI.models.users.setNotificationSubscriptions(userId, req.body)
+      if (!subscriptions) {
+        // -> The session outlived the user it points at
+        return reply.unauthorized()
+      }
+      return { ok: true, subscriptions }
     }
   )
 

@@ -1,7 +1,7 @@
 import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import sanitizeHtml from 'sanitize-html'
-import { blockAllowances, sanitizeOptions } from './htmlSanitizePolicy.ts'
+import { blockAllowances, mergeAllowedSchemes, sanitizeOptions } from './htmlSanitizePolicy.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import type { RenderPermissions } from './htmlSanitizePolicy.ts'
 
@@ -34,11 +34,16 @@ after(() => wiki.restore())
 function sanitize(
   html: string,
   permissions: Partial<RenderPermissions>,
-  enabledBlockKeys: Set<string>
+  enabledBlockKeys: Set<string>,
+  additionalSchemes: string[] = []
 ): string {
   return sanitizeHtml(
     html,
-    sanitizeOptions(permissions as RenderPermissions, blockAllowances(enabledBlockKeys, []))
+    sanitizeOptions(
+      permissions as RenderPermissions,
+      blockAllowances(enabledBlockKeys, []),
+      additionalSchemes
+    )
   )
 }
 
@@ -295,5 +300,200 @@ describe('sanitizeOptions -- allowedStyles gates inline CSS by write:styles (Ope
     const clean = sanitize(html, { scripts: false, styles: false }, new Set())
 
     assert.doesNotMatch(clean, /style=/)
+  })
+})
+
+/**
+ * OpenProject #2458 (part of Feature #2418's "Admin-configurable allowed URL schemes for page
+ * links"): the categorical block. A site's admin-configured `allowedUrlSchemes` setting (wired
+ * through by #2459, see the describe below) must never be able to smuggle `javascript:`, `vbscript:`,
+ * or a non-img `data:` back into the sanitizer's allowlist. These tests exercise `mergeAllowedSchemes()`
+ * directly (the one function allowed to produce `allowedSchemes`/`allowedSchemesByTag`) and
+ * `sanitizeOptions()`'s threading of it.
+ */
+describe('mergeAllowedSchemes -- categorical block (OpenProject #2458)', () => {
+  test('refuses javascript, vbscript and data regardless of case, whitespace or a trailing colon', () => {
+    const merged = mergeAllowedSchemes([
+      'javascript',
+      'javascript:',
+      'JavaScript:',
+      '  javascript  ',
+      'vbscript',
+      'VBScript:',
+      'data',
+      'DATA:'
+    ])
+
+    for (const forbidden of ['javascript', 'vbscript', 'data']) {
+      assert.ok(
+        !merged.includes(forbidden),
+        `expected "${forbidden}" to be refused, got: ${merged}`
+      )
+    }
+  })
+
+  test('keeps data allowed only when allowData is set, and javascript/vbscript refused either way', () => {
+    const withoutImg = mergeAllowedSchemes(['data', 'javascript', 'vbscript'])
+    const withImg = mergeAllowedSchemes(['data', 'javascript', 'vbscript'], { allowData: true })
+
+    assert.ok(!withoutImg.includes('data'))
+    assert.ok(withImg.includes('data'))
+    assert.ok(!withImg.includes('javascript'))
+    assert.ok(!withImg.includes('vbscript'))
+  })
+
+  test('lets a legitimate custom scheme through, deduplicated against the hardcoded defaults', () => {
+    const merged = mergeAllowedSchemes(['discord', 'discord:', 'HTTPS:'])
+
+    assert.ok(merged.includes('discord'))
+    assert.equal(merged.filter((s) => s === 'discord').length, 1)
+    assert.equal(merged.filter((s) => s === 'https').length, 1)
+  })
+
+  test('always keeps the hardcoded defaults regardless of what additionalSchemes contains', () => {
+    const merged = mergeAllowedSchemes(['javascript', 'vbscript', 'data'])
+
+    for (const expected of ['http', 'https', 'mailto', 'tel', 'ftp']) {
+      assert.ok(merged.includes(expected))
+    }
+  })
+
+  test('drops an empty or whitespace-only entry silently rather than allowing an empty scheme', () => {
+    const merged = mergeAllowedSchemes(['', '   ', ':'])
+
+    assert.deepEqual(merged.sort(), ['ftp', 'http', 'https', 'mailto', 'tel'].sort())
+  })
+})
+
+describe('sanitizeOptions -- additionalSchemes threading (OpenProject #2458)', () => {
+  test('an admin-configured javascript: scheme still gets stripped from an <a href>', () => {
+    const html = '<a href="javascript:alert(1)">click</a>'
+
+    const clean = sanitize(html, {}, new Set(), ['javascript'])
+
+    assert.doesNotMatch(clean, /javascript:/)
+    assert.doesNotMatch(clean, /href=/)
+  })
+
+  test('an admin-configured data: scheme still gets stripped from an <a href>, but a real link scheme survives', () => {
+    const html =
+      '<a href="data:text/html,<script>alert(1)</script>">bad</a>' +
+      '<a href="discord://invite/abc">good</a>'
+
+    const clean = sanitize(html, {}, new Set(), ['data', 'discord'])
+
+    assert.doesNotMatch(clean, /data:text\/html/)
+    assert.match(clean, /href="discord:\/\/invite\/abc"/)
+  })
+
+  test('data: survives on img when admin-configured, since img is the one legitimate use', () => {
+    const html = '<img src="data:image/png;base64,AAAA">'
+
+    const clean = sanitize(html, {}, new Set(), ['data'])
+
+    assert.match(clean, /src="data:image\/png;base64,AAAA"/)
+  })
+
+  test("an unrelated caller passing no additionalSchemes keeps today's exact behavior", () => {
+    const html = '<a href="https://example.com">ok</a><a href="javascript:alert(1)">bad</a>'
+
+    const clean = sanitize(html, {}, new Set())
+
+    assert.match(clean, /href="https:\/\/example\.com"/)
+    assert.doesNotMatch(clean, /javascript:/)
+  })
+})
+
+/*
+ * OpenProject #2459 (Feature #2418's Scope): a site's admin-configured `allowedUrlSchemes` is wired
+ * into `allowedSchemes`/`allowedSchemesByTag.img` here, additive to the hardcoded `ALLOWED_SCHEMES`
+ * floor -- never a replacement for it, and never able to smuggle in the categorically blocked
+ * schemes `#2458` owns enforcing canonically.
+ */
+describe('sanitizeOptions -- admin-configured allowedUrlSchemes (OpenProject #2459)', () => {
+  function sanitizeWithSchemes(html: string, allowedUrlSchemes: string[]): string {
+    return sanitizeHtml(
+      html,
+      sanitizeOptions(
+        { scripts: false, styles: false },
+        blockAllowances(new Set(), []),
+        allowedUrlSchemes
+      )
+    )
+  }
+
+  test('a hardcoded-default scheme link survives with no site config at all', () => {
+    const clean = sanitizeHtml(
+      '<a href="https://example.com">x</a>',
+      sanitizeOptions({ scripts: false, styles: false }, blockAllowances(new Set(), []))
+    )
+
+    assert.match(clean, /href="https:\/\/example\.com"/)
+  })
+
+  test('a configured custom scheme link survives sanitization', () => {
+    const clean = sanitizeWithSchemes('<a href="discord://channel/123">Join</a>', ['discord'])
+
+    assert.match(clean, /href="discord:\/\/channel\/123"/)
+  })
+
+  test('an unconfigured custom scheme link is still stripped', () => {
+    const clean = sanitizeWithSchemes('<a href="steam://run/123">Play</a>', ['discord'])
+
+    assert.doesNotMatch(clean, /href="steam:/)
+  })
+
+  test('a configured scheme is honored for img too, alongside the hardcoded data: allowance', () => {
+    const clean = sanitizeWithSchemes(
+      '<img src="myapp://icon.png"><img src="data:image/png;base64,AAAA">',
+      ['myapp']
+    )
+
+    assert.match(clean, /src="myapp:\/\/icon\.png"/)
+    assert.match(clean, /src="data:image\/png;base64,AAAA"/)
+  })
+
+  for (const dangerous of ['javascript', 'vbscript', 'data', 'JavaScript', 'VBScript']) {
+    test(`"${dangerous}" in config never becomes an allowed scheme`, () => {
+      const clean = sanitizeWithSchemes(`<a href="${dangerous.toLowerCase()}:alert(1)">x</a>`, [
+        dangerous
+      ])
+
+      assert.doesNotMatch(clean, new RegExp(`href="${dangerous.toLowerCase()}:`, 'i'))
+    })
+  }
+
+  test('"data" in config does not widen the img allowance beyond what is already unconditional', () => {
+    const clean = sanitizeWithSchemes('<img src="data:image/png;base64,AAAA">', ['data'])
+
+    // -> Already allowed for img regardless of config -- proving the denylist entry is a no-op here,
+    //    not that it silently broke the pre-existing allowance
+    assert.match(clean, /src="data:image\/png;base64,AAAA"/)
+  })
+
+  test('a configured scheme already in the hardcoded defaults does not duplicate in the option list', () => {
+    const options = sanitizeOptions(
+      { scripts: false, styles: false },
+      blockAllowances(new Set(), []),
+      ['https', 'HTTPS', 'discord']
+    )
+
+    const schemes = (options.allowedSchemes as string[] | undefined) ?? []
+    assert.equal(schemes.filter((s) => s === 'https').length, 1)
+    assert.ok(schemes.includes('discord'))
+  })
+
+  test('blank/whitespace-only configured entries are ignored', () => {
+    const options = sanitizeOptions(
+      { scripts: false, styles: false },
+      blockAllowances(new Set(), []),
+      ['', '   ', 'discord']
+    )
+
+    const schemes = (options.allowedSchemes as string[] | undefined) ?? []
+    assert.deepEqual(
+      schemes.filter((s) => !['http', 'https', 'mailto', 'tel', 'ftp'].includes(s)),
+      ['discord']
+    )
   })
 })

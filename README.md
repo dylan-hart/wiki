@@ -17,6 +17,8 @@
 - **[Official Website](https://beta.js.wiki)**
 - **[Documentation](https://beta.js.wiki/docs)**
 - **[Operations Guide](docs/operations.md)** — backup/restore scope and container mounts
+- **[MCP Getting Started](docs/mcp-getting-started.md)** — connect an LLM agent via the built-in
+  Model Context Protocol server
 
 :red_square: :warning: :warning: :red_square:  
 **THIS IS A VERY BUGGY, INCOMPLETE AND NON-SECURE DEVELOPMENT BRANCH!**  
@@ -37,6 +39,7 @@ The current stable release (2.x) is available at https://js.wiki
 - [Generic Setup](#generic-setup)
   - [Requirements](#requirements-1)
   - [Usage](#usage-1)
+- [First-Run Admin Account](#first-run-admin-account)
 - [Repository Documentation](#repository-documentation)
 
 ## Using VS Code Dev Environment
@@ -155,6 +158,22 @@ Add a new server under **Servers** with the following settings:
 There is also an `e2e/` workspace holding the Playwright end-to-end suite, which drives a full build
 of the stack and requires its own `DATABASE_URL` — see [`CLAUDE.md`](CLAUDE.md#testing-e2e) for how
 to point it at a database.
+
+## First-Run Admin Account
+
+The `admin@example.com` / `12345678` login shown above is only the _default_ — it's what gets seeded
+when nothing else is specified. On first boot against an **empty** (unseeded) database, the server
+reads two environment variables to seed the admin account instead:
+
+- `ADMIN_EMAIL` — the admin account's email, in place of `admin@example.com`.
+- `ADMIN_PASS` — the admin account's password, in place of `12345678`. Setting this also skips the
+  forced "you must change your password" flow that the default seed always triggers on first login,
+  so a Docker Compose deployment can set both and land straight in an authenticated, already-secured
+  instance.
+
+Both are read once, at first-run seeding time only — they have no effect on a database that already
+has a `settings` row (i.e. any instance that has already booted once), so there is no way to use them
+to reset a lost admin password on a running instance.
 
 ## Repository Documentation
 

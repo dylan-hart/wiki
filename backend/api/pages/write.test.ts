@@ -745,3 +745,122 @@ describe('POST /sites/:siteId/pages/bulk', () => {
     assert.equal(res.json().results.length, 1)
   })
 })
+
+/**
+ * OpenProject #2467: CREATE PAGE with an immediately-published state needs `publish:pages` ON THIS
+ * PAGE, on top of `write:pages` -- the writer/publisher split (#2421). `publishState` defaults to
+ * `'published'` when omitted (`models/pages.ts#createPage()`), so an omitted value is immediate
+ * publish too; only an explicit `'draft'` or `'scheduled'` skips the extra check.
+ */
+describe('POST /sites/:siteId/pages — publish:pages gate on immediate publish (OpenProject #2467)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
+  let app: FastifyInstance
+  let createPageCalls: any[]
+  let checkAccessCalls: string[]
+  /** Which permissions `checkAccess` grants -- every test overrides what it needs. */
+  let grantedPermissions: Set<string>
+
+  before(async () => {
+    const wiki = {
+      sites: { [SITE_ID]: {} },
+      models: {
+        pages: {
+          createPage: async (siteId: string, input: any) => {
+            createPageCalls.push({ siteId, input })
+            return { id: 'new-page-1', path: input.path, locale: input.locale ?? 'en' }
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          groupIdsForRequest: () => [],
+          checkAccess: (_actor: unknown, permission: string) => {
+            checkAccessCalls.push(permission)
+            return grantedPermissions.has(permission)
+          }
+        }
+      }
+    }
+
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    createPageCalls = []
+    checkAccessCalls = []
+    grantedPermissions = new Set(['write:pages'])
+  })
+
+  const basePayload = { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+
+  test('omitted publishState (defaults to published) is refused with 403 without publish:pages, before createPage runs', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: basePayload
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(createPageCalls.length, 0)
+    assert.ok(checkAccessCalls.includes('publish:pages'))
+  })
+
+  test('explicit publishState: published is refused with 403 without publish:pages', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { ...basePayload, publishState: 'published' }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(createPageCalls.length, 0)
+  })
+
+  test('explicit publishState: draft does not require publish:pages', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { ...basePayload, publishState: 'draft' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(createPageCalls.length, 1)
+    assert.ok(!checkAccessCalls.includes('publish:pages'))
+  })
+
+  test('explicit publishState: scheduled does not require publish:pages', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { ...basePayload, publishState: 'scheduled' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(createPageCalls.length, 1)
+    assert.ok(!checkAccessCalls.includes('publish:pages'))
+  })
+
+  test('a caller holding both write:pages and publish:pages may create an immediately-published page', async () => {
+    grantedPermissions = new Set(['write:pages', 'publish:pages'])
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: basePayload
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('publish:pages alone, without write:pages, is still refused: page creation itself needs write:pages', async () => {
+    grantedPermissions = new Set(['publish:pages'])
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: basePayload
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(createPageCalls.length, 0)
+  })
+})

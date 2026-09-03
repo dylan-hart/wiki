@@ -5,33 +5,48 @@
     </w-header>
     <w-page-container class="layout-inbox">
       <div class="layout-inbox-card">
-        <div class="layout-inbox-sd">
-          <w-list>
-            <w-item clickable @click="goBack">
-              <w-item-section side>
-                <w-icon name="la:arrow-circle-left" />
-              </w-item-section>
-              <w-item-section>
-                <w-item-label>{{ t('common.actions.goback') }}</w-item-label>
-              </w-item-section>
-            </w-item>
-            <w-separator inset spaced="sm" />
-            <w-item
-              v-for="navItem of sidenav"
-              :key="navItem.key"
-              clickable
-              :to="`/_inbox/` + navItem.key"
-              active-class="is-active">
-              <w-item-section side>
-                <w-icon :name="navItem.icon" />
-              </w-item-section>
-              <w-item-section>
-                <w-item-label>{{ navItem.label }}</w-item-label>
-              </w-item-section>
-            </w-item>
-          </w-list>
+        <!--
+          FileManager's own header language (OpenProject #2415): a dark `.card-header` band, an icon
+          plus title on the left, and a single white/grey-7 push button on the right -- the same
+          close/back idiom FileManager uses for its Close button and NavEditOverlay for Cancel. "Go
+          Back" moves here from the rail below, which is what a FileManager-style overlay would call
+          its close affordance; the rail keeps only the two section entries.
+        -->
+        <w-header class="layout-inbox-hdr card-header px-4 py-2">
+          <w-icon name="mdi:inbox-full" left size="md" />
+          <span>{{ t('inbox.title') }}</span>
+          <w-space />
+          <w-btn-group>
+            <w-btn
+              push
+              color="white"
+              text-color="grey-7"
+              :label="t('common.actions.goback')"
+              :aria-label="t('common.actions.goback')"
+              icon="la:arrow-circle-left"
+              @click="goBack" />
+          </w-btn-group>
+        </w-header>
+        <div class="layout-inbox-body">
+          <div class="layout-inbox-sd">
+            <w-list>
+              <w-item
+                v-for="navItem of sidenav"
+                :key="navItem.key"
+                clickable
+                :to="`/_inbox/` + navItem.key"
+                active-class="is-active">
+                <w-item-section side>
+                  <w-icon :name="navItem.icon" />
+                </w-item-section>
+                <w-item-section>
+                  <w-item-label>{{ navItem.label }}</w-item-label>
+                </w-item-section>
+              </w-item>
+            </w-list>
+          </div>
+          <router-view />
         </div>
-        <router-view />
       </div>
     </w-page-container>
     <main-overlay-dialog />
@@ -179,8 +194,13 @@ watch(
     margin: 16px;
     box-shadow: $shadow-2;
     border-radius: 7px;
+    // -> Clips the header and rail below to the card's own rounded corners regardless of their own
+    //    radius (or lack of one) -- the same trick a `w-dialog`'s card relies on for its own
+    //    `.card-header`, now that a header band sits above the sidebar instead of the sidebar itself
+    //    starting flush against the card's top-left corner.
+    overflow: hidden;
     display: flex;
-    align-items: stretch;
+    flex-direction: column;
     // -> No height of its own: the scrolling page container grows this into what is left beside the
     //    16px margins above, and lets its content take it past that. See `.layout-profile-card`.
 
@@ -194,10 +214,18 @@ watch(
     }
   }
 
+  &-hdr {
+    flex: 0 0 auto;
+  }
+
+  &-body {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: stretch;
+  }
+
   &-sd {
     flex: 0 0 300px;
-    border-radius: 8px 0 0 8px;
-    overflow: hidden;
 
     @at-root .body--light & {
       background-color: $grey-1;

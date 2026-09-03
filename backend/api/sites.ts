@@ -24,6 +24,7 @@ const SITE_CONFIG_KEYS = [
   'contentLicense',
   'footerExtra',
   'pageExtensions',
+  'allowedUrlSchemes',
   'logoText',
   'sitemap',
   'discoverable',
@@ -60,6 +61,7 @@ const SITE_FIELD_PERMISSIONS: Partial<
   contentLicense: 'site:general',
   footerExtra: 'site:general',
   pageExtensions: 'site:general',
+  allowedUrlSchemes: 'site:general',
   logoText: 'site:general',
   sitemap: 'site:general',
   discoverable: 'site:general',
@@ -149,6 +151,7 @@ export async function buildSitePayload(site: {
     contentLicense: config.contentLicense,
     footerExtra: config.footerExtra,
     pageExtensions: config.pageExtensions,
+    allowedUrlSchemes: config.allowedUrlSchemes,
     discoverable: config.discoverable,
     defaults: config.defaults,
     features: config.features,
@@ -448,6 +451,7 @@ async function routes(app: FastifyInstance) {
       contentLicense?: string
       footerExtra?: string
       pageExtensions?: string[]
+      allowedUrlSchemes?: string[]
       logoText?: boolean
       sitemap?: boolean
       discoverable?: boolean
@@ -482,7 +486,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update a site',
         description:
-          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
+          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`allowedUrlSchemes`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
         tags: ['Sites'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -519,6 +523,15 @@ async function routes(app: FastifyInstance) {
               items: {
                 type: 'string',
                 pattern: '^[a-z0-9]+$'
+              }
+            },
+            allowedUrlSchemes: {
+              type: 'array',
+              description:
+                'Additional URL schemes (e.g. `discord`) permitted in page link/embed hrefs, additive to the hardcoded safe defaults (`http`, `https`, `mailto`, `tel`, `ftp`). `javascript`, `vbscript` and `data` (on a non-img element) are never actually permittable regardless of what is listed here — enforced at render time, not by this schema.',
+              items: {
+                type: 'string',
+                pattern: '^[a-z][a-z0-9+.-]*$'
               }
             },
             logoText: {

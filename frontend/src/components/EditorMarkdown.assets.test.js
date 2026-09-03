@@ -66,4 +66,31 @@ describe('EditorMarkdown paste vs. drop file naming (OpenProject #806 follow-up)
     expect(editorStore.pendingAssets).toHaveLength(1)
     expect(editorStore.pendingAssets[0].fileName).toBe('quarterly-report.pdf')
   })
+
+  /*
+    OpenProject #2450: the cross-browser gap this fork's editor-hardening pass left open was whether
+    `clipboardData.files` is actually populated for an OS-clipboard image paste in every engine. This
+    proves the defensive fallback -- `pastedFiles()` reading `.items` when `.files` comes back empty --
+    is really wired into the capture-phase paste listener, not just available as an unused helper: a
+    paste whose `clipboardData` carries no `.files` at all, only an `.items` list, still inserts the
+    image as a pending asset instead of silently no-opping.
+  */
+  it('still inserts a pasted image when `clipboardData.files` is empty but `.items` carries it', async () => {
+    const { wrapper } = await mountEditor('')
+    const editorStore = useEditorStore()
+    const editorEl = wrapper.find('.editor-markdown-editor')
+    const image = makeFile('image.png')
+
+    await editorEl.trigger('paste', {
+      clipboardData: {
+        files: [],
+        items: [{ kind: 'file', getAsFile: () => image }],
+        getData: () => ''
+      }
+    })
+
+    expect(editorStore.pendingAssets).toHaveLength(1)
+    expect(editorStore.pendingAssets[0].kind).toBe('file')
+    expect(editorStore.pendingAssets[0].file.type).toBe('image/png')
+  })
 })

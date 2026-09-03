@@ -199,6 +199,19 @@
               <w-badge outline color="grey-6" :label="props.value" />
             </w-td>
           </template>
+          <template #body-cell-translations="props">
+            <w-td :props="props">
+              <div class="flex flex-wrap gap-1">
+                <w-badge
+                  v-for="entry of props.row.localeStatus"
+                  :key="`translation-` + entry.locale"
+                  :outline="entry.state === 'primary' || entry.state === 'current'"
+                  :color="translationStatusColor(entry.state)"
+                  :label="entry.locale"
+                  :title="translationStatusTitle(entry)" />
+              </div>
+            </w-td>
+          </template>
           <template #body-cell-tags="props">
             <w-td :props="props">
               <div class="flex flex-wrap gap-1">
@@ -292,6 +305,12 @@ import { localizedPagePath } from '@/helpers/pagePaths'
  * The bulk endpoint (`POST .../pages/bulk`) reports a status per page rather than failing outright
  * on the first one the caller may not act on -- `applyBulkResult` below is what turns that into a
  * notification summarizing how many landed versus were skipped/not found/errored.
+ *
+ * OpenProject #2476 adds the Translations column: `includeLocaleStatus=true` on the same search
+ * call asks for each row's per-active-locale staleness/missing status
+ * (`docs/decisions/locale-translation-linking.md`'s `translation.updatedAt < primary.updatedAt`
+ * join), rendered as one badge per locale. Opt-in on the request so this view's own query is the
+ * only one that pays for the extra join -- `Search.vue`/`HeaderSearch.vue`/the link picker never do.
  */
 
 // COMPOSABLES
@@ -360,6 +379,12 @@ const headers = [
     field: 'locale',
     name: 'locale',
     style: 'width: 90px'
+  },
+  {
+    label: t('admin.pages.colTranslations'),
+    align: 'left',
+    field: 'localeStatus',
+    name: 'translations'
   },
   {
     label: t('admin.pages.colTags'),
@@ -443,6 +468,30 @@ function pageLink(row) {
   return localizedPagePath(row.path, row.locale, siteStore.localeRouting)
 }
 
+/**
+ * Badge color for one locale's translation status (OpenProject #2476) -- `primary`/`current` are
+ * calm/neutral (nothing needs the reader's attention), `stale`/`missing` use the same
+ * warning/negative colors the rest of the admin area reserves for something that does.
+ */
+function translationStatusColor(state) {
+  switch (state) {
+    case 'primary':
+      return 'grey-6'
+    case 'stale':
+      return 'warning'
+    case 'missing':
+      return 'negative'
+    default:
+      return 'positive'
+  }
+}
+
+function translationStatusTitle(entry) {
+  return t(`admin.pages.translationStatus${entry.state[0].toUpperCase()}${entry.state.slice(1)}`, {
+    locale: entry.locale
+  })
+}
+
 function buildSearchParams(offset) {
   const searchParams = new URLSearchParams()
   if (state.filters.path) {
@@ -468,6 +517,10 @@ function buildSearchParams(offset) {
   searchParams.set('orderByDirection', 'desc')
   searchParams.set('limit', PAGE_SIZE)
   searchParams.set('offset', offset)
+  // -> The per-row Translations column needs each result's cross-locale staleness/missing status
+  //    (OpenProject #2476); opt-in on the shared search route so its other callers (reader search,
+  //    header search, the link picker) never pay for a join this view is the only one rendering.
+  searchParams.set('includeLocaleStatus', 'true')
   return searchParams
 }
 

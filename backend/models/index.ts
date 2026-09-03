@@ -15,6 +15,7 @@ import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
 import { diagramRender } from './diagramRender.ts'
+import { eventSubscriptions } from './eventSubscriptions.ts'
 import { exportModel } from './export.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
@@ -30,6 +31,7 @@ import { locales } from './locales.ts'
 import { login } from './login.ts'
 import { mail } from './mail.ts'
 import { navigation } from './navigation.ts'
+import { pageDrafts } from './pageDrafts.ts'
 import { pageHistory } from './pageHistory.ts'
 import { pageProblems } from './pageProblems.ts'
 import { pageClassification } from './pageClassification.ts'
@@ -42,6 +44,9 @@ import { pdfExport } from './pdfExport.ts'
 import { rateLimits } from './rateLimits.ts'
 import { renderQueue } from './renderQueue.ts'
 import { rendering } from './rendering.ts'
+import { replication } from './replication.ts'
+import { replicationExport } from './replicationExport.ts'
+import { replicationImportModel } from './replicationImport.ts'
 import { search } from './search.ts'
 import { security } from './security.ts'
 import { sessions } from './sessions.ts'
@@ -71,6 +76,7 @@ export default {
   comments,
   contentSync,
   diagramRender,
+  eventSubscriptions,
   export: exportModel,
   extensions,
   flags,
@@ -86,6 +92,7 @@ export default {
   login,
   mail,
   navigation,
+  pageDrafts,
   pageHistory,
   pageClassification,
   pageProblems,
@@ -98,6 +105,9 @@ export default {
   rateLimits,
   renderQueue,
   rendering,
+  replication,
+  replicationExport,
+  replicationImport: replicationImportModel,
   search,
   security,
   sessions,

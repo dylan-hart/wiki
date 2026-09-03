@@ -114,6 +114,9 @@ export interface CollabHarness {
   trackRoom(room: any): void
   /** This test's `WIKI.models.pages.getPage` mock, rebuilt fresh before every test. */
   getPage(): any
+  /** This test's `WIKI.models.pageDrafts` mocks (`get`/`save`/`clear`), rebuilt fresh before every
+   *  test — see `core/collab.draftPersist.test.ts`. */
+  pageDrafts(): { get: any; save: any; clear: any }
 }
 
 /**
@@ -126,6 +129,7 @@ export interface CollabHarness {
 export function installCollabHarness(): CollabHarness {
   let wikiHandle: { restore(): void }
   let getPageMock: any
+  let pageDraftsMocks: { get: any; save: any; clear: any }
   /**
    * `awarenessProtocol.Awareness` (a room's cursor/presence tracker) starts a real `setInterval` of
    * its own to expire stale states - nothing above ever cleans it up on the happy path except a room
@@ -137,10 +141,29 @@ export function installCollabHarness(): CollabHarness {
 
   beforeEach(() => {
     getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
+    // -> `initRoom()`'s middle fallback tier (OpenProject #2454): every test in this shared harness
+    //    gets "no draft on file" by default, same as a page nobody has autosaved yet, so the
+    //    peer/timeout/stored-page suites this harness was built for keep exercising exactly what
+    //    they did before this tier existed. A suite that cares about the draft path (or wants to
+    //    assert on a `save`/`clear` call) reads these back through `pageDrafts()`.
+    pageDraftsMocks = {
+      get: mock.fn(async () => undefined),
+      save: mock.fn(async () => {}),
+      clear: mock.fn(async () => {})
+    }
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'unset',
-      models: { pages: { getPage: getPageMock } }
+      models: {
+        pages: { getPage: getPageMock },
+        pageDrafts: pageDraftsMocks
+      }
     })
+    // -> Only `core/collab.draftPersist.test.ts` opens rooms on the real singleton rather than a
+    //    `makeInstance()` clone (everything else in this harness's other callers builds its own, and
+    //    sets its own `peerPresence`) — freshening this here is what keeps `hasPeers()` reading its
+    //    cache (`known: false`) instead of falling through to a real `WIKI.db` query (undefined in
+    //    this stub) followed by a genuine `PEER_STATE_TIMEOUT` wait for every room it opens.
+    collab.peerPresence = { known: false, checkedAt: Date.now() }
     createdRooms = []
   })
 
@@ -164,6 +187,7 @@ export function installCollabHarness(): CollabHarness {
     trackRoom(room) {
       createdRooms.push(room)
     },
-    getPage: () => getPageMock
+    getPage: () => getPageMock,
+    pageDrafts: () => pageDraftsMocks
   }
 }

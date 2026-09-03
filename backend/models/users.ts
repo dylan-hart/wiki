@@ -17,6 +17,7 @@ import { flatten, uniq } from 'es-toolkit/array'
 import { BCRYPT_ROUNDS, escapeLikePattern, isUniqueViolation } from '../helpers/common.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { paginate } from '../helpers/pagination.ts'
+import { HOOK_EVENTS, type HookEvent } from './hooks.ts'
 import type { SystemIds } from './types.ts'
 
 /** The essential user fields, mirroring the `UserCore` API schema. */
@@ -91,6 +92,14 @@ export interface UserProfilePatch {
   cvd?: string
   locale?: string
 }
+
+/**
+ * One boolean per event type a user may opt into receiving an email for (Feature #2425). Keyed by
+ * {@link HookEvent} rather than a separate vocabulary, since `#2481` (extending webhook dispatch to
+ * also emit email) fires against exactly this same event list -- a subscriber map with its own set
+ * of names would need translating between the two at delivery time for no benefit.
+ */
+export type NotificationSubscriptions = Record<HookEvent, boolean>
 
 /** The `meta` keys the profile owns, and the `prefs` keys it owns. */
 const profileMetaKeys = ['location', 'jobTitle', 'pronouns'] as const
@@ -664,6 +673,153 @@ class Users {
     prefs.editors = { ...((prefs.editors ?? {}) as Record<string, any>), [editor]: config }
     await this.updateUser(id, { prefs })
     return config
+  }
+
+  /**
+   * Which `HookEvent`s this user asked to be emailed about — the storage half of the per-user,
+   * per-event-type email notification toggle (`models/hooks.ts#Hooks.emit()` is the trigger half:
+   * see its `notifyEmailSubscribers()`). Kept at `prefs.notifications.events`, the same
+   * per-feature-blob-under-`prefs` shape `getEditorSettings`/`setEditorSettings` use for
+   * `prefs.editors[editor]` — no migration needed to add or change it, and it costs nothing beyond
+   * a jsonb read. Empty (opt-in, not opt-out) for a user who has never set a preference.
+   *
+   * OpenProject #2482 owns the settings UI this backs; the storage shape here is deliberately the
+   * minimal thing `emit()`'s trigger extension needs to have something real to query, not a
+   * finished preferences feature.
+   *
+   * @returns The subscribed events, or `[]` for a user who has none set or does not exist
+   */
+  async getEmailNotificationEvents(id: string): Promise<HookEvent[]> {
+    const user = await this.getById(id)
+    if (!user) {
+      return []
+    }
+    const prefs = (user.prefs ?? {}) as Record<string, any>
+    const stored = prefs.notifications?.events
+    return Array.isArray(stored)
+      ? stored.filter((event): event is HookEvent => HOOK_EVENTS.includes(event))
+      : []
+  }
+
+  /**
+   * Replace a user's set of subscribed event types, merging into `prefs` the same way
+   * `setEditorSettings` merges into `prefs.editors` — every other preference (including a
+   * different editor's own settings) survives untouched.
+   *
+   * Silently drops anything not in `HOOK_EVENTS`: this is a closed vocabulary (see
+   * `models/hooks.ts`), not free text a caller can extend by typo.
+   *
+   * @returns The saved (filtered) list, or null if no such user exists
+   */
+  async setEmailNotificationEvents(id: string, events: string[]): Promise<HookEvent[] | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const filtered = events.filter((event): event is HookEvent =>
+      HOOK_EVENTS.includes(event as HookEvent)
+    )
+    const prefs = { ...((user.prefs ?? {}) as Record<string, any>) }
+    prefs.notifications = {
+      ...((prefs.notifications ?? {}) as Record<string, any>),
+      events: filtered
+    }
+    await this.updateUser(id, { prefs })
+    return filtered
+  }
+
+  /**
+   * Every active, non-system user subscribed to email notifications for one event type — the
+   * subscriber half of `Hooks.emit()`'s email fan-out (see that method's `notifyEmailSubscribers()`).
+   * Reads the same `prefs.notifications.events` array {@link setEmailNotificationEvents} writes, via
+   * `jsonb_exists()` (the function form of jsonb's `?` containment operator, spelled out so it reads
+   * unambiguously next to Drizzle's own `${}` parameter placeholders rather than risking the bare
+   * operator being misread as one).
+   *
+   * Deliberately instance-wide, with no site or page-permission filtering: a webhook subscription
+   * (what this mirrors) isn't scoped to what its owner can read either — see this feature's own
+   * scope notes for why that's a known simplification here, not an oversight.
+   */
+  async listEmailSubscribers(event: HookEvent): Promise<{ id: string }[]> {
+    return WIKI.db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.isActive, true),
+          eq(usersTable.isSystem, false),
+          sql`jsonb_exists(${usersTable.prefs} -> 'notifications' -> 'events', ${event})`
+        )
+      )
+  }
+
+  /**
+   * A user's own per-event-type email notification subscriptions (Feature #2425), as the boolean
+   * map the profile UI and `UserNotificationSubscriptions` schema deal in. A thin adapter over
+   * {@link getEmailNotificationEvents} rather than a second storage location -- `#2481`'s
+   * `Hooks.emit()` already reads that array (via {@link listEmailSubscribers}), so a competing
+   * `prefs.eventSubscriptions` blob would leave this settings page changing something the trigger
+   * side never looks at. Always returns a fully populated map over every {@link HOOK_EVENTS} entry
+   * rather than only the events a user has actually subscribed to -- opting in is explicit, so an
+   * event the user has never set, or one added to `HOOK_EVENTS` after they last saved, both default
+   * to `false` here rather than being silently absent from the response.
+   *
+   * @returns The full subscription map, or null if no such user exists
+   */
+  async getNotificationSubscriptions(id: string): Promise<NotificationSubscriptions | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const subscribed = new Set(await this.getEmailNotificationEvents(id))
+    const subscriptions = {} as NotificationSubscriptions
+    for (const event of HOOK_EVENTS) {
+      subscriptions[event] = subscribed.has(event)
+    }
+    return subscriptions
+  }
+
+  /**
+   * Merge a patch into a user's per-event-type email notification subscriptions, translating the
+   * boolean-map patch the route accepts into the subscribed-event array
+   * {@link setEmailNotificationEvents} actually stores.
+   *
+   * Only the keys present in `patch` change; every other event type -- including one the caller
+   * simply didn't send -- is left as it was. `patch` is trusted to carry only known
+   * {@link HookEvent} keys: the route schema (`UserNotificationSubscriptionsUpdate`) is what
+   * actually rejects an unknown one, so this only ever writes keys `HOOK_EVENTS` already lists.
+   *
+   * @returns The full, freshly merged subscription map, or null if no such user exists
+   */
+  async setNotificationSubscriptions(
+    id: string,
+    patch: Partial<NotificationSubscriptions>
+  ): Promise<NotificationSubscriptions | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const existing = new Set(await this.getEmailNotificationEvents(id))
+    for (const event of HOOK_EVENTS) {
+      if (patch[event] === undefined) {
+        continue
+      }
+      if (patch[event]) {
+        existing.add(event)
+      } else {
+        existing.delete(event)
+      }
+    }
+    const saved = await this.setEmailNotificationEvents(id, [...existing])
+    if (!saved) {
+      return null
+    }
+    const savedSet = new Set(saved)
+    const subscriptions = {} as NotificationSubscriptions
+    for (const event of HOOK_EVENTS) {
+      subscriptions[event] = savedSet.has(event)
+    }
+    return subscriptions
   }
 
   /**

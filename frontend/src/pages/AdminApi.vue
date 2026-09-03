@@ -67,6 +67,33 @@
     </div>
     <w-separator inset />
     <div class="grid grid-cols-12 p-4 gap-4">
+      <!--
+        Task 2410: an admin-issued key here has no bearing on MCP page-authorship attribution --
+        that's a personal token, minted from the reader's own Profile, not this admin screen. Shown
+        unconditionally (not gated on `state.keys.length`), since the confusion this addresses
+        applies whether or not admin keys already exist.
+      -->
+      <div class="col-span-12">
+        <w-card
+          class="rounded"
+          flat
+          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+          <w-card-section class="items-center" horizontal>
+            <w-card-section class="flex-none pr-0">
+              <w-icon name="la:info-circle" size="sm" />
+            </w-card-section>
+            <w-card-section class="text-caption">
+              <i18n-t tag="span" keypath="admin.api.personalTokenNote" scope="global">
+                <template #link>
+                  <router-link to="/_profile/api" class="text-primary">{{
+                    t('admin.api.personalTokenNoteLink')
+                  }}</router-link>
+                </template>
+              </i18n-t>
+            </w-card-section>
+          </w-card-section>
+        </w-card>
+      </div>
       <div class="col-span-12" v-if="state.keys.length < 1">
         <w-card
           class="rounded"

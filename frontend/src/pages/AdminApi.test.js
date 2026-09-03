@@ -85,6 +85,77 @@ describe('AdminApi key list site caption', () => {
   })
 })
 
+/**
+ * Task 2410: coworkers testing the demo went to Admin > API Access expecting to mint an
+ * MCP-usable token there and got confused -- a personal token (the credential type MCP actually
+ * attributes page authorship to) is only created from Profile > API Access. Covers the note
+ * pointing there, and that it links to the real route -- shown whether or not admin-issued keys
+ * already exist, since the confusion applies either way.
+ */
+describe('AdminApi personal token note', () => {
+  function mountPageWithProfileRoute() {
+    return mountWithApp(AdminApi, {
+      routes: ['/_profile/api'],
+      messages: {
+        admin: {
+          api: {
+            personalTokenNote: 'Create a personal token instead, from {link}.',
+            personalTokenNoteLink: 'Profile > API Access'
+          }
+        }
+      }
+    }).wrapper
+  }
+
+  it('links to Profile > API Access when no admin keys exist yet', async () => {
+    stubApi({
+      'api-keys': [],
+      'system/api': { isEnabled: true },
+      groups: [],
+      sites: [],
+      'system/certificates': { generatedAt: null }
+    })
+
+    const wrapper = mountPageWithProfileRoute()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('Profile > API Access')
+    const link = wrapper.find('a[href="/_profile/api"]')
+    expect(link.exists()).toBe(true)
+  })
+
+  it('still shows the note when admin keys already exist', async () => {
+    stubApi({
+      'api-keys': [
+        {
+          id: 'key-1',
+          name: 'Docs Key',
+          keyShort: 'abcd',
+          groups: [],
+          scope: null,
+          siteId: null,
+          isRevoked: false,
+          isInvalidated: false,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          expiration: '2099-01-01T00:00:00.000Z'
+        }
+      ],
+      'system/api': { isEnabled: true },
+      groups: [],
+      sites: [],
+      'system/certificates': { generatedAt: null }
+    })
+
+    const wrapper = mountPageWithProfileRoute()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    const link = wrapper.find('a[href="/_profile/api"]')
+    expect(link.exists()).toBe(true)
+  })
+})
+
 // -> OpenProject #1929: `/dev/api` names a concept this fork invented (there is no such upstream
 //    Wiki.js docs section), so no docs site can describe it -- the help button was deleted rather
 //    than left pointing at a page that does not exist. The Swagger UI button (`href="/_api"`) is

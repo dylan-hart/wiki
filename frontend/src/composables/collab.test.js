@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
+import { queue as notifyQueue } from '@/composables/notify'
+
 /**
  * Task 482: verify the reconnect-with-offline-edits path end to end on the browser side.
  *
@@ -81,8 +83,52 @@ const { FakeWebsocketProvider } = vi.hoisted(() => {
 
 vi.mock('y-websocket', () => ({ WebsocketProvider: FakeWebsocketProvider }))
 
-const { bindCollabEditor, collabStatusEffects, startCollabSession, stopCollabSession } =
-  await import('./collab.js')
+/*
+  `confirm()`'s real chain (`composables/dialog.js`) opens a `<w-dialog>` component that resolves
+  asynchronously through user interaction -- nothing this unit test can drive. This stand-in keeps the
+  same chainable shape (`.onOk(cb).onCancel(cb)`, both registering on the one object confirm() itself
+  returns) so a test decides which branch fires by calling `.okCb()`/`.cancelCb()` directly, the same
+  way `GlossaryImportDialog.test.js` drives its own `confirm()` mock.
+*/
+const confirmMock = vi.fn(() => {
+  const chain = {
+    onOk(cb) {
+      chain.okCb = cb
+      return chain
+    },
+    onCancel(cb) {
+      chain.cancelCb = cb
+      return chain
+    },
+    onDismiss() {
+      return chain
+    }
+  }
+  return chain
+})
+vi.mock('@/composables/dialog', async (importOriginal) => ({
+  ...(await importOriginal()),
+  confirm: (...args) => confirmMock(...args)
+}))
+
+/*
+  `composables/collab.js` reads the app's real i18n singleton (`@/boot/i18n`), which nothing in this
+  unit test's harness ever boots (no `main.js`, no locale strings loaded from the server) -- so `t()`
+  is stood in with a marker that echoes back exactly which key and params it was called with. What is
+  worth asserting here is the WIRING (the right key, the right interpolation params for "known
+  author" vs "unknown author"), not the English wording itself, which `en.json` already owns.
+*/
+vi.mock('@/boot/i18n', () => ({
+  i18n: { global: { t: (key, params) => JSON.stringify({ key, params: params ?? null }) } }
+}))
+
+const {
+  applyRestoredDraft,
+  bindCollabEditor,
+  collabStatusEffects,
+  startCollabSession,
+  stopCollabSession
+} = await import('./collab.js')
 const { useCollabStore } = await import('@/stores/collab')
 const { usePageStore } = await import('@/stores/page')
 const { useSiteStore } = await import('@/stores/site')
@@ -95,6 +141,7 @@ function latestProvider() {
 beforeEach(() => {
   setActivePinia(createPinia())
   FakeWebsocketProvider.instances.length = 0
+  confirmMock.mockClear()
 })
 
 afterEach(() => {
@@ -286,5 +333,157 @@ describe('bindCollabEditor', () => {
     boot()
     expect(() => bindCollabEditor(() => undefined)).not.toThrow()
     expect(() => stopCollabSession()).not.toThrow()
+  })
+})
+
+/**
+ * OpenProject #2455: on a page whose collaboration room last closed with unsaved edits still
+ * pending, the reader is offered to restore them once the session syncs.
+ */
+describe('offerDraftRestore / applyRestoredDraft', () => {
+  function boot({ draft = null } = {}) {
+    const siteStore = useSiteStore()
+    const pageStore = usePageStore()
+    const userStore = useUserStore()
+    siteStore.id = 'site-1'
+    pageStore.id = 'page-1'
+    pageStore.draft = draft
+    userStore.id = 'user-1'
+    userStore.name = 'Ada Lovelace'
+    startCollabSession({ siteId: siteStore.id, pageId: pageStore.id })
+    return { pageStore, provider: latestProvider() }
+  }
+
+  it('does not prompt when the page carries no recorded draft', () => {
+    const { provider } = boot({ draft: null })
+    provider.emit('sync', true)
+    expect(confirmMock).not.toHaveBeenCalled()
+  })
+
+  it('prompts once the session syncs when a draft is recorded, and clears pageStore.draft right away', () => {
+    const { pageStore, provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
+    })
+    provider.emit('sync', true)
+
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    const opts = confirmMock.mock.calls[0][0]
+    expect(JSON.parse(opts.title)).toEqual({
+      key: 'editor.collab.draftRecovery.title',
+      params: null
+    })
+    expect(JSON.parse(opts.message)).toEqual({
+      key: 'editor.collab.draftRecovery.messageBy',
+      params: { authorName: 'Grace Hopper' }
+    })
+    expect(opts.persistent).toBe(true)
+    // -> Consumed immediately, not left standing as "still pending" while the dialog is up
+    expect(pageStore.draft).toBe(null)
+  })
+
+  it('falls back to the name-less message key when the draft carries no author', () => {
+    const { provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: null }
+    })
+    provider.emit('sync', true)
+    const opts = confirmMock.mock.calls[0][0]
+    expect(JSON.parse(opts.message)).toEqual({
+      key: 'editor.collab.draftRecovery.message',
+      params: null
+    })
+  })
+
+  it('never prompts twice in the same session, even across a reconnect´s second sync', () => {
+    const { provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
+    })
+    provider.emit('sync', true)
+    provider.emit('sync', false)
+    provider.emit('sync', true)
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('restoring fetches the draft content and applies it into the shared document and page store', async () => {
+    const { provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
+    })
+    let seenYtext = null
+    bindCollabEditor((ytext) => {
+      seenYtext = ytext
+      return { destroy: vi.fn() }
+    })
+    seenYtext.insert(0, 'stale content')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          content: 'the restored content',
+          title: 'Restored Title',
+          description: 'Restored description',
+          icon: 'mdi:restore'
+        })
+    })
+
+    provider.emit('sync', true)
+    const chain = confirmMock.mock.results.at(0).value
+    await chain.okCb()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/page-1/draft')
+    expect(seenYtext.toString()).toBe('the restored content')
+    expect(usePageStore().title).toBe('Restored Title')
+    expect(usePageStore().description).toBe('Restored description')
+    expect(usePageStore().icon).toBe('mdi:restore')
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'positive' })
+  })
+
+  it('a failed restore notifies negatively and leaves the document untouched', async () => {
+    const { provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
+    })
+    let seenYtext = null
+    bindCollabEditor((ytext) => {
+      seenYtext = ytext
+      return { destroy: vi.fn() }
+    })
+    seenYtext.insert(0, 'unchanged content')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.reject(new Error('network'))
+    })
+
+    provider.emit('sync', true)
+    const chain = confirmMock.mock.results.at(0).value
+    await chain.okCb()
+
+    expect(seenYtext.toString()).toBe('unchanged content')
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })
+  })
+
+  it('discarding calls DELETE and never touches the shared document', async () => {
+    const { provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
+    })
+    let seenYtext = null
+    bindCollabEditor((ytext) => {
+      seenYtext = ytext
+      return { destroy: vi.fn() }
+    })
+    seenYtext.insert(0, 'unchanged content')
+
+    provider.emit('sync', true)
+    const chain = confirmMock.mock.results.at(0).value
+    await chain.cancelCb()
+
+    expect(API_CLIENT.delete).toHaveBeenCalledWith('sites/site-1/pages/page-1/draft')
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+    expect(seenYtext.toString()).toBe('unchanged content')
+  })
+
+  it('applyRestoredDraft is a no-op once the session has already ended', () => {
+    boot({ draft: null })
+    stopCollabSession()
+    expect(() =>
+      applyRestoredDraft({ content: 'x', title: 'x', description: 'x', icon: 'x' })
+    ).not.toThrow()
   })
 })

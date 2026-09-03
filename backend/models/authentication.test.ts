@@ -2,6 +2,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { authentication } from './authentication.ts'
+import { groups as groupsTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
 /**
@@ -143,6 +144,56 @@ describe('authentication.validateStrategy: mappableGroups', () => {
   })
 })
 
+/**
+ * OpenProject #2469: `allowedEmailDomains` is a per-strategy list of domains, a friendlier
+ * alternative to `allowedEmailRegex` for the common case. `validateStrategy`'s format check touches
+ * no database and no `WIKI` global, so this is a pure unit suite -- the same "no I/O" reasoning as
+ * the mappableGroups describe above, minus even its `WIKI.db` stub.
+ */
+describe('authentication.validateStrategy: allowedEmailDomains', () => {
+  test('accepts an empty allowedEmailDomains list', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: []
+    })
+    assert.equal(result, null)
+  })
+
+  test('accepts a list of plausible domains', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['example.com', 'sub.example.org', 'Example.ORG']
+    })
+    assert.equal(result, null)
+  })
+
+  test('refuses an entry that is not a bare domain (contains @)', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['user@example.com']
+    })
+    assert.match(result ?? '', /is not a valid domain/)
+  })
+
+  test('refuses an entry with no dot at all', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['notadomain']
+    })
+    assert.match(result ?? '', /is not a valid domain/)
+  })
+
+  test('validates the normalized (trimmed) form, not the raw submitted string', async () => {
+    // -> Leading/trailing whitespace alone must not be reported as invalid -- it is trimmed away by
+    //    the same normalization createStrategy/updateStrategy apply before storing.
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['  example.com  ']
+    })
+    assert.equal(result, null)
+  })
+})
+
 describe(
   'authentication: sensitive config masking (DB-backed, real oauth2 definition read from disk)',
   { skip: !hasTestDatabase() },
@@ -199,6 +250,150 @@ describe(
       const strategy = await authentication.getStrategyById(id)
       assert.equal(strategy?.config.clientSecret, 'original-secret')
       assert.equal(strategy?.config.clientId, 'updated-id')
+    })
+  }
+)
+
+/**
+ * OpenProject #2440: the admin group-assignment UI had no warning that a manually-added membership
+ * in a group also on a strategy's `mappableGroups` allow-list can be silently reverted on that user's
+ * next login. `getGroupSyncWarnings()` is the read behind that warning -- these assert it names
+ * exactly the groups `models/login.ts#syncProviderGroups()` would actually revoke, not merely every
+ * mappable group.
+ */
+describe(
+  'authentication.getGroupSyncWarnings (DB-backed, real oauth2 definition read from disk)',
+  { skip: !hasTestDatabase() },
+  () => {
+    const guestsGroupId = 'unused-in-this-suite-guests'
+    const rootAdminGroupId = 'unused-in-this-suite-root-admin'
+
+    before(async () => {
+      await setupTestDb()
+      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite', guestsGroupId }
+      ;(WIKI.config as any).auth = { rootAdminGroupId }
+      await authentication.refreshStrategiesFromDisk()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('no configured strategy at all means no warnings', async () => {
+      assert.deepEqual(await authentication.getGroupSyncWarnings(), [])
+    })
+
+    test('names only the genuinely revocable groups of enabled, mapGroups-on strategies', async () => {
+      const editorsGroupId = await WIKI.models.groups.createGroup('Sync Warning Editors')
+      const autoEnrolledGroupId = await WIKI.models.groups.createGroup('Sync Warning AutoEnrolled')
+      const [adminRow] = await WIKI.db
+        .insert(groupsTable)
+        .values({ name: 'Sync Warning Admins', permissions: ['manage:system'], rules: [] })
+        .returning({ id: groupsTable.id })
+      const adminGroupId = adminRow!.id
+
+      // -> Enabled, mapGroups on, and its allow-list mixes one genuinely-revocable group with three
+      //    that must never be flagged: the guests group, a group it also `autoEnrollGroups` (granted
+      //    directly by an admin, never taken away by the sync), and a `manage:system` group.
+      const activeId = await authentication.createStrategy({
+        module: 'oauth2',
+        displayName: 'Corp OAuth2',
+        isEnabled: true,
+        mappableGroups: [editorsGroupId, autoEnrolledGroupId, adminGroupId],
+        autoEnrollGroups: [autoEnrolledGroupId],
+        config: { mapGroups: true }
+      })
+      // -> Same allow-list, but disabled -- contributes nothing.
+      await authentication.createStrategy({
+        module: 'oauth2',
+        displayName: 'Disabled OAuth2',
+        isEnabled: false,
+        mappableGroups: [editorsGroupId],
+        config: { mapGroups: true }
+      })
+      // -> Enabled, but mapGroups is off -- an allow-list configured ahead of turning mapping on
+      //    grants/revokes nothing yet, and must not be warned about either.
+      await authentication.createStrategy({
+        module: 'oauth2',
+        displayName: 'Not Mapping Yet',
+        isEnabled: true,
+        mappableGroups: [editorsGroupId],
+        config: { mapGroups: false }
+      })
+
+      const warnings = await authentication.getGroupSyncWarnings()
+
+      assert.deepEqual(
+        warnings.map((w) => w.groupId),
+        [editorsGroupId]
+      )
+      const entry = warnings[0]!
+      assert.equal(entry.strategies.length, 1)
+      assert.deepEqual(entry.strategies[0], { id: activeId, displayName: 'Corp OAuth2' })
+    })
+  }
+)
+
+/**
+ * OpenProject #2469: `createStrategy`/`updateStrategy` normalize `allowedEmailDomains` (trim,
+ * lower-case, dedupe) before it reaches the row -- DB-backed because the point under test is what a
+ * real round trip through the column actually stores, not merely what a stub was called with.
+ */
+describe(
+  'authentication: allowedEmailDomains normalization (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    before(async () => {
+      await setupTestDb()
+      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      await authentication.refreshStrategiesFromDisk()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('createStrategy stores a trimmed, lower-cased, deduped domain list', async () => {
+      const id = await authentication.createStrategy({
+        module: 'local',
+        allowedEmailDomains: [' Example.com ', 'EXAMPLE.COM', 'other.org']
+      })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual([...strategy!.allowedEmailDomains].sort(), ['example.com', 'other.org'])
+    })
+
+    test('createStrategy with no allowedEmailDomains stores an empty list, not null/undefined', async () => {
+      const id = await authentication.createStrategy({ module: 'local' })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual(strategy!.allowedEmailDomains, [])
+    })
+
+    test('updateStrategy replaces the stored list with the normalized patch', async () => {
+      const id = await authentication.createStrategy({
+        module: 'local',
+        allowedEmailDomains: ['old.example']
+      })
+
+      await authentication.updateStrategy(id, {
+        allowedEmailDomains: ['New.Example', 'new.example', '  another.test  ']
+      })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual([...strategy!.allowedEmailDomains].sort(), ['another.test', 'new.example'])
+    })
+
+    test('updateStrategy leaves allowedEmailDomains untouched when omitted from the patch', async () => {
+      const id = await authentication.createStrategy({
+        module: 'local',
+        allowedEmailDomains: ['keep.example']
+      })
+
+      await authentication.updateStrategy(id, { displayName: 'Renamed' })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual(strategy!.allowedEmailDomains, ['keep.example'])
     })
   }
 )

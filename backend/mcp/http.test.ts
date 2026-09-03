@@ -309,12 +309,16 @@ describe('mcp/http', () => {
     const toolNames = message.result.tools.map((t: any) => t.name).sort()
     assert.deepEqual(toolNames, [
       'create_page',
+      'delete_asset',
       'get_page',
+      'list_assets',
       'list_navigation',
       'list_sites',
+      'rename_asset',
       'render_diagram',
       'search_pages',
-      'update_page'
+      'update_page',
+      'upload_asset'
     ])
   })
 

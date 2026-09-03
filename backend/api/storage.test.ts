@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, mock, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import storageRoutes from './storage.ts'
@@ -33,11 +33,21 @@ const ENABLED_TARGET = {
 
 const DISABLED_TARGET = { ...ENABLED_TARGET, id: randomUUID(), isEnabled: false }
 
+const GIT_TARGET = {
+  id: randomUUID(),
+  siteId: SITE_ID,
+  module: 'git',
+  isEnabled: true,
+  title: 'Test Git',
+  actions: [{ handler: 'sync', label: 'Force Sync', hint: '', icon: 'synchronize' }]
+}
+
 before(async () => {
   executeAction = mock.fn(async () => {})
   getSiteTargetById = mock.fn(async (_siteId: string, targetId: string) => {
     if (targetId === ENABLED_TARGET.id) return ENABLED_TARGET
     if (targetId === DISABLED_TARGET.id) return DISABLED_TARGET
+    if (targetId === GIT_TARGET.id) return GIT_TARGET
     return null
   })
 
@@ -58,6 +68,7 @@ before(async () => {
 beforeEach(() => {
   executeAction.mock.resetCalls()
   getSiteTargetById.mock.resetCalls()
+  ;(WIKI.scheduler.addJob as any).mock.resetCalls()
 })
 
 after(() => closeTestApp(app))
@@ -124,4 +135,36 @@ test('a nonexistent target 404s', async () => {
   })
 
   assert.equal(res.statusCode, 404)
+})
+
+// -> OpenProject #2429: the git module's mass-delete safety guard reads `data.confirmMassDelete`
+//    out of the queued job payload `sync.ts#sync()` is eventually called with — this is the one place
+//    that payload is built, so this is where the request body has to actually reach it.
+describe('confirmMassDelete threads through the queued job for a sync-shaped action', () => {
+  test('omitted body queues the job with confirmMassDelete: false', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/storage/targets/${GIT_TARGET.id}/actions/sync`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
+    assert.equal((WIKI.scheduler.addJob as any).mock.calls.length, 1)
+    const [job] = (WIKI.scheduler.addJob as any).mock.calls[0]!.arguments
+    assert.equal(job.task, 'dispatchStorage')
+    assert.equal(job.payload.handler, 'sync')
+    assert.equal(job.payload.data.confirmMassDelete, false)
+  })
+
+  test('confirmMassDelete: true in the body reaches the queued job data', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/storage/targets/${GIT_TARGET.id}/actions/sync`,
+      payload: { confirmMassDelete: true }
+    })
+
+    assert.equal(res.statusCode, 200)
+    const [job] = (WIKI.scheduler.addJob as any).mock.calls[0]!.arguments
+    assert.equal(job.payload.data.confirmMassDelete, true)
+  })
 })

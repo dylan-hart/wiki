@@ -44,6 +44,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     selfRegistration = true,
     autoProvision = false,
     allowedEmailRegex = '',
+    allowedEmailDomains = [] as string[],
     autoEnrollGroups = [] as string[],
     emailValidation = true,
     isEnabled = true,
@@ -58,6 +59,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
         selfRegistration,
         autoProvision,
         allowedEmailRegex,
+        allowedEmailDomains,
         autoEnrollGroups,
         config: { emailValidation }
       })
@@ -274,6 +276,137 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       ),
       /ERR_EMAIL_NOT_ALLOWED/
     )
+  })
+
+  /**
+   * WP #2470: `allowedEmailDomains`, distinct from `allowedEmailRegex` above -- a per-strategy
+   * domain allow-list scoped to local self-registration only.
+   */
+  test('refuses an email whose domain is not on allowedEmailDomains', async () => {
+    const strategyId = await createStrategy({ allowedEmailDomains: ['allowed.example'] })
+    attachStrategyToSite(strategyId)
+
+    await assert.rejects(
+      login.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada@elsewhere.example',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_EMAIL_NOT_ALLOWED/
+    )
+
+    // -> Rejected before any account was written
+    assert.equal(await users.getByEmail('ada@elsewhere.example'), null)
+  })
+
+  test('accepts an email whose domain matches allowedEmailDomains case-insensitively', async () => {
+    const strategyId = await createStrategy({
+      allowedEmailDomains: ['allowed.example'],
+      emailValidation: true
+    })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
+
+    const result = await login.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Ada Lovelace',
+        // -> Mixed-case domain, still matches the lowercased, stored 'allowed.example'
+        email: 'ada@Allowed.Example',
+        password: 'longenough1'
+      },
+      req()
+    )
+
+    assert.deepEqual(result, { nextAction: 'verify' })
+    const created = await users.getByEmail('ada@allowed.example')
+    assert.ok(created)
+  })
+
+  test('an empty allowedEmailDomains list leaves registration unrestricted', async () => {
+    const strategyId = await createStrategy({ allowedEmailDomains: [], emailValidation: true })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
+
+    const result = await login.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Ada Lovelace',
+        email: 'ada@anywhere.example',
+        password: 'longenough1'
+      },
+      req()
+    )
+
+    assert.deepEqual(result, { nextAction: 'verify' })
+    assert.ok(await users.getByEmail('ada@anywhere.example'))
+  })
+
+  test('accepts and creates the account for an address matching allowedEmailRegex', async () => {
+    const strategyId = await createStrategy({
+      allowedEmailRegex: '^[^@]+@allowed\\.example$',
+      emailValidation: false
+    })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
+    registerLiveStrategy(strategyId)
+
+    // -> A distinct local-part from the allowedEmailDomains tests above, which already register
+    //    ada@allowed.example -- this and that are separate tests sharing one per-file database.
+    const result = await login.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Katherine Johnson',
+        email: 'katherine@allowed.example',
+        password: 'longenough1'
+      },
+      req()
+    )
+
+    assert.equal(result.authenticated, true)
+    assert.equal(result.nextAction, 'redirect')
+
+    const created = await users.getByEmail('katherine@allowed.example')
+    assert.ok(created)
+    assert.equal(created!.name, 'Katherine Johnson')
+  })
+
+  test('matches allowedEmailRegex case-insensitively against the submitted address', async () => {
+    // -> The pattern itself is written in lowercase, matching how a real admin would enter a domain;
+    //    what proves case-insensitivity is the mixed-case address below still matching, because
+    //    register() tests the pattern against `normalizedEmail` (already lowercased), not the raw
+    //    submitted casing.
+    const strategyId = await createStrategy({
+      allowedEmailRegex: '^[^@]+@allowed\\.example$',
+      emailValidation: false
+    })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
+    registerLiveStrategy(strategyId)
+
+    const result = await login.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Grace Hopper',
+        email: 'Grace.Hopper@Allowed.Example',
+        password: 'longenough1'
+      },
+      req()
+    )
+
+    assert.equal(result.authenticated, true)
+
+    const created = await users.getByEmail('grace.hopper@allowed.example')
+    assert.ok(created)
   })
 
   test('a duplicate of an already-verified address, with emailValidation on, answers the same generic result a fresh registration would and notifies the real owner instead of confirming the address is taken', async () => {

@@ -181,7 +181,10 @@ async function routes(app: FastifyInstance) {
   /**
    * EXECUTE STORAGE TARGET ACTION
    */
-  app.post<{ Params: { siteId: string; targetId: string; action: string } }>(
+  app.post<{
+    Params: { siteId: string; targetId: string; action: string }
+    Body: { confirmMassDelete?: boolean }
+  }>(
     '/sites/:siteId/storage/targets/:targetId/actions/:action',
     {
       config: {
@@ -190,7 +193,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Run an action on a storage target',
         description:
-          'The actions a target offers are listed with it. Only an enabled target can run one, and only a module with an implementation offers any. A sync-shaped action (`sync`, `syncUntracked`, `importAll`) is queued on the scheduler rather than run inline, since it may involve a network round-trip; the response confirms it was queued, not that it completed. Any other action (e.g. `purge`) is expected to be fast and runs synchronously.',
+          "The actions a target offers are listed with it. Only an enabled target can run one, and only a module with an implementation offers any. A sync-shaped action (`sync`, `syncUntracked`, `importAll`) is queued on the scheduler rather than run inline, since it may involve a network round-trip; the response confirms it was queued, not that it completed. Any other action (e.g. `purge`) is expected to be fast and runs synchronously.\n\n`confirmMassDelete` only matters for the `git` module's `sync` action: if a previous sync logged that it held back an unusually large fraction of page deletions (its configured safety threshold), pass `true` here to apply them anyway on this run.",
         tags: ['Storage'],
         params: {
           type: 'object',
@@ -251,13 +254,17 @@ async function routes(app: FastifyInstance) {
       //    and `storageSyncTick` are, and delivered by the same task. Anything else (e.g. `purge`) is
       //    expected to be fast and stays synchronous.
       if ((SYNC_SHAPED_ACTIONS as readonly string[]).includes(req.params.action)) {
+        // -> `confirmMassDelete` only means anything to the git module's `sync` handler (OpenProject
+        //    #2429's mass-delete safety guard) — carried through unconditionally for every
+        //    sync-shaped action anyway, the same way `data` already is, since a handler that doesn't
+        //    read a key it doesn't recognize is simply ignoring it, not misbehaving.
         const added = await WIKI.scheduler.addJob({
           task: 'dispatchStorage',
           payload: {
             targetId: target.id,
             siteId: req.params.siteId,
             handler: req.params.action,
-            data: {}
+            data: { confirmMassDelete: req.body?.confirmMassDelete === true }
           }
         })
         if (!added?.id) {

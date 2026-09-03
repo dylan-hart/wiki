@@ -363,12 +363,18 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
-import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
+import {
+  hasFiles,
+  pastedFiles,
+  shouldAcceptDrag,
+  shouldClaimPaste
+} from '@/helpers/editorFileTransfer'
 import {
   resolveEditorFontSize,
   resolveInitialPreviewShown,
   resolveInitialPreviewWidth
 } from '@/helpers/editorUserSettings'
+import { htmlToMarkdown } from '@/helpers/htmlToMarkdown'
 import {
   blockOpeningLine,
   blockValues,
@@ -1107,22 +1113,33 @@ function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
 }
 
 /*
-  Pasting a file inserts it; pasting anything else is left alone. See `shouldClaimPaste` for the
-  text-wins-over-an-accompanying-image decision -- pulled out to `helpers/editorFileTransfer.js` so it
-  is unit-testable without a real clipboard event.
+  Pasting a file inserts it; pasting HTML converts it to markdown; anything else is left alone. See
+  `shouldClaimPaste` for the text-wins-over-an-accompanying-image decision -- pulled out to
+  `helpers/editorFileTransfer.js` so it is unit-testable without a real clipboard event.
+
+  Both branches take the paste over completely -- `stopPropagation` as well as `preventDefault`,
+  because this runs in capture ABOVE the editor: letting it travel on would hand the same paste to
+  Monaco's own paste-as feature (files) or its default plain-text insert (HTML), which would answer
+  it a second time in its own way.
 */
 function onEditorPaste(event) {
-  if (!shouldClaimPaste(event.clipboardData)) {
+  if (shouldClaimPaste(event.clipboardData)) {
+    event.preventDefault()
+    event.stopPropagation()
+    insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
     return
   }
-  /*
-    Taken over completely. `stopPropagation` as well as `preventDefault`, because this runs in capture
-    ABOVE the editor: letting it travel on would hand the same files to Monaco's paste-as feature, which
-    would answer the paste a second time in its own way.
-  */
+  // -> OpenProject #2448 (Feature #2417): a paste carrying HTML -- a webpage selection, a Word or
+  //    OneNote paste, ... -- is converted to markdown rather than left to fall through to whatever
+  //    the browser's own plain-text paste would have inserted. See `helpers/htmlToMarkdown.js` for
+  //    what the conversion does and does not attempt.
+  const html = event.clipboardData?.getData?.('text/html') ?? ''
+  if (html.trim().length === 0) {
+    return
+  }
   event.preventDefault()
   event.stopPropagation()
-  insertFilesAsAssets([...event.clipboardData.files], { generateUniqueName: true })
+  insertAtCursor({ content: htmlToMarkdown(html) })
 }
 
 /*
@@ -1148,7 +1165,7 @@ function onEditorDrop(event) {
   if (target?.position) {
     editor.setPosition(target.position)
   }
-  insertFilesAsAssets([...event.dataTransfer.files])
+  insertFilesAsAssets(pastedFiles(event.dataTransfer))
 }
 
 /**

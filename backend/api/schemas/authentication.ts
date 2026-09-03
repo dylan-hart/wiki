@@ -155,6 +155,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       allowedEmailRegex: {
         type: 'string'
       },
+      allowedEmailDomains: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Case-insensitive allow-list of domains a visitor may self-register an account under. Stored already normalized (trimmed, lower-cased, deduped). Empty means unrestricted. Independent of `allowedEmailRegex` -- a strategy may carry both, but this one only ever gates self-registration, not provider auto-provisioning.'
+      },
       autoEnrollGroups: {
         type: 'array',
         items: {
@@ -183,6 +189,42 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         additionalProperties: true,
         description:
           'Values for the module props, completed with the module defaults for any prop that has none stored yet.'
+      }
+    }
+  })
+
+  /**
+   * AUTH GROUP SYNC WARNINGS - Which groups an enabled, group-mapping strategy could currently
+   * silently revoke from a user on their next login (WP #2440). Carries no secrets, unlike
+   * `AuthStrategy` above -- just group and strategy ids/names -- so the route it backs needs only
+   * `read:users`/`manage:users`/`read:groups`/`manage:groups`, not `manage:system`.
+   */
+  app.addSchema({
+    $id: 'AuthGroupSyncWarnings',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        groupId: {
+          type: 'string',
+          format: 'uuid'
+        },
+        strategies: {
+          type: 'array',
+          description: 'Every enabled, mapGroups-on strategy that could revoke this group.',
+          items: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                format: 'uuid'
+              },
+              displayName: {
+                type: 'string'
+              }
+            }
+          }
+        }
       }
     }
   })
@@ -223,6 +265,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 255,
         description:
           'Must be a valid regular expression. Limits which addresses an account may be created for, and applies wherever `selfRegistration` or `autoProvision` does — a pattern that will not compile allows nobody.'
+      },
+      allowedEmailDomains: {
+        type: 'array',
+        items: { type: 'string', maxLength: 255 },
+        description:
+          "A friendlier alternative to `allowedEmailRegex`: domains a visitor may self-register under, matched case-insensitively. Each entry must look like a bare domain (no `@`, no scheme). Independent of `allowedEmailRegex` — a strategy may carry both, but this one only gates self-registration through this strategy's own form, not provider auto-provisioning."
       },
       autoEnrollGroups: {
         type: 'array',

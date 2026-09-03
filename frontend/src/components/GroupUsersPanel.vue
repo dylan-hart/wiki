@@ -29,6 +29,18 @@
     </w-toolbar>
     <w-separator />
     <div class="p-4">
+      <w-banner
+        v-if="state.syncStrategies.length > 0"
+        class="mb-4"
+        :class="dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`">
+        <i18n-t keypath="admin.groups.syncWarning" tag="span">
+          <template #provider
+            ><strong>{{
+              state.syncStrategies.map((s) => s.displayName).join(', ')
+            }}</strong></template
+          >
+        </i18n-t>
+      </w-banner>
       <w-card class="shadow-1">
         <w-table
           :rows="state.users"
@@ -172,7 +184,10 @@ const state = reactive({
   usersFilter: '',
   usersPage: 1,
   usersPageSize: 15,
-  usersTotal: 0
+  usersTotal: 0,
+  /** Every enabled, mapGroups-on strategy that could revoke this group on a member's next login
+   *  (WP #2440) -- see `fetchSyncWarning()`. Empty means this group is not currently synced. */
+  syncStrategies: []
 })
 
 const usersHeaders = [
@@ -321,9 +336,28 @@ async function unassignUser(user) {
 
 // MOUNTED
 
+/**
+ * groupId -> whether it is currently on any enabled, mapGroups-on strategy's `mappableGroups`
+ * allow-list, and if so which. Best-effort: a viewer who cannot reach this route for any reason
+ * simply sees no warning rather than a broken panel, since the warning is a courtesy, not a
+ * requirement this panel's own listing depends on.
+ */
+async function fetchSyncWarning() {
+  try {
+    const warnings = await API_CLIENT.get('authentication/synced-groups').json()
+    state.syncStrategies =
+      (warnings ?? []).find((w) => w.groupId === props.groupId)?.strategies ?? []
+  } catch {
+    state.syncStrategies = []
+  }
+}
+
 /*
   This panel is only mounted while the overlay is on its `users` section, so mounting IS entering
   that section -- which is exactly when the overlay used to call `refreshUsers()` from `checkRoute`.
 */
-onMounted(refreshUsers)
+onMounted(() => {
+  refreshUsers()
+  fetchSyncWarning()
+})
 </script>

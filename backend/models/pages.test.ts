@@ -15,6 +15,7 @@ import {
   pageRenderQueue as pageRenderQueueTable,
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
+  sites as sitesTable,
   tree as treeTable,
   userGroups as userGroupsTable,
   users as usersTable
@@ -913,6 +914,190 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     } finally {
       await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
     }
+  })
+
+  /**
+   * OpenProject #2452: a move rewrites same-site, same-locale references to the page's old path in
+   * place, reusing the `links`/`relations` tracking `models/rendering.ts#extractInternalLinks`
+   * already writes on every save rather than re-parsing content from scratch.
+   */
+  describe('movePage relinks same-site referencing pages (OpenProject #2452)', () => {
+    test("rewrites a referencing page's content, render and links to the new path", async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-target', locale: 'en' }),
+        actor
+      )
+      const referrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-referrer',
+          locale: 'en',
+          content: 'See the [target](/docs/relink-target) for more.',
+          render: '<p>See the <a href="/docs/relink-target">target</a> for more.</p>'
+        }),
+        actor
+      )
+      const [before] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      assert.deepEqual(before!.links, ['docs/relink-target'])
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      assert.equal(after!.content, 'See the [target](/docs/relink-target-new) for more.')
+      assert.equal(
+        after!.render,
+        '<p>See the <a href="/docs/relink-target-new">target</a> for more.</p>'
+      )
+      assert.deepEqual(after!.links, ['docs/relink-target-new'])
+    })
+
+    test('rewrites an authored relation target to the new path', async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-relation-target', locale: 'en' }),
+        actor
+      )
+      const referrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-relation-referrer',
+          locale: 'en',
+          relations: [
+            {
+              pos: 'left',
+              label: 'See also',
+              caption: '',
+              icon: '',
+              target: 'docs/relink-relation-target'
+            }
+          ]
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-relation-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      assert.equal((after!.relations as any[])[0].target, 'docs/relink-relation-target-new')
+      assert.equal((after!.relations as any[])[0].label, 'See also')
+    })
+
+    test('rewrites a redirect page whose target points at the moved page', async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-redirect-target', locale: 'en' }),
+        actor
+      )
+      const redirect = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-redirect',
+          locale: 'en',
+          editor: 'redirect',
+          content: JSON.stringify({
+            kind: 'page',
+            target: '/docs/relink-redirect-target',
+            showInterstitial: false
+          })
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-redirect-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, redirect.id))
+      assert.deepEqual(JSON.parse(after!.content!), {
+        kind: 'page',
+        target: '/docs/relink-redirect-target-new',
+        showInterstitial: false
+      })
+    })
+
+    test("does not touch a same-path translation's own unrelated link in a different locale", async () => {
+      const enTarget = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-locale-target', locale: 'en' }),
+        actor
+      )
+      // -> Same bare path, but the FR locale's own page -- a same-locale reference to it must not be
+      //    touched by the EN page's move (`nodeId(row.locale, target)`, `api/graph.ts`).
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-locale-target', locale: 'fr' }),
+        actor
+      )
+      const frReferrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-locale-referrer',
+          locale: 'fr',
+          content: 'Voir la [cible](/docs/relink-locale-target).',
+          render: '<p>Voir la <a href="/docs/relink-locale-target">cible</a>.</p>'
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        enTarget.id,
+        { path: 'docs/relink-locale-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, frReferrer.id))
+      assert.equal(after!.content, 'Voir la [cible](/docs/relink-locale-target).')
+      assert.deepEqual(after!.links, ['docs/relink-locale-target'])
+    })
+
+    test('rewrites a self-link when a page links to its own pre-move path', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-self',
+          locale: 'en',
+          content: 'Back to [top](/docs/relink-self).',
+          render: '<p>Back to <a href="/docs/relink-self">top</a>.</p>'
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(fixtures.siteId, page.id, { path: 'docs/relink-self-new' }, actor)
+
+      const [after] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(after!.content, 'Back to [top](/docs/relink-self-new).')
+      assert.deepEqual(after!.links, ['docs/relink-self-new'])
+    })
   })
 
   /**
@@ -1883,6 +2068,119 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
   })
 
+  /**
+   * The join half of translation staleness/missing detection (OpenProject #2476) --
+   * `helpers/translationStatus.test.ts` covers the pure compare over rows shaped like these.
+   */
+  describe('getTranslationRows', () => {
+    test('returns one row per locale that actually has a page at the given path', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/both', title: 'English', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/both', title: 'French', locale: 'fr' }),
+        actor
+      )
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, ['translations/both'])
+
+      assert.equal(rows.length, 2)
+      const locales = rows.map((r) => r.path === 'translations/both' && r.locale).sort()
+      assert.deepEqual(locales, ['en', 'fr'])
+      for (const row of rows) {
+        assert.ok(row.updatedAt instanceof Date)
+      }
+    })
+
+    test('a path with only one locale returns just that one row', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/en-only', title: 'English only', locale: 'en' }),
+        actor
+      )
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, ['translations/en-only'])
+
+      assert.equal(rows.length, 1)
+      assert.equal(rows[0]!.locale, 'en')
+    })
+
+    test('batches several paths in one call, each path only carrying its own rows', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/batch-a', title: 'A', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/batch-b', title: 'B', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/batch-b', title: 'B (fr)', locale: 'fr' }),
+        actor
+      )
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, [
+        'translations/batch-a',
+        'translations/batch-b'
+      ])
+
+      const byPath = new Map<string, string[]>()
+      for (const row of rows) {
+        byPath.set(row.path, [...(byPath.get(row.path) ?? []), row.locale])
+      }
+      assert.deepEqual(byPath.get('translations/batch-a')?.sort(), ['en'])
+      assert.deepEqual(byPath.get('translations/batch-b')?.sort(), ['en', 'fr'])
+    })
+
+    test('an empty path list is answered with no query and no rows', async () => {
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, [])
+      assert.deepEqual(rows, [])
+    })
+
+    test('never returns a row from another site, even at the identical path', async () => {
+      const [otherSite] = await fixtures.db
+        .insert(sitesTable)
+        .values({
+          hostname: `translations-other-${fixtures.siteId}`,
+          isEnabled: true,
+          config: {}
+        })
+        .returning()
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'translations/scoped', title: 'This site', locale: 'en' }),
+        actor
+      )
+      // -> A raw insert, not `createPage()`: `createPage` refuses any siteId absent from the
+      //    in-memory `WIKI.sites` cache, which a site row inserted straight into the DB (rather than
+      //    through `models/sites.ts`) never populates. Only the WHERE clause's site scoping is under
+      //    test here, so a hand-built row bypassing that whole cache/business-rule layer is enough.
+      await fixtures.db.insert(pagesTable).values({
+        locale: 'en',
+        path: 'translations/scoped',
+        hash: generatePathHash('translations/scoped'),
+        title: 'Other site',
+        editor: 'markdown',
+        contentType: 'markdown',
+        authorId: fixtures.userId,
+        creatorId: fixtures.userId,
+        ownerId: fixtures.userId,
+        siteId: otherSite!.id,
+        classification: fixtures.classificationId
+      })
+
+      const rows = await pagesModel.getTranslationRows(fixtures.siteId, ['translations/scoped'])
+
+      assert.equal(rows.length, 1)
+    })
+  })
+
   /*
     Feature 357, task 446: `getPathFromAlias` used to select only `{ id, path }`, so the
     alias-resolution route's `mayOnPage(req, 'read:pages', { path: target.path })` never saw a
@@ -2137,6 +2435,165 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       )
       const rows = await pagesModel.listAllForGraph(fixtures.siteId)
       assert.ok(rows.map((r) => r.path).includes('graph-visibility-default/draft'))
+    })
+  })
+
+  /**
+   * `helpers/translationStaleness.test.ts` covers the comparison logic itself as a pure function;
+   * this proves `getTranslationStaleness` wires it to a real `(siteId, path)` join off the actual
+   * `pages` table -- `test/db.ts#setupTestDb()` already seeds this site's locale config with
+   * `active: ['en', 'fr']`, matching `docs/decisions/locale-translation-linking.md`'s convention.
+   */
+  describe('getTranslationStaleness (OpenProject #2477)', () => {
+    test('flags a translation older than the primary page as stale', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/stale-case',
+          locale: 'en',
+          title: 'Primary',
+          updatedAt: '2026-06-01T00:00:00Z'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/stale-case',
+          locale: 'fr',
+          title: 'Traduction',
+          updatedAt: '2026-01-01T00:00:00Z'
+        }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/stale-case'
+      ])
+
+      assert.deepEqual(
+        entries.map((e) => ({ locale: e.locale, status: e.status })),
+        [{ locale: 'fr', status: 'stale' }]
+      )
+    })
+
+    test('marks a translation at least as new as the primary page as current', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/current-case',
+          locale: 'en',
+          title: 'Primary',
+          updatedAt: '2026-01-01T00:00:00Z'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/current-case',
+          locale: 'fr',
+          title: 'Traduction',
+          updatedAt: '2026-06-01T00:00:00Z'
+        }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/current-case'
+      ])
+
+      assert.deepEqual(
+        entries.map((e) => ({ locale: e.locale, status: e.status })),
+        [{ locale: 'fr', status: 'current' }]
+      )
+    })
+
+    test('reports missing when an active locale has no translation page at all', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'staleness/missing-case', locale: 'en', title: 'Primary Only' }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/missing-case'
+      ])
+
+      assert.deepEqual(entries, [
+        { path: 'staleness/missing-case', locale: 'fr', status: 'missing', updatedAt: null }
+      ])
+    })
+
+    test('a `paths` filter excludes every other path in the site', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'staleness/scoped-a', locale: 'en', title: 'A' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'staleness/scoped-b', locale: 'en', title: 'B' }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+        'staleness/scoped-a'
+      ])
+
+      assert.ok(entries.length > 0)
+      assert.ok(entries.every((e) => e.path === 'staleness/scoped-a'))
+    })
+
+    test('with no `paths` given, covers the whole site rather than just an explicitly scoped page', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/whole-site',
+          locale: 'en',
+          title: 'Whole',
+          updatedAt: '2026-06-01T00:00:00Z'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'staleness/whole-site',
+          locale: 'fr',
+          title: 'Toute',
+          updatedAt: '2026-01-01T00:00:00Z'
+        }),
+        actor
+      )
+
+      const entries = await pagesModel.getTranslationStaleness(fixtures.siteId)
+      const forThisPath = entries.filter((e) => e.path === 'staleness/whole-site')
+
+      assert.deepEqual(
+        forThisPath.map((e) => ({ locale: e.locale, status: e.status })),
+        [{ locale: 'fr', status: 'stale' }]
+      )
+    })
+
+    test('a site with only its primary locale active short-circuits to an empty list', async () => {
+      const originalLocales = WIKI.sites[fixtures.siteId]!.config.locales
+      WIKI.sites[fixtures.siteId]!.config.locales = { primary: 'en', active: ['en'] }
+      try {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: 'staleness/single-locale', locale: 'en', title: 'Solo' }),
+          actor
+        )
+
+        const entries = await pagesModel.getTranslationStaleness(fixtures.siteId, [
+          'staleness/single-locale'
+        ])
+
+        assert.deepEqual(entries, [])
+      } finally {
+        WIKI.sites[fixtures.siteId]!.config.locales = originalLocales
+      }
     })
   })
 })

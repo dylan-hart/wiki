@@ -118,6 +118,12 @@
       </div>
     </div>
     <div class="graph-view-filters">
+      <w-input
+        v-model="keywordQuery"
+        clearable
+        outlined
+        dense
+        :label="t('graph.filters.keyword')" />
       <w-select
         v-model="activeFilters.tags"
         multiple
@@ -176,13 +182,17 @@ import { useRouter } from 'vue-router'
 import { forceCenter, forceCollide } from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { zoomIdentity } from 'd3-zoom'
+import { debounce } from 'es-toolkit/function'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { localizedPagePath } from '@/helpers/pagePaths'
+import { useDark } from '@/composables/dark'
 import { useSiteStore } from '@/stores/site'
 import GraphClientTypeFilter from '@/components/GraphClientTypeFilter.vue'
 import {
   buildClassificationHubEdges,
   buildPathHierarchyEdges,
   buildTagHubEdges,
+  computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
   nodeId
@@ -204,6 +214,7 @@ import {
 const siteStore = useSiteStore()
 const router = useRouter()
 const { t } = useI18n()
+const dark = useDark()
 
 const containerRef = ref(null)
 const canvasRef = ref(null)
@@ -335,13 +346,41 @@ const activeFilters = reactive({
   locale: null
 })
 
+/** The graph filter panel's keyword search box (OpenProject #2478, Feature #2414). Deliberately kept
+ *  OUTSIDE `activeFilters` above: that object drives `computeVisibleSubset()`'s AND-narrowing (a node
+ *  failing any active tag/folder-depth/locale filter is hidden), while a keyword match is meant to
+ *  HIGHLIGHT matching nodes without hiding the rest -- a different behavior the epic spec calls out
+ *  explicitly. Wiring this to `GET sites/:siteId/pages/search` and rendering the highlight are
+ *  separate work packages (#2479/#2480); this ref is currently read by nothing else. */
+const keywordQuery = ref('')
+
 /** Resets every filter to its default -- the `activeFilters` watcher (Task 26/#901) fires
- *  automatically once these change, no separate wiring needed here. */
+ *  automatically once these change, no separate wiring needed here. `keywordQuery` is deliberately
+ *  not reset here: it isn't one of the narrowing filters this button/action targets (see its own doc
+ *  comment above), and its own `w-input`'s `clearable` affordance already covers resetting it. */
 function clearFilters() {
   activeFilters.tags = []
   activeFilters.folderDepth = null
   activeFilters.locale = null
 }
+
+/** Keyword search results driving the graph's highlight (OpenProject #2480, Feature #2414's third
+ *  task) -- deliberately separate from `activeFilters` above: a keyword match HIGHLIGHTS matching
+ *  nodes rather than narrowing which ones are visible, so it never feeds `computeVisibleSubset`.
+ *  Each entry needs only `path`/`locale`, the shape `GET sites/:siteId/pages/search` returns per
+ *  result (`backend/modules/search/shared.ts#SearchDocument`) -- the keyword input (OpenProject
+ *  #2478) and its wiring to that endpoint (#2479) are what populate this ref; this WP is the
+ *  render/highlight half that consumes it, so it exposes the ref itself rather than an input control
+ *  or a fetch. `shallowRef` (not `ref`), same reasoning as `allNodes`/`allEdges` above: nothing reads
+ *  an individual match's fields reactively, only the whole array via `highlightedNodeIds` below. */
+const keywordMatches = shallowRef([])
+
+/** The composite `${locale}:${path}` id of every currently-visible node `keywordMatches` matched --
+ *  see `graphFilters.js#computeHighlightedNodeIds`. Empty whenever `keywordMatches` is (no search
+ *  active yet, or a search that matched nothing), which is also what tells `repaint()`'s
+ *  `paintGraph()` call to draw every node at full strength with no highlight ring, same as before
+ *  this WP existed. */
+const highlightedNodeIds = computed(() => computeHighlightedNodeIds(keywordMatches.value))
 
 /** The tag/locale values offered by the filter panel's `w-select`s, derived from `allNodes` (the
  *  full fetched graph, not the currently-filtered `nodes.value`) -- no separate endpoint
@@ -367,6 +406,81 @@ const localeOptions = computed(() => filterOptions.value.locales)
 const showLocaleFilter = computed(
   () => siteStore.locales.showMenu && localeOptions.value.length > 1
 )
+
+/** How long to wait after the last keystroke before firing the keyword search (OpenProject #2479)
+ *  -- same debounce window as the header search's own live preview (`HeaderSearch.vue`). */
+const KEYWORD_SEARCH_DEBOUNCE_MS = 300
+
+/** The search endpoint's own maximum `limit` (`backend/api/pages/read.ts`'s `/sites/:siteId/pages/
+ *  search`), used as-is so as many of the currently-loaded graph's matches as the endpoint can
+ *  return in one page get highlighted. A keyword matching more pages than this only has its top 100
+ *  (by relevancy) highlighted -- accepted the same way the graph's own node cap is (see
+ *  `graphTruncated` above) rather than paginating a highlight overlay. */
+const KEYWORD_SEARCH_LIMIT = 100
+
+/**
+ * The keyword typed into the graph's filter panel (OpenProject #2414: #2478 adds the actual
+ * control, bound to this ref; this file only wires it to the search endpoint -- #2479).
+ *
+ * Deliberately NOT a field on `activeFilters` above: everything in that object narrows the VISIBLE
+ * node set (`computeVisibleSubset`) and is deep-watched to re-run `applyFilters()`/
+ * `syncSimulationToVisibleSet()` on every change, but a keyword match highlights matching nodes
+ * rather than filtering non-matching ones out of view (the Feature's own scope decision) --
+ * folding it into `activeFilters` would re-layout the whole graph on every keystroke for no reason,
+ * and would need `computeVisibleSubset` to special-case it back out again.
+ */
+const graphKeyword = ref('')
+
+/** Composite `${locale}:${path}` ids (`graphFilters.js#nodeId`) of every currently-loaded page the
+ *  active `graphKeyword` matches, per the same full-text search the header search bar uses -- what
+ *  OpenProject #2480's render pass highlights against. Empty whenever the keyword is empty/
+ *  whitespace-only, the fetch is still in flight, or it failed. `shallowRef` (not `ref`) for the
+ *  same reactivity-cost reasoning as `nodes`/`edges` above -- nothing needs to react to a mutation
+ *  of the Set's contents, only to it being replaced wholesale, which every assignment below does. */
+const keywordMatchIds = shallowRef(new Set())
+
+/** Bumped on every keyword fetch started or invalidated -- same stale-response guard
+ *  `HeaderSearch.vue`'s live preview uses (`previewRequestToken`), so a slower, earlier request
+ *  landing after a faster, later one can't clobber fresher results with stale ones. */
+let keywordSearchToken = 0
+
+/** Runs the actual request. Not called directly outside the watcher below --
+ *  `debouncedSearchKeyword` is what a burst of keystrokes collapses into one call through. */
+async function searchKeyword(query) {
+  const token = ++keywordSearchToken
+  try {
+    const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
+      searchParams: { query, limit: KEYWORD_SEARCH_LIMIT }
+    }).json()
+    // -> A newer keyword (or a clear) started while this request was in flight.
+    if (token !== keywordSearchToken) {
+      return
+    }
+    keywordMatchIds.value = new Set((resp?.results ?? []).map((r) => nodeId(r)))
+  } catch (err) {
+    if (token !== keywordSearchToken) {
+      return
+    }
+    keywordMatchIds.value = new Set()
+    console.warn(apiErrorMessage(err))
+  }
+}
+
+const debouncedSearchKeyword = debounce(searchKeyword, KEYWORD_SEARCH_DEBOUNCE_MS)
+
+watch(graphKeyword, (newKeyword) => {
+  const query = (newKeyword ?? '').trim()
+  if (!query) {
+    debouncedSearchKeyword.cancel()
+    // -> Invalidates any request already in flight for a since-cleared keyword, the same way
+    //    `keywordSearchToken++` alone (with no direct state reset) guards a stale FETCH -- this is
+    //    the synchronous counterpart for a keyword cleared outright rather than merely changed.
+    keywordSearchToken++
+    keywordMatchIds.value = new Set()
+    return
+  }
+  debouncedSearchKeyword(query)
+})
 
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
@@ -400,14 +514,15 @@ const graphAccessibleName = computed(() => {
 })
 
 /*
-  The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), light-surface
-  hex values, in the skill's own fixed (CVD-safe adjacent-pair) order -- assigned in that order as
-  new group keys are first seen, never reordered per group. Graph.vue's canvas rendering has no
-  dark-mode color swap anywhere yet (drawEdges'/drawLabels' stroke/fill strings are hardcoded the
-  same way), so this palette isn't threaded through a light/dark variant either -- revisit together
-  if dark-mode canvas theming is ever added.
+  The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), in the skill's
+  own fixed (CVD-safe adjacent-pair) order -- assigned in that order as new group keys are first
+  seen, never reordered per group. Light is the palette's light-surface column; dark is its
+  dark-surface column -- the same eight hues stepped for the dark surface, not a separate palette
+  (OpenProject #2412: `colorForGroup()` below picks the column live off `dark.isActive`, and
+  `drawEdges()`/`drawLabels()` in `graphDraw.js` carry their own light/dark stroke/fill pair the
+  same way).
 */
-const CATEGORICAL_PALETTE = [
+const CATEGORICAL_PALETTE_LIGHT = [
   '#2a78d6', // blue
   '#eb6834', // orange
   '#1baf7a', // aqua
@@ -417,23 +532,43 @@ const CATEGORICAL_PALETTE = [
   '#4a3aa7', // violet
   '#e34948' // red
 ]
+const CATEGORICAL_PALETTE_DARK = [
+  '#3987e5', // blue
+  '#d95926', // orange
+  '#199e70', // aqua
+  '#c98500', // yellow
+  '#d55181', // magenta
+  '#008300', // green
+  '#9085e9', // violet
+  '#e66767' // red
+]
 
 /** Fixed neutral color for every synthetic node (OpenProject #997/#1001) -- deliberately outside
- *  `CATEGORICAL_PALETTE` so a synthetic folder/tag-hub marker never gets mistaken for a real group. */
+ *  `CATEGORICAL_PALETTE_LIGHT`/`_DARK` so a synthetic folder/tag-hub marker never gets mistaken for
+ *  a real group. A mid-gray reads clearly against both the light and dark canvas surface, so unlike
+ *  the two palettes above it needs no dark variant of its own. */
 const SYNTHETIC_NODE_COLOR = '#9e9e9e'
 
-const groupColors = new Map()
+/** Keyed on the group's palette SLOT INDEX, never the resolved hex -- so a mode flip repaints every
+ *  already-assigned group in its new palette's color instead of freezing it at whichever mode first
+ *  assigned it (OpenProject #2412). */
+const groupColorSlots = new Map()
 
 /** Assigns the palette's next unused slot to a not-yet-seen group key, then always returns that
- *  same color for that key going forward -- stable across redraws within a session, and stable
- *  across a reload too since the backend returns nodes in a consistent order (insertion order
- *  drives slot assignment). Past 8 distinct groups the palette wraps rather than leaving a group
- *  undrawn -- a graph view has no "fold into Other" fallback the way a chart legend would. */
+ *  same slot's color for that key going forward -- stable across redraws within a session, and
+ *  stable across a reload too since the backend returns nodes in a consistent order (insertion
+ *  order drives slot assignment). Past 8 distinct groups the palette wraps rather than leaving a
+ *  group undrawn -- a graph view has no "fold into Other" fallback the way a chart legend would.
+ *  Reads `dark.isActive` on every call (not just when a slot is first assigned), which is what
+ *  lets a dark-mode toggle repaint existing groups in the other palette's color -- and, since every
+ *  caller of this function ends up read from a Vue computed or watcher, is also what makes that
+ *  toggle a tracked reactive dependency of the legend and the canvas repaint alike. */
 function colorForGroup(key) {
-  if (!groupColors.has(key)) {
-    groupColors.set(key, CATEGORICAL_PALETTE[groupColors.size % CATEGORICAL_PALETTE.length])
+  if (!groupColorSlots.has(key)) {
+    groupColorSlots.set(key, groupColorSlots.size % CATEGORICAL_PALETTE_LIGHT.length)
   }
-  return groupColors.get(key)
+  const palette = dark.isActive ? CATEGORICAL_PALETTE_DARK : CATEGORICAL_PALETTE_LIGHT
+  return palette[groupColorSlots.get(key)]
 }
 
 /** One entry per distinct group currently in the graph, in first-seen order -- the legend panel's
@@ -670,7 +805,9 @@ function repaint() {
     nodes: nodes.value,
     edges: edges.value,
     clusters: clusters.value,
-    radiusFor
+    radiusFor,
+    dark: dark.isActive,
+    highlightedIds: highlightedNodeIds.value
   })
 }
 
@@ -839,6 +976,19 @@ watch(groupBy, () => {
   simulation?.alpha(0.3).restart()
 })
 
+/** OpenProject #2412: no node/cluster moved and the visible set didn't change, only which palette
+ *  column every color comes from -- `recomputeClusters()` alone (no simulation restart) re-derives
+ *  `node.color`/cluster hull colors off the new mode, and `repaint()` is what actually redraws the
+ *  canvas layer (edges/labels) in its own light/dark pair; the legend swatches update on their own
+ *  since `legendEntries` reads `colorForGroup()`, which itself reads `dark.isActive`. */
+watch(
+  () => dark.isActive,
+  () => {
+    recomputeClusters()
+    repaint()
+  }
+)
+
 /** Re-attaching `collide` (rather than mutating it in place) is what makes `forceCollide` re-read
  *  every node's radius through `collideRadiusFor()` -- see that function's own doc comment on why a
  *  plain in-place change wouldn't be picked up. No `applyFilters()`/`syncSimulationToVisibleSet()`
@@ -903,6 +1053,13 @@ watch(edgeMode, () => {
   syncSimulationToVisibleSet()
 })
 
+/** OpenProject #2480: a keyword match changes only which ALREADY-visible nodes draw highlighted --
+ *  no node/edge set changes, no simulation restart, just a repaint against the current layout
+ *  (unlike `activeFilters`'/`edgeMode`'s watchers above, which do change what's visible). */
+watch(keywordMatches, () => {
+  repaint()
+})
+
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
     sizeCanvas()
@@ -917,6 +1074,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   simulation?.stop()
   resizeObserver?.disconnect()
+  debouncedSearchKeyword.cancel()
 })
 </script>
 

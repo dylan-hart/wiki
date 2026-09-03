@@ -57,6 +57,68 @@ describe('page store: viewer.activeEditors (task 546)', () => {
   })
 })
 
+describe('page store: viewer.draft (OpenProject #2455)', () => {
+  it('applyViewerState() carries draft onto the store as-is', () => {
+    const pageStore = usePageStore()
+
+    pageStore.applyViewerState({
+      permissions: [],
+      isWatching: false,
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Ada Lovelace' }
+    })
+
+    expect(pageStore.draft).toEqual({
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      authorName: 'Ada Lovelace'
+    })
+  })
+
+  it('applyViewerState() defaults to null when the server omits draft', () => {
+    const pageStore = usePageStore()
+    // -> Not a real response shape (the route always sends it), but the same defensive fallback
+    //    every other viewer field gets here
+    pageStore.applyViewerState({ permissions: [] })
+
+    expect(pageStore.draft).toBe(null)
+  })
+
+  it('pageNotFound() clears any draft the previously open page carried', () => {
+    const pageStore = usePageStore()
+    pageStore.draft = { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Ada Lovelace' }
+
+    pageStore.pageNotFound({ path: 'gone' })
+
+    expect(pageStore.draft).toBe(null)
+  })
+
+  it('pageLoad() reaches the store with what the GET page route answered', async () => {
+    const pageStore = usePageStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: '5',
+          relations: [],
+          tocDepth: {},
+          viewer: {
+            permissions: ['write:pages'],
+            isWatching: false,
+            draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Ada Lovelace' }
+          }
+        })
+    })
+
+    await pageStore.pageLoad({ id: '5' })
+
+    expect(pageStore.draft).toEqual({
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      authorName: 'Ada Lovelace'
+    })
+  })
+})
+
 describe('page store: pageLoad()', () => {
   it('sends no locale search param when none is given', async () => {
     const siteStore = useSiteStore()

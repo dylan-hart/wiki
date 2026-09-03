@@ -84,6 +84,22 @@ defaults:
       verifySSL: true
     metrics:
       isEnabled: false
+    # Instance-level scheduled replication (OpenProject #2437/#2491): pulls a full wipe-and-replace
+    # snapshot from another instance on a cron schedule. Off by default -- a half-configured instance
+    # must not be able to arm this (see `api/replication.ts`'s validation), since the pull itself is
+    # destructive to whichever instance is configured as the TARGET. The scheduled due-check/pull
+    # wiring that reads these fields (OpenProject #2492) is `models/replication.ts`/
+    # `tasks/simple/replication-tick.ts`; `lastRunAt` is written back by `tick()` each time it queues a
+    # pull -- an operator never sets it by hand.
+    replication:
+      isEnabled: false
+      sourceUrl: ''
+      # Bearer token for the SOURCE instance's bulk-export API (reuses the existing PAT/API-key auth
+      # mechanism -- this is a token generated ON the source instance and pasted in here, not one this
+      # instance issues itself).
+      bearerToken: ''
+      cronSchedule: ''
+      lastRunAt: null
     # Whether page views are logged at all (OpenProject #1238) -- on by default, the admin opt-out this
     # feeds is a `manage:system` toggle in `api/system.ts`. Off means the write path no-ops entirely:
     # no row is ever inserted, not merely hidden from a later read.

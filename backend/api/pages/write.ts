@@ -94,13 +94,28 @@ async function routes(app: FastifyInstance) {
       //    `tags` (feature 357, task 446 audit) — a page being created has none until it is saved,
       //    so there is nothing for a tag-scoped rule to match on here. `locale` is known up front
       //    from the request body and is passed.
-      if (
-        !mayOnPage(req, 'write:pages', req.params.siteId, {
-          path: req.body.path,
-          locale: req.body.locale ?? defaultLocale(req.params.siteId)
-        })
-      ) {
+      const createPageRef = {
+        path: req.body.path,
+        locale: req.body.locale ?? defaultLocale(req.params.siteId)
+      }
+      if (!mayOnPage(req, 'write:pages', req.params.siteId, createPageRef)) {
         return reply.forbidden('You are not allowed to create a page here.')
+      }
+      /*
+        OpenProject #2467: creating a page with an immediately-published state needs `publish:pages`
+        ON THIS PAGE, on top of `write:pages` -- the writer/publisher split (#2421) means being able
+        to write a page does not by itself mean being able to publish it live. `publishState` defaults
+        to `'published'` when omitted (`models/pages.ts#createPage()`), so an omitted value counts as
+        immediate publish too; only an explicit `'draft'` or `'scheduled'` skips this check, following
+        the same shape as the `manage:classification` declassification guardrail below.
+      */
+      if (
+        (req.body.publishState ?? 'published') === 'published' &&
+        !mayOnPage(req, 'publish:pages', req.params.siteId, createPageRef)
+      ) {
+        return reply.forbidden(
+          'Publishing a page immediately requires the publish:pages permission here.'
+        )
       }
       let page
       try {
@@ -221,8 +236,39 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
-        return reply.forbidden('You are not allowed to edit this page.')
+      /*
+        Publish/write role separation (OpenProject #2421/#2466): `publishState` is carved out of the
+        ordinary write gate below rather than folded into it, in BOTH directions --
+          - a `publish:pages` holder may change `publishState` even with no `write:pages` at all, but
+            ONLY when nothing else in the body needs `write:pages` (`bodyTouchesOnlyPublishState`
+            below), so this substitutes for the write gate rather than bypassing it for a mixed
+            request that also touches other fields;
+          - a plain `write:pages` holder may not change `publishState` at all -- unlike every other
+            content field, holding `write:pages` says nothing about publish/unpublish authority.
+        `mayOnPage(req, 'publish:pages', ...)` is checked only where it can actually change the
+        outcome (same short-circuiting style as the declassification guardrail just below), so a
+        request that never touches `publishState` never evaluates it at all.
+      */
+      const hasWrite = mayOnPage(req, 'write:pages', req.params.siteId, target)
+      if (!hasWrite) {
+        const bodyTouchesOnlyPublishState = Object.keys(req.body).every(
+          (key) => key === 'publishState' || key === 'expectedUpdatedAt'
+        )
+        if (
+          !bodyTouchesOnlyPublishState ||
+          !mayOnPage(req, 'publish:pages', req.params.siteId, target)
+        ) {
+          return reply.forbidden('You are not allowed to edit this page.')
+        }
+      }
+      if (
+        req.body.publishState !== undefined &&
+        req.body.publishState !== target.publishState &&
+        !mayOnPage(req, 'publish:pages', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Changing this page’s publish state requires the publish:pages permission on it.'
+        )
       }
       /*
         Declassification guardrail (OpenProject #1080): lowering a page's classification (making it

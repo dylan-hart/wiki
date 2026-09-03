@@ -194,6 +194,86 @@ describe('users.setAvatar / getAvatarHash (DB-backed)', { skip: !hasTestDatabase
  * to clean it up. Deleting the `users` row directly, bypassing `deleteUser()` entirely, is what
  * actually exercises that the constraint (rather than app code) is what enforces it.
  */
+/**
+ * Feature #2425: `getNotificationSubscriptions` / `setNotificationSubscriptions`, the boolean-map
+ * view of the per-user, per-event-type email opt-in `#2481` stores as `prefs.notifications.events`
+ * (see `getEmailNotificationEvents`/`setEmailNotificationEvents`, which these two adapt). DB-backed
+ * for the same reason `updateProfile` above is -- this round-trips through `getById()` /
+ * `updateUser()`, not just a pure merge function.
+ */
+describe('users.notificationSubscriptions (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let usersModel: typeof import('./users.ts').users
+  let HOOK_EVENTS: typeof import('./hooks.ts').HOOK_EVENTS
+
+  before(async () => {
+    ;({ users: usersModel } = await import('./users.ts'))
+    ;({ HOOK_EVENTS } = await import('./hooks.ts'))
+  })
+
+  test('defaults every known event to false for a user who has never set any', async () => {
+    const subscriptions = await usersModel.getNotificationSubscriptions(fixtures.userId)
+    assert.ok(subscriptions)
+    assert.deepEqual(Object.keys(subscriptions!).sort(), [...HOOK_EVENTS].sort())
+    for (const event of HOOK_EVENTS) {
+      assert.equal(subscriptions![event], false)
+    }
+  })
+
+  test('returns null for a user that does not exist', async () => {
+    assert.equal(
+      await usersModel.getNotificationSubscriptions('00000000-0000-4000-8000-000000000000'),
+      null
+    )
+    assert.equal(
+      await usersModel.setNotificationSubscriptions('00000000-0000-4000-8000-000000000000', {
+        'page:create': true
+      }),
+      null
+    )
+  })
+
+  test('setNotificationSubscriptions turns on only the events given, and persists across reload', async () => {
+    const updated = await usersModel.setNotificationSubscriptions(fixtures.userId, {
+      'page:create': true,
+      'comment:new': true
+    })
+    assert.equal(updated?.['page:create'], true)
+    assert.equal(updated?.['comment:new'], true)
+    assert.equal(updated?.['page:edit'], false)
+
+    const reloaded = await usersModel.getNotificationSubscriptions(fixtures.userId)
+    assert.equal(reloaded?.['page:create'], true)
+    assert.equal(reloaded?.['comment:new'], true)
+    assert.equal(reloaded?.['page:edit'], false)
+  })
+
+  test('a later partial update leaves previously-set events untouched, and can turn one back off', async () => {
+    await usersModel.setNotificationSubscriptions(fixtures.userId, {
+      'page:create': true,
+      'asset:upload': true
+    })
+
+    const updated = await usersModel.setNotificationSubscriptions(fixtures.userId, {
+      'page:create': false,
+      'user:login': true
+    })
+
+    assert.equal(updated?.['page:create'], false)
+    assert.equal(updated?.['asset:upload'], true, 'untouched by this patch, stays as it was')
+    assert.equal(updated?.['user:login'], true)
+  })
+
+  test('leaves other prefs fields (e.g. locale) untouched', async () => {
+    await usersModel.updateProfile(fixtures.userId, { locale: 'en', timezone: 'America/New_York' })
+
+    await usersModel.setNotificationSubscriptions(fixtures.userId, { 'page:delete': true })
+
+    const profile = await usersModel.getProfile(fixtures.userId)
+    assert.equal(profile?.locale, 'en')
+    assert.equal(profile?.timezone, 'America/New_York')
+  })
+})
+
 describe('userAvatars cascades from users (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('removes the avatar when the users row is deleted directly, without calling deleteUser()', async () => {
     const [avatarOwner] = await fixtures.db

@@ -46,6 +46,7 @@ describe('profile sub-plugin: requireSessionUser', () => {
     ['GET', '/users/profile/groups'],
     ['GET', '/users/profile/api-keys'],
     ['GET', '/users/profile/editor-settings/markdown'],
+    ['GET', '/users/profile/notifications'],
     ['GET', '/users/profile/auth'],
     ['GET', '/users/profile/tfa/recovery-codes?strategyId=00000000-0000-4000-8000-000000000000'],
     ['DELETE', '/users/profile/passkeys/11111111-1111-4111-8111-111111111111'],

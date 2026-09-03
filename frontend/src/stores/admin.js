@@ -23,6 +23,7 @@ export const useAdminStore = defineStore('admin', {
       isMailConfigured: false,
       isMetricsEnabled: false,
       isPageviewsEnabled: false,
+      isReplicationEnabled: false,
       isSchedulerHealthy: false
     },
     overlay: null,

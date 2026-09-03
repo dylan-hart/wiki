@@ -29,6 +29,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { POPUP_CLOSE } from '@/composables/popup'
 import { useAnchoredFloat } from '@/composables/anchoredFloat'
+import { pushEscapeHandler } from '@/composables/escapeStack'
 
 /*
   The root is a fragment -- an inline placeholder that marks the trigger, plus a teleported popup --
@@ -78,7 +79,8 @@ const catcherZ = 6500 + Math.min(depth - 1, 40) * 10
  *     <w-menu auto-close anchor="bottom right" self="top right"> ... </w-menu>
  *   </w-btn>
  *
- * Opens on click by default, or on right-click with `context-menu`.
+ * Opens on click by default, or with `context-menu`: on right-click, on a touch long-press, or on
+ * the keyboard Context Menu key / Shift+F10.
  */
 const props = defineProps({
   /** Two-way open state. Omit to let the menu manage itself from its trigger. */
@@ -207,13 +209,28 @@ function restoreFocus() {
 // -> `modelValue` is opt-in: null means uncontrolled, so only mirror it when actually provided
 const isControlled = () => props.modelValue !== null
 
+/**
+ * This instance's current registration on the shared Escape stack (`composables/escapeStack.js`),
+ * or `null` while closed. Pushed in `show()`, released in `hide()` -- see `handleEscape` and the
+ * import above for why this replaced a bare `document` listener (OpenProject #2370).
+ */
+let releaseEscapeHandler = null
+
+function handleEscape() {
+  hide()
+}
+
 async function show() {
+  if (shown.value) {
+    return
+  }
   focusReturnEl = document.activeElement
   shown.value = true
   if (isControlled()) {
     emit('update:modelValue', true)
   }
   emit('show')
+  releaseEscapeHandler = pushEscapeHandler(handleEscape)
   await reposition()
   focusPanel()
 }
@@ -228,6 +245,8 @@ function hide() {
     emit('update:modelValue', false)
   }
   emit('hide')
+  releaseEscapeHandler?.()
+  releaseEscapeHandler = null
   restoreFocus()
 }
 
@@ -258,31 +277,90 @@ function onTriggerContextMenu(ev) {
   show()
 }
 
-function onContentClick() {
-  if (props.autoClose) {
-    hide()
+/*
+  Touch long-press: the native `contextmenu` event `onTriggerContextMenu` handles is a desktop-only
+  gesture (a right-click). Touch has no equivalent unless one is built -- so a context-menu-mode
+  trigger gets a second listener pair, held to `pointerType === 'touch'` only, so mouse/pen input
+  keeps going through the click/contextmenu handlers unchanged.
+
+  A press starts a timer; it fires the menu open if the finger stays down and (roughly) still for
+  the hold duration. Either releasing early or moving far enough to read as a scroll/drag rather
+  than a press-and-hold cancels it -- the same trade-off a native long-press gesture makes.
+*/
+const LONG_PRESS_MS = 500
+const LONG_PRESS_MOVE_TOLERANCE = 10
+
+let longPressTimer = null
+let longPressStart = null
+
+function clearLongPress() {
+  if (longPressTimer !== null) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  longPressStart = null
+}
+
+function onTriggerPointerDown(ev) {
+  if (!props.contextMenu || ev.pointerType !== 'touch') {
+    return
+  }
+  clearLongPress()
+  longPressStart = { x: ev.clientX, y: ev.clientY }
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null
+    const at = longPressStart
+    longPressStart = null
+    if (!at) {
+      return
+    }
+    // -> Same anchor mechanism a right-click uses: a zero-size rect at the touch point
+    pointerRect = { left: at.x, top: at.y, width: 0, height: 0 }
+    show()
+  }, LONG_PRESS_MS)
+}
+
+function onTriggerPointerMove(ev) {
+  if (!longPressStart || ev.pointerType !== 'touch') {
+    return
+  }
+  const dx = ev.clientX - longPressStart.x
+  const dy = ev.clientY - longPressStart.y
+  if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE) {
+    clearLongPress()
   }
 }
 
-/*
-  Bubble phase, deliberately -- NOT the capture phase this used to run in (OpenProject #2364). A
-  capture-phase document listener fires before the event ever reaches whatever is focused inside the
-  panel, so an editable field's own `@keydown.esc` (its "discard the in-progress edit" handler) never
-  got a turn: this handler ran first, stopped propagation, and `hide()` -> `restoreFocus()`
-  synchronously blurred the field -- which committed its draft instead of discarding it, for any
-  field whose commit lives on blur (the app's standard pattern, see `PageHeader.vue`'s
-  `onEditableBlur` and `PageActionsCol.vue`'s pending-asset rename field).
+function onTriggerPointerUp(ev) {
+  if (ev.pointerType !== 'touch') {
+    return
+  }
+  clearLongPress()
+}
 
-  Listening on the bubble phase instead means the normal DOM order applies: a focused field's own
-  Escape handler runs first (target phase), can discard/clear its own state, and only afterward does
-  the key bubble up to this document listener, which closes the menu and moves focus -- by which
-  point there is nothing left for a blur to commit. This also brings WMenu in line with the
-  cascading-Escape convention `WSelect`'s own dropdown already relies on (`ev.stopPropagation()` on
-  Escape to keep an outer popup from also closing on the same keypress).
+/*
+  Keyboard: the Context Menu key (`ev.key === 'ContextMenu'`) and the Shift+F10 fallback are the two
+  conventional ways to ask for a context menu without a pointer at all. Handled explicitly rather
+  than relying on the browser's own keyboard-invoked `contextmenu` event, since that path is
+  unreliable across platforms (notably absent on macOS/Safari, which has neither key). Opens anchored
+  to the trigger itself -- no `pointerRect` set -- the same placement a plain click-triggered menu
+  already uses.
 */
-function onKeydown(ev) {
-  if (ev.key === 'Escape' && shown.value) {
-    ev.stopPropagation()
+function onTriggerKeydown(ev) {
+  if (!props.contextMenu) {
+    return
+  }
+  if (ev.key !== 'ContextMenu' && !(ev.shiftKey && ev.key === 'F10')) {
+    return
+  }
+  ev.preventDefault()
+  ev.stopPropagation()
+  pointerRect = null
+  show()
+}
+
+function onContentClick() {
+  if (props.autoClose) {
     hide()
   }
 }
@@ -357,8 +435,12 @@ onMounted(() => {
   if (!isControlled()) {
     triggerEl.value.addEventListener('click', onTriggerClick)
     triggerEl.value.addEventListener('contextmenu', onTriggerContextMenu)
+    triggerEl.value.addEventListener('pointerdown', onTriggerPointerDown)
+    triggerEl.value.addEventListener('pointermove', onTriggerPointerMove)
+    triggerEl.value.addEventListener('pointerup', onTriggerPointerUp)
+    triggerEl.value.addEventListener('pointercancel', onTriggerPointerUp)
+    triggerEl.value.addEventListener('keydown', onTriggerKeydown)
   }
-  document.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', hide)
 
   if (props.modelValue === true) {
@@ -370,9 +452,19 @@ onBeforeUnmount(() => {
   if (triggerEl.value) {
     triggerEl.value.removeEventListener('click', onTriggerClick)
     triggerEl.value.removeEventListener('contextmenu', onTriggerContextMenu)
+    triggerEl.value.removeEventListener('pointerdown', onTriggerPointerDown)
+    triggerEl.value.removeEventListener('pointermove', onTriggerPointerMove)
+    triggerEl.value.removeEventListener('pointerup', onTriggerPointerUp)
+    triggerEl.value.removeEventListener('pointercancel', onTriggerPointerUp)
+    triggerEl.value.removeEventListener('keydown', onTriggerKeydown)
   }
-  document.removeEventListener('keydown', onKeydown)
+  clearLongPress()
   window.removeEventListener('resize', hide)
+  // -> An unmount while still shown (route change, host teardown) would otherwise leak this
+  //    instance's registration on the shared Escape stack -- `hide()`'s own release runs only on
+  //    the ordinary close paths, none of which fire on an unmount.
+  releaseEscapeHandler?.()
+  releaseEscapeHandler = null
 })
 
 /*

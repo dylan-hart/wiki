@@ -40,7 +40,8 @@ const routes = [
       { path: 'avatar', component: () => import('@/pages/ProfileAvatar.vue') },
       { path: 'auth', component: () => import('@/pages/ProfileAuth.vue') },
       { path: 'groups', component: () => import('@/pages/ProfileGroups.vue') },
-      { path: 'api', component: () => import('@/pages/ProfileApi.vue') }
+      { path: 'api', component: () => import('@/pages/ProfileApi.vue') },
+      { path: 'notifications', component: () => import('@/pages/ProfileNotifications.vue') }
     ]
   },
   {
@@ -102,6 +103,7 @@ const routes = [
       { path: 'mail', component: () => import('@/pages/AdminMail.vue') },
       { path: 'metrics', component: () => import('@/pages/AdminMetrics.vue') },
       { path: 'pageviews', component: () => import('@/pages/AdminPageviews.vue') },
+      { path: 'replication', component: () => import('@/pages/AdminReplication.vue') },
       { path: 'scheduler', component: () => import('@/pages/AdminScheduler.vue') },
       { path: 'search', component: () => import('@/pages/AdminSearch.vue') },
       { path: 'security', component: () => import('@/pages/AdminSecurity.vue') },

@@ -237,6 +237,16 @@ export const authentication = pgTable('authentication', {
   selfRegistration: boolean().notNull().default(false),
   autoProvision: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
+  // -> A friendlier alternative to `allowedEmailRegex` for the common case: an admin lists domains
+  //    directly instead of hand-writing a regex. Stored normalized (trimmed, lower-cased, deduped) by
+  //    `models/authentication.ts`. Independent of `allowedEmailRegex` -- both may be set on the same
+  //    strategy. Scoped to local self-registration only (OpenProject #2470), unlike
+  //    `allowedEmailRegex` above which also gates provider auto-provisioning -- see
+  //    `models/login.ts#assertAllowedRegistrationDomain()`.
+  allowedEmailDomains: text()
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::text[]`),
   autoEnrollGroups: uuid().array().default([]),
   // -> Off by default: an existing account is only ever claimed by a provider login once this
   //    strategy is explicitly told to trust the address it reports. See
@@ -535,6 +545,37 @@ export const hooks = pgTable(
     siteId: uuid().references(() => sites.id, { onDelete: 'set null' })
   },
   (table) => [index('hooks_siteId_idx').on(table.siteId)]
+)
+
+// EVENT SUBSCRIPTIONS ------------------
+/**
+ * A user's opt-in to receive an email whenever a given event fires, independent of the webhook
+ * `hooks` an administrator configures — see `models/hooks.ts#emit()`, which queues a subscriber
+ * notification for every event alongside the webhook deliveries it already queues.
+ *
+ * A row IS the subscription, the same shape `pageWatching` uses: there is no `enabled` column to
+ * flip, because being unsubscribed is the absence of a row, not a state kept around and toggled off.
+ * Global rather than per-site, matching Feature #2425's scope ("per-user, per-event-type subscription
+ * toggle") — a site-scoped version, a richer per-event template, and the settings UI to manage this
+ * are separately-tracked follow-on work, not added here.
+ */
+export const eventSubscriptions = pgTable(
+  'eventSubscriptions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // -> One of `HookEvent` (`models/hooks.ts`) -- not a DB enum, matching `hooks.events`'s own
+    //    plain-text choice, so a new subscribable event needs no migration
+    event: varchar({ length: 64 }).notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index('eventSubscriptions_event_idx').on(table.event),
+    // -> Subscribing twice is subscribing once
+    uniqueIndex('eventSubscriptions_user_event_idx').on(table.userId, table.event)
+  ]
 )
 
 // ICONS -------------------------------
@@ -1397,6 +1438,51 @@ export const pageRenderQueue = pgTable(
   },
   // -> How the drain picks what to render next
   (table) => [index('pageRenderQueue_createdAt_idx').on(table.createdAt)]
+)
+
+// PAGE DRAFTS --------------------------
+/**
+ * One row per page currently holding unsaved collaborative-editing content, the durable half of
+ * OpenProject #2454's autosave: `core/collab.ts` debounce-persists a room's live Yjs document state
+ * here as edits happen, and prefers this over the plain stored `pages` content the next time a room
+ * for the page has to be built from scratch (no peer instance already holding it) — which is what
+ * lets a crash or tab-close mid-edit recover the in-progress text on reopening rather than losing it,
+ * without a separate periodic-save mechanism of its own. `viewer.draft` on `GET .../pages/:pageIdOrHash`
+ * and the `GET`/`DELETE .../pages/:pageId/draft` routes are what let the editor actually offer that
+ * recovery to a reader (OpenProject #2455) — the same row, read two different ways: `models/pageDrafts.ts#summary()`
+ * for the lightweight "there is one, from roughly when, possibly by whom" signal, and `#getContent()`
+ * to decode the full thing once the reader has chosen to restore it.
+ *
+ * `state` is a raw Yjs update (`Y.encodeStateAsUpdate(doc)`), not the plain markdown — restoring it
+ * has to reconstruct the whole shared document (text, header fields, and cursor-independent CRDT
+ * metadata), not just a string. `authorId`/`authorName` are best-effort attribution of whoever was
+ * last known to be editing when the draft was recorded — null once the account is gone (or was never
+ * resolved to one at all, e.g. a guest), rather than holding the account hostage. Mirrors
+ * `comments.authorId`.
+ *
+ * The row is deleted, not merely made stale, once the content it describes is genuinely committed —
+ * see `core/collab.ts#pageSaved()`, the same hook that already tells every collaborator's editor a
+ * save has landed. A row surviving past that point would offer to restore content a save has already
+ * superseded. What is left to accumulate is a page abandoned mid-edit and never reopened, which
+ * `purgePageDrafts` (`models/pageDrafts.ts#purgeStale()`) sweeps on a retention window, the same
+ * shape as `rateLimits`/`sessions`'s own housekeeping below.
+ */
+export const pageDrafts = pgTable(
+  'pageDrafts',
+  {
+    pageId: uuid()
+      .primaryKey()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    state: bytea().notNull(),
+    authorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    authorName: varchar({ length: 255 }),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  // -> How the purge finds rows nothing has touched in a long while
+  (table) => [index('pageDrafts_updatedAt_idx').on(table.updatedAt)]
 )
 
 // RATE LIMITS -------------------------

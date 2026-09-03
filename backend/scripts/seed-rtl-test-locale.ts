@@ -2,31 +2,33 @@
  * One-off seed for two synthetic locales, for validating feature 413 ("RTL support end-to-end") and
  * WP #1662 (the content-vs-interface locale split) end to end.
  *
- * There is no real second locale available anywhere in this fork: `locales/metadata.js` is
- * Localazy-generated output covering only de/en/fr/pt-BR/ru/zh (see its own header comment), and
- * only `locales/en.json` exists on disk. Getting real strings for any other language requires
- * enabling it on the Localazy project and re-running the download -- an external/ops dependency
- * outside either feature's engineering scope (see `docs/variances.md`).
+ * `locales/metadata.js` (Localazy-generated) has grown a great deal since this file was first
+ * written -- as of OpenProject #2371 it lists 56 languages, `ar` and `es` among them, each with a
+ * real, vendored `locales/<code>.json` file on disk (this file used to claim only
+ * de/en/fr/pt-BR/ru/zh existed; that claim is now false and was corrected as part of #2371). That
+ * makes `ar`/`es` real locales `models/locales.ts#refreshFromDisk()` owns and resyncs on every boot
+ * -- deliberately reused here anyway rather than picked around, because `refreshFromDisk()`'s own
+ * `onConflictDoUpdate` now carries a `setWhere` freshness guard (#2371) that makes this safe: it only
+ * ever overwrites a locale row whose CURRENT `updatedAt` (re-checked atomically at write time, not
+ * from a stale in-memory snapshot) is still older than the vendored file's own mtime. This seed's
+ * `updatedAt: now()` is always newer than a checked-out file's mtime, so a boot's `refreshFromDisk()`
+ * -- however it interleaves with this seed's own write -- can never clobber it. See that guard's own
+ * comment for the exact race this closes.
  *
- * This script inserts two hand-translated stand-ins directly into the `locales` table instead:
+ * This script inserts two hand-translated stand-ins directly into the `locales` table:
  *
  *   - `RTL_TEST_LOCALE` (`ar`, `isRTL: true`) -- enough real Arabic strings across the namespaces the
  *     reading view, editor toolbars and admin chrome actually read from (`common.*`,
  *     `editor.markup.*`, `admin.*`, `auth.*`, `welcome.*`) to exercise the whole rendering path with
  *     `isRTL: true` genuinely in effect, per `models/locales.ts`'s `getLocales()`/`getStrings()`.
+ *     Deliberately NOT the real, Localazy-sourced `ar.json` translation: that file's completeness is
+ *     whatever fraction of ~2,800 keys the crowd-sourced project happens to have translated at any
+ *     given moment (42% as of this writing), covering an unpredictable, shifting subset of keys --
+ *     unusable as a fixture an e2e spec can assert specific translated strings against.
  *   - `LTR_TEST_LOCALE` (`es`, `isRTL: false`) -- a second, non-right-to-left locale, so
  *     `e2e/tests/rtl.spec.js` can assert `<html lang>` follows a page's own content locale even when
  *     that locale isn't RTL (WP #1655's point that the `lang` half is wrong on *any* translated page,
- *     not only an RTL one). `es` is deliberately not one of the six languages above: those already
- *     have Localazy-hosted resources and could plausibly get a real `locales/fr.json`-style file
- *     landing on disk at any time, which would make `refreshFromDisk()` silently overwrite this row
- *     the next time it runs -- see below.
- *
- * Neither row is wired into `metadata.js`/`refreshFromDisk()`: that pipeline is Localazy's
- * real-locale path, and `refreshFromDisk()` only ever loads a code that has a matching
- * `locales/<code>.json` file present on disk (skipping every other code in `metadata.js`'s
- * `languages` list with a warning) -- since neither `ar.json` nor `es.json` exists there today,
- * both rows are invisible to it and never get overwritten by a normal boot.
+ *     not only an RTL one).
  *
  * Two ways to run it:
  *   - `import { seedRtlTestLocale, RTL_TEST_LOCALE }` (or the `Ltr`-prefixed equivalents) from

@@ -334,6 +334,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
                   'Best-effort: only those participants whose awareness state carries a name.'
               }
             }
+          },
+          draft: {
+            type: ['object', 'null'],
+            description:
+              'An unsaved draft recorded when this page\'s collaboration room last closed with edits still pending (OpenProject #2455) -- what the editor offers to restore as "you have unsaved changes from a previous session". Null when there is none, when collaborative editing is off for this site, or for a requester who may not write this page (`write:pages`) -- the same requirement joining the room itself has. Content is not included here; fetch it from `GET …/pages/:pageId/draft` once the reader has actually chosen to restore it.',
+            properties: {
+              updatedAt: { type: 'string', format: 'date-time' },
+              authorName: {
+                type: ['string', 'null'],
+                description: 'Best-effort: who was last known to be editing. Null when unknown.'
+              }
+            }
           }
         }
       }

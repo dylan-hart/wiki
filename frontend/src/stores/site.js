@@ -198,6 +198,12 @@ export const useSiteStore = defineStore('site', {
       currentId: null,
       items: [],
       mode: 'static',
+      /** The generator's own root for the current `auto`/`mixed` menu -- what `NavSidebar.vue`'s
+       *  root-level "create here" action targets instead of always the locale root, since a
+       *  page/folder-level override's own root is not always the locale root (OpenProject #2442).
+       *  Meaningless for a `static` menu. */
+      rootPath: '',
+      rootId: null,
       inFlightId: null
     }
   }),
@@ -348,7 +354,9 @@ export const useSiteStore = defineStore('site', {
       //    this one stale the instant it starts -- not only once it too has a response in hand.
       this.nav.inFlightId = id
       try {
-        const { mode, items } = await API_CLIENT.get(`sites/${this.id}/navigation/${id}`).json()
+        const { mode, items, rootPath, rootId } = await API_CLIENT.get(
+          `sites/${this.id}/navigation/${id}`
+        ).json()
         // -> A newer call may have started (and even finished) while this one was in flight; if so,
         //    its id is no longer the one this response is for, so discard rather than clobber it.
         if (this.nav.inFlightId !== id) {
@@ -358,7 +366,9 @@ export const useSiteStore = defineStore('site', {
           nav: {
             currentId: id,
             items: items ?? [],
-            mode: mode ?? 'static'
+            mode: mode ?? 'static',
+            rootPath: rootPath ?? '',
+            rootId: rootId ?? null
           }
         })
       } catch (err) {
@@ -372,7 +382,9 @@ export const useSiteStore = defineStore('site', {
           nav: {
             currentId: id,
             items: [],
-            mode: 'static'
+            mode: 'static',
+            rootPath: '',
+            rootId: null
           }
         })
       }

@@ -39,7 +39,8 @@ export const API_KEY_SCOPES = [
   'read:comments',
   'write:comments',
   'manage:comments',
-  'manage:classification'
+  'manage:classification',
+  'publish:pages'
 ]
 
 /**

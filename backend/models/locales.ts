@@ -1,7 +1,7 @@
 import { stat, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { locales as localesTable } from '../db/schema.ts'
-import { eq, sql } from 'drizzle-orm'
+import { eq, lt, sql } from 'drizzle-orm'
 import { isPlainObject } from 'es-toolkit/predicate'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import type { LocalazyLanguage } from '../locales/metadata.d.ts'
@@ -284,7 +284,21 @@ class Locales extends ClusterReloaded {
               })
               .onConflictDoUpdate({
                 target: localesTable.code,
-                set: { strings: flStrings, completeness, updatedAt: sql`now()` }
+                set: { strings: flStrings, completeness, updatedAt: sql`now()` },
+                // -> The decision to reach this branch was made from `dbLocales`, ONE snapshot read
+                //    at the top of this call -- by the time this specific statement executes (55
+                //    languages, each its own file read + DB round trip, may run first), some other
+                //    writer can have inserted or refreshed THIS code's row after that snapshot was
+                //    taken. Without this guard the conflict path would still fire (its own snapshot
+                //    said "stale or missing"), silently clobbering whatever that other writer just
+                //    stored -- confirmed against a real Postgres instance for OpenProject #2371,
+                //    where the e2e suite's own direct-DB seed of a locale sharing a code with a real
+                //    vendored one lost exactly this race. Re-checking the freshness condition here,
+                //    against the row's CURRENT `updatedAt` rather than the stale snapshot, makes the
+                //    whole insert-or-refresh atomic: Postgres only applies the update if nothing else
+                //    has written a same-or-newer row since. Skipped for `force`, which means
+                //    "overwrite regardless of freshness" and must still do exactly that.
+                setWhere: force ? undefined : lt(localesTable.updatedAt, flStat.mtime)
               })
             this.invalidateStringsCache(langFilename)
             WIKI.logger.info(`Locale ${langFilename} loaded successfully. [ OK ]`)

@@ -156,6 +156,56 @@ describe('docs/release-checklist.md — pre-release checklist', () => {
     })
   })
 
+  describe('item 6 — ARM host verification (Epic #2435 / WP #2488)', () => {
+    test('attributes ownership to Epic #2435 and WP #2488', () => {
+      assert.match(raw, /#2435/)
+      assert.match(raw, /#2488/)
+    })
+
+    test('explicitly states this item cannot be a full CI assertion', () => {
+      assert.match(raw, /cannot.*(be a )?(full )?CI assertion|never.*CI (runner|assertion)/i)
+    })
+
+    test('names the two verification scripts', () => {
+      assert.match(raw, /verify-arm64-manifest\.ts/)
+      assert.match(raw, /arm-host-smoke-test\.sh/)
+    })
+
+    test('claim about the arm64 image being published matches sibling WP #2486/#2487 status', () => {
+      // WP #2486/#2487 add linux/arm64 to build.yml/release.yml. Until at least one of those
+      // workflows actually declares linux/arm64, no arm64-including image can have been published,
+      // and this item must say so rather than assume it.
+      const buildYml = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/build.yml'), 'utf8')
+      const releaseYml = fs.readFileSync(
+        path.join(REPO_ROOT, '.github/workflows/release.yml'),
+        'utf8'
+      )
+      const arm64Wired = /linux\/arm64/.test(buildYml) || /linux\/arm64/.test(releaseYml)
+
+      if (arm64Wired) {
+        assert.doesNotMatch(
+          raw,
+          /No image with an arm64 platform in its manifest has ever been published/,
+          'a workflow now declares linux/arm64 — the checklist must not still claim none does'
+        )
+      } else {
+        assert.match(
+          raw,
+          /No image with an arm64 platform in its manifest has ever been published/,
+          'neither workflow declares linux/arm64 yet — the checklist should say so, not assume it exists'
+        )
+      }
+    })
+
+    test('requires a named human recording the host used, not just a checkbox', () => {
+      assert.match(raw, /named human/i)
+    })
+
+    test('describes where the sign-off gets recorded (release PR description)', () => {
+      assert.match(raw, /release PR/i)
+    })
+  })
+
   test('spells out unambiguous go/no-go usage instructions', () => {
     assert.match(raw, /go[- /]?no-go/i)
   })

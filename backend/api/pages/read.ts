@@ -1,8 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { SEARCH_ORDER_BY, type SearchOrderBy } from '../../models/search.ts'
+import { SEARCH_ORDER_BY, type SearchOrderBy, type SearchResult } from '../../models/search.ts'
 import { generatePathHash, isValidUuid, normalizePagePath } from '../../helpers/common.ts'
 import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { limitAuthAttempts } from '../../helpers/rateLimit.ts'
+import {
+  computeTranslationStatus,
+  computeTranslationStatuses,
+  type TranslationRow
+} from '../../helpers/translationStatus.ts'
 import {
   actorFrom,
   mayBypassPassword,
@@ -70,6 +75,36 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
 const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 
 /**
+ * Fills in each result's `localeStatus` (OpenProject #2476) -- the admin pages view's per-locale
+ * staleness/missing column -- in place, mutating `results` rather than returning a new array, since
+ * the caller already holds the exact array the response schema is about to serialize.
+ *
+ * One batched `getTranslationRows` call over every distinct path on this page of results, not one
+ * query per row: `results` is already capped at `limit` (at most 100), so the join stays a single,
+ * small `IN (...)` read regardless of how many locales end up represented.
+ */
+async function attachLocaleStatus(siteId: string, results: SearchResult[]): Promise<void> {
+  if (results.length < 1) {
+    return
+  }
+  const paths = [...new Set(results.map((r) => r.path))]
+  const rows = await WIKI.models.pages.getTranslationRows(siteId, paths)
+  const rowsByPath = new Map<string, TranslationRow[]>()
+  for (const row of rows) {
+    const list = rowsByPath.get(row.path) ?? []
+    list.push({ locale: row.locale, updatedAt: row.updatedAt })
+    rowsByPath.set(row.path, list)
+  }
+  const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+    defaultLocale(siteId)
+  ]
+  const statuses = computeTranslationStatuses(rowsByPath, activeLocales, defaultLocale(siteId))
+  for (const result of results) {
+    result.localeStatus = statuses.get(result.path) ?? []
+  }
+}
+
+/**
  * Read-side page routes: finding a page, opening one, unlocking a protected one, and the small
  * lookups a page view makes around it -- its translations, what links to it, the alias it answers to,
  * and what the reader themselves may do here.
@@ -91,6 +126,7 @@ async function routes(app: FastifyInstance) {
       orderByDirection?: 'asc' | 'desc'
       offset?: number
       limit?: number
+      includeLocaleStatus?: boolean
     }
   }>(
     '/sites/:siteId/pages/search',
@@ -152,6 +188,12 @@ async function routes(app: FastifyInstance) {
               minimum: 1,
               maximum: 100,
               default: 25
+            },
+            includeLocaleStatus: {
+              type: 'boolean',
+              default: false,
+              description:
+                "Attach each result's `localeStatus`: whether every one of the site's active locales is missing, stale, current, or the primary translation for that path — the admin pages view's per-locale column. Off by default: it costs one extra batched query over this page of results, so a caller that does not render it should not opt in."
             }
           }
         },
@@ -177,6 +219,22 @@ async function routes(app: FastifyInstance) {
                     highlight: {
                       type: ['string', 'null'],
                       description: 'Excerpt with matched terms in `<b>`, everything else escaped.'
+                    },
+                    localeStatus: {
+                      type: 'array',
+                      description:
+                        "Present only when `includeLocaleStatus=true` was requested. One entry per the site's active locales, primary locale first.",
+                      items: {
+                        type: 'object',
+                        properties: {
+                          locale: { type: 'string' },
+                          state: {
+                            type: 'string',
+                            enum: ['primary', 'current', 'stale', 'missing']
+                          },
+                          updatedAt: { type: ['string', 'null'], format: 'date-time' }
+                        }
+                      }
                     }
                   }
                 }
@@ -215,7 +273,7 @@ async function routes(app: FastifyInstance) {
         PAGE_PASSWORD_BYPASS_ROLES,
         req.params.siteId
       )
-      return WIKI.models.search.query({
+      const result = await WIKI.models.search.query({
         siteId: req.params.siteId,
         query: req.query.query,
         path: req.query.path,
@@ -237,6 +295,10 @@ async function routes(app: FastifyInstance) {
         //    still listed. Global rather than per page — since a search spans many pages at once.
         hideProtectedContent: !maySeeEverything
       })
+      if (req.query.includeLocaleStatus) {
+        await attachLocaleStatus(req.params.siteId, result.results)
+      }
+      return result
     }
   )
 
@@ -420,9 +482,23 @@ async function routes(app: FastifyInstance) {
         without the feature, since a room can never exist there and the number would be misleading if
         the feature were re-enabled and disabled again while a stale one lingered.
       */
-      const activeEditors = WIKI.sites[req.params.siteId]?.config?.features?.collaborativeEditing
+      const collabEnabled = Boolean(
+        WIKI.sites[req.params.siteId]?.config?.features?.collaborativeEditing
+      )
+      const activeEditors = collabEnabled
         ? WIKI.collab.participantInfo(page.id)
         : { count: 0, names: [] }
+      /*
+        A recovery draft (OpenProject #2455) is nothing but a collaboration room's own leftover
+        content, so it can only exist -- and only matters -- to whoever could have written the room in
+        the first place: `write:pages` on this page, the same permission the collaboration websocket
+        itself checks. Skipped for anyone else, the same way `activeEditors` above is skipped when the
+        feature is off, so this never runs an extra query for a plain reader.
+      */
+      const draft =
+        collabEnabled && mayOnPage(req, 'write:pages', req.params.siteId, page)
+          ? ((await WIKI.models.pageDrafts.summary(page.id)) ?? null)
+          : null
       return {
         ...page,
         commentsCount,
@@ -430,7 +506,8 @@ async function routes(app: FastifyInstance) {
           permissions: pagePermissionsFor(req, req.params.siteId, page),
           ...approvalState,
           isWatching,
-          activeEditors
+          activeEditors,
+          draft
         }
       }
     }
@@ -576,6 +653,78 @@ async function routes(app: FastifyInstance) {
         path: translation.path,
         title: translation.title
       }))
+    }
+  )
+
+  /**
+   * PAGE TRANSLATION STATUS (OpenProject #2475)
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/translationStatus',
+    {
+      /*
+        No route-level `permissions`: `read:pages` is a page permission granted by a group's
+        RULES. Checked against the target page via `requireReadablePage` (folded into 404 when
+        missing or unreadable), and again per candidate translation row below -- same pattern as
+        the backlinks route just above.
+      */
+      schema: {
+        summary: "Get a page's per-locale translation staleness/missing status",
+        description:
+          "For every locale the site has active, whether a translation exists at this page's path and whether it predates the primary-locale page there (`translation.updatedAt < primary.updatedAt` on the shared `(siteId, path)` join -- see docs/decisions/locale-translation-linking.md). What `LocaleSelectorMenu.vue` reads to badge a stale or missing translation before the reader switches to it.\n\nReadable without a session, same as reading the page itself -- but each candidate translation row is dropped unless the caller may `read:pages` on it, and unpublished/scheduled translations are invisible to an anonymous caller entirely, so this never reveals a translation the caller could not otherwise discover by trying to read it directly.",
+        tags: ['Pages'],
+        params: { $ref: 'SitePageParams#' },
+        response: {
+          200: {
+            description: 'One entry per active locale on this site',
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                locale: { type: 'string' },
+                exists: {
+                  type: 'boolean',
+                  description:
+                    'Whether a page exists in this locale at this path, as far as the caller may see.'
+                },
+                stale: {
+                  type: 'boolean',
+                  description:
+                    "Whether the existing translation's `updatedAt` predates the primary-locale page's own. Always `false` for the primary locale itself, or when `exists` is `false`, or when the primary-locale page is not visible to the caller at all."
+                }
+              }
+            }
+          },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      // -> A staleness badge reveals no part of this page's body, so a password still standing
+      //    between the caller and the text is not a reason to refuse it -- same reasoning as
+      //    backlinks' own `allowLocked: true`.
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        allowLocked: true
+      })
+      if (!page) {
+        return reply
+      }
+      const actor = actorFrom(req)
+      const rows = await WIKI.models.pages.listTranslationStatusRows(req.params.siteId, page.path)
+      // -> Same two-step narrowing as `api/graph.ts`'s node listing: publication-state exclusion
+      //    for an anonymous caller first (a draft/scheduled translation must never reach one),
+      //    then `read:pages` per candidate row.
+      const visibleRows = (
+        actor ? rows : rows.filter((row) => row.publishState === 'published')
+      ).filter((row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
+      const activeLocales: string[] = WIKI.sites[req.params.siteId]?.config?.locales?.active ?? [
+        defaultLocale(req.params.siteId)
+      ]
+      return computeTranslationStatus(
+        activeLocales,
+        defaultLocale(req.params.siteId),
+        visibleRows.map((row) => ({ locale: row.locale, updatedAt: row.updatedAt }))
+      )
     }
   )
 

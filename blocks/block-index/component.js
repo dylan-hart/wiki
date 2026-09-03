@@ -7,12 +7,19 @@ import { DarkMode } from '../shared/theme.js'
 import { getSiteId, getSiteLocales, getCurrentPage } from '../shared/site.js'
 
 /**
- * What to draw for a page carrying no icon of its own.
+ * What to draw for a leaf page carrying no icon of its own.
  *
  * The same one the app gives a new page (`DEFAULT_PAGE_ICON` in the page store), so that a listing
  * mixing pages made in the editor with pages made through the API still lines up down the left.
  */
 const DEFAULT_PAGE_ICON = 'mdi:file-document-outline'
+
+/**
+ * What to draw for a "book" page carrying no icon of its own — one with a page nested below its own
+ * path, the BookStack-style chapter arrangement `hasChildren` signals (OpenProject #2462). An
+ * "outline" glyph, matching `DEFAULT_PAGE_ICON`'s style.
+ */
+const BOOK_PAGE_ICON = 'mdi:book-open-page-variant-outline'
 
 /**
  * Block Index
@@ -39,7 +46,8 @@ export class BlockIndexElement extends LitElement {
   static definition = {
     block: 'index',
     name: 'Index',
-    description: 'Displays a list of pages contained in a folder.',
+    description:
+      "Lists a folder's pages -- set Depth above 0 to also pull in subfolders for a nested, book/chapter-style index or table of contents.",
     icon: 'index',
     props: [
       {
@@ -79,7 +87,7 @@ export class BlockIndexElement extends LitElement {
         name: 'depth',
         type: 'number',
         label: 'Depth',
-        hint: 'How many folders below the path to include. 0 is the folder itself.',
+        hint: 'How many folders below the path to include. 0 is the folder itself; above 0 pulls in subfolders too, for a nested book/chapter-style listing.',
         default: 0
       },
       {
@@ -174,6 +182,14 @@ export class BlockIndexElement extends LitElement {
           display: flex;
           align-items: stretch;
           justify-content: stretch;
+          /*
+          -> Renders the tree nested/indented (OpenProject #2461): --depth is set inline per row
+             from the page's own depth (how many folders below the listed path it sits -- see
+             render()). Indentation rather than a real nested list, because the listing is ordered
+             by title/date/etc. across every depth at once -- a depth-2 page can sort ahead of its own
+             depth-0 ancestor, so there is no sibling order to build an actual parent/child tree from.
+        */
+          margin-left: calc(var(--depth, 0) * 1.5rem);
         }
         :host([dark]) li {
           background-color: #222;
@@ -441,7 +457,7 @@ export class BlockIndexElement extends LitElement {
   async _loadIcons() {
     await Promise.all(
       this._pages.map(async (page) => {
-        const reference = page.icon || DEFAULT_PAGE_ICON
+        const reference = this._iconReference(page)
         if (!iconImageUrl(reference)) {
           page.svg = await fetchIcon(reference)
         }
@@ -451,21 +467,36 @@ export class BlockIndexElement extends LitElement {
     this.requestUpdate()
   }
 
+  /**
+   * One page's icon reference: the author's own choice when there is one, otherwise the book/file
+   * default carried by `hasChildren` (OpenProject #2462) — a page with a nested page below its own
+   * path draws as a book, a leaf page as a file. Shared by `_loadIcons()` (what to prefetch) and
+   * `_icon()` (what to draw), so the two never disagree about which reference a row resolved to.
+   */
+  _iconReference(page) {
+    return page.icon || (page.hasChildren ? BOOK_PAGE_ICON : DEFAULT_PAGE_ICON)
+  }
+
   /** One page's icon: an inlined SVG, or an `<img>` for a reference that names a file. */
   _icon(page) {
-    const image = iconImageUrl(page.icon || DEFAULT_PAGE_ICON)
+    const image = iconImageUrl(this._iconReference(page))
     return html`<span class="icon">
       ${image ? html`<img src="${image}" alt="" />` : page.svg ? unsafeSVG(page.svg) : null}
     </span>`
   }
 
   render() {
+    // -> A depth-0-only listing still lays out in the usual 1-3 columns; the moment any row is
+    //    indented, an inline single-column override (which always beats the CSS grid rules, media
+    //    queries included) keeps a deep row from having its `--depth` indent read against the wrong
+    //    column's width.
+    const nested = this._pages.some((p) => (p.depth || 0) > 0)
     return this._pages.length > 0 || this._loading
       ? html`
-          <ul>
+          <ul style="${nested ? 'grid-template-columns: repeat(1, minmax(0, 1fr))' : ''}">
             ${this._pages.map(
               (p) =>
-                html`<li>
+                html`<li style="--depth: ${p.depth || 0}">
                   <a href="${p.href}" @click="${this._navigate}">
                     ${this.showIcons ? this._icon(p) : null}
                     <div class="text">

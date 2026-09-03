@@ -75,12 +75,36 @@ test('JOB_SCHEDULE_SEED registers purgeUserKeys on a valid daily cron', () => {
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
+test("JOB_SCHEDULE_SEED registers replicationTick on a 5-minute cron, not storageSyncTick's every-minute one (OpenProject #2437)", () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'replicationTick')
+  assert.ok(entry, 'expected a replicationTick entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  assert.equal(entry!.cron, '*/5 * * * *')
+})
+
 test('JOB_SCHEDULE_SEED registers purgePageWatchEvents on a valid daily cron', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgePageWatchEvents')
   assert.ok(entry, 'expected a purgePageWatchEvents entry in the schedule seed')
   assert.equal(entry!.type, 'system')
   // -> A standard 5-field cron expression, e.g. "50 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+})
+
+test('JOB_SCHEDULE_SEED registers purgePageDrafts on a valid daily cron, at a minute no other seeded job uses', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgePageDrafts')
+  assert.ok(entry, 'expected a purgePageDrafts entry in the schedule seed (OpenProject #2454)')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "58 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+
+  const crons: string[] = JOB_SCHEDULE_SEED.filter((e) => e.task !== 'purgePageDrafts').map(
+    (e) => e.cron
+  )
+  const targetCron: string = entry!.cron
+  assert.ok(
+    !crons.includes(targetCron),
+    `expected purgePageDrafts's cron minute to be unused by any other seeded job, got a clash on "${targetCron}"`
+  )
 })
 
 test('JOB_SCHEDULE_SEED registers purgeSessions on a valid hourly cron, offset from purgeRateLimits', () => {
@@ -116,11 +140,13 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'purgeExports',
       'purgeGuestPii',
       'purgeImports',
+      'purgePageDrafts',
       'purgePageviews',
       'purgePageWatchEvents',
       'purgeRateLimits',
       'purgeSessions',
       'purgeUserKeys',
+      'replicationTick',
       'sendWatchDigests',
       'storageDailyBackup',
       'storageSyncTick',

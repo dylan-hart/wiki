@@ -7,7 +7,13 @@ import {
 import { CustomError, decodeTreePath } from '../helpers/common.ts'
 import { localizedPagePath } from '../helpers/localeRouting.ts'
 import { isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
-import { MAX_DEPTH, compareFoldersFirst, holdsVisiblePagesUnder, pageIsVisible } from './tree.ts'
+import {
+  MAX_DEPTH,
+  compareFoldersFirst,
+  holdsVisiblePagesUnder,
+  pageIsVisible,
+  splitPath
+} from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 import type { AccessActor } from './groups.ts'
 
@@ -344,12 +350,17 @@ class Navigation {
     if (!row || row.mode === 'static') {
       combined = items
     } else {
-      const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id, row.locale)
+      const { rootFolderPath, rootFolderId, locale } = await this.resolveGeneratorRoot(
+        row.siteId,
+        id,
+        row.locale
+      )
       const generated = markGenerated(
         await this.getGeneratedTree(
           row.siteId,
           id,
           rootFolderPath,
+          rootFolderId,
           locale,
           unfiltered ? null : actor
         )
@@ -408,6 +419,57 @@ class Navigation {
   }
 
   /**
+   * The generator's own root -- a decoded path and the tree id of the folder living there -- for a
+   * menu id, independent of `getNav`'s item resolution and its actor-scoped filtering (OpenProject
+   * #2442).
+   *
+   * What the nav sidebar's own root-level "create here" action needs to target the right place: for
+   * an `auto`/`mixed` menu that belongs to a page/folder-level override (see
+   * `resolveGeneratorRoot`'s own doc comment), the generator's root is that override's OWN section
+   * root, not the locale root -- so a hardcoded `base-path=""` / `parentId: null` (right only for a
+   * site-wide menu) pointed a folder or page created from that action at the wrong place. `rootId` is
+   * `null` at the site/locale root, same as it always was there, since there is no folder entry to
+   * name.
+   *
+   * Meaningless for a `static` menu (nothing is generated) but resolves anyway rather than refusing
+   * -- the one caller (`NavSidebar.vue`'s root-level create menu) only renders for an `auto`/`mixed`
+   * menu in the first place and simply has no use for these values otherwise.
+   *
+   * @param siteId The site the menu is expected to belong to, scoping the read the same way `getNav`
+   *               already does.
+   * @param id Menu id -- a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
+   */
+  async getNavRoot(
+    siteId: string,
+    id: string
+  ): Promise<{ rootPath: string; rootId: string | null }> {
+    const rows = await WIKI.db
+      .select({ locale: navigationTable.locale })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
+      .limit(1)
+    try {
+      const { rootFolderPath, rootFolderId } = await this.resolveGeneratorRoot(
+        siteId,
+        id,
+        rows[0]?.locale ?? null
+      )
+      return { rootPath: decodeTreePath(rootFolderPath) ?? '', rootId: rootFolderId }
+    } catch (err: any) {
+      // -> A menu id naming neither a stored row nor a real tree entry -- `getNav`'s own `!row`
+      //    branch already answers an empty item list for this case rather than throwing, so this
+      //    mirrors it instead of rejecting the same `Promise.all` the API route runs it alongside.
+      //    Narrowed to `resolveGeneratorRoot`'s own `getEntry()` failure (OpenProject #2442's
+      //    "nonexistent menu id returns an empty list rather than throwing" contract), not every
+      //    error -- a genuine DB fault still surfaces.
+      if (err?.name === 'navInvalidPage') {
+        return { rootPath: '', rootId: null }
+      }
+      throw err
+    }
+  }
+
+  /**
    * The scope a `getNav` generation call walks from, for a given menu row -- resolved the same way
    * `updateNavigation` already resolves `ownNavId`/`ancestorId`: a row carrying its own `locale` (see
    * the schema comment on `navigation.locale`) is a site-wide default, and maps to the site root
@@ -416,17 +478,56 @@ class Navigation {
    * own name) and locale, exactly as stored on it. A menu therefore always generates the section it
    * sits alongside -- its siblings -- not its own subtree, which is also why an override on a leaf
    * page resolves to a sensible (non-empty) root.
+   *
+   * `rootFolderId` is the tree id of the folder living at `rootFolderPath` (`null` at the site root,
+   * where there is no folder entry to resolve) -- what a TOP-LEVEL generated item's own `folderId`
+   * should be (OpenProject #2442; see `generateFromTree`'s `parentFolderId` param), and what
+   * `getNavRoot` hands the frontend as `rootId` for the same reason.
    */
   private async resolveGeneratorRoot(
     siteId: string,
     id: string,
     rowLocale: string | null
-  ): Promise<{ rootFolderPath: string; locale: string }> {
+  ): Promise<{ rootFolderPath: string; rootFolderId: string | null; locale: string }> {
     if (rowLocale !== null) {
-      return { rootFolderPath: '', locale: rowLocale }
+      return { rootFolderPath: '', rootFolderId: null, locale: rowLocale }
     }
     const entry = await this.getEntry(siteId, id)
-    return { rootFolderPath: entry.folderPath ?? '', locale: entry.locale }
+    const rootFolderPath = entry.folderPath ?? ''
+    const rootFolderId = await this.folderIdForPath(siteId, entry.locale, rootFolderPath)
+    return { rootFolderPath, rootFolderId, locale: entry.locale }
+  }
+
+  /**
+   * The tree id of the folder living at an encoded ltree path, or `null` at the site root (empty
+   * path), where there is no folder entry to resolve. `resolveGeneratorRoot`'s own helper --
+   * `splitPath` (exported from `tree.ts`) turns the encoded path into the `(folderPath, fileName)`
+   * pair that addresses the folder entry itself, the same way `TreeModel#getFolder`'s path branch
+   * does.
+   */
+  private async folderIdForPath(
+    siteId: string,
+    locale: string,
+    encodedFolderPath: string
+  ): Promise<string | null> {
+    if (!encodedFolderPath) {
+      return null
+    }
+    const { folderPath, fileName } = splitPath(encodedFolderPath)
+    const rows = await WIKI.db
+      .select({ id: treeTable.id })
+      .from(treeTable)
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, locale),
+          eq(treeTable.type, 'folder'),
+          eq(treeTable.folderPath, folderPath),
+          eq(treeTable.fileName, fileName)
+        )
+      )
+      .limit(1)
+    return rows[0]?.id ?? null
   }
 
   /**
@@ -565,6 +666,7 @@ class Navigation {
     siteId: string,
     navId: string,
     rootFolderPath: string,
+    rootFolderId: string | null,
     locale: string,
     actor: AccessActor | null
   ): Promise<NavigationItem[]> {
@@ -572,7 +674,14 @@ class Navigation {
     if (WIKI.cache.has(key)) {
       return WIKI.cache.get(key) as NavigationItem[]
     }
-    const generated = await this.generateFromTree(siteId, rootFolderPath, locale, actor)
+    const generated = await this.generateFromTree(
+      siteId,
+      rootFolderPath,
+      locale,
+      actor,
+      0,
+      rootFolderId
+    )
     WIKI.cache.set(key, generated)
     let keys = this.cacheKeysBySite.get(siteId)
     if (!keys) {
@@ -644,6 +753,13 @@ class Navigation {
    *              read).
    * @param depth How many folder levels below `rootFolderPath` this call already is. Callers always
    *              start at 0; recursion stops past the same `MAX_DEPTH` `tree.ts` enforces elsewhere.
+   * @param parentFolderId The tree id every item THIS call returns stamps onto its own `folderId` --
+   *                        the folder `rootFolderPath` itself names, `null` only at the true site
+   *                        root. `getGeneratedTree` resolves the initial call's value from
+   *                        `resolveGeneratorRoot`'s own `rootFolderId` (OpenProject #2442; it used to
+   *                        default this to `null` unconditionally, which was wrong for a
+   *                        page/folder-level override's own top level); every recursive call below
+   *                        passes its own `row.id` on, unchanged from before.
    */
   private async generateFromTree(
     siteId: string,

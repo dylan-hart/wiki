@@ -58,6 +58,11 @@ export const AUDIT_EVENTS = [
   'system.apiStateUpdated',
   'system.metricsUpdated',
   'system.pageviewsUpdated',
+  // -> #2491: an operator changed the instance-level scheduled-replication settings (source URL,
+  //   bearer token, cron schedule, or the enable toggle). `detail` is the same filtered patch
+  //   pattern as the siblings above, with `bearerToken` masked rather than dropped, so a diff of
+  //   what changed stays visible without ever writing the raw secret to the log.
+  'system.replicationUpdated',
   // -> #2288: an operator rotated `pageviews.hashKey`, breaking correlation between pre- and
   //   post-rotation `visitorHash` rows on purpose.
   'system.pageviewsHashKeyRotated',
@@ -66,6 +71,14 @@ export const AUDIT_EVENTS = [
   'system.pageHistoryPurged',
   'system.contentExported',
   'system.contentImported',
+  // -> #2489: an instance-wide replication snapshot was queued (Epic #2437's scheduled clean-slate
+  //   replication, source side). Distinct from `system.contentExported`, which is the existing
+  //   per-site "Export content" utility -- this is the whole instance, a different archive format,
+  //   and a different feature.
+  'system.replicationSnapshotExported',
+  // -> Feature #2437: a whole-instance wipe-and-replace snapshot restore, distinct from
+  //   `system.contentImported` (one site's content) — see `models/replicationImport.ts`.
+  'system.replicationImported',
   /**
    * OpenProject #2237: the audit log auditing its own configuration. `retentionChanged`'s `detail`
    * carries `{ from, to }` (days); `purged`'s carries `{ count, cutoff }` -- see `purge()`'s own
@@ -86,10 +99,14 @@ export const AUDIT_TARGET_TYPES = [
   'site',
   'storageTarget',
   'authStrategy',
-  // -> #1118: `mcp.writeToolCalled`'s target is the page the tool call wrote, not the calling key
-  //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
-  //   answer "what did the agent write", not just "an agent wrote something".
+  // -> #1118: `mcp.writeToolCalled`'s target is the page (or, per #2446, the asset) the tool call
+  //   wrote, not the calling key (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the target
+  //   is what makes the log entry answer "what did the agent write", not just "an agent wrote
+  //   something".
   'page',
+  // -> #2443/#2445/#2446: `mcp.writeToolCalled`'s target for `upload_asset`, `rename_asset` and
+  //   `delete_asset`, the same reasoning as `page` above applied to the asset write tools.
+  'asset',
   'glossaryTerm',
   // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
   //   so `targetId` for these stays '' and `targetLabel` names the setting/module changed instead.

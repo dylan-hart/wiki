@@ -4,6 +4,10 @@ import type { FastifyInstance } from 'fastify'
 /**
  * Authentication strategy administration (`manage:system`): the modules this instance ships, the
  * strategies configured from them, and creating, updating or deleting one.
+ *
+ * One route in here is deliberately not `manage:system`: `GET /authentication/synced-groups` carries
+ * no strategy secrets — just group and strategy ids/display names — so it is reachable by
+ * `manage:users`/`manage:groups` too, for the group-assignment warning UIs that need it (WP #2440).
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -159,6 +163,7 @@ async function routes(app: FastifyInstance) {
           displayName: req.body.displayName,
           isEnabled: req.body.isEnabled,
           allowedEmailRegex: req.body.allowedEmailRegex,
+          allowedEmailDomains: req.body.allowedEmailDomains,
           autoEnrollGroups: req.body.autoEnrollGroups,
           mappableGroups: req.body.mappableGroups
         })) ?? WIKI.models.authentication.validateConfig(req.body.module, req.body.config)
@@ -238,6 +243,7 @@ async function routes(app: FastifyInstance) {
         'selfRegistration',
         'autoProvision',
         'allowedEmailRegex',
+        'allowedEmailDomains',
         'autoEnrollGroups',
         'trustEmailForLinking',
         'mappableGroups',
@@ -333,6 +339,35 @@ async function routes(app: FastifyInstance) {
 
       await WIKI.models.authentication.deleteStrategy(req.params.strategyId)
       return reply.code(204).send()
+    }
+  )
+
+  /**
+   * LIST GROUPS AT RISK OF PROVIDER SYNC REVERSION
+   */
+  app.get(
+    '/authentication/synced-groups',
+    {
+      config: {
+        permissions: ['read:users', 'manage:users', 'read:groups', 'manage:groups']
+      },
+      schema: {
+        summary: 'List groups an enabled provider-sync strategy could currently revoke on login',
+        description:
+          'One entry per group that is on an enabled, `mapGroups`-on strategy’s `mappableGroups` allow-list and not otherwise protected (not the guests group, not a group the same strategy also `autoEnrollGroups`, not a group carrying `manage:system`, not the root administrators group) — i.e. exactly the groups `syncProviderGroups()` could take away from an account on its next login through that strategy. Meant to warn an admin before a manual grant of one of these groups, which may not survive the user’s next provider login.',
+        tags: ['Authentication'],
+        response: {
+          200: {
+            description: 'Groups currently at risk of provider-sync reversion',
+            $ref: 'AuthGroupSyncWarnings#'
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      return WIKI.models.authentication.getGroupSyncWarnings()
     }
   )
 }

@@ -632,3 +632,164 @@ describe('MarkdownRenderer -- is-external-link with a site origin (OpenProject #
     expect(html).not.toContain('is-external-link')
   })
 })
+
+/**
+ * OpenProject #2372: a Playwright trace against `e2e/tests/csp.spec.js` showed `::block-spoiler{label=
+ * "Reveal" hint="Click to show content"}` -- and every block after it in the document -- rendering as
+ * literal, unparsed markdown text instead of real `<block-spoiler>` elements. The working hypothesis
+ * recorded on the WP was that `markdown-it-mdc` mis-parses a `::block-name{...}` once an attribute
+ * value contains a space.
+ *
+ * That hypothesis does not hold against this renderer: every case below is drawn either directly from
+ * `csp.spec.js`'s own `BODY` (`block-spoiler`'s and `block-countdown`'s exact attribute strings) or
+ * from a deliberate attempt to break the same code path a different way (the spaced value alone, the
+ * spaced value first instead of second, two blocks back-to-back with no blank line between them, a
+ * value with several space-separated words, a single-quoted value), constructed with the site's real
+ * default editor config (`backend/models/sites.ts`'s `markdown.config`), not an empty `{}` -- and every
+ * one parses into a real element with the space preserved in the attribute. This is not a fix for a
+ * bug in this file; it is a permanent regression guard, since I could not reproduce one here to fix
+ * (see the WP's own comment thread for the full investigation, including where the defect is more
+ * likely to actually be: the real-browser Monaco input pipeline the CSP e2e spec drives, which this
+ * unit-level render test cannot exercise).
+ */
+describe('MarkdownRenderer -- MDC block attribute values containing a space (OpenProject #2372)', () => {
+  const realEditorConfig = {
+    allowHTML: true,
+    lineBreaks: true,
+    linkify: true,
+    multimdTable: true,
+    quotes: 'english',
+    tabWidth: 2,
+    typographer: false,
+    underline: true
+  }
+
+  it('parses a spaced value alongside a plain one, matching block-spoiler in csp.spec.js', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render(
+      '::block-spoiler{label="Reveal" hint="Click to show content"}\nThe content to hide.\n::\n'
+    )
+
+    expect(html).toContain('<block-spoiler label="Reveal" hint="Click to show content">')
+  })
+
+  it('parses a spaced value as the second of two attributes, matching block-countdown', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render('::block-countdown{date="2030-01-01T00:00" label="New Year"}\n::\n')
+
+    expect(html).toContain('<block-countdown date="2030-01-01T00:00" label="New Year">')
+  })
+
+  it('parses a spaced value as the only attribute', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render('::block-spoiler{hint="Click to show content"}\n::\n')
+
+    expect(html).toContain('<block-spoiler hint="Click to show content">')
+  })
+
+  it('parses a spaced value listed before a plain one', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render('::block-spoiler{hint="Click to show content" label="Reveal"}\n::\n')
+
+    expect(html).toContain('<block-spoiler hint="Click to show content" label="Reveal">')
+  })
+
+  it('parses a value with several space-separated words', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render('::block-spoiler{hint="a b c d e f g h"}\n::\n')
+
+    expect(html).toContain('<block-spoiler hint="a b c d e f g h">')
+  })
+
+  it('parses a single-quoted spaced value', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render("::block-spoiler{hint='Click to show content'}\n::\n")
+
+    expect(html).toContain('<block-spoiler hint="Click to show content">')
+  })
+
+  it('does not corrupt a following block when the preceding one has a spaced attribute value, with no blank line between them', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render(
+      '::block-spoiler{label="Reveal" hint="Click to show content"}\n::\n::block-qr-code{value="https://example.com" caption="QR"}\n::\n'
+    )
+
+    expect(html).toContain('<block-spoiler label="Reveal" hint="Click to show content">')
+    expect(html).toContain('<block-qr-code value="https://example.com" caption="QR">')
+  })
+
+  it('parses every block in csp.spec.js’s exact BODY, in its exact document order', () => {
+    const md = new MarkdownRenderer(realEditorConfig)
+    const html = md.render(`# CSP Proof Page
+
+CSP proof sentinel paragraph -- this plain sentence is what the editor's debounced preview sync is waited on for,
+since none of the block/math syntax below survives markdown rendering as literal text.
+
+Inline KaTeX renders directly in prose: $E = mc^2$. A display formula follows:
+
+$$\\int_0^1 x^2\\,dx = \\tfrac{1}{3}$$
+
+::block-checklist{runkey="csp-check"}
+- First step
+- Second step
+::
+
+:::block-tabs
+::block-tab{label="First tab"}
+Content of the first tab.
+::
+
+::block-tab{label="Second tab"}
+Content of the second tab.
+::
+:::
+
+::block-infobox{name="Montreal" image="https://example.com/photo.jpg"}
+\`\`\`yaml
+City: Montreal
+Country: Canada
+Public Transport:
+  Metro: true
+  Bus: true
+\`\`\`
+::
+
+::block-spoiler{label="Reveal" hint="Click to show content"}
+The content to hide.
+::
+
+::block-qr-code{value="https://example.com" caption="QR"}
+::
+
+::block-countdown{date="2030-01-01T00:00" label="New Year"}
+::
+
+::block-katex
+\`\`\`latex
+x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+\`\`\`
+::
+
+::block-gallery
+https://example.com/photo-1.jpg
+https://example.com/photo-2.jpg
+::
+`)
+
+    for (const tag of [
+      'block-checklist',
+      'block-tabs',
+      'block-tab',
+      'block-infobox',
+      'block-spoiler',
+      'block-qr-code',
+      'block-countdown',
+      'block-katex',
+      'block-gallery'
+    ]) {
+      expect(html).toContain(`<${tag}`)
+    }
+    expect(html).toContain('<block-spoiler label="Reveal" hint="Click to show content">')
+    expect(html).toContain('<block-countdown date="2030-01-01T00:00" label="New Year">')
+  })
+})

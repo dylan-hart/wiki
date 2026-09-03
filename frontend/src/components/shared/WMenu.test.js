@@ -1,5 +1,5 @@
 import { defineComponent, nextTick } from 'vue'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOMWrapper, mount, flushPromises } from '@vue/test-utils'
 
 import WMenu from './WMenu.vue'
@@ -428,6 +428,50 @@ describe('WMenu', () => {
     expect(body().find('.w-menu').exists()).toBe(false)
   })
 
+  /**
+   * OpenProject #2370: `WMenu` registers its Escape handling on the shared stack
+   * (`composables/escapeStack.js`) only while shown, releasing it in `hide()` -- not a bare
+   * `document` listener kept alive for the component's whole lifetime, the way it worked before.
+   * A later Escape must be a no-op once closed, same guarantee `WDialog.test.js` asserts for its
+   * own listener.
+   */
+  it('a later Escape does nothing once already closed', async () => {
+    const { wrapper, button } = mountBasicMenu()
+    await new DOMWrapper(button).trigger('click')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+    expect(body().find('.w-menu').exists()).toBe(false)
+
+    expect(wrapper.emitted('hide')).toHaveLength(1)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+
+    // -> No second 'hide' -- the stack registration was released, not fired again
+    expect(wrapper.emitted('hide')).toHaveLength(1)
+  })
+
+  it('releases its Escape-stack registration on unmount while still open', async () => {
+    // -> A self-contained mount/cleanup, deliberately not `mountBasicMenu()`'s shared
+    //    `mountedWrappers`/`triggerButtons` arrays -- this test unmounts mid-test, and the
+    //    describe's own `afterEach` would otherwise try to unmount the same wrapper again.
+    const button = document.createElement('button')
+    document.body.appendChild(button)
+    const wrapper = mount(WMenu, {
+      slots: { default: '<div class="menu-item">Item one</div>' },
+      attachTo: button
+    })
+    await new DOMWrapper(button).trigger('click')
+    expect(body().find('.w-menu').exists()).toBe(true)
+
+    wrapper.unmount()
+    button.remove()
+
+    // -> Must not throw reaching into the unmounted instance's own reactive state
+    expect(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    ).not.toThrow()
+  })
+
   it('toggles closed on a second trigger click', async () => {
     const { button } = mountBasicMenu()
 
@@ -454,5 +498,143 @@ describe('WMenu', () => {
     await body().find('.menu-item').trigger('click')
 
     expect(body().find('.w-menu').exists()).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #2441: `context-menu` mode used to open only on a native right-click, with no way for
+ * a touch or keyboard-only user to reach it at all. Two more triggers cover those cases -- a touch
+ * long-press, and the conventional Context Menu key / Shift+F10 keyboard shortcut -- both scoped to
+ * `context-menu` mode only, so the default click-triggered menu is unaffected.
+ */
+describe('WMenu context-menu mode: keyboard trigger', () => {
+  it('opens on the Context Menu key', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    await new DOMWrapper(button).trigger('keydown', { key: 'ContextMenu' })
+
+    expect(body().find('.w-menu').exists()).toBe(true)
+  })
+
+  it('opens on Shift+F10', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    await new DOMWrapper(button).trigger('keydown', { key: 'F10', shiftKey: true })
+
+    expect(body().find('.w-menu').exists()).toBe(true)
+  })
+
+  it('does not open on F10 alone, without Shift', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    await new DOMWrapper(button).trigger('keydown', { key: 'F10' })
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('does nothing in default (click-triggered) mode', async () => {
+    const { button } = mountBasicMenu()
+
+    await new DOMWrapper(button).trigger('keydown', { key: 'ContextMenu' })
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+})
+
+describe('WMenu context-menu mode: touch long-press trigger', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function press(button, { x = 10, y = 10 } = {}) {
+    button.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        pointerType: 'touch',
+        clientX: x,
+        clientY: y,
+        bubbles: true
+      })
+    )
+  }
+
+  function move(button, { x = 10, y = 10 } = {}) {
+    button.dispatchEvent(
+      new PointerEvent('pointermove', {
+        pointerType: 'touch',
+        clientX: x,
+        clientY: y,
+        bubbles: true
+      })
+    )
+  }
+
+  function release(button) {
+    button.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }))
+  }
+
+  it('opens after holding still past the long-press duration', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    press(button)
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(body().find('.w-menu').exists()).toBe(true)
+  })
+
+  it('does not open on a short tap, released before the long-press duration', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    press(button)
+    await vi.advanceTimersByTimeAsync(200)
+    release(button)
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('cancels the press when the finger moves far enough to read as a scroll', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    press(button)
+    await vi.advanceTimersByTimeAsync(200)
+    move(button, { x: 50, y: 50 })
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('tolerates small jitter during the hold', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    press(button)
+    await vi.advanceTimersByTimeAsync(200)
+    move(button, { x: 13, y: 12 })
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(body().find('.w-menu').exists()).toBe(true)
+  })
+
+  it('ignores a mouse pointer (only touch triggers a long-press)', async () => {
+    const { button } = mountBasicMenu({ contextMenu: true })
+
+    button.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerType: 'mouse', clientX: 10, clientY: 10 })
+    )
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('does nothing in default (click-triggered) mode', async () => {
+    const { button } = mountBasicMenu()
+
+    press(button)
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(body().find('.w-menu').exists()).toBe(false)
   })
 })

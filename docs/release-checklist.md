@@ -194,18 +194,83 @@ This item stays manual permanently — even once task #421 ships full CLI toolin
 of whether a dry-run's mapped/unmapped/conflicting counts are acceptable for a given release is a
 human call, not something this checklist should ever try to automate away.
 
+### 6. Multi-arch Docker image manifest verified on a real ARM host
+
+**Owner: Epic #2435 ("Docker build/release pipeline only targets linux/amd64 — no ARM (Raspberry
+Pi) support")**, specifically OpenProject #2488 ("Verify published multi-arch manifest on a real
+ARM host") within it.
+
+**This item can never be a full CI assertion.** A CI runner can confirm the _manifest itself_ lists
+`linux/arm64` — that check is scriptable and needs no special hardware. But "runs correctly," the
+second half of this item's own name, means the image's arm64 layer actually boots and becomes ready
+when Docker pulls and runs it on genuine arm64 silicon — GitHub-hosted runners are amd64-only, so
+anything CI does with an arm64 image is QEMU emulation, which is exactly the gap a Raspberry Pi user
+(Issue #2388, the report that started Epic #2435) would actually hit. Real arm64 hardware is
+therefore required for this half, the same way Item 5's migration dry-run requires a real 2.5.x
+dataset no CI fixture can substitute for.
+
+As of this writing, Epic #2435's sibling WPs #2486 (`build.yml`) and #2487 (`release.yml`) — which
+add `linux/arm64` to the two workflows' buildx `platforms:` — have both landed: both workflows'
+buildx `platforms:` now list `linux/amd64,linux/arm64`. No release has been tagged since that
+landed, so this item has not yet been performed against a real published image; the next release is
+the first one this item applies to for real, starting with step 1 below.
+
+**Now that both workflows declare `linux/arm64`**, the procedure for every release is:
+
+1. **Verify the manifest**, from any machine with Docker (no arm64 hardware needed for this step):
+
+   ```sh
+   node backend/scripts/verify-arm64-manifest.ts ghcr.io/<owner>/<repo>:<version>
+   ```
+
+   This inspects the published manifest list (`docker buildx imagetools inspect --raw`, no pull
+   required) and confirms both `linux/amd64` and `linux/arm64` are present as real platforms —
+   filtering out the `provenance`/`sbom` attestation sub-manifests `release.yml` also attaches,
+   which report `architecture: "unknown"` and are not runnable platforms. A `FAIL` here is a
+   release no-go; stop and fix the workflow before continuing to step 2.
+
+2. **Run the real hardware smoke test**, on genuine arm64 hardware (a Raspberry Pi, an arm64 cloud
+   VM, or Apple Silicon's native arm64 Docker Desktop VM — never an emulated/QEMU arm64 build,
+   which would silently pass even on a broken arm64-native layer):
+
+   ```sh
+   ./dev/build/arm-host-smoke-test.sh ghcr.io/<owner>/<repo>:<version>
+   ```
+
+   This pulls the image, confirms `docker inspect` reports the pulled image's architecture as
+   `arm64` (catching a host that silently pulled the wrong platform), starts the container, and
+   polls its `/_ready` readiness endpoint until it answers or a timeout is hit.
+
+3. **A named human signs off**, recording which physical (or cloud arm64 VM) host was used, both
+   scripts' pass/fail outcome, and the date — in the release PR description, the same place the
+   rest of this filled-in checklist gets pasted per
+   [How to use this checklist](#how-to-use-this-checklist) step 5:
+
+   > Multi-arch verification: `ghcr.io/example/wiki:3.1.0` — manifest check PASS (linux/amd64,
+   > linux/arm64); ARM host smoke test PASS on a Raspberry Pi 5 (Raspberry Pi OS 64-bit). Verified
+   > by Jane Doe, 2026-09-10.
+
+   A line that only says "arm64 image tested — OK" is not sufficient; it names no host, no script
+   output, and no date.
+
+This item stays manual permanently for its second half (the real-hardware smoke test) — no CI
+runner will ever have native arm64 silicon to run it on. The first half (manifest platform
+coverage) is a strong candidate for a future CI gate now that #2486/#2487 have landed; until such a
+gate exists both halves are performed together as one manual step.
+
 ## Status of automation
 
 A snapshot of what's real today versus what this document anticipates, so nobody mistakes the
 future-tense sections above for present-tense fact:
 
-| Item                   | Owner                     | Exists on `scarlett` today?                                                                                                                                                                                                                                                                                                                        |
-| ---------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. CI quality gates    | Feature #423 / task #777  | Yes — `build.yml`'s `build` job `needs:` the `quality` job (`quality.yml`, also run standalone on `pull_request`); `release.yml` enforces the same checks again                                                                                                                                                                                    |
-| 2. Test suites         | Feature #424 / task #1943 | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job. `release.yml` additionally gates on a successful `build.yml` run existing for the tagged commit (task #1943); the actual per-suite pass/fail read for that run is still manual |
-| 3. `docs/variances.md` | Feature #425              | Yes — file exists and is populated; #425 formalizes ongoing discipline around it                                                                                                                                                                                                                                                                   |
-| 4. Bundle drift guards | Feature #423 / task #777  | Yes — same as item 1, enforced in both `quality.yml` and `release.yml`                                                                                                                                                                                                                                                                             |
-| 5. Migration dry-run   | Epic #341 / task #421     | No — no migration code exists                                                                                                                                                                                                                                                                                                                      |
+| Item                     | Owner                     | Exists on `scarlett` today?                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. CI quality gates      | Feature #423 / task #777  | Yes — `build.yml`'s `build` job `needs:` the `quality` job (`quality.yml`, also run standalone on `pull_request`); `release.yml` enforces the same checks again                                                                                                                                                                                    |
+| 2. Test suites           | Feature #424 / task #1943 | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job. `release.yml` additionally gates on a successful `build.yml` run existing for the tagged commit (task #1943); the actual per-suite pass/fail read for that run is still manual |
+| 3. `docs/variances.md`   | Feature #425              | Yes — file exists and is populated; #425 formalizes ongoing discipline around it                                                                                                                                                                                                                                                                   |
+| 4. Bundle drift guards   | Feature #423 / task #777  | Yes — same as item 1, enforced in both `quality.yml` and `release.yml`                                                                                                                                                                                                                                                                             |
+| 5. Migration dry-run     | Epic #341 / task #421     | No — no migration code exists                                                                                                                                                                                                                                                                                                                      |
+| 6. ARM host verification | Epic #2435 / WP #2488     | Partially — WP #2486/#2487 (add linux/arm64 to build.yml/release.yml) have landed, so the next tagged release will publish an arm64-including image; the manual manifest-check + real-hardware smoke test in this item has not been performed against a real release yet                                                                           |
 
 Nothing in this table is a criticism of those Features — they are each independently in progress
 under the same parent Feature (#426) as this document, at the time it was written. This table
