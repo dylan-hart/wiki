@@ -341,8 +341,43 @@ const ALLOWED_STYLES: Record<string, Record<string, RegExp[]>> = {
  *
  * `javascript:` is absent, which is the point; `data:` is allowed only for images, where it is how a
  * small inline graphic is written and where it cannot script.
+ *
+ * This is the floor, not the ceiling: a site may additionally allow custom schemes (`discord:`,
+ * `steam:`, `obsidian:`, ...) through its `allowedUrlSchemes` config (Feature #2418) -- see
+ * `additionalSchemes()` below for how those are merged in at `sanitizeOptions()` time.
  */
 const ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel', 'ftp']
+
+/**
+ * Schemes an admin's `allowedUrlSchemes` config can never add, whatever they type (OpenProject
+ * #2418's Scope, enforced canonically by #2458 -- this is a baseline the merge below cannot skip,
+ * not a competing implementation of that guarantee). `data` is excluded from the general merge for
+ * the same reason it is absent from `ALLOWED_SCHEMES` itself: it is safe only as an inline image
+ * source, which `allowedSchemesByTag.img` already grants unconditionally below, never as a `data:`
+ * navigation target or non-image embed src.
+ */
+const CATEGORICALLY_BLOCKED_SCHEMES = new Set(['javascript', 'vbscript', 'data'])
+
+/**
+ * Turn a site's admin-configured `allowedUrlSchemes` into schemes safe to merge into
+ * `ALLOWED_SCHEMES`: lowercased and trimmed (schemes are case-insensitive, and `ALLOWED_SCHEMES`
+ * itself is written all-lowercase), deduplicated against what is already allowed, and with anything
+ * on `CATEGORICALLY_BLOCKED_SCHEMES` dropped. Additive-only by construction -- there is no way for
+ * this to narrow what `ALLOWED_SCHEMES` already grants, only widen it.
+ */
+function additionalSchemes(configured: string[] = []): string[] {
+  const seen = new Set(ALLOWED_SCHEMES)
+  const result: string[] = []
+  for (const raw of configured) {
+    const scheme = raw.trim().toLowerCase()
+    if (!scheme || seen.has(scheme) || CATEGORICALLY_BLOCKED_SCHEMES.has(scheme)) {
+      continue
+    }
+    seen.add(scheme)
+    result.push(scheme)
+  }
+  return result
+}
 
 /**
  * The block elements a page may carry, and what each of them may be given.
@@ -486,12 +521,18 @@ export function unwrapOrphanedChildBlocks($: cheerio.CheerioAPI): void {
  * the same `blocks` allowance and the same `permissions`, and reused for both calls: two
  * independently-built option objects could drift apart from each other in a way one shared object
  * cannot.
+ *
+ * @param allowedUrlSchemes A site's admin-configured additional schemes (`config.allowedUrlSchemes`,
+ *   Feature #2418), additive to `ALLOWED_SCHEMES` -- see `additionalSchemes()`. Omitted entirely by
+ *   a caller with no site config in scope, which behaves identically to passing `[]`.
  */
 export function sanitizeOptions(
   permissions: RenderPermissions,
-  blocks: { tags: string[]; attributes: Record<string, string[]> }
+  blocks: { tags: string[]; attributes: Record<string, string[]> },
+  allowedUrlSchemes: string[] = []
 ): sanitizeHtml.IOptions {
   const allowedTags = [...BASE_ALLOWED_TAGS, ...blocks.tags]
+  const schemes = [...ALLOWED_SCHEMES, ...additionalSchemes(allowedUrlSchemes)]
   const allowedAttributes: Record<string, string[]> = {
     ...BASE_ALLOWED_ATTRIBUTES,
     ...blocks.attributes,
@@ -536,9 +577,9 @@ export function sanitizeOptions(
     //    the library warns about them on every call, and the warning is the thing to silence, not
     //    the permission
     allowVulnerableTags: permissions.scripts || permissions.styles,
-    allowedSchemes: ALLOWED_SCHEMES,
+    allowedSchemes: schemes,
     allowedSchemesByTag: {
-      img: [...ALLOWED_SCHEMES, 'data']
+      img: [...schemes, 'data']
     },
     // -> A protocol-relative URL inherits the page's scheme, which is fine and common in embeds
     allowProtocolRelative: true,

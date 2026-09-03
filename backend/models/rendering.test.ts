@@ -425,3 +425,51 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
     assert.match(result.render, /<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor">/)
   })
 })
+
+/*
+ * OpenProject #2459 (Feature #2418's Scope): `postProcess` reads a site's admin-configured
+ * `allowedUrlSchemes` off `WIKI.sites[siteId].config` and passes it through to `sanitizeOptions()`.
+ * The scheme-filtering logic itself (dedupe, the categorical javascript:/vbscript:/data: denylist)
+ * is `helpers/htmlSanitizePolicy.test.ts`'s to cover -- what belongs here is only that this model
+ * actually reaches for the right config key for the right site, and that a site without one behaves
+ * exactly as before.
+ */
+describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject #2459)', () => {
+  test('a link using a site-configured custom scheme survives sanitization', async () => {
+    WIKI.sites['site-with-schemes'] = {
+      id: 'site-with-schemes',
+      config: { allowedUrlSchemes: ['discord'] }
+    }
+
+    const result = await rendering.postProcess(
+      'site-with-schemes',
+      '<a href="discord://channel/123">Join</a>',
+      { scripts: false, styles: false }
+    )
+
+    assert.match(result.render, /href="discord:\/\/channel\/123"/)
+  })
+
+  test('a site with no allowedUrlSchemes config still strips a non-default scheme, unchanged', async () => {
+    WIKI.sites['site-no-config'] = { id: 'site-no-config', config: {} }
+
+    const result = await rendering.postProcess(
+      'site-no-config',
+      '<a href="discord://channel/123">Join</a>',
+      { scripts: false, styles: false }
+    )
+
+    assert.doesNotMatch(result.render, /href="discord:/)
+  })
+
+  test('a siteId with no WIKI.sites entry at all behaves identically to the hardcoded defaults', async () => {
+    const result = await rendering.postProcess(
+      'site-entirely-unknown-to-wiki-sites',
+      '<a href="discord://channel/123">Join</a><a href="https://example.com">x</a>',
+      { scripts: false, styles: false }
+    )
+
+    assert.doesNotMatch(result.render, /href="discord:/)
+    assert.match(result.render, /href="https:\/\/example\.com"/)
+  })
+})
