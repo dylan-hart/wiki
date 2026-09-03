@@ -543,6 +543,22 @@
                       @click="assignGroup" />
                   </w-item-section>
                 </w-item>
+                <w-item v-if="groupToAddSyncStrategies.length > 0">
+                  <w-item-section>
+                    <w-banner
+                      :class="
+                        dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`
+                      ">
+                      <i18n-t keypath="admin.users.groupSyncWarning" tag="span">
+                        <template #provider
+                          ><strong>{{
+                            groupToAddSyncStrategies.map((s) => s.displayName).join(', ')
+                          }}</strong></template
+                        >
+                      </i18n-t>
+                    </w-banner>
+                  </w-item-section>
+                </w-item>
               </w-card>
             </div>
           </div>
@@ -724,6 +740,9 @@ const state = reactive({
   },
   groups: [],
   groupToAdd: null,
+  /** groupId -> the enabled, mapGroups-on strategies that could revoke it -- see
+   *  `groupToAddSyncStrategies` and `fetchGroupSyncWarnings()`. */
+  groupSyncWarnings: {},
   passkeys: [],
   loading: 0,
   metadataInvalidJSON: false
@@ -774,6 +793,18 @@ const localAuth = computed({
   }
 })
 
+/**
+ * Which enabled, provider-sync strategies could revoke `state.groupToAdd` on the user's next login
+ * (WP #2440), so the picker can warn before a manual grant is made. Empty whenever no group is
+ * selected, or the selected one is not on any strategy's `mappableGroups` allow-list.
+ */
+const groupToAddSyncStrategies = computed(() => {
+  if (!state.groupToAdd) {
+    return []
+  }
+  return state.groupSyncWarnings[state.groupToAdd] ?? []
+})
+
 const linkedAuthProviders = computed(() => {
   if (!state.user?.auth) {
     return []
@@ -792,11 +823,13 @@ async function fetchUser() {
   state.loading++
   loading.show()
   try {
-    const [groups, user] = await Promise.all([
+    const [groups, user, groupSyncWarnings] = await Promise.all([
       API_CLIENT.get('groups').json(),
-      API_CLIENT.get(`users/${adminStore.overlayOpts.id}`).json()
+      API_CLIENT.get(`users/${adminStore.overlayOpts.id}`).json(),
+      fetchGroupSyncWarnings()
     ])
     state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
+    state.groupSyncWarnings = groupSyncWarnings
     if (!user?.id) {
       throw new Error(t('common.error.unexpected'))
     }
@@ -812,6 +845,20 @@ async function fetchUser() {
   }
   loading.hide()
   state.loading--
+}
+
+/**
+ * groupId -> the strategies that could revoke it, for `groupToAddSyncStrategies`'s warning.
+ * Best-effort: a viewer who cannot reach this route for any reason simply sees no warning rather
+ * than a broken Groups tab, since the warning is a courtesy, not a requirement.
+ */
+async function fetchGroupSyncWarnings() {
+  try {
+    const warnings = await API_CLIENT.get('authentication/synced-groups').json()
+    return Object.fromEntries((warnings ?? []).map((w) => [w.groupId, w.strategies]))
+  } catch {
+    return {}
+  }
 }
 
 async function fetchPasskeys() {

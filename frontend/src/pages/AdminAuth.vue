@@ -405,6 +405,20 @@
                 </w-select>
               </w-item-section>
             </w-item>
+            <w-item v-if="revocableMappableGroupNames.length > 0">
+              <w-item-section>
+                <w-banner
+                  :class="
+                    dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`
+                  ">
+                  <i18n-t keypath="admin.auth.mappableGroupsSyncWarning" tag="span">
+                    <template #groups
+                      ><strong>{{ revocableMappableGroupNames.join(', ') }}</strong></template
+                    >
+                  </i18n-t>
+                </w-banner>
+              </w-item-section>
+            </w-item>
           </template>
         </w-card>
         <!-- ----------------------- -->
@@ -600,6 +614,19 @@ const selectedGroupName = computed(() => {
 })
 const selectedMappableGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.strategy?.mappableGroups?.[0])[0]?.name
+})
+/**
+ * Names of the currently-selected mappable groups that `syncProviderGroups()` (`models/login.ts`)
+ * would actually revoke on a login that stops reporting them -- i.e. every selected group except one
+ * this same strategy also grants via `autoEnrollGroups`, which is never taken back regardless of the
+ * allow-list (WP #2440: this screen selected these groups without ever calling out that risk).
+ */
+const revocableMappableGroupNames = computed(() => {
+  const autoEnrolled = new Set(state.strategy?.autoEnrollGroups ?? [])
+  return (state.strategy?.mappableGroups ?? [])
+    .filter((id) => !autoEnrolled.has(id))
+    .map((id) => state.groups.find((g) => g.id === id)?.name)
+    .filter(Boolean)
 })
 const strategyRefs = computed(() => {
   if (!state.selectedStrategy) {

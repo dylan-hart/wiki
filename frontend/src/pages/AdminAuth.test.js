@@ -341,6 +341,109 @@ describe('AdminAuth mappable-groups picker', () => {
   })
 })
 
+/**
+ * OpenProject #2440: the mappable-groups picker selected which groups a provider login may sync,
+ * without ever calling out that a manual grant of one of them can be silently reverted on that
+ * user's next login. `revocableMappableGroupNames` computes exactly the subset of the current
+ * selection this applies to -- everything except a group the same strategy also grants directly via
+ * `autoEnrollGroups`, which the sync never takes back.
+ */
+describe('AdminAuth mappable-groups sync warning', () => {
+  const LDAP_MODULE_WITH_MAP_GROUPS = {
+    key: 'ldap',
+    title: 'LDAP / AD',
+    icon: 'ultraviolet-ldap.svg',
+    description: 'LDAP.',
+    props: {
+      mapGroups: { type: 'boolean', title: 'Map Groups', default: false, hint: '', order: 1 }
+    }
+  }
+
+  async function mountWithStrategy({ mappableGroups, autoEnrollGroups = [] }) {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'authentication/modules') {
+        return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
+      }
+      if (url === 'authentication/strategies') {
+        return {
+          json: () =>
+            Promise.resolve([
+              {
+                id: 's-ldap',
+                module: 'ldap',
+                displayName: 'Directory login',
+                isEnabled: true,
+                isNew: false,
+                config: { mapGroups: true },
+                mappableGroups,
+                autoEnrollGroups
+              }
+            ])
+        }
+      }
+      if (url === 'groups') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'g-editors', name: 'Editors' },
+              { id: 'g-reviewers', name: 'Reviewers' }
+            ])
+        }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: {
+        admin: {
+          auth: {
+            ...MESSAGES.admin.auth,
+            mappableGroupsSyncWarning: 'Subject to reconciliation on login: {groups}'
+          }
+        }
+      }
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('shows nothing when the allow-list is empty', async () => {
+    const wrapper = await mountWithStrategy({ mappableGroups: [] })
+
+    expect(wrapper.text()).not.toContain('Subject to reconciliation on login')
+
+    wrapper.unmount()
+  })
+
+  it('names every selected group not also granted by Auto Enroll Groups', async () => {
+    const wrapper = await mountWithStrategy({ mappableGroups: ['g-editors', 'g-reviewers'] })
+
+    expect(wrapper.text()).toContain('Subject to reconciliation on login')
+    expect(wrapper.text()).toContain('Editors')
+    expect(wrapper.text()).toContain('Reviewers')
+
+    wrapper.unmount()
+  })
+
+  it('omits a selected group the same strategy also auto-enrolls', async () => {
+    const wrapper = await mountWithStrategy({
+      mappableGroups: ['g-editors', 'g-reviewers'],
+      autoEnrollGroups: ['g-editors']
+    })
+
+    expect(wrapper.text()).toContain('Subject to reconciliation on login')
+    expect(wrapper.text()).toContain('Reviewers')
+    // -> "Editors" must not appear inside the warning banner specifically -- it still appears
+    //    elsewhere on the page (the picker's own selected-groups caption), so this checks the
+    //    banner's own text, not the whole page.
+    const banner = wrapper.find('.w-banner')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).not.toContain('Editors')
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminAuth configured-strategy list', () => {
   it("renders each active strategy's icon from its resolved module, keyed by module key", async () => {
     const activeStrategies = [

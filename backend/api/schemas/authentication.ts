@@ -188,6 +188,42 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * AUTH GROUP SYNC WARNINGS - Which groups an enabled, group-mapping strategy could currently
+   * silently revoke from a user on their next login (WP #2440). Carries no secrets, unlike
+   * `AuthStrategy` above -- just group and strategy ids/names -- so the route it backs needs only
+   * `read:users`/`manage:users`/`read:groups`/`manage:groups`, not `manage:system`.
+   */
+  app.addSchema({
+    $id: 'AuthGroupSyncWarnings',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        groupId: {
+          type: 'string',
+          format: 'uuid'
+        },
+        strategies: {
+          type: 'array',
+          description: 'Every enabled, mapGroups-on strategy that could revoke this group.',
+          items: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                format: 'uuid'
+              },
+              displayName: {
+                type: 'string'
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+
+  /**
    * AUTH STRATEGY INPUT - Used both ways: to create a strategy, and as a partial update
    */
   app.addSchema({

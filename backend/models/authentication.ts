@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { asc, eq } from 'drizzle-orm'
+import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
 import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
   mergeModuleConfig,
@@ -9,6 +10,18 @@ import {
 import { authentication as authenticationTable, groups as groupsTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { SystemIds } from './types.ts'
+
+/** One enabled, group-mapping strategy that could revoke a given group on the account's next login. */
+export interface GroupSyncWarningStrategy {
+  id: string
+  displayName: string
+}
+
+/** One group currently at risk of a `mapGroups` strategy silently reverting a manual grant. */
+export interface GroupSyncWarning {
+  groupId: string
+  strategies: GroupSyncWarningStrategy[]
+}
 
 /** An authentication module, as declared by its `definition.yml`. */
 export interface AuthModule {
@@ -240,6 +253,43 @@ class Authentication {
    */
   async getStrategyById(id: string, opts?: { mask?: boolean }): Promise<AuthStrategy | null> {
     return (await this.getActiveStrategies(opts)).find((stg) => stg.id === id) ?? null
+  }
+
+  /**
+   * Every group currently at risk of being silently reverted by `models/login.ts#syncProviderGroups()`
+   * on the account's next login through an enabled, group-mapping strategy — one entry per group,
+   * naming every strategy that could do the reverting (WP #2440: the admin UI had no warning that a
+   * manually-added membership in one of these groups may not survive the user's next provider login).
+   *
+   * Carries no secrets — only group ids and strategy display names — unlike `getActiveStrategies()`,
+   * so it is reachable by a `manage:users`/`manage:groups` holder, not only `manage:system`.
+   */
+  async getGroupSyncWarnings(): Promise<GroupSyncWarning[]> {
+    const strategies = await this.getActiveStrategies()
+    const mapping = strategies.filter((stg) => stg.isEnabled && stg.config?.mapGroups)
+    if (mapping.length < 1) {
+      return []
+    }
+    const guestsGroupId = WIKI.data.systemIds.guestsGroupId
+    const rootAdminGroupId = WIKI.config.auth.rootAdminGroupId
+    const systemGroupIds = await WIKI.models.groups.systemGroupIds()
+
+    const byGroup = new Map<string, GroupSyncWarningStrategy[]>()
+    for (const stg of mapping) {
+      for (const groupId of syncRevocableGroupIds(stg, {
+        guestsGroupId,
+        rootAdminGroupId,
+        systemGroupIds
+      })) {
+        const strategiesForGroup = byGroup.get(groupId) ?? []
+        strategiesForGroup.push({ id: stg.id, displayName: stg.displayName })
+        byGroup.set(groupId, strategiesForGroup)
+      }
+    }
+    return [...byGroup.entries()].map(([groupId, strategiesForGroup]) => ({
+      groupId,
+      strategies: strategiesForGroup
+    }))
   }
 
   /**

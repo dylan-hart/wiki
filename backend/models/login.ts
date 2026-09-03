@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { users as usersTable } from '../db/schema.ts'
 import { BCRYPT_ROUNDS } from '../helpers/common.ts'
+import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
 import { AccountRateLimitedError, consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
 import { isRecoveryCodeShape } from '../helpers/recoveryCodes.ts'
 import { ProvisionableLoginError } from './authentication.ts'
@@ -378,12 +379,12 @@ class Login {
     const systemGroupIds = await WIKI.models.groups.systemGroupIds()
     const neverMapped = new Set([guestsGroupId, rootAdminGroupId, ...systemGroupIds])
     const mappable = new Set(strategy.mappableGroups ?? [])
-
-    const protectedFromRemoval = new Set([
-      guestsGroupId,
-      ...(strategy.autoEnrollGroups ?? []),
-      ...neverMapped
-    ])
+    // -> Which of the currently-held allow-listed groups this login is allowed to take away --
+    //    shared with `models/authentication.ts#getGroupSyncWarnings()`, the admin-facing read that
+    //    warns before the same exclusion bites a manual grant (WP #2440).
+    const revocable = new Set(
+      syncRevocableGroupIds(strategy, { guestsGroupId, rootAdminGroupId, systemGroupIds })
+    )
 
     const reportedNames = new Set(
       reportedGroups.map((name) => name.trim().toLowerCase()).filter(Boolean)
@@ -404,12 +405,10 @@ class Login {
     const currentSet = new Set(currentGroupIds)
 
     const toAdd = [...matchedGroupIds].filter((id) => !currentSet.has(id))
-    // -> Only an allow-listed group can ever be revoked: a group the sync could not have granted
-    //    (never mapped, or simply absent from the strategy's own allow-list) must not be granted OR
-    //    removed, so `mappable.has(id)` gates removal the same way it gates the grant above.
-    const toRemove = currentGroupIds.filter(
-      (id) => mappable.has(id) && !matchedGroupIds.has(id) && !protectedFromRemoval.has(id)
-    )
+    // -> Only a currently-revocable group can ever be removed: `revocable` already excludes
+    //    everything `mappable.has(id)` would let through that must not actually be taken away
+    //    (guests, system/root-admin groups, anything the strategy also `autoEnrollGroups`).
+    const toRemove = currentGroupIds.filter((id) => revocable.has(id) && !matchedGroupIds.has(id))
 
     if (toAdd.length < 1 && toRemove.length < 1) {
       return
