@@ -15,6 +15,7 @@ import {
 } from '../helpers/localeRouting.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
+import { rewriteLinkText, rewriteRedirectTarget } from '../helpers/pageLinkRewrite.ts'
 import { announce } from './hooks.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
@@ -1341,6 +1342,13 @@ class Pages {
       db: tx
     })
 
+    // -> Only a real path change leaves an old-path reference to fix -- a locale-only or title-only
+    //    move (this method's other two callers of `newPath !== current.path`, both below) touches no
+    //    link target, and `relinkReferencingPages` would find nothing to do beyond the wasted query.
+    if (newPath !== current.path) {
+      await this.relinkReferencingPages(tx, siteId, current.locale, current.path, newPath)
+    }
+
     // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound
     //    links, and a history list has to be able to say so
     const changedFields = [
@@ -1350,6 +1358,103 @@ class Pages {
     ]
 
     return { rawMoved: rawMovedRows[0]!, changedFields }
+  }
+
+  /**
+   * Rewrite same-site, same-locale references to `oldPath` after a page moves to `newPath`
+   * (OpenProject #2452) -- every page (the moved page itself included, for a self-link) in
+   * `oldLocale` whose `links`/`relations` arrays, or whose `redirect` target, name the OLD path.
+   * Reuses the tracking data `models/rendering.ts#extractInternalLinks` already writes on every save
+   * (the same data `api/graph.ts` and `listBacklinks()` read) rather than re-parsing content from
+   * scratch -- see `helpers/pageLinkRewrite.ts`'s module doc comment for the two link shapes this
+   * rewrites in place.
+   *
+   * `oldLocale` is deliberately the moved page's locale as it stood BEFORE this move: bare-path link
+   * targets only ever resolve within the referencing page's own locale (see `api/graph.ts`'s
+   * `assembleGraph`/`nodeId` comment), so a referencing page in any OTHER locale could never have
+   * meant this page in the first place. A move that also changes locale (this method's caller only
+   * ever invokes it when the path itself changed, so a same-call locale change is possible too)
+   * leaves any same-locale bare-path reference to the old location unreachable no matter what gets
+   * rewritten here -- the `links: string[]` / `relations[].target: string` representation carries no
+   * locale of its own to redirect a referencing page toward, so there is nothing this method could
+   * write that would fix that case; it correctly does nothing rather than writing something
+   * misleading (`oldPath` unchanged, `newPath` targets a path in a locale the referencing page's
+   * own bare links can never reach).
+   *
+   * Deliberately not built on `listBacklinks()`: that query has no locale filter (fine for a
+   * read-only listing; unsafe for a mutating rewrite, since a same-path translation's own unrelated
+   * link could otherwise be corrupted by a different locale's move).
+   *
+   * Runs inside the move's own transaction, and fires no new `pageHistory` version and no
+   * `updatedAt` bump on a candidate page -- this is a side effect of someone else's move, not a
+   * fresh edit of the candidate.
+   */
+  private async relinkReferencingPages(
+    tx: WikiTx,
+    siteId: string,
+    oldLocale: string,
+    oldPath: string,
+    newPath: string
+  ): Promise<void> {
+    if (!oldPath || oldPath === newPath) {
+      return
+    }
+    interface RelinkCandidateRow {
+      id: string
+      editor: string
+      content: string | null
+      render: string | null
+      links: string[]
+      relations: { target: string; [key: string]: unknown }[]
+    }
+    const redirectTarget = `/${oldPath}`
+    const candidates = (await tx
+      .select({
+        id: pagesTable.id,
+        editor: pagesTable.editor,
+        content: pagesTable.content,
+        render: pagesTable.render,
+        links: pagesTable.links,
+        relations: pagesTable.relations
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.locale, oldLocale),
+          sql`(
+            ${pagesTable.links} @> ${JSON.stringify([oldPath])}::jsonb
+            OR ${pagesTable.relations} @> ${JSON.stringify([{ target: oldPath }])}::jsonb
+            OR (${pagesTable.editor} = ${REDIRECT_EDITOR} AND ${pagesTable.content}::jsonb ->> 'target' = ${redirectTarget})
+          )`
+        )
+      )) as RelinkCandidateRow[]
+
+    for (const row of candidates) {
+      const links = [...new Set(row.links.map((target) => (target === oldPath ? newPath : target)))]
+      const relations = row.relations.map((relation) =>
+        relation?.target === oldPath ? { ...relation, target: newPath } : relation
+      )
+      const isRedirect = row.editor === REDIRECT_EDITOR
+      const contentRewrite = isRedirect
+        ? rewriteRedirectTarget(row.content ?? '', oldPath, newPath)
+        : rewriteLinkText(row.content ?? '', oldPath, newPath)
+      // -> A redirection has no render to speak of (see `REDIRECT_EDITOR`'s doc comment) -- nothing
+      //    to rewrite there, so this is left alone rather than run through the markdown/HTML pass.
+      const renderRewrite = isRedirect
+        ? { text: row.render ?? '', changed: false }
+        : rewriteLinkText(row.render ?? '', oldPath, newPath)
+
+      await tx
+        .update(pagesTable)
+        .set({
+          links,
+          relations,
+          ...(contentRewrite.changed ? { content: contentRewrite.text } : {}),
+          ...(renderRewrite.changed ? { render: renderRewrite.text } : {})
+        })
+        .where(eq(pagesTable.id, row.id))
+    }
   }
 
   /**

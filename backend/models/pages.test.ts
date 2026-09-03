@@ -916,6 +916,190 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #2452: a move rewrites same-site, same-locale references to the page's old path in
+   * place, reusing the `links`/`relations` tracking `models/rendering.ts#extractInternalLinks`
+   * already writes on every save rather than re-parsing content from scratch.
+   */
+  describe('movePage relinks same-site referencing pages (OpenProject #2452)', () => {
+    test("rewrites a referencing page's content, render and links to the new path", async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-target', locale: 'en' }),
+        actor
+      )
+      const referrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-referrer',
+          locale: 'en',
+          content: 'See the [target](/docs/relink-target) for more.',
+          render: '<p>See the <a href="/docs/relink-target">target</a> for more.</p>'
+        }),
+        actor
+      )
+      const [before] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      assert.deepEqual(before!.links, ['docs/relink-target'])
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      assert.equal(after!.content, 'See the [target](/docs/relink-target-new) for more.')
+      assert.equal(
+        after!.render,
+        '<p>See the <a href="/docs/relink-target-new">target</a> for more.</p>'
+      )
+      assert.deepEqual(after!.links, ['docs/relink-target-new'])
+    })
+
+    test('rewrites an authored relation target to the new path', async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-relation-target', locale: 'en' }),
+        actor
+      )
+      const referrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-relation-referrer',
+          locale: 'en',
+          relations: [
+            {
+              pos: 'left',
+              label: 'See also',
+              caption: '',
+              icon: '',
+              target: 'docs/relink-relation-target'
+            }
+          ]
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-relation-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      assert.equal((after!.relations as any[])[0].target, 'docs/relink-relation-target-new')
+      assert.equal((after!.relations as any[])[0].label, 'See also')
+    })
+
+    test('rewrites a redirect page whose target points at the moved page', async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-redirect-target', locale: 'en' }),
+        actor
+      )
+      const redirect = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-redirect',
+          locale: 'en',
+          editor: 'redirect',
+          content: JSON.stringify({
+            kind: 'page',
+            target: '/docs/relink-redirect-target',
+            showInterstitial: false
+          })
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-redirect-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, redirect.id))
+      assert.deepEqual(JSON.parse(after!.content!), {
+        kind: 'page',
+        target: '/docs/relink-redirect-target-new',
+        showInterstitial: false
+      })
+    })
+
+    test("does not touch a same-path translation's own unrelated link in a different locale", async () => {
+      const enTarget = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-locale-target', locale: 'en' }),
+        actor
+      )
+      // -> Same bare path, but the FR locale's own page -- a same-locale reference to it must not be
+      //    touched by the EN page's move (`nodeId(row.locale, target)`, `api/graph.ts`).
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-locale-target', locale: 'fr' }),
+        actor
+      )
+      const frReferrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-locale-referrer',
+          locale: 'fr',
+          content: 'Voir la [cible](/docs/relink-locale-target).',
+          render: '<p>Voir la <a href="/docs/relink-locale-target">cible</a>.</p>'
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        enTarget.id,
+        { path: 'docs/relink-locale-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, frReferrer.id))
+      assert.equal(after!.content, 'Voir la [cible](/docs/relink-locale-target).')
+      assert.deepEqual(after!.links, ['docs/relink-locale-target'])
+    })
+
+    test('rewrites a self-link when a page links to its own pre-move path', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-self',
+          locale: 'en',
+          content: 'Back to [top](/docs/relink-self).',
+          render: '<p>Back to <a href="/docs/relink-self">top</a>.</p>'
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(fixtures.siteId, page.id, { path: 'docs/relink-self-new' }, actor)
+
+      const [after] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(after!.content, 'Back to [top](/docs/relink-self-new).')
+      assert.deepEqual(after!.links, ['docs/relink-self-new'])
+    })
+  })
+
+  /**
    * OpenProject #1688: `recordPageMoveSideEffects` was extracted out of `recordMoveSideEffects` as a
    * per-page helper (for a future bulk mover -- OpenProject #1683 -- to call once per page while still
    * batching the glossary invalidation). This is the regression case the extraction's own "Done when"
