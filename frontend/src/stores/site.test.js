@@ -215,8 +215,35 @@ describe('site store: fetchNavigation()', () => {
       currentId: 'nav-1',
       items: [{ id: 'item-1' }],
       mode: 'static',
+      rootPath: '',
+      rootId: null,
       inFlightId: 'nav-1'
     })
+  })
+
+  /**
+   * OpenProject #2442: the response's `rootPath`/`rootId` -- the generator's own root for an
+   * `auto`/`mixed` menu, distinct from the locale root a `static` menu's absent values default to
+   * -- land on `nav` the same way `mode`/`items` already do, so `NavSidebar.vue`'s root-level
+   * "create here" action can read them straight off the store.
+   */
+  it('stores rootPath/rootId from the response', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          mode: 'auto',
+          items: [{ id: 'item-1' }],
+          rootPath: 'docs/section',
+          rootId: 'section-folder-id'
+        })
+    })
+
+    await store.fetchNavigation('nav-1')
+
+    expect(store.nav.rootPath).toBe('docs/section')
+    expect(store.nav.rootId).toBe('section-folder-id')
   })
 
   it('skips the request for an id already cached, unless forceRefresh is passed', async () => {
@@ -263,6 +290,8 @@ describe('site store: fetchNavigation()', () => {
       currentId: 'nav-2',
       items: [{ id: 'new' }],
       mode: 'static',
+      rootPath: '',
+      rootId: null,
       inFlightId: 'nav-2'
     })
   })

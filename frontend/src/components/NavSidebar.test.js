@@ -715,7 +715,12 @@ describe('NavSidebarItem context menu', () => {
 })
 
 describe('NavSidebar empty-space context menu', () => {
-  async function mountRoot({ mode = 'static', canWrite = true } = {}) {
+  async function mountRoot({
+    mode = 'static',
+    canWrite = true,
+    rootPath = '',
+    rootId = null
+  } = {}) {
     const router = await createTestRouter(routes, '/')
     const { wrapper } = mountWithApp(NavSidebar, {
       messages: { common: { sidebar: { browse: 'Browse' } } },
@@ -724,6 +729,8 @@ describe('NavSidebar empty-space context menu', () => {
         site: (store) => {
           store.nav.items = []
           store.nav.mode = mode
+          store.nav.rootPath = rootPath
+          store.nav.rootId = rootId
         },
         user: (store) => {
           store.permissions = canWrite ? ['write:pages'] : []
@@ -754,6 +761,34 @@ describe('NavSidebar empty-space context menu', () => {
   it('offers no root-level create menu when the viewer cannot write pages', async () => {
     const wrapper = await mountRoot({ mode: 'auto', canWrite: false })
     expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+
+  /**
+   * OpenProject #2442: for a page/folder-level navigation override, the resolved menu's generator
+   * root is that override's own section, not the locale root -- so this action's `base-path` must
+   * follow `siteStore.nav.rootPath` (whatever the API resolved it to for THIS menu) rather than
+   * always being the empty, site-wide-menu root the old hardcoded `base-path=""` assumed.
+   */
+  it("targets the resolved menu's own generator root, not always the locale root", async () => {
+    const wrapper = await mountRoot({ mode: 'auto', rootPath: 'docs/section', rootId: 'section-1' })
+    const menu = wrapper.findComponent(PageNewMenu)
+    expect(menu.props('basePath')).toBe('docs/section')
+
+    openDialogs.length = 0
+    await menu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'section-1' })
+  })
+
+  it("still targets the site root when the resolved menu's own root IS the site root", async () => {
+    const wrapper = await mountRoot({ mode: 'auto' })
+
+    openDialogs.length = 0
+    await wrapper.findComponent(PageNewMenu).vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: null })
   })
 })
 /**
