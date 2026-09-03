@@ -313,6 +313,7 @@ describe('mcp/http', () => {
       'list_assets',
       'list_navigation',
       'list_sites',
+      'rename_asset',
       'render_diagram',
       'search_pages',
       'update_page',
