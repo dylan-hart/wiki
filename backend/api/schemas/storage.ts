@@ -107,7 +107,31 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           schedule: {
             description:
               'ISO-8601 duration the module syncs on by default (e.g. `PT5M`), or `false` for a module that only acts on write.',
-            oneOf: [{ type: 'string' }, { type: 'boolean', enum: [false] }]
+            // -> `anyOf`, not `oneOf` (OpenProject #2366, same shape as `security.ts`'s `trustProxy`):
+            //    under Fastify's default AJV `coerceTypes: 'array'`, `oneOf` must evaluate every
+            //    branch to count matches, so a real `false` matches the `boolean` branch and then
+            //    also gets coerced to the string `"false"` for the `string` branch, and `oneOf`
+            //    (exactly one match) rejects the whole property. `anyOf` short-circuits on the first
+            //    match -- which is also why the `boolean` branch has to come FIRST, unlike the
+            //    string-then-boolean order this replaced: with `string` first, a real `false` still
+            //    gets coerced to `"false"` and matches there before the `boolean` branch is ever
+            //    tried, silently turning a real boolean into a string. With `boolean` first, `false`
+            //    matches immediately with no coercion attempted, and a real duration string like
+            //    `PT5M` fails the `boolean` branch outright (AJV only coerces a string to boolean
+            //    from the literal `"true"`/`"false"`/`"1"`/`"0"`) and falls through to match the
+            //    `string` branch as-is. This field is read-only/response-only (`StorageTargetInput`
+            //    -- the request-body shape a `PUT` actually accepts -- has no `schedule` property at
+            //    all, only `mode`/`scheduleOverride`), so there is no live input-validation path for
+            //    it to fix; this keeps the declared shape correct and consistent with `trustProxy`
+            //    rather than leaving a second copy of the same broken pattern in place. One
+            //    asymmetric residual quirk from AJV's coercion, harmless precisely because this is
+            //    never validated against real request input: `anyOf` still lets a stray boolean
+            //    `true` validate here too (it fails the `boolean` branch's `enum: [false]` check, but
+            //    then coerces to the string `"true"` and matches the `string` branch) -- unlike
+            //    `trustProxy`, whose `boolean` branch has no `enum` restriction and so always matches
+            //    a real boolean outright, both `true` and `false`, before the `string` branch is ever
+            //    tried.
+            anyOf: [{ type: 'boolean', enum: [false] }, { type: 'string' }]
           },
           mode: {
             type: 'string'

@@ -67,10 +67,10 @@ describe(
         //    they stand in for a caller trying to slip a secret-bearing blob through this route. The
         //    schema has no `additionalProperties: false`, so these pass validation and reach the
         //    handler; `Security#pickFields` is what has to drop them before `detail` is built.
-        //    (Not `trustProxy`, despite it also being a real field: its schema is a genuinely
-        //    ambiguous `oneOf: [boolean, string]` that Fastify's default AJV `coerceTypes` fails to
-        //    resolve for a bare boolean -- OpenProject #2366 tracks that separately. Using it here
-        //    would make this audit-log test fail for an unrelated schema reason.)
+        //    (Not `trustProxy` -- OpenProject #2366 fixed its schema from `oneOf` to `anyOf`, but a
+        //    third field alongside `disallowIframe`/`uploadScanSVG` here would just be more surface
+        //    for this specific test to track for no added coverage; the dedicated
+        //    'accepts a real boolean trustProxy' test below covers it.)
         payload: {
           disallowIframe: true,
           uploadScanSVG: false,
@@ -93,6 +93,25 @@ describe(
 
       const serializedDetail = JSON.stringify(entry.detail)
       assert.doesNotMatch(serializedDetail, /auth|mail|secret|hunter2/i)
+    })
+
+    test('PUT /security accepts a real boolean trustProxy (OpenProject #2366)', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/security',
+        payload: { trustProxy: true }
+      })
+      assert.equal(res.statusCode, 200, res.body)
+      assert.equal(res.json().ok, true)
+
+      // -> `list()` orders newest-first, and this test runs after the `disallowIframe`/
+      //    `uploadScanSVG` one above in the same describe -- but rather than lean on ordering (or
+      //    timestamp ties within the same millisecond), find the entry that actually carries
+      //    `trustProxy`.
+      const { entries } = await auditLogModel.list({ event: 'system.securityUpdated' })
+      const entry = entries.find((e) => 'trustProxy' in e.detail)
+      assert.ok(entry, 'expected an audit entry recording the trustProxy change')
+      assert.equal(entry.detail.trustProxy, true)
     })
 
     test('POST /history/purge leaves an audit row naming the actor and the changed keys', async () => {
