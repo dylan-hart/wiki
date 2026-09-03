@@ -39,13 +39,12 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { dialog } from '@/composables/dialog'
+import { useNavCreateMenu } from '@/composables/navCreateMenu'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import PageNewMenu from '@/components/PageNewMenu.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
 
@@ -59,25 +58,15 @@ const userStore = useUserStore()
 
 const { t } = useI18n()
 
+const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
+
 // COMPUTED
 
-const canUploadAsset = computed(() => userStore.can('write:assets') || userStore.can('write:pages'))
 const canCreateAtRoot = computed(
   () =>
     (siteStore.nav.mode === 'auto' || siteStore.nav.mode === 'mixed') &&
     userStore.can('write:pages')
 )
-
-// METHODS
-
-function openFolderDialog(parentId) {
-  dialog({
-    component: FolderCreateDialog,
-    componentProps: { parentId }
-  }).onOk(() => {
-    siteStore.fetchNavigation(pageStore.navigationId, true)
-  })
-}
 
 // WATCHERS
 

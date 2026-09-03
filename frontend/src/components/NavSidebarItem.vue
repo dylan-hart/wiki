@@ -43,14 +43,11 @@
 <script setup>
 import { computed } from 'vue'
 
+import { useNavCreateMenu } from '@/composables/navCreateMenu'
 import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
-import { dialog } from '@/composables/dialog'
 
-import { usePageStore } from '@/stores/page'
-import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import PageNewMenu from '@/components/PageNewMenu.vue'
 
 // -> Self-imported so the recursive tag below resolves explicitly, rather than relying on the SFC
@@ -66,11 +63,10 @@ const props = defineProps({
 })
 
 const { destination, containsCurrent } = useNavSidebarDestination()
+const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
 
 // STORES
 
-const pageStore = usePageStore()
-const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // COMPUTED
@@ -82,7 +78,6 @@ const userStore = useUserStore()
  * toolbar's own "+ New Page" button already is -- real per-path enforcement stays server-side.
  */
 const canCreate = computed(() => Boolean(props.item.generated) && userStore.can('write:pages'))
-const canUploadAsset = computed(() => userStore.can('write:assets') || userStore.can('write:pages'))
 
 // METHODS
 
@@ -104,14 +99,5 @@ function basePathFor(item) {
  *  inside-vs-sibling rule, addressed by id rather than path since folder creation takes a `parentId`. */
 function parentIdFor(item) {
   return item.children?.length > 0 ? item.id : (item.folderId ?? null)
-}
-
-function openFolderDialog(parentId) {
-  dialog({
-    component: FolderCreateDialog,
-    componentProps: { parentId }
-  }).onOk(() => {
-    siteStore.fetchNavigation(pageStore.navigationId, true)
-  })
 }
 </script>
