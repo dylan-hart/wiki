@@ -155,6 +155,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       allowedEmailRegex: {
         type: 'string'
       },
+      allowedEmailDomains: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Domains a visitor may self-register an account under, matched case-insensitively once enforced. Stored already normalized (trimmed, lower-cased, deduped). Independent of `allowedEmailRegex` -- a strategy may carry both.'
+      },
       autoEnrollGroups: {
         type: 'array',
         items: {
@@ -259,6 +265,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 255,
         description:
           'Must be a valid regular expression. Limits which addresses an account may be created for, and applies wherever `selfRegistration` or `autoProvision` does — a pattern that will not compile allows nobody.'
+      },
+      allowedEmailDomains: {
+        type: 'array',
+        items: { type: 'string', maxLength: 255 },
+        description:
+          'A friendlier alternative to `allowedEmailRegex`: domains a visitor may self-register under, matched case-insensitively. Each entry must look like a bare domain (no `@`, no scheme). Independent of `allowedEmailRegex` — a strategy may carry both.'
       },
       autoEnrollGroups: {
         type: 'array',

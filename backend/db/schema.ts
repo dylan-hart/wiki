@@ -237,6 +237,14 @@ export const authentication = pgTable('authentication', {
   selfRegistration: boolean().notNull().default(false),
   autoProvision: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
+  // -> A friendlier alternative to `allowedEmailRegex` for the common case: an admin lists domains
+  //    directly instead of hand-writing a regex. Stored normalized (trimmed, lower-cased, deduped) by
+  //    `models/authentication.ts`. Independent of `allowedEmailRegex` -- both may be set on the same
+  //    strategy; how they combine is enforcement's concern (OpenProject #2470), not this column's.
+  allowedEmailDomains: text()
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::text[]`),
   autoEnrollGroups: uuid().array().default([]),
   // -> Off by default: an existing account is only ever claimed by a provider login once this
   //    strategy is explicitly told to trust the address it reports. See

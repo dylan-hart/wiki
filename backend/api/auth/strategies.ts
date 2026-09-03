@@ -163,6 +163,7 @@ async function routes(app: FastifyInstance) {
           displayName: req.body.displayName,
           isEnabled: req.body.isEnabled,
           allowedEmailRegex: req.body.allowedEmailRegex,
+          allowedEmailDomains: req.body.allowedEmailDomains,
           autoEnrollGroups: req.body.autoEnrollGroups,
           mappableGroups: req.body.mappableGroups
         })) ?? WIKI.models.authentication.validateConfig(req.body.module, req.body.config)
@@ -242,6 +243,7 @@ async function routes(app: FastifyInstance) {
         'selfRegistration',
         'autoProvision',
         'allowedEmailRegex',
+        'allowedEmailDomains',
         'autoEnrollGroups',
         'trustEmailForLinking',
         'mappableGroups',
