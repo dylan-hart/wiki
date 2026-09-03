@@ -345,6 +345,60 @@ const ALLOWED_STYLES: Record<string, Record<string, RegExp[]>> = {
 const ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel', 'ftp']
 
 /**
+ * Schemes that can execute, and so must never reach `sanitize-html`'s `allowedSchemes` no matter what
+ * calls `mergeAllowedSchemes()` below with (OpenProject #2458, part of Feature #2418: an
+ * admin-configurable additional-schemes site setting is coming in #2457/#2459). `javascript:` and
+ * `vbscript:` run script outright; forbidden unconditionally, on every tag including `img` -- there is
+ * no legitimate `<img src="javascript:…">`.
+ */
+const FORBIDDEN_SCHEMES = new Set(['javascript', 'vbscript'])
+
+/**
+ * `data:` is not in `FORBIDDEN_SCHEMES` because it has one legitimate, non-executable use: a small
+ * inline image written directly into `img src`. Anywhere else -- an `<a href>`, an `<iframe src>` -- it
+ * can carry a `data:text/html,<script>…` document that scripts exactly like a `javascript:` URL would.
+ * `mergeAllowedSchemes()` allows it back in only when its caller explicitly says `allowData: true`, and
+ * `sanitizeOptions()` below only ever does that for the `img` tag's own scheme list.
+ */
+const NON_IMG_FORBIDDEN_SCHEMES = new Set(['data'])
+
+/** `sanitize-html` expects a bare, lower-case scheme with no trailing `:` (`javascript`, not `javascript:` or `JavaScript:`). */
+function normalizeScheme(raw: string): string {
+  return raw.trim().toLowerCase().replace(/:$/, '')
+}
+
+/**
+ * The categorical block: merge an admin-configured list of additional URL schemes into the hardcoded
+ * `ALLOWED_SCHEMES` base, refusing anything in `FORBIDDEN_SCHEMES` (always) or
+ * `NON_IMG_FORBIDDEN_SCHEMES` (unless `allowData` is set) regardless of what the caller passes in --
+ * this is the one function that is ever allowed to produce a `sanitize-html` `allowedSchemes` /
+ * `allowedSchemesByTag` value, precisely so that guarantee cannot be routed around by a future caller
+ * (site settings validation is a UX nicety; this is the actual security boundary). Deduplicated, and
+ * indifferent to whatever case, whitespace or trailing colon a caller's list carries -- see
+ * `normalizeScheme()`.
+ */
+export function mergeAllowedSchemes(
+  additionalSchemes: string[] = [],
+  { allowData = false }: { allowData?: boolean } = {}
+): string[] {
+  const merged = new Set(ALLOWED_SCHEMES)
+  if (allowData) {
+    merged.add('data')
+  }
+  for (const raw of additionalSchemes) {
+    const scheme = normalizeScheme(raw)
+    if (!scheme || FORBIDDEN_SCHEMES.has(scheme)) {
+      continue
+    }
+    if (NON_IMG_FORBIDDEN_SCHEMES.has(scheme) && !allowData) {
+      continue
+    }
+    merged.add(scheme)
+  }
+  return [...merged]
+}
+
+/**
  * The block elements a page may carry, and what each of them may be given.
  *
  * A block is the one thing in a page that is not HTML, so sanitising against a list of HTML tags
@@ -486,10 +540,18 @@ export function unwrapOrphanedChildBlocks($: cheerio.CheerioAPI): void {
  * the same `blocks` allowance and the same `permissions`, and reused for both calls: two
  * independently-built option objects could drift apart from each other in a way one shared object
  * cannot.
+ *
+ * @param additionalSchemes A site's admin-configured extra URL schemes (OpenProject #2457/#2459),
+ *   additive to the hardcoded `ALLOWED_SCHEMES` defaults. Defaults to none, so today's one caller
+ *   (`models/rendering.ts`) is unaffected until #2459 wires a site's setting through. Whatever is
+ *   passed here is filtered through `mergeAllowedSchemes()` -- see OpenProject #2458 -- so a
+ *   `javascript:`/`vbscript:`/non-img `data:` entry can never survive into `sanitize-html`'s options
+ *   regardless of what the caller (ultimately: an admin) put in the list.
  */
 export function sanitizeOptions(
   permissions: RenderPermissions,
-  blocks: { tags: string[]; attributes: Record<string, string[]> }
+  blocks: { tags: string[]; attributes: Record<string, string[]> },
+  additionalSchemes: string[] = []
 ): sanitizeHtml.IOptions {
   const allowedTags = [...BASE_ALLOWED_TAGS, ...blocks.tags]
   const allowedAttributes: Record<string, string[]> = {
@@ -536,9 +598,9 @@ export function sanitizeOptions(
     //    the library warns about them on every call, and the warning is the thing to silence, not
     //    the permission
     allowVulnerableTags: permissions.scripts || permissions.styles,
-    allowedSchemes: ALLOWED_SCHEMES,
+    allowedSchemes: mergeAllowedSchemes(additionalSchemes),
     allowedSchemesByTag: {
-      img: [...ALLOWED_SCHEMES, 'data']
+      img: mergeAllowedSchemes(additionalSchemes, { allowData: true })
     },
     // -> A protocol-relative URL inherits the page's scheme, which is fine and common in embeds
     allowProtocolRelative: true,
