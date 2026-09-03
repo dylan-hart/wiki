@@ -49,7 +49,15 @@ export const PAGE_PERMISSIONS: string[] = [
    * silently declassify a sensitive page by editing metadata. Raising it (making it stricter) needs
    * only the ordinary write permission -- see `api/pages/write.ts`'s PATCH route.
    */
-  'manage:classification'
+  'manage:classification',
+  /**
+   * OpenProject #2421's writer/publisher split: publishing (or unpublishing) a page ON THIS PAGE.
+   * Standalone, `publish:pages` does not require `write:pages` -- a publish-only editor may toggle
+   * `publishState` on a page they cannot otherwise edit. Conversely, holding `write:pages` alone is
+   * not enough to publish a page immediately on create (`api/pages/write.ts`'s CREATE PAGE route,
+   * OpenProject #2467) or to change `publishState` on an existing one (the PATCH route, #2466).
+   */
+  'publish:pages'
 ]
 
 /** Every permission string that means anything anywhere — the union of both closed lists above. */

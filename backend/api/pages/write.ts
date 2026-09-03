@@ -94,13 +94,28 @@ async function routes(app: FastifyInstance) {
       //    `tags` (feature 357, task 446 audit) — a page being created has none until it is saved,
       //    so there is nothing for a tag-scoped rule to match on here. `locale` is known up front
       //    from the request body and is passed.
-      if (
-        !mayOnPage(req, 'write:pages', req.params.siteId, {
-          path: req.body.path,
-          locale: req.body.locale ?? defaultLocale(req.params.siteId)
-        })
-      ) {
+      const createPageRef = {
+        path: req.body.path,
+        locale: req.body.locale ?? defaultLocale(req.params.siteId)
+      }
+      if (!mayOnPage(req, 'write:pages', req.params.siteId, createPageRef)) {
         return reply.forbidden('You are not allowed to create a page here.')
+      }
+      /*
+        OpenProject #2467: creating a page with an immediately-published state needs `publish:pages`
+        ON THIS PAGE, on top of `write:pages` -- the writer/publisher split (#2421) means being able
+        to write a page does not by itself mean being able to publish it live. `publishState` defaults
+        to `'published'` when omitted (`models/pages.ts#createPage()`), so an omitted value counts as
+        immediate publish too; only an explicit `'draft'` or `'scheduled'` skips this check, following
+        the same shape as the `manage:classification` declassification guardrail below.
+      */
+      if (
+        (req.body.publishState ?? 'published') === 'published' &&
+        !mayOnPage(req, 'publish:pages', req.params.siteId, createPageRef)
+      ) {
+        return reply.forbidden(
+          'Publishing a page immediately requires the publish:pages permission here.'
+        )
       }
       let page
       try {
