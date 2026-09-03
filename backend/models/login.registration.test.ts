@@ -358,12 +358,14 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
+    // -> A distinct local-part from the allowedEmailDomains tests above, which already register
+    //    ada@allowed.example -- this and that are separate tests sharing one per-file database.
     const result = await login.register(
       {
         siteId: fixtures.siteId,
         strategyId,
-        name: 'Ada Lovelace',
-        email: 'ada@allowed.example',
+        name: 'Katherine Johnson',
+        email: 'katherine@allowed.example',
         password: 'longenough1'
       },
       req()
@@ -372,9 +374,9 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(result.authenticated, true)
     assert.equal(result.nextAction, 'redirect')
 
-    const created = await users.getByEmail('ada@allowed.example')
+    const created = await users.getByEmail('katherine@allowed.example')
     assert.ok(created)
-    assert.equal(created!.name, 'Ada Lovelace')
+    assert.equal(created!.name, 'Katherine Johnson')
   })
 
   test('matches allowedEmailRegex case-insensitively against the submitted address', async () => {
