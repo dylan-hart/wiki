@@ -200,6 +200,49 @@ function isBinaryEntry(
   return file.binary
 }
 
+/**
+ * The default `maxDeletePercent` when a target's config doesn't declare one — matches
+ * `definition.yml`'s own `default: 50`, re-declared here as the fallback for a target whose config
+ * predates the prop, or whose stored value fails to parse as a usable number.
+ */
+const DEFAULT_MAX_DELETE_PERCENT = 50
+
+/**
+ * The mass-delete guard below only ever engages once a site has at least this many pages. Below it,
+ * any percentage-based threshold is meaningless noise: a 3-page wiki where someone deletes one page
+ * is a 33% deletion, and treating that as a "mass deletion" worth holding back would make the guard
+ * fire on completely ordinary single-page cleanup. This floor is deliberately not configurable —
+ * unlike `maxDeletePercent`, there is no real reason an administrator would want to tune it, and a
+ * second knob here would only make the config surface harder to reason about for the one knob that
+ * actually matters.
+ */
+const MIN_PAGES_FOR_DELETE_GUARD = 10
+
+/**
+ * Whether `entry` represents a page (not an asset) being deleted on the remote side — the same
+ * condition `processPageEntry`'s own delete branch checks, re-derived here so the mass-delete guard
+ * below (which runs BEFORE any entry is processed) can count deletions without any of the DB reads
+ * or side effects `processPageEntry` itself carries. `contentType` is required to be non-null, the
+ * same gate `processDiffEntry` uses to route an entry to `processPageEntry` in the first place — an
+ * asset's own deletion is scoped out of this guard entirely (see `sync()`'s header comment).
+ */
+function isPageDeletionEntry(entry: DiffEntry): boolean {
+  if (entry.binary) return false
+  if (!getContentTypeFromExtension(extOf(entry.relPath))) return false
+  return !entry.exists && entry.deletions > 0 && entry.insertions === 0
+}
+
+/**
+ * The effective `maxDeletePercent` for `target`, clamped to a sane 1-100 range and falling back to
+ * `DEFAULT_MAX_DELETE_PERCENT` for anything that doesn't parse as a positive number — a defensively
+ * generic prop declared as `Number` has no schema enforcing a range the way a JSON Schema body would.
+ */
+function maxDeletePercentFor(target: StorageTarget): number {
+  const raw = Number(target.config?.maxDeletePercent)
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_MAX_DELETE_PERCENT
+  return Math.min(100, raw)
+}
+
 /** A page's content changed, moved, or was removed on the remote side. Reverses `content.ts`'s page handlers. */
 async function processPageEntry(
   target: StorageTarget,
@@ -369,8 +412,29 @@ export async function processDiffEntry(
  * whichever caller invoked this action (the admin "Force Sync" button, or a scheduled job via
  * `storageSyncTick`), leaving the working copy mid-rebase for an administrator to resolve, the same
  * place a `git pull --rebase` run by hand would leave it.
+ *
+ * Mass-delete safety guard (OpenProject #2429): a reverted/deleted commit on the remote legitimately
+ * reverse-mirrors as page deletions here — that is working as designed — but nothing used to stand
+ * between "the diff says delete one page" and "the diff says delete every page", the way `rsync
+ * --max-delete` or a Terraform destroy-count warning would for an equivalent bulk-destructive diff.
+ * Before any entry is applied, the diff is pre-scanned for page deletions (`isPageDeletionEntry` —
+ * asset deletions are deliberately out of scope for this guard) and compared against the site's
+ * current total page count. Once that fraction reaches the target's configured
+ * `maxDeletePercent` (default 50%, `MIN_PAGES_FOR_DELETE_GUARD` pages minimum so the check is
+ * meaningless noise on a small wiki), every OTHER change in the diff still applies normally — only
+ * the page-deletion entries are held back, logged, and skipped, mirroring `rsync --max-delete`'s own
+ * "stop deleting, keep transferring" behavior rather than refusing the whole sync. `data.
+ * confirmMassDelete === true` bypasses the hold entirely. `data` is `{}` for every scheduled sync
+ * (`tickScheduledSyncs()` never sets it), so a scheduled run can never itself supply the override —
+ * only a manually re-triggered "Force Sync" through the API (passing the flag in its request body)
+ * can, which is what applies this guard identically to both trigger paths while keeping the scheduled
+ * one inherently unable to blow past it unattended.
+ *
+ * @param data The same payload `dispatchStorage` hands every other module handler — `{}` for a
+ *   scheduled sync, or `{ confirmMassDelete: true }` for a manually-confirmed "Force Sync" (see
+ *   `api/storage.ts`).
  */
-export async function sync(target: StorageTarget): Promise<void> {
+export async function sync(target: StorageTarget, data: Record<string, any> = {}): Promise<void> {
   const { git, repoPath } = await ensureRepo(target)
   const branch = target.config?.branch || 'main'
   const mode = target.sync.mode
@@ -417,11 +481,12 @@ export async function sync(target: StorageTarget): Promise<void> {
   }
 
   const diff = await git.diffSummary(['-M', beforeHash, afterHash])
+  const entries: DiffEntry[] = []
   for (const file of diff.files) {
     const { oldPath, newPath } = parseRenamedPaths(file.file)
     const absPath = path.join(repoPath, newPath)
     const binary = isBinaryEntry(file)
-    const entry: DiffEntry = {
+    entries.push({
       relPath: newPath,
       oldPath,
       absPath,
@@ -431,6 +496,30 @@ export async function sync(target: StorageTarget): Promise<void> {
       deletions: binary ? 0 : file.deletions,
       before: binary ? file.before : undefined,
       after: binary ? file.after : undefined
+    })
+  }
+
+  const deletedPageCount = entries.filter(isPageDeletionEntry).length
+  let holdBackDeletions = false
+  if (deletedPageCount > 0 && data.confirmMassDelete !== true) {
+    const totalPages = (await WIKI.models.pages.listAllForSite(target.siteId)).length
+    if (totalPages >= MIN_PAGES_FOR_DELETE_GUARD) {
+      const percentDeleted = (deletedPageCount / totalPages) * 100
+      if (percentDeleted >= maxDeletePercentFor(target)) {
+        holdBackDeletions = true
+        WIKI.logger.warn(
+          `(STORAGE/GIT) This sync's diff would delete ${deletedPageCount} of ${totalPages} pages ` +
+            `(~${Math.round(percentDeleted)}%), at or above the configured safety threshold of ` +
+            `${maxDeletePercentFor(target)}%. Skipping the deletions (everything else in the diff ` +
+            `still applies) — re-run "Force Sync" with confirmation to apply them anyway.`
+        )
+      }
+    }
+  }
+
+  for (const entry of entries) {
+    if (holdBackDeletions && isPageDeletionEntry(entry)) {
+      continue
     }
     try {
       await processDiffEntry(target, actor, entry)
