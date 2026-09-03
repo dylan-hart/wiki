@@ -639,7 +639,7 @@ describe('ImportBatchPageDialog', () => {
         json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'p1', path: 'docs/good' } })
       })
       globalThis.API_CLIENT.get.mockReturnValueOnce({
-        json: vi.fn().mockResolvedValue([{ id: 'fresh' }])
+        json: vi.fn().mockResolvedValue({ mode: 'static', items: [{ id: 'fresh' }] })
       })
 
       await body().find('.import-batch-save-btn').trigger('click')

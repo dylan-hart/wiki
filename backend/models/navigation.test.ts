@@ -1097,6 +1097,32 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(plainItem!.children![0].target, '/plain-section/inside-plain')
   })
 
+  test('a generated item carries its own tree path and containing folderId', async () => {
+    const sectionFolder = await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'path-fields-section',
+      title: 'Path Fields Section',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'path-fields-section/inside-page', title: 'Inside Page' }),
+      actor
+    )
+
+    const items = await generate()
+    const folderItem = items.find((item) => item.label === 'Path Fields Section')
+    assert.ok(folderItem)
+    assert.equal(folderItem!.path, 'path-fields-section')
+    assert.equal(folderItem!.folderId, null)
+
+    const pageItem = folderItem!.children?.find((item) => item.label === 'Inside Page')
+    assert.ok(pageItem)
+    assert.equal(pageItem!.path, 'path-fields-section/inside-page')
+    assert.equal(pageItem!.folderId, sectionFolder.id)
+  })
+
   test('a hide boundary drops the entry and everything below it', async () => {
     const hiddenFolder = await treeModel.createFolder({
       parentPath: '',

@@ -80,7 +80,7 @@ function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode, roots = [], 
     if (url === 'sites/site-1/navigation/roots') {
       return { json: vi.fn().mockResolvedValue(roots) }
     }
-    return { json: vi.fn().mockResolvedValue(items) }
+    return { json: vi.fn().mockResolvedValue({ mode: 'static', items }) }
   })
 
   const i18n = createTestI18n(MESSAGES)

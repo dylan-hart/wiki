@@ -5,9 +5,13 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import NavSidebar from './NavSidebar.vue'
+import NavSidebarItem from './NavSidebarItem.vue'
+import PageNewMenu from './PageNewMenu.vue'
+import BlueprintIcon from './BlueprintIcon.vue'
 import routes from '@/router/routes'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { openDialogs } from '@/composables/dialog'
 
 /**
  * Task 466 (feature 362): verify -- rather than assume -- every combination `destination()` feeds
@@ -486,6 +490,272 @@ describe('NavSidebar mixed folder/page side-tree (OpenProject #832)', () => {
   })
 })
 
+describe('NavSidebarItem context menu', () => {
+  function generatedTree() {
+    return [
+      {
+        id: 'folder-1',
+        type: 'link',
+        icon: 'mdi:folder',
+        label: 'Docs',
+        path: 'docs',
+        folderId: null,
+        generated: true,
+        children: [
+          {
+            id: 'page-1',
+            type: 'link',
+            icon: 'mdi:file',
+            label: 'Setup',
+            path: 'docs/setup',
+            folderId: 'folder-1',
+            target: '/docs/setup',
+            generated: true
+          }
+        ]
+      }
+    ]
+  }
+
+  async function mountWithPermission(items, canWrite, { path = '/' } = {}) {
+    const router = await createTestRouter(routes, path)
+    const { wrapper } = mountWithApp(NavSidebar, {
+      messages: { common: { sidebar: { browse: 'Browse' } } },
+      router,
+      stores: {
+        site: (store) => {
+          store.nav.items = items
+        },
+        user: (store) => {
+          store.permissions = canWrite ? ['write:pages'] : []
+        }
+      }
+    })
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  it('renders a PageNewMenu on a generated item when the viewer can write pages', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), true)
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(true)
+  })
+
+  it('renders no PageNewMenu when the viewer cannot write pages', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), false)
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+
+  it('renders no PageNewMenu on a non-generated (static) item, even when the viewer can write pages', async () => {
+    const staticItems = [
+      { id: 'static-1', type: 'link', icon: 'mdi:link', label: 'Static Link', target: '/somewhere' }
+    ]
+    const wrapper = await mountWithPermission(staticItems, true)
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+
+  it('resolves basePath/parentId for a folder item as "create inside it"', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), true)
+    const folderMenu = wrapper.findComponent(PageNewMenu)
+    expect(folderMenu.props('basePath')).toBe('docs')
+  })
+
+  it('resolves basePath for a page item as "create as a sibling", scoped to its own PageNewMenu', async () => {
+    /*
+      For a DIRECT child, "create inside the folder" and "create as a sibling of the page" both
+      resolve to the same string ('docs') -- by design, since a direct child's sibling folder IS
+      its parent. Matching on that string alone across every rendered PageNewMenu would therefore
+      pass even if the PAGE item's own `basePathFor` were broken (e.g. returned `undefined`), since
+      the FOLDER's own menu already produces the same value. Scoped instead to the specific
+      `NavSidebarItem` instance backing `page-1` (the leaf, not its `folder-1` ancestor) and its
+      own `PageNewMenu`, so this only passes if that leaf's own computation is correct.
+    */
+    const wrapper = await mountWithPermission(generatedTree(), true, { path: '/docs/setup' })
+
+    const pageItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'page-1')
+    expect(pageItem).toBeTruthy()
+
+    const pageMenu = pageItem.findComponent(PageNewMenu)
+    expect(pageMenu.exists()).toBe(true)
+    expect(pageMenu.props('basePath')).toBe('docs')
+  })
+
+  it('resolves parentId for a folder\'s own "new folder" action as the folder\'s own id', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), true)
+    const folderItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'folder-1')
+    const folderMenu = folderItem.findComponent(PageNewMenu)
+
+    openDialogs.length = 0
+    await folderMenu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'folder-1' })
+  })
+
+  it('resolves parentId for a page\'s own "new folder" action as the page\'s containing folderId', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), true, { path: '/docs/setup' })
+
+    const pageItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'page-1')
+    const pageMenu = pageItem.findComponent(PageNewMenu)
+
+    openDialogs.length = 0
+    await pageMenu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'folder-1' })
+  })
+
+  /*
+    Final whole-branch review, Finding 3: a tree entry with its own navigation override
+    (`navigationMode` of `override`/`overrideExact`) is a FOLDER, but `generateFromTree`
+    (`backend/models/navigation.ts`) deliberately gives it no `children` in the payload -- its own
+    subtree is a separate menu, not walked into. The old `item.children?.length > 0` discriminator
+    misclassified a boundary folder like this as a leaf/page, computing "create as a sibling"
+    instead of "create inside it". A generated PAGE item always carries `target` (only
+    `row.type === 'page'` rows get one); a generated FOLDER item -- boundary or not -- never does,
+    so `!item.target` is the correct discriminator for both cases. Simulated here with the exact
+    shape `generateFromTree` emits for a boundary folder: `generated: true`, no `target`, no
+    `children`.
+  */
+  it('resolves basePath/parentId for a boundary folder (own nav override, no children in the payload) as "create inside it"', async () => {
+    const boundaryItems = [
+      {
+        id: 'boundary-1',
+        type: 'link',
+        icon: 'mdi:folder',
+        label: 'Boundary Folder',
+        path: 'boundary',
+        folderId: null,
+        generated: true
+      }
+    ]
+    const wrapper = await mountWithPermission(boundaryItems, true)
+
+    const menu = wrapper.findComponent(PageNewMenu)
+    expect(menu.exists()).toBe(true)
+    expect(menu.props('basePath')).toBe('boundary')
+
+    openDialogs.length = 0
+    await menu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'boundary-1' })
+  })
+
+  /*
+    Final whole-branch review, Finding 5: every test above that exercises "New Folder" fires
+    `PageNewMenu`'s `new-folder` event directly (`.vm.$emit('new-folder')`), which proves the WIRING
+    (event handler -> dialog-open path) works but never proves the menu item itself is actually
+    rendered and clickable -- exactly the class of bug Finding 1 was (`show-new-folder` never passed
+    at any of the three call sites, so the item never rendered at all, yet every existing test still
+    passed). This one mounts the real component tree, finds the actual rendered "New Folder" row by
+    its resolved i18n label, and clicks it for real.
+
+    `WMenu` is stubbed to always render its slot -- the same stub `PageNewMenu.test.js`'s own suite
+    uses -- because its real open/close gating (a genuine `contextmenu` DOM event, teleported
+    content) is `WMenu`'s own concern, covered by its own suite and by `PageNewMenu.test.js`'s
+    "forwards the contextMenu prop" case; what this test cares about is whether "New Folder" is
+    actually PRESENT once the menu is open.
+  */
+  it('clicks the real rendered "New Folder" row (not just the emit) to open the create-folder dialog', async () => {
+    const router = await createTestRouter(routes, '/')
+    const { wrapper } = mountWithApp(NavSidebar, {
+      messages: {
+        common: {
+          sidebar: { browse: 'Browse' },
+          actions: { newFolder: 'New Folder' }
+        }
+      },
+      router,
+      components: { BlueprintIcon },
+      stores: {
+        site: (store) => {
+          store.nav.items = generatedTree()
+        },
+        user: (store) => {
+          store.permissions = ['write:pages']
+        }
+      },
+      stubs: { teleport: true, WMenu: { template: '<div><slot /></div>' } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const folderItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'folder-1')
+    expect(folderItem).toBeTruthy()
+
+    /*
+      Scoped to folder-1's own header row (`.w-expansion-item__header`), not `folderItem`'s whole
+      subtree: that subtree also contains page-1's own nested row and ITS OWN "New Folder" item
+      (both rendered inside `folderItem`'s `<w-list>` of children), and -- purely by coincidence in
+      this fixture -- a direct child's `folderId` ('folder-1') equals its parent folder's own `id`
+      ('folder-1'), so a search too broad to tell the two apart would still pass even if THIS
+      finding's own fix regressed. Matched on the row's own EXACT text, not `.includes()`, for the
+      same reason: `.w-item` nests (the header's own outer `w-item` wraps the whole menu), so a
+      substring match would find that ancestor first -- its aggregated text contains "New Folder"
+      too, as part of a much longer string alongside every other menu item's label.
+    */
+    const header = folderItem.find('.w-expansion-item__header')
+    expect(header.exists()).toBe(true)
+    const newFolderRow = header.findAll('.w-item').find((row) => row.text() === 'New Folder')
+    expect(newFolderRow).toBeTruthy()
+
+    openDialogs.length = 0
+    await newFolderRow.trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'folder-1' })
+  })
+})
+
+describe('NavSidebar empty-space context menu', () => {
+  async function mountRoot({ mode = 'static', canWrite = true } = {}) {
+    const router = await createTestRouter(routes, '/')
+    const { wrapper } = mountWithApp(NavSidebar, {
+      messages: { common: { sidebar: { browse: 'Browse' } } },
+      router,
+      stores: {
+        site: (store) => {
+          store.nav.items = []
+          store.nav.mode = mode
+        },
+        user: (store) => {
+          store.permissions = canWrite ? ['write:pages'] : []
+        }
+      }
+    })
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  it('offers a root-level create menu when the resolved mode is auto', async () => {
+    const wrapper = await mountRoot({ mode: 'auto' })
+    const menu = wrapper.findComponent(PageNewMenu)
+    expect(menu.exists()).toBe(true)
+    expect(menu.props('basePath')).toBe('')
+  })
+
+  it('offers a root-level create menu when the resolved mode is mixed', async () => {
+    const wrapper = await mountRoot({ mode: 'mixed' })
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(true)
+  })
+
+  it('offers no root-level create menu on a static menu -- nothing to create "into"', async () => {
+    const wrapper = await mountRoot({ mode: 'static' })
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+
+  it('offers no root-level create menu when the viewer cannot write pages', async () => {
+    const wrapper = await mountRoot({ mode: 'auto', canWrite: false })
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+})
 /**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 721. Mounting at all is
  * itself a meaningful check: this component's `<style lang="scss">` was rewritten from physical

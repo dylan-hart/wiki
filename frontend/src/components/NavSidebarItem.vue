@@ -12,6 +12,14 @@
     <template #header>
       <w-item-section side><w-icon :name="item.icon" color="white" /></w-item-section>
       <w-item-section class="text-wordbreak-all text-white">{{ item.label }}</w-item-section>
+      <!-- -> Create inside this folder: right-click anywhere on its own header row -->
+      <page-new-menu
+        v-if="canCreate"
+        context-menu
+        show-new-folder
+        :base-path="basePathFor(item)"
+        :hide-asset-btn="!canUploadAsset"
+        @new-folder="openFolderDialog(parentIdFor(item))" />
     </template>
     <w-list dense dark>
       <!-- -> One nav item, plus its own expansion behavior if it has children -- rendered for each
@@ -23,17 +31,32 @@
   <w-item v-else v-bind="destination(item)">
     <w-item-section side><w-icon :name="item.icon" color="white" /></w-item-section>
     <w-item-section class="text-wordbreak-all text-white">{{ item.label }}</w-item-section>
+    <!-- -> Create as a sibling, in the folder this page lives in: right-click anywhere on its row -->
+    <page-new-menu
+      v-if="canCreate"
+      context-menu
+      show-new-folder
+      :base-path="basePathFor(item)"
+      :hide-asset-btn="!canUploadAsset"
+      @new-folder="openFolderDialog(parentIdFor(item))" />
   </w-item>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
+import { useNavCreateMenu } from '@/composables/navCreateMenu'
 import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
+
+import { useUserStore } from '@/stores/user'
+
+import PageNewMenu from '@/components/PageNewMenu.vue'
 
 // -> Self-imported so the recursive tag below resolves explicitly, rather than relying on the SFC
 //    filename-based self-reference Vue infers implicitly for `<script setup>` components
 import NavSidebarItem from './NavSidebarItem.vue'
 
-defineProps({
+const props = defineProps({
   /** One nav item -- a `link`, possibly carrying `children` of its own. */
   item: {
     type: Object,
@@ -42,4 +65,45 @@ defineProps({
 })
 
 const { destination, containsCurrent } = useNavSidebarDestination()
+const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
+
+// STORES
+
+const userStore = useUserStore()
+
+// COMPUTED
+
+/**
+ * A right-click context menu only makes sense on an item backed by a real page/folder -- a
+ * `generated` (auto/mixed-mode tree-walk) item, never a hand-authored `static` link, which may not
+ * correspond to any page at all. Gated the same coarse "may they create pages somewhere" way the
+ * toolbar's own "+ New Page" button already is -- real per-path enforcement stays server-side.
+ */
+const canCreate = computed(() => Boolean(props.item.generated) && userStore.can('write:pages'))
+
+// METHODS
+
+/**
+ * Where a creation action targets, for a generated item: right-click a FOLDER item creates INSIDE
+ * it; right-click a PAGE item creates as a SIBLING, in the folder it lives in. A generated PAGE
+ * item always carries `target` (only `row.type === 'page'` rows get one from `generateFromTree`);
+ * a generated FOLDER item never does -- including a boundary folder (one with its own navigation
+ * override), which `generateFromTree` deliberately gives no `children`, so `children?.length > 0`
+ * would misclassify it as a leaf/page. `!item.target` is correct for both the ordinary and the
+ * boundary case.
+ */
+function basePathFor(item) {
+  if (!item.target) {
+    return item.path ?? ''
+  }
+  const segments = (item.path ?? '').split('/')
+  segments.pop()
+  return segments.join('/')
+}
+
+/** The `parentId` a new FOLDER (not page) is created under -- see `basePathFor` above for the same
+ *  inside-vs-sibling rule, addressed by id rather than path since folder creation takes a `parentId`. */
+function parentIdFor(item) {
+  return !item.target ? item.id : (item.folderId ?? null)
+}
 </script>

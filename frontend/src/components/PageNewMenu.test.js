@@ -89,6 +89,29 @@ describe('PageNewMenu', () => {
 
     wrapper.unmount()
   })
+
+  it('forwards the contextMenu prop to its own root w-menu, off by default', async () => {
+    const CapturingWMenu = {
+      name: 'CapturingWMenu',
+      props: ['contextMenu'],
+      template: '<div :data-context-menu="contextMenu"><slot /></div>'
+    }
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.editors = { asciidoc: false, code: false, markdown: true, wysiwyg: false }
+    const i18n = createTestI18n()
+
+    const off = mount(PageNewMenu, {
+      global: { plugins: [i18n], stubs: { WMenu: CapturingWMenu } }
+    })
+    expect(off.findComponent(CapturingWMenu).props('contextMenu')).toBe(false)
+
+    const on = mount(PageNewMenu, {
+      props: { contextMenu: true },
+      global: { plugins: [i18n], stubs: { WMenu: CapturingWMenu } }
+    })
+    expect(on.findComponent(CapturingWMenu).props('contextMenu')).toBe(true)
+  })
 })
 
 describe('PageNewMenu: import menu item', () => {

@@ -1,5 +1,10 @@
 <template>
-  <w-menu class="translucent-menu" auto-close anchor="bottom right" self="top right">
+  <w-menu
+    class="translucent-menu"
+    :context-menu="props.contextMenu"
+    auto-close
+    anchor="bottom right"
+    self="top right">
     <w-list padding>
       <w-item
         clickable
@@ -94,6 +99,13 @@ const props = defineProps({
   basePath: {
     type: String,
     default: null
+  },
+  /** Opens on right-click at the pointer instead of on left-click at the anchor -- see WMenu.vue's
+   *  own `contextMenu` prop. Off by default so every existing click-triggered call site (the
+   *  header toolbar button, the phone overflow menu, File Manager) is unaffected. */
+  contextMenu: {
+    type: Boolean,
+    default: false
   }
 })
 

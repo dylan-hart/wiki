@@ -35,6 +35,24 @@ a **pre-existing gap in `TreeNode.vue`'s own context menu** (File Manager, TreeB
 something new introduced here. Worth fixing once, for all three context menus at once — not inside
 this Feature.
 
+**Accepted tradeoff, not a defect:** a nav page row renders as a real `router-link`, so right-click
+now also suppresses the browser's native context menu on it (no "open in new tab" via right-click)
+for any viewer this menu is offered to. This is the same behavior `TreeNode.vue`'s own
+`context-menu` mode already has everywhere it's used (File Manager, `TreeBrowserDialog`) — any
+custom right-click menu suppresses the platform default one, on the web or off it. Deliberately
+accepted here rather than worked around, for the same reason the two components above already
+accept it.
+
+**Known limitation, deferred:** `resolveGeneratorRoot` (`backend/models/navigation.ts`) returns the
+tree entry's own `folderPath` — not the locale root — for a page/folder-level navigation *override*
+menu (an opt-in per-page/folder setting, distinct from the site-wide default menu every install
+uses). `generateFromTree`'s initial call always defaults `parentFolderId` to `null`, so a top-level
+generated item's `folderId` (and this feature's own root-level "create here" targets) are wrong —
+pointing at the locale root instead of the override's own section root — specifically for that
+opt-in case. Fixing it well means `getNav` returning the generator's own root path/id alongside
+`mode`/`items`, which is a real (if narrow) follow-up rather than a one-line patch — filed as a
+follow-up Task, not fixed inside this Feature.
+
 ## Design
 
 ### 1. Backend: two new fields on generated `NavigationItem`s

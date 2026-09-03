@@ -16,6 +16,19 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       label: { type: 'string' },
       icon: { type: 'string' },
       target: { type: 'string' },
+      path: {
+        type: 'string',
+        readOnly: true,
+        description:
+          'Generated items only: the raw tree path this item belongs to, no locale prefix. Never sent in a request body — computed fresh on every read, same as `generated`.'
+      },
+      folderId: {
+        type: 'string',
+        nullable: true,
+        readOnly: true,
+        description:
+          'Generated items only: the tree-row id of the folder containing this item, or null at locale root. Never sent in a request body.'
+      },
       openInNewWindow: { type: 'boolean' },
       expandByDefault: {
         type: 'boolean',

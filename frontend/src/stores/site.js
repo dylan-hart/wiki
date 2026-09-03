@@ -197,6 +197,7 @@ export const useSiteStore = defineStore('site', {
     nav: {
       currentId: null,
       items: [],
+      mode: 'static',
       inFlightId: null
     }
   }),
@@ -347,7 +348,7 @@ export const useSiteStore = defineStore('site', {
       //    this one stale the instant it starts -- not only once it too has a response in hand.
       this.nav.inFlightId = id
       try {
-        const items = await API_CLIENT.get(`sites/${this.id}/navigation/${id}`).json()
+        const { mode, items } = await API_CLIENT.get(`sites/${this.id}/navigation/${id}`).json()
         // -> A newer call may have started (and even finished) while this one was in flight; if so,
         //    its id is no longer the one this response is for, so discard rather than clobber it.
         if (this.nav.inFlightId !== id) {
@@ -356,7 +357,8 @@ export const useSiteStore = defineStore('site', {
         this.$patch({
           nav: {
             currentId: id,
-            items: items ?? []
+            items: items ?? [],
+            mode: mode ?? 'static'
           }
         })
       } catch (err) {
@@ -369,7 +371,8 @@ export const useSiteStore = defineStore('site', {
         this.$patch({
           nav: {
             currentId: id,
-            items: []
+            items: [],
+            mode: 'static'
           }
         })
       }

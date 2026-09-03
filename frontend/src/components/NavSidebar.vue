@@ -22,27 +22,52 @@
           <w-separator v-else-if="item.type === `separator`" dark />
         </template>
       </w-list>
+      <!-- -> Right-click empty space to create at the locale root -- only meaningful when there is
+              a real tree backing this menu (auto/mixed); a static menu's links may not correspond
+              to any page at all -->
+      <page-new-menu
+        v-if="canCreateAtRoot"
+        context-menu
+        show-new-folder
+        base-path=""
+        :hide-asset-btn="!canUploadAsset"
+        @new-folder="openFolderDialog(null)" />
     </nav>
   </w-scroll-area>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+import { useNavCreateMenu } from '@/composables/navCreateMenu'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
+import PageNewMenu from '@/components/PageNewMenu.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
 
 // STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
 const { t } = useI18n()
+
+const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
+
+// COMPUTED
+
+const canCreateAtRoot = computed(
+  () =>
+    (siteStore.nav.mode === 'auto' || siteStore.nav.mode === 'mixed') &&
+    userStore.can('write:pages')
+)
 
 // WATCHERS
 
@@ -74,6 +99,16 @@ $sidebar-overlay-max: 1199.98px;
      is what lets it shrink below its content so the scroll area actually scrolls. */
   flex: 1 1 0;
   min-height: 0;
+
+  /* -> The `<nav>` inside this scroll area has no height rule of its own, so with few or zero items
+     it collapses to its content's height and leaves empty space below it that is inside
+     `.sidebar-nav` but OUTSIDE `<nav>` -- exactly the space `WMenu`'s root-level context-menu
+     trigger binds to. Without this, right-clicking that empty space (the case that matters most:
+     an empty or near-empty sidebar, where "right-click to create the first page" is the whole
+     point) has no `<nav>` surface under the pointer to bind to, and does nothing. */
+  > nav {
+    min-height: 100%;
+  }
 
   &-list > .w-separator {
     margin-top: 10px;

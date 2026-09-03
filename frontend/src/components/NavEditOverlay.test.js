@@ -53,7 +53,11 @@ function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = nu
     if (url === 'groups') {
       return { json: vi.fn().mockResolvedValue([]) }
     }
-    return { json: vi.fn().mockResolvedValue(SERVER_ITEMS) }
+    // -> Both `nav-item-editor`'s own `full: true` fetch and the sidebar-invalidation
+    //    `fetchNavigation()` calls below hit the same `GET .../navigation/:navId` route, which
+    //    always returns the wrapped `{ mode, items }` shape -- `full` only changes which
+    //    visibility-group layer the server resolves, not the response envelope.
+    return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
   })
 
   const i18n = createTestI18n(MESSAGES)

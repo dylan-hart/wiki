@@ -308,7 +308,11 @@ describe('user store: logout()', () => {
     })
     // -> The re-fetched menu, now built against the guest session: the restricted item is gone
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve([{ id: 'public', type: 'link', label: 'Public', target: '/' }])
+      json: () =>
+        Promise.resolve({
+          mode: 'static',
+          items: [{ id: 'public', type: 'link', label: 'Public', target: '/' }]
+        })
     })
 
     await store.logout()

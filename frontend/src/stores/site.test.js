@@ -205,7 +205,7 @@ describe('site store: fetchNavigation()', () => {
     const store = useSiteStore()
     store.id = 'site-1'
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve([{ id: 'item-1' }])
+      json: () => Promise.resolve({ mode: 'static', items: [{ id: 'item-1' }] })
     })
 
     await store.fetchNavigation('nav-1')
@@ -214,6 +214,7 @@ describe('site store: fetchNavigation()', () => {
     expect(store.nav).toEqual({
       currentId: 'nav-1',
       items: [{ id: 'item-1' }],
+      mode: 'static',
       inFlightId: 'nav-1'
     })
   })
@@ -221,19 +222,20 @@ describe('site store: fetchNavigation()', () => {
   it('skips the request for an id already cached, unless forceRefresh is passed', async () => {
     const store = useSiteStore()
     store.id = 'site-1'
-    store.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'stale' }] } })
+    store.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'stale' }], mode: 'static' } })
 
     await store.fetchNavigation('nav-1')
     expect(API_CLIENT.get).not.toHaveBeenCalled()
     expect(store.nav.items).toEqual([{ id: 'stale' }])
 
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve([{ id: 'fresh' }])
+      json: () => Promise.resolve({ mode: 'auto', items: [{ id: 'fresh' }] })
     })
     await store.fetchNavigation('nav-1', true)
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
     expect(store.nav.items).toEqual([{ id: 'fresh' }])
+    expect(store.nav.mode).toBe('auto')
   })
 
   it('does nothing for a falsy id, forceRefresh or not', async () => {
@@ -249,15 +251,20 @@ describe('site store: fetchNavigation()', () => {
   it('still refetches a DIFFERENT id even without forceRefresh, same as before', async () => {
     const store = useSiteStore()
     store.id = 'site-1'
-    store.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'old' }] } })
+    store.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'old' }], mode: 'static' } })
 
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve([{ id: 'new' }])
+      json: () => Promise.resolve({ mode: 'static', items: [{ id: 'new' }] })
     })
     await store.fetchNavigation('nav-2')
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-2')
-    expect(store.nav).toEqual({ currentId: 'nav-2', items: [{ id: 'new' }], inFlightId: 'nav-2' })
+    expect(store.nav).toEqual({
+      currentId: 'nav-2',
+      items: [{ id: 'new' }],
+      mode: 'static',
+      inFlightId: 'nav-2'
+    })
   })
 
   /**
@@ -287,11 +294,11 @@ describe('site store: fetchNavigation()', () => {
     const secondCall = store.fetchNavigation('nav-2')
 
     // The later call (nav-2) resolves first; the earlier call (nav-1) resolves last.
-    resolveSecond([{ id: 'nav-2-item' }])
+    resolveSecond({ mode: 'static', items: [{ id: 'nav-2-item' }] })
     await secondCall
     expect(store.nav.currentId).toBe('nav-2')
 
-    resolveFirst([{ id: 'nav-1-item' }])
+    resolveFirst({ mode: 'static', items: [{ id: 'nav-1-item' }] })
     await firstCall
 
     // The stale nav-1 response must not have overwritten the newer nav-2 menu.
@@ -320,9 +327,9 @@ describe('site store: fetchNavigation()', () => {
     const fetchB = store.fetchNavigation('site-b-nav')
 
     // Site A's slower response lands after site B's, as it would for a genuinely slower request.
-    resolveSiteB([{ id: 'site-b-item' }])
+    resolveSiteB({ mode: 'static', items: [{ id: 'site-b-item' }] })
     await fetchB
-    resolveSiteA([{ id: 'site-a-item' }])
+    resolveSiteA({ mode: 'static', items: [{ id: 'site-a-item' }] })
     await fetchA
 
     expect(store.nav.currentId).toBe('site-b-nav')
