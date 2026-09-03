@@ -3,6 +3,7 @@ import { SEARCH_ORDER_BY, type SearchOrderBy } from '../../models/search.ts'
 import { generatePathHash, isValidUuid, normalizePagePath } from '../../helpers/common.ts'
 import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { limitAuthAttempts } from '../../helpers/rateLimit.ts'
+import { computeTranslationStatus } from '../../helpers/translationStatus.ts'
 import {
   actorFrom,
   mayBypassPassword,
@@ -591,6 +592,78 @@ async function routes(app: FastifyInstance) {
         path: translation.path,
         title: translation.title
       }))
+    }
+  )
+
+  /**
+   * PAGE TRANSLATION STATUS (OpenProject #2475)
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/translationStatus',
+    {
+      /*
+        No route-level `permissions`: `read:pages` is a page permission granted by a group's
+        RULES. Checked against the target page via `requireReadablePage` (folded into 404 when
+        missing or unreadable), and again per candidate translation row below -- same pattern as
+        the backlinks route just above.
+      */
+      schema: {
+        summary: "Get a page's per-locale translation staleness/missing status",
+        description:
+          "For every locale the site has active, whether a translation exists at this page's path and whether it predates the primary-locale page there (`translation.updatedAt < primary.updatedAt` on the shared `(siteId, path)` join -- see docs/decisions/locale-translation-linking.md). What `LocaleSelectorMenu.vue` reads to badge a stale or missing translation before the reader switches to it.\n\nReadable without a session, same as reading the page itself -- but each candidate translation row is dropped unless the caller may `read:pages` on it, and unpublished/scheduled translations are invisible to an anonymous caller entirely, so this never reveals a translation the caller could not otherwise discover by trying to read it directly.",
+        tags: ['Pages'],
+        params: { $ref: 'SitePageParams#' },
+        response: {
+          200: {
+            description: 'One entry per active locale on this site',
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                locale: { type: 'string' },
+                exists: {
+                  type: 'boolean',
+                  description:
+                    'Whether a page exists in this locale at this path, as far as the caller may see.'
+                },
+                stale: {
+                  type: 'boolean',
+                  description:
+                    "Whether the existing translation's `updatedAt` predates the primary-locale page's own. Always `false` for the primary locale itself, or when `exists` is `false`, or when the primary-locale page is not visible to the caller at all."
+                }
+              }
+            }
+          },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      // -> A staleness badge reveals no part of this page's body, so a password still standing
+      //    between the caller and the text is not a reason to refuse it -- same reasoning as
+      //    backlinks' own `allowLocked: true`.
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        allowLocked: true
+      })
+      if (!page) {
+        return reply
+      }
+      const actor = actorFrom(req)
+      const rows = await WIKI.models.pages.listTranslationStatusRows(req.params.siteId, page.path)
+      // -> Same two-step narrowing as `api/graph.ts`'s node listing: publication-state exclusion
+      //    for an anonymous caller first (a draft/scheduled translation must never reach one),
+      //    then `read:pages` per candidate row.
+      const visibleRows = (
+        actor ? rows : rows.filter((row) => row.publishState === 'published')
+      ).filter((row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
+      const activeLocales: string[] = WIKI.sites[req.params.siteId]?.config?.locales?.active ?? [
+        defaultLocale(req.params.siteId)
+      ]
+      return computeTranslationStatus(
+        activeLocales,
+        defaultLocale(req.params.siteId),
+        visibleRows.map((row) => ({ locale: row.locale, updatedAt: row.updatedAt }))
+      )
     }
   )
 

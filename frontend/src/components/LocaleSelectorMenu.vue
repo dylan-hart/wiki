@@ -4,7 +4,8 @@
     auto-close
     :anchor="props.anchor"
     :self="props.self"
-    :offset="props.offset">
+    :offset="props.offset"
+    @show="loadTranslationStatus">
     <w-list padding style="min-width: 200px">
       <w-item
         v-for="lang of siteStore.locales.active"
@@ -26,12 +27,28 @@
           <w-item-label>{{ lang.nativeName }}</w-item-label>
           <w-item-label caption>{{ lang.name }}</w-item-label>
         </w-item-section>
+        <!--
+          Staleness/missing badge (OpenProject #2475) -- one signal covers both states (Feature
+          #2439's own resolved scope), so this is deliberately the same badge either way, only the
+          tooltip text tells a stale translation apart from a missing one. Absent entirely once
+          `translationStatus` reports neither for this locale (including the common case: the fetch
+          hasn't resolved yet, or this page has no id to ask about at all).
+        -->
+        <w-item-section side v-if="translationBadgeText(lang.code)">
+          <w-badge color="warning" text-color="black" rounded>
+            <w-icon name="la:exclamation-triangle" size="12px" />
+            <w-tooltip anchor="center left" self="center right">{{
+              translationBadgeText(lang.code)
+            }}</w-tooltip>
+          </w-badge>
+        </w-item-section>
       </w-item>
     </w-list>
   </w-menu>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -70,7 +87,61 @@ const router = useRouter()
 
 const { t } = useI18n()
 
+// DATA
+
+/**
+ * Per-locale `{ locale, exists, stale }`, one entry per active locale -- fetched fresh each time
+ * the menu opens (see `loadTranslationStatus`) rather than kept warm across page navigations, the
+ * same "fetched once per open, not assumed stale from an earlier visit" convention
+ * `ImportPageDialog.vue`/`ImportBatchPageDialog.vue` already use for their own dialogs. Empty
+ * before the first open, or whenever the fetch has nothing to report (see below) -- both read as
+ * "no badge for anyone" through `translationBadgeText`, never as an error.
+ */
+const translationStatus = ref([])
+
 // METHODS
+
+/**
+ * Populates `translationStatus` for the page currently on screen, on `w-menu`'s own `@show`.
+ *
+ * A page that has no id yet -- mid-creation, in the editor's `create` mode -- has nothing to ask
+ * the server about, so this leaves `translationStatus` empty rather than requesting for an id that
+ * does not exist. Best-effort otherwise: a badge that fails to load is not worth surfacing as an
+ * error (same reasoning `HeaderNav.vue`'s own badge-count refresh gives), so any failure just
+ * leaves every item unbadged.
+ */
+async function loadTranslationStatus() {
+  translationStatus.value = []
+  if (!pageStore.id) {
+    return
+  }
+  try {
+    const result = await API_CLIENT.get(
+      `sites/${siteStore.id}/pages/${pageStore.id}/translationStatus`
+    ).json()
+    // -> Defensive against a stubbed/mocked `API_CLIENT` (or a genuinely empty body) resolving to
+    //    `undefined` rather than an array -- `translationBadgeText`'s own `.find()` would otherwise
+    //    throw on every render, not just fail to badge anything.
+    translationStatus.value = Array.isArray(result) ? result : []
+  } catch {
+    translationStatus.value = []
+  }
+}
+
+/**
+ * The tooltip text for `code`'s badge, or `null` when it should show none at all -- doubles as the
+ * template's own `v-if`, so there is exactly one place that decides whether a locale is badged.
+ */
+function translationBadgeText(code) {
+  const status = translationStatus.value.find((entry) => entry.locale === code)
+  if (!status) {
+    return null
+  }
+  if (!status.exists) {
+    return t('localeSwitcher.missing')
+  }
+  return status.stale ? t('localeSwitcher.stale') : null
+}
 
 /**
  * Switches the CONTENT locale being read -- the interface language (`commonStore.locale` /

@@ -2950,6 +2950,8 @@
   "linkPicker.selection": "Link target",
   "linkPicker.title": "Insert Link",
   "linkPicker.url": "URL",
+  "localeSwitcher.missing": "This page has not been translated into this language yet.",
+  "localeSwitcher.stale": "This translation may be out of date.",
   "mail.forgotPassword.html": "<p>Hi {name},</p><p>A password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.</p><p><a href=\"{link}\">{link}</a></p><p>If you did not request this, you can safely ignore this email — your password will not change.</p>",
   "mail.forgotPassword.subject": "Reset your password",
   "mail.forgotPassword.text": "Hi {name},\n\nA password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.\n{link}\n\nIf you did not request this, you can safely ignore this email — your password will not change.",
