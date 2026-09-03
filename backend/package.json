@@ -29,6 +29,7 @@
     "dev": "cd .. && nodemon backend --watch backend --ext js,ts,json",
     "migrate": "cd .. && node backend/tasks/migrate.ts",
     "verify-migration": "cd .. && node backend/tasks/verify-migration.ts",
+    "promote-admin": "cd .. && node backend/tasks/promote-admin.ts",
     "mcp": "cd .. && node backend/mcp/stdio.ts",
     "typecheck": "tsc",
     "typecheck:watch": "tsc --watch",
