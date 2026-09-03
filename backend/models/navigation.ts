@@ -44,6 +44,20 @@ export interface NavigationItem {
   label?: string
   icon?: string
   target?: string
+  /**
+   * `generated` items only: the raw tree path this item belongs to, no locale prefix (e.g.
+   * `docs/setup`). Distinct from `target`, which is locale-prefixed and only ever set on a page
+   * row. Never stored — computed fresh by `generateFromTree` on every read, same as `generated`
+   * itself.
+   */
+  path?: string
+  /**
+   * `generated` items only: the tree-row id of the folder CONTAINING this item — `null` at locale
+   * root. Needed because folder creation (`POST /sites/:siteId/tree/folders`) addresses its parent
+   * by id while page creation addresses its target by path (`path` above) — this surfaces what
+   * each one needs, not a third addressing scheme.
+   */
+  folderId?: string | null
   openInNewWindow?: boolean
   /** A link with children only: whether the sidebar shows its submenu already open. */
   expandByDefault?: boolean
@@ -636,7 +650,8 @@ class Navigation {
     rootFolderPath: string,
     locale: string,
     actor: AccessActor | null,
-    depth = 0
+    depth = 0,
+    parentFolderId: string | null = null
   ): Promise<NavigationItem[]> {
     if (depth > MAX_DEPTH) {
       return []
@@ -742,7 +757,7 @@ class Navigation {
         const childFolderPath = rootFolderPath ? `${rootFolderPath}.${row.fileName}` : row.fileName
         const children =
           isFolder && !isBoundary
-            ? await this.generateFromTree(siteId, childFolderPath, locale, actor, depth + 1)
+            ? await this.generateFromTree(siteId, childFolderPath, locale, actor, depth + 1, row.id)
             : []
 
         // -> A non-boundary folder that recursed to nothing is a dead end just like an empty folder
@@ -758,6 +773,8 @@ class Navigation {
           id: row.id,
           type: 'link',
           label: row.title,
+          path,
+          folderId: parentFolderId,
           ...(row.icon && { icon: row.icon }),
           // -> Prefixes the locale only when the site's routing rules call for it
           //    (`localizedPagePath`), matching how `NavItemEditor.vue`'s manual page-picker builds a
