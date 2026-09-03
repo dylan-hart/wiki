@@ -135,6 +135,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       icon: {
         type: 'string',
         description: "The page's icon, as an Iconify reference. Empty when it has none."
+      },
+      hasChildren: {
+        type: 'boolean',
+        description:
+          'Whether the page holds a visible page below its own path -- the book/file icon distinction.'
       }
     }
   })

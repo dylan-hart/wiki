@@ -105,6 +105,9 @@ export interface ListedPage {
   description: string
   /** The page's icon, as an Iconify reference. Empty when it has none. */
   icon: string
+  /** Whether the page holds a visible page below its own path — the book/file icon distinction
+   *  (OpenProject #2462). See `pageHasVisibleChildren`. */
+  hasChildren: boolean
   /** Classification level id (OpenProject #1079), for the reader-permission filter layered on top of
    *  this listing (see `api/tree.ts`'s "LIST PAGES AS A READER" route). Never returned to the client:
    *  no API schema declares this field, so Fastify's response serialization drops it. */
@@ -234,6 +237,45 @@ export function holdsVisiblePagesUnder(
           eq(descendant.locale, treeTable.locale),
           eq(descendant.type, 'page'),
           sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
+          ...pageIsVisible(descendantPage, publicOnly)
+        )
+      )
+  )
+}
+
+/**
+ * Whether a page holds a visible descendant of its own — another page whose path sits at or below
+ * `<the page's own folderPath>.<its own fileName>` — as an `EXISTS` correlated to the outer `tree`
+ * row being tested.
+ *
+ * Unlike `holdsVisiblePagesUnder` above, the row being tested varies per result (`listPages()`
+ * returns pages from several folder depths in one query when `depth` > 0), so the path being
+ * descended from is built entirely off the outer row's own `folderPath`/`fileName` columns — the
+ * same expression the `tree_folderpath_filename_gist_idx` index (`db/schema.ts`) is defined over —
+ * rather than a single parameter shared by every row in the result. This is what lets `listPages()`
+ * tell a "book" page — one with pages nested under its own path, the BookStack-style chapter
+ * arrangement this fork models — from a leaf "file" page (OpenProject #2462).
+ *
+ * @param publicOnly Passed straight to `pageIsVisible`: true restricts to what an anonymous reader
+ *   may see, matching the same filter `listPages()` already applies to its own rows — so a reader
+ *   never learns of a hidden draft child from the icon alone.
+ * @param aliasSuffix Names the two table aliases this subquery introduces. Each call site needs its
+ *   own, since two `EXISTS` clauses in one statement cannot share an alias name.
+ */
+export function pageHasVisibleChildren(publicOnly: boolean, aliasSuffix: string): SQL {
+  const descendant = alias(treeTable, `descendantTree${aliasSuffix}`)
+  const descendantPage = alias(pagesTable, `descendantPage${aliasSuffix}`)
+  return exists(
+    WIKI.db
+      .select({ one: sql`1` })
+      .from(descendant)
+      .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
+      .where(
+        and(
+          eq(descendant.siteId, treeTable.siteId),
+          eq(descendant.locale, treeTable.locale),
+          eq(descendant.type, 'page'),
+          sql`${descendant.folderPath} <@ (${treeTable.folderPath} || ${treeTable.fileName})`,
           ...pageIsVisible(descendantPage, publicOnly)
         )
       )
@@ -543,6 +585,7 @@ class Tree {
     const pathQuery = encodedPath ? `${encodedPath}.${levels}` : levels
 
     const direction = orderByDirection === 'desc' ? desc : asc
+    const hasChildren = pageHasVisibleChildren(publicOnly, '')
     const rows = await WIKI.db
       .select({
         id: treeTable.id,
@@ -551,6 +594,7 @@ class Tree {
         title: treeTable.title,
         description: pagesTable.description,
         icon: pagesTable.icon,
+        hasChildren: sql<boolean>`${hasChildren}`.mapWith(Boolean),
         classification: pagesTable.classification
       })
       .from(treeTable)
@@ -576,6 +620,7 @@ class Tree {
         title: row.title,
         description: row.description ?? '',
         icon: row.icon ?? '',
+        hasChildren: row.hasChildren,
         classification: row.classification
       }
     })

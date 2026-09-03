@@ -121,6 +121,46 @@ describe('block-index', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  /*
+    OpenProject #2462: a "book" page -- one with a page nested below its own path -- draws a
+    different default icon than a leaf "file" page, driven by the `hasChildren` signal
+    `GET tree/pages` now carries. Asserted off which icon reference was fetched rather than off
+    rendered SVG content, since `stubFetch`'s `onRequest` answers every hop with the same page-list
+    JSON body -- `fetchIcon`'s `resp.text()` on that body rejects and resolves to `''`, which
+    `fetchIcon` already treats as "no icon" (see its own doc comment), leaving the request itself as
+    the one observable signal.
+
+    `settle: 2`: connectedCallback is a third hop deeper than the two `mountIndex` (settle: 1)
+    covers elsewhere in this file -- site lookup, then the tree fetch, then `_loadIcons()`'s icon
+    fetches once `showIcons` is on.
+  */
+  it('requests the book icon for a page with children and the file icon for a leaf (OpenProject #2462)', async () => {
+    const fetchMock = stubFetch({
+      pages: [
+        stubPage({ path: 'docs/guide', title: 'Guide', hasChildren: true }),
+        stubPage({ path: 'docs/leaf', title: 'Leaf', hasChildren: false })
+      ]
+    })
+
+    await mountBlock('block-index', { props: { showIcons: true }, settle: 2 })
+
+    const requestedUrls = fetchMock.mock.calls.map(([url]) => url)
+    expect(requestedUrls).toContain('/_icons/mdi/book-open-page-variant-outline.svg')
+    expect(requestedUrls).toContain('/_icons/mdi/file-document-outline.svg')
+  })
+
+  it("does not let hasChildren override a page's own chosen icon (OpenProject #2462)", async () => {
+    const fetchMock = stubFetch({
+      pages: [stubPage({ path: 'docs/guide', title: 'Guide', icon: 'mdi:star', hasChildren: true })]
+    })
+
+    await mountBlock('block-index', { props: { showIcons: true }, settle: 2 })
+
+    const requestedUrls = fetchMock.mock.calls.map(([url]) => url)
+    expect(requestedUrls).toContain('/_icons/mdi/star.svg')
+    expect(requestedUrls).not.toContain('/_icons/mdi/book-open-page-variant-outline.svg')
+  })
+
   it("navigates through WIKI_ROUTER instead of a full page load on a row's click", async () => {
     stubFetch()
     const el = await mountIndex()

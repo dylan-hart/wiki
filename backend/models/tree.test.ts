@@ -767,6 +767,93 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2462: a "book" page — one with another page nested below its own path, the
+   * BookStack-style chapter arrangement this fork models — needs a distinct signal from a leaf "file"
+   * page so `block-index` can draw a different icon for each. `listPages()` computes it per row via
+   * `pageHasVisibleChildren` rather than deriving it from anything already selected.
+   */
+  describe('listPages() has-children signal (OpenProject #2462)', () => {
+    test('true for a page holding a nested page below its own path, false for the nested page and a leaf', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-book/guide', title: 'Guide', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'has-children-book/guide/chapter-1',
+          title: 'Chapter 1',
+          locale: 'en'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-book/standalone', title: 'Standalone', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-book',
+        depth: 2,
+        publicOnly: false
+      })
+
+      const guide = pages.find((p) => p.path === 'has-children-book/guide')!
+      const chapter = pages.find((p) => p.path === 'has-children-book/guide/chapter-1')!
+      const standalone = pages.find((p) => p.path === 'has-children-book/standalone')!
+      assert.equal(guide.hasChildren, true)
+      assert.equal(chapter.hasChildren, false)
+      assert.equal(standalone.hasChildren, false)
+    })
+
+    test('publicOnly hides an unpublished descendant from the signal, so a reader cannot infer it exists', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-draft/guide', title: 'Guide', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'has-children-draft/guide/secret-chapter',
+          title: 'Secret Chapter',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+
+      const asAuthenticated = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-draft',
+        depth: 1,
+        publicOnly: false
+      })
+      const asAnonymous = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-draft',
+        depth: 1,
+        publicOnly: true
+      })
+
+      assert.equal(
+        asAuthenticated.find((p) => p.path === 'has-children-draft/guide')!.hasChildren,
+        true
+      )
+      assert.equal(
+        asAnonymous.find((p) => p.path === 'has-children-draft/guide')!.hasChildren,
+        false
+      )
+    })
+  })
+
+  /**
    * OpenProject #2098: `deleteFolder`/`renameFolder`'s callers need to authorize every descendant
    * before committing to the cascade -- `listDescendants` resolves that same at-or-below set without
    * mutating anything, carrying each page's real tags and classification (the same join #1128 added
