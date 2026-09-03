@@ -1829,30 +1829,6 @@ shape.
 §11, `docs/audit-2026-08-24/product-value.md` §13, `docs/audit-2026-08-24/correctness-frontend-state.md`
 §13, `WIKI3_ASSESSMENT.md` idea #1.
 
-## 2026-08-31 — OpenProject #1916: published Docker image is amd64-only, not multi-arch
-
-`.github/workflows/build.yml` and `.github/workflows/release.yml` both build and push
-`docker/build-push-action` with `platforms: linux/amd64` only. `build.yml` additionally carried a
-commented-out `# platforms: linux/amd64,linux/arm64` line, inherited from three upstream Wiki.js
-commits (`git log -S"platforms: linux/amd64,linux/arm64"`) with no fork decision ever recorded behind
-it; that line has been deleted rather than enabled.
-
-Decision: stay amd64-only. Enabling `linux/amd64,linux/arm64` would require adding
-`docker/setup-qemu-action` before Buildx in both workflows and accepting QEMU-emulated (not native)
-arm64 builds, which typically run several times slower than a native build — a real, recurring cost
-on every `scarlett` push (`build.yml`) and every tagged release (`release.yml`), for arm64 image
-availability nobody has asked for. This repo already treats CI runtime as a scarce resource worth
-protecting (see root `CLAUDE.md`'s "Testing (CI)" section on avoiding redundant suite runs), and that
-reasoning applies here too. `dev/build/Dockerfile`'s comment on installing Chromium from the distro
-partly "because it exists for arm64 as well as amd64" remains accurate as a statement about the base
-image and package, independent of what platforms the published image actually targets — no change
-needed there.
-
-Both workflows' `platforms:` values are asserted equal, and neither may contain a commented-out
-platform line, by `backend/test/release-workflow.test.ts`. Revisit if arm64 image availability is
-ever actually requested — the added CI time would then be a cost worth paying rather than an unpriced
-inheritance.
-
 ## 2026-09-01 — Migration importer (Feature 418): asset/comment writes carry no timestamps, and comment replies lose their thread
 
 **Date:** 2026-09-01
