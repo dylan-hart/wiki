@@ -314,7 +314,8 @@ describe('mcp/http', () => {
       'list_sites',
       'render_diagram',
       'search_pages',
-      'update_page'
+      'update_page',
+      'upload_asset'
     ])
   })
 

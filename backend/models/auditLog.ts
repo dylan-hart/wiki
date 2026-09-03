@@ -90,6 +90,9 @@ export const AUDIT_TARGET_TYPES = [
   //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
   //   answer "what did the agent write", not just "an agent wrote something".
   'page',
+  // -> #2443: `mcp.writeToolCalled`'s target for `upload_asset`, the same reasoning as `page` above
+  //   applied to the asset write tools.
+  'asset',
   'glossaryTerm',
   // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
   //   so `targetId` for these stays '' and `targetLabel` names the setting/module changed instead.
