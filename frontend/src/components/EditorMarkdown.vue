@@ -363,7 +363,12 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
-import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
+import {
+  hasFiles,
+  pastedFiles,
+  shouldAcceptDrag,
+  shouldClaimPaste
+} from '@/helpers/editorFileTransfer'
 import {
   resolveEditorFontSize,
   resolveInitialPreviewShown,
@@ -1122,7 +1127,7 @@ function onEditorPaste(event) {
   */
   event.preventDefault()
   event.stopPropagation()
-  insertFilesAsAssets([...event.clipboardData.files], { generateUniqueName: true })
+  insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
 }
 
 /*
@@ -1148,7 +1153,7 @@ function onEditorDrop(event) {
   if (target?.position) {
     editor.setPosition(target.position)
   }
-  insertFilesAsAssets([...event.dataTransfer.files])
+  insertFilesAsAssets(pastedFiles(event.dataTransfer))
 }
 
 /**
