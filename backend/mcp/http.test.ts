@@ -310,6 +310,7 @@ describe('mcp/http', () => {
     assert.deepEqual(toolNames, [
       'create_page',
       'get_page',
+      'list_assets',
       'list_navigation',
       'list_sites',
       'render_diagram',
