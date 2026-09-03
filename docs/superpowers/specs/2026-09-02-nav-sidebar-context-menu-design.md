@@ -70,21 +70,33 @@ no backing tree to create "into".
 
 ### 3. Frontend: reuse `PageNewMenu.vue`, don't reimplement its item list
 
-- `NavSidebarItem.vue`: a qualifying row (`item.generated && userStore.can('write:pages')`) is
-  wrapped in a `w-menu context-menu` — the same wrapper `TreeNode.vue` already uses — containing:
+`PageNewMenu.vue`'s own root element is itself a `<w-menu>` — per `WMenu`'s own contract, it
+anchors to whatever DOM element it is nested inside, opening on that element's click by default.
+Every existing call site (`HeaderNav.vue`, `HeaderActionsMenu.vue`, `FileManager.vue`) relies on
+that click-to-open behavior, so this design adds one new prop rather than wrapping it in a second,
+redundant `w-menu`:
+
+- `PageNewMenu.vue` gains a `contextMenu` prop (default `false`), forwarded straight to its own
+  root `<w-menu :context-menu="props.contextMenu" ...>`. Every existing call site is unaffected
+  (still opens on click); a caller that passes `context-menu` gets right-click-to-open instead —
+  the same switch `TreeNode.vue`'s own `w-menu` already uses for its context menu.
+- `NavSidebarItem.vue`: a qualifying row (`item.generated && userStore.can('write:pages')`) places,
+  as the last child of its own row element — the same position `TreeNode.vue` places its
+  `w-menu context-menu` in — a directly right-click-triggered menu:
   ```
   <page-new-menu
+    context-menu
     :base-path="basePathFor(item)"
     :hide-asset-btn="!(userStore.can('write:assets') || userStore.can('write:pages'))"
-    @new-folder="openFolderDialog(parentIdFor(item))"
-    @new-page="menu?.hide()" />
+    @new-folder="openFolderDialog(parentIdFor(item))" />
   ```
   Every creation action (editor pick, redirect, import, import batch) is `PageNewMenu`'s existing
-  logic, fed a different `basePath` — no new menu markup. `newFolder` is the one event
-  `PageNewMenu` doesn't resolve itself anywhere it's used (matching its existing contract) — the
-  wrapping component opens `FolderCreateDialog` with the `parentId` from the table above.
-- `NavSidebar.vue`: the same wrapper around its root `<nav>`, for the empty-space case, gated on
-  `menuMode` being `auto`/`mixed`.
+  logic, fed a different `basePath` — no new menu markup. `PageNewMenu`'s own `auto-close` already
+  dismisses it on any item click, so no extra close-handling is needed. `newFolder` is the one
+  event `PageNewMenu` doesn't resolve itself anywhere it's used (matching its existing contract) —
+  the row opens `FolderCreateDialog` with the `parentId` from the table above.
+- `NavSidebar.vue`: the same `<page-new-menu context-menu .../>`, as the last child of its root
+  `<nav>`, for the empty-space case, gated on the resolved menu's mode being `auto`/`mixed`.
 
 ### 4. Permission gating
 
