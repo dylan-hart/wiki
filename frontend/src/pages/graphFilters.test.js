@@ -3,6 +3,7 @@ import {
   buildClassificationHubEdges,
   buildPathHierarchyEdges,
   buildTagHubEdges,
+  computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
   nodeId
@@ -45,6 +46,38 @@ describe('deriveFilterOptions (OpenProject #899)', () => {
 
   it('returns empty arrays for an empty node set', () => {
     expect(deriveFilterOptions([])).toEqual({ tags: [], locales: [] })
+  })
+})
+
+describe('computeHighlightedNodeIds (OpenProject #2480)', () => {
+  it('turns keyword search matches into the composite locale:path ids nodeId() computes', () => {
+    const ids = computeHighlightedNodeIds([
+      { path: 'docs/intro', locale: 'en' },
+      { path: 'docs/deep/c', locale: 'en' }
+    ])
+    expect(ids).toEqual(new Set(['en:docs/intro', 'en:docs/deep/c']))
+  })
+
+  it('keeps two locales of the same path as two distinct ids, same as nodeId() itself', () => {
+    const ids = computeHighlightedNodeIds([
+      { path: 'docs/intro', locale: 'en' },
+      { path: 'docs/intro', locale: 'fr' }
+    ])
+    expect(ids).toEqual(new Set(['en:docs/intro', 'fr:docs/intro']))
+  })
+
+  it('returns an empty Set for no matches, an empty array, null or undefined alike', () => {
+    expect(computeHighlightedNodeIds([])).toEqual(new Set())
+    expect(computeHighlightedNodeIds(null)).toEqual(new Set())
+    expect(computeHighlightedNodeIds(undefined)).toEqual(new Set())
+  })
+
+  it('de-duplicates a match repeated across results into one id', () => {
+    const ids = computeHighlightedNodeIds([
+      { path: 'docs/intro', locale: 'en' },
+      { path: 'docs/intro', locale: 'en' }
+    ])
+    expect(ids).toEqual(new Set(['en:docs/intro']))
   })
 })
 

@@ -192,6 +192,7 @@ import {
   buildClassificationHubEdges,
   buildPathHierarchyEdges,
   buildTagHubEdges,
+  computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
   nodeId
@@ -362,6 +363,24 @@ function clearFilters() {
   activeFilters.folderDepth = null
   activeFilters.locale = null
 }
+
+/** Keyword search results driving the graph's highlight (OpenProject #2480, Feature #2414's third
+ *  task) -- deliberately separate from `activeFilters` above: a keyword match HIGHLIGHTS matching
+ *  nodes rather than narrowing which ones are visible, so it never feeds `computeVisibleSubset`.
+ *  Each entry needs only `path`/`locale`, the shape `GET sites/:siteId/pages/search` returns per
+ *  result (`backend/modules/search/shared.ts#SearchDocument`) -- the keyword input (OpenProject
+ *  #2478) and its wiring to that endpoint (#2479) are what populate this ref; this WP is the
+ *  render/highlight half that consumes it, so it exposes the ref itself rather than an input control
+ *  or a fetch. `shallowRef` (not `ref`), same reasoning as `allNodes`/`allEdges` above: nothing reads
+ *  an individual match's fields reactively, only the whole array via `highlightedNodeIds` below. */
+const keywordMatches = shallowRef([])
+
+/** The composite `${locale}:${path}` id of every currently-visible node `keywordMatches` matched --
+ *  see `graphFilters.js#computeHighlightedNodeIds`. Empty whenever `keywordMatches` is (no search
+ *  active yet, or a search that matched nothing), which is also what tells `repaint()`'s
+ *  `paintGraph()` call to draw every node at full strength with no highlight ring, same as before
+ *  this WP existed. */
+const highlightedNodeIds = computed(() => computeHighlightedNodeIds(keywordMatches.value))
 
 /** The tag/locale values offered by the filter panel's `w-select`s, derived from `allNodes` (the
  *  full fetched graph, not the currently-filtered `nodes.value`) -- no separate endpoint
@@ -787,7 +806,8 @@ function repaint() {
     edges: edges.value,
     clusters: clusters.value,
     radiusFor,
-    dark: dark.isActive
+    dark: dark.isActive,
+    highlightedIds: highlightedNodeIds.value
   })
 }
 
@@ -1031,6 +1051,13 @@ watch(
 watch(edgeMode, () => {
   applyFilters()
   syncSimulationToVisibleSet()
+})
+
+/** OpenProject #2480: a keyword match changes only which ALREADY-visible nodes draw highlighted --
+ *  no node/edge set changes, no simulation restart, just a repaint against the current layout
+ *  (unlike `activeFilters`'/`edgeMode`'s watchers above, which do change what's visible). */
+watch(keywordMatches, () => {
+  repaint()
 })
 
 onMounted(() => {

@@ -83,6 +83,24 @@ export function computeVisibleSubset(nodes, edges, filters) {
 }
 
 /**
+ * Node ids to highlight in the graph render (OpenProject #2480, Feature #2414's third task): the
+ * composite `${locale}:${path}` id (`nodeId()`) of every keyword search match, as a `Set` for O(1)
+ * membership checks per node drawn (`graphDraw.js#drawNodes`/`drawLabels`). Distinct from
+ * `computeVisibleSubset` above -- this never removes a node from what's visible, it only tells the
+ * canvas layer which already-visible nodes to draw emphasized, per Feature #2414's scope ("highlight
+ * matching nodes rather than filtering them out of view"). `matches` needs only `path`/`locale` on
+ * each entry, the same two fields `GET sites/:siteId/pages/search` returns per result
+ * (`backend/modules/search/shared.ts#SearchDocument`), so the keyword input's search results
+ * (OpenProject #2478/#2479) can be passed straight through with no reshaping. `null`/`undefined`
+ * (no active search yet) and `[]` (a search that matched nothing) both yield an empty `Set` --
+ * callers distinguish "no search active" from "search matched nothing" by other means if they need
+ * to; this function only ever answers "which ids, if any, should draw highlighted."
+ */
+export function computeHighlightedNodeIds(matches) {
+  return new Set((matches ?? []).map((match) => nodeId(match)))
+}
+
+/**
  * Path-hierarchy synthetic nodes/edges (OpenProject #998, `edgeMode: 'paths'`, the default): every
  * node connects to its immediate parent path segment, climbed all the way up to a synthetic root
  * (`''`) -- "root fans out to everything," so even a wiki with zero authored relations/links renders
