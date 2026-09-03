@@ -71,6 +71,9 @@ export const AUDIT_EVENTS = [
   //   per-site "Export content" utility -- this is the whole instance, a different archive format,
   //   and a different feature.
   'system.replicationSnapshotExported',
+  // -> Feature #2437: a whole-instance wipe-and-replace snapshot restore, distinct from
+  //   `system.contentImported` (one site's content) — see `models/replicationImport.ts`.
+  'system.replicationImported',
   /**
    * OpenProject #2237: the audit log auditing its own configuration. `retentionChanged`'s `detail`
    * carries `{ from, to }` (days); `purged`'s carries `{ count, cutoff }` -- see `purge()`'s own

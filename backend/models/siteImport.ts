@@ -45,19 +45,24 @@ export interface UnresolvedRuleSite {
  * (`db/schema.ts`) declares 37 columns and `stripDerived` (`models/export.ts`) drops exactly three
  * (`ts`, `isSearchableComputed`, `searchContent`) before a row ever reaches export/import, leaving 34
  * bound per row. `tree`, `assets` and `pageHistory` each declare 14. `navigation` declares 5.
+ *
+ * Exported: `models/replicationImport.ts` restores these same four tables (verbatim, with no id
+ * remapping) as part of a whole-instance snapshot, and reuses these exact constants rather than
+ * recomputing the same column counts a second time — a second, independently-derived copy is exactly
+ * the kind of drift this file's own `MAX_BIND_PARAMETERS` comment warns about.
  */
-const MAX_BIND_PARAMETERS = 65535
-const PAGE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 34)
-const TREE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
-const PAGE_HISTORY_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
-const NAVIGATION_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 5)
+export const MAX_BIND_PARAMETERS = 65535
+export const PAGE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 34)
+export const TREE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
+export const PAGE_HISTORY_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
+export const NAVIGATION_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 5)
 /**
  * Assets get a chunk size far smaller than their column count alone would call for: unlike pages and
  * tree rows, each asset row also carries the full `data`/`preview` bytea buffers as bind parameter
  * *values* (see `mappedAssetRows` in `importSite`), so a batch of assets blows up the Bind message's
  * byte size long before it comes anywhere near the parameter-count ceiling that governs pages/tree.
  */
-const ASSET_INSERT_CHUNK_SIZE = 50
+export const ASSET_INSERT_CHUNK_SIZE = 50
 
 /**
  * The largest a single decompressed tar entry may be before `readArchive` aborts.
@@ -218,8 +223,13 @@ export async function readArchive(
   return { entries, assetBlobs, stagingDir }
 }
 
-/** Read and parse one JSON entry, or fail with a message naming what was missing/malformed. */
-function readJson<T>(entries: Record<string, Buffer>, name: string): T {
+/**
+ * Read and parse one JSON entry, or fail with a message naming what was missing/malformed.
+ *
+ * Exported for `models/replicationImport.ts`, which reads apart the same kind of tarball
+ * (`readArchive`, also exported) for its own, differently-shaped set of JSON entries.
+ */
+export function readJson<T>(entries: Record<string, Buffer>, name: string): T {
   const buf = entries[name]
   if (!buf) {
     throw new Error(`Malformed import archive: missing ${name}.`)

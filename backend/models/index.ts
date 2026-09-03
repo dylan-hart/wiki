@@ -43,6 +43,7 @@ import { rateLimits } from './rateLimits.ts'
 import { renderQueue } from './renderQueue.ts'
 import { rendering } from './rendering.ts'
 import { replicationExport } from './replicationExport.ts'
+import { replicationImportModel } from './replicationImport.ts'
 import { search } from './search.ts'
 import { security } from './security.ts'
 import { sessions } from './sessions.ts'
@@ -100,6 +101,7 @@ export default {
   renderQueue,
   rendering,
   replicationExport,
+  replicationImport: replicationImportModel,
   search,
   security,
   sessions,
