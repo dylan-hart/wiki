@@ -90,6 +90,11 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(config.contentLicense, '')
     assert.equal(config.footerExtra, '')
     assert.deepEqual(config.pageExtensions, ['md', 'html', 'txt'])
+    assert.deepEqual(
+      config.allowedUrlSchemes,
+      [],
+      'a fresh site should permit no additional URL schemes beyond the hardcoded defaults'
+    )
     assert.equal(config.logoText, true)
     assert.equal(config.discoverable, false)
     assert.equal(config.sitemap, true)
@@ -140,7 +145,15 @@ describe(
       assert.deepEqual((row!.config as Record<string, any>).analytics, { providers: {} })
     })
 
-    test('init() seeds the same analytics default as createSite()', async () => {
+    test('createSite() defaults config.allowedUrlSchemes to an empty array', async () => {
+      const site = await sitesModel.createSite('sites-allowed-url-schemes-test.localhost')
+      const [row] = await fixtures.db.select().from(sitesTable).where(eq(sitesTable.id, site.id))
+      assert.deepEqual((row!.config as Record<string, any>).allowedUrlSchemes, [])
+    })
+
+    test('init() seeds the same analytics and allowedUrlSchemes defaults as createSite()', async () => {
+      // -> `init()` always inserts the catch-all `*` hostname, which is unique -- so this describe
+      //    gets exactly one `init()` call across its tests, not one per assertion.
       const seededSiteId = randomUUID()
       await sitesModel.init({
         groupAdminId: randomUUID(),
@@ -159,6 +172,7 @@ describe(
         .from(sitesTable)
         .where(eq(sitesTable.id, seededSiteId))
       assert.deepEqual((row!.config as Record<string, any>).analytics, { providers: {} })
+      assert.deepEqual((row!.config as Record<string, any>).allowedUrlSchemes, [])
     })
   }
 )

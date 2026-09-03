@@ -76,6 +76,14 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           type: 'string'
         }
       },
+      allowedUrlSchemes: {
+        type: 'array',
+        description:
+          'Additional URL schemes permitted in page link/embed hrefs, additive to the hardcoded safe defaults.',
+        items: {
+          type: 'string'
+        }
+      },
       discoverable: {
         type: 'boolean'
       },

@@ -501,6 +501,21 @@
                 :aria-label="t(`admin.general.pageExtensions`)" />
             </w-item-section>
           </w-item>
+          <w-separator class="my-2" inset />
+          <w-item>
+            <blueprint-icon icon="link" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.general.allowedUrlSchemes`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.general.allowedUrlSchemesHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section>
+              <w-input
+                outlined
+                v-model="state.config.allowedUrlSchemes"
+                dense
+                :aria-label="t(`admin.general.allowedUrlSchemes`)" />
+            </w-item-section>
+          </w-item>
         </w-card>
         <!-- ----------------------- -->
         <!-- SEO -->
@@ -607,6 +622,7 @@ function defaultConfig() {
     contentLicense: '',
     footerExtra: '',
     pageExtensions: '',
+    allowedUrlSchemes: '',
     logoText: false,
     ratings: {
       index: false,
@@ -684,8 +700,13 @@ const {
     sharpMissing: false
   },
   fetch: (siteId) => API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
-  // -> The form holds page extensions as a comma-separated string; the API sends an array
-  pick: (site) => ({ ...site, pageExtensions: site.pageExtensions.join(',') }),
+  // -> The form holds page extensions (and allowed URL schemes) as a comma-separated string; the
+  //    API sends an array
+  pick: (site) => ({
+    ...site,
+    pageExtensions: site.pageExtensions.join(','),
+    allowedUrlSchemes: (site.allowedUrlSchemes ?? []).join(',')
+  }),
   onLoaded: (site) => {
     state.hasLogo = site?.assets?.logo ?? false
     state.hasFavicon = site?.assets?.favicon ?? false
@@ -703,6 +724,7 @@ const {
         contentLicense: config.contentLicense ?? '',
         footerExtra: config.footerExtra ?? '',
         pageExtensions: parsePageExtensions(config.pageExtensions),
+        allowedUrlSchemes: parseAllowedUrlSchemes(config.allowedUrlSchemes),
         logoText: config.logoText ?? false,
         sitemap: config.sitemap ?? false,
         uploads: {
@@ -792,6 +814,20 @@ function parsePageExtensions(value) {
   const extensions = Array.isArray(value) ? value : String(value ?? '').split(',')
   return [
     ...new Set(extensions.map((ext) => ext.trim().toLowerCase()).filter((ext) => ext.length > 0))
+  ]
+}
+
+/**
+ * Same shape as `parsePageExtensions` -- the form holds this as a comma-separated string, the API
+ * wants an array. Just splits/trims/lowercases/dedupes; the backend schema (`api/sites.ts`) is what
+ * enforces the actual scheme-name pattern.
+ */
+function parseAllowedUrlSchemes(value) {
+  const schemes = Array.isArray(value) ? value : String(value ?? '').split(',')
+  return [
+    ...new Set(
+      schemes.map((scheme) => scheme.trim().toLowerCase()).filter((scheme) => scheme.length > 0)
+    )
   ]
 }
 
