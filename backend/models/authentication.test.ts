@@ -143,6 +143,56 @@ describe('authentication.validateStrategy: mappableGroups', () => {
   })
 })
 
+/**
+ * OpenProject #2469: `allowedEmailDomains` is a per-strategy list of domains, a friendlier
+ * alternative to `allowedEmailRegex` for the common case. `validateStrategy`'s format check touches
+ * no database and no `WIKI` global, so this is a pure unit suite -- the same "no I/O" reasoning as
+ * the mappableGroups describe above, minus even its `WIKI.db` stub.
+ */
+describe('authentication.validateStrategy: allowedEmailDomains', () => {
+  test('accepts an empty allowedEmailDomains list', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: []
+    })
+    assert.equal(result, null)
+  })
+
+  test('accepts a list of plausible domains', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['example.com', 'sub.example.org']
+    })
+    assert.equal(result, null)
+  })
+
+  test('refuses an entry that is not a bare domain (contains @)', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['user@example.com']
+    })
+    assert.match(result ?? '', /is not a valid domain/)
+  })
+
+  test('refuses an entry with no dot at all', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['notadomain']
+    })
+    assert.match(result ?? '', /is not a valid domain/)
+  })
+
+  test('validates the normalized (trimmed) form, not the raw submitted string', async () => {
+    // -> Leading/trailing whitespace alone must not be reported as invalid -- it is trimmed away by
+    //    the same normalization createStrategy/updateStrategy apply before storing.
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['  example.com  ']
+    })
+    assert.equal(result, null)
+  })
+})
+
 describe(
   'authentication: sensitive config masking (DB-backed, real oauth2 definition read from disk)',
   { skip: !hasTestDatabase() },
@@ -199,6 +249,70 @@ describe(
       const strategy = await authentication.getStrategyById(id)
       assert.equal(strategy?.config.clientSecret, 'original-secret')
       assert.equal(strategy?.config.clientId, 'updated-id')
+    })
+  }
+)
+
+/**
+ * OpenProject #2469: `createStrategy`/`updateStrategy` normalize `allowedEmailDomains` (trim,
+ * lower-case, dedupe) before it reaches the row -- DB-backed because the point under test is what a
+ * real round trip through the column actually stores, not merely what a stub was called with.
+ */
+describe(
+  'authentication: allowedEmailDomains normalization (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    before(async () => {
+      await setupTestDb()
+      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      await authentication.refreshStrategiesFromDisk()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('createStrategy stores a trimmed, lower-cased, deduped domain list', async () => {
+      const id = await authentication.createStrategy({
+        module: 'local',
+        allowedEmailDomains: [' Example.com ', 'EXAMPLE.COM', 'other.org']
+      })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual([...strategy!.allowedEmailDomains].sort(), ['example.com', 'other.org'])
+    })
+
+    test('createStrategy with no allowedEmailDomains stores an empty list, not null/undefined', async () => {
+      const id = await authentication.createStrategy({ module: 'local' })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual(strategy!.allowedEmailDomains, [])
+    })
+
+    test('updateStrategy replaces the stored list with the normalized patch', async () => {
+      const id = await authentication.createStrategy({
+        module: 'local',
+        allowedEmailDomains: ['old.example']
+      })
+
+      await authentication.updateStrategy(id, {
+        allowedEmailDomains: ['New.Example', 'new.example', '  another.test  ']
+      })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual([...strategy!.allowedEmailDomains].sort(), ['another.test', 'new.example'])
+    })
+
+    test('updateStrategy leaves allowedEmailDomains untouched when omitted from the patch', async () => {
+      const id = await authentication.createStrategy({
+        module: 'local',
+        allowedEmailDomains: ['keep.example']
+      })
+
+      await authentication.updateStrategy(id, { displayName: 'Renamed' })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.deepEqual(strategy!.allowedEmailDomains, ['keep.example'])
     })
   }
 )

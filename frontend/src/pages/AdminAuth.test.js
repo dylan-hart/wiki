@@ -22,7 +22,10 @@ const MESSAGES = {
       noModulesToAdd: 'No other authentication module is installed on this server.',
       noModulesMatchFilter: 'No installed module matches your filter.',
       mappableGroups: 'Mappable group(s)',
-      mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.'
+      mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.',
+      allowedEmailDomains: 'Allowed Email Domains',
+      allowedEmailDomainsHint: 'Only allow self-registration from these domains.',
+      allowedEmailDomainsPlaceholder: 'example.com'
     }
   }
 }
@@ -336,6 +339,137 @@ describe('AdminAuth mappable-groups picker', () => {
     // -> The `#selected` slot's empty-list branch renders a bare `<span>`, no selection caption
     expect(picker.text()).not.toContain('Editors')
     expect(picker.text()).not.toContain('Reviewers')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2469: `allowedEmailDomains` is a per-strategy config field, a friendlier alternative to
+ * `allowedEmailRegex` for the common case. Scoped like `selfRegistration` itself: shown only for a
+ * form-based (`useForm`) module, never for a redirect-based provider's `autoProvision` half.
+ */
+describe('AdminAuth allowed-email-domains field', () => {
+  const LOCAL_MODULE = {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  }
+  const OIDC_MODULE = {
+    key: 'oidc',
+    title: 'Generic OIDC',
+    icon: 'ultraviolet-oidc.svg',
+    description: 'Generic OIDC.',
+    useForm: false
+  }
+
+  // -> `useInput` moves `aria-label` onto the `<input>` itself rather than a wrapping control (same
+  //    distinction the project's own testing notes make for `WInput`), so this selects the input
+  //    directly rather than a `w-select` container carrying the label.
+  function domainsFieldNode(wrapper) {
+    return wrapper.find('input[aria-label="Allowed Email Domains"]')
+  }
+
+  it('renders for a form-based strategy', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          selfRegistration: true,
+          config: {},
+          allowedEmailDomains: []
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
+    await flushPromises()
+
+    expect(domainsFieldNode(wrapper).exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('is not rendered for a redirect-based (autoProvision) strategy', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'authentication/modules') {
+        return { json: () => Promise.resolve([OIDC_MODULE]) }
+      }
+      if (url === 'authentication/strategies') {
+        return {
+          json: () =>
+            Promise.resolve([
+              {
+                id: 's-oidc',
+                module: 'oidc',
+                displayName: 'OIDC login',
+                isEnabled: true,
+                isNew: false,
+                autoProvision: true,
+                config: {},
+                allowedEmailDomains: []
+              }
+            ])
+        }
+      }
+      if (url === 'groups') {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
+    await flushPromises()
+
+    expect(domainsFieldNode(wrapper).exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('typing a domain and pressing Enter adds it, trimmed and lower-cased, with no duplicates', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          selfRegistration: true,
+          config: {},
+          allowedEmailDomains: ['already.example']
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
+    await flushPromises()
+
+    const input = domainsFieldNode(wrapper)
+    await input.trigger('focus')
+    await input.setValue(' Example.COM ')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    // -> A duplicate, differently-cased entry must not create a second chip
+    await input.trigger('focus')
+    await input.setValue('already.example')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    // -> Nothing else on this screen renders a `w-chip` for this fixture (no other `use-chips`
+    //    field has a selection, and the add-strategy menu is not open), so scoping to the whole
+    //    page is safe here.
+    expect(wrapper.text()).toContain('example.com')
+    expect(wrapper.text()).toContain('already.example')
+    expect(wrapper.findAll('.w-chip')).toHaveLength(2)
 
     wrapper.unmount()
   })

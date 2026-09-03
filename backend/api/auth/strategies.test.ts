@@ -122,3 +122,62 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2469: `allowedEmailDomains` is a per-strategy config field (a friendlier alternative
+ * to `allowedEmailRegex`), wired through the same create/update routes as every other strategy
+ * field. DB-backed against the real route + model, same pattern as the `auth.strategyUpdated`
+ * describe above.
+ */
+describe(
+  'authentication strategies routes: allowedEmailDomains',
+  { skip: !hasTestDatabase() },
+  () => {
+    let app: FastifyInstance
+    let fixtures: TestFixtures
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;(globalThis as any).WIKI.data.systemIds = { localAuthId: 'not-this-strategy' }
+      // -> `createStrategy()`/`validateStrategy()` resolve the module through `getModule()`, which
+      //    reads `WIKI.data.authentication` -- populated from real on-disk `definition.yml` files
+      //    the same way `models/authentication.test.ts`'s own suites do.
+      await WIKI.models.authentication.refreshStrategiesFromDisk()
+
+      app = await buildTestApp({ routes: authenticationRoutes, ajv: true })
+    })
+
+    after(async () => {
+      await app.close()
+      await teardownTestDb()
+    })
+
+    test('POST rejects a strategy whose allowedEmailDomains entry is not a valid domain', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/authentication/strategies',
+        payload: { module: 'local', allowedEmailDomains: ['not a domain'] }
+      })
+      assert.equal(res.statusCode, 400)
+      assert.match(res.json().message, /not a valid domain/)
+    })
+
+    test('PUT stores allowedEmailDomains trimmed, lower-cased and deduped', async () => {
+      const [strategy] = await fixtures.db
+        .insert(authenticationTable)
+        .values({ module: 'local', displayName: 'Domain Test', isEnabled: true, config: {} })
+        .returning({ id: authenticationTable.id })
+      const strategyId = strategy!.id
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/authentication/strategies/${strategyId}`,
+        payload: { allowedEmailDomains: [' Example.com ', 'EXAMPLE.COM', 'other.org'] }
+      })
+      assert.equal(res.statusCode, 200)
+
+      const saved = await WIKI.models.authentication.getStrategyById(strategyId)
+      assert.deepEqual([...saved!.allowedEmailDomains].sort(), ['example.com', 'other.org'])
+    })
+  }
+)

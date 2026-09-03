@@ -319,6 +319,43 @@
                   suffix="/" />
               </w-item-section>
             </w-item>
+            <!--
+              A friendlier alternative to allowedEmailRegex above, for the common case of restricting
+              self-registration by domain rather than a hand-written pattern. Scoped to self-registration
+              specifically (useForm only), not shown for a redirect-based provider's autoProvision half --
+              matching selfRegistration's own scope (OpenProject #2469).
+            -->
+            <template v-if="state.strategy.strategy.useForm">
+              <w-separator class="my-2" inset />
+              <w-item>
+                <blueprint-icon icon="private" />
+                <w-item-section>
+                  <w-item-label>{{ t(`admin.auth.allowedEmailDomains`) }}</w-item-label>
+                  <w-item-label caption>{{ t(`admin.auth.allowedEmailDomainsHint`) }}</w-item-label>
+                </w-item-section>
+                <w-item-section>
+                  <!--
+                    Free-entry list of strings, same pattern as PageTags.vue: no predefined options, `create`
+                    is what lets a domain that is not in the list yet be typed in.
+                  -->
+                  <w-select
+                    outlined
+                    v-model="state.strategy.allowedEmailDomains"
+                    :options="[]"
+                    dense
+                    options-dense
+                    use-input
+                    create
+                    multiple
+                    use-chips
+                    hide-bottom-space
+                    hide-dropdown-icon
+                    @create="addAllowedEmailDomain"
+                    :placeholder="t(`admin.auth.allowedEmailDomainsPlaceholder`)"
+                    :aria-label="t(`admin.auth.allowedEmailDomains`)" />
+                </w-item-section>
+              </w-item>
+            </template>
           </template>
         </w-card>
         <!-- ----------------------- -->
@@ -649,11 +686,39 @@ function payloadFor(str) {
     selfRegistration: str.selfRegistration,
     autoProvision: str.autoProvision,
     allowedEmailRegex: str.allowedEmailRegex ?? '',
+    allowedEmailDomains: str.allowedEmailDomains ?? [],
     autoEnrollGroups: str.autoEnrollGroups ?? [],
     trustEmailForLinking: str.trustEmailForLinking ?? false,
     mappableGroups: str.mappableGroups ?? [],
     config: buildConfigPayload(str.config)
   }
+}
+
+/**
+ * Add whatever was typed into the allowed-domains field, as one domain or several.
+ *
+ * A comma, semicolon or whitespace separates domains, so a list can be pasted in one go -- same
+ * convention as `PageTags.vue#createTag`. Normalization (trim/lower-case/dedupe) happens again on
+ * the server (`models/authentication.ts`), which is what actually gets stored; this is only so the
+ * field does not visibly hold mixed-case or duplicate entries between typing and saving.
+ */
+function addAllowedEmailDomain(val) {
+  const domains = val
+    .split(/[,;\s]+/)
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+  if (domains.length === 0) {
+    return
+  }
+
+  const current = state.strategy.allowedEmailDomains ?? []
+  const next = current.slice()
+  for (const domain of domains) {
+    if (!next.includes(domain)) {
+      next.push(domain)
+    }
+  }
+  state.strategy.allowedEmailDomains = next
 }
 
 async function save() {
@@ -725,6 +790,7 @@ function addStrategy(mod) {
     selfRegistration: false,
     autoProvision: false,
     allowedEmailRegex: '',
+    allowedEmailDomains: [],
     autoEnrollGroups: [],
     trustEmailForLinking: false,
     mappableGroups: [],
