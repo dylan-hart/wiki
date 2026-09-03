@@ -81,6 +81,7 @@ import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 
 import { assetPath } from '@/helpers/assets'
+import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 import { buildMenuBar } from '@/helpers/wysiwygMenuBar'
 
@@ -242,7 +243,12 @@ function buildExtensions(collab) {
     Link.configure({
       // -> A click in the editor places the cursor, as in any other mark; without this, clicking
       //    linked text navigates the browser away instead of letting it be edited.
-      openOnClick: false
+      openOnClick: false,
+      // -> `insertFilesAsAssets` links a pasted/dropped non-image file's name to its pending asset's
+      //    `blob:` URL until the upload lands -- Link's own default `isAllowedUri` allowlist (http,
+      //    https, ftp, ftps, mailto, tel, callto, sms, cid, xmpp) does not include it, and would
+      //    otherwise silently refuse `setLink()` (OpenProject #2449).
+      protocols: ['blob']
     }),
     Mention.configure({
       suggestion: createPageMentionSuggestion(siteStore)
@@ -311,6 +317,7 @@ function init() {
         : `<p>${pageStore.content}</p>`,
     editable: !collabEnabled.value,
     extensions: buildExtensions(null),
+    editorProps: buildEditorProps(),
     onUpdate: handleEditorUpdate
   })
 }
@@ -366,6 +373,7 @@ function swapToCollabEditor(ytext, awareness) {
         color: collabUserColor(userStore.id)
       }
     }),
+    editorProps: buildEditorProps(),
     onUpdate: handleEditorUpdate
   })
   previousEditor.destroy()
@@ -457,10 +465,153 @@ function insertAssetClb(opts) {
   }
 }
 
+/**
+ * Take files the author brought in — pasted or dropped — and write TipTap nodes for them at the
+ * cursor (or `position`, for a drop landing somewhere other than wherever the cursor already was).
+ *
+ * Nothing is uploaded here, mirroring `EditorMarkdown.vue`'s own `insertFilesAsAssets` (OpenProject
+ * #2449): each file becomes a pending asset held against a `blob:` URL via
+ * `editorStore.addPendingAsset`, and `UploadPendingAssetsDialog` sends it on save and reports back
+ * where it landed -- `reloadEditorContent` below is this editor's half of applying that.
+ *
+ * An image becomes a real `image` node, the same way `insertAssetClb` already draws one for a File
+ * Manager pick; anything else becomes a `link` mark over the file's own name -- the same image-vs-link
+ * split `insertAssetClb` draws, and the same "clipboard-pasted files all need a fresh name, a drop's
+ * own name is real user intent" rule `generateUniqueName` documents on `addPendingAsset` itself. Only
+ * the paste call site below sets it.
+ */
+function insertFilesAsAssets(files, { generateUniqueName = false, position = null } = {}) {
+  if (position != null) {
+    editor.value.chain().focus().setTextSelection(position).run()
+  }
+  for (const file of files) {
+    const blobUrl = editorStore.addPendingAsset(file, { generateUniqueName })
+    if (file.type.startsWith('image/')) {
+      editor.value.chain().focus().setImage({ src: blobUrl, alt: file.name }).run()
+      continue
+    }
+    const { from } = editor.value.state.selection
+    editor.value
+      .chain()
+      .focus()
+      .insertContentAt(from, file.name)
+      .setTextSelection({ from, to: from + file.name.length })
+      .extendMarkRange('link')
+      .setLink({ href: blobUrl })
+      .run()
+  }
+}
+
+/*
+  Pasting a file inserts it; pasting anything else (including the rich HTML paste this editor already
+  handles via ProseMirror/TipTap's own default paste rules) is left alone -- `shouldClaimPaste` is what
+  keeps text winning when an image rides alongside it on the clipboard, shared verbatim with
+  `EditorMarkdown.vue`. Returning `false` here is a genuine decline: ProseMirror falls through to its
+  normal paste handling (and TipTap's own HTML-to-document parsing) for anything not claimed.
+*/
+function handlePaste(view, event) {
+  if (!shouldClaimPaste(event.clipboardData)) {
+    return false
+  }
+  event.preventDefault()
+  insertFilesAsAssets([...event.clipboardData.files], { generateUniqueName: true })
+  return true
+}
+
+/*
+  A drop has to be claimed twice, the same as `EditorMarkdown.vue`'s Monaco pair: `dragover` is what
+  tells the browser this is a valid target -- without it there is no drop at all, just the browser
+  navigating away to the file -- and `drop` is where it arrives. See `shouldAcceptDrag`'s own doc
+  comment for why `dragover` cannot just check `hasFiles`.
+*/
+function handleDragOver(view, event) {
+  if (!shouldAcceptDrag(event.dataTransfer)) {
+    return false
+  }
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'copy'
+  return true
+}
+
+function handleDrop(view, event) {
+  if (!hasFiles(event.dataTransfer)) {
+    return false
+  }
+  event.preventDefault()
+  // -> Dropped text lands where it was dropped, and so should a file: `posAtCoords` returns `null`
+  //    when the point is off the document (or, as in a test, when nothing has actually laid out) --
+  //    `insertFilesAsAssets` falls back to the current selection rather than crash on a null position.
+  const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+  insertFilesAsAssets([...event.dataTransfer.files], { position: coords?.pos ?? null })
+  return true
+}
+
+/**
+ * The ProseMirror-level `editorProps` shared by both places this editor constructs a TipTap `Editor`
+ * (`init()`'s interim editor and `swapToCollabEditor()`'s collaborative one) -- a fresh object per
+ * call, since TipTap does not expect the same `editorProps` instance handed to two live editors.
+ */
+function buildEditorProps() {
+  return {
+    handlePaste,
+    handleDrop,
+    handleDOMEvents: {
+      dragover: handleDragOver
+    }
+  }
+}
+
+/**
+ * Rewrite the live document -- image `src` / link `href` attributes pointing at a pending asset's
+ * `blob:` URL -- once `UploadPendingAssetsDialog` has uploaded it and knows the real path.
+ *
+ * `pageStore.content` is a plain string here (the TipTap JSON document, already `.replaceAll`'d by the
+ * dialog before this fires) and is a one-way write from this editor, never read back in -- so the live
+ * ProseMirror document, what the reader is actually looking at, needs its own rewrite, node by node.
+ * The counterpart to `EditorMarkdown.vue`'s own `reloadEditorContent`, which does the equivalent
+ * find-and-replace against its Monaco text model instead.
+ *
+ * A single transaction of attribute-only edits (`setNodeMarkup`, `removeMark`/`addMark`) -- none of
+ * which change any node's size -- so every position collected while walking the original,
+ * not-yet-mutated `state.doc` stays valid for the whole transaction with no incremental remapping.
+ */
+function reloadEditorContent({ replacements = [] } = {}) {
+  if (!editor.value || replacements.length === 0) {
+    return
+  }
+  const { state } = editor.value
+  const tr = state.tr
+  let changed = false
+  state.doc.descendants((node, pos) => {
+    if (node.type.name === 'image') {
+      const match = replacements.find((r) => r.from === node.attrs.src)
+      if (match) {
+        tr.setNodeMarkup(pos, null, { ...node.attrs, src: match.to })
+        changed = true
+      }
+    }
+    for (const mark of node.marks) {
+      if (mark.type.name !== 'link') {
+        continue
+      }
+      const match = replacements.find((r) => r.from === mark.attrs.href)
+      if (match) {
+        tr.removeMark(pos, pos + node.nodeSize, mark.type)
+        tr.addMark(pos, pos + node.nodeSize, mark.type.create({ ...mark.attrs, href: match.to }))
+        changed = true
+      }
+    }
+  })
+  if (changed) {
+    editor.value.view.dispatch(tr)
+  }
+}
+
 // MOUNTED
 
 onMounted(() => {
   EVENT_BUS.on('insertAsset', insertAssetClb)
+  EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
 })
 
 init()
@@ -531,6 +682,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
+  EVENT_BUS.off('reloadEditorContent', reloadEditorContent)
   // -> Stopped before `stopCollabSession()` below patches `collabStore.status` to `off` -- left
   //    running they fire past unmount against a disposed editor (OpenProject #942).
   stopCollabStatusWatch?.()
