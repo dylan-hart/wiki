@@ -124,9 +124,11 @@ class Rendering {
       blockAllowances(enabledBlocks, customBlocks),
       // -> A site's own additional allowed URL schemes (Feature #2418) -- additive to the
       //    hardcoded `ALLOWED_SCHEMES` floor, never a replacement for it. Absent for a site with
-      //    no config in `WIKI.sites` (a stubbed-out test, or a race with cache reload), which
+      //    no config in `WIKI.sites` (a stubbed-out test, or a race with cache reload) -- and
+      //    `WIKI.sites` itself may be absent too (a `WIKI` stub with no `sites` at all, as several
+      //    pre-existing `rendering.test.ts` siblings still are) -- either of which
       //    `sanitizeOptions()` treats identically to an empty list.
-      WIKI.sites[siteId]?.config?.allowedUrlSchemes
+      WIKI.sites?.[siteId]?.config?.allowedUrlSchemes
     )
 
     let $ = cheerio.load(sanitizeHtml(html ?? '', options), null, false)
