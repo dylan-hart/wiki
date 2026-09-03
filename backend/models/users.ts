@@ -17,6 +17,7 @@ import { flatten, uniq } from 'es-toolkit/array'
 import { BCRYPT_ROUNDS, escapeLikePattern, isUniqueViolation } from '../helpers/common.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { paginate } from '../helpers/pagination.ts'
+import { HOOK_EVENTS, type HookEvent } from './hooks.ts'
 import type { SystemIds } from './types.ts'
 
 /** The essential user fields, mirroring the `UserCore` API schema. */
@@ -664,6 +665,84 @@ class Users {
     prefs.editors = { ...((prefs.editors ?? {}) as Record<string, any>), [editor]: config }
     await this.updateUser(id, { prefs })
     return config
+  }
+
+  /**
+   * Which `HookEvent`s this user asked to be emailed about — the storage half of the per-user,
+   * per-event-type email notification toggle (`models/hooks.ts#Hooks.emit()` is the trigger half:
+   * see its `notifyEmailSubscribers()`). Kept at `prefs.notifications.events`, the same
+   * per-feature-blob-under-`prefs` shape `getEditorSettings`/`setEditorSettings` use for
+   * `prefs.editors[editor]` — no migration needed to add or change it, and it costs nothing beyond
+   * a jsonb read. Empty (opt-in, not opt-out) for a user who has never set a preference.
+   *
+   * OpenProject #2482 owns the settings UI this backs; the storage shape here is deliberately the
+   * minimal thing `emit()`'s trigger extension needs to have something real to query, not a
+   * finished preferences feature.
+   *
+   * @returns The subscribed events, or `[]` for a user who has none set or does not exist
+   */
+  async getEmailNotificationEvents(id: string): Promise<HookEvent[]> {
+    const user = await this.getById(id)
+    if (!user) {
+      return []
+    }
+    const prefs = (user.prefs ?? {}) as Record<string, any>
+    const stored = prefs.notifications?.events
+    return Array.isArray(stored)
+      ? stored.filter((event): event is HookEvent => HOOK_EVENTS.includes(event))
+      : []
+  }
+
+  /**
+   * Replace a user's set of subscribed event types, merging into `prefs` the same way
+   * `setEditorSettings` merges into `prefs.editors` — every other preference (including a
+   * different editor's own settings) survives untouched.
+   *
+   * Silently drops anything not in `HOOK_EVENTS`: this is a closed vocabulary (see
+   * `models/hooks.ts`), not free text a caller can extend by typo.
+   *
+   * @returns The saved (filtered) list, or null if no such user exists
+   */
+  async setEmailNotificationEvents(id: string, events: string[]): Promise<HookEvent[] | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const filtered = events.filter((event): event is HookEvent =>
+      HOOK_EVENTS.includes(event as HookEvent)
+    )
+    const prefs = { ...((user.prefs ?? {}) as Record<string, any>) }
+    prefs.notifications = {
+      ...((prefs.notifications ?? {}) as Record<string, any>),
+      events: filtered
+    }
+    await this.updateUser(id, { prefs })
+    return filtered
+  }
+
+  /**
+   * Every active, non-system user subscribed to email notifications for one event type — the
+   * subscriber half of `Hooks.emit()`'s email fan-out (see that method's `notifyEmailSubscribers()`).
+   * Reads the same `prefs.notifications.events` array {@link setEmailNotificationEvents} writes, via
+   * `jsonb_exists()` (the function form of jsonb's `?` containment operator, spelled out so it reads
+   * unambiguously next to Drizzle's own `${}` parameter placeholders rather than risking the bare
+   * operator being misread as one).
+   *
+   * Deliberately instance-wide, with no site or page-permission filtering: a webhook subscription
+   * (what this mirrors) isn't scoped to what its owner can read either — see this feature's own
+   * scope notes for why that's a known simplification here, not an oversight.
+   */
+  async listEmailSubscribers(event: HookEvent): Promise<{ id: string }[]> {
+    return WIKI.db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.isActive, true),
+          eq(usersTable.isSystem, false),
+          sql`jsonb_exists(${usersTable.prefs} -> 'notifications' -> 'events', ${event})`
+        )
+      )
   }
 
   /**

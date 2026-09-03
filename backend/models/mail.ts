@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer'
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js'
 import type Mail from 'nodemailer/lib/mailer/index.js'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
+import type { HookEvent } from './hooks.ts'
 import { localizedPagePath, type LocaleRoutingConfig } from '../helpers/localeRouting.ts'
 
 /** A rendered email, ready to hand to the transporter. */
@@ -595,6 +596,83 @@ class MailModel {
       subject,
       text: `${text}\n\n${footer}`,
       html: `${html}<p>${footer}</p>`
+    })
+  }
+
+  /**
+   * Sent to a user subscribed (`prefs.notifications.events`, see
+   * `models/users.ts#listEmailSubscribers`) to an event type, when `models/hooks.ts#Hooks.emit()`
+   * fires it — the email half of the same fan-out `dispatchWebhook` already gets, queued by
+   * `tasks/simple/notify-event-subscribers.ts`.
+   *
+   * Deliberately generic across every `HookEvent`: the events this fires for carry different `data`
+   * shapes (a page/asset event has `path`; a comment event has `pageId` but no `path`; a user or
+   * approval event varies again), so this reads only what's universally safe to assume —
+   * `data.metadata?.title` (present on the events that pass one) or `data.path` for what the event
+   * was about, never a shape specific to one event family. A richer, per-event-family template is
+   * OpenProject #2483's scope, not this method's.
+   *
+   * @param siteId The site the event happened on, or null for a site-less event (`user:*`) — see
+   *   `Hooks.emit()`'s own doc comment for what that distinction means there. Resolves the link and
+   *   the "site" label the same way {@link resolveMailBaseURL} resolves every other siteId-scoped
+   *   send.
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendEventNotification({
+    to,
+    event,
+    siteId,
+    data,
+    locale
+  }: {
+    to: string
+    event: HookEvent
+    siteId: string | null
+    data: Record<string, unknown>
+    locale?: string | null
+  }): Promise<void> {
+    const label = await WIKI.models.locales.resolveString(
+      locale,
+      `mail.notificationEventLabel.${event}`
+    )
+    const metadata = (data.metadata ?? {}) as Record<string, unknown>
+    const subjectMatter =
+      typeof metadata.title === 'string'
+        ? metadata.title
+        : typeof data.path === 'string'
+          ? data.path
+          : null
+    const siteName = (siteId ? WIKI.sites[siteId]?.config?.title : null) || 'Wiki'
+    const baseURL = this.resolveMailBaseURL(siteId ?? undefined)
+    const link = typeof data.path === 'string' ? this.buildLink(`/${data.path}`, baseURL) : baseURL
+    const detailText = subjectMatter ? ` (${subjectMatter})` : ''
+    const detailHtml = subjectMatter ? ` (${escapeHtml(subjectMatter)})` : ''
+
+    await this.send({
+      to,
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.subject', {
+        label,
+        site: siteName
+      }),
+      text:
+        (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.text', {
+          label,
+          site: siteName,
+          detail: detailText,
+          link
+        })) +
+        '\n\n' +
+        (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.footer', {
+          label
+        })),
+      html:
+        (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.html', {
+          label,
+          site: escapeHtml(siteName),
+          detail: detailHtml,
+          link
+        })) +
+        `<p>${await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.footer', { label })}</p>`
     })
   }
 }

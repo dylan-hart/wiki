@@ -40,6 +40,7 @@ describe('Hooks.emit (unit)', () => {
   let hooksModule: typeof import('./hooks.ts')
   let subscribed: { id: string; includeMetadata: boolean; includeContent: boolean }[]
   let queuedJobs: any[]
+  let emailSubscribers: { id: string }[]
 
   before(async () => {
     ;(globalThis as any).WIKI = {
@@ -49,6 +50,11 @@ describe('Hooks.emit (unit)', () => {
       models: {
         rateLimits: {
           consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        },
+        // -> `emit()`'s email fan-out (`notifyEmailSubscribers`) queries this; empty by default so
+        //    the webhook-only tests above see no extra job queued.
+        users: {
+          listEmailSubscribers: async () => emailSubscribers
         }
       },
       db: {
@@ -71,6 +77,7 @@ describe('Hooks.emit (unit)', () => {
   beforeEach(() => {
     subscribed = []
     queuedJobs = []
+    emailSubscribers = []
   })
 
   test('queues a dispatchWebhook job for a webhook subscribed to comment:new', async () => {
@@ -159,6 +166,127 @@ describe('Hooks.emit (unit)', () => {
 
     assert.equal(queued, 0)
     assert.equal(queuedJobs.length, 0)
+  })
+})
+
+/**
+ * Task 2481: `emit()`'s email fan-out (`notifyEmailSubscribers`) — a second, independent job queued
+ * alongside (or, per the last two tests here, entirely apart from) the webhook deliveries the suite
+ * above already covers. `WIKI.models.users.listEmailSubscribers` stands in for the real query, since
+ * what this suite cares about is `emit()`'s own wiring, not `models/users.ts`'s SQL (covered by its
+ * own suite).
+ */
+describe('Hooks.emit email fan-out (unit)', () => {
+  let hooksModule: typeof import('./hooks.ts')
+  let subscribed: { id: string; includeMetadata: boolean; includeContent: boolean }[]
+  let emailSubscribers: { id: string }[]
+  let queuedJobs: any[]
+  let listEmailSubscribers: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    listEmailSubscribers = mock.fn(async () => emailSubscribers)
+    ;(globalThis as any).WIKI = {
+      logger: { warn: mock.fn(), debug: mock.fn(), info: mock.fn() },
+      INSTANCE_ID: 'test-instance',
+      config: { scheduler: {} },
+      models: {
+        rateLimits: {
+          consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        },
+        users: { listEmailSubscribers }
+      },
+      db: {
+        select: () => ({
+          from: () => ({
+            where: () => Promise.resolve(subscribed)
+          })
+        })
+      },
+      scheduler: {
+        addJob: mock.fn(async (job: any) => {
+          queuedJobs.push(job)
+          return { id: `job-${queuedJobs.length}` }
+        })
+      }
+    }
+    hooksModule = await import('./hooks.ts')
+  })
+
+  beforeEach(() => {
+    subscribed = []
+    emailSubscribers = []
+    queuedJobs = []
+    listEmailSubscribers.mock.resetCalls()
+  })
+
+  test('queues a notifyEventSubscribers job carrying every subscribed user id, siteId and event', async () => {
+    emailSubscribers = [{ id: 'user-1' }, { id: 'user-2' }]
+
+    await hooksModule.hooks.emit('page:create', 'site-1', {
+      id: 'page-1',
+      path: 'docs/getting-started',
+      metadata: { title: 'Getting Started' }
+    })
+
+    assert.equal(listEmailSubscribers.mock.calls[0]!.arguments[0], 'page:create')
+    const emailJobs = queuedJobs.filter((job) => job.task === 'notifyEventSubscribers')
+    assert.equal(emailJobs.length, 1)
+    assert.equal(emailJobs[0].payload.event, 'page:create')
+    assert.equal(emailJobs[0].payload.siteId, 'site-1')
+    assert.deepEqual(emailJobs[0].payload.subscribers, [{ userId: 'user-1' }, { userId: 'user-2' }])
+    assert.equal(emailJobs[0].payload.data.metadata.title, 'Getting Started')
+  })
+
+  test('queues no notifyEventSubscribers job when nobody is subscribed to the event', async () => {
+    emailSubscribers = []
+
+    await hooksModule.hooks.emit('page:create', 'site-1', { id: 'page-1' })
+
+    assert.equal(queuedJobs.filter((job) => job.task === 'notifyEventSubscribers').length, 0)
+  })
+
+  test("does not count the email job in emit()'s returned webhook queued count", async () => {
+    subscribed = [{ id: 'hook-1', includeMetadata: true, includeContent: true }]
+    emailSubscribers = [{ id: 'user-1' }]
+
+    const queued = await hooksModule.hooks.emit('page:create', 'site-1', { id: 'page-1' })
+
+    assert.equal(queued, 1)
+    assert.equal(queuedJobs.length, 2)
+  })
+
+  test('a broken email-subscriber lookup does not stop the webhook queueing (and does not throw)', async () => {
+    subscribed = [{ id: 'hook-1', includeMetadata: true, includeContent: true }]
+    listEmailSubscribers.mock.mockImplementationOnce(async () => {
+      throw new Error('db unavailable')
+    })
+
+    const queued = await hooksModule.hooks.emit('page:create', 'site-1', { id: 'page-1' })
+
+    assert.equal(queued, 1)
+    assert.equal(queuedJobs.filter((job) => job.task === 'dispatchWebhook').length, 1)
+    assert.equal(queuedJobs.filter((job) => job.task === 'notifyEventSubscribers').length, 0)
+  })
+
+  test('a broken webhook lookup does not stop the email queueing', async () => {
+    ;(globalThis as any).WIKI.db.select = () => ({
+      from: () => ({
+        where: () => Promise.reject(new Error('db unavailable'))
+      })
+    })
+    emailSubscribers = [{ id: 'user-1' }]
+
+    const queued = await hooksModule.hooks.emit('page:create', 'site-1', { id: 'page-1' })
+
+    assert.equal(queued, 0)
+    assert.equal(queuedJobs.filter((job) => job.task === 'notifyEventSubscribers').length, 1)
+
+    // -> Restore the working stub for any test that runs after this one in the same file.
+    ;(globalThis as any).WIKI.db.select = () => ({
+      from: () => ({
+        where: () => Promise.resolve(subscribed)
+      })
+    })
   })
 })
 
@@ -465,7 +593,12 @@ describe('hooks emit rate limiting (mocked)', () => {
         }
       },
       logger: { info: () => {}, warn: (msg: string) => warnCalls.push(msg), debug: () => {} },
-      models: { rateLimits: createFakeRateLimits() },
+      models: {
+        rateLimits: createFakeRateLimits(),
+        // -> `emit()`'s email fan-out queries this too; empty and warn-free so `warnCalls` only ever
+        //    captures the rate-limit warnings this describe actually tests.
+        users: { listEmailSubscribers: async () => [] }
+      },
       scheduler: {
         // -> No `update`/`insert` stub exists on the fake `WIKI.db` below: if a throttled delivery
         //    ever touched the persisted hook row, that branch would throw "is not a function" and
