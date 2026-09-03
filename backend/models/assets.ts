@@ -734,6 +734,67 @@ class Assets {
   }
 
   /**
+   * Move an asset into another folder, keeping its name, contents and locale untouched.
+   *
+   * The destination is resolved the same way an upload's is — see `Tree#moveEntry`. Moving an asset
+   * into the folder it already sits in is a no-op: nothing is touched, and no `asset:move` fires, so
+   * a caller cannot be told a move happened when nothing changed.
+   *
+   * Storage dispatch is deliberately a no-op for this event today (`models/storage.ts`'s
+   * `STORAGE_HANDLERS` has no `asset:move` entry) — no storage module relocates a blob target's copy
+   * of the file on a folder reparent yet, the same pre-existing gap `renameFolder`'s bulk move
+   * already has for the assets it drags along. The webhook still fires, since that half has nothing
+   * storage-shaped to get wrong.
+   *
+   * @returns The updated metadata, or null if there is no such asset on this site
+   */
+  async moveAsset({
+    siteId,
+    id,
+    folderId,
+    parentPath
+  }: {
+    siteId: string
+    id: string
+    folderId?: string | null
+    parentPath?: string | null
+  }): Promise<Asset | null> {
+    const asset = await this.getAsset(siteId, id)
+    if (!asset) {
+      return null
+    }
+
+    const moved = await WIKI.models.tree.moveEntry({ id, siteId, folderId, parentPath })
+    if (!moved) {
+      return null
+    }
+    const newFolderPath = decodeTreePath(moved.folderPath ?? '') ?? ''
+    if (newFolderPath === asset.folderPath) {
+      return asset
+    }
+
+    // -> Both ends of the move: the folder it left, and the folder it arrived in
+    WIKI.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
+    WIKI.models.assetServing.forgetPath(siteId, newFolderPath, asset.fileName)
+    await WIKI.models.assetServing.dropCachedContent([id])
+
+    await announce(
+      'asset:move',
+      siteId,
+      {
+        id,
+        fileName: asset.fileName,
+        folderPath: newFolderPath,
+        previousFolderPath: asset.folderPath,
+        siteId
+      },
+      { dispatchExtra: { kind: asset.kind, fileSize: asset.fileSize } }
+    )
+
+    return this.getAsset(siteId, id)
+  }
+
+  /**
    * Delete an asset and the tree entry that points at it.
    *
    * @returns Whether an asset was deleted

@@ -85,6 +85,13 @@ export const SYNC_SHAPED_ACTIONS = ['sync', 'syncUntracked', 'importAll'] as con
  * writing new bytes for a file that already exists is the same operation as writing them for a new
  * one — a git commit or an S3 `PUT` does not care whether the key existed before — which is exactly
  * why 2.5.x never had a separate "asset updated" handler.
+ *
+ * `asset:move` has deliberately no entry: no storage module relocates a blob-target's copy of a file
+ * on a folder reparent yet — the same gap `renameFolder`'s bulk folder move already has for the
+ * assets it drags along (`docs/variances.md`, "folder renames don't sync" item 3, OpenProject
+ * #2817). `dispatch()` no-ops for an event missing here, so this is safe rather than a crash risk;
+ * the webhook side (`HOOK_EVENTS`/`EMITTED_EVENTS`) still fires for `asset:move`, since that half has
+ * nothing storage-shaped to get wrong.
  */
 const STORAGE_HANDLERS: Partial<Record<HookEvent, string>> = {
   'page:create': 'created',

@@ -1634,6 +1634,93 @@ class Tree {
   }
 
   /**
+   * Move a page or asset entry into another folder, keeping its name, locale and contents.
+   *
+   * The destination is resolved the same way `addEntry`/an upload resolves where to land:
+   * `folderId` wins over `parentPath` when both are given, `parentPath` is created (with any missing
+   * ancestor) if it does not exist yet, and neither given means the site root. Moving an entry into
+   * the folder it is already in is a no-op — it returns the entry unchanged rather than touching
+   * anything, so a caller cannot be told a move happened when nothing did.
+   *
+   * @param siteId Required (OpenProject #2127 precedent) so this method is itself closed to a
+   *               foreign entry or `folderId`, rather than relying solely on the caller.
+   * @returns The updated row, or null if there is no such entry on this site
+   * @throws CustomError `treeInvalidFolder` (404) for an unresolvable `folderId`,
+   *         `treeEntryDuplicate` (409) if the destination already holds this name — the same
+   *         asymmetric page/folder exception `renameEntry` applies above, reused rather than
+   *         re-derived: a page does not block a folder taking its name, everything else does.
+   */
+  async moveEntry({
+    id,
+    siteId,
+    folderId,
+    parentPath
+  }: {
+    id: string
+    siteId: string
+    folderId?: string | null
+    parentPath?: string | null
+  }): Promise<TreeRow | null> {
+    const entry = await this.getById(id)
+    if (!entry || entry.siteId !== siteId) {
+      return null
+    }
+
+    const destination = folderId
+      ? await this.requireFolderById(folderId, siteId)
+      : parentPath
+        ? await this.getFolder({
+            path: parentPath,
+            locale: entry.locale,
+            siteId,
+            createIfMissing: true
+          })
+        : null
+    const newPath = destination ? childPathOf(destination) : ''
+    const oldPath = entry.folderPath ?? ''
+
+    if (newPath === oldPath) {
+      return entry
+    }
+
+    const collision = await WIKI.db
+      .select({ id: treeTable.id })
+      .from(treeTable)
+      .where(
+        and(
+          ne(treeTable.id, entry.id),
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, entry.locale),
+          eq(treeTable.folderPath, newPath),
+          eq(treeTable.fileName, entry.fileName),
+          ...(entry.type === 'page' ? [ne(treeTable.type, 'folder')] : [])
+        )
+      )
+      .limit(1)
+    if (collision.length > 0) {
+      throw duplicateEntryError()
+    }
+
+    const updated = await WIKI.db.transaction(async (tx) => {
+      const moved = await tx
+        .update(treeTable)
+        .set({ folderPath: newPath, updatedAt: sql`now()` })
+        .where(eq(treeTable.id, entry.id))
+        .returning()
+      await this.countTowardsFolderAt(siteId, entry.locale, oldPath, -1, tx)
+      await this.countTowardsFolderAt(siteId, entry.locale, newPath, 1, tx)
+      return moved
+    })
+
+    // -> A moved entry changes what an ancestor `auto`/`mixed` menu's cached tree walk returns
+    //    (OpenProject #1825), the same invalidation `deleteEntry`/`createFolder` already fire.
+    WIKI.models.navigation.invalidateCache(siteId)
+
+    WIKI.logger.debug(`Moved entry ${entry.id} to folder "${newPath}" successfully.`)
+    return updated[0] as TreeRow
+  }
+
+  /**
    * Remove a page or asset entry from the tree, keeping its folder's count straight.
    */
   async deleteEntry(id: string, db: WikiDbOrTx = WIKI.db): Promise<boolean> {
