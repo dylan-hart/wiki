@@ -66,6 +66,11 @@ export const AUDIT_EVENTS = [
   'system.pageHistoryPurged',
   'system.contentExported',
   'system.contentImported',
+  // -> #2489: an instance-wide replication snapshot was queued (Epic #2437's scheduled clean-slate
+  //   replication, source side). Distinct from `system.contentExported`, which is the existing
+  //   per-site "Export content" utility -- this is the whole instance, a different archive format,
+  //   and a different feature.
+  'system.replicationSnapshotExported',
   /**
    * OpenProject #2237: the audit log auditing its own configuration. `retentionChanged`'s `detail`
    * carries `{ from, to }` (days); `purged`'s carries `{ count, cutoff }` -- see `purge()`'s own
