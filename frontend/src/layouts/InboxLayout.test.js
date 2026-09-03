@@ -83,16 +83,22 @@ describe('InboxLayout sidenav', () => {
 /**
  * OpenProject #2334: clicking the bell in HeaderNav drops a reader into the Inbox with no way back to
  * whatever page or admin area they were previously viewing. `InboxLayout` now captures the route the
- * reader arrived from, once, on mount -- and offers it back as a "Go Back" rail entry.
+ * reader arrived from, once, on mount -- and offers it back as a "Go Back" button.
+ *
+ * OpenProject #2415 moved that button out of the rail and into a FileManager-style header band (the
+ * same `.card-header` + white/grey-7 push-button idiom FileManager uses for its own Close button), so
+ * the rail now holds only the two section entries and these assertions target the header instead.
  */
 describe('InboxLayout go-back affordance', () => {
-  it('renders a "Go Back" entry ahead of the existing rail items', async () => {
+  it('renders a "Go Back" button in the header, not the rail', async () => {
     window.history.pushState({ back: '/admin/dashboard' }, '', '/_inbox/watching')
 
     const wrapper = await mountInboxLayout()
-    const labels = wrapper.findAll('.layout-inbox-sd .w-item-label').map((el) => el.text())
+    const railLabels = wrapper.findAll('.layout-inbox-sd .w-item-label').map((el) => el.text())
+    const headerButton = wrapper.find('.layout-inbox-hdr [aria-label="Go Back"]')
 
-    expect(labels[0]).toBe('Go Back')
+    expect(railLabels).not.toContain('Go Back')
+    expect(headerButton.exists()).toBe(true)
   })
 
   it('returns to the route captured on entry, not wherever the reader is inside the inbox', async () => {
