@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { loginAsAdmin } from '../helpers/admin.js'
+import { loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
 import {
   deleteJob,
   insertHistoryJob,
@@ -115,15 +115,20 @@ test.describe('admin scheduler', () => {
     //    tasks are), so the "Worker" rendering path is otherwise never exercised live. Plant one
     //    directly -- see `helpers/db.js` -- to prove the column really distinguishes both states,
     //    not just the one every seeded row happens to share.
+    // -> Task name suffixed with `uniqueSlug()` so a Playwright retry of this whole test doesn't
+    //    plant a second row under the same task name -- `AdminScheduler.vue` groups multiple
+    //    history/upcoming rows sharing a task name into one collapsed "Show individual runs" row,
+    //    which breaks the row lookups below (task 2373).
+    const workerTask = `e2eWorkerProbe-${uniqueSlug()}`
     const workerJobId = await withDb((db) =>
-      insertSyntheticJob(db, { task: 'e2eWorkerProbe', useWorker: true, waitUntilHoursFromNow: 3 })
+      insertSyntheticJob(db, { task: workerTask, useWorker: true, waitUntilHoursFromNow: 3 })
     )
     await page.getByRole('button', { name: 'Refresh' }).click()
     // -> Matched on the row's own id (rendered as the small grey line under the task name), not
     //    just the task name: a rerun against a database that already has a prior run's rows in it
     //    (anything short of a brand new container) would otherwise match more than one row.
     const workerRow = page.locator('table tbody tr', { hasText: workerJobId })
-    await expect(workerRow).toContainText('e2eWorkerProbe')
+    await expect(workerRow).toContainText(workerTask)
     await expect(workerRow).toContainText('Worker')
     await expect(workerRow).not.toContainText('In-Process')
 
@@ -153,8 +158,13 @@ test.describe('admin scheduler', () => {
   test('cancelling a job already picked up surfaces cancelJobFailed on the 404, not a raw error', async ({
     page
   }) => {
+    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
     const raceJobId = await withDb((db) =>
-      insertSyntheticJob(db, { task: 'e2eRaceProbe', useWorker: false, waitUntilHoursFromNow: 4 })
+      insertSyntheticJob(db, {
+        task: `e2eRaceProbe-${uniqueSlug()}`,
+        useWorker: false,
+        waitUntilHoursFromNow: 4
+      })
     )
 
     await page.getByRole('radio', { name: 'Upcoming' }).click()
@@ -183,8 +193,11 @@ test.describe('admin scheduler', () => {
   }) => {
     // -> `task` need not exist in `tasks/simple/` -- see `helpers/db.js` -- so the real
     //    `processJob()`/`runJob()` pipeline claims this and genuinely throws trying to call it.
+    //    Suffixed with `uniqueSlug()` so a Playwright retry doesn't plant a second row under the
+    //    same task name -- see the worker probe test above (task 2373).
+    const failTask = `e2eFailNow-${uniqueSlug()}`
     const jobId = await withDb((db) =>
-      insertSyntheticJob(db, { task: 'e2eFailNow', waitUntilHoursFromNow: 0, maxRetries: 2 })
+      insertSyntheticJob(db, { task: failTask, waitUntilHoursFromNow: 0, maxRetries: 2 })
     )
 
     let failedRow
@@ -205,7 +218,7 @@ test.describe('admin scheduler', () => {
     await page.getByRole('radio', { name: 'Failed' }).click()
     await page.getByRole('button', { name: 'Refresh' }).click()
     const row = page.locator('table tbody tr', { hasText: jobId })
-    await expect(row).toContainText('e2eFailNow')
+    await expect(row).toContainText(failTask)
     await expect(row).toContainText('Error')
     await expect(row).toContainText(failedRow.lastErrorMessage)
 
@@ -220,9 +233,11 @@ test.describe('admin scheduler', () => {
     // -> Planted directly in `jobHistory` (see `helpers/db.js`) reading as already exhausted
     //    (attempt 3 > maxRetries 2) -- a real multi-attempt job would take multiple backoff cycles
     //    to reach that state, which this test does not have time to wait through.
+    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
+    const exhaustedTask = `e2eExhaustedProbe-${uniqueSlug()}`
     const originalId = await withDb((db) =>
       insertHistoryJob(db, {
-        task: 'e2eExhaustedProbe',
+        task: exhaustedTask,
         state: 'failed',
         attempt: 3,
         maxRetries: 2,
@@ -242,7 +257,7 @@ test.describe('admin scheduler', () => {
     )
 
     // -> `WIKI.models.jobs.retryJob` calls `scheduler.addJob()` fresh -- the real pipeline then
-    //    claims and fails this too (still no handler named `e2eExhaustedProbe`), landing a brand
+    //    claims and fails this too (still no handler named by `exhaustedTask`), landing a brand
     //    new history row. Finding it at attempt 1/3, not continuing from the exhausted original's
     //    3/3, is the actual proof of "a full retry budget".
     let retried
@@ -250,7 +265,7 @@ test.describe('admin scheduler', () => {
       const resp = await page.request
         .get('/_api/scheduler/jobs?states=failed&states=interrupted&limit=100')
         .then((r) => r.json())
-      retried = resp.jobs.find((j) => j.task === 'e2eExhaustedProbe' && j.id !== originalId)
+      retried = resp.jobs.find((j) => j.task === exhaustedTask && j.id !== originalId)
       expect(retried).toBeTruthy()
     }).toPass({ timeout: 15_000 })
 
@@ -261,9 +276,10 @@ test.describe('admin scheduler', () => {
   test('reapStaleJobs sweeps a stranded active job to interrupted, and it shows under the Failed tab per MODE_STATES', async ({
     page
   }) => {
+    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
     const staleId = await withDb((db) =>
       insertHistoryJob(db, {
-        task: 'e2eStaleActiveProbe',
+        task: `e2eStaleActiveProbe-${uniqueSlug()}`,
         state: 'active',
         attempt: 3,
         maxRetries: 2,
@@ -303,9 +319,10 @@ test.describe('admin scheduler', () => {
     //    (see `helpers/db.js`) rather than via a real sweep + wait, since a row that genuinely still
     //    owes a retry gets requeued and reprocessed by the poller within seconds -- too fast to
     //    reliably assert against without racing it.
+    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
     const jobId = await withDb((db) =>
       insertHistoryJob(db, {
-        task: 'e2eInterruptedPendingProbe',
+        task: `e2eInterruptedPendingProbe-${uniqueSlug()}`,
         state: 'interrupted',
         attempt: 1,
         maxRetries: 2,
@@ -324,9 +341,10 @@ test.describe('admin scheduler', () => {
   test('Active tab shows a genuinely in-flight job with the indeterminate spinner', async ({
     page
   }) => {
+    // -> Suffixed with `uniqueSlug()` -- see the worker probe test above (task 2373).
     const jobId = await withDb((db) =>
       insertHistoryJob(db, {
-        task: 'e2eActiveSpinnerProbe',
+        task: `e2eActiveSpinnerProbe-${uniqueSlug()}`,
         state: 'active',
         attempt: 1,
         maxRetries: 2
@@ -350,7 +368,10 @@ test.describe('admin scheduler', () => {
       .get('/_api/scheduler/jobs?states=completed&limit=1')
       .then((r) => r.json())
 
-    await withDb((db) => seedCompletedHistory(db, 110))
+    // -> `taskPrefix` suffixed with `uniqueSlug()` so a Playwright retry doesn't replant the same
+    //    110 `e2eBulkHistoryProbe-<n>` rows under a prefix a previous attempt already used --
+    //    same grouping mechanism as the worker probe test above (task 2373).
+    await withDb((db) => seedCompletedHistory(db, 110, `e2eBulkHistoryProbe-${uniqueSlug()}`))
 
     await page.getByRole('radio', { name: 'Completed' }).click()
     await page.getByRole('button', { name: 'Refresh' }).click()
