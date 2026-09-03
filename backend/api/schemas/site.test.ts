@@ -74,6 +74,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
       contentLicense: 'CC-BY',
       footerExtra: '',
       pageExtensions: ['md'],
+      allowedUrlSchemes: ['discord'],
       discoverable: false,
       defaults: { tocDepth: { min: 1, max: 2 } },
       features: { browse: true },
@@ -100,6 +101,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
   })
 
   assert.deepEqual(Object.keys(payload).sort(), [
+    'allowedUrlSchemes',
     'analytics',
     'assets',
     'auth',

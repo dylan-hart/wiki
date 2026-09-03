@@ -506,6 +506,55 @@ test('site:general on this site may save general-surface fields', async () => {
   assert.equal(updateSiteCalls[0].patch.config.title, 'Renamed')
 })
 
+test('site:general on this site may save allowedUrlSchemes (task #2457)', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { allowedUrlSchemes: ['discord', 'steam'] }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.deepEqual(updateSiteCalls[0].patch.config.allowedUrlSchemes, ['discord', 'steam'])
+})
+
+/**
+ * The schema only enforces well-formed, lowercase RFC-3986-shaped scheme names here — it is
+ * deliberately NOT a `javascript`/`vbscript`/`data` denylist (task #2458 owns categorically
+ * blocking those regardless of what is configured, enforced at the point they could actually take
+ * effect rather than as an easily-bypassed save-time check).
+ */
+test('an uppercase allowedUrlSchemes entry is rejected by the schema and never reaches updateSite', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { allowedUrlSchemes: ['Discord'] }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('an allowedUrlSchemes entry with an invalid character is rejected by the schema and never reaches updateSite', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { allowedUrlSchemes: ['dis cord'] }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
 test('site:general on this site may not also save the theme surface', async () => {
   const res = await app.inject({
     method: 'PUT',

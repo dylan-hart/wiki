@@ -173,6 +173,13 @@ class Sites extends ClusterReloaded {
             contentLicense: '',
             footerExtra: '',
             pageExtensions: ['md', 'html', 'txt'],
+            // -> Additive to the hardcoded `ALLOWED_SCHEMES` in `helpers/htmlSanitizePolicy.ts` (task
+            //    #2459 wires this into `sanitizeOptions()`); empty by default so a fresh site permits
+            //    nothing beyond those hardcoded defaults until an admin opts in. `javascript:`/
+            //    `vbscript:`/`data:`-on-non-img stay categorically blocked regardless of what is listed
+            //    here -- that enforcement is task #2458's, at the point these schemes could actually
+            //    take effect, not a save-time denylist here.
+            allowedUrlSchemes: [],
             discoverable: false,
             defaults: {
               tocDepth: {
@@ -539,6 +546,7 @@ class Sites extends ClusterReloaded {
         contentLicense: '',
         footerExtra: '',
         pageExtensions: ['md', 'html', 'txt'],
+        allowedUrlSchemes: [],
         discoverable: false,
         defaults: {
           tocDepth: {
