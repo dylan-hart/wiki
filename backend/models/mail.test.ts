@@ -830,6 +830,108 @@ describe('mail template senders', () => {
 })
 
 /**
+ * Task 2481: `sendEventNotification` — the email half of `models/hooks.ts#Hooks.emit()`'s fan-out,
+ * deliberately generic across every `HookEvent` since the `data` shape varies by event family.
+ */
+describe('mail.sendEventNotification', () => {
+  let sendCalls: any[]
+
+  beforeEach(() => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    sendCalls = []
+    mail.send = (async (msg: any) => {
+      sendCalls.push(msg)
+    }) as any
+  })
+
+  test('links at the site hostname, not the instance defaultBaseURL, and includes the page path', async () => {
+    await mail.sendEventNotification({
+      to: 'ada@example.com',
+      event: 'page:create',
+      siteId: DEFAULT_SITE_ID,
+      data: { id: 'page-1', path: 'docs/getting-started', metadata: { title: 'Getting Started' } }
+    })
+    assert.equal(sendCalls.length, 1)
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.match(msg.subject, /A page was created/)
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/docs\/getting-started/)
+    assert.match(msg.text, /Getting Started/)
+  })
+
+  test('falls back to defaultBaseURL for a site-less event (e.g. user:join)', async () => {
+    await mail.sendEventNotification({
+      to: 'ada@example.com',
+      event: 'user:join',
+      siteId: null,
+      data: { userId: 'user-2', metadata: { name: 'Bob', email: 'bob@example.com' } }
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.subject, /A new user joined/)
+    assert.match(msg.html, /https:\/\/wiki\.example\.com/)
+  })
+
+  test('falls back to the bare site link when the event carries no path', async () => {
+    await mail.sendEventNotification({
+      to: 'ada@example.com',
+      event: 'approval:submitted',
+      siteId: DEFAULT_SITE_ID,
+      data: { id: 'submission-1', pageId: 'page-1', authorId: 'user-1' }
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.subject, /submitted for approval/)
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com/)
+  })
+
+  test('prefers metadata.title over the bare path for the body detail', async () => {
+    await mail.sendEventNotification({
+      to: 'ada@example.com',
+      event: 'page:edit',
+      siteId: DEFAULT_SITE_ID,
+      data: {
+        id: 'page-1',
+        path: 'docs/getting-started',
+        metadata: { title: 'Getting Started (v2)' }
+      }
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /Getting Started \(v2\)/)
+  })
+
+  test('escapes an untrusted metadata title in the HTML body', async () => {
+    await mail.sendEventNotification({
+      to: 'ada@example.com',
+      event: 'page:edit',
+      siteId: DEFAULT_SITE_ID,
+      data: {
+        id: 'page-1',
+        path: 'evil-page',
+        metadata: { title: '<script>alert(1)</script>' }
+      }
+    })
+    const msg = sendCalls[0]
+    assert.doesNotMatch(msg.html, /<script>/)
+    assert.match(msg.html, /&lt;script&gt;/)
+  })
+
+  test('body includes the mail.notificationEvent.footer line naming the event label', async () => {
+    await mail.sendEventNotification({
+      to: 'ada@example.com',
+      event: 'comment:new',
+      siteId: DEFAULT_SITE_ID,
+      data: { id: 'comment-1', pageId: 'page-1' }
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /subscribed to email notifications/i)
+    assert.match(msg.html, /subscribed to email notifications/i)
+  })
+})
+
+/**
  * #1611/#1623/#1627: every template subject/body now resolves through
  * `WIKI.models.locales.resolveString`/`resolvePluralString` (`mail.*` keys in `en.json`) instead of
  * a hardcoded English template literal. These tests exercise that resolver contract directly —
