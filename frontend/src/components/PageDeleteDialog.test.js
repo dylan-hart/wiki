@@ -68,7 +68,7 @@ describe('PageDeleteDialog', () => {
 
     API_CLIENT.delete.mockReturnValueOnce({})
     API_CLIENT.get.mockReturnValueOnce({
-      json: vi.fn().mockResolvedValue([{ id: 'fresh' }])
+      json: vi.fn().mockResolvedValue({ mode: 'static', items: [{ id: 'fresh' }] })
     })
 
     await clickDelete(wrapper)

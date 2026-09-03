@@ -42,17 +42,15 @@ function mountDialog({
   const pageStore = usePageStore()
   pageStore.navigationId = currentNavigationId
 
-  API_CLIENT.get.mockImplementation((url, opts) => {
+  API_CLIENT.get.mockImplementation((url) => {
     if (url === 'groups') {
       return { json: vi.fn().mockResolvedValue([]) }
     }
-    // -> `nav-item-editor`'s own `full: true` fetch gets the wrapped `{ mode, items }` shape the
-    //    real endpoint now returns; a plain fetch (the sidebar-invalidation `fetchNavigation()`
-    //    calls below assert against) keeps resolving the bare array `stores/site.js` still expects.
-    if (opts?.searchParams?.full) {
-      return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
-    }
-    return { json: vi.fn().mockResolvedValue(SERVER_ITEMS) }
+    // -> Both `nav-item-editor`'s own `full: true` fetch and the sidebar-invalidation
+    //    `fetchNavigation()` calls below hit the same `GET .../navigation/:navId` route, which
+    //    always returns the wrapped `{ mode, items }` shape -- `full` only changes which
+    //    visibility-group layer the server resolves, not the response envelope.
+    return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
   })
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })

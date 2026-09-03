@@ -327,7 +327,7 @@ describe('page store: pageSave() same-tab navigation invalidation (OpenProject #
         })
     })
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve([{ id: 'item-new' }])
+      json: () => Promise.resolve({ mode: 'static', items: [{ id: 'item-new' }] })
     })
 
     await pageStore.pageSave()
@@ -1022,7 +1022,7 @@ describe('page store: pageMove()', () => {
     siteStore.nav.currentId = 'nav-1'
 
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve([{ id: 'item-after-move' }])
+      json: () => Promise.resolve({ mode: 'static', items: [{ id: 'item-after-move' }] })
     })
 
     await pageStore.pageMove({ id: 'page-1', path: 'elsewhere' })

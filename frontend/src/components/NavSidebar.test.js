@@ -11,6 +11,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import NavSidebar from './NavSidebar.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
 import PageNewMenu from './PageNewMenu.vue'
+import BlueprintIcon from './BlueprintIcon.vue'
 import routes from '@/router/routes'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -655,6 +656,119 @@ describe('NavSidebarItem context menu', () => {
 
     openDialogs.length = 0
     await pageMenu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'folder-1' })
+  })
+
+  /*
+    Final whole-branch review, Finding 3: a tree entry with its own navigation override
+    (`navigationMode` of `override`/`overrideExact`) is a FOLDER, but `generateFromTree`
+    (`backend/models/navigation.ts`) deliberately gives it no `children` in the payload -- its own
+    subtree is a separate menu, not walked into. The old `item.children?.length > 0` discriminator
+    misclassified a boundary folder like this as a leaf/page, computing "create as a sibling"
+    instead of "create inside it". A generated PAGE item always carries `target` (only
+    `row.type === 'page'` rows get one); a generated FOLDER item -- boundary or not -- never does,
+    so `!item.target` is the correct discriminator for both cases. Simulated here with the exact
+    shape `generateFromTree` emits for a boundary folder: `generated: true`, no `target`, no
+    `children`.
+  */
+  it('resolves basePath/parentId for a boundary folder (own nav override, no children in the payload) as "create inside it"', async () => {
+    const boundaryItems = [
+      {
+        id: 'boundary-1',
+        type: 'link',
+        icon: 'mdi:folder',
+        label: 'Boundary Folder',
+        path: 'boundary',
+        folderId: null,
+        generated: true
+      }
+    ]
+    const wrapper = await mountWithPermission(boundaryItems, true)
+
+    const menu = wrapper.findComponent(PageNewMenu)
+    expect(menu.exists()).toBe(true)
+    expect(menu.props('basePath')).toBe('boundary')
+
+    openDialogs.length = 0
+    await menu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'boundary-1' })
+  })
+
+  /*
+    Final whole-branch review, Finding 5: every test above that exercises "New Folder" fires
+    `PageNewMenu`'s `new-folder` event directly (`.vm.$emit('new-folder')`), which proves the WIRING
+    (event handler -> dialog-open path) works but never proves the menu item itself is actually
+    rendered and clickable -- exactly the class of bug Finding 1 was (`show-new-folder` never passed
+    at any of the three call sites, so the item never rendered at all, yet every existing test still
+    passed). This one mounts the real component tree, finds the actual rendered "New Folder" row by
+    its resolved i18n label, and clicks it for real.
+
+    `WMenu` is stubbed to always render its slot -- the same stub `PageNewMenu.test.js`'s own suite
+    uses -- because its real open/close gating (a genuine `contextmenu` DOM event, teleported
+    content) is `WMenu`'s own concern, covered by its own suite and by `PageNewMenu.test.js`'s
+    "forwards the contextMenu prop" case; what this test cares about is whether "New Folder" is
+    actually PRESENT once the menu is open.
+  */
+  it('clicks the real rendered "New Folder" row (not just the emit) to open the create-folder dialog', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.nav.items = generatedTree()
+    const userStore = useUserStore()
+    userStore.permissions = ['write:pages']
+
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: {
+          common: {
+            sidebar: { browse: 'Browse' },
+            actions: { newFolder: 'New Folder' }
+          }
+        }
+      }
+    })
+
+    const wrapper = mount(NavSidebar, {
+      global: {
+        plugins: [router, i18n],
+        components: { BlueprintIcon },
+        stubs: { WMenu: { template: '<div><slot /></div>' } }
+      }
+    })
+    await wrapper.vm.$nextTick()
+
+    const folderItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'folder-1')
+    expect(folderItem).toBeTruthy()
+
+    /*
+      Scoped to folder-1's own header row (`.w-expansion-item__header`), not `folderItem`'s whole
+      subtree: that subtree also contains page-1's own nested row and ITS OWN "New Folder" item
+      (both rendered inside `folderItem`'s `<w-list>` of children), and -- purely by coincidence in
+      this fixture -- a direct child's `folderId` ('folder-1') equals its parent folder's own `id`
+      ('folder-1'), so a search too broad to tell the two apart would still pass even if THIS
+      finding's own fix regressed. Matched on the row's own EXACT text, not `.includes()`, for the
+      same reason: `.w-item` nests (the header's own outer `w-item` wraps the whole menu), so a
+      substring match would find that ancestor first -- its aggregated text contains "New Folder"
+      too, as part of a much longer string alongside every other menu item's label.
+    */
+    const header = folderItem.find('.w-expansion-item__header')
+    expect(header.exists()).toBe(true)
+    const newFolderRow = header.findAll('.w-item').find((row) => row.text() === 'New Folder')
+    expect(newFolderRow).toBeTruthy()
+
+    openDialogs.length = 0
+    await newFolderRow.trigger('click')
 
     expect(openDialogs).toHaveLength(1)
     expect(openDialogs[0].props).toEqual({ parentId: 'folder-1' })

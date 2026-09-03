@@ -68,7 +68,11 @@ async function routes(app: FastifyInstance) {
               "The resolved menu's own source mode, plus its items in the order they are shown",
             type: 'object',
             properties: {
-              mode: { type: 'string', enum: NAVIGATION_SOURCE_MODES },
+              mode: {
+                type: 'string',
+                enum: NAVIGATION_SOURCE_MODES,
+                description: "The resolved menu's own source mode."
+              },
               items: {
                 type: 'array',
                 items: { $ref: 'NavigationItem#' }

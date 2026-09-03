@@ -16,6 +16,7 @@
       <page-new-menu
         v-if="canCreate"
         context-menu
+        show-new-folder
         :base-path="basePathFor(item)"
         :hide-asset-btn="!canUploadAsset"
         @new-folder="openFolderDialog(parentIdFor(item))" />
@@ -34,6 +35,7 @@
     <page-new-menu
       v-if="canCreate"
       context-menu
+      show-new-folder
       :base-path="basePathFor(item)"
       :hide-asset-btn="!canUploadAsset"
       @new-folder="openFolderDialog(parentIdFor(item))" />
@@ -82,12 +84,16 @@ const canCreate = computed(() => Boolean(props.item.generated) && userStore.can(
 // METHODS
 
 /**
- * Where a creation action targets, for a generated item: right-click a FOLDER item (one with
- * children -- every generated folder item has at least one, or it would have been dropped) creates
- * INSIDE it; right-click a PAGE item creates as a SIBLING, in the folder it lives in.
+ * Where a creation action targets, for a generated item: right-click a FOLDER item creates INSIDE
+ * it; right-click a PAGE item creates as a SIBLING, in the folder it lives in. A generated PAGE
+ * item always carries `target` (only `row.type === 'page'` rows get one from `generateFromTree`);
+ * a generated FOLDER item never does -- including a boundary folder (one with its own navigation
+ * override), which `generateFromTree` deliberately gives no `children`, so `children?.length > 0`
+ * would misclassify it as a leaf/page. `!item.target` is correct for both the ordinary and the
+ * boundary case.
  */
 function basePathFor(item) {
-  if (item.children?.length > 0) {
+  if (!item.target) {
     return item.path ?? ''
   }
   const segments = (item.path ?? '').split('/')
@@ -98,6 +104,6 @@ function basePathFor(item) {
 /** The `parentId` a new FOLDER (not page) is created under -- see `basePathFor` above for the same
  *  inside-vs-sibling rule, addressed by id rather than path since folder creation takes a `parentId`. */
 function parentIdFor(item) {
-  return item.children?.length > 0 ? item.id : (item.folderId ?? null)
+  return !item.target ? item.id : (item.folderId ?? null)
 }
 </script>

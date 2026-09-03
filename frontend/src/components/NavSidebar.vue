@@ -28,6 +28,7 @@
       <page-new-menu
         v-if="canCreateAtRoot"
         context-menu
+        show-new-folder
         base-path=""
         :hide-asset-btn="!canUploadAsset"
         @new-folder="openFolderDialog(null)" />
@@ -36,7 +37,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
@@ -98,6 +99,16 @@ $sidebar-overlay-max: 1199.98px;
      is what lets it shrink below its content so the scroll area actually scrolls. */
   flex: 1 1 0;
   min-height: 0;
+
+  /* -> The `<nav>` inside this scroll area has no height rule of its own, so with few or zero items
+     it collapses to its content's height and leaves empty space below it that is inside
+     `.sidebar-nav` but OUTSIDE `<nav>` -- exactly the space `WMenu`'s root-level context-menu
+     trigger binds to. Without this, right-clicking that empty space (the case that matters most:
+     an empty or near-empty sidebar, where "right-click to create the first page" is the whole
+     point) has no `<nav>` surface under the pointer to bind to, and does nothing. */
+  > nav {
+    min-height: 100%;
+  }
 
   &-list > .w-separator {
     margin-top: 10px;

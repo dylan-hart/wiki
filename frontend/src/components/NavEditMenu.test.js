@@ -44,9 +44,10 @@ function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inheri
       return { json: vi.fn().mockResolvedValue({ navigationId: 'ancestor-nav' }) }
     }
     // -> The sidebar's own re-fetch, once `save()` force-refreshes it -- any `.../navigation/<id>`
-    //    not already matched above
+    //    not already matched above. Wrapped in the `{ mode, items }` envelope the real endpoint
+    //    returns; `fetchNavigation()` (`stores/site.js`) destructures it, not a bare array.
     if (url.startsWith('sites/site-1/navigation/')) {
-      return { json: vi.fn().mockResolvedValue(SERVER_ITEMS) }
+      return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
     }
     return { json: vi.fn().mockResolvedValue({}) }
   })
