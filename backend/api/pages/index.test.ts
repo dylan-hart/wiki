@@ -34,6 +34,10 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
    * `isWatching`. What is worth a route-level test here is the wiring around that call, not
    * `participantInfo()` itself: that it is only ever asked for on a site with `collaborativeEditing` on,
    * and that its answer reaches `viewer.activeEditors` unchanged.
+   *
+   * And `viewer.draft` (OpenProject #2455), right beside it: the same collab-feature gate, plus a
+   * `write:pages` check `activeEditors` does not need. `WIKI.models.pageDrafts.summary()` itself is
+   * covered directly in `models/pageDrafts.db.test.ts`; what's worth covering here is the wiring.
    */
 
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
@@ -47,6 +51,9 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
   let participantInfoResult: { count: number; names: string[] }
   let searchPagesCalls: any[]
   let ruleGrantedPermissions: string[]
+  let draftSummaryCalls: string[]
+  let draftSummaryResult: { updatedAt: Date; authorName: string | null } | null
+  let denyWriteForDraft: boolean
 
   function currentPage() {
     return {
@@ -79,7 +86,11 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
         },
         groups: {
           actorForRequest: () => ({ permissions: ['write:pages'], groupIds: [] }),
-          checkAccess: () => true,
+          // -> Grants everything except `write:pages` when `denyWriteForDraft` is set -- the one
+          //    permission `viewer.draft` (OpenProject #2455) is gated on, exercised below without
+          //    disturbing every other test in this fixture, which relies on an unconditional grant.
+          checkAccess: (_actor: any, permission: string) =>
+            !(permission === 'write:pages' && denyWriteForDraft),
           groupIdsForRequest: () => [],
           // -> Regression stub for task 551's fix: the search route asks this rather than scanning
           //    `actor.permissions` (the GLOBAL list) for `write:pages`/`manage:pages`, which are page-rule
@@ -112,6 +123,14 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
         //    fixture needs, since what's under test here is collab/search wiring, not pageviews.
         pageviews: {
           record: async () => {}
+        },
+        // -> `viewer.draft` (OpenProject #2455): the lightweight existence check folded into the same
+        //    page-read response as `activeEditors`, on the same collab-feature gate.
+        pageDrafts: {
+          summary: async (pageId: string) => {
+            draftSummaryCalls.push(pageId)
+            return draftSummaryResult
+          }
         }
       },
       collab: {
@@ -149,6 +168,9 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
     participantInfoResult = { count: 0, names: [] }
     searchPagesCalls = []
     ruleGrantedPermissions = []
+    draftSummaryCalls = []
+    draftSummaryResult = null
+    denyWriteForDraft = false
   })
 
   test('a save with no expectedUpdatedAt writes through as before', async () => {
@@ -284,6 +306,60 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
     assert.equal(res.statusCode, 200)
     const body = res.json()
     assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
+  })
+
+  /**
+   * `viewer.draft` (OpenProject #2455): the lightweight "there is a recovery draft" signal folded
+   * into the same page-read response, on the same `collaborativeEditing` gate as `activeEditors` — but
+   * gated additionally on `write:pages`, since a draft is nothing but a collaboration room's leftover
+   * content and only matters to whoever could have written the room in the first place.
+   */
+  test('GET page carries pageDrafts.summary() through as viewer.draft, on a site with the feature on', async () => {
+    draftSummaryResult = { updatedAt: STORED_UPDATED_AT, authorName: 'Ada Lovelace' }
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(draftSummaryCalls, [PAGE_ID])
+    const body = res.json()
+    assert.equal(body.viewer.draft.authorName, 'Ada Lovelace')
+    assert.equal(body.viewer.draft.updatedAt, STORED_UPDATED_AT.toISOString())
+  })
+
+  test('GET page answers viewer.draft: null when there is no recovery draft', async () => {
+    draftSummaryResult = null
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(draftSummaryCalls, [PAGE_ID])
+    assert.equal(res.json().viewer.draft, null)
+  })
+
+  test('GET page never asks pageDrafts for a summary, and answers null, on a site with collaborativeEditing off', async () => {
+    siteCollabEnabled = false
+    draftSummaryResult = { updatedAt: STORED_UPDATED_AT, authorName: 'Should Not Appear' }
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(draftSummaryCalls, [])
+    assert.equal(res.json().viewer.draft, null)
+  })
+
+  test('GET page never asks pageDrafts for a summary, and answers null, for a requester who may not write the page', async () => {
+    denyWriteForDraft = true
+    draftSummaryResult = { updatedAt: STORED_UPDATED_AT, authorName: 'Should Not Appear' }
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(draftSummaryCalls, [])
+    assert.equal(res.json().viewer.draft, null)
   })
 
   /**

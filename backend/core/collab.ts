@@ -226,6 +226,15 @@ interface CollabRoom {
   provisional: boolean
   /** Debounced autosave-draft persistence bookkeeping — see {@link scheduleDraftPersist}. */
   draftPersist: DraftPersistState
+  /**
+   * Best-effort attribution for the next persisted draft (OpenProject #2455): the name of whoever was
+   * last known to be editing, read off a departing connection's awareness state in {@link onClose}
+   * before it is retracted (nothing else here tracks who typed what). Carried on the room rather than
+   * threaded through every persist call, since {@link scheduleDraftPersist}'s debounce timer fires
+   * well after the edit — and the connection — that triggered it. Null until some closing connection
+   * has actually carried a name.
+   */
+  lastAuthorName: string | null
 }
 
 interface DraftPersistState {
@@ -648,7 +657,8 @@ export default {
       conns: new Map(),
       ready: Promise.resolve(),
       provisional: true,
-      draftPersist: { timer: null, pendingSince: null }
+      draftPersist: { timer: null, pendingSince: null },
+      lastAuthorName: null
     }
     this.rooms.set(page.id, room)
 
@@ -810,6 +820,18 @@ export default {
       //    site covers both paths: a legitimate reconnect loop can never exhaust its own ceiling.
       this.releaseSlot(state.identity)
       if (state.clients.size > 0) {
+        // -> Best-effort attribution for the room's next persisted draft (OpenProject #2455) -- read
+        //    off this connection's own awareness state before it is retracted below, since nothing
+        //    else here tracks who typed what. Left as whatever it already was when no name is found
+        //    (e.g. a socket that never set one), rather than clobbered to null.
+        const states = room.awareness.getStates() as Map<number, { user?: { name?: string } }>
+        for (const clientId of state.clients) {
+          const name = states.get(clientId)?.user?.name
+          if (name) {
+            room.lastAuthorName = name
+            break
+          }
+        }
         // -> Announced as an awareness change, which is what takes the avatar out of the header and
         //    the cursor out of the text for everyone else, here and on every other instance
         awarenessProtocol.removeAwarenessStates(room.awareness, [...state.clients], null)
@@ -906,6 +928,11 @@ export default {
    *
    * A failure here means the next crash/tab-close on this page recovers a slightly older draft, not
    * that anything currently connected breaks.
+   *
+   * Carries {@link CollabRoom.lastAuthorName} along with the state on every flush (OpenProject #2455)
+   * -- best-effort attribution of whoever was last known to be editing, for the recovery-restore
+   * prompt to credit. Not resolved to a real `authorId`: nothing here has one to attach, only the
+   * display name a departing connection's awareness state carried.
    */
   flushDraftPersist(room: CollabRoom): Promise<void> {
     if (room.draftPersist.timer) {
@@ -914,7 +941,7 @@ export default {
     room.draftPersist.timer = null
     room.draftPersist.pendingSince = null
     return WIKI.models.pageDrafts
-      .save(room.pageId, room.siteId, Y.encodeStateAsUpdate(room.doc))
+      .save(room.pageId, room.siteId, Y.encodeStateAsUpdate(room.doc), null, room.lastAuthorName)
       .catch((err: any) => {
         WIKI.logger.warn(
           `Failed to persist an autosave draft for page ${room.pageId}: ${err.message}`
@@ -933,9 +960,11 @@ export default {
    * The save does not necessarily land on an instance that has the room, so an instance without one
    * passes the news along instead.
    *
-   * Also clears the page's persisted autosave draft, regardless of whether this instance has the room
-   * open: whatever was recoverable before is now superseded by a real, committed save, and a draft
-   * surviving past this point would offer to restore content a save has already overtaken.
+   * Also clears the page's persisted draft, regardless of whether this instance has the room open:
+   * whatever was recoverable before is now superseded by a real, committed save, and a draft
+   * surviving past this point would offer to restore content a save has already overtaken. The row
+   * lives in postgres, not in memory, so whichever instance's `PATCH` handler called this is the one
+   * that gets to clear it, room or no room.
    */
   pageSaved(pageId: string, info: SaveInfo): void {
     const room = this.rooms.get(pageId)
@@ -945,7 +974,7 @@ export default {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
     }
     WIKI.models.pageDrafts.clear(pageId).catch((err: any) => {
-      WIKI.logger.warn(`Failed to clear the autosave draft for page ${pageId}: ${err.message}`)
+      WIKI.logger.warn(`Failed to clear the draft for page ${pageId}: ${err.message}`)
     })
   },
 

@@ -1406,11 +1406,18 @@ export const pageRenderQueue = pgTable(
  * here as edits happen, and prefers this over the plain stored `pages` content the next time a room
  * for the page has to be built from scratch (no peer instance already holding it) — which is what
  * lets a crash or tab-close mid-edit recover the in-progress text on reopening rather than losing it,
- * without a separate periodic-save mechanism of its own.
+ * without a separate periodic-save mechanism of its own. `viewer.draft` on `GET .../pages/:pageIdOrHash`
+ * and the `GET`/`DELETE .../pages/:pageId/draft` routes are what let the editor actually offer that
+ * recovery to a reader (OpenProject #2455) — the same row, read two different ways: `models/pageDrafts.ts#summary()`
+ * for the lightweight "there is one, from roughly when, possibly by whom" signal, and `#getContent()`
+ * to decode the full thing once the reader has chosen to restore it.
  *
  * `state` is a raw Yjs update (`Y.encodeStateAsUpdate(doc)`), not the plain markdown — restoring it
  * has to reconstruct the whole shared document (text, header fields, and cursor-independent CRDT
- * metadata), not just a string.
+ * metadata), not just a string. `authorId`/`authorName` are best-effort attribution of whoever was
+ * last known to be editing when the draft was recorded — null once the account is gone (or was never
+ * resolved to one at all, e.g. a guest), rather than holding the account hostage. Mirrors
+ * `comments.authorId`.
  *
  * The row is deleted, not merely made stale, once the content it describes is genuinely committed —
  * see `core/collab.ts#pageSaved()`, the same hook that already tells every collaborator's editor a
@@ -1429,6 +1436,8 @@ export const pageDrafts = pgTable(
       .notNull()
       .references(() => sites.id),
     state: bytea().notNull(),
+    authorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    authorName: varchar({ length: 255 }),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   // -> How the purge finds rows nothing has touched in a long while

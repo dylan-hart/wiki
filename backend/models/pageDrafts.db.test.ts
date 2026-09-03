@@ -1,15 +1,21 @@
 import { after, before, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
-import { pageDrafts as pageDraftsTable, pages as pagesTable } from '../db/schema.ts'
+import * as Y from 'yjs'
+import {
+  pageDrafts as pageDraftsTable,
+  pages as pagesTable,
+  users as usersTable
+} from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 /**
- * `models/pageDrafts.ts` (OpenProject #2454) is a thin upsert/select/delete layer over one table, so
- * it is exercised against a real database rather than mocked — the same reasoning `rateLimits.test.ts`
- * gives for its own DB-backed suite. Its actual behavioural promises (debounce, which fallback tier
- * `initRoom()` prefers, the `RELAYED`-origin no-op guard) belong to `core/collab.*.test.ts` instead;
- * this file only pins the storage layer those tests stub out.
+ * `models/pageDrafts.ts` (OpenProject #2454 / #2455) is a thin upsert/select/delete layer over one
+ * table, so it is exercised against a real database rather than mocked — the same reasoning
+ * `rateLimits.test.ts` gives for its own DB-backed suite. Its actual behavioural promises (debounce,
+ * which fallback tier `initRoom()` prefers, the `RELAYED`-origin no-op guard, attribution bookkeeping)
+ * belong to `core/collab.*.test.ts` instead; this file only pins the storage layer those tests stub
+ * out, plus the Yjs-state decode `getContent()` does for the recovery-restore route.
  */
 describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -52,6 +58,27 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
     return row!.id
   }
 
+  /** A real Yjs update carrying the given content/title/description/icon — what `core/collab.ts`
+   * actually persists, and what `getContent()` has to decode back out. */
+  function buildState(fields: {
+    content?: string
+    title?: string
+    description?: string
+    icon?: string
+  }): Uint8Array {
+    const doc = new Y.Doc()
+    doc.transact(() => {
+      doc.getText('content').insert(0, fields.content ?? '')
+      const props = doc.getMap('props')
+      props.set('title', fields.title ?? '')
+      props.set('description', fields.description ?? '')
+      props.set('icon', fields.icon ?? '')
+    })
+    const update = Y.encodeStateAsUpdate(doc)
+    doc.destroy()
+    return update
+  }
+
   beforeEach(async () => {
     await fixtures.db.delete(pageDraftsTable)
     pageId = await seedPage()
@@ -62,7 +89,12 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(draft, undefined)
   })
 
-  test('save() then get() round-trips the exact bytes', async () => {
+  test('getContent()/summary() answer undefined for a page with no draft', async () => {
+    assert.equal(await pageDraftsModel.getContent(pageId), undefined)
+    assert.equal(await pageDraftsModel.summary(pageId), undefined)
+  })
+
+  test('save() then get() round-trips the exact raw Yjs bytes', async () => {
     const state = new Uint8Array([1, 2, 3, 4, 250])
     await pageDraftsModel.save(pageId, fixtures.siteId, state)
 
@@ -70,6 +102,35 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.ok(draft)
     assert.deepEqual(new Uint8Array(draft.state), state)
     assert.ok(draft.updatedAt instanceof Date)
+  })
+
+  test('save() then getContent() decodes the stored Yjs state back into plain fields', async () => {
+    const state = buildState({
+      content: 'unsaved content',
+      title: 'Unsaved Title',
+      description: 'Unsaved description',
+      icon: 'mdi:file'
+    })
+    await pageDraftsModel.save(pageId, fixtures.siteId, state, fixtures.userId, 'Ada Lovelace')
+
+    const draft = await pageDraftsModel.getContent(pageId)
+    assert.ok(draft)
+    assert.equal(draft.content, 'unsaved content')
+    assert.equal(draft.title, 'Unsaved Title')
+    assert.equal(draft.description, 'Unsaved description')
+    assert.equal(draft.icon, 'mdi:file')
+    assert.equal(draft.authorName, 'Ada Lovelace')
+    assert.ok(draft.updatedAt instanceof Date)
+  })
+
+  test('save() with no author leaves authorName null, and summary() reflects it', async () => {
+    await pageDraftsModel.save(pageId, fixtures.siteId, buildState({ content: 'x' }))
+
+    const summary = await pageDraftsModel.summary(pageId)
+    assert.ok(summary)
+    assert.equal(summary.authorName, null)
+    assert.ok(summary.updatedAt instanceof Date)
+    assert.equal(Object.hasOwn(summary, 'state'), false)
   })
 
   test('save() twice overwrites in place — one row per page, not a history', async () => {
@@ -131,6 +192,31 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(pageDraftsTable)
       .where(eq(pageDraftsTable.pageId, pageId))
     assert.equal(rows.length, 0)
+  })
+
+  test('deleting the author account sets authorId null rather than blocking', async () => {
+    const [author] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: `draft-author-${crypto.randomUUID()}@example.com`,
+        name: 'Temp Author'
+      })
+      .returning({ id: usersTable.id })
+    await pageDraftsModel.save(
+      pageId,
+      fixtures.siteId,
+      new Uint8Array([1]),
+      author!.id,
+      'Temp Author'
+    )
+
+    await fixtures.db.delete(usersTable).where(eq(usersTable.id, author!.id))
+
+    const [row] = await fixtures.db
+      .select({ authorId: pageDraftsTable.authorId })
+      .from(pageDraftsTable)
+      .where(eq(pageDraftsTable.pageId, pageId))
+    assert.equal(row!.authorId, null)
   })
 
   test('purgeStale() drops only rows untouched for over STALE_DRAFT_DAYS', async () => {
