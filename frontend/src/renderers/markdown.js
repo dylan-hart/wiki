@@ -168,6 +168,15 @@ export class MarkdownRenderer {
 
         Everything else MDC brings is untouched: block components (`::note`), inline props and inline
         spans. Turning this back on means giving up emoji shortcodes again.
+
+        OpenProject #2372 recorded a working hypothesis that a `::block-name{...}` block fails to
+        parse once one of its quoted attribute values contains a space, corrupting every block after
+        it in the document (seen via a Playwright trace against `e2e/tests/csp.spec.js`). That does
+        not reproduce against this renderer, this fork's own MDC config, and `markdown-it-mdc` 0.2.12
+        (the version pinned in `package.json`) -- see `markdown.test.js`'s "MDC block attribute values
+        containing a space" describe for the regression coverage and the WP's own comment thread for
+        the full investigation. If a future dependency bump reintroduces this, that test is what will
+        catch it.
       */
       .use(mdMdc, { syntax: { inlineComponent: false } })
       .use(mdAttrs, {
