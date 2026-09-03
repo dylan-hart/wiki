@@ -78,7 +78,8 @@ const catcherZ = 6500 + Math.min(depth - 1, 40) * 10
  *     <w-menu auto-close anchor="bottom right" self="top right"> ... </w-menu>
  *   </w-btn>
  *
- * Opens on click by default, or on right-click with `context-menu`.
+ * Opens on click by default, or with `context-menu`: on right-click, on a touch long-press, or on
+ * the keyboard Context Menu key / Shift+F10.
  */
 const props = defineProps({
   /** Two-way open state. Omit to let the menu manage itself from its trigger. */
@@ -258,6 +259,88 @@ function onTriggerContextMenu(ev) {
   show()
 }
 
+/*
+  Touch long-press: the native `contextmenu` event `onTriggerContextMenu` handles is a desktop-only
+  gesture (a right-click). Touch has no equivalent unless one is built -- so a context-menu-mode
+  trigger gets a second listener pair, held to `pointerType === 'touch'` only, so mouse/pen input
+  keeps going through the click/contextmenu handlers unchanged.
+
+  A press starts a timer; it fires the menu open if the finger stays down and (roughly) still for
+  the hold duration. Either releasing early or moving far enough to read as a scroll/drag rather
+  than a press-and-hold cancels it -- the same trade-off a native long-press gesture makes.
+*/
+const LONG_PRESS_MS = 500
+const LONG_PRESS_MOVE_TOLERANCE = 10
+
+let longPressTimer = null
+let longPressStart = null
+
+function clearLongPress() {
+  if (longPressTimer !== null) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  longPressStart = null
+}
+
+function onTriggerPointerDown(ev) {
+  if (!props.contextMenu || ev.pointerType !== 'touch') {
+    return
+  }
+  clearLongPress()
+  longPressStart = { x: ev.clientX, y: ev.clientY }
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null
+    const at = longPressStart
+    longPressStart = null
+    if (!at) {
+      return
+    }
+    // -> Same anchor mechanism a right-click uses: a zero-size rect at the touch point
+    pointerRect = { left: at.x, top: at.y, width: 0, height: 0 }
+    show()
+  }, LONG_PRESS_MS)
+}
+
+function onTriggerPointerMove(ev) {
+  if (!longPressStart || ev.pointerType !== 'touch') {
+    return
+  }
+  const dx = ev.clientX - longPressStart.x
+  const dy = ev.clientY - longPressStart.y
+  if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE) {
+    clearLongPress()
+  }
+}
+
+function onTriggerPointerUp(ev) {
+  if (ev.pointerType !== 'touch') {
+    return
+  }
+  clearLongPress()
+}
+
+/*
+  Keyboard: the Context Menu key (`ev.key === 'ContextMenu'`) and the Shift+F10 fallback are the two
+  conventional ways to ask for a context menu without a pointer at all. Handled explicitly rather
+  than relying on the browser's own keyboard-invoked `contextmenu` event, since that path is
+  unreliable across platforms (notably absent on macOS/Safari, which has neither key). Opens anchored
+  to the trigger itself -- no `pointerRect` set -- the same placement a plain click-triggered menu
+  already uses.
+*/
+function onTriggerKeydown(ev) {
+  if (!props.contextMenu) {
+    return
+  }
+  if (ev.key !== 'ContextMenu' && !(ev.shiftKey && ev.key === 'F10')) {
+    return
+  }
+  ev.preventDefault()
+  ev.stopPropagation()
+  pointerRect = null
+  show()
+}
+
 function onContentClick() {
   if (props.autoClose) {
     hide()
@@ -357,6 +440,11 @@ onMounted(() => {
   if (!isControlled()) {
     triggerEl.value.addEventListener('click', onTriggerClick)
     triggerEl.value.addEventListener('contextmenu', onTriggerContextMenu)
+    triggerEl.value.addEventListener('pointerdown', onTriggerPointerDown)
+    triggerEl.value.addEventListener('pointermove', onTriggerPointerMove)
+    triggerEl.value.addEventListener('pointerup', onTriggerPointerUp)
+    triggerEl.value.addEventListener('pointercancel', onTriggerPointerUp)
+    triggerEl.value.addEventListener('keydown', onTriggerKeydown)
   }
   document.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', hide)
@@ -370,7 +458,13 @@ onBeforeUnmount(() => {
   if (triggerEl.value) {
     triggerEl.value.removeEventListener('click', onTriggerClick)
     triggerEl.value.removeEventListener('contextmenu', onTriggerContextMenu)
+    triggerEl.value.removeEventListener('pointerdown', onTriggerPointerDown)
+    triggerEl.value.removeEventListener('pointermove', onTriggerPointerMove)
+    triggerEl.value.removeEventListener('pointerup', onTriggerPointerUp)
+    triggerEl.value.removeEventListener('pointercancel', onTriggerPointerUp)
+    triggerEl.value.removeEventListener('keydown', onTriggerKeydown)
   }
+  clearLongPress()
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', hide)
 })
