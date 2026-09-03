@@ -363,7 +363,12 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
-import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
+import {
+  hasFiles,
+  pastedFiles,
+  shouldAcceptDrag,
+  shouldClaimPaste
+} from '@/helpers/editorFileTransfer'
 import {
   resolveEditorFontSize,
   resolveInitialPreviewShown,
@@ -1121,7 +1126,7 @@ function onEditorPaste(event) {
   if (shouldClaimPaste(event.clipboardData)) {
     event.preventDefault()
     event.stopPropagation()
-    insertFilesAsAssets([...event.clipboardData.files], { generateUniqueName: true })
+    insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
     return
   }
   // -> OpenProject #2448 (Feature #2417): a paste carrying HTML -- a webpage selection, a Word or
@@ -1160,7 +1165,7 @@ function onEditorDrop(event) {
   if (target?.position) {
     editor.setPosition(target.position)
   }
-  insertFilesAsAssets([...event.dataTransfer.files])
+  insertFilesAsAssets(pastedFiles(event.dataTransfer))
 }
 
 /**
