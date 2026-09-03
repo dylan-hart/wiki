@@ -54,7 +54,7 @@ actually populates are:
 
 | Path                     | What's in it                                                                                             | Recoverable without a backup?                                                            |
 | ------------------------ | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `<dataPath>/cache/files` | Served copies of uploaded asset bytes, trimmed to `files.cacheMaxSize` (`models/assetServing.ts`)              | Yes — it's a cache of the `assets` table's `bytea` data, rebuilt on demand               |
+| `<dataPath>/cache/files` | Served copies of uploaded asset bytes, trimmed to `files.cacheMaxSize` (`models/assetServing.ts`)        | Yes — it's a cache of the `assets` table's `bytea` data, rebuilt on demand               |
 | `<dataPath>/cache/icons` | One JSON file per resolved Iconify icon (`models/icons.ts`)                                              | Yes — same tier as the `icons` DB table, itself just a cache in front of the Iconify API |
 | `<dataPath>/exports/`    | In-progress and completed "Export content" tarballs (`models/export.ts`)                                 | Yes, but an in-flight export job would need to be re-run                                 |
 | `<dataPath>/imports/`    | Uploaded site-import archives awaiting their job (`models/siteImport.ts`)                                | Yes, but an in-flight import would need to be re-uploaded                                |
@@ -132,6 +132,56 @@ This document is about upgrading an already-running 3.x instance. Migrating a **
 into 3.x for the first time is a different, one-time procedure with its own tooling and caveats — see
 [`docs/migration/migration-runbook.md`](migration/migration-runbook.md).
 
+### Disaster recovery: multi-site / multi-instance topology
+
+Everything above — [Backup scope](#backup-scope), [Restore order](#restore-order), and the
+single-replica caveat just above — describes **one instance's** durability story: one Postgres
+database, one storage target (or set of targets), backed up and restored as a unit. It is a
+different question from **true disaster recovery**, where an operator wants a second, independently
+bootable site (a second physical location, a second cloud region, a second home server) that can take
+over if the primary is destroyed or unreachable — not just multiple app instances sharing one live,
+always-reachable Postgres database and shared storage, which is what "scaling out" means everywhere
+else in this document.
+
+**The supported shape for that is Postgres streaming replication to a standby, paired with an
+object-storage backend (`s3`, `azure` or `gcs` — see `backend/modules/storage/`) rather than a
+filesystem-based storage module.** Postgres's own replication protocol gives the standby database a
+consistent, ordered, single-writer view of every change; an object-storage bucket is the asset
+equivalent — one authoritative store the standby instance points at (directly, or via the bucket
+provider's own cross-region replication), with no risk of two instances writing conflicting local
+copies. This is the same pairing [Backup scope](#backup-scope) already flags for `s3`/`azure`/`gcs`
+targets: "that data lives in the remote bucket, not on this host at all."
+
+**Do not build multi-site DR out of bidirectional file-sync tooling (e.g. Syncthing) pointed at a
+`disk`, `git`, or `sftp` storage module's local filesystem target.** Those three storage modules
+write directly to a filesystem path with no expectation that anything else is concurrently mutating
+it underneath them, and a two-way sync tool has none of the consistency guarantees Postgres
+replication provides — it is racing its own conflict-resolution heuristics against whatever both
+sites' live instances happen to be writing at the same moment. Concretely:
+
+- A `git` storage target keeps real repository state (a working tree plus `.git` history) on disk. A
+  sync tool that mirrors file adds/edits/deletes bidirectionally does not understand that repository
+  as a unit — a deletion, rename, or history-rewriting operation racing a sync pass can corrupt the
+  local repo state the `git` module depends on being coherent.
+- A `disk` or `sftp` target's asset files can silently **diverge** between the two sites instead of
+  staying in sync: two near-simultaneous writes to the same path on each side, or a sync pass that
+  loses a race against an in-flight upload, leaves each site's storage target holding a different
+  file for the same asset with no error raised anywhere — a failure mode Postgres replication does
+  not have, because it replicates the database's own write-ahead log, not a directory snapshot taken
+  after the fact.
+
+This is not a hypothetical: a reporter running two Unraid servers with this exact topology in mind —
+Postgres replication plus bidirectional Syncthing for local data — is the origin of this section
+(see the linked Issue below). The fix is not "sync carefully"; it's routing DR asset storage through
+a target designed for one authoritative copy (an object-storage bucket) instead of a filesystem two
+independent instances both write to.
+
+Nothing in this codebase automates failover between a primary and a standby site — pointing a standby
+instance's `config.yml` at a Postgres read replica that has been promoted to primary, and at the same
+object-storage bucket (or its own cross-region replica of it), is a manual operational step the
+operator's own tooling (Postgres's own promotion command, DNS/load-balancer cutover, etc.) carries
+out, not something this document or the application performs on its own.
+
 ### Certificate rotation invalidates every API key
 
 `POST /_api/system/certificates` (`backend/api/system/maintenance.ts`, requires `manage:system`) generates a new
@@ -176,13 +226,13 @@ The application resolves `dataPath` to `/wiki/data` inside the official containe
 needs to be a persistent, mounted volume** — not just its `content/` subdirectory — because five
 separate writers each put real, non-derived state under one of its siblings:
 
-| Subdirectory  | Written by                                                                 | What's lost without it                                                                                                                    |
-| ------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `locales/`    | `models/locales.ts` (`sideloadPath`, `backend/models/locales.ts:116`)      | Sideloaded locale packs added to a running instance without a rebuild — see `docs/offline-deployment.md`.                                 |
-| `cache/icons` | `models/icons.ts` (`cachePath`, `backend/models/icons.ts:126`)             | Nothing durable — this is a derived disk cache of icon data also held in the `icons` DB table; losing it costs a refill, not data.        |
+| Subdirectory  | Written by                                                                   | What's lost without it                                                                                                                    |
+| ------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `locales/`    | `models/locales.ts` (`sideloadPath`, `backend/models/locales.ts:116`)        | Sideloaded locale packs added to a running instance without a rebuild — see `docs/offline-deployment.md`.                                 |
+| `cache/icons` | `models/icons.ts` (`cachePath`, `backend/models/icons.ts:126`)               | Nothing durable — this is a derived disk cache of icon data also held in the `icons` DB table; losing it costs a refill, not data.        |
 | `cache/files` | `models/assetServing.ts` (`cachePath`, `backend/models/assetServing.ts:400`) | Nothing durable — same as `cache/icons`: a derived serving cache, refilled from the `assets` table's `bytea` columns on the next request. |
-| `exports/`    | `models/export.ts` (`exportsPath`, `backend/models/export.ts:65`)          | In-flight and recently-completed "Export content" tarballs, TTL-purged; not a source of truth.                                            |
-| `imports/`    | `models/siteImport.ts` (`importsPath`, `backend/models/siteImport.ts:108`) | Uploaded import archives staged for the queued import job; job-scoped, not a source of truth.                                             |
+| `exports/`    | `models/export.ts` (`exportsPath`, `backend/models/export.ts:65`)            | In-flight and recently-completed "Export content" tarballs, TTL-purged; not a source of truth.                                            |
+| `imports/`    | `models/siteImport.ts` (`importsPath`, `backend/models/siteImport.ts:108`)   | Uploaded import archives staged for the queued import job; job-scoped, not a source of truth.                                             |
 
 Of the five, only `locales/` and (implicitly) `content/` hold state with no other copy — the two
 `cache/*` directories are pure derived caches and `exports/`/`imports/` are transient job staging,
@@ -232,3 +282,6 @@ unnamed volume that is not what you restored into.
 - [`docs/variances.md`](variances.md) — recorded, justified deviations from spec (the boot-migration
   advisory-lock gap noted above is not yet one of these; it's flagged here as a known operational
   caveat until it's either fixed or formally recorded there)
+- [Disaster recovery: multi-site / multi-instance topology](#disaster-recovery-multi-site-multi-instance-topology) —
+  true multi-site DR (two independently-runnable sites), not the shared-database HA/scaling model
+  above
