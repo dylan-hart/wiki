@@ -229,6 +229,7 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   let getAssetCalls = 0
   let uploadCalls = 0
   let renameAssetCalls = 0
+  let moveAssetCalls = 0
   let deleteAssetCalls = 0
 
   let app: FastifyInstance
@@ -260,6 +261,10 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
             },
             renameAsset: async () => {
               renameAssetCalls++
+              return {}
+            },
+            moveAsset: async () => {
+              moveAssetCalls++
               return {}
             },
             deleteAsset: async () => {
@@ -349,6 +354,19 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
     assert.equal(res.statusCode, 403)
     assert.equal(getAssetCalls, 0)
     assert.equal(renameAssetCalls, 0)
+  })
+
+  test('MOVE asset: answers 403 for a disabled site, without ever calling getAsset/moveAsset', async () => {
+    getAssetCalls = 0
+    moveAssetCalls = 0
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${DISABLED_SITE_ID}/assets/${ASSET_ID}/folder`,
+      payload: {}
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(getAssetCalls, 0)
+    assert.equal(moveAssetCalls, 0)
   })
 
   test('DELETE asset: answers 403 for a disabled site, without ever calling getAsset/deleteAsset', async () => {
@@ -461,6 +479,242 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
       ;(globalThis as any).WIKI.models.assets.getAsset = originalGetAsset
       ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
       ;(globalThis as any).WIKI.models.assets.deleteAsset = originalDeleteAsset
+    }
+  })
+})
+
+/**
+ * MOVE ASSET (OpenProject #2447)
+ *
+ * Exercised at the HTTP layer: the source/destination permission split (`manage:assets` at the
+ * current folder, `write:assets` at the destination -- the same shape the page move route checks),
+ * `folderId` winning over `parentPath`, and the destination-folder-must-resolve-in-this-site 404 --
+ * deliberately stricter than upload's own OpenProject #2131 leniency, since a move's destination is
+ * explicit user intent rather than a merely-suggested parent.
+ */
+describe('MOVE ASSET route (OpenProject #2447)', () => {
+  const SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const ASSET_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  const DESTINATION_FOLDER_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+  const existingAsset = {
+    id: ASSET_ID,
+    fileName: 'photo.png',
+    fileExt: 'png',
+    kind: 'image',
+    mimeType: 'image/png',
+    fileSize: 3,
+    folderPath: 'source',
+    title: 'photo',
+    hasPreview: false,
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    locale: 'en'
+  }
+
+  let checkAccessCalls: any[]
+  let getFolderByIdCalls: any[]
+  let moveAssetCalls: any[]
+  let checkAccessResult: boolean
+
+  let app: FastifyInstance
+
+  before(async () => {
+    checkAccessCalls = []
+    getFolderByIdCalls = []
+    moveAssetCalls = []
+    checkAccessResult = true
+
+    app = await buildTestApp({
+      routes,
+      wiki: {
+        sites: { [SITE_ID]: { id: SITE_ID, isEnabled: true } },
+        config: { security: {} },
+        models: {
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: (_actor: any, _permission: string, page: any) => {
+              checkAccessCalls.push(page)
+              return checkAccessResult
+            }
+          },
+          tree: {
+            getFolderById: async (id: string, siteId: string) => {
+              getFolderByIdCalls.push({ id, siteId })
+              return id === DESTINATION_FOLDER_ID
+                ? { id, siteId, folderPath: '', fileName: 'destination' }
+                : null
+            }
+          },
+          assets: {
+            getAsset: async () => existingAsset,
+            moveAsset: async (opts: any) => {
+              moveAssetCalls.push(opts)
+              return { ...existingAsset, folderPath: 'destination' }
+            }
+          }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  test('checks manage:assets at the current folder, then write:assets at the destination, in that order', async () => {
+    checkAccessCalls = []
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+      payload: { folderId: DESTINATION_FOLDER_ID }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(checkAccessCalls.length, 2)
+    assert.equal(checkAccessCalls[0].path, 'source/photo.png', 'first check: the CURRENT location')
+    assert.equal(
+      checkAccessCalls[1].path,
+      'destination/photo.png',
+      'second check: the DESTINATION location'
+    )
+  })
+
+  test('a denied source permission (manage:assets) never resolves the destination or moves anything', async () => {
+    checkAccessCalls = []
+    getFolderByIdCalls = []
+    moveAssetCalls = []
+    checkAccessResult = false
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+        payload: { folderId: DESTINATION_FOLDER_ID }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(checkAccessCalls.length, 1)
+      assert.equal(getFolderByIdCalls.length, 0)
+      assert.equal(moveAssetCalls.length, 0)
+    } finally {
+      checkAccessResult = true
+    }
+  })
+
+  test('a denied destination permission (write:assets) resolves the folder but never moves anything', async () => {
+    checkAccessCalls = []
+    moveAssetCalls = []
+    getFolderByIdCalls = []
+    // -> Allow the first (source, manage:assets) check and deny the second (destination,
+    //    write:assets) -- the split this route checks in order.
+    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: any,
+      _permission: string,
+      page: any
+    ) => {
+      checkAccessCalls.push(page)
+      return checkAccessCalls.length === 1
+    }
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+        payload: { folderId: DESTINATION_FOLDER_ID }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(
+        checkAccessCalls.length,
+        2,
+        'the destination folder must still have been resolved'
+      )
+      assert.equal(getFolderByIdCalls.length, 1)
+      assert.equal(moveAssetCalls.length, 0)
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+    }
+  })
+
+  test('folderId wins over parentPath, and never resolves the destination by path', async () => {
+    getFolderByIdCalls = []
+    moveAssetCalls = []
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+      payload: { folderId: DESTINATION_FOLDER_ID, parentPath: 'ignored/path' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(
+      getFolderByIdCalls.map((c) => c.id),
+      [DESTINATION_FOLDER_ID]
+    )
+    assert.equal(moveAssetCalls.length, 1)
+    assert.equal(moveAssetCalls[0].folderId, DESTINATION_FOLDER_ID)
+    assert.equal(moveAssetCalls[0].parentPath, undefined)
+  })
+
+  test('an unresolvable folderId 404s outright, with no fallback to the site root (unlike upload)', async () => {
+    getFolderByIdCalls = []
+    moveAssetCalls = []
+    checkAccessCalls = []
+    const unknownFolderId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+      payload: { folderId: unknownFolderId }
+    })
+    assert.equal(res.statusCode, 404)
+    assert.deepEqual(
+      getFolderByIdCalls.map((c) => c.id),
+      [unknownFolderId]
+    )
+    // -> Only the source-permission check ran; the destination check never runs against an
+    //    unresolved folder
+    assert.equal(checkAccessCalls.length, 1)
+    assert.equal(moveAssetCalls.length, 0)
+  })
+
+  test('an empty body (no folderId, no parentPath) moves to the site root', async () => {
+    getFolderByIdCalls = []
+    moveAssetCalls = []
+    checkAccessCalls = []
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+      payload: {}
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(getFolderByIdCalls.length, 0)
+    assert.equal(checkAccessCalls[1].path, 'photo.png', 'destination check runs against the root')
+    assert.equal(moveAssetCalls[0].folderId, undefined)
+    assert.equal(moveAssetCalls[0].parentPath, '')
+  })
+
+  test('a nonexistent asset 404s before any permission check', async () => {
+    checkAccessCalls = []
+    const originalGetAsset = (globalThis as any).WIKI.models.assets.getAsset
+    ;(globalThis as any).WIKI.models.assets.getAsset = async () => null
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+        payload: { folderId: DESTINATION_FOLDER_ID }
+      })
+      assert.equal(res.statusCode, 404)
+      assert.equal(checkAccessCalls.length, 0)
+    } finally {
+      ;(globalThis as any).WIKI.models.assets.getAsset = originalGetAsset
+    }
+  })
+
+  test('moveAsset resolving to null (a race with a concurrent delete) answers 404', async () => {
+    const originalMoveAsset = (globalThis as any).WIKI.models.assets.moveAsset
+    ;(globalThis as any).WIKI.models.assets.moveAsset = async () => null
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/sites/${SITE_ID}/assets/${ASSET_ID}/folder`,
+        payload: { folderId: DESTINATION_FOLDER_ID }
+      })
+      assert.equal(res.statusCode, 404)
+    } finally {
+      ;(globalThis as any).WIKI.models.assets.moveAsset = originalMoveAsset
     }
   })
 })

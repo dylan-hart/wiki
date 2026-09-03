@@ -388,6 +388,122 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * MOVE ASSET
+   */
+  app.put<{
+    Params: { siteId: string; assetId: string }
+    Body: { folderId?: string; parentPath?: string }
+  }>(
+    '/sites/:siteId/assets/:assetId/folder',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and asset permissions come
+        from a group's RULES, which address the folder the file is in. Checked below.
+      */
+      schema: {
+        summary: 'Move an asset to another folder',
+        description:
+          "Reparents the asset in place -- its name, contents and locale are untouched. `folderId` wins over `parentPath` when both are sent; neither given moves it to the site root. `parentPath` is created, along with any missing ancestor, the same way an upload's is.\n\nThe caller needs `manage:assets` on the asset's current folder AND `write:assets` on the destination -- the same source/destination split a page move checks (`manage:pages`/`write:pages`). A page, folder or another asset already holding the name at the destination answers 409.",
+        tags: ['Assets'],
+        params: assetIdParam,
+        body: {
+          type: 'object',
+          properties: {
+            folderId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'The destination folder. Wins over `parentPath`.'
+            },
+            parentPath: {
+              type: 'string',
+              maxLength: 2048,
+              description:
+                'Slash-separated path of the destination folder, created (with any missing ancestor) if it does not exist yet. The site root when both are absent, same as an empty string.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Asset moved successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              asset: { $ref: 'Asset#' }
+            }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description:
+              'A page, folder or another asset already holds this name at the destination.'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const existing = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
+      if (!existing) {
+        return reply.notFound('This asset does not exist.')
+      }
+      if (!mayOnAsset(req, 'manage:assets', req.params.siteId, existing)) {
+        return reply.forbidden('You are not allowed to move this file.')
+      }
+
+      // -> Scoped by siteId, same as upload's own folderId resolution -- a foreign or unknown
+      //    folderId must 404 outright here, not fall back to the site root: a move's destination is
+      //    explicit user intent, unlike upload's OpenProject #2131 leniency for a merely-suggested
+      //    parent.
+      const destinationFolder = req.body.folderId
+        ? await WIKI.models.tree.getFolderById(req.body.folderId, req.params.siteId)
+        : null
+      if (req.body.folderId && !destinationFolder) {
+        return reply.notFound('This folder does not exist.')
+      }
+      const parentPath = req.body.folderId
+        ? undefined
+        : req.body.parentPath
+          ? normalizePagePath(req.body.parentPath)
+          : ''
+      const destinationPath = destinationFolder
+        ? [decodeTreePath(destinationFolder.folderPath ?? '') ?? '', destinationFolder.fileName]
+            .filter(Boolean)
+            .join('/')
+        : parentPath
+
+      if (
+        !mayOnAsset(req, 'write:assets', req.params.siteId, {
+          folderPath: destinationPath,
+          fileName: existing.fileName,
+          locale: existing.locale
+        })
+      ) {
+        return reply.forbidden('You are not allowed to move a file here.')
+      }
+
+      const asset = await WIKI.models.assets.moveAsset({
+        siteId: req.params.siteId,
+        id: req.params.assetId,
+        folderId: req.body.folderId,
+        parentPath
+      })
+      if (!asset) {
+        return reply.notFound('This asset does not exist.')
+      }
+      return {
+        ok: true,
+        message: 'Asset moved successfully.',
+        asset
+      }
+    }
+  )
+
+  /**
    * DELETE ASSET
    */
   app.delete<{ Params: { siteId: string; assetId: string } }>(

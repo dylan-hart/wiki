@@ -933,6 +933,208 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2447: `moveEntry` reparents a leaf tree row (in practice an asset — pages get their
+   * own path-aware `movePage`, which also has to keep the `pages` table's own copy of the path in
+   * step) into another folder, keeping both folders' children counts straight and refusing a
+   * destination that already holds the name.
+   */
+  describe('moveEntry (OpenProject #2447)', () => {
+    test("moves an asset into another folder, updating both folders' children counts", async () => {
+      const source = await treeModel.createFolder({
+        pathName: 'move-source',
+        title: 'Source',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const destination = await treeModel.createFolder({
+        pathName: 'move-destination',
+        title: 'Destination',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        parentId: source.id,
+        fileName: 'diagram.png',
+        title: 'diagram.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({
+        id: asset.id,
+        siteId: fixtures.siteId,
+        folderId: destination.id
+      })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, 'move-destination')
+      // -> `getFolderById`, not `readTreeRow`: its return is typed as a real `TreeRow` (`meta:
+      //    Record<string, any>`), unlike a bare `.select()` off a `jsonb()` column with no
+      //    generic, which infers `unknown`.
+      const sourceAfter = await treeModel.getFolderById(source.id, fixtures.siteId)
+      const destinationAfter = await treeModel.getFolderById(destination.id, fixtures.siteId)
+      assert.equal(sourceAfter!.meta.children, 0, "the source folder's count must drop")
+      assert.equal(destinationAfter!.meta.children, 1, "the destination folder's count must rise")
+    })
+
+    test('moving into the site root (no folderId, no parentPath) clears folderPath and decrements the old folder', async () => {
+      const source = await treeModel.createFolder({
+        pathName: 'move-to-root',
+        title: 'Source',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        parentId: source.id,
+        fileName: 'root-bound.png',
+        title: 'root-bound.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, '')
+      const sourceAfter = await treeModel.getFolderById(source.id, fixtures.siteId)
+      assert.equal(sourceAfter!.meta.children, 0)
+    })
+
+    test('parentPath resolves-or-creates the destination folder, the same as an upload', async () => {
+      const asset = await treeModel.addAsset({
+        fileName: 'via-path.png',
+        title: 'via-path.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({
+        id: asset.id,
+        siteId: fixtures.siteId,
+        parentPath: 'brand-new/nested'
+      })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, 'brand-new.nested')
+      const createdFolder = await treeModel.getFolder({
+        path: 'brand-new/nested',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      assert.ok(createdFolder, 'the missing ancestor folder must have been created')
+    })
+
+    test('moving into the folder it already sits in is a no-op: unchanged row, folder count untouched', async () => {
+      const source = await treeModel.createFolder({
+        pathName: 'move-noop',
+        title: 'Source',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        parentId: source.id,
+        fileName: 'stays-put.png',
+        title: 'stays-put.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const moved = await treeModel.moveEntry({
+        id: asset.id,
+        siteId: fixtures.siteId,
+        folderId: source.id
+      })
+
+      assert.ok(moved)
+      assert.equal(moved!.folderPath, 'move-noop')
+      const sourceAfter = await treeModel.getFolderById(source.id, fixtures.siteId)
+      assert.equal(
+        sourceAfter!.meta.children,
+        1,
+        'the count must not have been decremented then re-incremented'
+      )
+    })
+
+    test('refuses a destination that already holds the name (treeEntryDuplicate, 409)', async () => {
+      const destination = await treeModel.createFolder({
+        pathName: 'move-collision',
+        title: 'Destination',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await treeModel.addAsset({
+        parentId: destination.id,
+        fileName: 'taken.png',
+        title: 'taken.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const asset = await treeModel.addAsset({
+        fileName: 'taken.png',
+        title: 'taken.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      await assert.rejects(
+        treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId, folderId: destination.id }),
+        (err: any) => err.name === 'treeEntryDuplicate' && err.statusCode === 409
+      )
+    })
+
+    test('returns null for an entry that does not exist on this site', async () => {
+      const result = await treeModel.moveEntry({
+        id: '00000000-0000-0000-0000-000000000000',
+        siteId: fixtures.siteId
+      })
+      assert.equal(result, null)
+    })
+
+    test('returns null for an entry belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `moveentry-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+      const asset = await treeModel.addAsset({
+        fileName: 'foreign.png',
+        title: 'foreign.png',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+
+      const result = await treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId })
+      assert.equal(result, null)
+      // -> No site cleanup here: `asset`'s tree row still references it, and this test's whole
+      //    schema is dropped by teardownTestDb() regardless.
+    })
+
+    test('throws for a folderId belonging to a different site (treeInvalidFolder, 404)', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `moveentry-foreignfolder-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+      const foreignFolder = await treeModel.createFolder({
+        pathName: 'foreign-dest',
+        title: 'Foreign',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+      const asset = await treeModel.addAsset({
+        fileName: 'wants-to-move.png',
+        title: 'wants-to-move.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      await assert.rejects(
+        treeModel.moveEntry({ id: asset.id, siteId: fixtures.siteId, folderId: foreignFolder.id }),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+      // -> No site cleanup here, same reasoning as above.
+    })
+  })
+
+  /**
    * OpenProject #1587 §2 / task 1599: `getTree()` used to apply no visibility filter at all, unlike
    * `browse()`/`listPages()` -- so BROWSE THE TREE (`GET /sites/:siteId/tree`, the only caller) could
    * enumerate a draft, a scheduled-but-not-yet-live page, or an `isBrowsable: false` page to anyone

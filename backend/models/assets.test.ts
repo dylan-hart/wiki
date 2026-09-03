@@ -302,6 +302,66 @@ test('renameAsset awaits both asset:rename hooks.emit and storage.dispatch befor
   assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
 })
 
+test('moveAsset awaits both asset:move hooks.emit and storage.dispatch before resolving, and busts both cached paths', async (t) => {
+  const order: string[] = []
+  // -> Spies on the real singleton's prototype method rather than replacing the object -- the
+  //    latter drops every other prototype method (`dropCachedContent` included), which corrupted
+  //    shared test state for whichever test ran next. `t.mock` restores this automatically.
+  const forgetPathSpy = t.mock.method(assetServing, 'forgetPath')
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    db: makeAssetsDbStub({ ...testAsset, folderPath: '', mimeType: 'image/png' }),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        moveEntry: async () => ({ id: 'asset-1', folderPath: 'new-folder', fileName: 'x.png' })
+      },
+      hooks: { emit: delayedDispatchMock(order, 'hooks') },
+      storage: { dispatch: delayedDispatchMock(order, 'storage') }
+    }
+  } as unknown as WikiGlobal
+
+  const result = await assets.moveAsset({ siteId: 'site-1', id: 'asset-1', folderId: 'folder-1' })
+
+  assert.ok(result)
+  assert.deepEqual(order.sort(), ['hooks', 'storage'])
+  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+  // -> Both ends of the move: the folder it left ('') and the folder it arrived in ('new-folder')
+  assert.deepEqual(
+    forgetPathSpy.mock.calls.map((call) => call.arguments[1]),
+    ['', 'new-folder']
+  )
+})
+
+test('moveAsset is a no-op — no hooks.emit, no storage.dispatch, no cache-bust — when the destination is the folder it is already in', async (t) => {
+  const forgetPathSpy = t.mock.method(assetServing, 'forgetPath')
+  const emit = mock.fn(async () => {})
+  const dispatch = mock.fn(async () => {})
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    db: makeAssetsDbStub({ ...testAsset, folderPath: 'same-folder', mimeType: 'image/png' }),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        // -> Mirrors `Tree#moveEntry`'s own no-op branch: the entry comes back unchanged
+        moveEntry: async () => ({ id: 'asset-1', folderPath: 'same-folder', fileName: 'x.png' })
+      },
+      hooks: { emit },
+      storage: { dispatch }
+    }
+  } as unknown as WikiGlobal
+
+  const result = await assets.moveAsset({ siteId: 'site-1', id: 'asset-1', folderId: 'folder-1' })
+
+  assert.ok(result)
+  assert.equal(emit.mock.callCount(), 0)
+  assert.equal(dispatch.mock.callCount(), 0)
+  assert.equal(forgetPathSpy.mock.callCount(), 0)
+})
+
 test('deleteAsset awaits both asset:delete hooks.emit and storage.dispatch before resolving', async () => {
   const order: string[] = []
   global.WIKI = {
