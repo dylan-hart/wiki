@@ -675,6 +675,147 @@ class MailModel {
         `<p>${await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.footer', { label })}</p>`
     })
   }
+
+  /**
+   * Notification-event email — the templating half of Feature #2425's per-user, per-event-type
+   * subscriptions (OpenProject #2483). `event` is one of `models/hooks.ts#HOOK_EVENTS`, the same
+   * vocabulary webhooks already dispatch on: the Feature's own scope is to extend that existing
+   * trigger infrastructure to also emit email rather than invent a parallel one, so this template
+   * reuses it too instead of declaring its own event names. Nothing calls this yet — resolving which
+   * users are subscribed to which event (per-user storage) and firing this from the trigger points
+   * themselves is #2481/#2482's job, not this template's. #2481/#2482 landed their own, simpler
+   * {@link sendEventNotification} (wired from `tasks/simple/notify-event-subscribers.ts`) before this
+   * method's branch merged, rather than waiting on this richer templating — so this method has no
+   * caller yet, and its own `mail.notificationEvent.templateFooter` locale key is deliberately
+   * distinct from {@link sendEventNotification}'s `mail.notificationEvent.footer` (different call
+   * signature, different wording) to avoid colliding with it in `en.json`.
+   *
+   * Deliberately takes structured fields (`title`/`path`/`pageLocale`/`actorName`) rather than the
+   * raw webhook payload `models/hooks.ts#emit()` receives: what identifies "the thing this happened
+   * to" differs per event (a page carries `path`, an asset carries `folderPath`+`fileName`, a comment
+   * carries a `pageId`, a user event carries neither), so the caller — which already knows which
+   * event it's resolving — picks the human-facing title/link path, keeping this template decoupled
+   * from every event's own payload shape.
+   *
+   * `title`/`path` are coupled in practice (both come from "is there a page/thing to point at"), so
+   * there are only two body variants: with a target (title + link) or without one (`user:join`/
+   * `user:login`/`user:logout`, which have neither) — not a combinatorial set per optional field.
+   *
+   * @param path A page-relative path (e.g. a page's `path`) to link at, when there is one. Routed
+   *   through `localizedPagePath` exactly like {@link sendPageWatchNotification}'s link, so a
+   *   non-primary-locale page still links with its locale prefix.
+   * @param pageLocale The linked page's own locale, required to build a correct link when `locales`
+   *   has more than one active locale — see `pageLocale` on {@link WatchEventItem.page}.
+   * @param actorName Who did it, if the caller resolved one (e.g. from `data.authorId`). Falls back
+   *   to `mail.notificationEvent.unknownActor` ("Someone") rather than an empty subject/body — every
+   *   event this covers has an actor in principle, but a caller may not always have resolved a name
+   *   for one (a deleted account, a guest with no display name captured).
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendNotificationEvent({
+    to,
+    event,
+    siteId,
+    title,
+    path,
+    pageLocale,
+    actorName,
+    locale
+  }: {
+    to: string
+    event: HookEvent
+    siteId?: string | null
+    title?: string | null
+    path?: string | null
+    pageLocale?: string | null
+    actorName?: string | null
+    locale?: string | null
+  }): Promise<void> {
+    const label = await WIKI.models.locales.resolveString(
+      locale,
+      `mail.notificationEvent.${event}.label`
+    )
+    const actor =
+      actorName ||
+      (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.unknownActor'))
+    const target = title ?? path ?? null
+
+    let link: string | null = null
+    if (path) {
+      const locales = siteId ? WIKI.sites[siteId]?.config?.locales : null
+      const baseURL = this.resolveMailBaseURL(siteId ?? undefined)
+      link = this.buildLink(
+        pageLocale ? localizedPagePath(path, pageLocale, locales) : path,
+        baseURL
+      )
+    }
+
+    const subject = target
+      ? await WIKI.models.locales.resolveString(
+          locale,
+          'mail.notificationEvent.subjectWithTarget',
+          {
+            label,
+            target
+          }
+        )
+      : await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.subjectPlain', {
+          label
+        })
+
+    const footer = await WIKI.models.locales.resolveString(
+      locale,
+      'mail.notificationEvent.templateFooter'
+    )
+    let text: string
+    let html: string
+    if (target && link) {
+      text = await WIKI.models.locales.resolveString(
+        locale,
+        'mail.notificationEvent.bodyWithTarget.text',
+        {
+          actor,
+          label,
+          target,
+          link
+        }
+      )
+      html = await WIKI.models.locales.resolveString(
+        locale,
+        'mail.notificationEvent.bodyWithTarget.html',
+        {
+          actor: escapeHtml(actor),
+          label,
+          target: escapeHtml(target),
+          link
+        }
+      )
+    } else {
+      text = await WIKI.models.locales.resolveString(
+        locale,
+        'mail.notificationEvent.bodyPlain.text',
+        {
+          actor,
+          label
+        }
+      )
+      html = await WIKI.models.locales.resolveString(
+        locale,
+        'mail.notificationEvent.bodyPlain.html',
+        {
+          actor: escapeHtml(actor),
+          label
+        }
+      )
+    }
+
+    await this.send({
+      to,
+      subject,
+      text: `${text}\n\n${footer}`,
+      html: `<p>${html}</p><p>${footer}</p>`
+    })
+  }
 }
 
 export const mail = new MailModel()
