@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import './component.js'
+import { BlockIndexElement } from './component.js'
 import { _resetSiteCache } from '../shared/site.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } from '../test/mount.js'
@@ -276,6 +276,24 @@ describe('block-index', () => {
       expect(el.shadowRoot.querySelector('ul').style.gridTemplateColumns).toBe(
         'repeat(1, minmax(0, 1fr))'
       )
+    })
+  })
+
+  // -> OpenProject #2463 (docs/discoverability pass): the block picker and Admin > Blocks both
+  //    render this text verbatim as the only way an author learns what the block is for, so a
+  //    reader looking for a "book/chapter" or nested table-of-contents feature needs to recognize
+  //    it from here -- this guards the wording that fixes that against a silent regression back to
+  //    the old, use-case-free "Displays a list of pages contained in a folder."
+  describe('discoverability (OpenProject #2463)', () => {
+    it("describes the nested/book-chapter use case in the block's own metadata", () => {
+      expect(BlockIndexElement.definition.description).toMatch(/book\/chapter/i)
+      expect(BlockIndexElement.definition.description).toMatch(/table of contents/i)
+    })
+
+    it('explains what raising Depth above 0 does for the depth prop', () => {
+      const depthProp = BlockIndexElement.definition.props.find((prop) => prop.name === 'depth')
+      expect(depthProp.hint).toMatch(/subfolders/i)
+      expect(depthProp.hint).toMatch(/book\/chapter/i)
     })
   })
 })

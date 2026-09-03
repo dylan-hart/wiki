@@ -46,7 +46,8 @@ export class BlockIndexElement extends LitElement {
   static definition = {
     block: 'index',
     name: 'Index',
-    description: 'Displays a list of pages contained in a folder.',
+    description:
+      "Lists a folder's pages -- set Depth above 0 to also pull in subfolders for a nested, book/chapter-style index or table of contents.",
     icon: 'index',
     props: [
       {
@@ -86,7 +87,7 @@ export class BlockIndexElement extends LitElement {
         name: 'depth',
         type: 'number',
         label: 'Depth',
-        hint: 'How many folders below the path to include. 0 is the folder itself.',
+        hint: 'How many folders below the path to include. 0 is the folder itself; above 0 pulls in subfolders too, for a nested book/chapter-style listing.',
         default: 0
       },
       {
