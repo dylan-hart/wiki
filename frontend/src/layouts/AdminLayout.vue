@@ -379,6 +379,16 @@
                   :color="adminStore.info.isPageviewsEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
+            <w-item to="/_admin/replication" active-class="bg-primary text-white">
+              <w-item-section avatar>
+                <w-icon name="img:/_assets/icons/ultraviolet-synchronize.svg" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.replication.title') }}</w-item-section>
+              <w-item-section side>
+                <status-light
+                  :color="adminStore.info.isReplicationEnabled ? `positive` : `negative`" />
+              </w-item-section>
+            </w-item>
             <w-item to="/_admin/scheduler" active-class="bg-primary text-white">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bot.svg" />

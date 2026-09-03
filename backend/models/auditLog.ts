@@ -58,6 +58,11 @@ export const AUDIT_EVENTS = [
   'system.apiStateUpdated',
   'system.metricsUpdated',
   'system.pageviewsUpdated',
+  // -> #2491: an operator changed the instance-level scheduled-replication settings (source URL,
+  //   bearer token, cron schedule, or the enable toggle). `detail` is the same filtered patch
+  //   pattern as the siblings above, with `bearerToken` masked rather than dropped, so a diff of
+  //   what changed stays visible without ever writing the raw secret to the log.
+  'system.replicationUpdated',
   // -> #2288: an operator rotated `pageviews.hashKey`, breaking correlation between pre- and
   //   post-rotation `visitorHash` rows on purpose.
   'system.pageviewsHashKeyRotated',
