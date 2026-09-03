@@ -44,6 +44,7 @@ import { pdfExport } from './pdfExport.ts'
 import { rateLimits } from './rateLimits.ts'
 import { renderQueue } from './renderQueue.ts'
 import { rendering } from './rendering.ts'
+import { replication } from './replication.ts'
 import { replicationExport } from './replicationExport.ts'
 import { replicationImportModel } from './replicationImport.ts'
 import { search } from './search.ts'
@@ -104,6 +105,7 @@ export default {
   rateLimits,
   renderQueue,
   rendering,
+  replication,
   replicationExport,
   replicationImport: replicationImportModel,
   search,
