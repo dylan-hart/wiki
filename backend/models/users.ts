@@ -17,6 +17,7 @@ import { flatten, uniq } from 'es-toolkit/array'
 import { BCRYPT_ROUNDS, escapeLikePattern, isUniqueViolation } from '../helpers/common.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { paginate } from '../helpers/pagination.ts'
+import { HOOK_EVENTS, type HookEvent } from './hooks.ts'
 import type { SystemIds } from './types.ts'
 
 /** The essential user fields, mirroring the `UserCore` API schema. */
@@ -91,6 +92,14 @@ export interface UserProfilePatch {
   cvd?: string
   locale?: string
 }
+
+/**
+ * One boolean per event type a user may opt into receiving an email for (Feature #2425). Keyed by
+ * {@link HookEvent} rather than a separate vocabulary, since `#2481` (extending webhook dispatch to
+ * also emit email) fires against exactly this same event list -- a subscriber map with its own set
+ * of names would need translating between the two at delivery time for no benefit.
+ */
+export type NotificationSubscriptions = Record<HookEvent, boolean>
 
 /** The `meta` keys the profile owns, and the `prefs` keys it owns. */
 const profileMetaKeys = ['location', 'jobTitle', 'pronouns'] as const
@@ -664,6 +673,60 @@ class Users {
     prefs.editors = { ...((prefs.editors ?? {}) as Record<string, any>), [editor]: config }
     await this.updateUser(id, { prefs })
     return config
+  }
+
+  /**
+   * A user's own per-event-type email notification subscriptions (Feature #2425).
+   *
+   * Kept under `prefs.eventSubscriptions`, the same one-blob-per-concern shape
+   * `prefs.editors[editor]` uses. Always returns a fully populated map over every
+   * {@link HOOK_EVENTS} entry rather than only the keys a user has actually touched -- opting in is
+   * explicit, so an event the user has never set, or one added to `HOOK_EVENTS` after they last
+   * saved, both default to `false` here rather than being silently absent from the response.
+   *
+   * @returns The full subscription map, or null if no such user exists
+   */
+  async getNotificationSubscriptions(id: string): Promise<NotificationSubscriptions | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const prefs = (user.prefs ?? {}) as Record<string, any>
+    const stored = (prefs.eventSubscriptions ?? {}) as Record<string, unknown>
+    const subscriptions = {} as NotificationSubscriptions
+    for (const event of HOOK_EVENTS) {
+      subscriptions[event] = stored[event] === true
+    }
+    return subscriptions
+  }
+
+  /**
+   * Merge a patch into a user's per-event-type email notification subscriptions.
+   *
+   * Only the keys present in `patch` change; every other event type -- including one the caller
+   * simply didn't send -- is left as it was. `patch` is trusted to carry only known
+   * {@link HookEvent} keys: the route schema (`UserNotificationSubscriptionsUpdate`) is what
+   * actually rejects an unknown one, so this only ever writes keys `HOOK_EVENTS` already lists.
+   *
+   * @returns The full, freshly merged subscription map, or null if no such user exists
+   */
+  async setNotificationSubscriptions(
+    id: string,
+    patch: Partial<NotificationSubscriptions>
+  ): Promise<NotificationSubscriptions | null> {
+    const user = await this.getById(id)
+    if (!user) {
+      return null
+    }
+    const prefs = { ...((user.prefs ?? {}) as Record<string, any>) }
+    const existing = (prefs.eventSubscriptions ?? {}) as Record<string, unknown>
+    const merged: Record<string, boolean> = {}
+    for (const event of HOOK_EVENTS) {
+      merged[event] = patch[event] !== undefined ? patch[event]! : existing[event] === true
+    }
+    prefs.eventSubscriptions = merged
+    await this.updateUser(id, { prefs })
+    return merged as NotificationSubscriptions
   }
 
   /**

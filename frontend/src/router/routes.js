@@ -40,7 +40,8 @@ const routes = [
       { path: 'avatar', component: () => import('@/pages/ProfileAvatar.vue') },
       { path: 'auth', component: () => import('@/pages/ProfileAuth.vue') },
       { path: 'groups', component: () => import('@/pages/ProfileGroups.vue') },
-      { path: 'api', component: () => import('@/pages/ProfileApi.vue') }
+      { path: 'api', component: () => import('@/pages/ProfileApi.vue') },
+      { path: 'notifications', component: () => import('@/pages/ProfileNotifications.vue') }
     ]
   },
   {
