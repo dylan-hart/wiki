@@ -3,6 +3,7 @@ import { describe, test, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { mail, classifyMailError } from './mail.ts'
 import { interpolate } from './locales.ts'
+import { HOOK_EVENTS } from './hooks.ts'
 
 /**
  * `mail` builds its nodemailer transport straight from `WIKI.config.mail` and never touches the
@@ -827,6 +828,113 @@ describe('mail template senders', () => {
       assert.match(msg.text, /<script>alert\(1\)<\/script>/)
     })
   })
+
+  describe('sendNotificationEvent', () => {
+    test('with a title and path: subject/body carry the target and a per-site link', async () => {
+      await mail.sendNotificationEvent({
+        to: 'ada@example.com',
+        event: 'page:create',
+        siteId: DEFAULT_SITE_ID,
+        title: 'Getting Started',
+        path: 'docs/getting-started',
+        pageLocale: 'en',
+        actorName: 'Bob'
+      })
+      assert.equal(sendCalls.length, 1)
+      const msg = sendCalls[0]
+      assert.equal(msg.to, 'ada@example.com')
+      assert.match(msg.subject, /published/i)
+      assert.match(msg.subject, /Getting Started/)
+      assert.match(msg.text, /Bob/)
+      assert.match(msg.text, /Getting Started/)
+      assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/docs\/getting-started/)
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/docs\/getting-started/)
+    })
+
+    test('falls back to the path as the target when no title is given', async () => {
+      await mail.sendNotificationEvent({
+        to: 'ada@example.com',
+        event: 'asset:upload',
+        siteId: DEFAULT_SITE_ID,
+        path: 'uploads/logo.png',
+        pageLocale: 'en',
+        actorName: 'Bob'
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.subject, /uploads\/logo\.png/)
+    })
+
+    test('with no path (a userless-page event): no link, plain subject/body', async () => {
+      await mail.sendNotificationEvent({
+        to: 'ada@example.com',
+        event: 'user:join',
+        actorName: 'Bob'
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.subject, /joined/i)
+      assert.doesNotMatch(msg.subject, /:/)
+      assert.doesNotMatch(msg.html, /<a href/)
+      assert.doesNotMatch(msg.text, /https?:\/\//)
+    })
+
+    test('falls back to a generic actor when none is given', async () => {
+      await mail.sendNotificationEvent({
+        to: 'ada@example.com',
+        event: 'user:login'
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.text, /Someone/)
+    })
+
+    test('escapes an untrusted title and actor name in the HTML body, not the text body', async () => {
+      await mail.sendNotificationEvent({
+        to: 'ada@example.com',
+        event: 'page:edit',
+        siteId: DEFAULT_SITE_ID,
+        title: '<script>alert(1)</script>',
+        path: 'evil-page',
+        pageLocale: 'en',
+        actorName: '<img src=x>'
+      })
+      const msg = sendCalls[0]
+      assert.doesNotMatch(msg.html, /<script>/)
+      assert.match(msg.html, /&lt;script&gt;/)
+      assert.doesNotMatch(msg.html, /<img src=x>/)
+      assert.match(msg.text, /<script>alert\(1\)<\/script>/)
+    })
+
+    test('links with a locale prefix for a non-primary-locale page', async () => {
+      await mail.sendNotificationEvent({
+        to: 'ada@example.com',
+        event: 'page:create',
+        siteId: DEFAULT_SITE_ID,
+        title: 'Bonjour',
+        path: 'bonjour',
+        pageLocale: 'fr'
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/fr\/bonjour/)
+    })
+
+    test('falls back to defaultBaseURL when no siteId is given', async () => {
+      await mail.sendNotificationEvent({
+        to: 'ada@example.com',
+        event: 'page:create',
+        title: 'Getting Started',
+        path: 'docs/getting-started',
+        pageLocale: 'en'
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.text, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    })
+
+    test('includes the mail.notificationEvent.footer line', async () => {
+      await mail.sendNotificationEvent({ to: 'ada@example.com', event: 'user:logout' })
+      const msg = sendCalls[0]
+      assert.match(msg.text, /subscribed to this type of notification/i)
+      assert.match(msg.html, /subscribed to this type of notification/i)
+    })
+  })
 })
 
 /**
@@ -976,5 +1084,24 @@ describe('mail templates resolve through the locale catalogue', () => {
     assert.equal(sendCalls[0].subject, zeroForm)
     assert.equal(sendCalls[1].subject, oneForm)
     assert.equal(sendCalls[2].subject, otherForm.replace('{count}', '2'))
+  })
+})
+
+/**
+ * `sendNotificationEvent` resolves `mail.notificationEvent.<event>.label` off `event` alone (a
+ * template literal, not a static string oxlint/grep could ever match against `en.json`) — so a
+ * `HOOK_EVENTS` member added without its matching label key would silently fall back to the raw key
+ * itself (`models/locales.ts#lookupString`'s documented behaviour for a missing string) rather than
+ * fail anywhere visible. This asserts every current member has a real one.
+ */
+describe('mail.notificationEvent.<event>.label completeness', () => {
+  test('every HOOK_EVENTS member has a non-empty, non-key-echoing label in en.json', () => {
+    for (const event of HOOK_EVENTS) {
+      const key = `mail.notificationEvent.${event}.label`
+      const value = enStrings[key]
+      assert.equal(typeof value, 'string', `expected a string at "${key}"`)
+      assert.notEqual(value, key, `"${key}" resolves to its own key -- no label is defined`)
+      assert.ok(value.length > 0, `"${key}" must not be empty`)
+    }
   })
 })
