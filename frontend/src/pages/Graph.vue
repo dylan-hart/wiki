@@ -182,6 +182,8 @@ import { useRouter } from 'vue-router'
 import { forceCenter, forceCollide } from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { zoomIdentity } from 'd3-zoom'
+import { debounce } from 'es-toolkit/function'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { useSiteStore } from '@/stores/site'
@@ -385,6 +387,81 @@ const localeOptions = computed(() => filterOptions.value.locales)
 const showLocaleFilter = computed(
   () => siteStore.locales.showMenu && localeOptions.value.length > 1
 )
+
+/** How long to wait after the last keystroke before firing the keyword search (OpenProject #2479)
+ *  -- same debounce window as the header search's own live preview (`HeaderSearch.vue`). */
+const KEYWORD_SEARCH_DEBOUNCE_MS = 300
+
+/** The search endpoint's own maximum `limit` (`backend/api/pages/read.ts`'s `/sites/:siteId/pages/
+ *  search`), used as-is so as many of the currently-loaded graph's matches as the endpoint can
+ *  return in one page get highlighted. A keyword matching more pages than this only has its top 100
+ *  (by relevancy) highlighted -- accepted the same way the graph's own node cap is (see
+ *  `graphTruncated` above) rather than paginating a highlight overlay. */
+const KEYWORD_SEARCH_LIMIT = 100
+
+/**
+ * The keyword typed into the graph's filter panel (OpenProject #2414: #2478 adds the actual
+ * control, bound to this ref; this file only wires it to the search endpoint -- #2479).
+ *
+ * Deliberately NOT a field on `activeFilters` above: everything in that object narrows the VISIBLE
+ * node set (`computeVisibleSubset`) and is deep-watched to re-run `applyFilters()`/
+ * `syncSimulationToVisibleSet()` on every change, but a keyword match highlights matching nodes
+ * rather than filtering non-matching ones out of view (the Feature's own scope decision) --
+ * folding it into `activeFilters` would re-layout the whole graph on every keystroke for no reason,
+ * and would need `computeVisibleSubset` to special-case it back out again.
+ */
+const graphKeyword = ref('')
+
+/** Composite `${locale}:${path}` ids (`graphFilters.js#nodeId`) of every currently-loaded page the
+ *  active `graphKeyword` matches, per the same full-text search the header search bar uses -- what
+ *  OpenProject #2480's render pass highlights against. Empty whenever the keyword is empty/
+ *  whitespace-only, the fetch is still in flight, or it failed. `shallowRef` (not `ref`) for the
+ *  same reactivity-cost reasoning as `nodes`/`edges` above -- nothing needs to react to a mutation
+ *  of the Set's contents, only to it being replaced wholesale, which every assignment below does. */
+const keywordMatchIds = shallowRef(new Set())
+
+/** Bumped on every keyword fetch started or invalidated -- same stale-response guard
+ *  `HeaderSearch.vue`'s live preview uses (`previewRequestToken`), so a slower, earlier request
+ *  landing after a faster, later one can't clobber fresher results with stale ones. */
+let keywordSearchToken = 0
+
+/** Runs the actual request. Not called directly outside the watcher below --
+ *  `debouncedSearchKeyword` is what a burst of keystrokes collapses into one call through. */
+async function searchKeyword(query) {
+  const token = ++keywordSearchToken
+  try {
+    const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
+      searchParams: { query, limit: KEYWORD_SEARCH_LIMIT }
+    }).json()
+    // -> A newer keyword (or a clear) started while this request was in flight.
+    if (token !== keywordSearchToken) {
+      return
+    }
+    keywordMatchIds.value = new Set((resp?.results ?? []).map((r) => nodeId(r)))
+  } catch (err) {
+    if (token !== keywordSearchToken) {
+      return
+    }
+    keywordMatchIds.value = new Set()
+    console.warn(apiErrorMessage(err))
+  }
+}
+
+const debouncedSearchKeyword = debounce(searchKeyword, KEYWORD_SEARCH_DEBOUNCE_MS)
+
+watch(graphKeyword, (newKeyword) => {
+  const query = (newKeyword ?? '').trim()
+  if (!query) {
+    debouncedSearchKeyword.cancel()
+    // -> Invalidates any request already in flight for a since-cleared keyword, the same way
+    //    `keywordSearchToken++` alone (with no direct state reset) guards a stale FETCH -- this is
+    //    the synchronous counterpart for a keyword cleared outright rather than merely changed.
+    keywordSearchToken++
+    keywordMatchIds.value = new Set()
+    return
+  }
+  debouncedSearchKeyword(query)
+})
 
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
@@ -970,6 +1047,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   simulation?.stop()
   resizeObserver?.disconnect()
+  debouncedSearchKeyword.cancel()
 })
 </script>
 
