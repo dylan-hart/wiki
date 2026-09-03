@@ -767,6 +767,97 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2460: `listPages()` carries no signal for whether a page has children of its own
+   * nested below it, so a nested tree view (block-index) has no way to tell a "book" (has children)
+   * from a "file" (leaf) apart from re-querying per row. `hasChildren` is a per-row correlated EXISTS
+   * over the same `pageIsVisible` gate the listing itself uses.
+   */
+  describe('listPages() hasChildren (OpenProject #2460)', () => {
+    test('false for a leaf page with no page nested under its own path', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-leaf-folder/only', title: 'Leaf', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-leaf-folder',
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      assert.equal(pages[0]!.hasChildren, false)
+    })
+
+    test('true for a page with a page nested under its own path, at any depth', async () => {
+      // -> 'toc' is the page under test; 'toc/section' sits nested under 'toc''s own path, the way a
+      //    "chapter" page would sit under a "book" page's path in a nested tree view.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-book-folder/toc', title: 'Book', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'has-children-book-folder/toc/section',
+          title: 'Nested Section',
+          locale: 'en'
+        }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-book-folder',
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      assert.equal(pages[0]!.hasChildren, true)
+    })
+
+    test('false for an anonymous (publicOnly) caller when the only nested page is a draft', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'has-children-draft-folder/toc', title: 'Draft Parent', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'has-children-draft-folder/toc/draft-section',
+          title: 'Draft Child',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+
+      const anonymous = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-draft-folder',
+        publicOnly: true
+      })
+      const authenticated = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'has-children-draft-folder',
+        publicOnly: false
+      })
+
+      assert.equal(anonymous.length, 1)
+      assert.equal(anonymous[0]!.hasChildren, false)
+      assert.equal(authenticated.length, 1)
+      assert.equal(authenticated[0]!.hasChildren, true)
+    })
+  })
+
+  /**
    * OpenProject #2098: `deleteFolder`/`renameFolder`'s callers need to authorize every descendant
    * before committing to the cascade -- `listDescendants` resolves that same at-or-below set without
    * mutating anything, carrying each page's real tags and classification (the same join #1128 added

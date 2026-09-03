@@ -105,6 +105,11 @@ export interface ListedPage {
   description: string
   /** The page's icon, as an Iconify reference. Empty when it has none. */
   icon: string
+  /** Whether a page a reader may open sits nested under this page's own path, at any depth (OpenProject
+   *  #2460) — the book-vs-file signal a nested tree view draws off of. Judged by the same
+   *  `pageIsVisible` rule as the listing itself, so a caller never learns of a child it could not
+   *  otherwise see. */
+  hasChildren: boolean
   /** Classification level id (OpenProject #1079), for the reader-permission filter layered on top of
    *  this listing (see `api/tree.ts`'s "LIST PAGES AS A READER" route). Never returned to the client:
    *  no API schema declares this field, so Fastify's response serialization drops it. */
@@ -234,6 +239,46 @@ export function holdsVisiblePagesUnder(
           eq(descendant.locale, treeTable.locale),
           eq(descendant.type, 'page'),
           sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
+          ...pageIsVisible(descendantPage, publicOnly)
+        )
+      )
+  )
+}
+
+/**
+ * Whether a PAGE holds a page a reader may open nested under its own path, at any depth below it —
+ * as an `EXISTS` correlated to the outer `tree` row being tested (OpenProject #2460's has-children
+ * signal for `listPages()`).
+ *
+ * The same question `holdsVisiblePagesUnder` answers for a folder, but that one takes the parent
+ * path as a fixed JS string shared by every row in the query — right for `browse()`, which only
+ * ever lists one folder level at a time. `listPages()` can return rows sitting at different depths
+ * in a single result set (its own `depth` option), so this variant builds each row's own path from
+ * its `folderPath`/`fileName` COLUMNS instead, correlated per row. It uses the `ltree || ltree`
+ * concatenation operator rather than `holdsVisiblePagesUnder`'s text-then-cast idiom, since that
+ * idiom relies on the caller knowing ahead of time whether the parent path is empty (to omit the
+ * joining dot) — impossible here, where the prefix is a column value evaluated per row. `||` needs
+ * no such special-casing: concatenating the zero-level root path is a no-op.
+ *
+ * @param publicOnly Passed straight to `pageIsVisible`: true restricts to what an anonymous reader
+ *   may see, matching `listPages()`'s own gate on the outer rows.
+ * @param aliasSuffix Names the two table aliases this subquery introduces. Each call site needs its
+ *   own, since two `EXISTS` clauses in one statement cannot share an alias name.
+ */
+export function holdsVisibleChildPages(publicOnly: boolean, aliasSuffix: string): SQL {
+  const descendant = alias(treeTable, `childTree${aliasSuffix}`)
+  const descendantPage = alias(pagesTable, `childPage${aliasSuffix}`)
+  return exists(
+    WIKI.db
+      .select({ one: sql`1` })
+      .from(descendant)
+      .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
+      .where(
+        and(
+          eq(descendant.siteId, treeTable.siteId),
+          eq(descendant.locale, treeTable.locale),
+          eq(descendant.type, 'page'),
+          sql`${descendant.folderPath} <@ (${treeTable.folderPath} || ${treeTable.fileName}::ltree)`,
           ...pageIsVisible(descendantPage, publicOnly)
         )
       )
@@ -547,6 +592,7 @@ class Tree {
     const pathQuery = encodedPath ? `${encodedPath}.${levels}` : levels
 
     const direction = orderByDirection === 'desc' ? desc : asc
+    const hasChildren = holdsVisibleChildPages(publicOnly, '')
     const rows = await WIKI.db
       .select({
         id: treeTable.id,
@@ -555,7 +601,8 @@ class Tree {
         title: treeTable.title,
         description: pagesTable.description,
         icon: pagesTable.icon,
-        classification: pagesTable.classification
+        classification: pagesTable.classification,
+        hasChildren: sql<boolean>`${hasChildren}`.mapWith(Boolean)
       })
       .from(treeTable)
       .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
@@ -580,6 +627,7 @@ class Tree {
         title: row.title,
         description: row.description ?? '',
         icon: row.icon ?? '',
+        hasChildren: row.hasChildren,
         classification: row.classification
       }
     })
