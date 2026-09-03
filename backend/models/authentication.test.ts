@@ -162,7 +162,7 @@ describe('authentication.validateStrategy: allowedEmailDomains', () => {
   test('accepts a list of plausible domains', async () => {
     const result = await authentication.validateStrategy({
       module: 'local',
-      allowedEmailDomains: ['example.com', 'sub.example.org']
+      allowedEmailDomains: ['example.com', 'sub.example.org', 'Example.ORG']
     })
     assert.equal(result, null)
   })

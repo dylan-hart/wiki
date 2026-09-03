@@ -159,7 +159,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'array',
         items: { type: 'string' },
         description:
-          'Domains a visitor may self-register an account under, matched case-insensitively once enforced. Stored already normalized (trimmed, lower-cased, deduped). Independent of `allowedEmailRegex` -- a strategy may carry both.'
+          'Case-insensitive allow-list of domains a visitor may self-register an account under. Stored already normalized (trimmed, lower-cased, deduped). Empty means unrestricted. Independent of `allowedEmailRegex` -- a strategy may carry both, but this one only ever gates self-registration, not provider auto-provisioning.'
       },
       autoEnrollGroups: {
         type: 'array',
@@ -270,7 +270,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'array',
         items: { type: 'string', maxLength: 255 },
         description:
-          'A friendlier alternative to `allowedEmailRegex`: domains a visitor may self-register under, matched case-insensitively. Each entry must look like a bare domain (no `@`, no scheme). Independent of `allowedEmailRegex` — a strategy may carry both.'
+          "A friendlier alternative to `allowedEmailRegex`: domains a visitor may self-register under, matched case-insensitively. Each entry must look like a bare domain (no `@`, no scheme). Independent of `allowedEmailRegex` — a strategy may carry both, but this one only gates self-registration through this strategy's own form, not provider auto-provisioning."
       },
       autoEnrollGroups: {
         type: 'array',

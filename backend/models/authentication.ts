@@ -162,9 +162,11 @@ export interface AuthStrategy {
   allowedEmailRegex: string
   /**
    * Admin-facing alternative to `allowedEmailRegex` for the common case: a list of domains instead
-   * of a hand-written pattern. Matched case-insensitively once enforced (OpenProject #2470) -- stored
-   * here already normalized (trimmed, lower-cased, deduped) by `createStrategy`/`updateStrategy`.
-   * Independent of `allowedEmailRegex`; both may be set on the same strategy.
+   * of a hand-written pattern. Matched case-insensitively, stored here already normalized (trimmed,
+   * lower-cased, deduped) by `createStrategy`/`updateStrategy`. Only ever enforced for local
+   * self-registration (`models/login.ts#register()`, `assertAllowedRegistrationDomain`) -- unlike
+   * `allowedEmailRegex` above, this does not gate provider auto-provisioning. Empty means
+   * unrestricted. Independent of `allowedEmailRegex`; both may be set on the same strategy.
    */
   allowedEmailDomains: string[]
   autoEnrollGroups: string[]
@@ -266,8 +268,8 @@ class Authentication {
         const config = this.buildConfig(stg.module, {}, stg.config as Record<string, any>)
         return {
           ...stg,
-          autoEnrollGroups: stg.autoEnrollGroups ?? [],
           allowedEmailDomains: stg.allowedEmailDomains ?? [],
+          autoEnrollGroups: stg.autoEnrollGroups ?? [],
           mappableGroups: stg.mappableGroups ?? [],
           config: mask
             ? maskSensitiveConfig(this.getModule(stg.module)?.props ?? {}, config)

@@ -240,7 +240,9 @@ export const authentication = pgTable('authentication', {
   // -> A friendlier alternative to `allowedEmailRegex` for the common case: an admin lists domains
   //    directly instead of hand-writing a regex. Stored normalized (trimmed, lower-cased, deduped) by
   //    `models/authentication.ts`. Independent of `allowedEmailRegex` -- both may be set on the same
-  //    strategy; how they combine is enforcement's concern (OpenProject #2470), not this column's.
+  //    strategy. Scoped to local self-registration only (OpenProject #2470), unlike
+  //    `allowedEmailRegex` above which also gates provider auto-provisioning -- see
+  //    `models/login.ts#assertAllowedRegistrationDomain()`.
   allowedEmailDomains: text()
     .array()
     .notNull()

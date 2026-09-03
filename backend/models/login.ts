@@ -343,6 +343,30 @@ class Login {
   }
 
   /**
+   * Local self-registration's own domain allow-list, distinct from `allowedEmailRegex` above --
+   * `allowedEmailRegex` also gates provider auto-provisioning, but this is scoped to
+   * `register()` alone (WP #2470 / Feature #2430). Empty means unrestricted. Matching is
+   * case-insensitive against the domain after the address's last `@`; `strategy.allowedEmailDomains`
+   * is already lowercased and trimmed at write time (`models/authentication.ts#normalizeEmailDomains`),
+   * so only the incoming email needs folding here.
+   *
+   * @throws `ERR_EMAIL_NOT_ALLOWED` when the strategy has a non-empty list and the address's domain
+   *         is not on it.
+   */
+  private assertAllowedRegistrationDomain(strategy: AuthStrategy, email: string): void {
+    if (!strategy.allowedEmailDomains || strategy.allowedEmailDomains.length < 1) {
+      return
+    }
+    const domain = email.slice(email.lastIndexOf('@') + 1).toLowerCase()
+    if (!strategy.allowedEmailDomains.includes(domain)) {
+      WIKI.models.flags.authDebug(
+        `Registration refused: domain <${domain}> is not on strategy ${strategy.id}'s allowed list`
+      )
+      throw new Error('ERR_EMAIL_NOT_ALLOWED')
+    }
+  }
+
+  /**
    * Reconcile a user's wiki group membership with the groups an identity provider just reported for
    * them, adding what is newly granted and removing what is no longer reported — mirroring 2.5.x's
    * `passport-ldapauth` / `passport-saml` modules' add/remove-by-difference behavior.
@@ -517,6 +541,12 @@ class Login {
     }
 
     const normalizedEmail = email.toLowerCase().trim()
+
+    // -> Fail fast, before the existing-account lookup below: a domain refusal is a blanket rule
+    //    about the domain, not about this specific address, so checking it first reveals nothing
+    //    about whether that address already has an account here.
+    this.assertAllowedRegistrationDomain(strategy, normalizedEmail)
+
     const requiresVerification = Boolean(strategy.config?.emailValidation)
     const existing = await WIKI.models.users.getByEmail(normalizedEmail)
 
