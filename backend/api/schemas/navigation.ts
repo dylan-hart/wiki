@@ -27,7 +27,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         nullable: true,
         readOnly: true,
         description:
-          "Generated items only: the tree-row id of the folder containing this item, or null at locale root. Never sent in a request body."
+          'Generated items only: the tree-row id of the folder containing this item, or null at locale root. Never sent in a request body.'
       },
       openInNewWindow: { type: 'boolean' },
       expandByDefault: {
