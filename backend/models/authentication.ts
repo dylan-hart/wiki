@@ -147,6 +147,13 @@ export interface AuthStrategy {
    *  `models/users.ts#findOrCreateProviderUser()`. */
   autoProvision: boolean
   allowedEmailRegex: string
+  /**
+   * Case-insensitive allow-list of email domains a local self-registration may use. Only ever
+   * enforced for local self-registration (`models/login.ts#register()`,
+   * `assertAllowedRegistrationDomain`) -- unlike `allowedEmailRegex` above, this does not gate
+   * provider auto-provisioning. Empty means unrestricted. Stored lowercased and trimmed.
+   */
+  allowedEmailDomains: string[]
   autoEnrollGroups: string[]
   /**
    * Off by default. An existing account is only ever claimed by a provider login when this is on for
@@ -171,6 +178,15 @@ const LOCAL_MODULE = 'local'
  */
 function isBuiltInLocal(id: string): boolean {
   return id === WIKI.data.systemIds.localAuthId
+}
+
+/**
+ * Stored form of `allowedEmailDomains`: trimmed and lowercased, so a later case-insensitive check
+ * (`models/login.ts#assertAllowedRegistrationDomain`) is a plain equality test against what is on
+ * disk, not a re-derivation of the casing rule at read time.
+ */
+function normalizeDomains(domains: string[] | undefined): string[] {
+  return (domains ?? []).map((domain) => domain.trim().toLowerCase())
 }
 
 /**
@@ -225,6 +241,7 @@ class Authentication {
         const config = this.buildConfig(stg.module, {}, stg.config as Record<string, any>)
         return {
           ...stg,
+          allowedEmailDomains: stg.allowedEmailDomains ?? [],
           autoEnrollGroups: stg.autoEnrollGroups ?? [],
           mappableGroups: stg.mappableGroups ?? [],
           config: mask
@@ -278,6 +295,7 @@ class Authentication {
     displayName?: string
     isEnabled?: boolean
     allowedEmailRegex?: string
+    allowedEmailDomains?: string[]
     autoEnrollGroups?: string[]
     mappableGroups?: string[]
   }): Promise<string | null> {
@@ -292,6 +310,14 @@ class Authentication {
         new RegExp(strategy.allowedEmailRegex)
       } catch (err: any) {
         return `The allowed email pattern is not a valid regular expression: ${err.message}`
+      }
+    }
+    if (strategy.allowedEmailDomains) {
+      const invalidDomain = strategy.allowedEmailDomains.find(
+        (domain) => !/^[^\s@]+\.[^\s@]+$/.test(domain.trim())
+      )
+      if (invalidDomain !== undefined) {
+        return `"${invalidDomain}" is not a valid email domain.`
       }
     }
     if (strategy.autoEnrollGroups && strategy.autoEnrollGroups.length > 0) {
@@ -331,6 +357,7 @@ class Authentication {
     selfRegistration?: boolean
     autoProvision?: boolean
     allowedEmailRegex?: string
+    allowedEmailDomains?: string[]
     autoEnrollGroups?: string[]
     trustEmailForLinking?: boolean
     mappableGroups?: string[]
@@ -346,6 +373,7 @@ class Authentication {
         selfRegistration: values.selfRegistration ?? false,
         autoProvision: values.autoProvision ?? false,
         allowedEmailRegex: values.allowedEmailRegex ?? '',
+        allowedEmailDomains: normalizeDomains(values.allowedEmailDomains),
         autoEnrollGroups: values.autoEnrollGroups ?? [],
         trustEmailForLinking: values.trustEmailForLinking ?? false,
         mappableGroups: values.mappableGroups ?? [],
@@ -373,6 +401,7 @@ class Authentication {
       selfRegistration?: boolean
       autoProvision?: boolean
       allowedEmailRegex?: string
+      allowedEmailDomains?: string[]
       autoEnrollGroups?: string[]
       trustEmailForLinking?: boolean
       mappableGroups?: string[]
@@ -399,6 +428,9 @@ class Authentication {
     }
     if (patch.allowedEmailRegex !== undefined) {
       values.allowedEmailRegex = patch.allowedEmailRegex
+    }
+    if (patch.allowedEmailDomains !== undefined) {
+      values.allowedEmailDomains = normalizeDomains(patch.allowedEmailDomains)
     }
     if (patch.autoEnrollGroups !== undefined) {
       values.autoEnrollGroups = patch.autoEnrollGroups

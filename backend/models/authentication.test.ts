@@ -143,6 +143,53 @@ describe('authentication.validateStrategy: mappableGroups', () => {
   })
 })
 
+/**
+ * `validateStrategy`'s `allowedEmailDomains` check -- pure, no database or `WIKI` needed since it
+ * never looks anything up (unlike `mappableGroups`/`autoEnrollGroups` above, which check against the
+ * `groups` table).
+ */
+describe('authentication.validateStrategy: allowedEmailDomains', () => {
+  test('accepts an empty list', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: []
+    })
+    assert.equal(result, null)
+  })
+
+  test('accepts a list of plausible domains', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['example.com', 'Example.ORG', ' padded.example ']
+    })
+    assert.equal(result, null)
+  })
+
+  test('refuses an entry containing an @ (a pasted email address, not a domain)', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['someone@example.com']
+    })
+    assert.match(result ?? '', /is not a valid email domain/)
+  })
+
+  test('refuses a blank entry', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['example.com', '   ']
+    })
+    assert.match(result ?? '', /is not a valid email domain/)
+  })
+
+  test('refuses an entry with no dot', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailDomains: ['localhost']
+    })
+    assert.match(result ?? '', /is not a valid email domain/)
+  })
+})
+
 describe(
   'authentication: sensitive config masking (DB-backed, real oauth2 definition read from disk)',
   { skip: !hasTestDatabase() },

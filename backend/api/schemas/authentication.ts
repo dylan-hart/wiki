@@ -155,6 +155,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       allowedEmailRegex: {
         type: 'string'
       },
+      allowedEmailDomains: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Case-insensitive allow-list of email domains a local self-registration may use. Empty means unrestricted. Unlike `allowedEmailRegex`, this only ever gates self-registration, not provider auto-provisioning.'
+      },
       autoEnrollGroups: {
         type: 'array',
         items: {
@@ -223,6 +229,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 255,
         description:
           'Must be a valid regular expression. Limits which addresses an account may be created for, and applies wherever `selfRegistration` or `autoProvision` does — a pattern that will not compile allows nobody.'
+      },
+      allowedEmailDomains: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          "Case-insensitive allow-list of email domains (e.g. `example.com`) a local self-registration may use. Empty by default, meaning unrestricted. Only applies to self-registration through this strategy's own form, not to provider auto-provisioning — use `allowedEmailRegex` for that."
       },
       autoEnrollGroups: {
         type: 'array',

@@ -237,6 +237,13 @@ export const authentication = pgTable('authentication', {
   selfRegistration: boolean().notNull().default(false),
   autoProvision: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
+  // -> Scoped to local self-registration only (WP #2470), unlike `allowedEmailRegex` above which also
+  //    gates provider auto-provisioning -- see `models/login.ts#assertAllowedRegistrationDomain()`.
+  //    Stored lowercased and trimmed; empty means unrestricted.
+  allowedEmailDomains: text()
+    .array()
+    .notNull()
+    .default(sql`ARRAY[]::text[]`),
   autoEnrollGroups: uuid().array().default([]),
   // -> Off by default: an existing account is only ever claimed by a provider login once this
   //    strategy is explicitly told to trust the address it reports. See
