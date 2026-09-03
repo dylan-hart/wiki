@@ -661,6 +661,53 @@ describe('NavSidebarItem context menu', () => {
   })
 })
 
+describe('NavSidebar empty-space context menu', () => {
+  async function mountRoot({ mode = 'static', canWrite = true } = {}) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.nav.items = []
+    siteStore.nav.mode = mode
+    const userStore = useUserStore()
+    userStore.permissions = canWrite ? ['write:pages'] : []
+
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+    })
+
+    const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  it('offers a root-level create menu when the resolved mode is auto', async () => {
+    const wrapper = await mountRoot({ mode: 'auto' })
+    const menu = wrapper.findComponent(PageNewMenu)
+    expect(menu.exists()).toBe(true)
+    expect(menu.props('basePath')).toBe('')
+  })
+
+  it('offers a root-level create menu when the resolved mode is mixed', async () => {
+    const wrapper = await mountRoot({ mode: 'mixed' })
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(true)
+  })
+
+  it('offers no root-level create menu on a static menu -- nothing to create "into"', async () => {
+    const wrapper = await mountRoot({ mode: 'static' })
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+
+  it('offers no root-level create menu when the viewer cannot write pages', async () => {
+    const wrapper = await mountRoot({ mode: 'auto', canWrite: false })
+    expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
+  })
+})
+
 /**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 721. Mounting at all is
  * itself a meaningful check: this component's `<style lang="scss">` was rewritten from physical

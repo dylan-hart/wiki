@@ -22,6 +22,15 @@
           <w-separator v-else-if="item.type === `separator`" dark />
         </template>
       </w-list>
+      <!-- -> Right-click empty space to create at the locale root -- only meaningful when there is
+              a real tree backing this menu (auto/mixed); a static menu's links may not correspond
+              to any page at all -->
+      <page-new-menu
+        v-if="canCreateAtRoot"
+        context-menu
+        base-path=""
+        :hide-asset-btn="!canUploadAsset"
+        @new-folder="openFolderDialog(null)" />
     </nav>
   </w-scroll-area>
 </template>
@@ -30,19 +39,45 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { dialog } from '@/composables/dialog'
+
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
+import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
+import PageNewMenu from '@/components/PageNewMenu.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
 
 // STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
 const { t } = useI18n()
+
+// COMPUTED
+
+const canUploadAsset = computed(() => userStore.can('write:assets') || userStore.can('write:pages'))
+const canCreateAtRoot = computed(
+  () =>
+    (siteStore.nav.mode === 'auto' || siteStore.nav.mode === 'mixed') &&
+    userStore.can('write:pages')
+)
+
+// METHODS
+
+function openFolderDialog(parentId) {
+  dialog({
+    component: FolderCreateDialog,
+    componentProps: { parentId }
+  }).onOk(() => {
+    siteStore.fetchNavigation(pageStore.navigationId, true)
+  })
+}
 
 // WATCHERS
 
