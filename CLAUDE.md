@@ -534,8 +534,8 @@ editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, ar
 **Page rule permissions** are bound to paths, and to locales and sites: `read:pages`, `write:pages`,
 `review:pages`, `manage:pages`, `delete:pages`, `write:styles`, `write:scripts`, `read:source`,
 `read:history`, `read:assets`, `write:assets`, `manage:assets`, `read:comments`, `write:comments`,
-`manage:comments`, `manage:classification` (`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts`
-and imported by `helpers/pageAccess.ts`). A group grants them through **rules**:
+`manage:comments`, `manage:classification`, `publish:pages` (`PAGE_PERMISSIONS`, declared in
+`helpers/permissions.ts` and imported by `helpers/pageAccess.ts`). A group grants them through **rules**:
 each rule names some of them (`roles`) plus how it addresses pages (`match` + `path`, or tags) and
 what it does with them (`mode`: ALLOW / DENY / FORCEALLOW). Nothing is granted by default, and when
 several rules match, the most specific one wins — `helpers/pageRules.ts` documents the ordering.
