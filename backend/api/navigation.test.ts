@@ -200,7 +200,7 @@ test('a menu nested three levels deep reaches the response intact', async () => 
   })
   assert.equal(res.statusCode, 200)
   const body = res.json()
-  assert.equal(body[0].children[0].children[0].id, 'grandchild')
+  assert.equal(body.items[0].children[0].children[0].id, 'grandchild')
 })
 
 /**
@@ -517,6 +517,9 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
               ? storedItems
               : storedItems.filter((i) => i.visibilityGroups.length === 0)
           },
+          async getMode(_siteId: string, _id: string) {
+            return 'static'
+          },
           async setNavItems(siteId: string, navId: string, items: any[]) {
             lastSetNavItemsCall = { siteId, navId, items }
           }
@@ -594,7 +597,7 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     })
     assert.equal(res.statusCode, 200)
     assert.deepEqual(
-      res.json().map((i: any) => i.id),
+      res.json().items.map((i: any) => i.id),
       ['a', 'b']
     )
   })
@@ -663,7 +666,7 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     })
     assert.equal(res.statusCode, 200)
     assert.deepEqual(
-      res.json().map((i: any) => i.id),
+      res.json().items.map((i: any) => i.id),
       ['a']
     )
   })

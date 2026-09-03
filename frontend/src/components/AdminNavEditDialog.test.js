@@ -42,9 +42,15 @@ function mountDialog({
   const pageStore = usePageStore()
   pageStore.navigationId = currentNavigationId
 
-  API_CLIENT.get.mockImplementation((url) => {
+  API_CLIENT.get.mockImplementation((url, opts) => {
     if (url === 'groups') {
       return { json: vi.fn().mockResolvedValue([]) }
+    }
+    // -> `nav-item-editor`'s own `full: true` fetch gets the wrapped `{ mode, items }` shape the
+    //    real endpoint now returns; a plain fetch (the sidebar-invalidation `fetchNavigation()`
+    //    calls below assert against) keeps resolving the bare array `stores/site.js` still expects.
+    if (opts?.searchParams?.full) {
+      return { json: vi.fn().mockResolvedValue({ mode: 'static', items: SERVER_ITEMS }) }
     }
     return { json: vi.fn().mockResolvedValue(SERVER_ITEMS) }
   })

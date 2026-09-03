@@ -795,7 +795,7 @@ async function loadMenuItems() {
   try {
     // -> `full`, because the editor has to see items limited to groups the editor is not in: saving
     //    without them would delete them
-    const items = await API_CLIENT.get(`sites/${props.siteId}/navigation/${props.navId}`, {
+    const { items } = await API_CLIENT.get(`sites/${props.siteId}/navigation/${props.navId}`, {
       searchParams: { full: true }
     }).json()
     state.items = flattenMenuItems(items)

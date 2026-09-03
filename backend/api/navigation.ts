@@ -42,7 +42,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a navigation menu',
         description:
-          "The resolved items of one menu, addressed by the id a page's `navigationId` points at. For a `static` menu (still the default, and the only kind before this feature) that is the stored items unchanged; for `auto` it is a fresh tree walk instead, and for `mixed` it is the tree walk merged with the stored items per each item's `pinned` placement — so this is not always \"a column read verbatim\" the way it once was.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. A generated (`auto`/`mixed`) entry is additionally filtered per-item through the requester's own `read:pages` grant (OpenProject #2155) — a path, tag or classification DENY hides that entry (and drops an emptied-out folder) the same way it hides the page itself. `full` asks for the whole of the visibility-GROUP layer instead, and — since this is the preview an editor needs to see and edit the full `auto`/`mixed` structure, not just what their own access happens to include — it skips the per-item `read:pages` check too, the same as it already skips the visibility-group filter; both are back on for a non-`full` read. `full` needs `manage:navigation`, or `site:navigation` on this site.",
+          "The resolved items of one menu, addressed by the id a page's `navigationId` points at. For a `static` menu (still the default, and the only kind before this feature) that is the stored items unchanged; for `auto` it is a fresh tree walk instead, and for `mixed` it is the tree walk merged with the stored items per each item's `pinned` placement — so this is not always \"a column read verbatim\" the way it once was.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. A generated (`auto`/`mixed`) entry is additionally filtered per-item through the requester's own `read:pages` grant (OpenProject #2155) — a path, tag or classification DENY hides that entry (and drops an emptied-out folder) the same way it hides the page itself. `full` asks for the whole of the visibility-GROUP layer instead, and — since this is the preview an editor needs to see and edit the full `auto`/`mixed` structure, not just what their own access happens to include — it skips the per-item `read:pages` check too, the same as it already skips the visibility-group filter; both are back on for a non-`full` read. `full` needs `manage:navigation`, or `site:navigation` on this site. The response wraps the resolved items alongside the menu's own source mode, so a caller doesn't need a second request to learn it.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -64,9 +64,17 @@ async function routes(app: FastifyInstance) {
         },
         response: {
           200: {
-            description: 'The menu items, in the order they are shown',
-            type: 'array',
-            items: { $ref: 'NavigationItem#' }
+            description:
+              "The resolved menu's own source mode, plus its items in the order they are shown",
+            type: 'object',
+            properties: {
+              mode: { type: 'string', enum: NAVIGATION_SOURCE_MODES },
+              items: {
+                type: 'array',
+                items: { $ref: 'NavigationItem#' }
+              }
+            },
+            required: ['mode', 'items']
           },
           403: { $ref: 'ApiError#' }
         }
@@ -79,11 +87,15 @@ async function routes(app: FastifyInstance) {
           'Reading a menu in full requires manage:navigation, or site:navigation on this site.'
         )
       }
-      return WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
-        actor: WIKI.models.groups.actorForRequest(req),
-        userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
-        unfiltered
-      })
+      const [mode, items] = await Promise.all([
+        WIKI.models.navigation.getMode(req.params.siteId, req.params.navId),
+        WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
+          actor: WIKI.models.groups.actorForRequest(req),
+          userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
+          unfiltered
+        })
+      ])
+      return { mode, items }
     }
   )
 
