@@ -9,10 +9,12 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import NavSidebar from './NavSidebar.vue'
+import NavSidebarItem from './NavSidebarItem.vue'
 import PageNewMenu from './PageNewMenu.vue'
 import routes from '@/router/routes'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+import { openDialogs } from '@/composables/dialog'
 
 /**
  * Task 466 (feature 362): verify -- rather than assume -- every combination `destination()` feeds
@@ -572,7 +574,7 @@ describe('NavSidebarItem context menu', () => {
     expect(folderMenu.props('basePath')).toBe('docs')
   })
 
-  it('resolves basePath for a page item as "create as a sibling"', async () => {
+  it('resolves basePath for a page item as "create as a sibling", scoped to its own PageNewMenu', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
     // -> Expanded so the page's own row (not just its folder ancestor's) is in the mounted tree
@@ -593,9 +595,69 @@ describe('NavSidebarItem context menu', () => {
     const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
     await wrapper.vm.$nextTick()
 
-    const menus = wrapper.findAllComponents(PageNewMenu)
-    const pageMenu = menus.find((m) => m.props('basePath') === 'docs')
-    expect(pageMenu).toBeTruthy()
+    /*
+      For a DIRECT child, "create inside the folder" and "create as a sibling of the page" both
+      resolve to the same string ('docs') -- by design, since a direct child's sibling folder IS
+      its parent. Matching on that string alone across every rendered PageNewMenu would therefore
+      pass even if the PAGE item's own `basePathFor` were broken (e.g. returned `undefined`), since
+      the FOLDER's own menu already produces the same value. Scoped instead to the specific
+      `NavSidebarItem` instance backing `page-1` (the leaf, not its `folder-1` ancestor) and its
+      own `PageNewMenu`, so this only passes if that leaf's own computation is correct.
+    */
+    const pageItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'page-1')
+    expect(pageItem).toBeTruthy()
+
+    const pageMenu = pageItem.findComponent(PageNewMenu)
+    expect(pageMenu.exists()).toBe(true)
+    expect(pageMenu.props('basePath')).toBe('docs')
+  })
+
+  it('resolves parentId for a folder\'s own "new folder" action as the folder\'s own id', async () => {
+    const wrapper = await mountWithPermission(generatedTree(), true)
+    const folderItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'folder-1')
+    const folderMenu = folderItem.findComponent(PageNewMenu)
+
+    openDialogs.length = 0
+    await folderMenu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'folder-1' })
+  })
+
+  it('resolves parentId for a page\'s own "new folder" action as the page\'s containing folderId', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.nav.items = generatedTree()
+    const userStore = useUserStore()
+    userStore.permissions = ['write:pages']
+
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/docs/setup')
+    await router.isReady()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+    })
+
+    const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
+    await wrapper.vm.$nextTick()
+
+    const pageItem = wrapper
+      .findAllComponents(NavSidebarItem)
+      .find((w) => w.props('item').id === 'page-1')
+    const pageMenu = pageItem.findComponent(PageNewMenu)
+
+    openDialogs.length = 0
+    await pageMenu.vm.$emit('new-folder')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toEqual({ parentId: 'folder-1' })
   })
 })
 
