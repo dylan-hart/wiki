@@ -1023,7 +1023,7 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     assert.deepEqual(items, [])
   })
 
-  test('a folder holding only unpublished/non-browsable pages is dropped, not just emptied', async () => {
+  test('a folder holding only unpublished/non-browsable pages is a dead end for a reader, but not for an actor who could populate it', async () => {
     await pagesModel.createPage(
       fixtures.siteId,
       pageInput({
@@ -1043,11 +1043,47 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
       actor
     )
 
-    const items = await generate()
-    assert.equal(
-      items.some((item) => item.label === 'unpublished-only'),
-      false
+    const groupsModel = (await import('./groups.ts')).groups
+    await fixtures.db
+      .update(groupsTable)
+      .set({
+        rules: [
+          {
+            id: 'allow-read-only-unpublished-check',
+            name: 'Allow read only, everywhere',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+    const readerActor = { groupIds: [fixtures.groupId], permissions: [] }
+
+    const readerItems = await (navigationModel as any).generateFromTree(
+      fixtures.siteId,
+      '',
+      'en',
+      readerActor
     )
+    assert.equal(
+      readerItems.some((item: NavigationItem) => item.label === 'unpublished-only'),
+      false,
+      'a reader with no way to populate the folder still sees it dropped as a dead end'
+    )
+
+    // -> OpenProject #2515: the same folder is NOT a dead end for an actor who could populate it --
+    //    `manage:system` already means they could add or publish a page under this path right now,
+    //    so it is kept as a childless leaf instead of being dropped the way the reader's view above
+    //    still drops it.
+    const managerItems = await generate()
+    const folderItem = managerItems.find((item) => item.label === 'unpublished-only')
+    assert.ok(folderItem, 'an actor who could populate the folder must still see it')
+    assert.equal(folderItem!.children, undefined)
   })
 
   test('a nested override boundary is included as a leaf but not recursed into', async () => {
@@ -1324,6 +1360,119 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     //    itself just created, proving the check was genuinely skipped rather than the tree being
     //    coincidentally empty.
     assert.ok(unfilteredResult.length > 0)
+  })
+
+  /**
+   * OpenProject #2515: an empty folder used to be dropped from the generated nav for every viewer
+   * alike, including the author who just created it and holds `write:pages`/`manage:pages` right
+   * there -- for them it isn't a dead end, it's an empty container waiting to be used. These lock
+   * down the fix without disturbing the existing dead-end behavior for anyone who genuinely
+   * couldn't populate the folder.
+   */
+  test('an actor holding write:pages over an otherwise-empty folder still sees it, as a childless leaf', async () => {
+    const groupsModel = (await import('./groups.ts')).groups
+    await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'freshly-created-empty-folder',
+      title: 'Freshly Created Empty Folder',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+
+    await fixtures.db
+      .update(groupsTable)
+      .set({
+        rules: [
+          {
+            id: 'allow-write-empty-folder',
+            name: 'Allow read/write on the new folder',
+            roles: ['read:pages', 'write:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: 'freshly-created-empty-folder',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const authorActor = { groupIds: [fixtures.groupId], permissions: [] }
+    const items = await (navigationModel as any).generateFromTree(
+      fixtures.siteId,
+      '',
+      'en',
+      authorActor
+    )
+
+    const folderItem = items.find(
+      (item: NavigationItem) => item.label === 'Freshly Created Empty Folder'
+    )
+    assert.ok(folderItem, 'the empty folder must appear for the actor who can populate it')
+    assert.equal(folderItem!.children, undefined)
+  })
+
+  test('a reader with read:pages but no write access to an otherwise-empty folder does not see it', async () => {
+    const groupsModel = (await import('./groups.ts')).groups
+    await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'empty-folder-reader-only',
+      title: 'Empty Folder Reader Only',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+
+    await fixtures.db
+      .update(groupsTable)
+      .set({
+        rules: [
+          {
+            id: 'allow-read-only',
+            name: 'Allow read only, everywhere',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const readerActor = { groupIds: [fixtures.groupId], permissions: [] }
+    const items = await (navigationModel as any).generateFromTree(
+      fixtures.siteId,
+      '',
+      'en',
+      readerActor
+    )
+
+    assert.equal(
+      items.some((item: NavigationItem) => item.label === 'Empty Folder Reader Only'),
+      false,
+      'an empty folder must stay a dead end for a reader who could never populate it'
+    )
+  })
+
+  test('an unfiltered read (the nav editor preview) shows an otherwise-empty folder too', async () => {
+    await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'empty-folder-unfiltered-preview',
+      title: 'Empty Folder Unfiltered Preview',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+
+    const items = await (navigationModel as any).generateFromTree(fixtures.siteId, '', 'en', null)
+
+    const folderItem = items.find(
+      (item: NavigationItem) => item.label === 'Empty Folder Unfiltered Preview'
+    )
+    assert.ok(folderItem, 'an unfiltered read must show the real structure, empty folders included')
+    assert.equal(folderItem!.children, undefined)
   })
 })
 

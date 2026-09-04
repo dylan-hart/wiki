@@ -115,6 +115,26 @@ function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
 }
 
 /**
+ * Whether this actor holds `write:pages` or `manage:pages` over a folder path -- the two
+ * permissions that let someone actually add a page there (OpenProject #2515). Used only to decide
+ * whether an otherwise-empty folder is a genuine dead end for THIS actor, or an empty container
+ * they could populate right now. A folder carries no tags/classification of its own -- same
+ * treatment `helpers/pageAccess.ts#mayOnFolder` gives it.
+ */
+function actorMayPopulate(
+  actor: AccessActor,
+  siteId: string,
+  locale: string,
+  path: string
+): boolean {
+  const candidate = { path, siteId, locale, classification: null }
+  return (
+    WIKI.models.groups.checkAccess(actor, 'write:pages', candidate) ||
+    WIKI.models.groups.checkAccess(actor, 'manage:pages', candidate)
+  )
+}
+
+/**
  * The `WIKI.cache` key `getGeneratedTree` caches `generateFromTree`'s output under (OpenProject
  * #1825) -- one per menu per locale per `accessKey` (see `actorAccessKey` below), scoped to the site
  * so `invalidateCache` can drop a whole site's worth without touching another site's warm entries.
@@ -724,9 +744,13 @@ class Navigation {
    *
    * Queries `tree`/`pages` under `rootFolderPath` the same way `tree.browse()` lists a folder: joined
    * on `pages` for `isBrowsable`/`publishState`/`icon`, a folder with no visible descendant page
-   * dropped via the same `EXISTS` pattern (`holdsVisiblePages`), `asset` entries never considered, and
-   * ordered by the same folders-then-title comparator `browse()` uses (`compareFoldersFirst`, factored
-   * out of `tree.ts` for exactly this reuse).
+   * dropped via the same `EXISTS` pattern (`holdsVisiblePages`) UNLESS this actor holds
+   * `write:pages`/`manage:pages` on that folder's own path -- or `actor` is `null` (an unfiltered
+   * read) -- in which case it is kept as a childless leaf: it's a dead end for a reader, but an empty
+   * container waiting to be used for someone who could actually populate it right now, e.g. the
+   * author who just created it (OpenProject #2515). `asset` entries are never considered, and
+   * candidates are ordered by the same folders-then-title comparator `browse()` uses
+   * (`compareFoldersFirst`, factored out of `tree.ts` for exactly this reuse).
    *
    * Sub-boundary rule, per the feature brief: an entry whose own `navigationMode` is `hide` or
    * `hideExact` is dropped from the walk outright — for the recursive `hide` that silently drops
@@ -811,8 +835,23 @@ class Navigation {
     const locales = WIKI.sites[siteId]?.config?.locales
 
     const candidates = rows
-      // -> An empty folder is a dead end -- same as `browse()` drops it
-      .filter((row) => row.type !== 'folder' || row.holdsVisiblePages)
+      // -> An empty folder is a dead end for a reader who could never add anything there -- but not
+      //    for an actor who holds write:pages/manage:pages on that path (who could populate it right
+      //    now, e.g. the author who just created it -- OpenProject #2515), nor for an unfiltered read
+      //    (the nav editor's own full-structure preview, which by the same reasoning already skips
+      //    the `read:pages` filter below).
+      .filter(
+        (row) =>
+          row.type !== 'folder' ||
+          row.holdsVisiblePages ||
+          !actor ||
+          actorMayPopulate(
+            actor,
+            siteId,
+            locale,
+            parentPath ? `${parentPath}/${row.fileName}` : row.fileName
+          )
+      )
       // -> Dropped outright, and -- for the recursive `hide` -- everything below it along with it,
       //    since nothing below a row that was never added is ever walked
       .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
@@ -863,7 +902,13 @@ class Navigation {
         //    happen once `actor` is filtering individual descendants out one by one, since
         //    `holdsVisiblePages` already guarantees at least one browsable/published page exists
         //    somewhere below. Drop it rather than emit a folder link with nowhere to go.
-        if (isFolder && !isBoundary && children.length === 0) {
+        //
+        //    The `row.holdsVisiblePages` guard (OpenProject #2515) keeps this distinct from a
+        //    genuinely empty folder that only survived the candidate filter above via
+        //    `actorMayPopulate`/an unfiltered read: that one has nothing to recurse into either, but
+        //    it is not a dead end for this actor -- it is an empty container they could add to right
+        //    now, so it stays as a childless leaf instead of being dropped here too.
+        if (isFolder && !isBoundary && children.length === 0 && row.holdsVisiblePages) {
           return null
         }
 
