@@ -160,6 +160,19 @@ async function deleteSite(id: string) {
   return Boolean(sites[id])
 }
 
+/**
+ * Task #2527: `buildSitePayload()` resolves the site's default menu id via
+ * `WIKI.models.navigation.ensureSiteNav(siteId, locale)` and surfaces it as `navigationId`, so a
+ * non-content route (the knowledge graph, tags browse) can learn a real nav id without a content-page
+ * fetch. Captures the calls so a test can assert the exact `(siteId, locale)` pair passed, alongside
+ * `getSiteByHostname`/`getSiteById` above.
+ */
+const ensureSiteNavCalls: Array<{ siteId: string; locale: string }> = []
+async function ensureSiteNav(siteId: string, locale: string) {
+  ensureSiteNavCalls.push({ siteId, locale })
+  return `nav-${siteId}-${locale}`
+}
+
 before(async () => {
   const wiki = {
     config: {
@@ -192,6 +205,9 @@ before(async () => {
       },
       blocks: {
         getSiteBlocks
+      },
+      navigation: {
+        ensureSiteNav
       },
       auditLog: {
         record: mock.fn(async () => {})
@@ -998,6 +1014,23 @@ test('docsBase reflects WIKI.config.docsBase', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().docsBase, 'https://test.docs.example/docs')
+})
+
+/**
+ * Task #2527: `navigationId` on the site payload resolves through
+ * `WIKI.models.navigation.ensureSiteNav(siteId, defaultLocale(siteId))` -- asserts both the value
+ * reaches the response and that it was resolved for THIS site's id and its default locale, not some
+ * other pair.
+ */
+test('navigationId resolves via ensureSiteNav for this site and its default locale', async () => {
+  ensureSiteNavCalls.length = 0
+  const res = await app.inject({
+    method: 'GET',
+    url: '/somehost.example.com'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().navigationId, `nav-${WILDCARD_SITE_ID}-en`)
+  assert.deepEqual(ensureSiteNavCalls, [{ siteId: WILDCARD_SITE_ID, locale: 'en' }])
 })
 
 /**

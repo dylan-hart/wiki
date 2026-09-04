@@ -42,6 +42,7 @@
 <script setup>
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
 
@@ -54,6 +55,7 @@ import NavSidebarItem from './NavSidebarItem.vue'
 
 // STORES
 
+const route = useRoute()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -72,10 +74,24 @@ const canCreateAtRoot = computed(
     userStore.can('write:pages')
 )
 
+/**
+ * The menu id this route actually wants: a content page's own inherited id
+ * (`pageStore.navigationId`, set exclusively by `pageStore.pageLoad()`) for the routes that render
+ * one, or the site's default id (`siteStore.navigationId`, from the bootstrap payload) for every
+ * other `MainLayout` route -- the knowledge graph, tags browse -- which never call `pageLoad()` and
+ * so would otherwise leave `pageStore.navigationId` at `null` forever (OpenProject #2527). A
+ * content route deliberately keeps using `pageStore.navigationId` alone, with no fallback, while it
+ * is still `null` mid-load -- see `MainLayout.vue`'s `isSidebarMiniForced` for why that gap matters
+ * there.
+ */
+const effectiveNavigationId = computed(() =>
+  route.meta.contentPage ? pageStore.navigationId : siteStore.navigationId
+)
+
 // WATCHERS
 
 watch(
-  () => pageStore.navigationId,
+  effectiveNavigationId,
   (newValue) => {
     // -> The "already showing this menu" gate now lives in `fetchNavigation()` itself (OpenProject
     //    #1012), so a same-tab invalidation elsewhere in the app can bypass it with `forceRefresh`

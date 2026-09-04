@@ -352,27 +352,40 @@ const showSidebarBtn = computed(() => {
 })
 
 /**
+ * The menu id a CONTENT route (`route.meta.contentPage`) resolves to: `pageStore.navigationId`, set
+ * exclusively by `pageStore.pageLoad()`. `null` on every other route this layout renders -- the
+ * knowledge graph, tags browse -- which never call `pageLoad()` at all, so `pageStore.navigationId`
+ * there is either `null` on a fresh store or a stale value left by whichever content page was viewed
+ * last; neither says anything about the current, non-content route. Those routes resolve their own
+ * menu id a different way, straight off `siteStore.navigationId` (the bootstrap-supplied site
+ * default, OpenProject #2527) -- see `NavSidebar.vue`'s own `effectiveNavigationId`, which is what
+ * actually loads that menu's items. This computed exists only for the mini-rail check immediately
+ * below, which -- deliberately, per #2512 -- has no opinion about a non-content route at all.
+ */
+const effectiveNavigationId = computed(() =>
+  route.meta.contentPage ? pageStore.navigationId : null
+)
+
+/**
  * Whether this page/view WANTS the sidebar collapsed to its mini rail -- either a deliberate
- * `navigationMode: 'hide'/'hideExact'` on the page, or the non-content-route fallback (no
- * `navigationId` at all). Kept apart from `isSidebarMini` below so `sidebarExpandOverride` has
- * something to negate: the mini rail isn't empty chrome (it renders real shortcuts), so a reader who
- * wants it back at full width for a while needs a way to override this without the wiki forgetting
- * the page itself still asks for mini.
+ * `navigationMode: 'hide'/'hideExact'` on the page, or a CONTENT page that hasn't resolved a menu id
+ * yet. Kept apart from `isSidebarMini` below so `sidebarExpandOverride` has something to negate: the
+ * mini rail isn't empty chrome (it renders real shortcuts), so a reader who wants it back at full
+ * width for a while needs a way to override this without the wiki forgetting the page itself still
+ * asks for mini.
  *
- * OpenProject #2512: `!pageStore.navigationId` is meant to catch a CONTENT page that hasn't finished
+ * OpenProject #2512: the "no id yet" half is meant to catch a CONTENT page that hasn't finished
  * telling `pageStore` which menu it belongs to yet -- not to double as a generic default for every
- * other route this layout renders. `pageStore.navigationId` is only ever set by `pageLoad()` (see
- * that action's own doc), so on a route that never calls it -- the knowledge graph, tags browse, any
- * non-content `/_` route -- it just sits at whatever the LAST content page left it at: `null` on a
- * fresh store (direct load/refresh), or a stale value from whatever page was viewed before navigating
- * here via the SPA. Neither means anything about the current route, so the fallback is scoped to
- * `route.meta.contentPage` -- the routes that actually render `Index.vue` and run a real page through
- * `pageLoad()` (see `router/routes.js`) -- leaving every other route at its normal, expanded width.
+ * other route this layout renders. `effectiveNavigationId` above is what scopes that: it is `null`
+ * for every non-content route regardless of the (irrelevant) site-default id, so this term stays
+ * `false` there exactly as before -- graph/tags never force the mini rail, which is what lets
+ * OpenProject #2527's fix populate their nav data into a normally-expanded sidebar rather than
+ * collapsing it.
  */
 const isSidebarMiniForced = computed(() => {
   return (
     ['hide', 'hideExact'].includes(pageStore.navigationMode) ||
-    (Boolean(route.meta.contentPage) && !pageStore.navigationId)
+    (Boolean(route.meta.contentPage) && !effectiveNavigationId.value)
   )
 })
 

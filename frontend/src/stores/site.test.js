@@ -84,6 +84,34 @@ describe('site store: applySiteInfo() docsBase', () => {
 })
 
 /**
+ * OpenProject #2527: `navigationId` reaches `siteStore` from `applySiteInfo` the same way `docsBase`
+ * does above -- the site's default menu id (`backend/api/sites.ts`'s `buildSitePayload`, via
+ * `WIKI.models.navigation.ensureSiteNav`), what `NavSidebar.vue` and `MainLayout.vue` fall back to
+ * on a route with no page-inherited `navigationId` of its own.
+ */
+describe('site store: applySiteInfo() navigationId', () => {
+  it('has no hardcoded default before any site info is applied', () => {
+    const store = useSiteStore()
+
+    expect(store.navigationId).toBe(null)
+  })
+
+  it('adopts navigationId from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ navigationId: 'site-default-nav-id' }))
+
+    expect(store.navigationId).toBe('site-default-nav-id')
+  })
+
+  it('defaults to null when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.navigationId).toBe(null)
+  })
+})
+
+/**
  * OpenProject #954: `blocksIndex` reaches `siteStore` from `applySiteInfo` the same way
  * `pdfExportAvailable` does above, so `Index.vue`'s block-loading scan can resolve a custom block's
  * `id`/`isCustom` off the store instead of calling the manage:sites-gated `GET /sites/:siteId/blocks`
