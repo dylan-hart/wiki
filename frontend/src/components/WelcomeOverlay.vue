@@ -178,6 +178,12 @@ function loadAdmin() {
   height: 100vh;
   border: 1px solid #eee;
 
+  @at-root .body--dark & {
+    background: $dark-6 radial-gradient(ellipse, $dark-4, $dark-6);
+    color: $blue-grey-1;
+    border: 1px solid $dark-4;
+  }
+
   &-bg {
     position: absolute;
     top: 50%;
@@ -188,6 +194,10 @@ function loadAdmin() {
     border-radius: 50%;
     filter: blur(100px);
     transform: translate(-50%, -55%);
+
+    @at-root .body--dark & {
+      background: linear-gradient(0, $dark-6 50%, $blue-5 50%);
+    }
   }
 
   &-content {
