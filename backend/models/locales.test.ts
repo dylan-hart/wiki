@@ -6,7 +6,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { eq, lt, sql } from 'drizzle-orm'
-import { localeCode, computeCompleteness, interpolate, parseSideloadLocalePack } from './locales.ts'
+import {
+  localeCode,
+  computeCompleteness,
+  interpolate,
+  parseSideloadLocalePack,
+  mergeLocaleStrings
+} from './locales.ts'
 import { locales as localesTable } from '../db/schema.ts'
 import {
   hasTestDatabase,
@@ -199,6 +205,41 @@ describe('parseSideloadLocalePack()', () => {
   test('rejects a pack whose "strings" is not an object', () => {
     const result = parseSideloadLocalePack({ name: 'Klingon', language: 'tlh', strings: 'nope' })
     assert.equal(result.ok, false)
+  })
+})
+
+/**
+ * `mergeLocaleStrings()` (OpenProject #2433): the pure per-key override `sideloadFromDataPath()`'s
+ * write path and `getStrings()`'s `en` read-time floor both build on — replacing the previous
+ * full-row-replacement foot-gun where a one-key sideload wiped out every other known string for
+ * that locale.
+ */
+describe('mergeLocaleStrings()', () => {
+  test('overlay wins on a shared key', () => {
+    assert.deepEqual(mergeLocaleStrings({ a: 'one', b: 'two' }, { a: 'ONE' }), {
+      a: 'ONE',
+      b: 'two'
+    })
+  })
+
+  test('a key the overlay does not mention passes through from base unchanged', () => {
+    assert.deepEqual(mergeLocaleStrings({ a: 'one', b: 'two', c: 'three' }, { b: 'TWO' }), {
+      a: 'one',
+      b: 'TWO',
+      c: 'three'
+    })
+  })
+
+  test('an overlay key absent from base is added', () => {
+    assert.deepEqual(mergeLocaleStrings({ a: 'one' }, { z: 'new' }), { a: 'one', z: 'new' })
+  })
+
+  test('an empty base merges as if starting from scratch (brand-new locale case)', () => {
+    assert.deepEqual(mergeLocaleStrings({}, { a: 'one' }), { a: 'one' })
+  })
+
+  test('an empty overlay leaves base untouched', () => {
+    assert.deepEqual(mergeLocaleStrings({ a: 'one' }, {}), { a: 'one' })
   })
 })
 
@@ -397,7 +438,10 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
  * `<dataPath>/locales/<code>.json` file takes, independent of `locales/metadata.js` — a sideload
  * file can name a code the built-in language table has never declared, or override one that is.
  * Each test resets the sideload directory itself so files from one test never leak, force-reloaded,
- * into the next.
+ * into the next — and, since `sideloadFromDataPath()` now MERGES onto whatever a code's `strings`
+ * column already holds (OpenProject #2433) rather than replacing it outright, `beforeEach` also
+ * clears the `locales` table itself, so a code reused across tests (`de`, `tlh`, ...) never merges
+ * onto a row a previous test happened to leave behind.
  */
 describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -426,6 +470,7 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
   beforeEach(async () => {
     await rm(sideloadDir, { recursive: true, force: true })
     await mkdir(sideloadDir, { recursive: true })
+    await fixtures.db.delete(localesTable)
   })
 
   after(async () => {
@@ -471,6 +516,93 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     const [row] = await fixtures.db.select().from(localesTable).where(eq(localesTable.code, 'de'))
     assert.equal(row!.name, 'German (sideloaded)')
+    assert.equal(row!.completeness, 100)
+  })
+
+  /**
+   * OpenProject #2433: the whole point of the fix. Before it, `sideloadFromDataPath()` wrote the
+   * pack's `strings` as a full replacement of the row — a one-key pack silently wiped out every
+   * other already-known string for that locale. Seeds `de` with all 4 base keys already translated
+   * (a stand-in for "an earlier Localazy sync already populated this row"), then sideloads a pack
+   * naming only `key0`, and asserts the other 3 keys survive untouched.
+   */
+  test('a partial sideload merges onto the existing stored strings, leaving other keys untouched', async () => {
+    await fixtures.db.insert(localesTable).values({
+      code: 'de',
+      name: 'German',
+      nativeName: 'Deutsch',
+      language: 'de',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: { key0: 'eins', key1: 'zwei', key2: 'drei', key3: 'vier' },
+      completeness: 100
+    })
+
+    await writeFile(
+      path.join(sideloadDir, 'de.json'),
+      JSON.stringify({
+        name: 'German',
+        language: 'de',
+        strings: { key0: 'EINS (customized)' }
+      })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['de'])
+
+    const [row] = await fixtures.db.select().from(localesTable).where(eq(localesTable.code, 'de'))
+    assert.deepEqual(
+      row!.strings,
+      { key0: 'EINS (customized)', key1: 'zwei', key2: 'drei', key3: 'vier' },
+      'expected only key0 to change, with key1-key3 preserved from before the sideload'
+    )
+    assert.equal(
+      row!.completeness,
+      100,
+      'the merged result still covers all 4 base keys, so completeness stays 100'
+    )
+  })
+
+  /**
+   * Same fix (#2433), for `en` specifically — the WP's own motivating case ("Page Not Found" text)
+   * and the scope note that `en`'s `completeness: 100` must no longer be forced regardless of actual
+   * coverage. Uses this describe's own scratch `en.json` (4 keys) as the comparison base, matching
+   * how every other test in this block already treats it.
+   */
+  test('a partial "en" sideload merges too, and completeness is no longer forced to 100', async () => {
+    await fixtures.db.insert(localesTable).values({
+      code: 'en',
+      name: 'English',
+      nativeName: 'English',
+      language: 'en',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: { key0: 'value0', key1: 'value1', key2: 'value2', key3: 'value3' },
+      completeness: 100
+    })
+
+    await writeFile(
+      path.join(sideloadDir, 'en.json'),
+      JSON.stringify({
+        name: 'English',
+        language: 'en',
+        // -> Only one key overridden, and deliberately not naming key1-key3 at all.
+        strings: { key0: 'Page Not Found (customized)' }
+      })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['en'])
+
+    const [row] = await fixtures.db.select().from(localesTable).where(eq(localesTable.code, 'en'))
+    assert.deepEqual(row!.strings, {
+      key0: 'Page Not Found (customized)',
+      key1: 'value1',
+      key2: 'value2',
+      key3: 'value3'
+    })
     assert.equal(row!.completeness, 100)
   })
 
@@ -919,21 +1051,25 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('a different code gets its own cache entry', async () => {
-    await seedLocale(fixtures.db, { code: 'en' })
+    // -> Deliberately two non-`en` codes: `en` legitimately merges in the bundled `en.json` floor
+    //    (see the dedicated describe block below), which would make a tight `deepEqual` here about
+    //    cache namespacing rather than about that merge. `nl` rather than `de`, since a later test
+    //    in this same describe block seeds `de` of its own.
+    await seedLocale(fixtures.db, { code: 'nl' })
     await seedLocale(fixtures.db, { code: 'fr' })
     await fixtures.db
       .update(localesTable)
-      .set({ strings: { hello: 'Hello' } })
-      .where(eq(localesTable.code, 'en'))
+      .set({ strings: { hello: 'Hallo' } })
+      .where(eq(localesTable.code, 'nl'))
     await fixtures.db
       .update(localesTable)
       .set({ strings: { hello: 'Bonjour' } })
       .where(eq(localesTable.code, 'fr'))
 
-    assert.deepEqual(await localesModel.getStrings('en'), { hello: 'Hello' })
+    assert.deepEqual(await localesModel.getStrings('nl'), { hello: 'Hallo' })
     assert.deepEqual(await localesModel.getStrings('fr'), { hello: 'Bonjour' })
 
-    assert.equal(WIKI.cache.has('localeStrings:en'), true)
+    assert.equal(WIKI.cache.has('localeStrings:nl'), true)
     assert.equal(WIKI.cache.has('localeStrings:fr'), true)
   })
 
@@ -964,5 +1100,47 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
     const result = await localesModel.getStrings('zz-nonexistent')
     assert.deepEqual(result, [])
     assert.equal(WIKI.cache.has('localeStrings:zz-nonexistent'), true)
+  })
+
+  /**
+   * OpenProject #2433: `en`'s hard fallback floor. This describe block does not override
+   * `WIKI.SERVERPATH`, so `getStrings('en')` reads the REAL `backend/locales/en.json` (3,472 keys as
+   * of this writing, `common.actions.apply` = "Apply" — a stable, unlikely-to-be-renamed key used
+   * purely as a "some real bundled key survived the merge" probe, not asserted as the literal source
+   * of truth for its own value). The "no row at all" case runs BEFORE any `en` row is seeded, since
+   * `getStrings()` caches per code — seeding first would mean the second test is served from that
+   * seed's cache entry rather than genuinely re-querying with no row present.
+   */
+  test('getStrings("en") resolves from the bundled floor alone when no row exists at all', async () => {
+    const strings = await localesModel.getStrings('en')
+    assert.equal(
+      strings['common.actions.apply'],
+      'Apply',
+      'a fresh install with no en row yet must still resolve real bundled text, not a blank/raw key'
+    )
+  })
+
+  test('getStrings("en") merges the stored row onto the bundled en.json floor', async () => {
+    await seedLocale(fixtures.db, { code: 'en' })
+    await fixtures.db
+      .update(localesTable)
+      .set({ strings: { 'common.actions.apply': 'Commit', hello: 'Custom Hello' } })
+      .where(eq(localesTable.code, 'en'))
+    // -> The previous test already cached `localeStrings:en` (from the no-row case); this write
+    //    bypasses that cache entirely, so the read below must invalidate first to prove the merge
+    //    against the row rather than replaying the stale cached floor-only value.
+    await localesModel.reloadCache()
+
+    const strings = await localesModel.getStrings('en')
+    assert.equal(
+      strings['common.actions.apply'],
+      'Commit',
+      'a key present in both the stored row and the bundled file: stored wins'
+    )
+    assert.equal(strings.hello, 'Custom Hello', 'a key present only in the stored row is kept')
+    assert.ok(
+      Object.keys(strings).length > 2,
+      'expected bundled en.json keys neither override touches to still be present'
+    )
   })
 })
