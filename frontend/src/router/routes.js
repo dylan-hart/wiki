@@ -129,6 +129,8 @@ const routes = [
   // --------------------------------
   {
     path: '/_create/:editor?',
+    // -> See the STANDARD PAGE CATCH-ALL route below for what this meta flag is for.
+    meta: { contentPage: true },
     component: () => import('../layouts/MainLayout.vue'),
     children: [{ path: '', component: () => import('../pages/Index.vue') }]
   },
@@ -143,6 +145,8 @@ const routes = [
       in one capture without changing that shape, and the trailing `?` keeps `/_edit` alone valid too.
     */
     path: '/_edit/:pagePath(.*)?',
+    // -> See the STANDARD PAGE CATCH-ALL route below for what this meta flag is for.
+    meta: { contentPage: true },
     component: () => import('../layouts/MainLayout.vue'),
     children: [{ path: '', component: () => import('../pages/Index.vue') }]
   },
@@ -151,6 +155,18 @@ const routes = [
   // -----------------------
   {
     path: '/:catchAll(.*)*',
+    /*
+      OpenProject #2512: `meta.contentPage` marks the three routes that actually render `Index.vue`
+      and therefore run a page through `pageStore.pageLoad()` -- this one, `/_create`, and `/_edit`
+      above. `MainLayout.vue`'s `isSidebarMini` reads it to scope its `!pageStore.navigationId`
+      fallback to those routes alone: every OTHER `/_`-prefixed route (the knowledge graph, tags
+      browse, admin, profile, ...) never touches `pageStore` at all, so `navigationId` is either
+      `null` on a fresh store or whatever a previously-viewed content page left behind -- neither of
+      which says anything about that route's own navigation. Without this flag either value made the
+      sidebar collapse to its mini rail by accident, inconsistently depending on how the route was
+      reached (a fresh load vs. an in-SPA navigation from a content page).
+    */
+    meta: { contentPage: true },
     component: () => import('../layouts/MainLayout.vue'),
     children: [{ path: '', component: () => import('../pages/Index.vue') }]
   }
