@@ -387,12 +387,12 @@ $nav-shrink-max: 1199.98px;
 
     @at-root .body--light & {
       background-color: $grey-1;
-      border-right: 1px solid rgba($dark-3, 0.1);
+      border-inline-end: 1px solid rgba($dark-3, 0.1);
       box-shadow: inset -1px 0 0 #fff;
     }
     @at-root .body--dark & {
       background-color: $dark-4;
-      border-right: 1px solid rgba(#fff, 0.12);
+      border-inline-end: 1px solid rgba(#fff, 0.12);
       box-shadow: inset -1px 0 0 rgba($dark-6, 0.5);
     }
 
@@ -432,10 +432,10 @@ $nav-shrink-max: 1199.98px;
     overflow-y: auto;
 
     @at-root .body--light & {
-      border-left: 1px solid #fff;
+      border-inline-start: 1px solid #fff;
     }
     @at-root .body--dark & {
-      border-left: 1px solid rgba($dark-6, 0.75);
+      border-inline-start: 1px solid rgba($dark-6, 0.75);
     }
   }
 
@@ -463,7 +463,7 @@ $nav-shrink-max: 1199.98px;
         linear-gradient(to top, rgba($secondary, 0.05), transparent);
       position: absolute;
       top: -13px;
-      left: 0;
+      inset-inline-start: 0;
       z-index: 0;
 
       @at-root .body--dark & {
@@ -480,7 +480,7 @@ $nav-shrink-max: 1199.98px;
       background: linear-gradient(to right, transparent, rgba($secondary, 0.25));
       position: absolute;
       top: -2px;
-      left: 0;
+      inset-inline-start: 0;
       z-index: 0;
     }
   }
@@ -561,24 +561,24 @@ $nav-shrink-max: 1199.98px;
       width: 100%;
 
       @at-root .body--light & {
-        border-right: 0;
+        border-inline-end: 0;
         border-bottom: 1px solid $grey-3;
         box-shadow: none;
       }
       @at-root .body--dark & {
-        border-right: 0;
+        border-inline-end: 0;
         border-bottom: 1px solid rgba(#fff, 0.12);
         box-shadow: none;
       }
     }
 
-    /* -> The seam is the nav's bottom border now, and a left one would draw down the content's own edge */
+    /* -> The seam is the nav's bottom border now, and a leading one would draw down the content's own edge */
     .w-page {
       @at-root .body--light & {
-        border-left: 0;
+        border-inline-start: 0;
       }
       @at-root .body--dark & {
-        border-left: 0;
+        border-inline-start: 0;
       }
     }
   }
@@ -607,7 +607,7 @@ $nav-shrink-max: 1199.98px;
     .w-page .w-item-section--main + .w-item-section--main {
       flex: 1 0 100%;
       margin-top: 0.5rem;
-      margin-left: 0;
+      margin-inline-start: 0;
     }
   }
 }

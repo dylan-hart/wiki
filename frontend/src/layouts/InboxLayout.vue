@@ -231,12 +231,12 @@ watch(
 
   @at-root .body--light & {
     background-color: $grey-1;
-    border-right: 1px solid rgba($dark-3, 0.1);
+    border-inline-end: 1px solid rgba($dark-3, 0.1);
     box-shadow: inset -1px 0 0 #fff;
   }
   @at-root .body--dark & {
     background-color: $dark-4;
-    border-right: 1px solid rgba(#fff, 0.12);
+    border-inline-end: 1px solid rgba(#fff, 0.12);
     box-shadow: inset -1px 0 0 rgba($dark-6, 0.5);
   }
 
@@ -276,10 +276,10 @@ watch(
   overflow-y: auto;
 
   @at-root .body--light & {
-    border-left: 1px solid #fff;
+    border-inline-start: 1px solid #fff;
   }
   @at-root .body--dark & {
-    border-left: 1px solid rgba($dark-6, 0.75);
+    border-inline-start: 1px solid rgba($dark-6, 0.75);
   }
 }
 

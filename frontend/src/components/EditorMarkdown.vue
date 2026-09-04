@@ -1875,7 +1875,7 @@ onBeforeUnmount(() => {
         display: block;
         margin: 1rem 0;
         padding: 0.75rem 1rem;
-        border-left: 4px solid var(--content-danger);
+        border-inline-start: 4px solid var(--content-danger);
         border-radius: 3px;
         background-color: var(--content-danger-wash);
         color: var(--content-ink-muted);
@@ -1928,7 +1928,7 @@ onBeforeUnmount(() => {
           }
         }
         &-content {
-          border-left: 5px solid $teal-5;
+          border-inline-start: 5px solid $teal-5;
           background-color: $teal-1;
           padding: 0 15px 15px;
           overflow: hidden;

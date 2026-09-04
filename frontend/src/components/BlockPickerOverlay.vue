@@ -260,7 +260,7 @@ onMounted(async () => {
     border-radius: 6px;
     background-color: #fff;
     color: inherit;
-    text-align: left;
+    text-align: start;
     cursor: pointer;
     box-shadow:
       0 1px 3px rgb(0 0 0 / 0.12),
