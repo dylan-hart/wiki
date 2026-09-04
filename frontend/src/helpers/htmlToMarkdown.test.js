@@ -93,6 +93,27 @@ describe('htmlToMarkdown', () => {
       ])
       expect(markdown).toBe('![](pending-image:0)')
     })
+
+    it('collapses a multi-line alt (Word/OneNote OCR description, OpenProject #2534) to a single line so the placeholder stays resolvable', () => {
+      const html =
+        '<img src="data:image/png;base64,AAAA" alt="Hopper @ WIKD\n09 The Last of Us Part\nII Remastered">'
+      const { markdown, images } = htmlToMarkdown(html)
+      expect(images).toEqual([
+        {
+          token: 'pending-image:0',
+          src: 'data:image/png;base64,AAAA',
+          alt: 'Hopper @ WIKD 09 The Last of Us Part II Remastered'
+        }
+      ])
+      // The placeholder in `markdown` must be a single line and match the `images[].alt` value
+      // exactly -- a caller resolves it with a plain substring replace built from that same alt,
+      // and `normalize()` trims trailing whitespace per-line across the whole document, so an
+      // embedded raw newline here would desync the two and leave the placeholder unresolved.
+      expect(markdown).toBe(
+        '![Hopper @ WIKD 09 The Last of Us Part II Remastered](pending-image:0)'
+      )
+      expect(markdown).not.toContain('\n')
+    })
   })
 
   describe('OneNote clipboard quirks (Feature #2417 validation case)', () => {
