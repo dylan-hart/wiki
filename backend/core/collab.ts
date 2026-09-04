@@ -252,6 +252,13 @@ interface DraftPersistState {
   /** When the first not-yet-persisted edit in the current burst landed, for the max-delay cap — null
    * exactly when `timer` is. */
   pendingSince: number | null
+  /**
+   * The in-flight {@link flushDraftPersist} write's promise, or null while none is outstanding. Set
+   * just before that write starts and cleared back to null once it settles (success or failure), so
+   * {@link pageSaved} can order its `pageDrafts.clear()` call to always run after this write lands
+   * rather than racing it (OpenProject #2542).
+   */
+  inFlight: Promise<void> | null
 }
 
 interface SaveInfo {
@@ -673,7 +680,7 @@ export default {
       conns: new Map(),
       ready: Promise.resolve(),
       provisional: true,
-      draftPersist: { timer: null, pendingSince: null },
+      draftPersist: { timer: null, pendingSince: null, inFlight: null },
       lastAuthorName: null,
       wysiwygSeeded: false
     }
@@ -1005,6 +1012,10 @@ export default {
    * -- best-effort attribution of whoever was last known to be editing, for the recovery-restore
    * prompt to credit. Not resolved to a real `authorId`: nothing here has one to attach, only the
    * display name a departing connection's awareness state carried.
+   *
+   * Publishes the returned promise on {@link DraftPersistState.inFlight} for the write's duration
+   * (OpenProject #2542), clearing it back to null once the write settles, so {@link pageSaved} can
+   * order its own `pageDrafts.clear()` to always land after this write rather than racing it.
    */
   flushDraftPersist(room: CollabRoom): Promise<void> {
     if (room.draftPersist.timer) {
@@ -1012,13 +1023,22 @@ export default {
     }
     room.draftPersist.timer = null
     room.draftPersist.pendingSince = null
-    return WIKI.models.pageDrafts
+    const persisting: Promise<void> = WIKI.models.pageDrafts
       .save(room.pageId, room.siteId, Y.encodeStateAsUpdate(room.doc), null, room.lastAuthorName)
       .catch((err: any) => {
         WIKI.logger.warn(
           `Failed to persist an autosave draft for page ${room.pageId}: ${err.message}`
         )
       })
+      .finally(() => {
+        // -> Only clear if this is still the flush that's in flight -- a guard against a future
+        //    caller that fires a second flush before this one settles clobbering it.
+        if (room.draftPersist.inFlight === persisting) {
+          room.draftPersist.inFlight = null
+        }
+      })
+    room.draftPersist.inFlight = persisting
+    return persisting
   },
 
   /**
@@ -1037,17 +1057,36 @@ export default {
    * surviving past this point would offer to restore content a save has already overtaken. The row
    * lives in postgres, not in memory, so whichever instance's `PATCH` handler called this is the one
    * that gets to clear it, room or no room.
+   *
+   * Coordinates with a room's own {@link DraftPersistState} rather than clearing blind (OpenProject
+   * #2542): any not-yet-fired debounce timer is cancelled immediately, so a flush already superseded
+   * by this save can never write afterward, and the clear itself is deferred until this room's
+   * `inFlight` write (if {@link flushDraftPersist} was already running when this landed) has settled
+   * — ordering the in-flight write before the clear rather than letting it resurrect a draft the
+   * clear had just removed. Stays fire-and-forget from the caller's perspective: the ordering happens
+   * inside this promise chain, not by making `pageSaved` itself `async`.
    */
   pageSaved(pageId: string, info: SaveInfo): void {
     const room = this.rooms.get(pageId)
+    let clearAfter: Promise<void> = Promise.resolve()
     if (room) {
       room.doc.getMap('meta').set('lastSave', info)
+      if (room.draftPersist.timer) {
+        clearTimeout(room.draftPersist.timer)
+      }
+      room.draftPersist.timer = null
+      room.draftPersist.pendingSince = null
+      if (room.draftPersist.inFlight) {
+        clearAfter = room.draftPersist.inFlight
+      }
     } else {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
     }
-    WIKI.models.pageDrafts.clear(pageId).catch((err: any) => {
-      WIKI.logger.warn(`Failed to clear the draft for page ${pageId}: ${err.message}`)
-    })
+    clearAfter
+      .then(() => WIKI.models.pageDrafts.clear(pageId))
+      .catch((err: any) => {
+        WIKI.logger.warn(`Failed to clear the draft for page ${pageId}: ${err.message}`)
+      })
   },
 
   // ----------------------------------------

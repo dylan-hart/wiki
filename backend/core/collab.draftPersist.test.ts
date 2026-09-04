@@ -254,4 +254,70 @@ describe('pageSaved: clears the persisted draft', () => {
     assert.equal(pageDrafts.clear.mock.calls.length, 1)
     assert.equal(pageDrafts.clear.mock.calls[0].arguments[0], 'page-no-room')
   })
+
+  test('a still-pending debounce timer at the moment pageSaved() is called never fires afterward', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const room = await harness.openRoom(collab, { id: 'page-12', siteId: 'site-1' })
+    const pageDrafts = harness.pageDrafts()
+
+    room.doc.transact(() => {
+      room.doc.getText('content').insert(0, 'still typing')
+    })
+    assert.ok(room.draftPersist.timer, 'a debounce timer is scheduled before pageSaved() runs')
+
+    collab.pageSaved(room.pageId, {
+      versionDate: '2026-08-18T00:00:00.000Z',
+      authorId: 'u1',
+      authorName: 'Ada'
+    })
+
+    t.mock.timers.tick(DRAFT_PERSIST_MAX_DELAY * 2)
+    assert.equal(
+      pageDrafts.save.mock.calls.length,
+      0,
+      'the cancelled timer must never fire a stale write after the real save'
+    )
+  })
+
+  test('an in-flight flushDraftPersist() write is ordered before pageDrafts.clear()', async () => {
+    const room = await harness.openRoom(collab, { id: 'page-13', siteId: 'site-1' })
+    const pageDrafts = harness.pageDrafts()
+    const order: string[] = []
+    let resolveSave: () => void = () => {}
+    pageDrafts.save.mock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = () => {
+            order.push('save')
+            resolve()
+          }
+        })
+    )
+    pageDrafts.clear.mock.mockImplementationOnce(async () => {
+      order.push('clear')
+    })
+
+    const flushed = collab.flushDraftPersist(room)
+
+    collab.pageSaved(room.pageId, {
+      versionDate: '2026-08-18T00:00:00.000Z',
+      authorId: 'u1',
+      authorName: 'Ada'
+    })
+
+    // Give pageSaved()'s own promise chain several microtask turns to (wrongly) run ahead of the
+    // still-pending save -- it must still be waiting on it.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    assert.equal(pageDrafts.clear.mock.calls.length, 0, 'clear must wait for the in-flight save')
+
+    resolveSave()
+    await flushed
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.deepEqual(order, ['save', 'clear'])
+    assert.equal(pageDrafts.clear.mock.calls.length, 1)
+  })
 })
