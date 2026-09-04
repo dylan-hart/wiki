@@ -28,11 +28,22 @@ import { tables, taskListItems } from 'turndown-plugin-gfm'
  *
  * Two more decisions worth calling out:
  *
- * - **Images are dropped, not converted.** An HTML paste can carry an inline image as a `data:`
- *   URI (a screenshot pasted into OneNote/Word, then copied out, commonly does) worth megabytes of
- *   base64 -- turning that into a markdown `![]()` would dump the whole blob into the page source.
- *   Image-paste-to-asset-upload is Feature #2417's *other* child (#2449); until that lands, the
- *   correct behavior here is to leave the image out rather than inline an unreadable blob.
+ * - **Images become a pending-asset placeholder, not a dropped tag or an inlined blob.** An HTML
+ *   paste can carry an inline image as a `data:` URI (a screenshot pasted into OneNote/Word, then
+ *   copied out, commonly does) worth megabytes of base64 -- inlining that into a markdown `![]()`
+ *   verbatim would dump the whole blob into the page source, and dropping it silently loses the
+ *   image entirely (OpenProject #2504: this was the original behavior here, and turned out to be
+ *   exactly what OneNote/mixed-content pastes hit every time, since `EditorMarkdown.vue`'s own
+ *   bare-image-paste handling only ever sees a paste with NO accompanying text -- see
+ *   `shouldClaimPaste`). Turndown's `addRule` replacement runs synchronously, but turning an image's
+ *   `src` into a real uploaded asset is not (`fetch` + `editorStore.addPendingAsset`), so this module
+ *   does not perform the upload itself: `htmlToMarkdown` returns `{ markdown, images }`, where
+ *   `markdown` has a `![alt](pending-image:N)` placeholder in place of each `<img>` and `images` is
+ *   the ordered list of `{ token, src, alt }` needed to resolve them. `EditorMarkdown.vue`'s paste
+ *   handler is what does the actual fetch-and-upload and substitutes each token for the real pending
+ *   asset `blob:` URL (or drops that one image if its `src` cannot be retrieved at all -- a
+ *   cross-origin image the source page doesn't allow, e.g.), mirroring `insertFilesAsAssets`'s
+ *   already-established pending-asset pattern for a bare file/image paste.
  * - **No "is this worth converting" gate.** Every non-empty `text/html` payload is converted, with
  *   no attempt to detect "this is really just plain text with an incidental HTML wrapper" and skip
  *   conversion for it. Escaping markdown-significant characters in plain prose (turndown's
@@ -55,6 +66,29 @@ const isPresentationalStrike = (node) =>
 const isPresentationalUnderline = (node) =>
   styleValue(node, 'text-decoration').includes('underline')
 const hasContent = (content) => content.trim().length > 0
+
+/*
+  Set to the current call's array for the duration of a single `htmlToMarkdown` invocation --
+  turndown's own parse is synchronous and non-reentrant, so a plain module-level variable is enough
+  to hand each `<img>` rule firing back to the specific call that triggered it, with no need to
+  thread a collector through turndown's own `addRule` API (which takes no such per-call argument).
+*/
+let currentImageCollector = null
+
+/*
+  A source-less `<img>` (no `src` at all, or one that resolved to an empty string) has nothing to
+  fetch and is dropped outright, same as the old unconditional-drop rule did for every image.
+*/
+function collectPendingImage(node) {
+  const src = ((node.getAttribute && node.getAttribute('src')) || '').trim()
+  if (!src || !currentImageCollector) {
+    return ''
+  }
+  const alt = (node.getAttribute && node.getAttribute('alt')) || ''
+  const token = `pending-image:${currentImageCollector.length}`
+  currentImageCollector.push({ token, src, alt })
+  return `![${alt}](${token})`
+}
 
 function buildTurndownService() {
   const service = new TurndownService({
@@ -98,13 +132,14 @@ function buildTurndownService() {
     filter: 'u',
     replacement: (content) => (hasContent(content) ? `<u>${content}</u>` : content)
   })
-  // -> See "Images are dropped, not converted" above. `img` has a built-in turndown rule, so
-  //    `service.remove('img')` would never win against it -- `remove()` only wins for a tag with NO
-  //    default rule to begin with (which is why it works for `style`/`script` above); overriding a
-  //    tag turndown already has an opinion on takes a real `addRule`, checked before the defaults.
-  service.addRule('dropImages', {
+  // -> See "Images become a pending-asset placeholder" above. `img` has a built-in turndown rule,
+  //    so `service.remove('img')` would never win against it -- `remove()` only wins for a tag with
+  //    NO default rule to begin with (which is why it works for `style`/`script` above);
+  //    overriding a tag turndown already has an opinion on takes a real `addRule`, checked before
+  //    the defaults.
+  service.addRule('pendingImage', {
     filter: 'img',
-    replacement: () => ''
+    replacement: (content, node) => collectPendingImage(node)
   })
 
   return service
@@ -160,13 +195,28 @@ function normalize(markdown) {
 }
 
 /**
- * `html` -> markdown, or `''` for a blank/whitespace-only payload.
+ * `html` -> `{ markdown, images }`, or `{ markdown: '', images: [] }` for a blank/whitespace-only
+ * payload.
+ *
+ * `markdown` carries a `![alt](pending-image:N)` placeholder wherever the source HTML had an
+ * `<img>` with a usable `src` -- see the module doc comment's "Images become a pending-asset
+ * placeholder" note for why resolving those into real uploaded assets is deliberately NOT this
+ * function's job. `images` is the ordered `{ token, src, alt }` list a caller resolves them with;
+ * `token` is exactly the placeholder text embedded in `markdown` for that image, so a caller
+ * resolves it with a plain substring replace -- no parsing back out of the markdown required.
  */
 export function htmlToMarkdown(html) {
   if (!html || !html.trim()) {
-    return ''
+    return { markdown: '', images: [] }
   }
   const normalizedHtml = unwrapDocumentShell(stripClipboardHeader(html))
-  const markdown = getTurndownService().turndown(normalizedHtml)
-  return normalize(convertCheckboxGlyphs(markdown))
+  const images = []
+  currentImageCollector = images
+  let markdown
+  try {
+    markdown = getTurndownService().turndown(normalizedHtml)
+  } finally {
+    currentImageCollector = null
+  }
+  return { markdown: normalize(convertCheckboxGlyphs(markdown)), images }
 }

@@ -1112,6 +1112,48 @@ function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
   insertAtCursor({ content: markup.join('\n') })
 }
 
+/**
+ * Resolve `htmlToMarkdown`'s `![alt](pending-image:N)` placeholders into real pending-asset
+ * `blob:` URLs, for the images embedded in a rich-HTML paste (OpenProject #2504).
+ *
+ * Turndown's own conversion is synchronous, but retrieving an image's bytes is not -- the `src` can
+ * be a `data:` URI (a screenshot, commonly megabytes of base64), a `blob:` URL, or a same-origin or
+ * remote `http(s):` reference -- so `htmlToMarkdown` hands back placeholders instead of resolving
+ * them itself; this is the async other half. `fetch` is what turns any of those three `src` shapes
+ * into bytes uniformly, and the resulting `Blob` goes through the exact same
+ * `editorStore.addPendingAsset` pending-asset pipeline `insertFilesAsAssets` above already uses for
+ * a bare image paste, so it uploads and rewrites on save the same way.
+ *
+ * A `src` that cannot actually be retrieved (a cross-origin image the source page's CORS policy
+ * doesn't allow, a `blob:` URL from a tab that has since navigated away, ...) drops just that one
+ * image -- the same graceful degradation the old drop-every-image rule used to apply unconditionally,
+ * now scoped to only the images that genuinely could not be fetched.
+ */
+async function resolvePendingImages(markdown, images) {
+  let content = markdown
+  await Promise.all(
+    images.map(async ({ token, src, alt }) => {
+      const placeholder = `![${alt}](${token})`
+      let replacement = ''
+      try {
+        const response = await fetch(src)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch pasted image: ${response.status}`)
+        }
+        const blob = await response.blob()
+        const blobUrl = editorStore.addPendingAsset(blob)
+        replacement = `![${alt}](${blobUrl})`
+      } catch {
+        replacement = ''
+      }
+      // -> `token` is unique per call (see `htmlToMarkdown`), so this can only ever match the one
+      //    placeholder it was generated for
+      content = content.split(placeholder).join(replacement)
+    })
+  )
+  return content
+}
+
 /*
   Pasting a file inserts it; pasting HTML converts it to markdown; anything else is left alone. See
   `shouldClaimPaste` for the text-wins-over-an-accompanying-image decision -- pulled out to
@@ -1120,9 +1162,10 @@ function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
   Both branches take the paste over completely -- `stopPropagation` as well as `preventDefault`,
   because this runs in capture ABOVE the editor: letting it travel on would hand the same paste to
   Monaco's own paste-as feature (files) or its default plain-text insert (HTML), which would answer
-  it a second time in its own way.
+  it a second time in its own way. Both of those calls happen before any `await` below, so the paste
+  is still claimed synchronously even though resolving embedded images is not.
 */
-function onEditorPaste(event) {
+async function onEditorPaste(event) {
   if (shouldClaimPaste(event.clipboardData)) {
     event.preventDefault()
     event.stopPropagation()
@@ -1132,14 +1175,17 @@ function onEditorPaste(event) {
   // -> OpenProject #2448 (Feature #2417): a paste carrying HTML -- a webpage selection, a Word or
   //    OneNote paste, ... -- is converted to markdown rather than left to fall through to whatever
   //    the browser's own plain-text paste would have inserted. See `helpers/htmlToMarkdown.js` for
-  //    what the conversion does and does not attempt.
+  //    what the conversion does and does not attempt, including its own embedded images (OpenProject
+  //    #2504) -- resolved here via `resolvePendingImages` before the markdown is inserted.
   const html = event.clipboardData?.getData?.('text/html') ?? ''
   if (html.trim().length === 0) {
     return
   }
   event.preventDefault()
   event.stopPropagation()
-  insertAtCursor({ content: htmlToMarkdown(html) })
+  const { markdown, images } = htmlToMarkdown(html)
+  const content = images.length > 0 ? await resolvePendingImages(markdown, images) : markdown
+  insertAtCursor({ content })
 }
 
 /*
