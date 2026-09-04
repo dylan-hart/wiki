@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.cluster.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.cluster.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none flex">
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -123,7 +123,7 @@ const nodesHeaders = [
     field: 'id',
     name: 'icon',
     sortable: false,
-    style: 'width: 15px; padding-right: 0;'
+    style: 'width: 15px; padding-inline-end: 0;'
   },
   {
     label: t('common.field.id'),

@@ -58,7 +58,7 @@
                 :aria-label="t(`profile.authActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom right" self="top right">
                   <!--
-                  `!min-w-0 !pr-2` on each icon section: an avatar section is a 56px column with 16px
+                  `!min-w-0 !pe-2` on each icon section: an avatar section is a 56px column with 16px
                   of padding after it, which is the right metric for a 40px avatar in a list row and
                   far too much air beside a 24px icon in a menu. Both rules are scoped styles in
                   WItemSection, hence `!` -- a layered utility cannot outrank them.
@@ -69,7 +69,7 @@
                 -->
                   <w-list dense padding style="min-width: 240px">
                     <w-item clickable @click="changePassword(auth.authId)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:key" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authChangePassword') }}</w-item-section>
@@ -78,13 +78,13 @@
                       v-if="auth.config.isTfaSetup"
                       clickable
                       @click="disableTfa(auth.authId)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:fingerprint" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authDisableTfa') }}</w-item-section>
                     </w-item>
                     <w-item v-else clickable @click="setupTfa(auth.authId)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:fingerprint" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authSetTfa') }}</w-item-section>
@@ -93,7 +93,7 @@
                       v-if="auth.config.isTfaSetup"
                       clickable
                       @click="regenerateRecoveryCodes(auth.authId)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:key" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.tfaRecoveryCodesRegenerate') }}</w-item-section>
@@ -104,7 +104,7 @@
                       clickable
                       :disabled="!auth.config.canDisablePasswordLogin"
                       @click="disablePasswordLogin(auth.authId)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:ban" class="text-negative" />
                       </w-item-section>
                       <w-item-section class="text-negative">
@@ -112,7 +112,7 @@
                       </w-item-section>
                     </w-item>
                     <w-item v-else clickable @click="enablePasswordLogin(auth.authId)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:redo" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authEnablePasswordLogin') }}</w-item-section>

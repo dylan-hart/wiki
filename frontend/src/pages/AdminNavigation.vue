@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">
           {{ t('admin.navigation.title') }}
         </h1>
@@ -17,7 +17,7 @@
       </div>
       <div class="flex-none flex items-center">
         <w-input
-          class="denser mr-2"
+          class="denser me-2"
           outlined
           v-model="state.search"
           dense
@@ -27,7 +27,7 @@
           <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
         </w-input>
         <w-select
-          class="mr-2"
+          class="me-2"
           style="min-width: 180px"
           outlined
           dense
@@ -39,14 +39,14 @@
           map-options
           :aria-label="t(`admin.navigation.localeFilterLabel`)" />
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="mdi:playlist-edit"
           flat
           color="deep-orange-9"
           :label="t(`admin.navigation.editDefaultMenu`)"
           @click="openDefaultMenu" />
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:question-circle"
           flat
           color="grey"
@@ -80,11 +80,11 @@
             <template v-slot:body-cell-path="props">
               <w-td :props="props" class="cursor-pointer" @click="openEntry(props.row)">
                 <div class="flex items-center">
-                  <w-icon class="mr-2 flex-none" :name="typeIcon(props.row.type)" size="sm" />
+                  <w-icon class="me-2 flex-none" :name="typeIcon(props.row.type)" size="sm" />
                   <span class="font-robotomono">/{{ props.value }}</span>
                   <w-icon
                     v-if="props.row.type !== `asset`"
-                    class="ml-2 opacity-50 flex-none"
+                    class="ms-2 opacity-50 flex-none"
                     name="la:external-link-alt"
                     size="14px" />
                 </div>

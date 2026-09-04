@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.general.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.general.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -25,7 +25,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -275,7 +275,7 @@
               <w-item-label>{{ t(`admin.general.defaultTocDepth`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.defaultTocDepthHint`) }}</w-item-label>
             </w-item-section>
-            <w-item-section class="flex-none pl-2" style="min-width: 180px">
+            <w-item-section class="flex-none ps-2" style="min-width: 180px">
               <div class="text-caption">
                 {{ t('editor.props.tocMinMaxDepth') }}
                 <strong
@@ -417,17 +417,17 @@
                       :src="`/_site/` + state.config.id + `/favicon?` + faviconTimestamp"
                       :alt="t(`admin.general.favicon`)" />
                   </w-avatar>
-                  <div class="text-caption ml-2">{{ state.config.title }}</div>
+                  <div class="text-caption ms-2">{{ state.config.title }}</div>
                 </div>
                 <div>
                   <w-icon name="la:otter" size="24px" color="grey" />
-                  <div class="text-caption ml-2">
+                  <div class="text-caption ms-2">
                     {{ t('admin.general.faviconPreviewSample1') }}
                   </div>
                 </div>
                 <div>
                   <w-icon name="la:mountain" size="24px" color="grey" />
-                  <div class="text-caption ml-2">
+                  <div class="text-caption ms-2">
                     {{ t('admin.general.faviconPreviewSample2') }}
                   </div>
                 </div>

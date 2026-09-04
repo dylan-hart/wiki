@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.flags.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.flags.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -41,7 +41,7 @@
             <w-item-section>
               <w-card class="bg-negative text-white rounded" flat>
                 <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pr-0">
+                  <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
                   </w-card-section>
                   <w-card-section>

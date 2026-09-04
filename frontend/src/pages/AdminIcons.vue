@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon admin-icons-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.icons.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none flex">
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           flat
           icon="la:broom"
           color="purple"
@@ -23,9 +23,9 @@
           @click="purgeCache">
           <w-tooltip>{{ t('admin.icons.purgeCacheHint') }}</w-tooltip>
         </w-btn>
-        <w-separator class="mr-2" vertical />
+        <w-separator class="me-2" vertical />
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:question-circle"
           flat
           color="grey"
@@ -35,7 +35,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -74,7 +74,7 @@
               <w-item-section>
                 <w-item-label>
                   <strong>{{ set.name }}</strong>
-                  <w-chip class="ml-2" square dense size="sm" color="primary" text-color="white">{{
+                  <w-chip class="ms-2" square dense size="sm" color="primary" text-color="white">{{
                     set.prefix
                   }}</w-chip>
                 </w-item-label>
@@ -97,10 +97,10 @@
                   <w-tooltip>{{ t('admin.icons.referenceHint') }}</w-tooltip>
                 </w-btn>
               </w-item-section>
-              <w-separator class="ml-4" vertical />
+              <w-separator class="ms-4" vertical />
               <w-item-section side>
                 <w-toggle
-                  class="pr-2"
+                  class="pe-2"
                   :modelValue="set.isEnabled"
                   @update:model-value="(newValue) => setSetState(set, newValue)"
                   :label="t(`admin.icons.isEnabled`)"
@@ -221,7 +221,7 @@
               <w-item-section>
                 <w-item-label>
                   <strong>{{ set.name }}</strong>
-                  <w-chip class="ml-2" square dense size="sm" color="primary" text-color="white">{{
+                  <w-chip class="ms-2" square dense size="sm" color="primary" text-color="white">{{
                     set.prefix
                   }}</w-chip>
                 </w-item-label>

@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.scheduler.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none flex">
         <w-btn-toggle
-          class="mr-4"
+          class="me-4"
           v-model="state.displayMode"
           push
           no-caps
@@ -32,9 +32,9 @@
             { label: t('admin.scheduler.completed'), value: 'completed' },
             { label: t('admin.scheduler.failed'), value: 'failed' }
           ]" />
-        <w-separator class="mr-4" vertical />
+        <w-separator class="me-4" vertical />
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -60,7 +60,7 @@
                 class="items-center rounded"
                 horizontal
                 :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-                <w-card-section class="flex-none pr-0">
+                <w-card-section class="flex-none pe-0">
                   <w-icon name="la:info-circle" size="sm" />
                 </w-card-section>
                 <w-card-section class="text-caption">{{
@@ -79,7 +79,7 @@
                      Awesome, which is an outline set, and MDI's solid glyph sat noticeably heavier
                      beside them.
                 -->
-                <w-icon class="mr-2" name="la:calendar" color="indigo" size="sm" />
+                <w-icon class="me-2" name="la:calendar" color="indigo" size="sm" />
               </w-td>
             </template>
             <template v-slot:body-cell-task="props">
@@ -155,7 +155,7 @@
                 class="items-center rounded"
                 horizontal
                 :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-                <w-card-section class="flex-none pr-0">
+                <w-card-section class="flex-none pe-0">
                   <w-icon name="la:info-circle" size="sm" />
                 </w-card-section>
                 <w-card-section class="text-caption">{{
@@ -196,11 +196,11 @@
               <w-td :props="props">
                 <template v-if="props.value">
                   <w-icon name="la:microchip" color="brown" size="sm" />
-                  <small class="ml-1 text-brown">Worker</small>
+                  <small class="ms-1 text-brown">Worker</small>
                 </template>
                 <template v-else>
                   <w-icon name="la:leaf" color="teal" size="sm" />
-                  <small class="ml-1 text-teal">In-Process</small>
+                  <small class="ms-1 text-teal">In-Process</small>
                 </template>
               </w-td>
             </template>
@@ -246,7 +246,7 @@
                 class="items-center rounded"
                 horizontal
                 :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-                <w-card-section class="flex-none pr-0">
+                <w-card-section class="flex-none pe-0">
                   <w-icon name="la:info-circle" size="sm" />
                 </w-card-section>
                 <w-card-section class="text-caption">{{
@@ -321,7 +321,7 @@
                 </button>
                 <strong
                   v-else
-                  :class="props.row.groupChild ? 'inline-block pl-6 font-normal' : ''"
+                  :class="props.row.groupChild ? 'inline-block ps-6 font-normal' : ''"
                   >{{ props.value }}</strong
                 >
                 <div v-if="!props.row.groupChild">
@@ -372,11 +372,11 @@
               <w-td :props="props">
                 <template v-if="props.value">
                   <w-icon name="la:microchip" color="brown" size="sm" />
-                  <small class="ml-1 text-brown">Worker</small>
+                  <small class="ms-1 text-brown">Worker</small>
                 </template>
                 <template v-else>
                   <w-icon name="la:leaf" color="teal" size="sm" />
-                  <small class="ml-1 text-teal">In-Process</small>
+                  <small class="ms-1 text-teal">In-Process</small>
                 </template>
               </w-td>
             </template>
@@ -499,7 +499,7 @@ const scheduledJobsHeaders = [
     field: 'id',
     name: 'id',
     sortable: false,
-    style: 'width: 15px; padding-right: 0;'
+    style: 'width: 15px; padding-inline-end: 0;'
   },
   {
     label: t('common.field.task'),
@@ -553,7 +553,7 @@ const upcomingJobsHeaders = [
     field: 'id',
     name: 'id',
     sortable: false,
-    style: 'width: 15px; padding-right: 0;'
+    style: 'width: 15px; padding-inline-end: 0;'
   },
   {
     label: t('common.field.task'),
@@ -607,7 +607,7 @@ const jobsHeaders = [
     field: 'id',
     name: 'id',
     sortable: false,
-    style: 'width: 15px; padding-right: 0;'
+    style: 'width: 15px; padding-inline-end: 0;'
   },
   {
     label: t('common.field.task'),

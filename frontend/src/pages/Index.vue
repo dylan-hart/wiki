@@ -159,7 +159,7 @@
               <div class="flex flex-wrap">
                 <div class="min-w-0 flex-1 text-left" v-if="relationsLeft.length > 0">
                   <w-btn
-                    class="mr-2 mb-2"
+                    class="me-2 mb-2"
                     padding="sm md"
                     outline
                     no-caps
@@ -168,7 +168,7 @@
                     :key="`rel-id-` + rel.id"
                     v-bind="relationLink(rel)">
                     <w-icon :name="rel.icon" />
-                    <div class="flex flex-col text-left pl-4">
+                    <div class="flex flex-col text-left ps-4">
                       <div class="text-body2">
                         <strong>{{ rel.label }}</strong>
                       </div>
@@ -185,14 +185,14 @@
                       v-for="rel of relationsCenter"
                       :key="`rel-id-` + rel.id"
                       v-bind="relationLink(rel)">
-                      <w-icon class="mr-2" :name="rel.icon" />
+                      <w-icon class="me-2" :name="rel.icon" />
                       <span>{{ rel.label }}</span>
                     </w-btn>
                   </div>
                 </div>
                 <div class="min-w-0 flex-1 text-right" v-if="relationsRight.length > 0">
                   <w-btn
-                    class="ml-2 mb-2"
+                    class="ms-2 mb-2"
                     padding="sm md"
                     outline
                     no-caps
@@ -200,7 +200,7 @@
                     v-for="rel of relationsRight"
                     :key="`rel-id-` + rel.id"
                     v-bind="relationLink(rel)">
-                    <div class="flex flex-col text-left pr-4">
+                    <div class="flex flex-col text-left pe-4">
                       <div class="text-body2">
                         <strong>{{ rel.label }}</strong>
                       </div>
@@ -254,7 +254,7 @@
         <template v-if="showToc">
           <!-- TOC -->
           <div class="p-4 flex items-center">
-            <w-icon class="mr-2" name="la:stream" color="grey" />
+            <w-icon class="me-2" name="la:stream" color="grey" />
             <!-- -> Its own string, not `common.page.toc`: this heading labels a column beside the
                  article and reads better short, where "Table of Contents" is the full name of the
                  thing and belongs where there is room for it -->
@@ -276,7 +276,7 @@
             @mouseover="state.showTagsEditBtn = true"
             @mouseleave="state.showTagsEditBtn = false">
             <div class="flex items-center">
-              <w-icon class="mr-2" name="la:tags" color="grey" />
+              <w-icon class="me-2" name="la:tags" color="grey" />
               <div class="text-caption text-grey-7">{{ t('common.page.tags') }}</div>
               <w-space />
               <!--

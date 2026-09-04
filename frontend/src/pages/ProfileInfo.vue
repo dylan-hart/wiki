@@ -5,7 +5,7 @@
       <w-item-section>
         <w-card class="bg-negative rounded text-white" flat>
           <w-card-section class="items-center" horizontal>
-            <w-card-section class="shrink-0 pr-0">
+            <w-card-section class="shrink-0 pe-0">
               <w-icon name="la:ban" size="lg" />
             </w-card-section>
             <w-card-section>

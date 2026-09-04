@@ -7,14 +7,14 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.terminal.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.terminal.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex items-center">
-        <div v-if="state.connected" class="mr-4 text-right leading-tight">
+        <div v-if="state.connected" class="me-4 text-right leading-tight">
           <div class="text-xs text-grey">{{ t('admin.terminal.instance') }}</div>
           <div class="flex items-center justify-end gap-1.5 font-mono text-sm">
             <status-light class="admin-terminal-dot" color="positive" pulse />
@@ -22,7 +22,7 @@
           </div>
         </div>
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           v-if="!state.connected || state.connecting"
           flat
           icon="la:link"
@@ -32,7 +32,7 @@
           :loading="state.connecting"
           :disabled="state.connecting" />
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           v-else
           flat
           icon="la:unlink"
@@ -40,7 +40,7 @@
           color="negative"
           @click="disconnect" />
         <w-btn
-          class="acrylic-btn mr-4"
+          class="acrylic-btn me-4"
           flat
           icon="la:ban"
           :label="t(`admin.terminal.clear`)"

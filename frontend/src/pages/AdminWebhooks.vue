@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.webhooks.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.webhooks.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -25,7 +25,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -50,7 +50,7 @@
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
+            <w-card-section class="flex-none pe-0">
               <w-icon name="la:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">{{ t('admin.webhooks.none') }}</w-card-section>
@@ -69,14 +69,14 @@
               </w-item-section>
               <w-item-section side style="flex-direction: row; align-items: center">
                 <template v-if="hook.state === `pending`">
-                  <w-spinner class="mr-2" color="indigo" size="xs" />
+                  <w-spinner class="me-2" color="indigo" size="xs" />
                   <div class="text-caption text-indigo">{{ t('admin.webhooks.statePending') }}</div>
                   <w-tooltip anchor="center left" self="center right">{{
                     t('admin.webhooks.statePendingHint')
                   }}</w-tooltip>
                 </template>
                 <template v-else-if="hook.state === `success`">
-                  <w-spinner class="mr-2" color="positive" size="xs" />
+                  <w-spinner class="me-2" color="positive" size="xs" />
                   <div class="text-caption text-positive">
                     {{ t('admin.webhooks.stateSuccess') }}
                   </div>
@@ -85,17 +85,17 @@
                   }}</w-tooltip>
                 </template>
                 <template v-else-if="hook.state === `error`">
-                  <w-icon class="mr-2" color="negative" size="xs" name="la:exclamation-triangle" />
+                  <w-icon class="me-2" color="negative" size="xs" name="la:exclamation-triangle" />
                   <div class="text-caption text-negative">{{ t('admin.webhooks.stateError') }}</div>
                   <w-tooltip anchor="center left" self="center right">{{
                     t('admin.webhooks.stateErrorHint')
                   }}</w-tooltip>
                 </template>
               </w-item-section>
-              <w-separator class="ml-4" vertical />
+              <w-separator class="ms-4" vertical />
               <w-item-section side style="flex-direction: row; align-items: center">
                 <w-btn
-                  class="acrylic-btn mr-2"
+                  class="acrylic-btn me-2"
                   color="grey"
                   icon="la:paper-plane"
                   flat
@@ -105,7 +105,7 @@
                   <w-tooltip>{{ t(`admin.webhooks.testSend`) }}</w-tooltip>
                 </w-btn>
                 <w-btn
-                  class="acrylic-btn mr-2"
+                  class="acrylic-btn me-2"
                   color="grey"
                   icon="la:history"
                   flat
@@ -114,7 +114,7 @@
                   <w-tooltip>{{ t(`admin.webhooks.history`) }}</w-tooltip>
                 </w-btn>
                 <w-btn
-                  class="acrylic-btn mr-2"
+                  class="acrylic-btn me-2"
                   color="indigo"
                   icon="la:pen"
                   :label="t('common.actions.edit')"

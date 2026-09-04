@@ -684,7 +684,7 @@ $card-gutter-max: 1199.98px;
 
   &-itemtags {
     .w-chip:last-child {
-      margin-right: 0;
+      margin-inline-end: 0;
     }
   }
 
@@ -855,7 +855,7 @@ $card-gutter-max: 1199.98px;
         section carries as a TRAILING one -- which is a gutter between two columns, and there is only one
         column now.
       */
-      padding-left: 56px;
+      padding-inline-start: 56px;
 
       /*
         Both were written for a right-hand column and are Tailwind utilities, so they are layered -- these

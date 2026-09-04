@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.editors.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.editors.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -25,7 +25,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -72,11 +72,11 @@
                     padding="xs md"
                     @click="openConfig(editor.id)" />
                 </w-item-section>
-                <w-separator class="ml-4" vertical />
+                <w-separator class="ms-4" vertical />
               </template>
               <w-item-section side>
                 <w-toggle
-                  class="pr-2"
+                  class="pe-2"
                   v-model="state.config[editor.id]"
                   :label="t(`admin.sites.isActive`)"
                   :aria-label="t(`admin.sites.isActive`)"

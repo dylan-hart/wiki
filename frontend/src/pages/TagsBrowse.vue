@@ -19,7 +19,7 @@
               dense
               removable
               @remove="toggleTag(tag)">
-              <w-icon class="mr-1" name="la:hashtag" size="14px" />
+              <w-icon class="me-1" name="la:hashtag" size="14px" />
               <span class="text-caption">{{ tag }}</span>
             </w-chip>
           </div>
@@ -68,7 +68,7 @@
             </template>
             <template v-else>
               <span class="flex flex-1 items-center text-caption">
-                <w-icon class="mr-1" name="la:hashtag" size="14px" />
+                <w-icon class="me-1" name="la:hashtag" size="14px" />
                 {{ entry.tag }} ({{ entry.usageCount }})
               </span>
               <w-btn
@@ -104,7 +104,7 @@
             dense
             clickable
             @click="toggleTag(entry.tag)">
-            <w-icon class="mr-1" name="la:hashtag" size="14px" />
+            <w-icon class="me-1" name="la:hashtag" size="14px" />
             <span class="text-caption">{{ entry.tag }} ({{ entry.usageCount }})</span>
           </w-chip>
           <span

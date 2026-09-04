@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">
           {{ t('admin.classification.title') }}
         </h1>
@@ -17,7 +17,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -86,7 +86,7 @@
               </w-item-section>
               <w-item-section side style="flex-direction: row; align-items: center">
                 <w-btn
-                  class="acrylic-btn mr-2"
+                  class="acrylic-btn me-2"
                   color="indigo"
                   icon="la:pen"
                   flat

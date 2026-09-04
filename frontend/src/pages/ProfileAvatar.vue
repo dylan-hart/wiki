@@ -38,7 +38,7 @@
         </div>
         <div class="mt-4">
           <w-btn
-            class="mr-2"
+            class="me-2"
             icon="la:times"
             outline
             :label="t(`common.actions.clear`)"
