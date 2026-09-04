@@ -1169,6 +1169,13 @@ onBeforeUnmount(() => {
 .graph-view-control-caption {
   font-size: 11px;
   opacity: 0.7;
+
+  @at-root .body--light & {
+    color: rgba(0, 0, 0, 0.8);
+  }
+  @at-root .body--dark & {
+    color: #fff;
+  }
 }
 
 .graph-view-filters {
@@ -1186,9 +1193,11 @@ onBeforeUnmount(() => {
 
   @at-root .body--light & {
     background: rgba(255, 255, 255, 0.85);
+    color: rgba(0, 0, 0, 0.8);
   }
   @at-root .body--dark & {
     background: rgba(0, 0, 0, 0.55);
+    color: #fff;
   }
 }
 
@@ -1253,6 +1262,13 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 160px;
+
+  @at-root .body--light & {
+    color: rgba(0, 0, 0, 0.8);
+  }
+  @at-root .body--dark & {
+    color: #fff;
+  }
 }
 
 .graph-view-fallback,
