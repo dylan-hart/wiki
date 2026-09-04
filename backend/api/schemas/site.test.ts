@@ -59,7 +59,8 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
       // -> Availability moved off `rendering` when `models/rendering.ts` was split; the payload
       //    builder reads it here now.
       renderQueue: { isAvailable: async () => false },
-      blocks: { getSiteBlocks: async () => [] }
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' }
     }
   })
 
@@ -122,6 +123,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'isEnabled',
     'locales',
     'logoText',
+    'navigationId',
     'pageExtensions',
     'pdfExportAvailable',
     'robots',

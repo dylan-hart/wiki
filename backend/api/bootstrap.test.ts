@@ -44,6 +44,9 @@ describe('pdfExportAvailable exposure (task 500)', () => {
           },
           blocks: {
             getSiteBlocks: async () => []
+          },
+          navigation: {
+            ensureSiteNav: async () => 'nav-id'
           }
         },
         config: {
@@ -83,6 +86,21 @@ describe('pdfExportAvailable exposure (task 500)', () => {
     })
     assert.equal(res.statusCode, 200)
     assert.equal(res.json().site.pdfExportAvailable, false)
+  })
+
+  /**
+   * Task #2527: bootstrap reuses `buildSitePayload`, so the site's default `navigationId`
+   * (`WIKI.models.navigation.ensureSiteNav`) reaches every reader's browser on first load, not only a
+   * content page's own fetch response -- what lets a non-content route (the knowledge graph, tags
+   * browse) resolve a real nav id instead of leaving it `null`.
+   */
+  test('bootstrap surfaces navigationId on site', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/?hostname=${site.hostname}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().site.navigationId, 'nav-id')
   })
 })
 
@@ -138,7 +156,8 @@ describe('isEnabled guard (task 699)', () => {
           sites: { getSiteByHostname },
           flags: { getFlags: () => ({ experimental: false }) },
           renderQueue: { isAvailable: async () => false },
-          blocks: { getSiteBlocks: async () => [] }
+          blocks: { getSiteBlocks: async () => [] },
+          navigation: { ensureSiteNav: async () => 'nav-id' }
         },
         config: {
           docsBase: 'https://test.docs.example/docs'

@@ -1,6 +1,7 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
+import { defaultLocale } from '../helpers/localeRouting.ts'
 import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
@@ -116,6 +117,15 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
  * disable itself with an explanatory tooltip instead of offering a button that always 503s.
  *
+ * Also carries `navigationId`: the site's default menu row id for its default locale
+ * (`WIKI.models.navigation.ensureSiteNav`), resolved server-side so a reader's browser learns a real
+ * navigation id on a non-content route (the knowledge graph, tags browse) without needing a
+ * content-page fetch to have happened first -- the only other place a real id ever reached the
+ * browser before this (`models/pages.ts#toPage()`). `ensureSiteNav` itself has no permission check
+ * when called internally like this; the two routes that resolve the same thing over HTTP
+ * (`GET .../navigation/default`, `GET .../navigation/roots`) are admin-gated only as a matter of
+ * convenience for the admin nav editor, not because the underlying resolution needs it.
+ *
  * Every `site.config` key reaching the response is named explicitly rather than spread in, and both
  * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
  * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live
@@ -143,6 +153,7 @@ export async function buildSitePayload(site: {
     isEnabled: site.isEnabled,
     pdfExportAvailable: await WIKI.models.renderQueue.isAvailable(),
     docsBase: WIKI.config.docsBase,
+    navigationId: await WIKI.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
     blocksConfig,
     blocksIndex,
     title: config.title,

@@ -194,6 +194,14 @@ export const useSiteStore = defineStore('site', {
      * reads as `''` until `applySiteInfo` (via `loadSite` or `bootstrap`) fills it in.
      */
     docsBase: '',
+    /**
+     * This site's default menu id for its default locale (`backend/api/sites.ts`'s
+     * `buildSitePayload`, resolved via `WIKI.models.navigation.ensureSiteNav`) -- always server-
+     * provided, same as `docsBase` above. What `MainLayout.vue` and `NavSidebar.vue` fall back to on
+     * a route with no page-inherited `navigationId` of its own (the knowledge graph, tags browse),
+     * instead of leaving the sidebar with nothing to load (OpenProject #2527).
+     */
+    navigationId: null,
     nav: {
       currentId: null,
       items: [],
@@ -260,6 +268,7 @@ export const useSiteStore = defineStore('site', {
         logoText: siteInfo.logoText,
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
         docsBase: siteInfo.docsBase,
+        navigationId: siteInfo.navigationId ?? null,
         blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
         company: siteInfo.company,

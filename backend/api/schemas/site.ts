@@ -29,6 +29,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           "Base URL this instance's in-app \"view docs\" / help links are built from (`WIKI.config.docsBase`, from `base.yml`). Instance-wide, not a per-site setting: `siteStore.docsBase` on the frontend appends a path to it, e.g. `docsBase + '/admin/general'`."
       },
+      navigationId: {
+        type: 'string',
+        format: 'uuid',
+        description:
+          "This site's default menu row id for its default locale (`WIKI.models.navigation.ensureSiteNav`). Lets a route with no page-inherited navigation id of its own -- the knowledge graph, tags browse -- resolve a real one from the payload every reader's browser already loads at app start, instead of only ever learning one from a content page's own fetch response."
+      },
       blocksConfig: {
         type: 'object',
         description:
