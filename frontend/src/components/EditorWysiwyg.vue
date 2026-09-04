@@ -81,7 +81,12 @@ import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 
 import { assetPath } from '@/helpers/assets'
-import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
+import {
+  hasFiles,
+  pastedFiles,
+  shouldAcceptDrag,
+  shouldClaimPaste
+} from '@/helpers/editorFileTransfer'
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 import { buildMenuBar } from '@/helpers/wysiwygMenuBar'
 
@@ -514,7 +519,7 @@ function handlePaste(view, event) {
     return false
   }
   event.preventDefault()
-  insertFilesAsAssets([...event.clipboardData.files], { generateUniqueName: true })
+  insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
   return true
 }
 
@@ -542,7 +547,7 @@ function handleDrop(view, event) {
   //    when the point is off the document (or, as in a test, when nothing has actually laid out) --
   //    `insertFilesAsAssets` falls back to the current selection rather than crash on a null position.
   const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
-  insertFilesAsAssets([...event.dataTransfer.files], { position: coords?.pos ?? null })
+  insertFilesAsAssets(pastedFiles(event.dataTransfer), { position: coords?.pos ?? null })
   return true
 }
 
