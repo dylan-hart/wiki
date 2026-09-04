@@ -163,9 +163,12 @@ export function orderCommentsByReplyDepth(rows: ArchiveRow[]): ArchiveRow[] {
  * single-site restore this otherwise mirrors.
  *
  * **Cache/index invalidation is deliberately not this method's job**, matching `siteImport.ts`'s own
- * convention — `tasks/simple/replication-import.ts`, the sole caller, reloads the `ClusterReloaded`
- * caches (`sites`, `groups`, `classificationLevels`) and queues search reindexing once this has
- * actually returned successfully.
+ * convention. There are two callers of `importSnapshot()` -- the manual-upload task
+ * (`tasks/simple/replication-import.ts`) and the scheduled cron-driven pull
+ * (`models/replication.ts#pull()`) -- and both run the same shared post-import step
+ * (`helpers/replicationPostImport.ts`) once this has actually returned successfully: reloading the
+ * `ClusterReloaded` caches (`sites`, `groups`, `classificationLevels`), invalidating the glossary and
+ * asset path-resolution caches, and queuing search reindexing (OpenProject #2517).
  */
 class ReplicationImportModel {
   /** `<dataPath>/imports/replication` — separate from `siteImport.ts`'s own `<dataPath>/imports`, so
