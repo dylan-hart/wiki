@@ -1,7 +1,16 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { useDark } from '@/composables/dark'
 import { mountGraph } from './graphFixtures.js'
+
+const componentSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'Graph.vue'),
+  'utf8'
+)
 
 /**
  * OpenProject #2412: Graph.vue's canvas had no dark-mode color swap at all -- `CATEGORICAL_PALETTE`
@@ -108,4 +117,53 @@ describe('Graph.vue dark mode (OpenProject #2412)', () => {
     wrapper.vm.recomputeClusters()
     expect(syntheticNode.color).toBe(wrapper.vm.SYNTHETIC_NODE_COLOR)
   })
+})
+
+/**
+ * OpenProject #2497: the legend/filter panel's DOM-rendered text (`.graph-view-filters`,
+ * `.graph-view-control-caption`, `.graph-view-legend-label`) never set a `color` for dark mode at
+ * all, unlike sibling selectors in the same style block (`.graph-view-truncation-notice`,
+ * `.graph-view-tooltip`) -- it inherited browser-default black text on a near-black background.
+ *
+ * A computed-style assertion isn't a reliable way to verify this: `<style scoped>` + SCSS
+ * `@at-root .body--dark &` nesting is a build-time transform, and happy-dom's CSS cascade support
+ * for that combination under this suite's `css: true` pipeline isn't something to depend on for a
+ * pass/fail signal. Reading the raw SFC source and checking each selector's rule body is the same
+ * style of assertion this codebase already uses elsewhere for SFC style/text content (see
+ * `AdminSearch.test.js`, `ErrorGeneric.test.js`), and it directly protects the actual regression:
+ * a `color` declaration going missing again from one of these three selectors' light/dark blocks.
+ */
+describe('Graph.vue legend/filter panel dark-mode text color (OpenProject #2497)', () => {
+  // -> Extracts a top-level CSS rule's full body (selector `{` through its balanced closing `}`),
+  //    so a `@at-root` block nested one level inside is captured along with the rest of the rule.
+  const ruleBodyFor = (selector) => {
+    const opener = `${selector} {`
+    const start = componentSource.indexOf(opener)
+    expect(start, `expected to find "${opener}" in Graph.vue`).toBeGreaterThan(-1)
+
+    let depth = 0
+    let index = start + opener.length - 1
+    do {
+      if (componentSource[index] === '{') depth += 1
+      else if (componentSource[index] === '}') depth -= 1
+      index += 1
+    } while (depth > 0 && index < componentSource.length)
+
+    return componentSource.slice(start, index)
+  }
+
+  it.each([['.graph-view-filters'], ['.graph-view-control-caption'], ['.graph-view-legend-label']])(
+    '%s declares a color under both .body--light and .body--dark',
+    (selector) => {
+      const body = ruleBodyFor(selector)
+
+      const lightMatch = body.match(/@at-root\s+\.body--light\s+&\s*\{([^}]*)\}/)
+      expect(lightMatch, `expected a .body--light block in ${selector}`).not.toBeNull()
+      expect(lightMatch[1]).toMatch(/color:\s*[^;]+;/)
+
+      const darkMatch = body.match(/@at-root\s+\.body--dark\s+&\s*\{([^}]*)\}/)
+      expect(darkMatch, `expected a .body--dark block in ${selector}`).not.toBeNull()
+      expect(darkMatch[1]).toMatch(/color:\s*[^;]+;/)
+    }
+  )
 })
