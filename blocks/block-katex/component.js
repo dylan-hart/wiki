@@ -49,7 +49,7 @@ export class BlockKatexElement extends LitElement {
     block: 'katex',
     name: 'KaTeX',
     description:
-      'Typesets a TeX formula with KaTeX, including chemical equations written with mhchem — \\ce{} and \\pu{}.',
+      "Typesets a TeX formula with KaTeX, including chemical equations written with mhchem's \\ce and \\pu commands.",
     icon: 'math',
     /*
       Fenced, and not as a nicety: TeX is made of the characters markdown reads as its own. A lone

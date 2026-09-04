@@ -19,6 +19,13 @@
  * changed values updated. The raw string stays in `component.js` either way — this only ever touches
  * `en.json`.
  *
+ * `collectBlockLocaleEntries` also rejects a source string that would not compile as a vue-i18n
+ * message (OpenProject #2507: `\\ce{}`/`\\pu{}`, literal LaTeX command names, minted verbatim into
+ * `en.json` and read by vue-i18n as an empty interpolation placeholder — a `SyntaxError` that took
+ * down the entire block picker `v-for`, not just the offending card) — see `findVueI18nHazards`.
+ * This throws in both `--check` and the plain write mode, at mint time, so the class of bug can't
+ * silently ship again.
+ *
  * Usage: node scripts/blockLocaleKeys.ts [--check]
  */
 import fs from 'node:fs'
@@ -35,6 +42,38 @@ export interface BlockLocaleEntry {
   value: string
   /** `component.js` this entry was read from, for error messages. */
   source: string
+}
+
+/**
+ * vue-i18n message syntax hazards a block-sourced string can trip: OpenProject #2507 found
+ * `\\ce{}`/`\\pu{}` (literal LaTeX command names) minted verbatim into `en.json`, where an empty
+ * `{}` is read as an interpolation placeholder with no identifier and throws a `SyntaxError` out of
+ * vue-i18n's message compiler at render time -- taking down the whole block picker `v-for`, not just
+ * the one card. This is deliberately narrow: a well-formed `{identifier}` interpolation (the
+ * `blocks.*.errors.*` namespace already uses `{url}`, `{path}`, etc.) must keep passing.
+ */
+const VUE_I18N_HAZARDS: { name: string; test: (value: string) => boolean }[] = [
+  { name: 'empty interpolation `{}`', test: (value) => /\{\s*\}/.test(value) },
+  {
+    name: 'unbalanced `{`/`}`',
+    test: (value) => (value.match(/\{/g)?.length ?? 0) !== (value.match(/\}/g)?.length ?? 0)
+  },
+  { name: 'linked-message `@:` syntax', test: (value) => /@:/.test(value) }
+]
+
+/** Names of every vue-i18n hazard `value` trips, in a stable order; empty when the string is safe. */
+export function findVueI18nHazards(value: string): string[] {
+  return VUE_I18N_HAZARDS.filter((hazard) => hazard.test(value)).map((hazard) => hazard.name)
+}
+
+/** Throws, naming `source` and `key`, when `value` would not compile as a vue-i18n message. */
+function assertSafeI18nMessage(value: string, key: string, source: string): void {
+  const hazards = findVueI18nHazards(value)
+  if (hazards.length > 0) {
+    throw new Error(
+      `${path.relative(ROOT, source)}: "${key}" is not valid vue-i18n message syntax (${hazards.join(', ')}): ${JSON.stringify(value)}`
+    )
+  }
 }
 
 /**
@@ -65,26 +104,20 @@ export function collectBlockLocaleEntries(blocksDir = BLOCKS_DIR): BlockLocaleEn
     const { definition } = result
     const tag = definition.block
     if (definition.description) {
-      entries.push({
-        key: `blocks.${tag}.description`,
-        value: definition.description,
-        source: componentPath
-      })
+      const key = `blocks.${tag}.description`
+      assertSafeI18nMessage(definition.description, key, componentPath)
+      entries.push({ key, value: definition.description, source: componentPath })
     }
     for (const prop of definition.props ?? []) {
       if (prop.label) {
-        entries.push({
-          key: `blocks.${tag}.props.${prop.name}.label`,
-          value: prop.label,
-          source: componentPath
-        })
+        const key = `blocks.${tag}.props.${prop.name}.label`
+        assertSafeI18nMessage(prop.label, key, componentPath)
+        entries.push({ key, value: prop.label, source: componentPath })
       }
       if (prop.hint) {
-        entries.push({
-          key: `blocks.${tag}.props.${prop.name}.hint`,
-          value: prop.hint,
-          source: componentPath
-        })
+        const key = `blocks.${tag}.props.${prop.name}.hint`
+        assertSafeI18nMessage(prop.hint, key, componentPath)
+        entries.push({ key, value: prop.hint, source: componentPath })
       }
     }
   }
