@@ -158,3 +158,25 @@ describe('ProfileOverlay close / logout', () => {
     expect(siteStore.overlayOpts).toEqual({})
   })
 })
+
+/**
+ * OpenProject #2543 follow-up: `.layout-profile-card` (which declares `height: 100%` to fill
+ * whatever `MainOverlayDialog`'s `<w-dialog>` panel gives it -- see its own comment) used to sit one
+ * level *inside* a second, entirely unstyled `<div class="layout-profile">` wrapper. That wrapper was
+ * the component's real template root and therefore the actual direct flex child of the dialog panel;
+ * with no height or flex properties of its own, it sized to its own content instead of the panel,
+ * which broke `.layout-profile-card`'s `height: 100%` (a percentage against a parent whose own height
+ * is not definite resolves to `auto`) and, with it, the fixed header / independently-scrollable-panes
+ * layout entirely -- confirmed against a real headless Chromium render, since jsdom does not run a
+ * layout engine and would report a plausible-looking but meaningless height for either div.
+ *
+ * `wrapper.element` -- the component's own single DOM root, not a container `mount()` invented -- is
+ * `.layout-profile-card` directly, which is what proves the dead wrapper is gone rather than just
+ * moved.
+ */
+it('has no dead outer wrapper -- .layout-profile-card is the component root', () => {
+  const { wrapper } = mountOverlay()
+
+  expect(wrapper.element.className).toContain('layout-profile-card')
+  expect(wrapper.find('.layout-profile').exists()).toBe(false)
+})
