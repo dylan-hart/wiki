@@ -11,13 +11,13 @@
       <span class="page-history-page">{{ pageStore.title }}</span>
       <w-space />
       <transition name="syncing">
-        <w-spinner class="mr-4" v-show="state.loading > 0" color="accent" size="20px" />
+        <w-spinner class="me-4" v-show="state.loading > 0" color="accent" size="20px" />
       </transition>
       <!--
         How the two versions are laid against each other. Up here rather than over the diff, so the
         compare bar below can stay exactly two halves lining up with the editor's own two panes.
       -->
-      <w-btn-group class="mr-6">
+      <w-btn-group class="me-6">
         <w-btn
           push
           dense
@@ -106,31 +106,31 @@
                 :aria-label="t(`history.versionActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
                   <!--
-                    `!min-w-0 !pr-2` on each icon section, and literal colour classes rather than
+                    `!min-w-0 !pe-2` on each icon section, and literal colour classes rather than
                     WIcon's `color` prop — both for the same reasons as the profile menu this copies.
                   -->
                   <w-list dense padding style="min-width: 260px">
                     <w-item clickable @click="pick(`a`, version.id)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="mdi:letter-a-box" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="pick(`b`, version.id)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="mdi:letter-b-box" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsTarget') }}</w-item-section>
                     </w-item>
                     <w-separator class="my-1" />
                     <w-item clickable @click="viewSource(version)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:code" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.viewSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="downloadVersion(version)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:download" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.downloadVersion') }}</w-item-section>
@@ -142,13 +142,13 @@
                         same red the profile menu gives its one irreversible entry.
                       -->
                       <w-item clickable @click="restoreVersion(version)">
-                        <w-item-section avatar class="!min-w-0 !pr-2">
+                        <w-item-section avatar class="!min-w-0 !pe-2">
                           <w-icon name="la:undo" class="text-negative" />
                         </w-item-section>
                         <w-item-section>{{ t('history.restore') }}</w-item-section>
                       </w-item>
                       <w-item clickable @click="branchFrom(version)">
-                        <w-item-section avatar class="!min-w-0 !pr-2">
+                        <w-item-section avatar class="!min-w-0 !pe-2">
                           <w-icon name="la:code-branch" class="text-blue-7" />
                         </w-item-section>
                         <w-item-section>{{ t('history.branchOff') }}</w-item-section>
@@ -948,7 +948,7 @@ $timeline-turn: 16px;
   &-notes {
     flex: 0 0 100%;
     min-width: 0;
-    padding-left: calc(28px + 0.75rem);
+    padding-inline-start: calc(28px + 0.75rem);
   }
 
   &-reason {

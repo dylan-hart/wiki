@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`pages.importBatch.title`)" @hide="onDialogHide">
     <w-card class="import-batch-page-dialog" style="width: 760px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" size="sm" class="me-2" />
         <span>{{ t(`pages.importBatch.title`) }}</span>
       </w-card-section>
 
@@ -36,14 +36,14 @@
 
           <w-list v-if="state.files.length" padding class="mt-3">
             <w-item v-for="(file, idx) in state.files" :key="`${file.name}-${idx}`">
-              <w-icon name="la:file-alt" class="mr-2" />
+              <w-icon name="la:file-alt" class="me-2" />
               <w-item-section>{{ file.name }}</w-item-section>
               <w-select
                 v-model="state.formats[idx]"
                 outlined
                 dense
                 style="width: 180px"
-                class="mr-2 shrink-0"
+                class="me-2 shrink-0"
                 :options="formatOptions"
                 map-options
                 emit-value

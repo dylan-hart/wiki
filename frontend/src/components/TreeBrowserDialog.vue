@@ -2,15 +2,15 @@
   <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card class="page-save-dialog" style="width: 860px; max-width: 90vw">
       <w-card-section v-if="props.mode === `savePage`" class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-save-as.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-save-as.svg" size="sm" class="me-2" />
         <span>{{ t('pageSaveDialog.title') }}</span>
       </w-card-section>
       <w-card-section v-else-if="props.mode === `duplicatePage`" class="card-header">
-        <w-icon name="img:/_assets/icons/color-documents.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/color-documents.svg" size="sm" class="me-2" />
         <span>{{ t('pageDuplicateDialog.title') }}</span>
       </w-card-section>
       <w-card-section v-else-if="props.mode === `renamePage`" class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-rename.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-rename.svg" size="sm" class="me-2" />
         <span>{{ t('pageRenameDialog.title') }}</span>
       </w-card-section>
       <div class="page-save-dialog-browser flex flex-nowrap">
@@ -117,7 +117,7 @@
                       :color="state.displayMode === `path` ? `positive` : `grey`"
                       size="xs" />
                   </w-item-section>
-                  <w-item-section class="pr-2">{{
+                  <w-item-section class="pe-2">{{
                     t('pageSaveDialog.displayModePath')
                   }}</w-item-section>
                 </w-item>
@@ -128,7 +128,7 @@
                       :color="state.displayMode === `title` ? `positive` : `grey`"
                       size="xs" />
                   </w-item-section>
-                  <w-item-section class="pr-2">{{
+                  <w-item-section class="pe-2">{{
                     t('pageSaveDialog.displayModeTitle')
                   }}</w-item-section>
                 </w-item>

@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card class="glossary-import-dialog" style="width: 760px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="la:file-import" size="sm" class="mr-2" />
+        <w-icon name="la:file-import" size="sm" class="me-2" />
         <span>{{ t('admin.glossary.importTitle') }}</span>
       </w-card-section>
       <w-separator />

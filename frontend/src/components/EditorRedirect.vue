@@ -58,7 +58,7 @@
           <div class="editor-redirect-field">
             <div class="text-body2 font-robotomono editor-redirect-target" v-if="state.target">
               <w-icon
-                class="mr-2"
+                class="me-2"
                 :name="state.kind === `url` ? `la:globe` : `la:file-alt`"
                 size="sm" />
               {{ state.target }}
@@ -94,7 +94,7 @@
           class="editor-redirect-summary"
           :class="isFollowable(state) ? `is-ready` : `is-incomplete`">
           <w-icon :name="isFollowable(state) ? `la:info-circle` : `la:exclamation-triangle`" />
-          <div class="pl-3">
+          <div class="ps-3">
             <template v-if="!isFollowable(state)">
               {{ t('editor.redirect.summaryIncomplete') }}
             </template>

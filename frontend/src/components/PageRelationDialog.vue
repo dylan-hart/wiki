@@ -86,7 +86,7 @@
           </div>
         </w-btn>
         <w-btn class="w-full" v-else-if="state.pos === `center`" color="primary" flat no-caps>
-          <w-icon class="mr-2" :name="state.icon" />
+          <w-icon class="me-2" :name="state.icon" />
           <span>{{ state.label }}</span>
         </w-btn>
         <w-btn

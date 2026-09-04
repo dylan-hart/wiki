@@ -5,14 +5,14 @@
     @hide="onDialogHide">
     <w-card class="relative" style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="la:history" size="sm" class="mr-2" />
+        <w-icon name="la:history" size="sm" class="me-2" />
         <span>{{ t('admin.glossary.versionHistory') }}</span>
       </w-card-section>
       <w-separator />
 
       <w-card-section style="max-height: 60vh; overflow-y: auto">
         <div v-if="!state.isLoading && state.versions.length < 1" class="text-center py-6">
-          <w-icon name="la:info-circle" size="sm" class="mr-1" />
+          <w-icon name="la:info-circle" size="sm" class="me-1" />
           <span class="text-caption">{{ t('admin.glossary.versionHistoryNone') }}</span>
         </div>
         <w-list v-else separator>

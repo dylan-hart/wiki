@@ -6,11 +6,11 @@
     <w-card class="relative" style="min-width: 850px">
       <w-card-section class="card-header">
         <template v-if="props.hookId">
-          <w-icon name="img:/_assets/icons/fluent-pencil-drawing.svg" size="sm" class="mr-2" />
+          <w-icon name="img:/_assets/icons/fluent-pencil-drawing.svg" size="sm" class="me-2" />
           <span>{{ t(`admin.webhooks.edit`) }}</span>
         </template>
         <template v-else>
-          <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="mr-2" />
+          <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
           <span>{{ t(`admin.webhooks.new`) }}</span>
         </template>
       </w-card-section>
@@ -19,23 +19,23 @@
       <w-card-section
         v-if="props.hookId && state.hook.state === `pending`"
         class="flex flex-nowrap items-center bg-indigo text-white">
-        <w-spinner size="18px" class="mr-2" />
+        <w-spinner size="18px" class="me-2" />
         <div class="text-caption">{{ t('admin.webhooks.statePendingHint') }}</div>
       </w-card-section>
       <w-card-section
         v-if="props.hookId && state.hook.state === `success`"
         class="flex flex-nowrap items-center bg-positive text-white">
-        <w-spinner size="18px" class="mr-2" />
+        <w-spinner size="18px" class="me-2" />
         <div class="text-caption">{{ t('admin.webhooks.stateSuccessHint') }}</div>
       </w-card-section>
       <w-card-section
         v-if="props.hookId && state.hook.state === `error`"
         class="bg-negative text-white">
         <div class="flex flex-nowrap items-center">
-          <w-icon color="white" size="xs" name="la:exclamation-triangle" class="mr-2" />
+          <w-icon color="white" size="xs" name="la:exclamation-triangle" class="me-2" />
           <div class="text-caption">{{ t('admin.webhooks.stateErrorExplain') }}</div>
         </div>
-        <div class="text-caption text-red-2 pl-6 ml-1">{{ state.hook.lastErrorMessage }}</div>
+        <div class="text-caption text-red-2 ps-6 ms-1">{{ state.hook.lastErrorMessage }}</div>
       </w-card-section>
 
       <!-- FORM -->

@@ -8,7 +8,7 @@
         <w-icon
           :name="`img:/_assets/icons/ultraviolet-${definition.isCustom ? 'plugin' : definition.icon}.svg`"
           size="sm"
-          class="mr-2" />
+          class="me-2" />
         <!-- -> The block is named in the title rather than over the form: one line of chrome above a
                 short form is enough, and which block this is belongs with what is being done to it. -->
         <span>{{ t('editor.blockParams.title', { name: definition.name }) }}</span>

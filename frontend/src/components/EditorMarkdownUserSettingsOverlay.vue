@@ -5,7 +5,7 @@
       <span>{{ t('editor.settings.markdown') }}</span>
       <w-space />
       <w-btn
-        class="mr-2"
+        class="me-2"
         flat
         rounded
         color="white"

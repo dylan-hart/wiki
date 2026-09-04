@@ -1,10 +1,10 @@
 <template>
   <w-page>
-    <w-toolbar class="pl-4" :class="dark.isActive ? `bg-dark-3 text-white` : `bg-white text-dark`">
+    <w-toolbar class="ps-4" :class="dark.isActive ? `bg-dark-3 text-white` : `bg-white text-dark`">
       <div class="text-subtitle1">{{ t('admin.groups.rules') }}</div>
       <w-space />
       <w-btn
-        class="acrylic-btn mr-2"
+        class="acrylic-btn me-2"
         flat
         color="indigo"
         icon="la:file-export"
@@ -12,7 +12,7 @@
         <w-tooltip labels>{{ t('admin.groups.exportRules') }}</w-tooltip>
       </w-btn>
       <w-btn
-        class="acrylic-btn mr-2"
+        class="acrylic-btn me-2"
         flat
         color="indigo"
         icon="la:file-import"
@@ -50,7 +50,7 @@
                   getRuleModeName(rule.mode)
                 }}</strong>
               </div>
-              <w-separator class="ml-2 mr-1" vertical />
+              <w-separator class="ms-2 me-1" vertical />
               <input type="text" v-model="rule.name" placeholder="Rule Name" />
             </div>
             <w-card class="admin-groups-rule-card mt-4" flat>
@@ -93,7 +93,7 @@
                   </template>
                 </w-select>
                 <w-btn
-                  class="acrylic-btn ml-4"
+                  class="acrylic-btn ms-4"
                   flat
                   icon="la:trash"
                   color="negative"

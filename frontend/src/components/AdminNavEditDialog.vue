@@ -12,7 +12,7 @@
         <span>{{ title || t(`navEdit.editMenuItems`) }}</span>
         <w-space />
         <transition name="syncing">
-          <w-spinner class="mr-2" v-show="isBusy" color="accent" size="24px" />
+          <w-spinner class="me-2" v-show="isBusy" color="accent" size="24px" />
         </transition>
         <w-btn-group>
           <w-btn

@@ -227,7 +227,7 @@
         -->
         <div
           v-if="collabStore.status === 'disconnected'"
-          class="collab-disconnected mr-2 flex items-center gap-1 text-warning"
+          class="collab-disconnected me-2 flex items-center gap-1 text-warning"
           role="status"
           aria-live="polite">
           <w-icon name="mdi:wifi-off" size="18px" />

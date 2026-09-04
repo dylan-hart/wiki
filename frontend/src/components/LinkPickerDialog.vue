@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card class="link-picker" style="width: 860px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="la:link" size="sm" class="mr-2" />
+        <w-icon name="la:link" size="sm" class="me-2" />
         <span>{{ props.title ?? t('linkPicker.title') }}</span>
       </w-card-section>
       <!-- -> Inset from the card's edges, as in the icon picker: the strip is a segmented control with
@@ -93,7 +93,7 @@
           :name="state.currentTab === `page` ? `la:file-alt` : `la:globe`"
           size="sm"
           color="primary" />
-        <div class="min-w-0 flex-1 pl-3">
+        <div class="min-w-0 flex-1 ps-3">
           <div class="text-caption text-grey">{{ t('linkPicker.selection') }}</div>
           <div class="text-body2 font-robotomono link-picker-href">{{ href || '—' }}</div>
         </div>

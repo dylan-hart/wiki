@@ -929,7 +929,7 @@ defineExpose({ editor, menuBar })
 
         > label {
           flex: 0 0 auto;
-          margin-right: 0.5rem;
+          margin-inline-end: 0.5rem;
         }
       }
     }
@@ -954,8 +954,8 @@ defineExpose({ editor, menuBar })
     */
     .collaboration-carets__caret {
       position: relative;
-      margin-left: -1px;
-      margin-right: -1px;
+      margin-inline-start: -1px;
+      margin-inline-end: -1px;
       border-left: 1px solid;
       border-right: 1px solid;
       word-break: normal;
