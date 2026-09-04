@@ -242,6 +242,15 @@ export class BlockIndexElement extends LitElement {
           font-weight: normal;
           pointer-events: none;
         }
+        /*
+        -> #666 against the dark card background above (#161b22 -> #0d1117) computes to roughly a 3:1
+           contrast ratio, below the 4.5:1 WCAG AA floor for body text. #8b949e is GitHub's own
+           dark-theme fg.muted token -- a natural fit since that background gradient is lifted from the
+           same palette -- and clears 4.5:1 against both ends of the gradient (OpenProject #2501).
+      */
+        :host([dark]) .text span {
+          color: #8b949e;
+        }
 
         /*
         The page's own icon. Sized in em so it keeps its place beside writing at whatever size the
