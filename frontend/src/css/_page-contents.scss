@@ -568,6 +568,18 @@
     color: inherit;
   }
 
+  /*
+    OpenProject #2541: the graph-carried keyword highlight/find pass (`renderedContent.js`'s
+    `applyKeywordHighlight`) wraps every match in a plain `<mark class="keyword-highlight">` -- the
+    bare `mark` rule above already gives it the right look, deliberately reused rather than a second
+    yellow. Only the CURRENT match -- the one navigation is centred on -- needs anything more, so a
+    reader scanning the "N of M" indicator can tell which highlight the count refers to.
+  */
+  .keyword-highlight.is-current-match {
+    outline: 2px solid var(--content-link);
+    outline-offset: 1px;
+  }
+
   del {
     color: var(--content-ink-muted);
   }

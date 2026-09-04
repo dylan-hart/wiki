@@ -338,6 +338,51 @@
           @click="openTocPanel" />
       </div>
     </transition>
+    <!--
+      The keyword highlight/find indicator (OpenProject #2541): on screen for as long as `?highlight=`
+      is, whether or not the term was actually found in this page's content -- a silent "0 of 0" says
+      more than the indicator simply not appearing would, since the reader followed a graph node that
+      promised this exact term.
+
+      Fixed near the top, not bottom-right like the contents opener above: that corner is already
+      claimed (by this button below 750px, by scroll-to-top above it), and a find bar reads naturally
+      at the top of the content it is searching, the way a browser's own does.
+    -->
+    <transition name="keyword-highlight-bar">
+      <div
+        v-if="showHighlightIndicator"
+        class="keyword-highlight-bar fixed z-30"
+        role="status"
+        aria-live="polite">
+        <span class="keyword-highlight-bar-count">{{ highlightCountLabel }}</span>
+        <w-btn
+          flat
+          dense
+          round
+          size="sm"
+          icon="la:arrow-up"
+          :disabled="highlightMatches.length === 0"
+          :aria-label="t('common.renderedContent.highlightPrevious')"
+          @click="goToPreviousHighlightMatch" />
+        <w-btn
+          flat
+          dense
+          round
+          size="sm"
+          icon="la:arrow-down"
+          :disabled="highlightMatches.length === 0"
+          :aria-label="t('common.renderedContent.highlightNext')"
+          @click="goToNextHighlightMatch" />
+        <w-btn
+          flat
+          dense
+          round
+          size="sm"
+          icon="la:times"
+          :aria-label="t('common.renderedContent.highlightDismiss')"
+          @click="dismissHighlight" />
+      </div>
+    </transition>
     <side-dialog />
   </w-page>
 </template>
@@ -365,7 +410,13 @@ import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { pickEditor } from '@/helpers/editorPicker'
-import { enhanceRenderedContent, routableHref, sameDocumentHash } from '@/helpers/renderedContent'
+import {
+  applyKeywordHighlight,
+  clearKeywordHighlight,
+  enhanceRenderedContent,
+  routableHref,
+  sameDocumentHash
+} from '@/helpers/renderedContent'
 import { flattenToc } from '@/helpers/toc'
 
 import { enterCreateMode, enterEditMode, loadPageForRoute } from './index/pageRouting'
@@ -462,6 +513,16 @@ const state = reactive({
 const pageContents = ref(null)
 /** The article column, which is what scrolls -- see `scrollPageToTop`. */
 const pageScroller = ref(null)
+
+/*
+  KEYWORD HIGHLIGHT / FIND (OpenProject #2541, Feature #2539)
+  =============================================================
+  The `<mark>` elements the current `?highlight=` term is wrapped in, in document order -- see
+  `applyKeywordHighlight` -- and which one navigation is currently centred on. `-1` means "no
+  matches" (or no highlight active at all), never `0` into an empty array.
+*/
+const highlightMatches = ref([])
+const highlightCurrentIndex = ref(-1)
 
 // COMPUTED
 
@@ -614,17 +675,52 @@ const breadcrumbs = computed(() => [
   }))
 ])
 
+/**
+ * The `highlight` query param, normalized to a single trimmed string -- or empty when absent.
+ *
+ * A repeated query key (`?highlight=a&highlight=b`) parses as an array; there is only ever one
+ * keyword to carry forward, so the first value wins and anything else that is not a plain string
+ * (an array of non-strings, `null`) is treated the same as no param at all.
+ */
+const highlightTerm = computed(() => {
+  const raw = route.query.highlight
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return typeof value === 'string' ? value.trim() : ''
+})
+
+/** Whether the find-in-page indicator should be on screen at all -- a term is active, found or not. */
+const showHighlightIndicator = computed(() => highlightTerm.value.length > 0)
+
+const highlightCountLabel = computed(() =>
+  t('common.renderedContent.highlightCount', {
+    current: highlightCurrentIndex.value + 1,
+    total: highlightMatches.value.length
+  })
+)
+
 // WATCHERS
 
 /*
   The copy buttons on code blocks are part of the content, so they are re-added whenever the content
   is. Keyed on the render rather than on the route: it arrives after the page has already mounted, and
   it is replaced again on every save without the route moving at all.
+
+  The keyword highlight/find pass (OpenProject #2541) rides the same watcher rather than one of its
+  own: it needs to re-run for exactly the same two reasons `enhanceRenderedContent` does -- the
+  content changing under an unmoved route (a save, or first arrival) -- PLUS a reason unique to it,
+  the `highlight` query param itself changing with the route otherwise unchanged. That third case is
+  why `highlightTerm` is a second watched source rather than an `onMounted`-only read: Vue Router
+  reuses this very component instance across two content-page navigations, so a reader clicking a
+  second highlighted graph node while already on a content page changes only the query, not the
+  component tree -- an `onMounted` check would never see it.
 */
 watch(
-  () => pageStore.render,
+  [() => pageStore.render, highlightTerm],
   () => {
-    nextTick(() => enhanceRenderedContent(pageContents.value, t))
+    nextTick(() => {
+      enhanceRenderedContent(pageContents.value, t)
+      syncKeywordHighlight()
+    })
   },
   { immediate: true }
 )
@@ -658,14 +754,32 @@ watch(
 */
 onMounted(() => {
   window.addEventListener('hashchange', onHashChange)
+  window.addEventListener('keydown', onWindowKeydown)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('hashchange', onHashChange)
+  window.removeEventListener('keydown', onWindowKeydown)
 })
 
 function onHashChange() {
   scrollToAnchorWhenReady(window.location.hash)
+}
+
+/**
+ * Escape dismisses an active keyword highlight, same as the close control on its own indicator.
+ *
+ * A window-level listener rather than one scoped to the indicator itself: the reader did not open
+ * find-mode by focusing anything -- it arrived already active, from a graph click -- so there is no
+ * natural element for a scoped handler to sit on. `WDialog`'s own Escape handling
+ * (`composables/escapeStack.js`) runs on a `document` bubble listener with no `stopPropagation`, so
+ * pressing Escape while an unrelated dialog is open both closes that dialog AND dismisses the
+ * highlight -- harmless, since dismissing an inactive or already-cleared highlight is a no-op.
+ */
+function onWindowKeydown(ev) {
+  if (ev.key === 'Escape' && showHighlightIndicator.value) {
+    dismissHighlight()
+  }
 }
 
 /*
@@ -739,6 +853,81 @@ watch(
  */
 function scrollPageToTop() {
   pageScroller.value?.$el?.scrollTo({ top: 0, left: 0 })
+}
+
+/**
+ * Re-applies (or clears) the keyword highlight against the article that is actually on screen right
+ * now, reading `highlightTerm` fresh rather than taking it as an argument -- this is always called
+ * from inside the watcher above, after `nextTick`, so the DOM and the term are already in step.
+ *
+ * Always resets to "no current match" and re-focuses match 0: whether this run is a first
+ * activation, a term change, or a re-render with the same term, the old `highlightCurrentIndex`
+ * pointed at a `<mark>` element that `applyKeywordHighlight`'s own clear-then-rewrap has already
+ * thrown away (see its own header comment) -- keeping it would point navigation at a detached node.
+ */
+function syncKeywordHighlight() {
+  const term = highlightTerm.value
+  if (!term) {
+    clearKeywordHighlight(pageContents.value)
+    highlightMatches.value = []
+    highlightCurrentIndex.value = -1
+    return
+  }
+
+  const { matches } = applyKeywordHighlight(pageContents.value, term)
+  highlightMatches.value = matches
+  highlightCurrentIndex.value = matches.length > 0 ? 0 : -1
+  if (matches.length > 0) {
+    focusHighlightMatch(0)
+  }
+}
+
+/** Marks one match as current and scrolls it roughly to the centre of the article. */
+function focusHighlightMatch(index) {
+  for (const [i, mark] of highlightMatches.value.entries()) {
+    mark.classList.toggle('is-current-match', i === index)
+  }
+  highlightCurrentIndex.value = index
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  highlightMatches.value[index]?.scrollIntoView({
+    behavior: reduceMotion ? 'auto' : 'smooth',
+    block: 'center'
+  })
+}
+
+/** Wraps around in both directions, same as native find-in-page next/previous. */
+function stepHighlightMatch(delta) {
+  const total = highlightMatches.value.length
+  if (total === 0) {
+    return
+  }
+  focusHighlightMatch((highlightCurrentIndex.value + delta + total) % total)
+}
+
+function goToNextHighlightMatch() {
+  stepHighlightMatch(1)
+}
+
+function goToPreviousHighlightMatch() {
+  stepHighlightMatch(-1)
+}
+
+/**
+ * Turns the highlight off while staying on the page: unwraps every `<mark>`, hides the indicator,
+ * and strips `?highlight=` from the URL with `router.replace` -- no new history entry, so Back still
+ * leaves by however the reader actually arrived rather than bouncing them straight back into
+ * find-mode. A graph click must not permanently pin a reader into find-mode once they have said no.
+ */
+function dismissHighlight() {
+  clearKeywordHighlight(pageContents.value)
+  highlightMatches.value = []
+  highlightCurrentIndex.value = -1
+  if (!('highlight' in route.query)) {
+    return
+  }
+  const query = { ...route.query }
+  delete query.highlight
+  router.replace({ path: route.path, query, hash: route.hash })
 }
 
 /**
@@ -1190,12 +1379,70 @@ $toc-overlay-max: 749.98px;
   opacity: 0;
 }
 
+/*
+  The keyword highlight/find indicator (OpenProject #2541). Top-centre, clear of the breadcrumb bar
+  and the page header above it -- both are `position: static`, so this is the one element on the
+  view actually pinned to the viewport up here.
+*/
+.keyword-highlight-bar {
+  top: 12px;
+  /*
+    Dead centre of the viewport, not one screen edge or the other -- `left`/`transform: translateX`
+    is the plain centring idiom here, with nothing physical about "centre" for a locale to disagree
+    with.
+  */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /*
+    Logical, not `padding: 4px 6px 4px 12px`: the extra room belongs at the START, next to the count
+    text, and the tighter side at the END, next to the close button -- a physical `left`/`right` pair
+    would swap sides under RTL, where this row itself flips but a physical padding declaration would
+    not follow it.
+  */
+  padding-block: 4px;
+  padding-inline: 12px 6px;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
+
+  @at-root .body--light & {
+    background-color: #fff;
+    color: $grey-9;
+  }
+  @at-root .body--dark & {
+    background-color: $dark-4;
+    color: #fff;
+  }
+}
+
+.keyword-highlight-bar-count {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.keyword-highlight-bar-enter-active,
+.keyword-highlight-bar-leave-active {
+  transition:
+    opacity 0.2s var(--ease-standard),
+    transform 0.2s var(--ease-standard);
+}
+.keyword-highlight-bar-enter-from,
+.keyword-highlight-bar-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .page-sidebar,
   .page-sidebar-scrim-enter-active,
   .page-sidebar-scrim-leave-active,
   .toc-open-btn-enter-active,
-  .toc-open-btn-leave-active {
+  .toc-open-btn-leave-active,
+  .keyword-highlight-bar-enter-active,
+  .keyword-highlight-bar-leave-active {
     transition-duration: 0.01ms;
   }
 }
