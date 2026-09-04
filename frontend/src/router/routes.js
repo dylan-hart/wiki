@@ -45,20 +45,6 @@ const routes = [
     ]
   },
   {
-    path: '/_inbox',
-    component: () => import('@/layouts/InboxLayout.vue'),
-    children: [
-      { path: '', redirect: '/_inbox/watching' },
-      { path: 'watching', component: () => import('@/pages/InboxWatching.vue') },
-      /*
-        The submission being reviewed is in the URL, so a review can be linked to -- which is what a
-        notification about one will have to do. Optional, since the same screen without it is the
-        queue.
-      */
-      { path: 'review/:submissionId?', component: () => import('@/pages/InboxReview.vue') }
-    ]
-  },
-  {
     path: '/_search',
     component: () => import('@/pages/Search.vue')
   },

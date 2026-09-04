@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 
 /*
   `mountEditor()` reaches into the real `monaco-editor` package, which needs browser APIs jsdom does
@@ -31,13 +30,10 @@ vi.mock('@/renderers/markdown', () => ({
 }))
 
 import InboxReview from './InboxReview.vue'
-import { useEditorStore } from '@/stores/editor'
-import { useSiteStore } from '@/stores/site'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
-import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 const SUBMISSION_ID = 'sub-1'
 
@@ -59,27 +55,25 @@ function submissionDetail(overrides = {}) {
 /** The queue's own real message, so `<i18n-t>` actually interpolates the author slot under test. */
 const I18N_MESSAGES = { 'inbox.reviewSubmittedBy': 'Suggested by {author} on {date}' }
 
-async function mountReview(startPath = `/_inbox/review/${SUBMISSION_ID}`) {
-  setActivePinia(createPinia())
-  useSiteStore().id = 'site-1'
-  // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking
-  useEditorStore().configIsLoaded = true
-
-  const router = await createTestRouter(
-    [
-      { path: '/_inbox/review', component: InboxReview },
-      { path: '/_inbox/review/:submissionId', component: InboxReview }
-    ],
-    startPath
-  )
-
-  const i18n = createTestI18n(I18N_MESSAGES)
-
-  const wrapper = mount(InboxReview, {
-    global: { plugins: [router, i18n] }
+/**
+ * `initialSubmissionId`/`fromPage` are `InboxOverlay.vue`'s own props to this component (OpenProject
+ * #2531 dropped `route.params.submissionId`/`route.query.from` now that this is overlay content, not
+ * a routed `/_inbox/review/:submissionId?` page). `routes` is only needed by the `fromPage` tests,
+ * which spy on the router push that leaves the overlay for the underlying page.
+ */
+async function mountReview({ initialSubmissionId = SUBMISSION_ID, fromPage = false } = {}) {
+  const result = mountWithApp(InboxReview, {
+    props: { initialSubmissionId, fromPage },
+    messages: I18N_MESSAGES,
+    routes: ['/:pathMatch(.*)*'],
+    stores: {
+      site: { id: 'site-1' },
+      // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking
+      editor: { configIsLoaded: true }
+    }
   })
   await flushPromises()
-  return wrapper
+  return result
 }
 
 /** The approve button, found by its label rather than DOM position -- the only unique text on it. */
@@ -137,7 +131,7 @@ describe('InboxReview approveSubmission staleness (409)', () => {
       throw conflict
     })
 
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
 
     // Sanity: the initial GET has already populated the diff, not yet stale
     expect(getSubmissionCalls).toBe(1)
@@ -168,7 +162,7 @@ describe('InboxReview approveSubmission staleness (409)', () => {
     expect(wrapper.text()).toContain('inbox.reviewStaleHint')
 
     // Nothing was navigated away from -- this is still the same submission, open for reconciliation
-    expect(wrapper.vm.$route.params.submissionId).toBe(SUBMISSION_ID)
+    expect(wrapper.vm.selectedId).toBe(SUBMISSION_ID)
   })
 })
 
@@ -198,7 +192,7 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
       throw gone
     })
 
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
     expect(submissionsCalls).toBe(1)
 
     const button = findActionButton(wrapper)
@@ -216,10 +210,9 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
     expect(lastNotification.type).toBe('negative')
     expect(lastNotification.message).toBe(failureMessage)
 
-    // The dead selection is dropped and the URL falls back to the bare queue address, exactly like
+    // The dead selection is dropped and the local state falls back to the bare queue, exactly like
     // `loadSubmission`'s recovery -- not left pointed at a submission that can never resolve again
-    expect(wrapper.vm.$route.path).toBe('/_inbox/review')
-    expect(wrapper.vm.$route.params.submissionId).toBeUndefined()
+    expect(wrapper.vm.selectedId).toBeNull()
     expect(wrapper.text()).toContain('inbox.pendingReview')
 
     // The queue behind it was refreshed, not just abandoned with the now-dead row still sitting there
@@ -258,7 +251,7 @@ describe('InboxReview decline reason (OpenProject #2137)', () => {
 
   it('sends the typed reason in the reject request body', async () => {
     mockSubmissionEndpoints()
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
 
     const button = rejectButton(wrapper)
     expect(button).toBeTruthy()
@@ -278,7 +271,7 @@ describe('InboxReview decline reason (OpenProject #2137)', () => {
 
   it('omits the reason from the request body when none was typed', async () => {
     mockSubmissionEndpoints()
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
 
     const button = rejectButton(wrapper)
     await button.trigger('click')
@@ -304,7 +297,7 @@ describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
       return { json: () => Promise.resolve(submissionDetail()) }
     })
 
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
 
     expect(wrapper.text()).not.toContain('inbox.reviewApprovalProgress')
   })
@@ -324,7 +317,7 @@ describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
       }
     })
 
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
 
     expect(wrapper.text()).toContain('inbox.reviewApprovalProgress')
   })
@@ -353,7 +346,7 @@ describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
         })
     })
 
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
     const button = approveButton(wrapper)
     expect(button).toBeTruthy()
     await button.trigger('click')
@@ -387,7 +380,7 @@ describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
         })
     })
 
-    const wrapper = await mountReview()
+    const { wrapper } = await mountReview()
     const button = approveButton(wrapper)
     await button.trigger('click')
     const confirmDialog = openDialogs.at(-1)
@@ -414,7 +407,7 @@ describe('InboxReview queue distinguishes same-page guest submissions', () => {
       throw new Error(`Unexpected GET ${url}`)
     })
 
-    const wrapper = await mountReview('/_inbox/review')
+    const { wrapper } = await mountReview({ initialSubmissionId: null })
 
     const rows = wrapper.findAll('.w-item')
     expect(rows).toHaveLength(2)
@@ -447,7 +440,7 @@ describe('InboxReview queue distinguishes same-page guest submissions', () => {
       throw new Error(`Unexpected GET ${url}`)
     })
 
-    const wrapper = await mountReview('/_inbox/review')
+    const { wrapper } = await mountReview({ initialSubmissionId: null })
 
     const rows = wrapper.findAll('.w-item')
     const [first, second] = rows.map((row) => row.text())
@@ -464,7 +457,7 @@ describe('InboxReview queue distinguishes same-page guest submissions', () => {
       throw new Error(`Unexpected GET ${url}`)
     })
 
-    const wrapper = await mountReview('/_inbox/review')
+    const { wrapper } = await mountReview({ initialSubmissionId: null })
     const row = wrapper.find('.w-item')
     expect(row.text()).not.toContain('#suba')
   })
@@ -489,10 +482,58 @@ describe('InboxReview queue distinguishes same-page guest submissions', () => {
       throw new Error(`Unexpected GET ${url}`)
     })
 
-    const wrapper = await mountReview('/_inbox/review')
+    const { wrapper } = await mountReview({ initialSubmissionId: null })
     const rows = wrapper.findAll('.w-item')
     const [first, second] = rows.map((row) => row.text())
     expect(first).not.toContain('#')
     expect(second).not.toContain('#')
+  })
+})
+
+/**
+ * OpenProject #2531: `fromPage` (the `overlayOpts.from === 'page'` `InboxOverlay.vue` forwards, set by
+ * `PageHeader.vue`'s `reviewSubmission()`) replaces the old `route.query.from === 'page'` check --
+ * leaving a review opened this way follows the reviewer back to the page itself and closes the
+ * overlay, instead of the ordinary "back to the local queue" `selectedId = null`.
+ */
+describe('InboxReview leaveReview (fromPage, OpenProject #2531)', () => {
+  it('returns to the local queue (not the page) when fromPage is false', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(submissionDetail()) }
+    })
+
+    const { wrapper, siteStore, router } = await mountReview({ fromPage: false })
+    const pushSpy = vi.spyOn(router, 'push')
+    siteStore.overlay = 'Inbox'
+
+    const backButton = wrapper.find('[aria-label="inbox.reviewBack"]')
+    expect(backButton.exists()).toBe(true)
+    await backButton.trigger('click')
+
+    expect(wrapper.vm.selectedId).toBeNull()
+    expect(pushSpy).not.toHaveBeenCalled()
+    expect(siteStore.overlay).toBe('Inbox')
+  })
+
+  it('navigates to the page and closes the overlay when fromPage is true', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(submissionDetail()) }
+    })
+
+    const { wrapper, siteStore, router } = await mountReview({ fromPage: true })
+    const pushSpy = vi.spyOn(router, 'push')
+    siteStore.overlay = 'Inbox'
+
+    const backButton = wrapper.find('[aria-label="inbox.reviewBack"]')
+    await backButton.trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/docs/example')
+    expect(siteStore.overlay).toBe('')
   })
 })

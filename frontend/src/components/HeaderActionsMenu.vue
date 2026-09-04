@@ -67,11 +67,12 @@
           <w-item-section>{{ t('fileman.title') }}</w-item-section>
         </w-item>
         <!--
-          OpenProject #2024: kept in step with the wide-viewport button's own destination and glyph
-          (`HeaderNav.vue`) -- `/_inbox/watching`, `la:bell` -- rather than the old `/_inbox` redirect
-          into the now-deleted Messages stub and its unrelated `mdi:inbox-full` icon.
+          OpenProject #2024/#2531: kept in step with the wide-viewport button's own destination and
+          glyph (`HeaderNav.vue`) -- the Inbox overlay's Watching tab, `la:bell` -- rather than the old
+          `/_inbox` redirect into the now-deleted Messages stub and its unrelated `mdi:inbox-full`
+          icon.
         -->
-        <w-item v-if="userStore.authenticated" clickable to="/_inbox/watching" @click="close">
+        <w-item v-if="userStore.authenticated" clickable @click="openInbox">
           <w-item-section avatar>
             <w-icon name="la:bell" class="text-amber" />
           </w-item-section>
@@ -190,6 +191,11 @@ function close() {
 function openFileManager() {
   close()
   siteStore.openFileManager()
+}
+
+function openInbox() {
+  close()
+  siteStore.openOverlay('Inbox', { tab: 'watching' })
 }
 
 function logout() {

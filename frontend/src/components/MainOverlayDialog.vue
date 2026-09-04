@@ -37,6 +37,10 @@ const overlays = {
     loader: () => import('./FileManager.vue'),
     loadingComponent: LoadingGeneric
   }),
+  Inbox: defineAsyncComponent({
+    loader: () => import('./InboxOverlay.vue'),
+    loadingComponent: LoadingGeneric
+  }),
   NavEdit: defineAsyncComponent({
     loader: () => import('./NavEditOverlay.vue'),
     loadingComponent: LoadingGeneric
@@ -75,6 +79,7 @@ const OVERLAY_TITLES = {
   BlockPicker: () => t('editor.blockPicker.title'),
   EditorMarkdownConfig: () => t('editor.settings.markdown'),
   FileManager: () => t('fileman.title'),
+  Inbox: () => t('inbox.title'),
   NavEdit: () => t('navEdit.editMenuItems'),
   PageHistory: () => t('history.title'),
   TableEditor: () => t('editor.tableEditor.title'),

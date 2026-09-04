@@ -162,7 +162,7 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 
 import * as monaco from 'monaco-editor'
 
@@ -180,13 +180,27 @@ import { humanizeDate } from '@/helpers/datetime'
 
 import InboxDeclineDialog from '@/components/InboxDeclineDialog.vue'
 
+// PROPS
+
+/**
+ * Initial state from whoever opened the Inbox overlay onto this tab -- `InboxOverlay.vue` forwards
+ * these off `overlayOpts` (`siteStore.openOverlay('Inbox', { tab: 'review', submissionId, from })`,
+ * as `PageHeader.vue`'s `reviewSubmission()` does). `fromPage` replaces the old `route.query.from ===
+ * 'page'` check now that this screen has no route of its own (OpenProject #2531).
+ */
+const props = defineProps({
+  initialSubmissionId: { type: String, default: null },
+  fromPage: { type: Boolean, default: false }
+})
+
 // COMPOSABLES
 
 const dark = useDark()
 
 // ROUTER
 
-const route = useRoute()
+// -> Only for leaving the overlay to view the underlying page (see `leaveReview` below) -- every
+//    other transition here is local state (`selectedId`), not a route.
 const router = useRouter()
 
 // STORES
@@ -206,8 +220,12 @@ useMeta(() => ({
 
 // DATA
 
-/** The queue's own address, which is also this screen with nothing open. */
-const REVIEW_PATH = '/_inbox/review'
+/**
+ * Which submission is open, replacing the old `route.params.submissionId` now that this screen is
+ * `InboxOverlay` content rather than a routed `/_inbox/review/:submissionId?` page (OpenProject
+ * #2531). Null is the queue; a real id is one submission's diff.
+ */
+const selectedId = ref(props.initialSubmissionId)
 
 const state = reactive({
   loading: 0,
@@ -230,9 +248,9 @@ let modifiedModel = null
 
 // WATCHERS
 
-// -> The URL says which submission is open, so everything follows from it -- including arriving on
-//    one directly, which is what a link in a notification will do
-watch(() => route.params.submissionId, loadSubmission)
+// -> `selectedId` says which submission is open, so everything follows from it -- including
+//    arriving on one directly, which is what opening the overlay with `initialSubmissionId` does
+watch(selectedId, loadSubmission)
 
 // -> The container only exists once a submission is open, so the editor is built after that render
 watch(
@@ -270,10 +288,11 @@ async function load() {
 }
 
 /**
- * The submission the URL names, or none.
+ * The submission `selectedId` names, or none.
  *
- * Driven by the route rather than by the click that got here, so that a link straight to a review
- * behaves exactly like picking it off the queue -- and so the back button walks out of one.
+ * Driven by `selectedId` rather than by the click that got here, so that opening the overlay
+ * straight onto one (`initialSubmissionId`) behaves exactly like picking it off the queue -- and so
+ * the back button walks out of one.
  */
 async function loadSubmission(id) {
   if (!id) {
@@ -291,18 +310,15 @@ async function loadSubmission(id) {
       message: t('inbox.reviewLoadFailed'),
       caption: apiErrorMessage(err)
     })
-    /*
-      Reviewed by somebody else already, or never this reviewer's to see. Back to the queue, and with
-      `replace` so the dead address does not sit in the history for the back button to return to.
-    */
+    // -> Reviewed by somebody else already, or never this reviewer's to see. Back to the queue.
     state.selected = null
-    router.replace(REVIEW_PATH)
+    selectedId.value = null
   }
   state.loading--
 }
 
 function openSubmission(submission) {
-  router.push(`${REVIEW_PATH}/${submission.id}`)
+  selectedId.value = submission.id
 }
 
 /** A short, stable fragment of a submission's id -- the one thing guaranteed to differ between two. */
@@ -338,21 +354,27 @@ function authorLabel(submission) {
 }
 
 /**
- * Where leaving a review goes back to.
+ * Where leaving a review goes -- called once a submission is resolved (approved/declined) or the
+ * reviewer presses Back.
  *
- * The queue, unless the reviewer never came through it: `from=page` is set by the review button on a
- * page view, and returning them to an inbox they did not open would strand them a section away from
- * what they were reading.
+ * Back to the local queue view, unless the reviewer never came through it: `fromPage` is set when
+ * the overlay was opened by the review button on a page view (`PageHeader.vue`'s
+ * `reviewSubmission()`), and returning them to an inbox they did not open would strand them a
+ * section away from what they were reading -- so this leaves the overlay entirely and follows them
+ * back to the page instead.
  */
-function backTarget() {
-  if (route.query.from === 'page' && state.selected?.page?.path !== undefined) {
-    return `/${state.selected.page.path}`
+function leaveReview() {
+  if (props.fromPage && state.selected?.page?.path !== undefined) {
+    const pagePath = `/${state.selected.page.path}`
+    siteStore.$patch({ overlay: '' })
+    router.push(pagePath)
+    return
   }
-  return REVIEW_PATH
+  selectedId.value = null
 }
 
 function closeSubmission() {
-  router.push(backTarget())
+  leaveReview()
 }
 
 /**
@@ -437,7 +459,7 @@ function renderReviewed(content) {
  */
 async function recoverFromGoneSubmission() {
   state.selected = null
-  router.replace(REVIEW_PATH)
+  selectedId.value = null
   await load()
 }
 
@@ -473,11 +495,10 @@ function approveSubmission() {
           message: t('inbox.reviewApproveSuccess')
         })
       }
-      const target = backTarget()
       // -> Refreshed before leaving, so the queue behind is right whether or not that is where this
       //    goes; on the way to a page the reload is what the page's own review button will read
       await load()
-      router.push(target)
+      leaveReview()
     } catch (err) {
       if (err.response?.status === 409) {
         /*
@@ -530,9 +551,8 @@ function rejectSubmission() {
         type: 'positive',
         message: t('inbox.reviewDeclineSuccess')
       })
-      const target = backTarget()
       await load()
-      router.push(target)
+      leaveReview()
     } catch (err) {
       notify({
         type: 'negative',
@@ -552,8 +572,8 @@ function rejectSubmission() {
 
 onMounted(() => {
   load()
-  // -> Whatever the address arrived pointing at, which is nothing at all for the queue itself
-  loadSubmission(route.params.submissionId)
+  // -> Whatever the overlay was opened onto, which is nothing at all for the queue itself
+  loadSubmission(selectedId.value)
 })
 
 onBeforeUnmount(disposeEditor)

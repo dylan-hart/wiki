@@ -103,10 +103,10 @@ function findButtonByText(text) {
 }
 
 async function mountInboxWatching(sitePatch = {}) {
-  const { wrapper, router } = mountInboxWatchingUnsettled(sitePatch)
+  const { wrapper, router, siteStore } = mountInboxWatchingUnsettled(sitePatch)
   await flushLoads()
   notifyQueue.splice(0, notifyQueue.length)
-  return { wrapper, router }
+  return { wrapper, router, siteStore }
 }
 
 /**
@@ -118,21 +118,20 @@ async function mountInboxWatching(sitePatch = {}) {
 function mountInboxWatchingUnsettled(sitePatch = {}) {
   const router = buildTestRouter(['/', '/:path(.*)'])
 
-  return {
-    ...mountWithApp(InboxWatching, {
-      messages,
-      router,
-      stores: {
-        site: (store) => {
-          store.$patch({ id: 'site-1', ...sitePatch })
-        }
-      },
-      // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the preferences dialog really
-      //    teleports its body to `document.body`, which is where `findButtonByText` looks.
-      stubs: {}
-    }),
-    router
-  }
+  const { wrapper, siteStore } = mountWithApp(InboxWatching, {
+    messages,
+    router,
+    stores: {
+      site: (store) => {
+        store.$patch({ id: 'site-1', ...sitePatch })
+      }
+    },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the preferences dialog really
+    //    teleports its body to `document.body`, which is where `findButtonByText` looks.
+    stubs: {}
+  })
+
+  return { wrapper, router, siteStore }
 }
 
 async function flushLoads() {
@@ -242,6 +241,25 @@ describe('InboxWatching notifications', () => {
     expect(pushSpy).toHaveBeenCalledWith('/fr/some/page')
   })
 
+  /**
+   * OpenProject #2531: following a notification to its page used to leave `/_inbox/*` as a route,
+   * which closed the old bespoke dialog as a side effect of navigating away from it. Now that this is
+   * `InboxOverlay` content, closing the overlay has to happen explicitly, or the dialog would be left
+   * open on top of the page just navigated to.
+   */
+  it('closes the Inbox overlay before following a notification to its page', async () => {
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    const { wrapper, siteStore } = await mountInboxWatching()
+    siteStore.overlay = 'Inbox'
+
+    await wrapper.find('[role="button"]').trigger('click')
+    await flushLoads()
+
+    expect(siteStore.overlay).toBe('')
+  })
+
   it('shows a toast and keeps the row when marking read fails', async () => {
     stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
     API_CLIENT.patch.mockImplementationOnce(() => {
@@ -304,6 +322,25 @@ describe('InboxWatching watching', () => {
     expect(API_CLIENT.delete).toHaveBeenCalledWith('sites/site-1/pages/page-9/watch')
     expect(wrapper.text()).not.toContain('Watched Page')
     expect(notifyQueue[notifyQueue.length - 1].type).toBe('positive')
+  })
+
+  /**
+   * OpenProject #2531: same reasoning as the notifications section's own version of this test --
+   * following a watched page used to leave the `/_inbox/*` route, closing the old dialog as a side
+   * effect; `InboxOverlay` content has to close the overlay explicitly instead.
+   */
+  it('closes the Inbox overlay before following a watched page', async () => {
+    mockWatchedPages()
+
+    const { wrapper, router, siteStore } = await mountInboxWatching()
+    siteStore.overlay = 'Inbox'
+    const pushSpy = vi.spyOn(router, 'push')
+
+    await wrapper.find('[role="button"]').trigger('click')
+    await flushLoads()
+
+    expect(pushSpy).toHaveBeenCalledWith('/watched/page')
+    expect(siteStore.overlay).toBe('')
   })
 
   it('shows the server message and keeps the row when unwatching is refused', async () => {

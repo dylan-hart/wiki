@@ -1,11 +1,12 @@
 <template>
   <w-page class="py-4">
     <!--
-      Notifications first, Watching second: this is the page `InboxLayout`'s sidebar rail's first
-      entry ("Inbox") now points at directly (OpenProject #2000 repointed it here once the dead
-      `/_inbox/messages` stub it used to point at was deleted). What that entry is FOR is unread
-      notifications — the list of watched pages underneath is the source those notifications come
-      from, not the more urgent of the two.
+      Notifications first, Watching second: this is the tab `InboxOverlay`'s sidebar rail's first
+      entry ("Inbox") opens onto directly (OpenProject #2000 repointed it here once the dead
+      `/_inbox/messages` stub it used to point at was deleted; #2531 later converted the rail entry
+      itself from a route link to local tab state). What that entry is FOR is unread notifications —
+      the list of watched pages underneath is the source those notifications come from, not the more
+      urgent of the two.
     -->
     <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
     <div class="p-4">
@@ -298,7 +299,16 @@ async function loadNotifications() {
   }
 }
 
+/**
+ * Follow a watched page from the list.
+ *
+ * The overlay is closed first (OpenProject #2531): this used to be a routed `/_inbox/*` page, so
+ * navigating away from it closed the dialog as a side effect of leaving the route; now that it is
+ * `InboxOverlay` content, leaving it to view a page has to close the overlay explicitly, or the
+ * dialog would stay open on top of the page just navigated to.
+ */
 function openPage(page) {
+  siteStore.$patch({ overlay: '' })
   router.push(localizedPagePath(page.path, page.locale, siteStore.localeRouting))
 }
 
@@ -313,6 +323,8 @@ function openPage(page) {
  */
 async function openNotification(notification) {
   await markRead(notification, { silent: true })
+  // -> See `openPage`'s comment above: closing the overlay is no longer implicit in leaving a route.
+  siteStore.$patch({ overlay: '' })
   router.push(
     localizedPagePath(notification.pagePath, notification.pageLocale, siteStore.localeRouting)
   )

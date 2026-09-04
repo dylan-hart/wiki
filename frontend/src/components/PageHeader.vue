@@ -789,11 +789,13 @@ function printPage() {
 /**
  * Open one suggestion for review, remembering where it was opened from.
  *
- * `from=page` is what sends the reviewer back here when they are done, rather than to the inbox queue
- * they never came through.
+ * `from: 'page'` is what sends the reviewer back here when they are done, rather than to the inbox
+ * queue they never came through -- read by `InboxReview.vue`'s `fromPage` prop, forwarded off
+ * `overlayOpts` by `InboxOverlay.vue` (OpenProject #2531 converted the Inbox from routed `/_inbox/*`
+ * pages to a `MainOverlayDialog` entry).
  */
 function reviewSubmission(submission) {
-  router.push({ path: `/_inbox/review/${submission.id}`, query: { from: 'page' } })
+  siteStore.openOverlay('Inbox', { tab: 'review', submissionId: submission.id, from: 'page' })
 }
 
 /**
