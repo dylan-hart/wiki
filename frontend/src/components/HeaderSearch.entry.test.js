@@ -93,12 +93,18 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
     vi.restoreAllMocks()
   })
 
-  async function mountAttached() {
+  const SHORTCUT_HINT_MESSAGES = {
+    'common.header.searchShortcutMac': '⌘K',
+    'common.header.searchShortcutOther': 'Ctrl+K'
+  }
+
+  async function mountAttached(messages) {
     const router = await createTestRouter(['/'])
 
-    const { wrapper } = mountWithApp(HeaderSearch, {
+    const { wrapper, i18n } = mountWithApp(HeaderSearch, {
       attachTo: document.body,
       router,
+      messages,
       stores: {
         site: (store) => {
           store.features.search = true
@@ -106,11 +112,11 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
       }
     })
     activeWrapper = wrapper
-    return wrapper
+    return { wrapper, i18n }
   }
 
   it('focuses the field on Ctrl+K', async () => {
-    const wrapper = await mountAttached()
+    const { wrapper } = await mountAttached()
     const input = wrapper.find('.header-search-input').element
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
@@ -120,7 +126,7 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
   })
 
   it('also focuses the field on Cmd+K (metaKey) -- previously unbound entirely', async () => {
-    const wrapper = await mountAttached()
+    const { wrapper } = await mountAttached()
     const input = wrapper.find('.header-search-input').element
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
@@ -130,27 +136,50 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
   })
 
   it('marks the field aria-keyshortcuts for both modifiers', async () => {
-    const wrapper = await mountAttached()
+    const { wrapper } = await mountAttached()
 
     expect(wrapper.find('.header-search-input').attributes('aria-keyshortcuts')).toBe(
       'Meta+K Control+K'
     )
   })
 
-  it('renders the Ctrl+K hint on a non-Apple platform', async () => {
+  it('renders the resolved Ctrl+K hint on a non-Apple platform', async () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32')
 
-    const wrapper = await mountAttached()
+    const { wrapper } = await mountAttached(SHORTCUT_HINT_MESSAGES)
 
-    expect(wrapper.find('.header-search-kbd').text()).toBe('common.header.searchShortcutOther')
+    expect(wrapper.find('.header-search-kbd').text()).toBe('Ctrl+K')
   })
 
-  it('renders the platform-aware ⌘K hint on an Apple platform', async () => {
+  it('renders the resolved, platform-aware ⌘K hint on an Apple platform', async () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel')
 
-    const wrapper = await mountAttached()
+    const { wrapper } = await mountAttached(SHORTCUT_HINT_MESSAGES)
 
-    expect(wrapper.find('.header-search-kbd').text()).toBe('common.header.searchShortcutMac')
+    expect(wrapper.find('.header-search-kbd').text()).toBe('⌘K')
+  })
+
+  /**
+   * OpenProject #2511: the hint used to be captured once into a plain `const` at setup, not a
+   * `computed()`. `boot/i18n.js` creates the real app's i18n instance with empty messages and loads
+   * the active locale's catalog asynchronously afterward, so a component that sets up before that
+   * load finishes got the raw key back from `t()` and, being a frozen `const`, stayed stuck on it
+   * for its entire mounted lifetime even once the real messages landed. This reproduces exactly that
+   * race -- mount with no messages loaded yet (as `createTestI18n({})` defaults to), then load them
+   * the way the real boot sequence does, and assert the hint updates in place rather than needing a
+   * remount.
+   */
+  it('updates the hint once the locale catalog loads after mount, rather than staying on the raw key', async () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32')
+
+    const { wrapper, i18n } = await mountAttached()
+
+    expect(wrapper.find('.header-search-kbd').text()).toBe('common.header.searchShortcutOther')
+
+    i18n.global.setLocaleMessage('en', SHORTCUT_HINT_MESSAGES)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.header-search-kbd').text()).toBe('Ctrl+K')
   })
 })
 

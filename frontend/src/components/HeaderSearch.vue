@@ -349,12 +349,18 @@ const defaultPageIcon = DEFAULT_PAGE_ICON
 /**
  * `⌘K` on macOS/iOS/iPadOS, `Ctrl+K` everywhere else -- Ctrl+K is the OS-level emacs
  * kill-to-end-of-line binding on macOS, so the hint would otherwise tell Mac users to press a
- * combination that does something else entirely. A one-time read at mount, not a reactive watch:
- * the platform a session is running on does not change mid-session.
+ * combination that does something else entirely. `isApplePlatform()` itself only needs checking
+ * once -- the platform a session is running on does not change mid-session -- but this still has
+ * to be a `computed()`, not a plain `const`: `t()`'s RESULT is what's reactive here.
+ * `boot/i18n.js` creates the i18n instance with empty messages and loads the active locale's
+ * catalog asynchronously afterward, so a component that sets up before that load finishes gets the
+ * raw key back from `t()`. A one-time read freezes that raw key into the const for the rest of the
+ * component's mounted lifetime even after the real messages land moments later; a computed
+ * re-evaluates once they do.
  */
-const searchShortcutHint = isApplePlatform()
-  ? t('common.header.searchShortcutMac')
-  : t('common.header.searchShortcutOther')
+const searchShortcutHint = computed(() =>
+  isApplePlatform() ? t('common.header.searchShortcutMac') : t('common.header.searchShortcutOther')
+)
 
 /**
  * Whether the query is long enough for `state.previewResults` to actually mean something -- the same
