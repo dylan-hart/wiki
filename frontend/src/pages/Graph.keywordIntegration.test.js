@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { FIXTURE_GRAPH, mountGraph } from './graphFixtures.js'
 
 /**
@@ -78,5 +79,33 @@ describe('Graph.vue keyword search integration (OpenProject #2508)', () => {
 
     expect(wrapper.vm.highlightedNodeIds).toEqual(new Set())
     expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  /**
+   * OpenProject #2533's own regression case, in the same spirit as #2508 above: the client-side
+   * title-contains pass is synchronous and reacts to `keywordQuery`/`allNodes` directly, entirely
+   * independent of the backend `keywordMatches` fetch -- so the debounced backend request is
+   * deliberately left UNRESOLVED for the whole test (never mocked, never advanced past the debounce),
+   * proving `highlightedNodeIds` picks up the title match with no backend response at all. That alone
+   * would already have passed even if the repaint watcher were still wired to `keywordMatches` only
+   * (the bug this test exists to catch), since the real canvas draw calls (`wrapper.vm.ctx.arc`, the
+   * same exposed stub `Graph.sizing.test.js`/`Graph.layout.test.js` assert against) are the thing
+   * actually asserted on here, not just the computed value.
+   */
+  it('a client-side title-only match repaints the real canvas, with no backend response at all (OpenProject #2533)', async () => {
+    const wrapper = await mountGraph()
+    const matchedNode = FIXTURE_GRAPH.nodes[0]
+
+    wrapper.vm.ctx.arc.mockClear()
+    const input = wrapper.find('.graph-view-filters input')
+    await input.setValue(matchedNode.title.toLowerCase())
+    // -> Deliberately NOT advancing timers past the 300ms debounce -- the backend search never
+    //    fires, so `API_CLIENT.get` is never called beyond mountGraph()'s own two setup calls.
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
+    expect(wrapper.vm.keywordMatches).toEqual([])
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set([`en:${matchedNode.path}`]))
+    expect(wrapper.vm.ctx.arc).toHaveBeenCalled()
   })
 })

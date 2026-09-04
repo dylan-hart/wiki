@@ -199,6 +199,7 @@ import {
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeHighlightedNodeIds,
+  computeTitleMatchNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
   deriveMaxFolderDepth
@@ -383,12 +384,27 @@ function clearFilters() {
  *  array (never a mutation), or the `watch(keywordMatches, repaint)` further down won't fire. */
 const keywordMatches = shallowRef([])
 
-/** The composite `${locale}:${path}` id of every currently-visible node `keywordMatches` matched --
- *  see `graphFilters.js#computeHighlightedNodeIds`. Empty whenever `keywordMatches` is (no search
- *  active yet, or a search that matched nothing), which is also what tells `repaint()`'s
- *  `paintGraph()` call to draw every node at full strength with no highlight ring, same as before
- *  this WP existed. */
-const highlightedNodeIds = computed(() => computeHighlightedNodeIds(keywordMatches.value))
+/** OpenProject #2533: a second, thin, purely CLIENT-SIDE highlight pass alongside the backend
+ *  full-text search above -- a case-insensitive substring check of `keywordQuery` against every
+ *  currently-loaded node's `title` (`allNodes`, already in memory, no extra request). The backend's
+ *  `websearch_to_tsquery` engine matches stemmed lexemes, not substrings, so a partial word typed
+ *  mid-token doesn't reliably highlight a page whose TITLE plainly contains it -- this fills that
+ *  gap without touching the backend search's own semantics (site-wide search still goes through
+ *  `searchKeyword()` unchanged). See `graphFilters.js#computeTitleMatchNodeIds`. Synchronous and
+ *  reactive off `keywordQuery`/`allNodes` directly -- no debounce needed, unlike the backend pass. */
+const titleMatchNodeIds = computed(() =>
+  computeTitleMatchNodeIds(allNodes.value, keywordQuery.value)
+)
+
+/** The composite `${locale}:${path}` id of every currently-visible node either the backend keyword
+ *  search (`keywordMatches`) or the client-side title-contains pass (`titleMatchNodeIds`, #2533)
+ *  matched -- the union of both, deduped via `Set`. See `graphFilters.js#computeHighlightedNodeIds`.
+ *  Empty whenever both sources are (no search active yet, or a search that matched nothing by
+ *  either method), which is also what tells `repaint()`'s `paintGraph()` call to draw every node at
+ *  full strength with no highlight ring, same as before this WP existed. */
+const highlightedNodeIds = computed(
+  () => new Set([...computeHighlightedNodeIds(keywordMatches.value), ...titleMatchNodeIds.value])
+)
 
 /** The tag/locale values offered by the filter panel's `w-select`s, derived from `allNodes` (the
  *  full fetched graph, not the currently-filtered `nodes.value`) -- no separate endpoint
@@ -1092,10 +1108,16 @@ watch(edgeMode, () => {
   syncSimulationToVisibleSet()
 })
 
-/** OpenProject #2480: a keyword match changes only which ALREADY-visible nodes draw highlighted --
- *  no node/edge set changes, no simulation restart, just a repaint against the current layout
- *  (unlike `activeFilters`'/`edgeMode`'s watchers above, which do change what's visible). */
-watch(keywordMatches, () => {
+/** OpenProject #2480, extended by #2533: a keyword match -- from EITHER the backend full-text
+ *  search or the client-side title-contains pass -- changes only which ALREADY-visible nodes draw
+ *  highlighted, no node/edge set changes, no simulation restart, just a repaint against the current
+ *  layout (unlike `activeFilters`'/`edgeMode`'s watchers above, which do change what's visible).
+ *  Watches the unioned `highlightedNodeIds` itself, not `keywordMatches` alone: the backend pass
+ *  populates `keywordMatches` only once its (debounced, async) request resolves, but the title pass
+ *  is synchronous off `keywordQuery`/`allNodes` and never touches `keywordMatches` at all -- a
+ *  title-only match with no corresponding backend hit would otherwise compute correctly but never
+ *  actually repaint the canvas. */
+watch(highlightedNodeIds, () => {
   repaint()
 })
 
