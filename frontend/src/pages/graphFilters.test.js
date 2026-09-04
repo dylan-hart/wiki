@@ -6,6 +6,8 @@ import {
   computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
+  deriveMaxFolderDepth,
+  MAX_DEPTH,
   nodeId
 } from './graphFilters.js'
 
@@ -46,6 +48,44 @@ describe('deriveFilterOptions (OpenProject #899)', () => {
 
   it('returns empty arrays for an empty node set', () => {
     expect(deriveFilterOptions([])).toEqual({ tags: [], locales: [] })
+  })
+})
+
+describe('MAX_DEPTH (OpenProject #2514/#2520)', () => {
+  it('mirrors backend/models/tree.ts#MAX_DEPTH', () => {
+    expect(MAX_DEPTH).toBe(10)
+  })
+})
+
+describe('deriveMaxFolderDepth (OpenProject #2514/#2520)', () => {
+  it('returns 0 for an empty node set', () => {
+    expect(deriveMaxFolderDepth([])).toBe(0)
+  })
+
+  it('returns 0 when every node is root-level (no "/" in its path)', () => {
+    expect(deriveMaxFolderDepth([{ path: 'a' }, { path: 'standalone' }])).toBe(0)
+  })
+
+  it('returns the deepest folder actually present across the node set', () => {
+    const nodes = [{ path: 'a' }, { path: 'guides/one' }, { path: 'guides/deep/two' }]
+    expect(deriveMaxFolderDepth(nodes)).toBe(2)
+  })
+
+  it('is not thrown off by which node happens to come first', () => {
+    const nodes = [{ path: 'guides/deep/two' }, { path: 'guides/one' }, { path: 'a' }]
+    expect(deriveMaxFolderDepth(nodes)).toBe(2)
+  })
+
+  it('caps at MAX_DEPTH for a graph deeper than the reasonable ceiling', () => {
+    const deepPath = Array.from({ length: MAX_DEPTH + 5 }, (_, i) => `level${i}`).join('/')
+    expect(deriveMaxFolderDepth([{ path: deepPath }])).toBe(MAX_DEPTH)
+  })
+
+  it('reports exactly MAX_DEPTH when a graph is precisely that deep, not off by one', () => {
+    // -> Depth is segment count minus 1 (`folderDepthOf`), so MAX_DEPTH segments after the first
+    //    means MAX_DEPTH + 1 total path segments.
+    const exactPath = Array.from({ length: MAX_DEPTH + 1 }, (_, i) => `level${i}`).join('/')
+    expect(deriveMaxFolderDepth([{ path: exactPath }])).toBe(MAX_DEPTH)
   })
 })
 

@@ -195,6 +195,7 @@ import {
   computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
+  deriveMaxFolderDepth,
   nodeId
 } from './graphFilters.js'
 import { paintGraph } from './graphDraw.js'
@@ -391,6 +392,20 @@ const highlightedNodeIds = computed(() => computeHighlightedNodeIds(keywordMatch
 const filterOptions = computed(() => deriveFilterOptions(allNodes.value))
 const tagOptions = computed(() => filterOptions.value.tags)
 const localeOptions = computed(() => filterOptions.value.locales)
+
+/** The deepest folder actually present in the currently loaded graph (OpenProject #2514/#2520:
+ *  replacing the folder-depth number input with a slider) -- derived from `allNodes`, the same
+ *  full-universe source `filterOptions` above uses, not the currently-filtered `nodes.value`, for
+ *  the same "narrowing one filter shouldn't shrink another's own range" reasoning that computed's
+ *  own doc comment gives. Already capped at `graphFilters.js`'s `MAX_DEPTH` ceiling by
+ *  `deriveMaxFolderDepth` itself, so a caller sizing a control off this value (the depth slider,
+ *  #2521) needs no clamp of its own.
+ *
+ *  Before the initial graph fetch resolves, `allNodes.value` is still `[]` and this reads `0` --
+ *  indistinguishable from a real, fully-flat graph. A caller must gate on `isLoading` (above)
+ *  rather than trust `0` alone as meaning "this graph has no folders," or it will render a
+ *  broken/0-step control while the graph is still loading. */
+const actualMaxFolderDepth = computed(() => deriveMaxFolderDepth(allNodes.value))
 
 /** Whether the locale filter control is worth showing at all (OpenProject #2294): gated on both the
  *  reader-facing locale-switcher setting AND there being more than one locale actually represented
