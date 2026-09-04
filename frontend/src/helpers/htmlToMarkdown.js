@@ -55,6 +55,13 @@ const isPresentationalStrike = (node) =>
 const isPresentationalUnderline = (node) =>
   styleValue(node, 'text-decoration').includes('underline')
 const hasContent = (content) => content.trim().length > 0
+// -> `node.isBlock` is set by turndown itself (a fixed block-tag list -- DIV/P/LI/... are block,
+//    SPAN is not) before any rule's filter runs. OneNote/Office give an entire paragraph/bullet a
+//    uniform base font-size on its own block container; that is not the "mid-paragraph change" this
+//    rule exists for, and wrapping it would inject a `<span>` between a list marker and its text (or
+//    around a whole heading-like line) for no benefit. Restricting to non-block nodes scopes this to
+//    genuine inline runs (an OneNote/Word `<span style="font-size:...">` inside running text).
+const isPresentationalFontSize = (node) => !node.isBlock && styleValue(node, 'font-size').length > 0
 
 function buildTurndownService() {
   const service = new TurndownService({
@@ -97,6 +104,18 @@ function buildTurndownService() {
   service.addRule('underlineTag', {
     filter: 'u',
     replacement: (content) => (hasContent(content) ? `<u>${content}</u>` : content)
+  })
+  // -> Markdown has no native font-size syntax either; `<span style="font-size: ...">` is the
+  //    same kind of lossless, CommonMark-legal fallback the `<u>` rule above uses for underline.
+  //    `font-size` (unlike `font-family`) is already in the backend's general-author style
+  //    allowlist (`ALLOWED_STYLES['*']`), so this survives rendering for any author. Scoped to
+  //    inline nodes only -- see `isPresentationalFontSize` above.
+  service.addRule('presentationalFontSize', {
+    filter: isPresentationalFontSize,
+    replacement: (content, node) =>
+      hasContent(content)
+        ? `<span style="font-size: ${styleValue(node, 'font-size')}">${content}</span>`
+        : content
   })
   // -> See "Images are dropped, not converted" above. `img` has a built-in turndown rule, so
   //    `service.remove('img')` would never win against it -- `remove()` only wins for a tag with NO

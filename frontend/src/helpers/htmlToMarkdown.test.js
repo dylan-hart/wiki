@@ -74,6 +74,22 @@ describe('htmlToMarkdown', () => {
       expect(md).not.toContain('<u><u>under</u></u>')
     })
 
+    it('preserves a mid-paragraph font-size change as a <span style="font-size: ..."> fallback (OpenProject #2505)', () => {
+      const html = '<p>Normal <span style="font-size:18pt">bigger</span> normal again.</p>'
+      const md = htmlToMarkdown(html)
+      expect(md).toContain('<span style="font-size: 18pt">bigger</span>')
+      expect(md).toContain('Normal')
+      expect(md).toContain('normal again')
+    })
+
+    it('does not wrap a whole block-level container in a font-size span -- only a mid-paragraph change', () => {
+      const html =
+        '<ul><li><div style="font-family:Calibri;font-size:11pt">First bullet</div></li></ul>'
+      const md = htmlToMarkdown(html)
+      expect(md).toMatch(/-\s+First bullet/)
+      expect(md).not.toContain('font-size')
+    })
+
     it('rewrites a Unicode ballot-box to-do list to GFM task-list syntax', () => {
       const html = '<ul><li>☐ Unchecked task</li><li>☑ Checked task</li></ul>'
       const md = htmlToMarkdown(html)
