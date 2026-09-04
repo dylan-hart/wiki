@@ -201,8 +201,7 @@ import {
   computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
-  deriveMaxFolderDepth,
-  nodeId
+  deriveMaxFolderDepth
 } from './graphFilters.js'
 import { paintGraph } from './graphDraw.js'
 import {
@@ -353,12 +352,14 @@ const activeFilters = reactive({
   locale: null
 })
 
-/** The graph filter panel's keyword search box (OpenProject #2478, Feature #2414). Deliberately kept
- *  OUTSIDE `activeFilters` above: that object drives `computeVisibleSubset()`'s AND-narrowing (a node
- *  failing any active tag/folder-depth/locale filter is hidden), while a keyword match is meant to
- *  HIGHLIGHT matching nodes without hiding the rest -- a different behavior the epic spec calls out
- *  explicitly. Wiring this to `GET sites/:siteId/pages/search` and rendering the highlight are
- *  separate work packages (#2479/#2480); this ref is currently read by nothing else. */
+/** The graph filter panel's keyword search box (OpenProject #2478, Feature #2414), bound to the
+ *  `w-input` below and, via the `watch()` further down, the single source ref driving the whole
+ *  keyword-search pipeline (OpenProject #2508 unified this with the `graphKeyword`/`keywordMatchIds`
+ *  refs #2479/#2480 each introduced independently -- three refs for two states, never spliced
+ *  together, was the bug). Deliberately kept OUTSIDE `activeFilters` above: that object drives
+ *  `computeVisibleSubset()`'s AND-narrowing (a node failing any active tag/folder-depth/locale filter
+ *  is hidden), while a keyword match is meant to HIGHLIGHT matching nodes without hiding the rest --
+ *  a different behavior the epic spec calls out explicitly. */
 const keywordQuery = ref('')
 
 /** Resets every filter to its default -- the `activeFilters` watcher (Task 26/#901) fires
@@ -375,11 +376,11 @@ function clearFilters() {
  *  task) -- deliberately separate from `activeFilters` above: a keyword match HIGHLIGHTS matching
  *  nodes rather than narrowing which ones are visible, so it never feeds `computeVisibleSubset`.
  *  Each entry needs only `path`/`locale`, the shape `GET sites/:siteId/pages/search` returns per
- *  result (`backend/modules/search/shared.ts#SearchDocument`) -- the keyword input (OpenProject
- *  #2478) and its wiring to that endpoint (#2479) are what populate this ref; this WP is the
- *  render/highlight half that consumes it, so it exposes the ref itself rather than an input control
- *  or a fetch. `shallowRef` (not `ref`), same reasoning as `allNodes`/`allEdges` above: nothing reads
- *  an individual match's fields reactively, only the whole array via `highlightedNodeIds` below. */
+ *  result (`backend/modules/search/shared.ts#SearchDocument`) -- populated by `searchKeyword()`
+ *  below, the same function `keywordQuery`'s `watch()` debounces into. `shallowRef` (not `ref`), same
+ *  reasoning as `allNodes`/`allEdges` above: nothing reads an individual match's fields reactively,
+ *  only the whole array via `highlightedNodeIds` below -- so every assignment to it must be a new
+ *  array (never a mutation), or the `watch(keywordMatches, repaint)` further down won't fire. */
 const keywordMatches = shallowRef([])
 
 /** The composite `${locale}:${path}` id of every currently-visible node `keywordMatches` matched --
@@ -465,27 +466,6 @@ const KEYWORD_SEARCH_DEBOUNCE_MS = 300
  *  `graphTruncated` above) rather than paginating a highlight overlay. */
 const KEYWORD_SEARCH_LIMIT = 100
 
-/**
- * The keyword typed into the graph's filter panel (OpenProject #2414: #2478 adds the actual
- * control, bound to this ref; this file only wires it to the search endpoint -- #2479).
- *
- * Deliberately NOT a field on `activeFilters` above: everything in that object narrows the VISIBLE
- * node set (`computeVisibleSubset`) and is deep-watched to re-run `applyFilters()`/
- * `syncSimulationToVisibleSet()` on every change, but a keyword match highlights matching nodes
- * rather than filtering non-matching ones out of view (the Feature's own scope decision) --
- * folding it into `activeFilters` would re-layout the whole graph on every keystroke for no reason,
- * and would need `computeVisibleSubset` to special-case it back out again.
- */
-const graphKeyword = ref('')
-
-/** Composite `${locale}:${path}` ids (`graphFilters.js#nodeId`) of every currently-loaded page the
- *  active `graphKeyword` matches, per the same full-text search the header search bar uses -- what
- *  OpenProject #2480's render pass highlights against. Empty whenever the keyword is empty/
- *  whitespace-only, the fetch is still in flight, or it failed. `shallowRef` (not `ref`) for the
- *  same reactivity-cost reasoning as `nodes`/`edges` above -- nothing needs to react to a mutation
- *  of the Set's contents, only to it being replaced wholesale, which every assignment below does. */
-const keywordMatchIds = shallowRef(new Set())
-
 /** Bumped on every keyword fetch started or invalidated -- same stale-response guard
  *  `HeaderSearch.vue`'s live preview uses (`previewRequestToken`), so a slower, earlier request
  *  landing after a faster, later one can't clobber fresher results with stale ones. */
@@ -503,19 +483,31 @@ async function searchKeyword(query) {
     if (token !== keywordSearchToken) {
       return
     }
-    keywordMatchIds.value = new Set((resp?.results ?? []).map((r) => nodeId(r)))
+    keywordMatches.value = resp?.results ?? []
   } catch (err) {
     if (token !== keywordSearchToken) {
       return
     }
-    keywordMatchIds.value = new Set()
+    keywordMatches.value = []
     console.warn(apiErrorMessage(err))
   }
 }
 
 const debouncedSearchKeyword = debounce(searchKeyword, KEYWORD_SEARCH_DEBOUNCE_MS)
 
-watch(graphKeyword, (newKeyword) => {
+/**
+ * Wires the filter panel's `keywordQuery` input (OpenProject #2478) to `searchKeyword()` (#2479),
+ * which populates `keywordMatches` (#2480) -- see `keywordQuery`'s own doc comment above for why
+ * this WP (#2508) unified what used to be three disconnected refs into these two.
+ *
+ * Deliberately NOT a field on `activeFilters` above: everything in that object narrows the VISIBLE
+ * node set (`computeVisibleSubset`) and is deep-watched to re-run `applyFilters()`/
+ * `syncSimulationToVisibleSet()` on every change, but a keyword match highlights matching nodes
+ * rather than filtering non-matching ones out of view (the Feature's own scope decision) --
+ * folding it into `activeFilters` would re-layout the whole graph on every keystroke for no reason,
+ * and would need `computeVisibleSubset` to special-case it back out again.
+ */
+watch(keywordQuery, (newKeyword) => {
   const query = (newKeyword ?? '').trim()
   if (!query) {
     debouncedSearchKeyword.cancel()
@@ -523,7 +515,7 @@ watch(graphKeyword, (newKeyword) => {
     //    `keywordSearchToken++` alone (with no direct state reset) guards a stale FETCH -- this is
     //    the synchronous counterpart for a keyword cleared outright rather than merely changed.
     keywordSearchToken++
-    keywordMatchIds.value = new Set()
+    keywordMatches.value = []
     return
   }
   debouncedSearchKeyword(query)

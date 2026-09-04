@@ -3,11 +3,15 @@ import { flushPromises } from '@vue/test-utils'
 import { mountGraph } from './graphFixtures.js'
 
 /*
- * OpenProject #2479: wiring the graph's keyword input to `GET /sites/:siteId/pages/search`, the
- * same full-text search the header search bar uses. `#2478` (the actual `w-input` control) and
- * `#2480` (highlighting matches in the render pass) are separate Tasks -- this suite drives
- * `wrapper.vm.graphKeyword` directly, exactly as a future bound `w-input` would, and asserts
- * against `wrapper.vm.keywordMatchIds`, the composite-id Set `#2480`'s render pass will read.
+ * OpenProject #2479 (wiring `keywordQuery` to `GET /sites/:siteId/pages/search`, the same
+ * full-text search the header search bar uses) as unified by OpenProject #2508: this suite used to
+ * drive a since-deleted `graphKeyword` ref and assert against a since-deleted `keywordMatchIds`
+ * Set -- neither was actually reachable from the real `keywordQuery` input or `highlightedNodeIds`
+ * render output, which is exactly the bug #2508 fixed. It now drives `wrapper.vm.keywordQuery`
+ * directly (the same ref the `w-input` at `.graph-view-filters input` binds to -- see
+ * `Graph.filters.test.js` for the input-binding half) and asserts against `keywordMatches`/
+ * `highlightedNodeIds`, the real refs the fetch populates and the render pass reads. See
+ * `Graph.keywordIntegration.test.js` for the end-to-end version driving the actual `<input>` element.
  */
 describe('Graph.vue keyword search wiring', () => {
   beforeEach(() => {
@@ -21,18 +25,18 @@ describe('Graph.vue keyword search wiring', () => {
   it('starts with no keyword and no matches', async () => {
     const wrapper = await mountGraph()
 
-    expect(wrapper.vm.graphKeyword).toBe('')
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set())
+    expect(wrapper.vm.keywordQuery).toBe('')
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set())
   })
 
   it('does not fetch while the keyword is empty or whitespace-only', async () => {
     const wrapper = await mountGraph()
 
-    wrapper.vm.graphKeyword = '   '
+    wrapper.vm.keywordQuery = '   '
     await vi.advanceTimersByTimeAsync(400)
 
     expect(API_CLIENT.get).toHaveBeenCalledTimes(2) // -> graph + pageviews, from mountGraph() alone
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set())
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set())
   })
 
   it('debounces the fetch -- not fired until the debounce window elapses', async () => {
@@ -41,7 +45,7 @@ describe('Graph.vue keyword search wiring', () => {
       json: () => Promise.resolve({ results: [], totalHits: 0 })
     })
 
-    wrapper.vm.graphKeyword = 'a'
+    wrapper.vm.keywordQuery = 'a'
     expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
 
     await vi.advanceTimersByTimeAsync(400)
@@ -54,7 +58,7 @@ describe('Graph.vue keyword search wiring', () => {
       json: () => Promise.resolve({ results: [], totalHits: 0 })
     })
 
-    wrapper.vm.graphKeyword = 'docs'
+    wrapper.vm.keywordQuery = 'docs'
     await vi.advanceTimersByTimeAsync(400)
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/search', {
@@ -62,7 +66,7 @@ describe('Graph.vue keyword search wiring', () => {
     })
   })
 
-  it('populates keywordMatchIds with the composite locale:path id of every result', async () => {
+  it('populates keywordMatches with the raw results, and highlightedNodeIds with their composite ids', async () => {
     const wrapper = await mountGraph()
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
@@ -75,10 +79,14 @@ describe('Graph.vue keyword search wiring', () => {
         })
     })
 
-    wrapper.vm.graphKeyword = 'a'
+    wrapper.vm.keywordQuery = 'a'
     await vi.advanceTimersByTimeAsync(400)
 
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set(['en:a', 'en:guides/deep']))
+    expect(wrapper.vm.keywordMatches).toEqual([
+      { path: 'a', locale: 'en', title: 'A' },
+      { path: 'guides/deep', locale: 'en', title: 'Deep' }
+    ])
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set(['en:a', 'en:guides/deep']))
   })
 
   it('trims the keyword before both the empty-check and the request', async () => {
@@ -87,13 +95,13 @@ describe('Graph.vue keyword search wiring', () => {
       json: () => Promise.resolve({ results: [{ path: 'a', locale: 'en' }], totalHits: 1 })
     })
 
-    wrapper.vm.graphKeyword = '  a  '
+    wrapper.vm.keywordQuery = '  a  '
     await vi.advanceTimersByTimeAsync(400)
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/search', {
       searchParams: { query: 'a', limit: 100 }
     })
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set(['en:a']))
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set(['en:a']))
   })
 
   it('clearing the keyword resets matches synchronously and cancels a pending fetch', async () => {
@@ -101,16 +109,17 @@ describe('Graph.vue keyword search wiring', () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ results: [{ path: 'a', locale: 'en' }], totalHits: 1 })
     })
-    wrapper.vm.graphKeyword = 'a'
+    wrapper.vm.keywordQuery = 'a'
     await vi.advanceTimersByTimeAsync(400)
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set(['en:a']))
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set(['en:a']))
 
-    wrapper.vm.graphKeyword = 'ab'
-    wrapper.vm.graphKeyword = ''
+    wrapper.vm.keywordQuery = 'ab'
+    wrapper.vm.keywordQuery = ''
     await vi.advanceTimersByTimeAsync(400)
 
     expect(API_CLIENT.get).toHaveBeenCalledTimes(3) // -> graph + pageviews + the one settled 'a' fetch
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set())
+    expect(wrapper.vm.keywordMatches).toEqual([])
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set())
   })
 
   it('drops a stale response that resolves after a newer one', async () => {
@@ -127,11 +136,11 @@ describe('Graph.vue keyword search wiring', () => {
       .mockReturnValueOnce({ json: () => firstPromise })
       .mockReturnValueOnce({ json: () => secondPromise })
 
-    wrapper.vm.graphKeyword = 'ab'
+    wrapper.vm.keywordQuery = 'ab'
     await vi.advanceTimersByTimeAsync(400)
     expect(API_CLIENT.get).toHaveBeenCalledTimes(3)
 
-    wrapper.vm.graphKeyword = 'abc'
+    wrapper.vm.keywordQuery = 'abc'
     await vi.advanceTimersByTimeAsync(400)
     expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
 
@@ -141,7 +150,7 @@ describe('Graph.vue keyword search wiring', () => {
     resolveFirst({ results: [{ path: 'ab-page', locale: 'en' }], totalHits: 1 })
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set(['en:abc-page']))
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set(['en:abc-page']))
   })
 
   it('degrades to an empty (not stale) match set on a failed request, quietly', async () => {
@@ -151,10 +160,11 @@ describe('Graph.vue keyword search wiring', () => {
       json: () => Promise.reject(new Error('network down'))
     })
 
-    wrapper.vm.graphKeyword = 'a'
+    wrapper.vm.keywordQuery = 'a'
     await vi.advanceTimersByTimeAsync(400)
 
-    expect(wrapper.vm.keywordMatchIds).toEqual(new Set())
+    expect(wrapper.vm.keywordMatches).toEqual([])
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set())
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
@@ -162,7 +172,7 @@ describe('Graph.vue keyword search wiring', () => {
   it('cancels the pending debounced fetch on unmount', async () => {
     const wrapper = await mountGraph()
 
-    wrapper.vm.graphKeyword = 'a'
+    wrapper.vm.keywordQuery = 'a'
     wrapper.unmount()
     await vi.advanceTimersByTimeAsync(400)
 
@@ -180,7 +190,7 @@ describe('Graph.vue keyword search wiring', () => {
     const nodesBefore = wrapper.vm.nodes
     const edgesBefore = wrapper.vm.edges
 
-    wrapper.vm.graphKeyword = 'a'
+    wrapper.vm.keywordQuery = 'a'
     await vi.advanceTimersByTimeAsync(400)
     await flushPromises()
 
