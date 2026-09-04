@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { wrapAsBlock } from './blockFence.ts'
 
 /** A 2.x draw.io fenced diagram: ` ```diagram ` followed by a base64-encoded SVG export. */
 const DRAWIO_FENCE = /```diagram\r?\n([\s\S]*?)\r?\n```/g
@@ -27,7 +28,11 @@ export interface DrawioFenceResult {
  *
  * The transform is a straight re-encode, not a re-render: decode the fence body as base64 to recover
  * the SVG, read its root `content` attribute (cheerio auto-decodes the HTML entities draw.io escaped
- * it with, same as a browser parsing the same markup would), and re-fence that raw XML as ` ```drawio `.
+ * it with, same as a browser parsing the same markup would), and re-fence that raw XML as ` ```drawio `,
+ * wrapped in the `::block-drawio` container `block-drawio` needs to actually activate (`blockFence.ts`
+ * — a fence with no container around it is inert, whatever its language name; this was missed on the
+ * first pass at this transform, silently producing an unrendered `\`\`\`drawio` code block instead of
+ * a diagram, for the exact same reason the un-transformed `\`\`\`diagram` fence never rendered either).
  * `block-drawio`'s own parser (`blocks/block-drawio/mxgraph.js`) already accepts either an `<mxfile>`
  * or a bare `<mxGraphModel>` root, deflated-and-base64'd `<diagram>` bodies included — exactly the
  * shape a draw.io SVG export's `content` attribute already holds, so nothing further needs decoding
@@ -51,7 +56,7 @@ export function convertDrawioFences(content: string, identifier: string): Drawio
       return match
     }
     converted++
-    return `\`\`\`drawio\n${xml}\n\`\`\``
+    return wrapAsBlock('drawio', `\`\`\`drawio\n${xml}\n\`\`\``)
   })
   return { content: next, converted, warnings }
 }

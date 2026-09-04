@@ -1,6 +1,7 @@
 import type { SourceConnector, SourceRecord } from './connector.ts'
 import { resolveActorId, type UserIdMap } from './id-map.ts'
 import { convertDrawioFences } from './mappers/drawioFence.ts'
+import { convertMermaidFences } from './mappers/mermaidFence.ts'
 // -> Type-only, so this is erased entirely at load time (verbatimModuleSyntax) -- safe even though
 //    importers/navigation-import.ts imports StagedNavigation back from this module, since neither
 //    import
@@ -245,16 +246,17 @@ function resolveTags(value: unknown): StagedTag[] {
 }
 
 /** The staged `content` value for a page or one of its history entries: `null` through unchanged (2.x
- * genuinely stores no content for this row), otherwise run through `convertDrawioFences()` so a 2.x
- * ```diagram fence becomes a working 3.0 ```drawio block-drawio block instead of a code block of
- * unreadable base64 — pushing any conversion warning onto the same `warnings` array every other
- * staging concern already reports through. Shared by `stagePage`/`stageHistoryEntry` since a 2.x
- * diagram can equally sit in a past revision's content, not only the current one. */
+ * genuinely stores no content for this row), otherwise run through `convertDrawioFences()` (a 2.x
+ * ```diagram fence becomes a working, ::block-drawio-wrapped ```drawio block) and
+ * `convertMermaidFences()` (a bare 2.x ```mermaid fence gets the ::block-diagram wrapper 3.0's block
+ * needs to activate it at all) — pushing any conversion warning onto the same `warnings` array every
+ * other staging concern already reports through. Shared by `stagePage`/`stageHistoryEntry` since
+ * either kind of diagram can equally sit in a past revision's content, not only the current one. */
 function stageContent(raw: unknown, identifier: string, warnings: string[]): string | null {
   if (raw === null || raw === undefined) return null
-  const { content, warnings: drawioWarnings } = convertDrawioFences(asString(raw), identifier)
-  warnings.push(...drawioWarnings)
-  return content
+  const drawio = convertDrawioFences(asString(raw), identifier)
+  warnings.push(...drawio.warnings)
+  return convertMermaidFences(drawio.content).content
 }
 
 function stagePage(

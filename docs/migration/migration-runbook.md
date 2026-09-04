@@ -264,8 +264,12 @@ This does two independent checks (`backend/migration/verify.ts`):
    `navigation` — source vs. destination, plus (via `--against-report`) each live total cross-checked
    against the phase-level totals captured in step 4's report.
 2. **Content spot-check** — hash-compares a random sample of pages (`--sample-size`, default 20) or
-   an explicit list (`--sample-paths path1,path2,...`) between the source's rendered content and the
-   migrated 3.0 page's own rendered content.
+   an explicit list (`--sample-paths path1,path2,...`) between the source's raw `content` (markdown
+   source, not rendered HTML) and the migrated 3.0 page's own stored `content`. A page whose content
+   the import deliberately rewrote — a 2.x draw.io `\`\`\`diagram` fence or a bare `\`\`\`mermaid`
+   fence, both converted to a working 3.0 block (`content-staging.ts`'s `stageContent()`) — will
+   correctly report a **mismatch** here: its 3.0 content is supposed to differ from 2.x's. Not a bug
+   to chase; confirm it by hand instead (open the page, the diagram should actually draw).
 
 The summary prints an overall outcome of **`pass`**, **`incomplete`**, or **`fail`** and exits non-zero
 only on `fail`. `incomplete` means at least one entity's source reader is still `not_implemented` — for

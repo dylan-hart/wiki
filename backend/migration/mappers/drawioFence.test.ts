@@ -28,19 +28,22 @@ const MXFILE_XML =
 const BARE_MODEL_XML = '<mxGraphModel><root><mxCell id="0"/></root></mxGraphModel>'
 
 describe('convertDrawioFences', () => {
-  test('converts a ```diagram fence (mxfile shape) into a ```drawio block with the raw XML', () => {
+  test('converts a ```diagram fence (mxfile shape) into a ::block-drawio-wrapped ```drawio block', () => {
     const content = `# Title\n\n\`\`\`diagram\n${drawioFenceBody(MXFILE_XML)}\n\`\`\`\n\nAfter.`
     const result = convertDrawioFences(content, 'page 12')
     assert.equal(result.converted, 1)
     assert.deepEqual(result.warnings, [])
-    assert.equal(result.content, `# Title\n\n\`\`\`drawio\n${MXFILE_XML}\n\`\`\`\n\nAfter.`)
+    assert.equal(
+      result.content,
+      `# Title\n\n::block-drawio\n\`\`\`drawio\n${MXFILE_XML}\n\`\`\`\n::\n\nAfter.`
+    )
   })
 
   test('converts a bare <mxGraphModel> export the same way', () => {
     const content = `\`\`\`diagram\n${drawioFenceBody(BARE_MODEL_XML)}\n\`\`\``
     const result = convertDrawioFences(content, 'page 12')
     assert.equal(result.converted, 1)
-    assert.equal(result.content, `\`\`\`drawio\n${BARE_MODEL_XML}\n\`\`\``)
+    assert.equal(result.content, `::block-drawio\n\`\`\`drawio\n${BARE_MODEL_XML}\n\`\`\`\n::`)
   })
 
   test('converts every fence in a page carrying more than one diagram', () => {
@@ -50,8 +53,10 @@ describe('convertDrawioFences', () => {
     const result = convertDrawioFences(content, 'page 12')
     assert.equal(result.converted, 2)
     assert.equal(result.warnings.length, 0)
-    assert.ok(result.content.includes(`\`\`\`drawio\n${MXFILE_XML}\n\`\`\``))
-    assert.ok(result.content.includes(`\`\`\`drawio\n${BARE_MODEL_XML}\n\`\`\``))
+    assert.ok(result.content.includes(`::block-drawio\n\`\`\`drawio\n${MXFILE_XML}\n\`\`\`\n::`))
+    assert.ok(
+      result.content.includes(`::block-drawio\n\`\`\`drawio\n${BARE_MODEL_XML}\n\`\`\`\n::`)
+    )
   })
 
   test('leaves content with no ```diagram fence at all untouched', () => {
