@@ -849,6 +849,57 @@ describe('NavSidebar landmark', () => {
   })
 })
 
+/**
+ * OpenProject #2526/#2527: a non-content `MainLayout` route (the knowledge graph, tags browse) never
+ * calls `pageStore.pageLoad()`, the only thing that ever sets `pageStore.navigationId` -- so on a
+ * cold load or refresh there, that id stays `null` and this sidebar's nav-loading watcher had nothing
+ * to load a menu for, rendering expanded with zero items. The watcher now falls back to
+ * `siteStore.navigationId` (the site's own default, carried on the bootstrap/site-info payload) in
+ * exactly that case.
+ */
+describe('NavSidebar cold-load navigationId fallback (OpenProject #2526/#2527)', () => {
+  async function mountWithNavIds({ pageNavigationId = null, siteNavigationId = null } = {}) {
+    const router = await createTestRouter(routes, '/_graph')
+    API_CLIENT.get.mockReturnValue({
+      json: () => Promise.resolve({ mode: 'static', items: [], rootPath: '', rootId: null })
+    })
+    const { wrapper, siteStore } = mountWithApp(NavSidebar, {
+      messages: { common: { sidebar: { browse: 'Browse' } } },
+      router,
+      stores: {
+        site: (store) => {
+          store.id = 'site-1'
+          store.navigationId = siteNavigationId
+        },
+        page: (store) => {
+          store.navigationId = pageNavigationId
+        }
+      }
+    })
+    await wrapper.vm.$nextTick()
+    return { wrapper, siteStore }
+  }
+
+  it('loads the site default menu when there is no page-inherited navigationId', async () => {
+    await mountWithNavIds({ pageNavigationId: null, siteNavigationId: 'default-nav-id' })
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/default-nav-id')
+  })
+
+  it('prefers the page-inherited navigationId over the site default when both are present', async () => {
+    await mountWithNavIds({ pageNavigationId: 'page-nav-id', siteNavigationId: 'default-nav-id' })
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/page-nav-id')
+    expect(API_CLIENT.get).not.toHaveBeenCalledWith('sites/site-1/navigation/default-nav-id')
+  })
+
+  it('makes no navigation request when neither a page-inherited nor a site default id is available', async () => {
+    await mountWithNavIds({ pageNavigationId: null, siteNavigationId: null })
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+})
+
 describe('NavSidebar', () => {
   /**
    * OpenProject #1640: the sidebar had no `<nav>` landmark at all -- a screen reader's landmarks

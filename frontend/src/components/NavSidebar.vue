@@ -74,8 +74,19 @@ const canCreateAtRoot = computed(
 
 // WATCHERS
 
+/**
+ * The menu id to load: the current page's own, if one has been resolved, otherwise the site's
+ * default -- what a non-content `MainLayout` route (the knowledge graph, tags browse) falls back
+ * to. `pageStore.navigationId` is only ever set by `pageStore.pageLoad()`, which those routes never
+ * call, so on a cold load or refresh there it would otherwise stay `null` forever and this sidebar
+ * would render expanded with zero items rather than either populated or collapsed to its mini rail
+ * (OpenProject #2526/#2527). `siteStore.navigationId` itself comes from the site-info payload every
+ * reader's browser already loads (`applySiteInfo`), so this needs no request of its own.
+ */
+const effectiveNavigationId = computed(() => pageStore.navigationId || siteStore.navigationId)
+
 watch(
-  () => pageStore.navigationId,
+  effectiveNavigationId,
   (newValue) => {
     // -> The "already showing this menu" gate now lives in `fetchNavigation()` itself (OpenProject
     //    #1012), so a same-tab invalidation elsewhere in the app can bypass it with `forceRefresh`

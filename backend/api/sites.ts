@@ -1,6 +1,7 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
+import { defaultLocale } from '../helpers/localeRouting.ts'
 import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
@@ -116,6 +117,17 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
  * disable itself with an explanatory tooltip instead of offering a button that always 503s.
  *
+ * Also carries `navigationId`: this site's default (locale-scoped) menu row id, resolved via
+ * `WIKI.models.navigation.ensureSiteNav()` the same way `GET .../navigation/default` resolves it for
+ * an admin caller. Unlike that route -- gated behind `manage:navigation`/`site:navigation`, a
+ * convenience-route choice rather than a real permission requirement, since `ensureSiteNav()` itself
+ * checks nothing -- this is `publicAccess: true`, because the only other way a browser ever learns a
+ * real `navigationId` today is embedded in a per-page fetch response (`toPage()` in
+ * `models/pages.ts`), which requires a content page to have loaded first. A non-content `MainLayout`
+ * route (the knowledge graph, tags browse) never calls that, so without this fallback its sidebar has
+ * no `navigationId` to ask for on a cold load or refresh (OpenProject #2526/#2527) -- `NavSidebar.vue`'s
+ * watcher falls back to `siteStore.navigationId` exactly when `pageStore.navigationId` is unset.
+ *
  * Every `site.config` key reaching the response is named explicitly rather than spread in, and both
  * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
  * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live
@@ -143,6 +155,7 @@ export async function buildSitePayload(site: {
     isEnabled: site.isEnabled,
     pdfExportAvailable: await WIKI.models.renderQueue.isAvailable(),
     docsBase: WIKI.config.docsBase,
+    navigationId: await WIKI.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
     blocksConfig,
     blocksIndex,
     title: config.title,

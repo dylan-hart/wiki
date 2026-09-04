@@ -193,6 +193,9 @@ before(async () => {
       blocks: {
         getSiteBlocks
       },
+      navigation: {
+        ensureSiteNav: async () => 'nav-id'
+      },
       auditLog: {
         record: mock.fn(async () => {})
       }

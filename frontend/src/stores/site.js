@@ -104,6 +104,15 @@ export const useSiteStore = defineStore('site', {
      */
     blocksIndex: {},
     /**
+     * This site's default (locale-scoped) menu row id -- `backend/api/sites.ts`'s `buildSitePayload()`,
+     * carried on the same public site-info response `blocksIndex` above travels on. What
+     * `NavSidebar.vue`'s nav-loading watcher falls back to when `pageStore.navigationId` is unset: a
+     * non-content `MainLayout` route (the knowledge graph, tags browse) never calls `pageLoad()`, the
+     * only thing that ever sets the page-inherited id, so without this fallback its sidebar has no
+     * `navigationId` to load a menu for on a cold load or refresh (OpenProject #2526/#2527).
+     */
+    navigationId: null,
+    /**
      * The extensions this site's content is written in, lowercase and without the dot. A path ending
      * in one of them addresses the page underneath it — `/foo/bar.md` is `/foo/bar` — which the
      * router acts on for links inside pages and the server acts on for requests that reach it.
@@ -260,6 +269,7 @@ export const useSiteStore = defineStore('site', {
         logoText: siteInfo.logoText,
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
         docsBase: siteInfo.docsBase,
+        navigationId: siteInfo.navigationId ?? null,
         blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
         company: siteInfo.company,

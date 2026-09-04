@@ -107,6 +107,28 @@ describe('site store: applySiteInfo() blocksIndex', () => {
   })
 })
 
+/**
+ * OpenProject #2526/#2527: `navigationId` reaches `siteStore` from `applySiteInfo` the same way
+ * `blocksIndex` does above -- what `NavSidebar.vue`'s nav-loading watcher falls back to when there is
+ * no page-inherited `pageStore.navigationId`, which is the case for a non-content `MainLayout` route
+ * (the knowledge graph, tags browse) on a cold load or refresh.
+ */
+describe('site store: applySiteInfo() navigationId', () => {
+  it('adopts navigationId from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ navigationId: 'default-nav-id' }))
+
+    expect(store.navigationId).toBe('default-nav-id')
+  })
+
+  it('defaults to null when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.navigationId).toBe(null)
+  })
+})
+
 describe('site store: features.comments default', () => {
   it('defaults to false, so PageComments has something real to gate on before the backend sends it', () => {
     const store = useSiteStore()
