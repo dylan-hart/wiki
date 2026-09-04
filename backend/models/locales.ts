@@ -51,6 +51,21 @@ export function computeCompleteness(
 }
 
 /**
+ * Shallow-merges a sideloaded (or otherwise newly-written) pack's strings onto whatever is already
+ * stored for that locale code — the per-key override `sideloadFromDataPath` needs (OpenProject
+ * #2433) in place of a full-row replacement: a sideload naming only one key changes only that key,
+ * leaving every previously-known string (from an earlier Localazy sync and/or an earlier sideload)
+ * untouched. `overlay` wins on a key both sides have; a key `overlay` doesn't mention passes through
+ * from `base` unchanged.
+ */
+export function mergeLocaleStrings(
+  base: Record<string, unknown>,
+  overlay: Record<string, unknown>
+): Record<string, unknown> {
+  return { ...base, ...overlay }
+}
+
+/**
  * One locale pack as a sideload JSON file must shape it — see `parseSideloadLocalePack`.
  *
  * `strings` is intersected in rather than narrowed on the `locales.strings` column itself
@@ -135,10 +150,18 @@ class Locales extends ClusterReloaded {
 
   /**
    * Loads every `<code>.json` file under `sideloadPath()` into the `locales` table, the same
-   * mtime-vs-`updatedAt` freshness check and `completeness` computation `refreshFromDisk` uses for
-   * the vendored files — a sideloaded pack updates an existing code, or adds a wholly new one that
-   * `locales/metadata.js` never declared. Missing directory is not an error: most instances have
-   * nothing sideloaded, and this runs unconditionally on every boot.
+   * mtime-vs-`updatedAt` freshness check `refreshFromDisk` uses for the vendored files — a
+   * sideloaded pack updates an existing code, or adds a wholly new one that `locales/metadata.js`
+   * never declared. Missing directory is not an error: most instances have nothing sideloaded, and
+   * this runs unconditionally on every boot.
+   *
+   * **A sideload is a per-key merge, not a full-row replacement** (OpenProject #2433): the pack's
+   * `strings` are merged (`mergeLocaleStrings`) onto whatever is already stored for that code — an
+   * earlier Localazy sync's or an earlier sideload's strings — rather than overwriting the row
+   * wholesale, so an admin sideloading a one-key pack to change a single string (the motivating case:
+   * "Page Not Found" text) does not silently wipe out every other known string for that locale.
+   * `completeness` is computed off the merged result, for every code including `en` — there is no
+   * forced-100 special case, since a partial `en` sideload no longer implies a complete `en` row.
    */
   async sideloadFromDataPath({ force = false }: { force?: boolean } = {}): Promise<{
     loaded: string[]
@@ -187,8 +210,25 @@ class Locales extends ClusterReloaded {
         }
       }
 
-      const completeness =
-        code === 'en' ? 100 : computeCompleteness(baseStrings, parsed.pack.strings)
+      // -> The merge target is whatever is CURRENTLY stored for this code — a targeted read (not the
+      //    `dbLocales` snapshot above, which only carries `code`/`updatedAt`), scoped to just the
+      //    handful of codes actually being sideloaded rather than every installed locale's full
+      //    `strings` column. No existing row (a brand-new code, or one whose `strings` is still the
+      //    column's `[]` default) merges as if the base were empty, which is exactly today's
+      //    behavior for that case.
+      let storedStrings: Record<string, unknown> = {}
+      if (dbLang) {
+        const existingRows = await WIKI.db
+          .select({ strings: localesTable.strings })
+          .from(localesTable)
+          .where(eq(localesTable.code, code))
+          .limit(1)
+        if (existingRows.length === 1 && isPlainObject(existingRows[0].strings)) {
+          storedStrings = existingRows[0].strings as Record<string, unknown>
+        }
+      }
+      const mergedStrings = mergeLocaleStrings(storedStrings, parsed.pack.strings)
+      const completeness = computeCompleteness(baseStrings, mergedStrings)
       // -> A pack can pass shape validation (`parseSideloadLocalePack`) and still violate a column
       //    constraint the DB enforces (e.g. `language`/`region`/`script` are short `varchar`s) — caught
       //    here rather than left to propagate, so one such file is reported in `skipped` like any other
@@ -198,10 +238,10 @@ class Locales extends ClusterReloaded {
       try {
         await WIKI.db
           .insert(localesTable)
-          .values({ code, ...parsed.pack, completeness })
+          .values({ code, ...parsed.pack, strings: mergedStrings, completeness })
           .onConflictDoUpdate({
             target: localesTable.code,
-            set: { ...parsed.pack, completeness, updatedAt: sql`now()` }
+            set: { ...parsed.pack, strings: mergedStrings, completeness, updatedAt: sql`now()` }
           })
       } catch (err: any) {
         skipped.push({ code, error: `could not be saved: ${err.message}` })
@@ -370,6 +410,13 @@ class Locales extends ClusterReloaded {
    * key, so a hit skips both the DB round trip and (via the route's ETag/304) the response
    * serialization. Invalidated wherever a locale row's `strings` column can change — see
    * `invalidateStringsCache()`.
+   *
+   * **`en` additionally merges onto a hard fallback floor**, the bundled `backend/locales/en.json`
+   * (OpenProject #2433): it is the one locale guaranteed to ship a complete file even on a fresh
+   * install with no prior Localazy sync or sideload, so a key missing from both the stored row and
+   * any `en` sideload still resolves to real text rather than a blank/raw key. Read fresh on every
+   * cache miss rather than cached on the instance across calls — the DB-backed `en` row (whatever
+   * `sideloadFromDataPath`/`refreshFromDisk` last merged in) always wins on a shared key.
    */
   async getStrings(locale: string) {
     const cacheKey = `localeStrings:${locale}`
@@ -379,7 +426,15 @@ class Locales extends ClusterReloaded {
         .from(localesTable)
         .where(eq(localesTable.code, locale))
         .limit(1)
-      WIKI.cache.set(cacheKey, results.length === 1 ? results[0].strings : [])
+      let strings: unknown = results.length === 1 ? results[0].strings : []
+      if (locale === 'en') {
+        const bundled = JSON.parse(
+          await readFile(path.join(WIKI.SERVERPATH, 'locales/en.json'), 'utf8')
+        )
+        const stored = isPlainObject(strings) ? (strings as Record<string, unknown>) : {}
+        strings = mergeLocaleStrings(bundled, stored)
+      }
+      WIKI.cache.set(cacheKey, strings)
     }
     return WIKI.cache.get(cacheKey)
   }
