@@ -117,15 +117,18 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
  * disable itself with an explanatory tooltip instead of offering a button that always 503s.
  *
- * Also carries `navigationId`: the site's default menu row id for its default locale
- * (`WIKI.models.navigation.ensureSiteNav`), resolved server-side so a reader's browser learns a real
- * navigation id on a non-content route (the knowledge graph, tags browse) without needing a
- * content-page fetch to have happened first -- the only other place a real id ever reached the
- * browser before this (`models/pages.ts#toPage()`). `ensureSiteNav` itself has no permission check
- * when called internally like this; the two routes that resolve the same thing over HTTP
- * (`GET .../navigation/default`, `GET .../navigation/roots`) are admin-gated only as a matter of
- * convenience for the admin nav editor, not because the underlying resolution needs it.
+ * Also carries `navigationId`: this site's default (locale-scoped) menu row id, resolved via
+ * `WIKI.models.navigation.ensureSiteNav()` the same way `GET .../navigation/default` resolves it for
+ * an admin caller. Unlike that route -- gated behind `manage:navigation`/`site:navigation`, a
+ * convenience-route choice rather than a real permission requirement, since `ensureSiteNav()` itself
+ * checks nothing -- this is `publicAccess: true`, because the only other way a browser ever learns a
+ * real `navigationId` today is embedded in a per-page fetch response (`toPage()` in
+ * `models/pages.ts`), which requires a content page to have loaded first. A non-content `MainLayout`
+ * route (the knowledge graph, tags browse) never calls that, so without this fallback its sidebar has
+ * no `navigationId` to ask for on a cold load or refresh (OpenProject #2526/#2527) -- `NavSidebar.vue`'s
+ * watcher falls back to `siteStore.navigationId` exactly when `pageStore.navigationId` is unset.
  *
+
  * Every `site.config` key reaching the response is named explicitly rather than spread in, and both
  * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
  * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live

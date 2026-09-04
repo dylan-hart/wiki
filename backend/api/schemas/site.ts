@@ -33,7 +33,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         format: 'uuid',
         description:
-          "This site's default menu row id for its default locale (`WIKI.models.navigation.ensureSiteNav`). Lets a route with no page-inherited navigation id of its own -- the knowledge graph, tags browse -- resolve a real one from the payload every reader's browser already loads at app start, instead of only ever learning one from a content page's own fetch response."
+          "This site's default (locale-scoped) menu row id, resolved via `ensureSiteNav()` (`models/navigation.ts`). What `NavSidebar.vue`'s nav-loading watcher falls back to when there is no page-inherited `navigationId` -- a non-content `MainLayout` route (the knowledge graph, tags browse) never calls `pageLoad()`, so without this it never learns a real navigationId to load a menu for (OpenProject #2526/#2527)."
       },
       blocksConfig: {
         type: 'object',
