@@ -12,8 +12,8 @@
     <div
       class="absolute top-1/2 h-1 -translate-y-1/2 rounded-full"
       :style="{
-        left: `${toPercent(model.min)}%`,
-        width: `${toPercent(model.max) - toPercent(model.min)}%`,
+        left: `${toPercent(spanMin)}%`,
+        width: `${toPercent(spanMax) - toPercent(spanMin)}%`,
         backgroundColor: `var(--color-${color})`
       }" />
 
@@ -27,16 +27,19 @@
     </template>
 
     <button
-      v-for="handle of ['min', 'max']"
+      v-for="handle of handles"
       :key="handle"
       type="button"
       role="slider"
       class="w-unstyled absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full shadow-card transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 active:cursor-grabbing"
-      :style="{ left: `${toPercent(model[handle])}%`, backgroundColor: `var(--color-${color})` }"
-      :aria-label="handle === 'min' ? ariaLabelMin : ariaLabelMax"
-      :aria-valuemin="handle === 'min' ? min : model.min"
+      :style="{
+        left: `${toPercent(currentValueFor(handle))}%`,
+        backgroundColor: `var(--color-${color})`
+      }"
+      :aria-label="handle === 'max' ? ariaLabelMax : ariaLabelMin"
+      :aria-valuemin="handle === 'max' ? model.min : min"
       :aria-valuemax="handle === 'min' ? model.max : max"
-      :aria-valuenow="model[handle]"
+      :aria-valuenow="currentValueFor(handle)"
       :aria-valuetext="labelFor(handle)"
       :disabled="isDisabled"
       :aria-disabled="isDisabled || undefined"
@@ -69,16 +72,20 @@ import { computed, ref } from 'vue'
 import { trackPointerDrag } from '@/helpers/pointerDrag'
 
 /**
- * Two-handle range selector over a small integer scale.
+ * Range selector over a small integer scale: two draggable handles by default, or one with
+ * `single` (OpenProject #2524, added so the graph depth control -- OpenProject #2525 -- reuses this
+ * component's track/step-marker/pointer-drag/keyboard mechanics rather than a second hand-rolled
+ * slider).
  *
- * The model is `{ min, max }`, matching the shape the config object already stores. Values always
- * snap to whole steps -- the only use is a heading-depth range (H1..H6), where a fractional value
- * would be meaningless -- so there is no continuous mode.
+ * The two-handle model is `{ min, max }`, matching the shape the config object already stores; the
+ * single-handle model (`single: true`) is a plain number instead. Values always snap to whole steps
+ * -- the two known uses are a heading-depth range (H1..H6) and a folder-depth cutoff, where a
+ * fractional value would be meaningless -- so there is no continuous mode either way.
  */
 const props = defineProps({
-  /** `{ min, max }` */
+  /** `{ min, max }` in the default two-handle mode, or a plain number when `single` is set. */
   modelValue: {
-    type: Object,
+    type: [Object, Number],
     default: () => ({ min: 0, max: 0 })
   },
   min: {
@@ -98,12 +105,12 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Overrides the text of the lower handle's bubble. */
+  /** Overrides the text of the lower handle's bubble (the only handle's, in single mode). */
   leftLabelValue: {
     type: String,
     default: null
   },
-  /** Overrides the text of the upper handle's bubble. */
+  /** Overrides the text of the upper handle's bubble. Unused in single mode. */
   rightLabelValue: {
     type: String,
     default: null
@@ -117,28 +124,58 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /** The lower (or, in single mode, the only) handle's accessible name. */
   ariaLabelMin: {
     type: String,
     default: null
   },
+  /** The upper handle's accessible name. Unused in single mode. */
   ariaLabelMax: {
     type: String,
     default: null
+  },
+  /** One draggable handle over `[min, max]` instead of two -- no text/value renders inside it
+   *  (`label` still draws its bubble if set); a value display alongside the control is the caller's
+   *  own, separate element. `modelValue` is a plain number in this mode, not `{ min, max }`. */
+  single: {
+    type: Boolean,
+    default: false
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
 
 const trackEl = ref(null)
-/** Which handle the current drag is moving. */
+/** Which handle the current drag is moving -- `'value'` in single mode, `'min'`/`'max'` otherwise. */
 const dragging = ref(null)
 
 const isDisabled = computed(() => props.disabled)
 
+const handles = computed(() => (props.single ? ['value'] : ['min', 'max']))
+
+/** Two-handle model, always `{ min, max }` -- unused for positioning in single mode (see
+ *  `singleValue`/`currentValueFor` below), but still read for the OTHER handle's own aria bound in
+ *  two-handle mode, so it stays defined regardless of `single`. */
 const model = computed(() => ({
   min: clamp(props.modelValue?.min ?? props.min),
   max: clamp(props.modelValue?.max ?? props.max)
 }))
+
+/** Single-handle model: the one clamped value. A caller that leaves `modelValue` at the two-handle
+ *  default object (rather than a number) falls back to `props.min` here instead of clamping into
+ *  `NaN`. */
+const singleValue = computed(() =>
+  clamp(typeof props.modelValue === 'number' ? props.modelValue : props.min)
+)
+
+function currentValueFor(handle) {
+  return props.single ? singleValue.value : model.value[handle]
+}
+
+/** The rail's filled span: `[min, singleValue]` (a progress-style fill up to the one handle) in
+ *  single mode, `[model.min, model.max]` otherwise. */
+const spanMin = computed(() => (props.single ? props.min : model.value.min))
+const spanMax = computed(() => (props.single ? singleValue.value : model.value.max))
 
 const steps = computed(() =>
   Array.from({ length: props.max - props.min + 1 }, (_, i) => props.min + i)
@@ -154,12 +191,23 @@ function toPercent(value) {
 }
 
 function labelFor(handle) {
+  if (props.single) {
+    return props.leftLabelValue ?? String(singleValue.value)
+  }
   const override = handle === 'min' ? props.leftLabelValue : props.rightLabelValue
   return override ?? String(model.value[handle])
 }
 
-/** Writes a handle, keeping the two from crossing over. */
+/** Writes the current handle. Two-handle mode keeps the two from crossing over (unchanged); single
+ *  mode has only one value to clamp and emit, as a plain number rather than `{ min, max }`. */
 function update(handle, value) {
+  if (props.single) {
+    const next = clamp(value)
+    if (next !== singleValue.value) {
+      emit('update:modelValue', next)
+    }
+    return
+  }
   const next = { ...model.value }
   next[handle] =
     handle === 'min' ? Math.min(clamp(value), next.max) : Math.max(clamp(value), next.min)
@@ -176,9 +224,13 @@ function valueAt(clientX) {
 
 function onPointerDown(ev) {
   const value = valueAt(ev.clientX)
-  // -> Grab whichever handle is nearer to the press, so a click anywhere on the rail works
-  dragging.value =
-    Math.abs(value - model.value.min) <= Math.abs(value - model.value.max) ? 'min' : 'max'
+  // -> Single mode has only the one handle to grab; two-handle mode grabs whichever handle is
+  //    nearer to the press, so a click anywhere on the rail works.
+  dragging.value = props.single
+    ? 'value'
+    : Math.abs(value - model.value.min) <= Math.abs(value - model.value.max)
+      ? 'min'
+      : 'max'
   update(dragging.value, value)
 
   // -> Pointer capture, the move listener and its teardown are shared with WColorPicker; the handle
@@ -220,6 +272,6 @@ function onKeydown(handle, ev) {
     return
   }
   ev.preventDefault()
-  update(handle, model.value[handle] + delta)
+  update(handle, currentValueFor(handle) + delta)
 }
 </script>
