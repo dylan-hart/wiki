@@ -26,6 +26,74 @@ async function flush(wrapper) {
   await wrapper.vm.$nextTick()
 }
 
+describe('AdminScheduler empty state (OpenProject #2061)', () => {
+  it("renders the Upcoming table's #no-data slot message when there are no upcoming jobs", async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'scheduler/upcoming') {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const wrapper = mountWithApp(AdminScheduler, {
+      messages: {
+        'admin.scheduler.title': 'Scheduler',
+        'admin.scheduler.upcomingNone': 'No upcoming jobs scheduled.'
+      }
+    }).wrapper
+    await flush(wrapper)
+
+    expect(wrapper.vm.state.upcomingJobs).toHaveLength(0)
+    expect(wrapper.text()).toContain('No upcoming jobs scheduled.')
+  })
+
+  it("renders the Scheduled table's #no-data slot message when there are no cron entries", async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'scheduler/schedule') {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const wrapper = mountWithApp(AdminScheduler, {
+      messages: {
+        'admin.scheduler.title': 'Scheduler',
+        'admin.scheduler.scheduledNone': 'No scheduled tasks.'
+      }
+    }).wrapper
+    await flush(wrapper)
+
+    wrapper.vm.state.displayMode = 'scheduled'
+    await flush(wrapper)
+
+    expect(wrapper.vm.state.scheduledJobs).toHaveLength(0)
+    expect(wrapper.text()).toContain('No scheduled tasks.')
+  })
+
+  it("renders the history tabs' #no-data slot message, keyed by displayMode, when there are no jobs", async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'scheduler/jobs') {
+        return { json: () => Promise.resolve({ total: 0, jobs: [] }) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const wrapper = mountWithApp(AdminScheduler, {
+      messages: {
+        'admin.scheduler.title': 'Scheduler',
+        'admin.scheduler.completedNone': 'No completed jobs.'
+      }
+    }).wrapper
+    await flush(wrapper)
+
+    wrapper.vm.state.displayMode = 'completed'
+    await flush(wrapper)
+
+    expect(wrapper.vm.historyRows).toHaveLength(0)
+    expect(wrapper.text()).toContain('No completed jobs.')
+  })
+})
+
 describe('AdminScheduler history grouping', () => {
   it('collapses a repeated task into one summary row, and expands it back out on click', async () => {
     API_CLIENT.get.mockImplementation((url) => {

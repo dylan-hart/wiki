@@ -77,6 +77,23 @@ beforeEach(() => {
   notifyQueue.splice(0, notifyQueue.length)
 })
 
+describe('AdminPagesDeleted: empty state (OpenProject #2061)', () => {
+  it("renders the table's #no-data slot message when nothing has been deleted", async () => {
+    mockLoadEndpoints([])
+
+    const router = buildTestRouter(['/:pathMatch(.*)*'])
+    const { wrapper } = mountWithApp(AdminPagesDeleted, {
+      router,
+      messages: { history: { recovery: { none: 'Nothing has been deleted yet.' } } },
+      stores: { admin: { currentSiteId: 'site-1' } }
+    })
+    await flushPromises()
+
+    expect(wrapper.vm.state.rows).toHaveLength(0)
+    expect(wrapper.text()).toContain('Nothing has been deleted yet.')
+  })
+})
+
 describe('AdminPagesDeleted: load()', () => {
   it('pages through the cursor until nextCursor is null, assembling the full list', async () => {
     const rowA = { ...row, id: 'hist-a', path: 'a' }

@@ -28,7 +28,8 @@ async function mountPanel({ groupId = 'group-editors', syncWarnings = [] } = {})
     messages: {
       admin: {
         groups: {
-          syncWarning: 'Synced from {provider}, may be reverted on next login'
+          syncWarning: 'Synced from {provider}, may be reverted on next login',
+          usersNone: 'No users are assigned to this group yet.'
         }
       }
     }
@@ -37,6 +38,16 @@ async function mountPanel({ groupId = 'group-editors', syncWarnings = [] } = {})
 
   return wrapper
 }
+
+describe('GroupUsersPanel empty state (OpenProject #2061)', () => {
+  it("renders the table's #no-data slot message when the group has no members", async () => {
+    const wrapper = await mountPanel({ groupId: 'group-editors', syncWarnings: [] })
+
+    expect(wrapper.text()).toContain('No users are assigned to this group yet.')
+
+    wrapper.unmount()
+  })
+})
 
 describe('GroupUsersPanel provider-sync warning', () => {
   it('shows nothing for a group not on any strategy’s allow-list', async () => {
