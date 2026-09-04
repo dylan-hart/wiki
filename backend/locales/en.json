@@ -996,6 +996,8 @@
   "admin.replication.bearerTokenHint": "A personal access token generated on the source instance, used to authenticate against its export API.",
   "admin.replication.cronSchedule": "Cron Schedule",
   "admin.replication.cronScheduleHint": "Standard 5-field cron expression, evaluated in UTC. For example, every Sunday at midnight is {example}.",
+  "admin.replication.cronScheduleInvalid": "This is not a valid cron expression.",
+  "admin.replication.cronScheduleTooFrequent": "The cron schedule may not fire more often than once per hour.",
   "admin.replication.enabled": "Enabled",
   "admin.replication.enabledHint": "Whether the scheduled pull actually runs. Requires a source URL, bearer token and cron schedule to all be set.",
   "admin.replication.loadFailed": "Failed to fetch replication config",
