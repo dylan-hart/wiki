@@ -11,7 +11,7 @@
     <div class="p-4">
       <div class="text-body2">{{ t('inbox.notificationsInfo') }}</div>
       <w-banner
-        v-if="state.notifications.length < 1 && state.loadingNotifications < 1"
+        v-if="state.notifications.length < 1"
         class="mt-6"
         :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
         <div>{{ t('inbox.notificationsNone') }}</div>
@@ -64,7 +64,7 @@
         possibly before the reader has ever noticed the bell it is telling them about.
       -->
       <w-banner
-        v-if="state.pages.length < 1 && state.loading < 1"
+        v-if="state.pages.length < 1"
         class="mt-6"
         :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
         <div>{{ t('inbox.watchingNone') }}</div>
@@ -224,11 +224,9 @@ useMeta(() => ({
 // DATA
 
 const state = reactive({
-  loading: 0,
   pages: [],
   /** The page whose Stop Watching is in flight, so its button cannot be pressed twice. */
   unwatching: null,
-  loadingNotifications: 0,
   notifications: [],
   /** The notification whose Mark Read is in flight, so its button cannot be pressed twice. */
   markingRead: null,
@@ -270,7 +268,6 @@ function notificationLine(notification) {
 }
 
 async function load() {
-  state.loading++
   try {
     state.pages = (await API_CLIENT.get(`sites/${siteStore.id}/watching`).json()) ?? []
   } catch (err) {
@@ -280,18 +277,16 @@ async function load() {
       caption: apiErrorMessage(err)
     })
   }
-  state.loading--
 }
 
 /**
  * Load the caller's unread notifications (task 535).
  *
- * A separate request/loading flag from `load()` above rather than one combined fetch: the two lists
- * come from different endpoints, and a slow watch list must not hold up notifications from showing
- * (or the other way around).
+ * A separate request from `load()` above rather than one combined fetch: the two lists come from
+ * different endpoints, and a slow watch list must not hold up notifications from showing (or the
+ * other way around).
  */
 async function loadNotifications() {
-  state.loadingNotifications++
   try {
     state.notifications = (await API_CLIENT.get(`sites/${siteStore.id}/notifications`).json()) ?? []
   } catch (err) {
@@ -301,7 +296,6 @@ async function loadNotifications() {
       caption: apiErrorMessage(err)
     })
   }
-  state.loadingNotifications--
 }
 
 function openPage(page) {
