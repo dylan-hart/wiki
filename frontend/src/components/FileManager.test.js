@@ -60,7 +60,7 @@ const i18n = createTestI18n({
   }
 })
 
-async function mountFileManager() {
+async function mountFileManager({ overlayOpts } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
@@ -68,6 +68,7 @@ async function mountFileManager() {
   const router = buildTestRouter([])
 
   const wrapper = mount(FileManager, {
+    props: overlayOpts ? { overlayOpts } : {},
     global: {
       plugins: [i18n, router],
       // -> None of these are what this feature touches; stubbed to keep the mount to what the
@@ -130,6 +131,25 @@ describe('FileManager keyboard shortcut (OpenProject #2050)', () => {
     await flushPromises()
 
     expect(document.activeElement).toBe(input)
+  })
+})
+
+/**
+ * OpenProject #2530: `insertMode` now reads off the `overlayOpts` prop `MainOverlayDialog.vue`
+ * forwards, not `siteStore.overlayOpts` directly -- `siteStore.openFileManager(opts)` still sets the
+ * store field, which is only the transport that prop is filled from in real use.
+ */
+describe('FileManager insertMode (OpenProject #2530)', () => {
+  it('defaults insertMode to false with no overlayOpts prop', async () => {
+    const { wrapper } = await mountFileManager()
+
+    expect(wrapper.vm.insertMode).toBe(false)
+  })
+
+  it('reads insertMode: true from the overlayOpts prop', async () => {
+    const { wrapper } = await mountFileManager({ overlayOpts: { insertMode: true } })
+
+    expect(wrapper.vm.insertMode).toBe(true)
   })
 })
 

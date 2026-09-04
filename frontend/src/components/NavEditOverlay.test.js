@@ -35,13 +35,19 @@ const SERVER_ITEMS = [
 function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = null } = {}) {
   setActivePinia(createPinia())
 
-  const siteStore = useSiteStore()
-  siteStore.id = 'site-1'
-  siteStore.overlayOpts = {
+  // -> The real opener (`NavEditMenu.vue`) writes this onto the store, and `MainOverlayDialog.vue`
+  //    forwards it to the mounted overlay as the `overlay-opts` prop below -- mounting directly here
+  //    skips that middleman, so both are set to keep the store's own state realistic (OpenProject
+  //    #2530).
+  const overlayOpts = {
     ...(navId && { navId }),
     ...(mode && { mode }),
     ...(menuMode && { menuMode })
   }
+
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+  siteStore.overlayOpts = overlayOpts
 
   const pageStore = usePageStore()
   pageStore.id = 'page-1'
@@ -62,6 +68,7 @@ function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = nu
 
   const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(NavEditOverlay, {
+    props: { overlayOpts },
     global: { plugins: [i18n] }
   })
 

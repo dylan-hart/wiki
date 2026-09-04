@@ -555,6 +555,17 @@ import fileTypes from '@/helpers/fileTypes'
 import { formatFileSize } from '@/helpers/fileSize'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
+// PROPS
+
+/**
+ * Initial state from whoever opened this overlay (`siteStore.openOverlay('FileManager', opts)`),
+ * forwarded here by `MainOverlayDialog.vue` (OpenProject #2530). Read via `props`, not
+ * `siteStore.overlayOpts` directly -- the store field is the transport, the prop is the contract.
+ */
+const props = defineProps({
+  overlayOpts: { type: Object, default: () => ({}) }
+})
+
 // COMPOSABLES
 
 const dark = useDark()
@@ -707,7 +718,7 @@ const {
 
 // COMPUTED
 
-const insertMode = computed(() => siteStore.overlayOpts?.insertMode ?? false)
+const insertMode = computed(() => props.overlayOpts?.insertMode ?? false)
 
 /**
  * Whether the folder tree is a panel over the list rather than a column beside it.

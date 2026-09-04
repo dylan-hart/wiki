@@ -86,6 +86,17 @@ import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
+// PROPS
+
+/**
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop
+ * (OpenProject #2530). Declared here even though this overlay opens with no initial state to read --
+ * without a declared prop, the value would fall through onto this component's DOM root instead.
+ */
+defineProps({
+  overlayOpts: { type: Object, default: () => ({}) }
+})
+
 // STORES
 
 const flagsStore = useFlagsStore()

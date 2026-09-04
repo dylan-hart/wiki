@@ -78,3 +78,19 @@ describe('MainOverlayDialog accessible-name map', () => {
     )
   })
 })
+
+/**
+ * OpenProject #2530: whichever overlay is mounted must receive `siteStore.overlayOpts` as a real prop,
+ * not just have it sit unread on the store -- this is the one line that actually wires the two
+ * together, so it is checked directly against the source rather than through a full async-component
+ * mount (every entry in `overlays` above is a real, dynamically-imported SFC with its own mount cost
+ * and network/store setup; see each overlay's own test file for behavior coverage of what it does with
+ * the prop once received).
+ */
+describe('MainOverlayDialog overlay-opts pass-through', () => {
+  it('forwards siteStore.overlayOpts to the mounted overlay as the overlay-opts prop', () => {
+    expect(source).toContain(
+      '<component :is="overlays[siteStore.overlay]" :overlay-opts="siteStore.overlayOpts" />'
+    )
+  })
+})

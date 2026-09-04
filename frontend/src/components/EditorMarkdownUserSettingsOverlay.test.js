@@ -20,11 +20,12 @@ const MESSAGES = {
   'editor.settings.saveSuccess': 'Editor settings saved successfully.'
 }
 
-function mountOverlay() {
+function mountOverlay({ overlayOpts } = {}) {
   setActivePinia(createPinia())
   const editorStore = useEditorStore()
   const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(EditorMarkdownUserSettingsOverlay, {
+    props: overlayOpts ? { overlayOpts } : {},
     global: { plugins: [i18n] }
   })
   return { wrapper, editorStore }
@@ -47,6 +48,19 @@ function findApplyButton(wrapper) {
   enforced by the browser. Asserting the real rendered `<input>` carries them is what proves that
   regression stays fixed here, at the one call site the range is meant to protect.
 */
+/**
+ * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
+ * mounts as this prop -- this overlay has no use for it, but must still declare it, or the value
+ * falls through onto its rendered DOM root as a stray attribute.
+ */
+describe('EditorMarkdownUserSettingsOverlay overlayOpts prop (OpenProject #2530)', () => {
+  it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', () => {
+    const { wrapper } = mountOverlay({ overlayOpts: { unused: true } })
+
+    expect(wrapper.attributes('overlay-opts')).toBeUndefined()
+  })
+})
+
 describe('EditorMarkdownUserSettingsOverlay font size range', () => {
   it('renders the 10-32 min/max on the actual font size <input>, not just the outer wrapper', async () => {
     API_CLIENT.get.mockReturnValueOnce({

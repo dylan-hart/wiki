@@ -6,7 +6,13 @@
     full-width
     full-height
     :aria-label="overlayAriaLabel">
-    <component :is="overlays[siteStore.overlay]" />
+    <!--
+      `overlay-opts` carries whatever initial state the opener set via `siteStore.openOverlay(name,
+      opts)` (or a plain `$patch`) through to the mounted overlay as a real prop -- every entry in
+      `overlays` below declares it, even the ones that don't read it yet, since an undeclared prop
+      falls through to this element's DOM root instead (OpenProject #2530).
+    -->
+    <component :is="overlays[siteStore.overlay]" :overlay-opts="siteStore.overlayOpts" />
   </w-dialog>
 </template>
 
