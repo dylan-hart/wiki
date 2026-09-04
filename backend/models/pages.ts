@@ -1371,7 +1371,11 @@ class Pages {
     current: Page,
     { path: newPath, title, locale: destLocale }: { path: string; title?: string; locale: string },
     actor: PageActor
-  ): Promise<{ rawMoved: typeof pagesTable.$inferSelect; changedFields: string[] }> {
+  ): Promise<{
+    rawMoved: typeof pagesTable.$inferSelect
+    changedFields: string[]
+    relinkedPageIds: string[]
+  }> {
     /*
       Floor invariant on move (OpenProject #1080): unlike create/update, a move that lands a page
       under a stricter parent auto-bumps it rather than refusing the move outright -- "no separate
@@ -1425,9 +1429,10 @@ class Pages {
     // -> Only a real path change leaves an old-path reference to fix -- a locale-only or title-only
     //    move (this method's other two callers of `newPath !== current.path`, both below) touches no
     //    link target, and `relinkReferencingPages` would find nothing to do beyond the wasted query.
-    if (newPath !== current.path) {
-      await this.relinkReferencingPages(tx, siteId, current.locale, current.path, newPath)
-    }
+    const relinkedPageIds =
+      newPath !== current.path
+        ? await this.relinkReferencingPages(tx, siteId, current.locale, current.path, newPath)
+        : []
 
     // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound
     //    links, and a history list has to be able to say so
@@ -1437,7 +1442,7 @@ class Pages {
       ...(title !== undefined && title.trim() !== current.title ? ['title'] : [])
     ]
 
-    return { rawMoved: rawMovedRows[0]!, changedFields }
+    return { rawMoved: rawMovedRows[0]!, changedFields, relinkedPageIds }
   }
 
   /**
@@ -1468,6 +1473,12 @@ class Pages {
    * Runs inside the move's own transaction, and fires no new `pageHistory` version and no
    * `updatedAt` bump on a candidate page -- this is a side effect of someone else's move, not a
    * fresh edit of the candidate.
+   *
+   * @returns The id of every candidate page this rewrote -- a real, committed content change to
+   * each of them, just not an authored one. The caller (`movePage`) uses this to clear each one's
+   * recovery draft (OpenProject #2506) the same way a normal interactive save does
+   * (`core/collab.ts#pageSaved`): left uncleared, a stale draft predating this rewrite would offer
+   * to restore content this move has already overtaken.
    */
   private async relinkReferencingPages(
     tx: WikiTx,
@@ -1475,9 +1486,9 @@ class Pages {
     oldLocale: string,
     oldPath: string,
     newPath: string
-  ): Promise<void> {
+  ): Promise<string[]> {
     if (!oldPath || oldPath === newPath) {
-      return
+      return []
     }
     interface RelinkCandidateRow {
       id: string
@@ -1535,6 +1546,8 @@ class Pages {
         })
         .where(eq(pagesTable.id, row.id))
     }
+
+    return candidates.map((row) => row.id)
   }
 
   /**
@@ -1697,6 +1710,7 @@ class Pages {
       previous: Page
       rawMoved: typeof pagesTable.$inferSelect
       changedFields: string[]
+      relinkedPageIds: string[]
     }
     let results: MoveResult[]
     try {
@@ -1729,6 +1743,24 @@ class Pages {
       }
       throw err
     }
+
+    // -> `relinkReferencingPages` rewrote each of these pages' `content`/`links`/`relations`
+    //    in-place, a real committed change to that page -- exactly the case `pageSaved()`'s own
+    //    doc comment describes clearing-on-save for. It only just committed above (a page whose
+    //    move transaction rolled back was never relinked in the first place), so clearing here,
+    //    after the `try`, never discards a draft over a rewrite that didn't actually happen
+    //    (OpenProject #2506). Awaited (unlike `core/collab.ts#pageSaved`'s own fire-and-forget
+    //    call, made from a sync websocket-lifecycle context with nothing to await it) so a caller
+    //    awaiting `movePage()` sees the clear land too -- but a per-id `catch` still keeps one
+    //    failed clear from failing the move that already committed.
+    const relinkedPageIds = new Set(results.flatMap((result) => result.relinkedPageIds))
+    await Promise.all(
+      [...relinkedPageIds].map((relinkedPageId) =>
+        WIKI.models.pageDrafts.clear(relinkedPageId).catch((err: any) => {
+          WIKI.logger.warn(`Failed to clear the draft for page ${relinkedPageId}: ${err.message}`)
+        })
+      )
+    )
 
     let primaryMoved: Page | undefined
     // -> One `invalidateCache` call covers the whole batch (this move plus every `includeTranslations`
