@@ -340,3 +340,33 @@ describe('PageHeader suggestion outcome (OpenProject #2137)', () => {
     expect(wrapper.text()).not.toContain('common.page.suggestionResolvedDeclined')
   })
 })
+
+/**
+ * OpenProject #2531: `reviewSubmission()` used to `router.push` into `/_inbox/review/:id?from=page`,
+ * a route that no longer exists now that the Inbox is a `MainOverlayDialog` entry -- it opens the
+ * overlay directly instead, with `from: 'page'` still carried through so `InboxReview.vue`'s
+ * `fromPage` prop can send the reviewer back here (not the inbox queue) once they are done.
+ */
+describe('PageHeader reviewSubmission (OpenProject #2531)', () => {
+  it('opens the Inbox overlay onto the Review tab for the clicked submission', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({
+      canReview: true,
+      editor: null,
+      pendingSubmissions: [{ id: 'sub-1', author: { name: 'Alice' } }]
+    })
+    await wrapper.vm.$nextTick()
+
+    // -> The review-queue menu opens from its trigger button, same as a real click would
+    await wrapper.find('[aria-label="inbox.pendingReview"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const row = wrapper.findAll('.w-item').find((item) => item.text().includes('Alice'))
+    expect(row?.exists()).toBe(true)
+    await row.trigger('click')
+
+    const siteStore = useSiteStore()
+    expect(siteStore.overlay).toBe('Inbox')
+    expect(siteStore.overlayOpts).toEqual({ tab: 'review', submissionId: 'sub-1', from: 'page' })
+  })
+})

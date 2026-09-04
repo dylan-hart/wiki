@@ -64,14 +64,16 @@ describe('MainOverlayDialog accessible-name map', () => {
     expect(topLevelKeys('OVERLAY_TITLES')).toEqual(topLevelKeys('overlays'))
   })
 
-  it('is not accidentally empty -- still has all seven known overlays', () => {
+  it('is not accidentally empty -- still has all eight known overlays', () => {
     expect(topLevelKeys('overlays')).toEqual(
       [
         'BlockPicker',
         'EditorMarkdownConfig',
         'FileManager',
+        'Inbox',
         'NavEdit',
         'PageHistory',
+        'Profile',
         'TableEditor',
         'Welcome'
       ].sort()

@@ -120,15 +120,15 @@ describe('HeaderNav "Browse by tags" entry point (OpenProject #1218)', () => {
 })
 
 /**
- * OpenProject #2024: the badge counts unread page-watch notifications (`unreadNotifications`,
- * populated from `sites/:siteId/notifications/unread-count`), so the button carrying it has to link
- * to the route that actually lists them -- `/_inbox/watching` -- not the old `/_inbox` redirect into
- * the now-deleted `InboxMessages` stub. Asserting on the resolved `to` rather than a literal string
- * is what keeps the two from drifting apart again if the route table ever changes shape.
+ * OpenProject #2024/#2531: the badge counts unread page-watch notifications
+ * (`unreadNotifications`, populated from `sites/:siteId/notifications/unread-count`), so the button
+ * carrying it has to open onto the section that actually lists them -- the Inbox overlay's Watching
+ * tab, not the old `/_inbox/watching` route (deleted along with the rest of `/_inbox/*` when the
+ * Inbox became a `MainOverlayDialog` entry).
  */
 describe('HeaderNav inbox badge destination (OpenProject #2024)', () => {
-  it('points the badged inbox button at the route that lists notifications', async () => {
-    const { wrapper, userStore } = await mountHeaderNav()
+  it('opens the Inbox overlay onto the Watching tab from the badged inbox button', async () => {
+    const { wrapper, siteStore, userStore } = await mountHeaderNav()
     /*
       `useMinWidth`'s shared `matchMedia` cache (`composables/screen.js`) is seeded by whichever test
       in this file asks for the 600/900px breakpoints FIRST -- the OpenProject #2050 describe block
@@ -143,9 +143,12 @@ describe('HeaderNav inbox badge destination (OpenProject #2024)', () => {
     userStore.authenticated = true
     await wrapper.vm.$nextTick()
 
-    const inboxLink = wrapper.findAll('a').find((a) => a.attributes('href')?.startsWith('/_inbox'))
-    expect(inboxLink).toBeTruthy()
-    expect(inboxLink.attributes('href')).toBe('/_inbox/watching')
+    const inboxButton = wrapper.find('[aria-label="inbox.title"]')
+    expect(inboxButton.exists()).toBe(true)
+    await inboxButton.trigger('click')
+
+    expect(siteStore.overlay).toBe('Inbox')
+    expect(siteStore.overlayOpts).toEqual({ tab: 'watching' })
   })
 })
 

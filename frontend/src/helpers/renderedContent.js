@@ -181,6 +181,142 @@ export function enhanceRenderedContent(root, t) {
   addHeadingAnchors(root, t)
 }
 
+/*
+  KEYWORD HIGHLIGHT / FIND (OpenProject #2541, Feature #2539)
+  =============================================================
+
+  Carries a keyword forward from the knowledge graph's filter into the page the reader lands on:
+  every literal, case-insensitive occurrence of the term in the rendered content is wrapped in a
+  `<mark>`, with `Index.vue` layering find-like navigation (count, next/prev, auto-scroll) on top of
+  the elements this returns.
+
+  A `TreeWalker` over the LIVE text nodes, deliberately not a string regex/replace against the HTML:
+  the render arrives as one string only until `v-html` writes it, and splicing the string risks
+  matching inside a tag attribute, a URL, or markup `enhanceRenderedContent` above already injected
+  (a code-copy button's aria-label, the pilcrow). Walking the real DOM only ever sees text a reader
+  can actually read.
+*/
+
+/** What marks the `<mark>` wrappers this pass creates as its own, distinct from an author's own
+ *  `==term==` markdown -- `_page-contents.scss` already styles a bare `mark`, which this reuses
+ *  rather than inventing a second visual language; only the "current match" state adds anything.
+ */
+const KEYWORD_HIGHLIGHT_ATTR = 'keywordHighlight'
+const KEYWORD_HIGHLIGHT_SELECTOR = 'mark[data-keyword-highlight]'
+
+/** Whether a node sits somewhere content should never be scanned for a match, or is already one. */
+function skipsKeywordScan(parent) {
+  return Boolean(parent?.closest(`script, style, ${KEYWORD_HIGHLIGHT_SELECTOR}`))
+}
+
+/** Every text node under `root` worth testing against the term, collected up front. */
+function collectHighlightableTextNodes(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || skipsKeywordScan(node.parentElement)) {
+        return NodeFilter.FILTER_REJECT
+      }
+      return NodeFilter.FILTER_ACCEPT
+    }
+  })
+  const nodes = []
+  let node
+  while ((node = walker.nextNode())) {
+    nodes.push(node)
+  }
+  return nodes
+}
+
+/**
+ * Splits one text node on every case-insensitive occurrence of `needle`, replacing it in place with
+ * a mix of plain text and new `<mark>` elements -- one per match, in order.
+ *
+ * A plain `.indexOf` walk against lower-cased copies, not a `RegExp`: the term is arbitrary reader
+ * input carried through a query param, and this way it is matched as the literal string it is,
+ * with no regex-metacharacter escaping to get right.
+ *
+ * @returns The `<mark>` elements created, in document order.
+ */
+function wrapMatchesInTextNode(node, needleLower) {
+  const text = node.nodeValue
+  const textLower = text.toLowerCase()
+  let cursor = 0
+  let index = textLower.indexOf(needleLower, cursor)
+  if (index === -1) {
+    return []
+  }
+
+  const marks = []
+  const fragment = document.createDocumentFragment()
+  while (index !== -1) {
+    if (index > cursor) {
+      fragment.appendChild(document.createTextNode(text.slice(cursor, index)))
+    }
+    const mark = document.createElement('mark')
+    mark.className = 'keyword-highlight'
+    mark.dataset[KEYWORD_HIGHLIGHT_ATTR] = ''
+    mark.textContent = text.slice(index, index + needleLower.length)
+    fragment.appendChild(mark)
+    marks.push(mark)
+    cursor = index + needleLower.length
+    index = textLower.indexOf(needleLower, cursor)
+  }
+  if (cursor < text.length) {
+    fragment.appendChild(document.createTextNode(text.slice(cursor)))
+  }
+  node.parentNode.replaceChild(fragment, node)
+  return marks
+}
+
+/**
+ * Wrap every literal, case-insensitive match of `term` inside `root` in a new `<mark>`.
+ *
+ * Always clears any previous pass's wrappers first (a no-op when there are none), so calling this
+ * again -- the same term after an unrelated re-render, or a different term while the same content
+ * is still on screen -- never nests one `<mark>` inside another. The `TreeWalker`'s own
+ * already-wrapped-ancestor skip (`skipsKeywordScan`) is the second, structural half of that: within
+ * one pass, a match cannot be found twice, because the elements it just created are never
+ * re-visited (`collectHighlightableTextNodes` gathers its list before any mutation begins).
+ *
+ * @param {HTMLElement|null} root The element the render was written into.
+ * @param {string} term The keyword to highlight. A blank or whitespace-only term clears and finds
+ *   nothing, same as no term at all.
+ * @returns {{ matches: HTMLElement[] }} The `<mark>` elements created, in document order.
+ */
+export function applyKeywordHighlight(root, term) {
+  if (!root) {
+    return { matches: [] }
+  }
+  clearKeywordHighlight(root)
+
+  const needle = typeof term === 'string' ? term.trim() : ''
+  if (!needle) {
+    return { matches: [] }
+  }
+
+  const needleLower = needle.toLowerCase()
+  const matches = []
+  for (const node of collectHighlightableTextNodes(root)) {
+    matches.push(...wrapMatchesInTextNode(node, needleLower))
+  }
+  return { matches }
+}
+
+/** Unwrap every `<mark>` this pass created, merging the text back with its neighbours. */
+export function clearKeywordHighlight(root) {
+  if (!root) {
+    return
+  }
+  for (const mark of root.querySelectorAll(KEYWORD_HIGHLIGHT_SELECTOR)) {
+    const parent = mark.parentNode
+    if (!parent) {
+      continue
+    }
+    parent.replaceChild(document.createTextNode(mark.textContent), mark)
+    parent.normalize()
+  }
+}
+
 /**
  * A link's resolved URL, or null when this app has no business intercepting it at all.
  *

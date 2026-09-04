@@ -85,9 +85,12 @@
             <w-card-section class="text-caption">
               <i18n-t tag="span" keypath="admin.api.personalTokenNote" scope="global">
                 <template #link>
-                  <router-link to="/_profile/api" class="text-primary">{{
-                    t('admin.api.personalTokenNoteLink')
-                  }}</router-link>
+                  <button
+                    type="button"
+                    class="cursor-pointer border-0 bg-transparent p-0 text-primary"
+                    @click="openProfileApi">
+                    {{ t('admin.api.personalTokenNoteLink') }}
+                  </button>
                 </template>
               </i18n-t>
             </w-card-section>
@@ -222,6 +225,7 @@ import { notify } from '@/composables/notify'
 import { dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
+import { useSiteStore } from '@/stores/site'
 
 import ApiKeyCreateDialog from '../components/ApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
@@ -242,6 +246,7 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
+const siteStore = useSiteStore()
 
 // I18N
 
@@ -299,6 +304,12 @@ const { state, load, refresh } = useAdminSettings({
 })
 
 // METHODS
+
+// -> The personal-token note's link (OpenProject #2532): opens Profile directly on its API-keys
+//    section rather than the whole admin key list, matching what the note's own text promises.
+function openProfileApi() {
+  siteStore.openOverlay('Profile', { section: 'api' })
+}
 
 /*
   What a key's row says about itself is shared with the self-service token list

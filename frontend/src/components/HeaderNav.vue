@@ -90,10 +90,10 @@
           -->
           <!--
             OpenProject #2024: this badge counts unread page-watch notifications
-            (`unreadNotifications` below), so it has to land on the tab that actually lists them --
-            `/_inbox/watching`, not the old `/_inbox` redirect into the now-deleted Messages stub.
-            `la:bell` matches the icon `InboxWatching`/`InboxLayout`'s sidenav already use for that
-            tab, so the glyph agrees with the destination instead of pointing at the unrelated
+            (`unreadNotifications` below), so it has to open onto the tab that actually lists them --
+            the Inbox overlay's Watching tab (OpenProject #2531 converted `/_inbox/*` from routes to a
+            `MainOverlayDialog` entry). `la:bell` matches the icon `InboxOverlay`'s sidenav uses for
+            that tab, so the glyph agrees with the destination instead of pointing at the unrelated
             `mdi:inbox-full` glyph.
           -->
           <w-btn
@@ -102,13 +102,14 @@
             flat
             icon="la:bell"
             color="amber"
-            to="/_inbox/watching"
-            :aria-label="t(`inbox.title`)">
+            :aria-label="t(`inbox.title`)"
+            @click="openInbox">
             <!--
               Same `floating` badge shape `PageActionsCol`'s pending-assets button uses, on the one
-              button here that is reachable from every page (`HeaderNav` is shared by `MainLayout`,
-              `ProfileLayout` and `InboxLayout`) -- see `unreadNotifications` for where the count comes
-              from and how it stays current.
+              button here that is reachable from every page (`HeaderNav` is shared by `MainLayout` --
+              Profile and Inbox are both `MainOverlayDialog` entries now, OpenProject #2531/#2532, so
+              neither has a layout of its own left to share this with) -- see `unreadNotifications`
+              for where the count comes from and how it stays current.
             -->
             <w-badge
               v-if="unreadNotifications > 0"
@@ -312,6 +313,10 @@ function toggleSearchRow() {
 
 function openFileManager() {
   siteStore.openFileManager()
+}
+
+function openInbox() {
+  siteStore.openOverlay('Inbox', { tab: 'watching' })
 }
 </script>
 

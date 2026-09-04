@@ -255,38 +255,69 @@ describe('pageSaved: clears the persisted draft', () => {
     assert.equal(pageDrafts.clear.mock.calls[0].arguments[0], 'page-no-room')
   })
 
-  test('cancels a room pending draft-persist timer, so it cannot resurrect the draft after the clear (OpenProject #2536)', async (t) => {
+  test('a still-pending debounce timer at the moment pageSaved() is called never fires afterward', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
     const room = await harness.openRoom(collab, { id: 'page-12', siteId: 'site-1' })
     const pageDrafts = harness.pageDrafts()
 
-    // -> Schedules the room's debounce timer, same as a large paste would.
-    room.doc.transact(() => room.doc.getText('content').insert(0, 'a big paste'))
-    assert.ok(room.draftPersist.timer, 'sanity: a timer is actually pending before the save')
+    room.doc.transact(() => {
+      room.doc.getText('content').insert(0, 'still typing')
+    })
+    assert.ok(room.draftPersist.timer, 'a debounce timer is scheduled before pageSaved() runs')
 
-    // -> The save beats the debounce: clears the draft while the timer is still pending.
     collab.pageSaved(room.pageId, {
       versionDate: '2026-08-18T00:00:00.000Z',
       authorId: 'u1',
       authorName: 'Ada'
     })
-    await Promise.resolve()
 
-    assert.equal(pageDrafts.clear.mock.calls.length, 1)
-    assert.equal(
-      room.draftPersist.timer,
-      null,
-      'the pending timer must be cancelled, not left running'
-    )
-    assert.equal(room.draftPersist.pendingSince, null)
-
-    // -> Advancing past the debounce (and the max-delay cap) must not fire a stale flush that would
-    //    write the draft row back in after the clear already ran.
     t.mock.timers.tick(DRAFT_PERSIST_MAX_DELAY * 2)
     assert.equal(
       pageDrafts.save.mock.calls.length,
       0,
-      'the cancelled timer must never resurrect the draft the save just cleared'
+      'the cancelled timer must never fire a stale write after the real save'
     )
+  })
+
+  test('an in-flight flushDraftPersist() write is ordered before pageDrafts.clear()', async () => {
+    const room = await harness.openRoom(collab, { id: 'page-13', siteId: 'site-1' })
+    const pageDrafts = harness.pageDrafts()
+    const order: string[] = []
+    let resolveSave: () => void = () => {}
+    pageDrafts.save.mock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = () => {
+            order.push('save')
+            resolve()
+          }
+        })
+    )
+    pageDrafts.clear.mock.mockImplementationOnce(async () => {
+      order.push('clear')
+    })
+
+    const flushed = collab.flushDraftPersist(room)
+
+    collab.pageSaved(room.pageId, {
+      versionDate: '2026-08-18T00:00:00.000Z',
+      authorId: 'u1',
+      authorName: 'Ada'
+    })
+
+    // Give pageSaved()'s own promise chain several microtask turns to (wrongly) run ahead of the
+    // still-pending save -- it must still be waiting on it.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    assert.equal(pageDrafts.clear.mock.calls.length, 0, 'clear must wait for the in-flight save')
+
+    resolveSave()
+    await flushed
+    await Promise.resolve()
+    await Promise.resolve()
+
+    assert.deepEqual(order, ['save', 'clear'])
+    assert.equal(pageDrafts.clear.mock.calls.length, 1)
   })
 })

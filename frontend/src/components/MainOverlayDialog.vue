@@ -37,12 +37,20 @@ const overlays = {
     loader: () => import('./FileManager.vue'),
     loadingComponent: LoadingGeneric
   }),
+  Inbox: defineAsyncComponent({
+    loader: () => import('./InboxOverlay.vue'),
+    loadingComponent: LoadingGeneric
+  }),
   NavEdit: defineAsyncComponent({
     loader: () => import('./NavEditOverlay.vue'),
     loadingComponent: LoadingGeneric
   }),
   PageHistory: defineAsyncComponent({
     loader: () => import('./PageHistoryOverlay.vue'),
+    loadingComponent: LoadingGeneric
+  }),
+  Profile: defineAsyncComponent({
+    loader: () => import('./ProfileOverlay.vue'),
     loadingComponent: LoadingGeneric
   }),
   TableEditor: defineAsyncComponent({
@@ -75,8 +83,10 @@ const OVERLAY_TITLES = {
   BlockPicker: () => t('editor.blockPicker.title'),
   EditorMarkdownConfig: () => t('editor.settings.markdown'),
   FileManager: () => t('fileman.title'),
+  Inbox: () => t('inbox.title'),
   NavEdit: () => t('navEdit.editMenuItems'),
   PageHistory: () => t('history.title'),
+  Profile: () => t('profile.title'),
   TableEditor: () => t('editor.tableEditor.title'),
   Welcome: () => t('welcome.title')
 }

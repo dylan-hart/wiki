@@ -702,6 +702,14 @@ let simulation = null
 let ctx = null
 let resizeObserver = null
 let nodeQuadtree = null
+/** Identity cache for `applyFilters()`'s synthetic hub/folder/root nodes (OpenProject #2538) -- keyed
+ *  by each synthetic node's own id and passed into whichever `graphFilters.js` builder is active, so
+ *  a node still visible across an `activeFilters`/`edgeMode` change reuses the same object (and
+ *  whatever `x`/`y`/`vx`/`vy` d3-force has since assigned it) instead of jittering in from
+ *  d3-force's origin-centered default placement. Reset in `loadGraph()`, never mutated elsewhere --
+ *  a wholesale new site/keyword/sizeBy fetch is a fresh graph and must not carry stale positions
+ *  forward from the one before it. */
+let syntheticNodeCache = new Map()
 const hoveredNode = ref(null)
 /** Cursor position relative to `containerRef`, for positioning the hover tooltip. */
 const tooltipPos = reactive({ x: 0, y: 0 })
@@ -895,13 +903,22 @@ function findNodeAt(clientX, clientY) {
 }
 
 /** A node's in-app link (its page path plus locale prefix, per the site's locale-prefix rules) --
- *  shared by the canvas click handler and every fallback-list `<a>` (OpenProject #1686). */
+ *  shared by the canvas click handler and every fallback-list `<a>` (OpenProject #1686). When the
+ *  graph's own keyword filter (`keywordQuery`) is non-empty at the moment this is read, the term is
+ *  carried forward as a `?highlight=` query param (OpenProject #2540) so the loaded page can offer
+ *  an in-page highlight/find for it (sibling task, same parent Feature #2539) -- this is the ONE
+ *  place that decides whether the param is added, so both the real `<a href>` (keyboard/screen
+ *  reader, and anyone opening it in a new tab) and `navigateToNode()`'s `router.push()` target agree;
+ *  neither call site appends it separately. No active keyword at click time means no param, and
+ *  navigation is byte-for-byte what it was before this param existed. */
 function fallbackHref(node) {
-  return localizedPagePath(node.path, node.locale, {
+  const path = localizedPagePath(node.path, node.locale, {
     useLocales: siteStore.useLocales,
     primary: siteStore.locales.primary,
     forcePrefix: siteStore.locales.forcePrefix
   })
+  const keyword = keywordQuery.value.trim()
+  return keyword ? `${path}?highlight=${encodeURIComponent(keyword)}` : path
 }
 
 /** Navigates to a node's page, if it has one -- a synthetic (folder/tag/classification hub) node
@@ -976,6 +993,9 @@ function attachZoom() {
 async function loadGraph() {
   isLoading.value = true
   loadError.value = null
+  // -> A fresh fetch is a wholesale new graph (new site, keyword or sizeBy) -- stale synthetic node
+  //    positions from the previous one must not leak into it (OpenProject #2538).
+  syntheticNodeCache = new Map()
   try {
     const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`, {
       searchParams: { sizing: sizeBy.value }
@@ -1024,16 +1044,17 @@ function applyFilters() {
   const { visibleNodes } = computeVisibleSubset(allNodes.value, allEdges.value, activeFilters)
   const { syntheticNodes, edges: syntheticEdges } =
     edgeMode.value === 'tags'
-      ? buildTagHubEdges(visibleNodes)
+      ? buildTagHubEdges(visibleNodes, syntheticNodeCache)
       : edgeMode.value === 'classification'
-        ? buildClassificationHubEdges(visibleNodes)
-        : buildPathHierarchyEdges(visibleNodes)
+        ? buildClassificationHubEdges(visibleNodes, syntheticNodeCache)
+        : buildPathHierarchyEdges(visibleNodes, syntheticNodeCache)
   // -> `visibleNodes` are already-raw objects filtered from `allNodes.value` (markRaw'd in
-  //    `loadGraph()`); `syntheticNodes`/`syntheticEdges` are freshly built plain objects on every
-  //    call (see `graphFilters.js`) that have never passed through `markRaw()` yet. Mapping the
-  //    whole assembled array/list through it here is what keeps every node/edge the simulation
-  //    sees out of Vue's reactivity system, regardless of which builder produced it -- `markRaw()`
-  //    is a no-op on an object already marked, so re-marking the reused ones costs nothing.
+  //    `loadGraph()`); `syntheticNodes`/`syntheticEdges` are built fresh only for a genuinely new
+  //    key each call (see `graphFilters.js`'s `syntheticNodeCache`-backed reuse, OpenProject #2538)
+  //    and have never passed through `markRaw()` yet. Mapping the whole assembled array/list through
+  //    it here is what keeps every node/edge the simulation sees out of Vue's reactivity system,
+  //    regardless of which builder produced it -- `markRaw()` is a no-op on an object already
+  //    marked, so re-marking the reused ones costs nothing.
   nodes.value = [...visibleNodes, ...syntheticNodes].map((n) => markRaw(n))
   edges.value = syntheticEdges.map((e) => markRaw(e))
 }
@@ -1089,12 +1110,23 @@ watch(showLocaleFilter, (visible) => {
 })
 
 /*
-  A node re-added after being filtered back in loses whatever `x`/`y`/velocity it had before removal
-  (it is a fresh entry to `d3-force` as far as the simulation is concerned) -- accepted per the
-  spec's own framing ("removed nodes exit the simulation so the remainder re-settles, rather than
-  just being drawn hidden"): re-settling is the explicitly wanted behavior, not a bug to work around.
-  Synthetic nodes (OpenProject #997) are freshly constructed objects on every `applyFilters()` call
-  too, so they re-settle on every `edgeMode`/`activeFilters` change alike, for the same reason.
+  A real page node re-added after being filtered back in loses whatever `x`/`y`/velocity it had
+  before removal (it is a fresh entry to `d3-force` as far as the simulation is concerned) --
+  accepted per the spec's own framing ("removed nodes exit the simulation so the remainder
+  re-settles, rather than just being drawn hidden"): re-settling is the explicitly wanted behavior
+  for a REAL node, not a bug to work around.
+
+  Synthetic hub/folder/root nodes (OpenProject #997) are a different case, and used to re-settle
+  right along with real nodes on every `edgeMode`/`activeFilters` change -- but that was never a
+  considered part of the above spec, just an incidental side effect of `applyFilters()`'s builders
+  (`graphFilters.js`) always constructing brand-new objects with no `x`/`y`, even for a marker that
+  was already visible and already settled. That produced a visible flash-jitter on every filter
+  change (OpenProject #2538): a stacked cluster of synthetic nodes at d3-force's origin-centered
+  default placement, snapping into position as `forceLink`/`forceManyBody` pulled them across the
+  canvas. `applyFilters()` now passes `syntheticNodeCache` into each builder so an already-visible
+  synthetic node keeps its object identity (and therefore its settled position) across calls; only a
+  genuinely new key still falls through to d3-force's default placement, same as a reappearing real
+  node above.
 */
 function syncSimulationToVisibleSet() {
   if (!simulation) {

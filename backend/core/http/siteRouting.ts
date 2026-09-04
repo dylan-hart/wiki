@@ -30,7 +30,7 @@ export const RESERVED_ROOT_FILES = new Set(['favicon.ico', 'robots.txt', 'sitema
  * First path segments the SERVER itself answers — every prefix registered in `core/http/routes.ts`.
  *
  * Spelled out rather than tested with `isPageUrl`, because a leading underscore does not mean the
- * server: the frontend router owns `/_admin`, `/_profile`, `/_inbox`, `/_search`, `/_create`, `/_edit`
+ * server: the frontend router owns `/_admin`, `/_profile`, `/_search`, `/_create`, `/_edit`
  * and `/_error` too, and those have to reach the app shell like any page path. The distinction the
  * shell needs is "does something here serve this", which is this list, and it has to be kept in step
  * with the registrations there.

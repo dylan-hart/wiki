@@ -137,6 +137,69 @@ describe('Graph.vue fallbacks, filters and truncation', () => {
 
       expect(wrapper.vm.fallbackNodes.some((entry) => entry.node.synthetic)).toBe(false)
     })
+
+    /*
+     * OpenProject #2540: carrying the graph's own keyword filter forward as a `?highlight=` query
+     * param on node navigation, so the loaded page can offer an in-page highlight/find for it
+     * (sibling task, same parent Feature #2539). `fallbackHref()` is the one place that decides
+     * whether the param is appended, so both the real `<a href>` here and `navigateToNode()`'s
+     * `router.push()` target (asserted via the click below) agree.
+     */
+    it('carries a non-empty keyword forward as a `?highlight=` param on the fallback href', async () => {
+      const wrapper = await mountGraph()
+      wrapper.vm.keywordQuery = 'docs'
+      await flushPromises()
+
+      const link = wrapper.find('.graph-view-fallback a[href^="/a"]')
+      expect(link.attributes('href')).toBe('/a?highlight=docs')
+    })
+
+    it('URL-encodes a keyword carried into the `?highlight=` param', async () => {
+      const wrapper = await mountGraph()
+      wrapper.vm.keywordQuery = 'a & b'
+      await flushPromises()
+
+      const link = wrapper.find('.graph-view-fallback a[href^="/a"]')
+      expect(link.attributes('href')).toBe('/a?highlight=a%20%26%20b')
+    })
+
+    it('trims the keyword before deciding whether to append `?highlight=`', async () => {
+      const wrapper = await mountGraph()
+      wrapper.vm.keywordQuery = '  docs  '
+      await flushPromises()
+
+      const link = wrapper.find('.graph-view-fallback a[href^="/a"]')
+      expect(link.attributes('href')).toBe('/a?highlight=docs')
+    })
+
+    it('adds no query param for a whitespace-only keyword', async () => {
+      const wrapper = await mountGraph()
+      wrapper.vm.keywordQuery = '   '
+      await flushPromises()
+
+      const link = wrapper.find('.graph-view-fallback a[href="/a"]')
+      expect(link.exists()).toBe(true)
+    })
+
+    it('leaves navigation unchanged from today when no keyword is active', async () => {
+      const wrapper = await mountGraph()
+
+      const link = wrapper.find('.graph-view-fallback a[href="/a"]')
+      expect(link.exists()).toBe(true)
+    })
+
+    it('navigateToNode (a real canvas click) carries the same keyword the fallback href does', async () => {
+      const wrapper = await mountGraph()
+      wrapper.vm.keywordQuery = 'docs'
+      await flushPromises()
+
+      const link = wrapper.find('.graph-view-fallback a[href^="/a"]')
+      await link.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/a?highlight=docs')
+      expect(wrapper.vm.$router.currentRoute.value.query.highlight).toBe('docs')
+    })
   })
 
   // -> OpenProject #1866: the server-side node cap's truncated/totalNodes signal.

@@ -34,35 +34,6 @@ describe('admin routes', () => {
 })
 
 /**
- * Regression test for OpenProject #2000: `/_inbox` used to redirect to `/_inbox/messages`, an
- * entirely static stub page ("Nothing here yet.") -- the real notification list lives at
- * `/_inbox/watching` (`InboxWatching.vue`), which is also what the header inbox badge's unread count
- * is tracking. The `messages` route/component is deleted outright rather than left dead.
- */
-describe('inbox routes', () => {
-  const inboxRoute = routes.find((route) => route.path === '/_inbox')
-  const inboxChildren = inboxRoute.children
-
-  it('redirects the bare /_inbox to the real notification list, not the deleted stub', () => {
-    const indexChild = inboxChildren.find((route) => route.path === '')
-
-    expect(indexChild.redirect).toBe('/_inbox/watching')
-  })
-
-  it('no longer registers a messages child route', () => {
-    const messagesRoute = inboxChildren.find((route) => route.path === 'messages')
-
-    expect(messagesRoute).toBeUndefined()
-  })
-
-  it('still registers the watching route', () => {
-    const watchingRoute = inboxChildren.find((route) => route.path === 'watching')
-
-    expect(watchingRoute).toBeDefined()
-  })
-})
-
-/**
  * Regression test for OpenProject #812: `/_edit/:pagePath?` had no wildcard, so vue-router only ever
  * captured one path segment -- editing a page at a nested path (e.g. "docs/setup") fell through to the
  * catch-all route instead, with `route.params.pagePath` coming back `undefined`.
@@ -129,8 +100,6 @@ describe('content page route meta (OpenProject #2512)', () => {
     ['/_tags', false],
     ['/_admin', false],
     ['/_admin/dashboard', false],
-    ['/_profile', false],
-    ['/_inbox', false],
     ['/_search', false],
     ['/_error/notfound', false],
     ['/login', false]

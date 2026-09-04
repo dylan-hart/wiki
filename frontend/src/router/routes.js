@@ -32,33 +32,6 @@ const routes = [
     }
   },
   {
-    path: '/_profile',
-    component: () => import('@/layouts/ProfileLayout.vue'),
-    children: [
-      { path: '', redirect: '/_profile/info' },
-      { path: 'info', component: () => import('@/pages/ProfileInfo.vue') },
-      { path: 'avatar', component: () => import('@/pages/ProfileAvatar.vue') },
-      { path: 'auth', component: () => import('@/pages/ProfileAuth.vue') },
-      { path: 'groups', component: () => import('@/pages/ProfileGroups.vue') },
-      { path: 'api', component: () => import('@/pages/ProfileApi.vue') },
-      { path: 'notifications', component: () => import('@/pages/ProfileNotifications.vue') }
-    ]
-  },
-  {
-    path: '/_inbox',
-    component: () => import('@/layouts/InboxLayout.vue'),
-    children: [
-      { path: '', redirect: '/_inbox/watching' },
-      { path: 'watching', component: () => import('@/pages/InboxWatching.vue') },
-      /*
-        The submission being reviewed is in the URL, so a review can be linked to -- which is what a
-        notification about one will have to do. Optional, since the same screen without it is the
-        queue.
-      */
-      { path: 'review/:submissionId?', component: () => import('@/pages/InboxReview.vue') }
-    ]
-  },
-  {
     path: '/_search',
     component: () => import('@/pages/Search.vue')
   },
