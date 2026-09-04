@@ -612,3 +612,115 @@ describe('buildClassificationHubEdges (OpenProject #1217)', () => {
     ])
   })
 })
+
+describe('synthetic node identity cache (OpenProject #2538)', () => {
+  it('buildPathHierarchyEdges reuses the same folder/root node object across two calls sharing a cache', () => {
+    const nodes = [{ path: 'docs/guide', locale: 'en' }]
+    const cache = new Map()
+
+    const first = buildPathHierarchyEdges(nodes, cache)
+    const second = buildPathHierarchyEdges(nodes, cache)
+
+    const firstByPath = new Map(first.syntheticNodes.map((n) => [n.path, n]))
+    const secondByPath = new Map(second.syntheticNodes.map((n) => [n.path, n]))
+    expect(firstByPath.get('docs')).toBe(secondByPath.get('docs'))
+    expect(firstByPath.get('')).toBe(secondByPath.get(''))
+  })
+
+  it('buildPathHierarchyEdges hands d3-force whatever position was assigned to a cached node', () => {
+    const cache = new Map()
+    const { syntheticNodes } = buildPathHierarchyEdges(
+      [{ path: 'docs/guide', locale: 'en' }],
+      cache
+    )
+    const folderNode = syntheticNodes.find((n) => n.path === 'docs')
+    folderNode.x = 123
+    folderNode.y = 456
+
+    const { syntheticNodes: reSynced } = buildPathHierarchyEdges(
+      [{ path: 'docs/guide', locale: 'en' }],
+      cache
+    )
+    expect(reSynced.find((n) => n.path === 'docs')).toMatchObject({ x: 123, y: 456 })
+  })
+
+  it('buildPathHierarchyEdges gives a genuinely new folder no cached position, without disturbing prior entries', () => {
+    const cache = new Map()
+    buildPathHierarchyEdges([{ path: 'docs/guide', locale: 'en' }], cache)
+    const { syntheticNodes } = buildPathHierarchyEdges(
+      [
+        { path: 'docs/guide', locale: 'en' },
+        { path: 'blog/post', locale: 'en' }
+      ],
+      cache
+    )
+    expect(syntheticNodes.find((n) => n.path === 'blog')).not.toHaveProperty('x')
+  })
+
+  it('buildPathHierarchyEdges defaults to a fresh cache when none is given, matching prior no-reuse behavior', () => {
+    const nodes = [{ path: 'docs/guide', locale: 'en' }]
+    const first = buildPathHierarchyEdges(nodes)
+    const second = buildPathHierarchyEdges(nodes)
+    const firstDocs = first.syntheticNodes.find((n) => n.path === 'docs')
+    const secondDocs = second.syntheticNodes.find((n) => n.path === 'docs')
+    expect(firstDocs).not.toBe(secondDocs)
+    expect(firstDocs).toEqual(secondDocs)
+  })
+
+  it('buildTagHubEdges reuses the same hub node object across two calls sharing a cache', () => {
+    const nodes = [{ path: 'a', tags: ['guide'] }]
+    const cache = new Map()
+    const first = buildTagHubEdges(nodes, cache)
+    const second = buildTagHubEdges(nodes, cache)
+    expect(first.syntheticNodes[0]).toBe(second.syntheticNodes[0])
+  })
+
+  it('buildTagHubEdges carries forward a hub node position set between calls', () => {
+    const cache = new Map()
+    const { syntheticNodes } = buildTagHubEdges([{ path: 'a', tags: ['guide'] }], cache)
+    syntheticNodes[0].x = 10
+    syntheticNodes[0].y = 20
+    const { syntheticNodes: reSynced } = buildTagHubEdges([{ path: 'a', tags: ['guide'] }], cache)
+    expect(reSynced[0]).toMatchObject({ x: 10, y: 20 })
+  })
+
+  it('buildClassificationHubEdges reuses the same hub node object across two calls sharing a cache', () => {
+    const nodes = [{ path: 'a', classification: 'Public' }]
+    const cache = new Map()
+    const first = buildClassificationHubEdges(nodes, cache)
+    const second = buildClassificationHubEdges(nodes, cache)
+    expect(first.syntheticNodes[0]).toBe(second.syntheticNodes[0])
+  })
+
+  it('buildClassificationHubEdges carries forward a hub node position set between calls', () => {
+    const cache = new Map()
+    const { syntheticNodes } = buildClassificationHubEdges(
+      [{ path: 'a', classification: 'Public' }],
+      cache
+    )
+    syntheticNodes[0].x = 7
+    syntheticNodes[0].y = 8
+    const { syntheticNodes: reSynced } = buildClassificationHubEdges(
+      [{ path: 'a', classification: 'Public' }],
+      cache
+    )
+    expect(reSynced[0]).toMatchObject({ x: 7, y: 8 })
+  })
+
+  it('a shared cache does not collide across the three builders (disjoint key namespaces)', () => {
+    const cache = new Map()
+    const paths = buildPathHierarchyEdges([{ path: 'guide/intro', locale: 'en' }], cache)
+    const tags = buildTagHubEdges([{ path: 'a', tags: ['guide'] }], cache)
+    const classifications = buildClassificationHubEdges(
+      [{ path: 'b', classification: 'guide' }],
+      cache
+    )
+
+    expect(paths.syntheticNodes.find((n) => n.path === 'guide')).toBeTruthy()
+    expect(tags.syntheticNodes.find((n) => n.path === '__tag__guide')).toBeTruthy()
+    expect(
+      classifications.syntheticNodes.find((n) => n.path === '__classification__guide')
+    ).toBeTruthy()
+    expect(cache.size).toBe(4) // en: root, en:guide folder, __tag__guide hub, __classification__guide hub
+  })
+})
