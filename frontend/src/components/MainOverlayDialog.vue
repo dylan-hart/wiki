@@ -3,8 +3,10 @@
     v-model="siteStore.overlayIsShown"
     class="main-overlay"
     persistent
-    full-width
-    full-height
+    :full-width="!isHalfSized"
+    :full-height="!isHalfSized"
+    :width="isHalfSized ? HALF_SIZE.width : null"
+    :height="isHalfSized ? HALF_SIZE.height : null"
     :aria-label="overlayAriaLabel">
     <!--
       `overlay-opts` carries whatever initial state the opener set via `siteStore.openOverlay(name,
@@ -92,4 +94,17 @@ const OVERLAY_TITLES = {
 }
 
 const overlayAriaLabel = computed(() => OVERLAY_TITLES[siteStore.overlay]?.())
+
+/**
+ * Profile and Inbox are short, focused forms/lists, not a file browser or a block gallery -- a
+ * full-screen panel for either dwarfed its own content (OpenProject #2543 follow-up feedback).
+ * Sized at roughly half the viewport instead, clamped so it never gets crushed on a small window nor
+ * sprawls uselessly wide on a large one; every other entry keeps the full-screen treatment it needs
+ * for its own content (a tree, a table, a block gallery).
+ */
+const HALF_SIZE = {
+  width: 'clamp(560px, 50vw, 960px)',
+  height: 'clamp(480px, 50vh, 800px)'
+}
+const isHalfSized = computed(() => siteStore.overlay === 'Profile' || siteStore.overlay === 'Inbox')
 </script>

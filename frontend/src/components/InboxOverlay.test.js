@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { describe, expect, it, vi } from 'vitest'
 
 /*
@@ -122,5 +126,46 @@ describe('InboxOverlay close', () => {
     await wrapper.find('[aria-label="Close"]').trigger('click')
 
     expect(siteStore.overlay).toBe('')
+  })
+})
+
+/**
+ * OpenProject #2543 follow-up: `.inbox-overlay` (the `w-layout` wrapping this whole overlay) is a
+ * plain div, not a `WCard` -- the one component that declares both halves of a surface itself (see
+ * `.w-card`'s own `body.body--dark` rule in `tailwind.css`) -- so without an explicit `color` here
+ * every label under `InboxWatching.vue`/`InboxReview.vue` (notifications, watched pages, watch
+ * preferences) inherited the document's default black text: readable in light mode by accident,
+ * illegible against this overlay's own dark background in dark mode.
+ *
+ * Asserted against the source text rather than a computed style -- jsdom's CSS engine does not
+ * reliably resolve a compound `@at-root .body--dark &` selector the way a real browser would, the
+ * same reasoning `WelcomeOverlay.test.js`'s equivalent dark-mode fix documents.
+ */
+describe('InboxOverlay: dark mode', () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'InboxOverlay.vue'),
+    'utf-8'
+  )
+
+  it('gives .inbox-overlay a background + color pairing for both themes', () => {
+    const overlayRule = source.match(/\.inbox-overlay\s*\{[\s\S]*?\n\}\n/)[0]
+
+    expect(overlayRule).toMatch(/@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*#fff/)
+    expect(overlayRule).toMatch(
+      /@at-root\s+\.body--light\s+&\s*\{[^}]*color:\s*var\(--color-black\)/
+    )
+    expect(overlayRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*\$dark-3/)
+    expect(overlayRule).toMatch(
+      /@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*var\(--color-white\)/
+    )
+  })
+
+  it('gives .inbox-overlay-sidebar its own themed background too, not just its nav item text', () => {
+    const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*\}\n<\/style>/)[0]
+
+    expect(sidebarRule).toMatch(
+      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*\$grey-1/
+    )
+    expect(sidebarRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*\$dark-4/)
   })
 })

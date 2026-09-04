@@ -115,7 +115,36 @@ function close() {
 </script>
 
 <style lang="scss">
+/*
+  A foreground to go with the background -- the same fix `ProfileOverlay.vue`'s `.layout-profile-card`
+  needed for the same reason (see its own comment): `w-layout` is a plain div, not a `WCard` (the one
+  component that declares both halves of a surface itself), so without an explicit `color` here every
+  label under `InboxWatching.vue`/`InboxReview.vue` (notifications, watched pages, the per-page watch
+  preferences) inherited the document's default black text -- readable in light mode purely by
+  accident, illegible against this overlay's own dark background in dark mode. The light value is the
+  black it was already inheriting, so only dark mode actually changes.
+*/
+.inbox-overlay {
+  @at-root .body--light & {
+    background-color: #fff;
+    color: var(--color-black);
+  }
+  @at-root .body--dark & {
+    background-color: $dark-3;
+    color: var(--color-white);
+  }
+}
+
 .inbox-overlay-sidebar {
+  @at-root .body--light & {
+    background-color: $grey-1;
+    border-inline-end: 1px solid rgba($dark-3, 0.1);
+  }
+  @at-root .body--dark & {
+    background-color: $dark-4;
+    border-inline-end: 1px solid rgba(#fff, 0.12);
+  }
+
   .w-list .w-item {
     font-weight: 500;
     color: $grey-9;
