@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import InboxWatching from './InboxWatching.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestRouter } from '../../test/router.js'
+import { buildTestRouter, createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
@@ -103,29 +103,51 @@ function findButtonByText(text) {
 }
 
 async function mountInboxWatching(sitePatch = {}) {
-  const router = await createTestRouter(['/', '/:path(.*)'])
-
-  const { wrapper } = mountWithApp(InboxWatching, {
-    messages,
-    router,
-    stores: {
-      site: (store) => {
-        store.$patch({ id: 'site-1', ...sitePatch })
-      }
-    },
-    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the preferences dialog really
-    //    teleports its body to `document.body`, which is where `findButtonByText` looks.
-    stubs: {}
-  })
+  const { wrapper, router } = mountInboxWatchingUnsettled(sitePatch)
   await flushLoads()
   notifyQueue.splice(0, notifyQueue.length)
   return { wrapper, router }
+}
+
+/**
+ * Same mount, without the trailing `flushLoads()` — for asserting what the page shows on its very
+ * first paint, before either `load()`/`loadNotifications()` fetch has resolved (task 2503: both
+ * empty-state banners must already be showing at this point, not still flip in after the fetch
+ * settles).
+ */
+function mountInboxWatchingUnsettled(sitePatch = {}) {
+  const router = buildTestRouter(['/', '/:path(.*)'])
+
+  return {
+    ...mountWithApp(InboxWatching, {
+      messages,
+      router,
+      stores: {
+        site: (store) => {
+          store.$patch({ id: 'site-1', ...sitePatch })
+        }
+      },
+      // -> Opts out of `mountWithApp`'s default `teleport: true` stub: the preferences dialog really
+      //    teleports its body to `document.body`, which is where `findButtonByText` looks.
+      stubs: {}
+    }),
+    router
+  }
 }
 
 async function flushLoads() {
   await Promise.resolve()
   await Promise.resolve()
   await Promise.resolve()
+}
+
+/** A promise plus its own `resolve`, for holding a fetch open across assertions (task 2503). */
+function deferred() {
+  let resolve
+  const promise = new Promise((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
 }
 
 beforeEach(() => {
@@ -147,6 +169,29 @@ describe('InboxWatching notifications', () => {
 
     const { wrapper } = await mountInboxWatching()
 
+    expect(wrapper.text()).toContain('You have no unread notifications.')
+  })
+
+  it('keeps the empty-state banner showing throughout the fetch, with no flicker to a list and back (task 2503)', async () => {
+    const notificationsFetch = deferred()
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'sites/site-1/notifications') {
+        return { json: () => notificationsFetch.promise }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+
+    const { wrapper } = mountInboxWatchingUnsettled()
+    await flushLoads()
+
+    // Still in flight: the banner must already be showing, not hidden behind a zero-item list
+    // while `state.notifications` is still empty and the fetch hasn't resolved yet.
+    expect(wrapper.text()).toContain('You have no unread notifications.')
+
+    notificationsFetch.resolve([])
+    await flushLoads()
+
+    // Resolved, genuinely empty: still the banner, with no intervening flip to a list.
     expect(wrapper.text()).toContain('You have no unread notifications.')
   })
 
@@ -219,6 +264,29 @@ describe('InboxWatching watching', () => {
   function mockWatchedPages() {
     stubApi({ 'sites/site-1/watching': [WATCHED_PAGE] }, { fallback: [] })
   }
+
+  it('keeps the empty-state banner showing throughout the fetch, with no flicker to a list and back (task 2503)', async () => {
+    const watchingFetch = deferred()
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'sites/site-1/watching') {
+        return { json: () => watchingFetch.promise }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+
+    const { wrapper } = mountInboxWatchingUnsettled()
+    await flushLoads()
+
+    // Still in flight: the banner must already be showing, not hidden behind a zero-item list
+    // while `state.pages` is still empty and the fetch hasn't resolved yet.
+    expect(wrapper.text()).toContain('You are not watching any page yet.')
+
+    watchingFetch.resolve([])
+    await flushLoads()
+
+    // Resolved, genuinely empty: still the banner, with no intervening flip to a list.
+    expect(wrapper.text()).toContain('You are not watching any page yet.')
+  })
 
   it('unwatching a page via DELETE removes it from the list and toasts a positive notification', async () => {
     mockWatchedPages()

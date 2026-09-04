@@ -22,6 +22,17 @@
       :side="siteStore.theme.sidebarPosition === `right` ? `right` : `left`">
       <div v-if="isSidebarMini" class="sidebar-mini flex flex-col items-stretch">
         <w-btn
+          class="py-4"
+          flat
+          icon="la:angle-double-right"
+          color="white"
+          :aria-label="t('common.sidebar.expand')"
+          @click="sidebarExpandOverride = true">
+          <w-tooltip anchor="center right" self="center left">{{
+            t('common.sidebar.expand')
+          }}</w-tooltip>
+        </w-btn>
+        <w-btn
           v-if="siteStore.locales.showMenu"
           class="py-4"
           flat
@@ -65,6 +76,19 @@
         </w-btn>
       </div>
       <template v-else>
+        <div
+          v-if="showSidebarCollapseOverride"
+          class="sidebar-actions flex flex-nowrap items-stretch">
+          <w-btn
+            class="flex-1 px-2"
+            flat
+            dense
+            icon="la:angle-double-left"
+            :label="t('common.sidebar.collapse')"
+            :aria-label="t('common.sidebar.collapse')"
+            size="sm"
+            @click="sidebarExpandOverride = false" />
+        </div>
         <div v-if="showSidebarActions" class="sidebar-actions flex flex-nowrap items-stretch">
           <!-- -> Either button takes the whole row when the other one is off, and the separator only
                exists to divide the two, so it goes with them -->
@@ -327,8 +351,76 @@ const showSidebarBtn = computed(() => {
   return isSidebarAvailable.value && !isWideViewport.value && !isNarrowSidebarOpen.value
 })
 
-const isSidebarMini = computed(() => {
-  return ['hide', 'hideExact'].includes(pageStore.navigationMode) || !pageStore.navigationId
+/**
+ * Whether this page/view WANTS the sidebar collapsed to its mini rail -- either a deliberate
+ * `navigationMode: 'hide'/'hideExact'` on the page, or the non-content-route fallback (no
+ * `navigationId` at all). Kept apart from `isSidebarMini` below so `sidebarExpandOverride` has
+ * something to negate: the mini rail isn't empty chrome (it renders real shortcuts), so a reader who
+ * wants it back at full width for a while needs a way to override this without the wiki forgetting
+ * the page itself still asks for mini.
+ *
+ * OpenProject #2512: `!pageStore.navigationId` is meant to catch a CONTENT page that hasn't finished
+ * telling `pageStore` which menu it belongs to yet -- not to double as a generic default for every
+ * other route this layout renders. `pageStore.navigationId` is only ever set by `pageLoad()` (see
+ * that action's own doc), so on a route that never calls it -- the knowledge graph, tags browse, any
+ * non-content `/_` route -- it just sits at whatever the LAST content page left it at: `null` on a
+ * fresh store (direct load/refresh), or a stale value from whatever page was viewed before navigating
+ * here via the SPA. Neither means anything about the current route, so the fallback is scoped to
+ * `route.meta.contentPage` -- the routes that actually render `Index.vue` and run a real page through
+ * `pageLoad()` (see `router/routes.js`) -- leaving every other route at its normal, expanded width.
+ */
+const isSidebarMiniForced = computed(() => {
+  return (
+    ['hide', 'hideExact'].includes(pageStore.navigationMode) ||
+    (Boolean(route.meta.contentPage) && !pageStore.navigationId)
+  )
+})
+
+/**
+ * A reader's own override of `isSidebarMiniForced`, remembered for the rest of their browser tab
+ * session (OpenProject #2513) -- not per-page-visit (it should still hold after following a link to
+ * another page that also forces mini) and not a permanent cross-session preference (the page/view
+ * author's own choice is still the default the NEXT time this reader opens the wiki). `sessionStorage`
+ * is exactly that middle ground: scoped to this tab, gone once it closes.
+ *
+ * Reading/writing it is wrapped in try/catch -- a sandboxed or privacy-hardened browser can throw on
+ * storage access entirely, and a reader hitting that should still get a working toggle for the rest of
+ * this page view, just not one that survives a reload.
+ */
+const SIDEBAR_EXPAND_OVERRIDE_KEY = 'sidebarExpandOverride'
+
+function readSidebarExpandOverride() {
+  try {
+    return sessionStorage.getItem(SIDEBAR_EXPAND_OVERRIDE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+const sidebarExpandOverrideState = ref(readSidebarExpandOverride())
+
+const sidebarExpandOverride = computed({
+  get: () => sidebarExpandOverrideState.value,
+  set: (val) => {
+    sidebarExpandOverrideState.value = val
+    try {
+      sessionStorage.setItem(SIDEBAR_EXPAND_OVERRIDE_KEY, val ? 'true' : 'false')
+    } catch {
+      // -> No persistence across a reload in this case, but the in-memory ref above still drives
+      //    the UI for the rest of this page view.
+    }
+  }
+})
+
+const isSidebarMini = computed(() => isSidebarMiniForced.value && !sidebarExpandOverride.value)
+
+/*
+  The way back to mini, offered only where the override is what's actually holding the sidebar open --
+  never on a page that was full-width to begin with, which would make an unrelated "Collapse Sidebar"
+  button appear the moment a reader used the toggle once anywhere on the site.
+*/
+const showSidebarCollapseOverride = computed(() => {
+  return isSidebarMiniForced.value && sidebarExpandOverride.value
 })
 
 /** Sidebar widths, in px: the full nav, and the icon rail it collapses to. */

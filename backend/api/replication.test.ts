@@ -166,6 +166,43 @@ test('accepts a valid cronSchedule', async () => {
   assert.equal(WIKI.config.replication.cronSchedule, '0 0 * * 0')
 })
 
+/**
+ * PUT — minimum-interval validation (OpenProject #2509)
+ */
+
+test('rejects a cronSchedule that fires every minute', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/replication/config',
+    payload: { cronSchedule: '* * * * *' }
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /once per hour/i)
+})
+
+test('rejects a cronSchedule that fires every 30 minutes', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/replication/config',
+    payload: { cronSchedule: '*/30 * * * *' }
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /once per hour/i)
+})
+
+test('accepts a cronSchedule that fires exactly once per hour', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/replication/config',
+    payload: { cronSchedule: '0 * * * *' }
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(WIKI.config.replication.cronSchedule, '0 * * * *')
+})
+
 test('rejects enabling replication with no sourceUrl, bearerToken or cronSchedule set', async () => {
   const res = await app.inject({
     method: 'PUT',

@@ -29,6 +29,8 @@ async function mountAdminReplication() {
         sourceUrl: 'Source Instance URL',
         bearerToken: 'Bearer Token',
         cronSchedule: 'Cron Schedule',
+        cronScheduleInvalid: 'This is not a valid cron expression.',
+        cronScheduleTooFrequent: 'The cron schedule may not fire more often than once per hour.',
         enabled: 'Enabled',
         saveSuccess: 'Replication configuration saved successfully.'
       }
@@ -123,5 +125,47 @@ describe('AdminReplication save', () => {
 
     expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
     resolvePut({ ok: true, message: 'Replication configuration updated successfully.' })
+  })
+})
+
+/**
+ * Client-side mirror of `backend/api/replication.ts#validateCronSchedule()`'s minimum-interval floor
+ * (OpenProject #2509) -- the server remains the authority, this is immediate feedback only.
+ */
+describe('AdminReplication cronSchedule validation', () => {
+  it('shows an error for a cron expression that fires more often than once an hour', async () => {
+    const { wrapper } = await mountAdminReplication()
+
+    const cronField = wrapper.get('input[aria-label="Cron Schedule"]')
+    await cronField.setValue('* * * * *')
+    await cronField.trigger('blur')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain(
+      'The cron schedule may not fire more often than once per hour.'
+    )
+  })
+
+  it('shows an error for an expression that does not parse as cron', async () => {
+    const { wrapper } = await mountAdminReplication()
+
+    const cronField = wrapper.get('input[aria-label="Cron Schedule"]')
+    await cronField.setValue('not a cron expression')
+    await cronField.trigger('blur')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('This is not a valid cron expression.')
+  })
+
+  it('shows no error for a cron expression that fires exactly once an hour', async () => {
+    const { wrapper } = await mountAdminReplication()
+
+    const cronField = wrapper.get('input[aria-label="Cron Schedule"]')
+    await cronField.setValue('0 * * * *')
+    await cronField.trigger('blur')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('once per hour')
+    expect(wrapper.text()).not.toContain('valid cron expression')
   })
 })

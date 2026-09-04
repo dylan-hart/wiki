@@ -5,6 +5,7 @@ import { classificationLevels } from '../../models/classificationLevels.ts'
 import { glossary } from '../../models/glossary.ts'
 import { assetServing } from '../../models/assetServing.ts'
 import { jobs } from '../../models/jobs.ts'
+import { runReplicationPostImport } from '../../helpers/replicationPostImport.ts'
 
 /**
  * Restore a whole-instance snapshot tarball uploaded through `POST
@@ -57,17 +58,17 @@ export async function task(
     const result = await replicationImportDep.importSnapshot(payload.filePath)
 
     // -> Post-import side effects: only reached once the restore itself has actually succeeded, so a
-    //    failed/partial import never reloads caches as though it had landed.
-    await sitesDep.broadcastReload()
-    await groupsDep.broadcastReload()
-    await classificationLevelsDep.broadcastReload()
-    assetServingDep.forgetAllPaths()
-
-    const restoredSites = await sitesDep.getAllSites()
-    for (const site of restoredSites) {
-      glossaryDep.invalidateCache(site.id)
-      await addJob({ task: 'rebuildSearchIndex', payload: { siteId: site.id } })
-    }
+    //    failed/partial import never reloads caches as though it had landed. Shared with
+    //    `models/replication.ts#pull()`, the other caller of `importSnapshot()` -- see
+    //    `helpers/replicationPostImport.ts`.
+    await runReplicationPostImport({
+      sites: sitesDep,
+      groups: groupsDep,
+      classificationLevels: classificationLevelsDep,
+      glossary: glossaryDep,
+      assetServing: assetServingDep,
+      addJob
+    })
 
     if (jobId) {
       await jobsDep.setResult(jobId, result)

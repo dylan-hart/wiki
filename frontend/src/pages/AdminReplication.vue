@@ -108,6 +108,7 @@
                 outlined
                 v-model="state.config.cronSchedule"
                 dense
+                :rules="rulesCronSchedule"
                 hide-bottom-space
                 placeholder="0 0 * * 0"
                 :aria-label="t(`admin.replication.cronSchedule`)" />
@@ -133,6 +134,7 @@
 </template>
 
 <script setup>
+import { CronExpressionParser } from 'cron-parser'
 import { useI18n } from 'vue-i18n'
 
 import { useAdminSettings } from '@/composables/adminSettings'
@@ -189,6 +191,37 @@ const { state, load } = useAdminSettings({
     adminStore.info.isReplicationEnabled = state.config?.isEnabled === true
   }
 })
+
+// VALIDATION
+
+/**
+ * Mirrors `backend/api/replication.ts#validateCronSchedule()`'s minimum-interval floor as immediate
+ * client-side feedback -- the server remains the authority (config can be set via the API directly),
+ * this only saves an admin the round trip to discover the same rejection. Replication is a
+ * wipe-and-replace pull of the entire instance, which is why the floor is generous but non-zero: see
+ * the backend's own comment for the full reasoning (OpenProject #2509).
+ */
+const MIN_CRON_INTERVAL_MINUTES = 60
+
+const rulesCronSchedule = [
+  (val) => {
+    if (!val) {
+      return true
+    }
+    let expression
+    try {
+      expression = CronExpressionParser.parse(val, { tz: 'UTC' })
+    } catch {
+      return t('admin.replication.cronScheduleInvalid')
+    }
+    const firstFire = expression.next().toDate().getTime()
+    const secondFire = expression.next().toDate().getTime()
+    if (secondFire - firstFire < MIN_CRON_INTERVAL_MINUTES * 60 * 1000) {
+      return t('admin.replication.cronScheduleTooFrequent')
+    }
+    return true
+  }
+]
 
 // METHODS
 

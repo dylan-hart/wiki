@@ -235,6 +235,15 @@ interface CollabRoom {
    * has actually carried a name.
    */
   lastAuthorName: string | null
+  /**
+   * Whether some caller has already been granted (or is currently asking to be granted) the right
+   * to seed this room's WYSIWYG (TipTap) field -- see {@link claimWysiwygSeed}. Starts `false` for
+   * every freshly created room, including one seeded from a peer or an autosave draft that already
+   * happens to carry WYSIWYG content: those cases never call {@link claimWysiwygSeed} at all (the
+   * client's own `fragment.length === 0` check short-circuits first), so this flag only ever matters
+   * for the genuinely ambiguous "nobody has written to it yet" case it exists to arbitrate.
+   */
+  wysiwygSeeded: boolean
 }
 
 interface DraftPersistState {
@@ -256,7 +265,7 @@ interface RelayEnvelope {
   i: string
   /** Room, i.e. page id. */
   r: string
-  t: 'update' | 'awareness' | 'hello' | 'state' | 'saved'
+  t: 'update' | 'awareness' | 'hello' | 'state' | 'saved' | 'wysiwyg-claim' | 'wysiwyg-claimed'
   /** Payload: base64 for the binary kinds, JSON for `saved`, absent for `hello`. */
   p?: string
   /** Instance this is addressed to, when it is a reply rather than a broadcast. */
@@ -333,6 +342,13 @@ export default {
   partials: new Map<string, PartialRelay>(),
   /** Rooms this instance is waiting on a peer's state for, by page id. */
   awaitingState: new Map<string, (update: Uint8Array) => void>(),
+  /**
+   * Rooms this instance is waiting on a peer's WYSIWYG-seed-claim answer for, by page id -- see
+   * {@link claimWysiwygSeed}. Same shape as {@link awaitingState}, kept separate because the two
+   * questions ("what is this room's state" vs. "has anyone already claimed its WYSIWYG seed") are
+   * asked at different times against the same room and must not resolve each other's waiters.
+   */
+  awaitingWysiwygClaim: new Map<string, () => void>(),
   /** Live connection counts per user id, for the {@link MAX_CONNECTIONS_PER_USER} ceiling. */
   userConnections: new Map<string, number>(),
   /** Live connection counts per address, for the {@link MAX_CONNECTIONS_PER_ADDRESS} ceiling. */
@@ -658,7 +674,8 @@ export default {
       ready: Promise.resolve(),
       provisional: true,
       draftPersist: { timer: null, pendingSince: null },
-      lastAuthorName: null
+      lastAuthorName: null,
+      wysiwygSeeded: false
     }
     this.rooms.set(page.id, room)
 
@@ -779,6 +796,61 @@ export default {
       })
       this.relay({ r: pageId, t: 'hello' })
     })
+  },
+
+  /**
+   * Grants at most one caller the right to seed a room's WYSIWYG (TipTap) field -- see
+   * `EditorWysiwyg.vue#swapToCollabEditor` for the client side of this, and OpenProject #2516 for
+   * why it exists: unlike the markdown field, the shared `Y.XmlFragment` TipTap binds to has no
+   * server-side seed of its own ({@link buildSeed} never touches it), so two people opening a brand
+   * new room's WYSIWYG editor at the same instant could otherwise both seed it from their own
+   * locally-loaded copy of the page and duplicate its content. Deliberately schema-agnostic: only a
+   * boolean ever crosses this method, never the actual ProseMirror JSON, which is what keeps the
+   * backend out of the "understand TipTap's schema" business this WP explicitly rules out.
+   *
+   * Same-instance callers are decided exactly, with no residual race at all: the event loop
+   * serializes two calls landing back to back, so the first to run sets
+   * {@link CollabRoom.wysiwygSeeded} to `true` synchronously, before the second is ever evaluated.
+   *
+   * Cross-instance, this reuses {@link hasPeers}/{@link relay}/{@link receiveRelay} the same way
+   * {@link peerState} already does for the markdown field's own seed: ask the cluster, wait up to
+   * {@link PEER_STATE_TIMEOUT}, and grant locally if nobody answers in time -- the exact trade-off
+   * {@link PEER_STATE_TIMEOUT}'s own doc comment already accepts, for the same reason. Two
+   * cross-instance callers landing inside that same window can therefore still both come back
+   * denied (each sees the other's room already marked `wysiwygSeeded` and answers "already
+   * claimed"), leaving the fragment briefly unseeded rather than duplicated -- the "narrow, unlikely
+   * race" this marker exists to shrink, not a guarantee to eliminate it outright (see OpenProject
+   * #2516's own framing; a genuinely airtight guarantee would need the same byte-identical-seed
+   * trick {@link buildSeed} uses, which is not available for a client's own ProseMirror JSON).
+   *
+   * Resolves `false` immediately, with no relay round trip at all, when this instance has no room
+   * open for `pageId` -- the same "page went away between the permission check and here" case
+   * {@link initRoom} already tolerates -- or when a claim has already been made on this instance.
+   */
+  async claimWysiwygSeed(pageId: string): Promise<boolean> {
+    const room = this.rooms.get(pageId)
+    if (!room || room.wysiwygSeeded) {
+      return false
+    }
+    // -> Set before any `await`, so a second same-instance call arriving before this one resolves
+    //    sees it above and returns false without ever reaching the cluster.
+    room.wysiwygSeeded = true
+    if (!(await this.hasPeers())) {
+      return true
+    }
+    const alreadyClaimedElsewhere = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.awaitingWysiwygClaim.delete(pageId)
+        resolve(false)
+      }, PEER_STATE_TIMEOUT)
+      this.awaitingWysiwygClaim.set(pageId, () => {
+        clearTimeout(timer)
+        this.awaitingWysiwygClaim.delete(pageId)
+        resolve(true)
+      })
+      this.relay({ r: pageId, t: 'wysiwyg-claim' })
+    })
+    return !alreadyClaimedElsewhere
   },
 
   onMessage(room: CollabRoom, conn: WebSocket, message: Uint8Array): void {
@@ -1094,6 +1166,30 @@ export default {
         if (room && envelope.p) {
           room.doc.getMap('meta').set('lastSave', JSON.parse(envelope.p) as SaveInfo)
         }
+        break
+      }
+      case 'wysiwyg-claim': {
+        // -> Someone elsewhere is asking whether this room's WYSIWYG seed is already spoken for.
+        //    Only worth answering when it genuinely is -- silence, like `hello`'s own "no room, or
+        //    still provisional" case, means "as far as I know, go ahead."
+        const room = this.rooms.get(envelope.r)
+        if (room?.wysiwygSeeded) {
+          this.relay({ r: envelope.r, t: 'wysiwyg-claimed', to: envelope.i })
+        }
+        break
+      }
+      case 'wysiwyg-claimed': {
+        /*
+          Either a direct reply to this instance's own `claimWysiwygSeed` ask, or another instance
+          proactively confirming a grant it just made -- either way, mark the room seeded so a future
+          ask (ours or a third instance's `wysiwyg-claim`) is answered locally from here on, with no
+          further round trip needed.
+        */
+        const room = this.rooms.get(envelope.r)
+        if (room) {
+          room.wysiwygSeeded = true
+        }
+        this.awaitingWysiwygClaim.get(envelope.r)?.()
         break
       }
     }

@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { htmlToMarkdown } from './htmlToMarkdown'
 
 describe('htmlToMarkdown', () => {
-  it('returns an empty string for a blank or whitespace-only payload', () => {
-    expect(htmlToMarkdown('')).toBe('')
-    expect(htmlToMarkdown('   \n  ')).toBe('')
-    expect(htmlToMarkdown(undefined)).toBe('')
+  it('returns an empty markdown string and no images for a blank or whitespace-only payload', () => {
+    expect(htmlToMarkdown('')).toEqual({ markdown: '', images: [] })
+    expect(htmlToMarkdown('   \n  ')).toEqual({ markdown: '', images: [] })
+    expect(htmlToMarkdown(undefined)).toEqual({ markdown: '', images: [] })
   })
 
   it('converts plain structural HTML -- headings, paragraphs, links, lists', () => {
@@ -15,7 +15,7 @@ describe('htmlToMarkdown', () => {
       <ul><li>One</li><li>Two</li></ul>
       <ol><li>First</li><li>Second</li></ol>
     `
-    const md = htmlToMarkdown(html)
+    const { markdown: md } = htmlToMarkdown(html)
     expect(md).toContain('# Title')
     expect(md).toContain('[link](https://example.com)')
     expect(md).toMatch(/-\s+One/)
@@ -26,14 +26,14 @@ describe('htmlToMarkdown', () => {
 
   it('converts a GFM table (from the gfm plugin)', () => {
     const html = '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>'
-    const md = htmlToMarkdown(html)
+    const { markdown: md } = htmlToMarkdown(html)
     expect(md).toContain('| A | B |')
     expect(md).toContain('| 1 | 2 |')
   })
 
   it('converts real <strong>/<em>/<del> tags via the gfm-provided strikethrough rule', () => {
     const html = '<p><strong>bold</strong> <em>italic</em> <del>gone</del></p>'
-    const md = htmlToMarkdown(html)
+    const { markdown: md } = htmlToMarkdown(html)
     expect(md).toContain('**bold**')
     expect(md).toContain('_italic_')
     expect(md).toContain('~~gone~~')
@@ -42,9 +42,57 @@ describe('htmlToMarkdown', () => {
   it('converts a real <input type="checkbox"> list (the gfm plugin\'s taskListItems rule)', () => {
     const html =
       '<ul><li><input type="checkbox"> Todo</li><li><input type="checkbox" checked> Done</li></ul>'
-    const md = htmlToMarkdown(html)
+    const { markdown: md } = htmlToMarkdown(html)
     expect(md).toMatch(/\[ \]\s*Todo/)
     expect(md).toMatch(/\[x\]\s*Done/)
+  })
+
+  describe('embedded images (OpenProject #2504)', () => {
+    it('replaces an <img> with a pending-image placeholder and collects its src/alt', () => {
+      const html =
+        '<p>Before</p><img src="data:image/png;base64,AAAA" alt="screenshot"><p>After</p>'
+      const { markdown, images } = htmlToMarkdown(html)
+      expect(images).toEqual([
+        { token: 'pending-image:0', src: 'data:image/png;base64,AAAA', alt: 'screenshot' }
+      ])
+      expect(markdown).toContain('![screenshot](pending-image:0)')
+      expect(markdown).not.toContain('data:image')
+      expect(markdown).toContain('Before')
+      expect(markdown).toContain('After')
+    })
+
+    it('collects more than one image in document order, with distinct tokens', () => {
+      const html =
+        '<img src="data:image/png;base64,AAAA" alt="one">' +
+        '<img src="blob:http://example.com/xyz" alt="two">'
+      const { markdown, images } = htmlToMarkdown(html)
+      expect(images.map((img) => img.token)).toEqual(['pending-image:0', 'pending-image:1'])
+      expect(images[1]).toEqual({
+        token: 'pending-image:1',
+        src: 'blob:http://example.com/xyz',
+        alt: 'two'
+      })
+      expect(markdown).toContain('![one](pending-image:0)')
+      expect(markdown).toContain('![two](pending-image:1)')
+    })
+
+    it('drops an <img> with no src, and collects nothing for it', () => {
+      const html = '<p>Before</p><img alt="broken"><p>After</p>'
+      const { markdown, images } = htmlToMarkdown(html)
+      expect(images).toEqual([])
+      expect(markdown).not.toContain('![')
+      expect(markdown).toContain('Before')
+      expect(markdown).toContain('After')
+    })
+
+    it('defaults a missing alt attribute to an empty string', () => {
+      const html = '<img src="data:image/png;base64,AAAA">'
+      const { markdown, images } = htmlToMarkdown(html)
+      expect(images).toEqual([
+        { token: 'pending-image:0', src: 'data:image/png;base64,AAAA', alt: '' }
+      ])
+      expect(markdown).toBe('![](pending-image:0)')
+    })
   })
 
   describe('OneNote clipboard quirks (Feature #2417 validation case)', () => {
@@ -57,7 +105,7 @@ describe('htmlToMarkdown', () => {
           <span style="text-decoration:line-through">struck</span>
         </p>
       `
-      const md = htmlToMarkdown(html)
+      const { markdown: md } = htmlToMarkdown(html)
       expect(md).toContain('**bold**')
       expect(md).toContain('_italic_')
       expect(md).toContain('<u>underlined</u>')
@@ -67,16 +115,32 @@ describe('htmlToMarkdown', () => {
     it('does not double-wrap a real <strong>/<em>/<u> that also happens to carry a matching inline style', () => {
       const html =
         '<p><strong style="font-weight:bold">bold</strong> <u style="text-decoration:underline">under</u></p>'
-      const md = htmlToMarkdown(html)
+      const { markdown: md } = htmlToMarkdown(html)
       expect(md).toContain('**bold**')
       expect(md).not.toContain('****bold****')
       expect(md).toContain('<u>under</u>')
       expect(md).not.toContain('<u><u>under</u></u>')
     })
 
+    it('preserves a mid-paragraph font-size change as a <span style="font-size: ..."> fallback (OpenProject #2505)', () => {
+      const html = '<p>Normal <span style="font-size:18pt">bigger</span> normal again.</p>'
+      const { markdown: md } = htmlToMarkdown(html)
+      expect(md).toContain('<span style="font-size: 18pt">bigger</span>')
+      expect(md).toContain('Normal')
+      expect(md).toContain('normal again')
+    })
+
+    it('does not wrap a whole block-level container in a font-size span -- only a mid-paragraph change', () => {
+      const html =
+        '<ul><li><div style="font-family:Calibri;font-size:11pt">First bullet</div></li></ul>'
+      const { markdown: md } = htmlToMarkdown(html)
+      expect(md).toMatch(/-\s+First bullet/)
+      expect(md).not.toContain('font-size')
+    })
+
     it('rewrites a Unicode ballot-box to-do list to GFM task-list syntax', () => {
       const html = '<ul><li>☐ Unchecked task</li><li>☑ Checked task</li></ul>'
-      const md = htmlToMarkdown(html)
+      const { markdown: md } = htmlToMarkdown(html)
       expect(md).toMatch(/^-\s+\[ \]\s+Unchecked task/m)
       expect(md).toMatch(/^-\s+\[x\]\s+Checked task/m)
       expect(md).not.toContain('☐')
@@ -85,18 +149,8 @@ describe('htmlToMarkdown', () => {
 
     it('drops <style>/<script> element content rather than leaking it into the markdown', () => {
       const html = '<style>p { color: red; }</style><script>alert(1)</script><p>Visible text</p>'
-      const md = htmlToMarkdown(html)
+      const { markdown: md } = htmlToMarkdown(html)
       expect(md).toBe('Visible text')
-    })
-
-    it('drops inline images instead of inlining a base64 blob (image-paste-to-asset-upload is #2449, not this)', () => {
-      const html =
-        '<p>Before</p><img src="data:image/png;base64,AAAA" alt="screenshot"><p>After</p>'
-      const md = htmlToMarkdown(html)
-      expect(md).not.toContain('data:image')
-      expect(md).not.toContain('![')
-      expect(md).toContain('Before')
-      expect(md).toContain('After')
     })
 
     it('strips a leaked CF_HTML clipboard header (Version:/StartFragment:/...) ahead of the markup', () => {
@@ -104,7 +158,7 @@ describe('htmlToMarkdown', () => {
         'Version:1.0\r\nStartHTML:0000000105\r\nEndHTML:0000000305\r\n' +
         'StartFragment:0000000141\r\nEndFragment:0000000269\r\n' +
         '<html><body><!--StartFragment--><p>hello <strong>world</strong></p><!--EndFragment--></body></html>'
-      const md = htmlToMarkdown(html)
+      const { markdown: md } = htmlToMarkdown(html)
       expect(md).toBe('hello **world**')
       expect(md).not.toContain('Version:')
       expect(md).not.toContain('StartFragment:')
@@ -129,7 +183,7 @@ describe('htmlToMarkdown', () => {
         <!--EndFragment-->
         </body></html>
       `
-      const md = htmlToMarkdown(html)
+      const { markdown: md } = htmlToMarkdown(html)
       expect(md).not.toContain('font-family')
       expect(md).not.toContain('margin: 0px')
       expect(md).toContain('Meeting Notes')
@@ -145,7 +199,7 @@ describe('htmlToMarkdown', () => {
 
   it('collapses runs of blank lines and trims trailing whitespace per line', () => {
     const html = '<p>One</p>\n\n\n\n<p>Two   </p>'
-    const md = htmlToMarkdown(html)
+    const { markdown: md } = htmlToMarkdown(html)
     expect(md).not.toMatch(/\n{3,}/)
     expect(md).not.toMatch(/ +\n/)
     expect(md.startsWith('\n')).toBe(false)

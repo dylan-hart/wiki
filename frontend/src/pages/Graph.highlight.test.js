@@ -7,9 +7,10 @@ import { FIXTURE_GRAPH, mountGraph } from './graphFixtures.js'
  * The render/highlight half of Feature #2414's keyword search (OpenProject #2480) -- distinct from
  * the existing `activeFilters` tests: a keyword match must never remove a node from `nodes.value`
  * (that's what would make it a filter), only change `highlightedNodeIds`. The keyword INPUT and its
- * wiring to `GET sites/:siteId/pages/search` are OpenProject #2478/#2479's own scope, still
- * unimplemented as of this WP -- so these tests drive `keywordMatches` directly, the seam those two
- * Tasks are expected to populate.
+ * wiring to `GET sites/:siteId/pages/search` are OpenProject #2478/#2479's own scope -- as of #2508,
+ * `searchKeyword()` is what actually populates `keywordMatches` in production, but this suite still
+ * drives it directly to isolate the highlight-computation half from the fetch/debounce half (which
+ * `Graph.keywordSearch.test.js` and `Graph.keywordIntegration.test.js` cover on their own).
  */
 describe('Graph.vue keyword highlight (OpenProject #2480)', () => {
   it('starts with no active highlight -- an empty keywordMatches yields an empty highlightedNodeIds', async () => {

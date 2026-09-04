@@ -9,7 +9,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
-import { collectBlockLocaleEntries, diffBlockLocaleKeys } from './blockLocaleKeys.ts'
+import {
+  collectBlockLocaleEntries,
+  diffBlockLocaleKeys,
+  findVueI18nHazards
+} from './blockLocaleKeys.ts'
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..')
 
@@ -84,6 +88,89 @@ export class B extends LitElement {
 `
     })
     assert.throws(() => collectBlockLocaleEntries(dir), /block-bad/)
+  })
+
+  it('throws naming the block and key when a description has an empty vue-i18n placeholder', () => {
+    const dir = makeFixtureBlocksDir({
+      'block-hazard': `import { LitElement } from 'lit'
+export class H extends LitElement {
+  static definition = {
+    block: 'hazard',
+    name: 'Hazard',
+    description: 'Uses a literal command — \\\\ce{} here.',
+    icon: 'x'
+  }
+}
+`
+    })
+    assert.throws(
+      () => collectBlockLocaleEntries(dir),
+      /block-hazard.*blocks\.hazard\.description/s
+    )
+  })
+
+  it('throws naming the block and key when a prop hint has unbalanced braces', () => {
+    const dir = makeFixtureBlocksDir({
+      'block-hazard2': `import { LitElement } from 'lit'
+export class H extends LitElement {
+  static definition = {
+    block: 'hazard2',
+    name: 'Hazard2',
+    icon: 'x',
+    props: [ { name: 'url', type: 'string', label: 'URL', hint: 'Ends with a stray { brace.' } ]
+  }
+}
+`
+    })
+    assert.throws(
+      () => collectBlockLocaleEntries(dir),
+      /block-hazard2.*blocks\.hazard2\.props\.url\.hint/s
+    )
+  })
+
+  it('does not flag a well-formed named interpolation like {url}', () => {
+    const dir = makeFixtureBlocksDir({
+      'block-ok': `import { LitElement } from 'lit'
+export class O extends LitElement {
+  static definition = {
+    block: 'ok',
+    name: 'OK',
+    description: 'Fetches content from {url}.',
+    icon: 'x'
+  }
+}
+`
+    })
+    assert.doesNotThrow(() => collectBlockLocaleEntries(dir))
+  })
+})
+
+describe('findVueI18nHazards', () => {
+  it('finds nothing wrong with plain text or a well-formed {identifier} interpolation', () => {
+    assert.deepEqual(findVueI18nHazards('A plain description.'), [])
+    assert.deepEqual(findVueI18nHazards('Fetches content from {url}.'), [])
+  })
+
+  it('flags an empty interpolation placeholder', () => {
+    assert.deepEqual(findVueI18nHazards('Uses \\ce{} and \\pu{}.'), ['empty interpolation `{}`'])
+  })
+
+  it('flags unbalanced braces', () => {
+    assert.deepEqual(findVueI18nHazards('Ends with a stray { brace.'), ['unbalanced `{`/`}`'])
+    assert.deepEqual(findVueI18nHazards('Ends with a stray } brace.'), ['unbalanced `{`/`}`'])
+  })
+
+  it('flags linked-message @: syntax', () => {
+    assert.deepEqual(findVueI18nHazards('See @:common.actions.apply.'), [
+      'linked-message `@:` syntax'
+    ])
+  })
+
+  it('can report more than one hazard on the same string', () => {
+    assert.deepEqual(findVueI18nHazards('Bad {} and @:x too'), [
+      'empty interpolation `{}`',
+      'linked-message `@:` syntax'
+    ])
   })
 })
 

@@ -3,80 +3,113 @@
     <w-header>
       <header-nav />
     </w-header>
-    <w-page-container class="layout-profile">
+    <!--
+      OpenProject #2510: the same FileManager-dialog treatment #2502 gave Inbox. `/_profile/*` stays a
+      set of real, bookmarkable routes rather than moving onto the shared `MainOverlayDialog`/
+      `siteStore.overlay` mechanism, but the card now lives inside a real, non-persistent `<w-dialog>`
+      that is open for as long as this layout is mounted -- reproducing `MainOverlayDialog`'s blurred
+      backdrop rather than sitting in a plain scrolling page. `.layout-profile` moves here from the old
+      `w-page-container` for exactly that reason: it is what the stylesheet below styles the dialog's
+      own backdrop/panel through.
+    -->
+    <w-dialog
+      :model-value="dialogOpen"
+      class="layout-profile"
+      :aria-label="t('profile.title')"
+      @update:model-value="onDialogUpdate">
       <div class="layout-profile-card">
         <!--
-          Below 900px the section list is a disclosure rather than a column beside the content: even shrunk
-          to its own labels it is ~240px, and on a phone the fixed 300px of it left the content overflowing
-          the card and clipped at the edge of the screen. Closed to start with, and it names the section
-          being read -- so the bar that opens the nav is also what says where in the profile the reader is.
+          FileManager's own header language (OpenProject #2415/#2502): a dark `.card-header` band, an
+          icon plus title on the left, and a single white/grey-7 push button on the right. Profile had
+          no Close or Back affordance of any kind before this -- see the WP description.
         -->
-        <w-btn
-          v-if="isNavCollapsed"
-          class="layout-profile-navbtn"
-          flat
-          no-caps
-          :icon="currentSection.icon"
-          :label="currentSection.label"
-          :aria-expanded="state.navOpen"
-          @click="toggleNav">
-          <w-icon
-            class="layout-profile-navchevron"
-            :class="{ 'is-open': state.navOpen }"
-            name="mdi:chevron-down" />
-        </w-btn>
-        <div class="layout-profile-sd" v-show="!isNavCollapsed || state.navOpen">
-          <w-list>
-            <template v-for="navItem of sidenav" :key="navItem.key">
-              <w-item
-                v-if="!navItem.disabled || flagsStore.experimental"
-                clickable
-                :to="`/_profile/` + navItem.key"
-                active-class="is-active"
-                :disabled="navItem.disabled">
-                <w-item-section side>
-                  <w-icon :name="navItem.icon" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ navItem.label }}</w-item-label>
-                </w-item-section>
-              </w-item>
-            </template>
-            <template v-if="flagsStore.experimental">
+        <w-header class="layout-profile-hdr card-header px-4 py-2">
+          <w-icon name="la:user-circle" left size="md" />
+          <span>{{ t('profile.title') }}</span>
+          <w-space />
+          <w-btn-group>
+            <w-btn
+              push
+              color="white"
+              text-color="grey-7"
+              :label="t('common.actions.close')"
+              :aria-label="t('common.actions.close')"
+              icon="la:times"
+              @click="close" />
+          </w-btn-group>
+        </w-header>
+        <div class="layout-profile-body">
+          <!--
+            Below 900px the section list is a disclosure rather than a column beside the content: even
+            shrunk to its own labels it is ~240px, and on a phone the fixed 300px of it left the content
+            overflowing the card and clipped at the edge of the screen. Closed to start with, and it
+            names the section being read -- so the bar that opens the nav is also what says where in
+            the profile the reader is.
+          -->
+          <w-btn
+            v-if="isNavCollapsed"
+            class="layout-profile-navbtn"
+            flat
+            no-caps
+            :icon="currentSection.icon"
+            :label="currentSection.label"
+            :aria-expanded="state.navOpen"
+            @click="toggleNav">
+            <w-icon
+              class="layout-profile-navchevron"
+              :class="{ 'is-open': state.navOpen }"
+              name="mdi:chevron-down" />
+          </w-btn>
+          <div class="layout-profile-sd" v-show="!isNavCollapsed || state.navOpen">
+            <w-list>
+              <template v-for="navItem of sidenav" :key="navItem.key">
+                <w-item
+                  v-if="!navItem.disabled || flagsStore.experimental"
+                  clickable
+                  :to="`/_profile/` + navItem.key"
+                  active-class="is-active"
+                  :disabled="navItem.disabled">
+                  <w-item-section side>
+                    <w-icon :name="navItem.icon" />
+                  </w-item-section>
+                  <w-item-section>
+                    <w-item-label>{{ navItem.label }}</w-item-label>
+                  </w-item-section>
+                </w-item>
+              </template>
+              <template v-if="flagsStore.experimental">
+                <w-separator inset spaced="sm" />
+                <w-item clickable :to="`/_user/` + userStore.id">
+                  <w-item-section side>
+                    <w-icon name="la:id-card" />
+                  </w-item-section>
+                  <w-item-section>
+                    <w-item-label>{{ t('profile.viewPublicProfile') }}</w-item-label>
+                  </w-item-section>
+                </w-item>
+              </template>
               <w-separator inset spaced="sm" />
-              <w-item clickable :to="`/_user/` + userStore.id">
+              <w-item clickable @click="userStore.logout()">
                 <w-item-section side>
-                  <w-icon name="la:id-card" />
+                  <w-icon name="la:sign-out-alt" color="negative" />
                 </w-item-section>
                 <w-item-section>
-                  <w-item-label>{{ t('profile.viewPublicProfile') }}</w-item-label>
+                  <w-item-label class="text-negative">{{ t('common.header.logout') }}</w-item-label>
                 </w-item-section>
               </w-item>
-            </template>
-            <w-separator inset spaced="sm" />
-            <w-item clickable @click="userStore.logout()">
-              <w-item-section side>
-                <w-icon name="la:sign-out-alt" color="negative" />
-              </w-item-section>
-              <w-item-section>
-                <w-item-label class="text-negative">{{ t('common.header.logout') }}</w-item-label>
-              </w-item-section>
-            </w-item>
-          </w-list>
+            </w-list>
+          </div>
+          <router-view />
         </div>
-        <router-view />
       </div>
-      <w-footer>
-        <footer-nav />
-      </w-footer>
-    </w-page-container>
+    </w-dialog>
     <main-overlay-dialog />
   </w-layout>
 </template>
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
@@ -87,7 +120,6 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import HeaderNav from '@/components/HeaderNav.vue'
-import FooterNav from '@/components/FooterNav.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 
 // STORES
@@ -115,6 +147,45 @@ useMeta(() => {
     titleTemplate: (title) => `${title} - ${t('profile.title')} - ${siteTitle}`
   }
 })
+
+// DIALOG
+
+/**
+ * Open for as long as this layout is mounted -- there is nothing else on `/_profile/*` for the
+ * dialog to be an alternative TO, it is simply this route's own chrome (OpenProject #2510, following
+ * #2502's decided mechanism for Inbox). One-way bound on purpose: `onDialogUpdate` below reacts to a
+ * dismissal by navigating away rather than by flipping this back to `false` itself, since leaving
+ * `/_profile` unmounts the layout (and the dialog with it) anyway.
+ */
+const dialogOpen = ref(true)
+
+// -> Where "Close" returns to. Captured once, in onMounted rather than read fresh at click time --
+//    this layout's own route component is shared by every `/_profile/*` child (see router/routes.js),
+//    so Vue Router reuses the same instance across those child routes and onMounted only fires again
+//    on a real re-entry from outside `/_profile`. Reading history state at click time instead would
+//    drift to whatever profile section the reader last switched to. Same fallback idiom as
+//    `InboxLayout`'s own `returnPath` (itself following Index.vue/Search.vue's goBack()): no captured
+//    history (a direct/bookmarked/emailed link) goes home instead.
+const returnPath = ref('/')
+
+onMounted(() => {
+  const back = window.history.state?.back
+  returnPath.value = typeof back === 'string' ? back : '/'
+})
+
+function close() {
+  router.push(returnPath.value)
+}
+
+/**
+ * The dialog is deliberately not `persistent`: Escape and a backdrop click both close it the same way
+ * the Close button does, since there is no unsaved state here to protect.
+ */
+function onDialogUpdate(value) {
+  if (!value) {
+    close()
+  }
+}
 
 // DATA
 
@@ -181,6 +252,13 @@ const state = reactive({
  * This layout's own breakpoint rather than one of the app's: it is the width at which a nav column shrunk
  * to its own labels (~240px, see the stylesheet) is still more than the content can spare. The stylesheet
  * has to agree with it — `$nav-collapse-max` is the same boundary from the other side.
+ *
+ * -> Keyed off the BROWSER viewport, not this dialog panel's own rendered width (OpenProject #2510).
+ *    The panel is sized to keep the two agreeing at ordinary window widths -- see the dialog sizing
+ *    comment in the stylesheet below for the roughly 900-960px-wide window range where they can drift
+ *    apart. Making this container-aware instead would need a ResizeObserver on the panel itself rather
+ *    than `useMinWidth`'s shared `matchMedia`, which is a rewrite of this layout's own responsive
+ *    design, not chrome parity with Inbox -- out of scope for this pass.
  */
 const isAtLeast900 = useMinWidth(900)
 const isNavCollapsed = computed(() => !isAtLeast900.value)
@@ -236,62 +314,40 @@ function toggleNav() {
 $nav-collapse-max: 899.98px;
 $nav-shrink-max: 1199.98px;
 
+/*
+  Ported from the Quasar dialog internals onto WDialog's own structure, same as `.main-overlay` in
+  MainLayout.vue -- reproduced here as a local rule rather than shared, since `.main-overlay` also
+  carries full-screen-overlay-specific viewport padding and a `.w-dialog-panel` gradient tuned for
+  FileManager, neither of which this modal wants (OpenProject #2510, mirroring #2502's InboxLayout).
+*/
 .layout-profile {
-  @at-root .body--light & {
-    background-color: $grey-3;
-  }
-  @at-root .body--dark & {
-    background-color: $dark-6;
+  > .w-dialog-backdrop {
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px) saturate(180%);
   }
 
-  &:before {
-    content: '';
-    height: 350px;
-    position: fixed;
-    top: 0;
-    width: 100%;
-    background: radial-gradient(ellipse at bottom, $dark-3, $dark-6);
-    border-bottom: 1px solid #fff;
-
-    @at-root .body--dark & {
-      border-bottom-color: $dark-3;
-    }
-  }
-
-  &:after {
-    content: '';
-    height: 1px;
-    position: fixed;
-    top: 64px;
-    width: 100%;
-    background: linear-gradient(
-      to right,
-      transparent 0%,
-      rgba(255, 255, 255, 0.1) 50%,
-      transparent 100%
-    );
+  /*
+    Comfortably smaller than FileManager's `full-width full-height` -- account settings forms and a
+    handful of list rows need far less room than a folder tree plus table. Wider/taller than Inbox's
+    900x620 (OpenProject #2502): this card's two-column settings rows, plus its own left rail, want
+    more room than Inbox's two short lists. Capped by viewport fraction rather than a bare pixel pair
+    so a small window still gets full margins instead of overflowing.
+  */
+  > .w-dialog-viewport > .w-dialog-panel {
+    width: 1100px;
+    max-width: 92vw;
+    height: 760px;
+    max-height: 82vh;
   }
 
   &-card {
-    position: relative;
-    width: 90%;
-    max-width: 1400px;
-    margin: 50px auto;
-    box-shadow: $shadow-2;
-    border-radius: 7px;
     display: flex;
-    align-items: stretch;
-    /*
-      No height of its own. The card is a flex item of the scrolling page container, which grows it
-      into the height left over beside its 50px margins and lets it grow past that with its content --
-      so both the "short page, card fills the window" and "long page, card extends and scrolls" cases
-      fall out of the parent.
-
-      It used to say `min-height: calc(100% - 100px)`, subtracting those margins from the box by hand
-      (itself the successor to a per-page `style-fn` that computed `height - 100 - offset` in JS). That
-      is what a percentage cannot do once a footer shares the box: 100% is the WHOLE of it, footer
-      included, so the card claimed the footer's height too and its own content spilled out the bottom.
-    */
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    // -> Clips the header and body below to the panel's own rounded corners regardless of their own
+    //    radius (or lack of one), the same trick InboxLayout's card relies on for the same reason.
+    overflow: hidden;
 
     /*
       A foreground to go with the background.
@@ -311,10 +367,23 @@ $nav-shrink-max: 1199.98px;
     }
   }
 
+  &-hdr {
+    flex: 0 0 auto;
+  }
+
+  &-body {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: stretch;
+    // -> The panel above is a fixed box now rather than a page that grows with its content, so
+    //    whatever doesn't fit has to scroll internally -- see `.w-page` below, which is where that
+    //    scroll actually happens (the rail scrolls too, but rarely needs to: six items fit easily).
+    overflow: hidden;
+  }
+
   &-sd {
     flex: 0 0 300px;
-    border-radius: 8px 0 0 8px;
-    overflow: hidden;
+    overflow-y: auto;
 
     @at-root .body--light & {
       background-color: $grey-1;
@@ -360,6 +429,7 @@ $nav-shrink-max: 1199.98px;
 
   .w-page {
     flex: 1 1;
+    overflow-y: auto;
 
     @at-root .body--light & {
       border-left: 1px solid #fff;
@@ -416,39 +486,31 @@ $nav-shrink-max: 1199.98px;
   }
 
   /*
-    THREE NARROWER LAYOUTS
-    ======================
+    TWO NARROWER LAYOUTS
+    =====================
 
-    This card is a sheet floating in a tinted page -- 90% of the width, 50px of gutter all round -- with a
-    300px nav column down its left side. Both of those are pitched for a desktop window, and they give out
-    at three different widths, so the card gives them up one at a time rather than all at once:
+    This card is a fixed box (see the panel sizing above) with a 300px nav column down its left side --
+    pitched for a desktop window, and it gives that up at two different widths, one at a time rather
+    than all at once:
 
-      below 1200px   the nav column stops being 300px wide and shrinks to its own labels, and the card's
-                     gutters halve -- both of which hand the content back the width it is running out of
+      below 1200px   the nav column stops being 300px wide and shrinks to its own labels, which hands
+                     the content back the width it is running out of
       below 900px    the nav column goes altogether and becomes a disclosure above the content, because
-                     even shrunk to its labels it is ~240px that the content needs more; the settings rows
-                     are still two columns here, which is the point of taking the nav out rather than
-                     stacking them
-      below 600px    the card stops being a sheet and becomes the screen, and the rows stack
+                     even shrunk to its labels it is ~240px that the content needs more; the settings
+                     rows are still two columns here, which is the point of taking the nav out rather
+                     than stacking them
 
     Ordered narrowest-last, so each block overrides the one above it where the two speak about the same
     property. `$nav-*-max` are this layout's own -- deliberately not in `_palette.scss`, which is for
     breakpoints the whole app shares: these two describe when THIS card runs out of room, which is a
-    function of its own nav column and of nothing else.
+    function of its own nav column and of nothing else. A third, sub-600px tier used to make the card
+    become the screen itself (full-bleed, square corners) when this was a plain scrolling page; the
+    dialog now controls sizing uniformly across every width instead (OpenProject #2510), so that tier
+    is gone and the settings-row-stacking rule it used to share space with lives in its own query below.
   */
 
-  /* --- Below 1200px: the nav gives up its fixed width, the card gives up half its gutters ----------- */
+  /* --- Below 1200px: the nav gives up its fixed width -------------------------------------------- */
   @media (max-width: $nav-shrink-max) {
-    /*
-      Halved from `90% / 50px`. Deliberately not bracketed to the 900-1200 band: below 900 the gutters
-      would otherwise JUMP back to the wider pair as the window narrows, which is the one thing a reader
-      resizing a window would actually notice.
-    */
-    &-card {
-      width: 95%;
-      margin: 25px auto;
-    }
-
     /* -> `auto` basis: the column is as wide as its longest label needs, instead of 300px regardless */
     &-sd {
       flex: 0 0 auto;
@@ -457,17 +519,13 @@ $nav-shrink-max: 1199.98px;
 
   /* --- Below 900px: the nav is a disclosure above the content ------------------------------------- */
   @media (max-width: $nav-collapse-max) {
-    &-card {
+    &-body {
       flex-direction: column;
     }
 
-    /*
-      The disclosure's bar. Full width, with the chevron pushed to the far end from the label, and the
-      card's own top corners -- it is the top of the card now, so it is what has to be rounded to it.
-    */
+    /* -> The disclosure's bar. Full width, with the chevron pushed to the far end from the label. */
     &-navbtn {
       justify-content: space-between;
-      border-radius: 7px 7px 0 0;
 
       @at-root .body--light & {
         background-color: $grey-1;
@@ -494,14 +552,13 @@ $nav-shrink-max: 1199.98px;
     }
 
     /*
-      The nav, no longer a column at all: the width of the card, with the seam that divided the two columns
-      moving from its right edge to its bottom one. Per theme, because that is where the rules being
-      replaced are declared -- at three classes each, which a plain override here would lose to.
+      The nav, no longer a column at all: the width of the card, with the seam that divided the two
+      columns moving from its right edge to its bottom one. Per theme, because that is where the rules
+      being replaced are declared -- at three classes each, which a plain override here would lose to.
     */
     &-sd {
       flex: none;
       width: 100%;
-      border-radius: 0;
 
       @at-root .body--light & {
         border-right: 0;
@@ -526,20 +583,8 @@ $nav-shrink-max: 1199.98px;
     }
   }
 
-  /* --- Below 600px: the card is the screen, and a settings row stacks ----------------------------- */
+  /* --- Below 600px: a settings row stacks ---------------------------------------------------------- */
   @media (max-width: $breakpoint-xs-max) {
-    &-card {
-      width: 100%;
-      margin: 0;
-      border-radius: 0;
-      box-shadow: none;
-    }
-
-    /* -> Nothing left to round: the card's own corners are square here */
-    &-navbtn {
-      border-radius: 0;
-    }
-
     /*
       A settings row stacks: its label and its field are two MAIN sections, which share the row's width
       equally -- 175px each on this screen, too narrow for either. The field takes a line of its own under
@@ -570,7 +615,4 @@ $nav-shrink-max: 1199.98px;
 body.body--dark {
   background-color: $dark-6;
 }
-
-// -> The `.q-footer .q-bar` rule that used to sit here never matched: FooterNav renders
-//    `.site-footer`, never a q-bar. The footer's own colours live in FooterNav's scoped style.
 </style>

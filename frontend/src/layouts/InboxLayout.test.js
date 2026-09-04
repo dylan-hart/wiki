@@ -15,7 +15,7 @@ import { mountWithApp } from '../../test/mount.js'
 const messages = {
   common: {
     actions: {
-      goback: 'Go Back'
+      close: 'Close'
     }
   },
   inbox: {
@@ -45,6 +45,10 @@ async function mountInboxLayout() {
       }
     },
     stubs: {
+      // -> `w-dialog` teleports its panel to `document.body`; explicit here since supplying any
+      //    `stubs` to `mountWithApp` replaces its own `{ teleport: true }` default rather than
+      //    merging with it -- this keeps the dialog's markup inline and findable off `wrapper`.
+      teleport: true,
       HeaderNav: true,
       MainOverlayDialog: true
     }
@@ -83,21 +87,25 @@ describe('InboxLayout sidenav', () => {
 /**
  * OpenProject #2334: clicking the bell in HeaderNav drops a reader into the Inbox with no way back to
  * whatever page or admin area they were previously viewing. `InboxLayout` now captures the route the
- * reader arrived from, once, on mount -- and offers it back as a "Go Back" button.
+ * reader arrived from, once, on mount -- and offers it back as a Close action.
  *
  * OpenProject #2415 moved that button out of the rail and into a FileManager-style header band (the
  * same `.card-header` + white/grey-7 push-button idiom FileManager uses for its own Close button), so
  * the rail now holds only the two section entries and these assertions target the header instead.
+ *
+ * OpenProject #2502: the button itself now reads "Close" (`common.actions.close`), not "Go Back" --
+ * this is a real `WDialog`, not a hand-rolled page standing in for one -- but the destination it closes
+ * TO is unchanged: the route captured on entry, exactly as "Go Back" used to return to.
  */
-describe('InboxLayout go-back affordance', () => {
-  it('renders a "Go Back" button in the header, not the rail', async () => {
+describe('InboxLayout close affordance', () => {
+  it('renders a "Close" button in the header, not the rail', async () => {
     window.history.pushState({ back: '/admin/dashboard' }, '', '/_inbox/watching')
 
     const wrapper = await mountInboxLayout()
     const railLabels = wrapper.findAll('.layout-inbox-sd .w-item-label').map((el) => el.text())
-    const headerButton = wrapper.find('.layout-inbox-hdr [aria-label="Go Back"]')
+    const headerButton = wrapper.find('.layout-inbox-hdr [aria-label="Close"]')
 
-    expect(railLabels).not.toContain('Go Back')
+    expect(railLabels).not.toContain('Close')
     expect(headerButton.exists()).toBe(true)
   })
 
@@ -111,7 +119,7 @@ describe('InboxLayout go-back affordance', () => {
     await router.push('/_inbox/review')
 
     const pushSpy = vi.spyOn(router, 'push')
-    await wrapper.vm.goBack()
+    await wrapper.vm.close()
 
     expect(pushSpy).toHaveBeenCalledWith('/admin/dashboard')
   })
@@ -123,8 +131,35 @@ describe('InboxLayout go-back affordance', () => {
     const router = wrapper.vm.$router
     const pushSpy = vi.spyOn(router, 'push')
 
-    await wrapper.vm.goBack()
+    await wrapper.vm.close()
 
     expect(pushSpy).toHaveBeenCalledWith('/')
+  })
+})
+
+/**
+ * OpenProject #2502: the inbox is now a real `WDialog` (blurred backdrop, comfortably smaller than
+ * `MainOverlayDialog`'s full-width/full-height FileManager-style overlays), not a plain routed page --
+ * assert the dialog markup that makes it one is actually there.
+ */
+describe('InboxLayout modal dialog chrome', () => {
+  it('renders its content through a WDialog panel, with a blurred backdrop', async () => {
+    const wrapper = await mountInboxLayout()
+
+    expect(wrapper.find('.layout-inbox.w-dialog-root--open').exists()).toBe(true)
+    expect(wrapper.find('.w-dialog-backdrop').exists()).toBe(true)
+    expect(wrapper.find('.w-dialog-panel .layout-inbox-card').exists()).toBe(true)
+  })
+
+  it('is not persistent, so dismissing the dialog (Escape/backdrop click) closes it the same way as the Close button', async () => {
+    window.history.pushState({ back: '/admin/dashboard' }, '', '/_inbox/watching')
+
+    const wrapper = await mountInboxLayout()
+    const router = wrapper.vm.$router
+    const pushSpy = vi.spyOn(router, 'push')
+
+    await wrapper.find('.w-dialog-backdrop').trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/admin/dashboard')
   })
 })

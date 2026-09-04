@@ -1,9 +1,35 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BlockIndexElement } from './component.js'
 import { _resetSiteCache } from '../shared/site.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } from '../test/mount.js'
+
+/**
+ * Relative luminance / WCAG contrast ratio for a `#rrggbb` hex color, per the same formula the spec
+ * (OpenProject #2501) cites. Kept local to this one test rather than promoted to `blocks/shared/` or
+ * `blocks/test/` -- this is the only call site so far; a second one should pull it out then.
+ */
+function relativeLuminance(hex) {
+  const channel = (value) => {
+    const c = value / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+}
+
+function contrastRatio(hexA, hexB) {
+  const lA = relativeLuminance(hexA)
+  const lB = relativeLuminance(hexB)
+  const [lighter, darker] = lA >= lB ? [lA, lB] : [lB, lA]
+  return (lighter + 0.05) / (darker + 0.05)
+}
 
 function stubPage(overrides = {}) {
   return {
@@ -215,6 +241,32 @@ describe('block-index', () => {
   describeDarkMode(() => {
     stubFetch()
     return mountIndex()
+  })
+
+  /**
+   * OpenProject #2501: the description text under a title (`.text span`) used a flat `#666` with no
+   * dark-mode override, computing to roughly 3:1 against the dark card background -- below the WCAG
+   * AA 4.5:1 floor for body text. Reads the color straight out of the source rather than the mounted
+   * shadow root: jsdom (unlike a real browser) doesn't run layout/paint, so `getComputedStyle` inside
+   * a shadow root does not reliably resolve a rule's value there.
+   */
+  describe('dark-mode text contrast (OpenProject #2501)', () => {
+    const source = readFileSync(path.join(import.meta.dirname, 'component.js'), 'utf8')
+
+    it('gives .text span a :host([dark]) override meeting 4.5:1 against the dark card background', () => {
+      const match = source.match(/:host\(\[dark]\)\s*\.text span\s*{\s*color:\s*(#[0-9a-fA-F]{6});/)
+      expect(match).not.toBeNull()
+
+      const darkColor = match[1]
+      // -> The card background is a gradient between these two (see the `:host([dark]) li` rule
+      //    above); both ends must clear the AA floor, not just the average.
+      expect(contrastRatio(darkColor, '#161b22')).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(darkColor, '#0d1117')).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it('still fails the light-mode #666 against the dark background (proves the override is load-bearing)', () => {
+      expect(contrastRatio('#666666', '#0d1117')).toBeLessThan(4.5)
+    })
   })
 
   /**

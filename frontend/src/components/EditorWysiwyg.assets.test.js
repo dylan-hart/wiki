@@ -141,6 +141,33 @@ describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => 
       wrapper.unmount()
     })
 
+    it('claims a paste whose files list is empty but items carries the file (OpenProject #2518)', async () => {
+      // -> Cross-browser fallback scenario from OpenProject #2450: a browser can leave
+      //    `clipboardData.files` empty for a real pasted file while still populating `.items`.
+      //    `shouldClaimPaste` correctly detects and claims this paste via `pastedFiles()`'s `.items`
+      //    fallback -- this test proves the file is actually inserted, not silently dropped.
+      const { wrapper, editorStore } = mountEditor('<p></p>')
+      await nextTick()
+      await nextTick()
+      wrapper.vm.editor.commands.setTextSelection(1)
+
+      const file = makeFile('image.png')
+      await wrapper.find('.ProseMirror').trigger('paste', {
+        clipboardData: {
+          files: [],
+          items: [{ kind: 'file', getAsFile: () => file }],
+          types: ['Files'],
+          getData: () => ''
+        }
+      })
+      await nextTick()
+
+      expect(editorStore.pendingAssets).toHaveLength(1)
+      expect(findImageNode(wrapper.vm.editor)?.attrs.alt).toBe('image.png')
+
+      wrapper.unmount()
+    })
+
     it('leaves a plain-text-only paste alone entirely', async () => {
       const { wrapper, editorStore } = mountEditor('<p></p>')
       await nextTick()
@@ -191,6 +218,37 @@ describe('EditorWysiwyg image-paste-to-asset-upload (OpenProject #2449)', () => 
 
       const linked = findLinkTextNode(wrapper.vm.editor)
       expect(linked?.text).toBe('quarterly-report.pdf')
+
+      wrapper.unmount()
+    })
+
+    it('claims a drop whose files list is empty but items carries the file (OpenProject #2518)', async () => {
+      // -> Same cross-browser fallback scenario as the paste test above, on the drop path:
+      //    `hasFiles` claims the drop via `pastedFiles()`'s `.items` fallback, and the actual insert
+      //    must go through the same helper rather than the raw (empty) `dataTransfer.files`.
+      const { wrapper, editorStore } = mountEditor('<p></p>')
+      await nextTick()
+      await nextTick()
+
+      const file = makeFile('quarterly-report.pdf', 'application/pdf')
+      const target = wrapper.find('.ProseMirror')
+      await target.trigger('dragover', {
+        dataTransfer: { files: [], types: ['Files'], getData: () => '' }
+      })
+      await target.trigger('drop', {
+        dataTransfer: {
+          files: [],
+          items: [{ kind: 'file', getAsFile: () => file }],
+          types: ['Files'],
+          getData: () => ''
+        },
+        clientX: 0,
+        clientY: 0
+      })
+      await nextTick()
+
+      expect(editorStore.pendingAssets).toHaveLength(1)
+      expect(editorStore.pendingAssets[0].fileName).toBe('quarterly-report.pdf')
 
       wrapper.unmount()
     })

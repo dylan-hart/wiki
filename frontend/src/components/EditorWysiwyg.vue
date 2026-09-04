@@ -10,7 +10,7 @@
           :icon="menuItem.icon"
           padding="xs"
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
-          :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
+          :color="menuItem.isActive && menuItem.isActive() ? `primary` : inactiveIconColor"
           :aria-label="menuItem.title"
           :disabled="menuItem.disabled && menuItem.disabled()">
           <w-menu>
@@ -44,7 +44,7 @@
             :icon="child.icon"
             padding="xs"
             :class="{ 'is-active': child.isActive && child.isActive() }"
-            :color="child.isActive && child.isActive() ? `primary` : `grey-10`"
+            :color="child.isActive && child.isActive() ? `primary` : inactiveIconColor"
             @click="child.action"
             :aria-label="child.title"
             :disabled="menuItem.disabled && menuItem.disabled()" />
@@ -56,7 +56,7 @@
           :icon="menuItem.icon"
           padding="xs"
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
-          :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
+          :color="menuItem.isActive && menuItem.isActive() ? `primary` : inactiveIconColor"
           @click="menuItem.action"
           :aria-label="menuItem.title"
           :disabled="menuItem.disabled && menuItem.disabled()" />
@@ -72,16 +72,23 @@ import { useI18n } from 'vue-i18n'
 
 import {
   bindCollabEditor,
+  claimWysiwygSeed,
   collabStatusEffects,
   collabUserColor,
   startCollabSession,
   stopCollabSession
 } from '@/composables/collab'
 import { dialog } from '@/composables/dialog'
+import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
 import { assetPath } from '@/helpers/assets'
-import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
+import {
+  hasFiles,
+  pastedFiles,
+  shouldAcceptDrag,
+  shouldClaimPaste
+} from '@/helpers/editorFileTransfer'
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 import { buildMenuBar } from '@/helpers/wysiwygMenuBar'
 
@@ -125,10 +132,20 @@ const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
+const dark = useDark()
 
 // I18N
 
 const { t } = useI18n()
+
+/**
+ * Inactive toolbar-button icon color, per theme (OpenProject #2498). The template hardcoded
+ * `grey-10` (near-black, `#212121`) for every non-active menu entry, which is not itself a
+ * theme-aware CSS custom property -- so once the toolbar's own background below picks up a dark
+ * variant, an unchanged `grey-10` icon would go all but invisible against it. `grey-6` matches the
+ * tone `EditorMarkdown.vue`'s own dark preview toolbar already uses on the same `$dark-2` panel.
+ */
+const inactiveIconColor = computed(() => (dark.isActive ? 'grey-6' : 'grey-10'))
 
 // COMPUTED
 
@@ -343,20 +360,20 @@ function init() {
  * one. This editor gets its own root type on the *same* shared `Y.Doc` instead (`ytext.doc`, which
  * Yjs sets once a root type is first read off a document): same room, same participants, same
  * header-field and save-notification wiring, independent content type.
+ *
+ * Async since OpenProject #2516: the editor swap itself still happens synchronously, exactly as
+ * before, but seeding an empty fragment now waits on `claimWysiwygSeed()` first -- see that
+ * function's own doc comment for why. The caller (`bindCollabEditor`'s factory below) deliberately
+ * does not return this function's promise, so `bindCollabEditor`'s own `binding` bookkeeping -- which
+ * expects either a real teardown object or a falsy value -- never mistakes it for one.
  */
-function swapToCollabEditor(ytext, awareness) {
+async function swapToCollabEditor(ytext, awareness) {
   const fragment = ytext.doc.getXmlFragment('wysiwygBody')
   /*
     Nobody has written to this field yet -- either this is the first person to open the page
     collaboratively, or the room emptied out since. Either way, what this editor was just showing
     (the page's saved content) becomes the room's starting state, the same way `core/collab.ts`'s
-    `buildSeed()` seeds a fresh room's markdown field from `page.content` server-side. That seeding is
-    deliberately server-side and coordinated across instances (see its own doc comment) because a Yjs
-    document cannot safely be seeded twice; this field has no equivalent coordination, so two people
-    opening a brand new room in the same instant could both seed at once and end up with the content
-    duplicated. Accepted as a narrow, unlikely race rather than reason to hold this WP for a matching
-    server-side seed path, which would need the backend to carry its own copy of this editor's
-    ProseMirror schema just to build one.
+    `buildSeed()` seeds a fresh room's markdown field from `page.content` server-side.
   */
   const seedContent = fragment.length === 0 ? editor.value.getJSON() : null
   const previousEditor = editor.value
@@ -378,7 +395,22 @@ function swapToCollabEditor(ytext, awareness) {
   })
   previousEditor.destroy()
 
-  if (seedContent) {
+  if (!seedContent) {
+    return
+  }
+
+  /*
+    Ask the room's server-side coordinator before actually writing anything (OpenProject #2516):
+    `fragment.length === 0` above only proves nobody had written to THIS client's own copy of the
+    shared document yet, which is exactly what used to race -- two people opening a brand new room's
+    WYSIWYG editor at the same instant would both see it empty and both seed, duplicating the content
+    once the two replicas merged. `claimWysiwygSeed` grants at most one caller across the whole
+    cluster, and never sees this editor's ProseMirror JSON at all -- only a boolean crosses that call.
+    `fragment.length` is re-checked after the round trip in case the room's real content (a peer's own
+    seed, or a draft restore) already landed while this one was in flight.
+  */
+  const granted = await claimWysiwygSeed({ siteId: siteStore.id, pageId: pageStore.id })
+  if (granted && fragment.length === 0) {
     // -> `emitUpdate: false`: nothing changed that `pageStore` doesn't already have from the interim
     //    editor above -- `y-tiptap`'s sync plugin observes the dispatched transaction regardless of
     //    the TipTap-level "update" event this flag gates.
@@ -514,7 +546,7 @@ function handlePaste(view, event) {
     return false
   }
   event.preventDefault()
-  insertFilesAsAssets([...event.clipboardData.files], { generateUniqueName: true })
+  insertFilesAsAssets(pastedFiles(event.clipboardData), { generateUniqueName: true })
   return true
 }
 
@@ -542,7 +574,7 @@ function handleDrop(view, event) {
   //    when the point is off the document (or, as in a test, when nothing has actually laid out) --
   //    `insertFilesAsAssets` falls back to the current selection rather than crash on a null position.
   const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
-  insertFilesAsAssets([...event.dataTransfer.files], { position: coords?.pos ?? null })
+  insertFilesAsAssets(pastedFiles(event.dataTransfer), { position: coords?.pos ?? null })
   return true
 }
 
@@ -651,7 +683,14 @@ onMounted(() => {
     (status) => {
       const effects = collabStatusEffects(status, collabStore.hasSynced)
       if (effects.shouldBindEditor) {
-        bindCollabEditor((ytext, awareness) => swapToCollabEditor(ytext, awareness))
+        // -> Not `(ytext, awareness) => swapToCollabEditor(ytext, awareness)`: `swapToCollabEditor`
+        //    is async now (OpenProject #2516), and `bindCollabEditor` treats its factory's return
+        //    value as a real teardown object to keep (or a falsy value if there is none) -- an
+        //    implicitly-returned Promise would be mistaken for one and later have `.destroy()`
+        //    called on it. This form fires it and deliberately returns nothing.
+        bindCollabEditor((ytext, awareness) => {
+          swapToCollabEditor(ytext, awareness)
+        })
       }
       editor.value.setEditable(!effects.readOnly)
       if (effects.notifyDenied) {
@@ -709,16 +748,37 @@ defineExpose({ editor, menuBar })
 
   .wysiwyg-toolbar {
     border: none;
-    border-bottom: 1px solid $grey-4;
     display: flex;
     align-items: center;
     padding: 4px;
-    background: linear-gradient(to top, $grey-1 0%, #fff 100%);
+
+    /*
+      OpenProject #2498: this bar had no dark-mode treatment at all, so it stayed a bright white/grey
+      band regardless of theme. Dark values reuse the same `$dark-2`/`$dark-1` panel-and-border pair
+      `EditorMarkdown.vue`'s own dark preview toolbar uses -- the closest sibling shape, even though
+      this toolbar (formatting buttons, not a rendered preview) has no exact structural twin.
+    */
+    @at-root .body--light & {
+      background: linear-gradient(to top, $grey-1 0%, #fff 100%);
+      border-bottom: 1px solid $grey-4;
+    }
+    @at-root .body--dark & {
+      background: linear-gradient(to top, $dark-3 0%, $dark-2 100%);
+      border-bottom: 1px solid $dark-1;
+    }
   }
 
   .ProseMirror {
     padding: 16px;
     min-height: 75vh;
+
+    /*
+      The typed content itself, so a dark toolbar above isn't paired with the default (black-on-
+      whatever's-behind-it) text the rest of this rule otherwise never sets a color for.
+    */
+    @at-root .body--dark & {
+      color: rgba(255, 255, 255, 0.87);
+    }
 
     &-focused {
       border: none;
@@ -746,6 +806,11 @@ defineExpose({ editor, menuBar })
     code {
       background-color: rgba(#616161, 0.1);
       color: #616161;
+
+      @at-root .body--dark & {
+        background-color: rgba(255, 255, 255, 0.08);
+        color: $grey-4;
+      }
     }
 
     pre {
@@ -771,12 +836,20 @@ defineExpose({ editor, menuBar })
     blockquote {
       padding-left: 1rem;
       border-left: 2px solid rgba(#0d0d0d, 0.1);
+
+      @at-root .body--dark & {
+        border-left-color: rgba(255, 255, 255, 0.2);
+      }
     }
 
     hr {
       border: none;
       border-top: 2px solid rgba(#0d0d0d, 0.1);
       margin: 2rem 0;
+
+      @at-root .body--dark & {
+        border-top-color: rgba(255, 255, 255, 0.2);
+      }
     }
 
     table {
@@ -795,6 +868,10 @@ defineExpose({ editor, menuBar })
         box-sizing: border-box;
         position: relative;
 
+        @at-root .body--dark & {
+          border-color: $dark-1;
+        }
+
         > * {
           margin-bottom: 0;
         }
@@ -804,6 +881,10 @@ defineExpose({ editor, menuBar })
         font-weight: bold;
         text-align: left;
         background-color: #f1f3f5;
+
+        @at-root .body--dark & {
+          background-color: $dark-2;
+        }
       }
 
       .selectedCell:after {
@@ -859,6 +940,10 @@ defineExpose({ editor, menuBar })
       color: #ced4da;
       pointer-events: none;
       height: 0;
+
+      @at-root .body--dark & {
+        color: rgba(255, 255, 255, 0.35);
+      }
     }
 
     /*

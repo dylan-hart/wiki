@@ -2,7 +2,7 @@
  * The tag and locale values a viewer can filter the graph by, derived from whichever nodes are
  * currently loaded — no separate endpoint (OpenProject #875's design). Folder depth has no
  * discrete "options" list the way tags/locale do (it's a numeric range), so it isn't part of this
- * function; `Graph.vue`'s folder-depth control just clamps against the graph's max folder depth.
+ * function; see `deriveMaxFolderDepth` below for the graph's actual max folder depth instead.
  */
 export function deriveFilterOptions(nodes) {
   const tags = new Set()
@@ -19,6 +19,43 @@ export function deriveFilterOptions(nodes) {
     tags: [...tags].sort(),
     locales: [...locales].sort()
   }
+}
+
+/**
+ * Mirrors `backend/models/tree.ts`'s `MAX_DEPTH = 10` -- the folder-nesting ceiling
+ * `createFolder`/`moveFolder` enforce there. `frontend/` and `backend/` are independently-installed
+ * workspaces with no shared import path, so this is a hand-kept frontend-side copy, the same
+ * convention `frontend/src/helpers/systemIds.js` already uses for mirroring `backend/base.yml`'s
+ * `systemIds` -- it must be kept in step by hand if the backend value ever changes (OpenProject
+ * #2514/#2520).
+ */
+export const MAX_DEPTH = 10
+
+/**
+ * The deepest folder actually present in `nodes` (OpenProject #2514/#2520's Feature: replacing the
+ * graph's folder-depth number input with a slider) -- reality, capped at the `MAX_DEPTH` ceiling
+ * above, so a graph deep enough to hit it never offers more slots than the reasonable maximum, and
+ * a shallower graph never offers more slots than it could possibly use. Uses the same `path`-based
+ * depth definition `computeVisibleSubset`'s folder-depth filter already applies (`folderDepthOf`
+ * below) -- a root-level page (`path` with no `/`) is depth `0`.
+ *
+ * An empty `nodes` array (nothing loaded yet, or a graph with genuinely zero pages) returns `0` --
+ * indistinguishable, by design, from a real, fully-flat graph. `Graph.vue`'s `actualMaxFolderDepth`
+ * computed wraps this over `allNodes.value` (the full loaded graph, not the currently-filtered
+ * `nodes.value` -- same "narrowing one filter shouldn't shrink another's own range" reasoning
+ * `deriveFilterOptions` above documents), so before the initial graph fetch resolves it also reads
+ * `0`. A caller building a UI control off this value (the depth slider, #2521) must gate on the
+ * page's own loading state rather than trust `0` alone as meaning "this graph has no folders."
+ */
+export function deriveMaxFolderDepth(nodes) {
+  let max = 0
+  for (const node of nodes) {
+    const depth = folderDepthOf(node)
+    if (depth > max) {
+      max = depth
+    }
+  }
+  return Math.min(max, MAX_DEPTH)
 }
 
 /**
@@ -51,6 +88,19 @@ function endpointId(endpoint) {
   return typeof endpoint === 'object' && endpoint !== null ? nodeId(endpoint) : endpoint
 }
 
+// -> Depth is the number of DIRECTORY segments in a node's full `path`, not `node.folder`.
+//    `node.folder` (backend `folderOf()`) is deliberately just the path's first segment, coarse on
+//    purpose for Feature 874's clustering buckets -- it can only ever be "empty" or "non-empty" and
+//    can't distinguish `guides/one` from `guides/deep/two`. The depth filter (and `MAX_DEPTH`/
+//    `deriveMaxFolderDepth` above) is a different concept (progressive reveal by path depth), so it
+//    derives depth from `path` directly: `guides/deep/two` has 2 directory segments (depth 2), a
+//    root-level page like `standalone` has 0 (depth 0). `node.folder` itself stays untouched for
+//    grouping. Module-scope (not local to `computeVisibleSubset`) so `deriveMaxFolderDepth` shares
+//    this one definition rather than re-deriving it.
+function folderDepthOf(node) {
+  return node.path.split('/').length - 1
+}
+
 /**
  * The AND of every active filter (OpenProject #875's design) — a node passes only if it passes
  * every non-empty filter, and an edge survives only if both endpoints do. `null`/`undefined` on
@@ -62,14 +112,6 @@ export function computeVisibleSubset(nodes, edges, filters) {
   const passesTag = (node) =>
     filters.tags.length === 0 || filters.tags.some((t) => node.tags?.includes(t))
   const passesLocale = (node) => !filters.locale || node.locale === filters.locale
-  // -> Depth is the number of DIRECTORY segments in the node's full `path`, not `node.folder`.
-  //    `node.folder` (backend `folderOf()`) is deliberately just the path's first segment, coarse
-  //    on purpose for Feature 874's clustering buckets -- it can only ever be "empty" or
-  //    "non-empty" and can't distinguish `guides/one` from `guides/deep/two`. The depth filter is
-  //    a different concept (progressive reveal by path depth), so it derives depth from `path`
-  //    directly: `guides/deep/two` has 2 directory segments (depth 2), a root-level page like
-  //    `standalone` has 0 (depth 0). `node.folder` itself stays untouched for grouping.
-  const folderDepthOf = (node) => node.path.split('/').length - 1
   const passesFolderDepth = (node) =>
     filters.folderDepth == null || folderDepthOf(node) <= filters.folderDepth
 

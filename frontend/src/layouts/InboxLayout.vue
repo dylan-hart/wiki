@@ -3,15 +3,32 @@
     <w-header>
       <header-nav />
     </w-header>
-    <w-page-container class="layout-inbox">
-      <div class="layout-inbox-card">
-        <!--
-          FileManager's own header language (OpenProject #2415): a dark `.card-header` band, an icon
-          plus title on the left, and a single white/grey-7 push button on the right -- the same
-          close/back idiom FileManager uses for its Close button and NavEditOverlay for Cancel. "Go
-          Back" moves here from the rail below, which is what a FileManager-style overlay would call
-          its close affordance; the rail keeps only the two section entries.
-        -->
+    <w-page-container />
+    <!--
+      OpenProject #2502: the FileManager-styled card this used to hand-roll (a manually drawn dark
+      backdrop plus a plain div playing dialog, moved-in from #2415) looked the part but wasn't a real
+      dialog -- no blurred backdrop, and "Go Back" read as page navigation rather than a dismiss action.
+      This now renders through the same `WDialog` every other overlay in the app uses, just not routed
+      through `MainOverlayDialog`/`siteStore.overlay`: `/_inbox/watching` and `/_inbox/review` stay
+      bookmarkable routes (the reason #2415 gave for not converting to the shared mechanism), and this
+      layout opens its own dialog for as long as one of them is the active route -- "closing" it means
+      navigating away, not the shared mechanism's `siteStore.overlay = null`.
+
+      Deliberately not `persistent`: there is nothing here a reader can lose by dismissing it (two
+      read-only lists), so Escape and a backdrop click both close it exactly like the header's own Close
+      button -- what an actual modal dialog is expected to do, unlike the always-`persistent` overlays
+      `MainOverlayDialog` hosts (those can hold unsaved form state, this never does).
+
+      Sized well under `MainOverlayDialog`'s `full-width full-height` (FileManager's own size): this is
+      two short lists, not a page-filling workspace, so `.layout-inbox-card` below fixes a comfortably
+      smaller width/height instead and scrolls its rail and content internally.
+    -->
+    <w-dialog
+      model-value
+      class="layout-inbox"
+      :aria-label="t('inbox.title')"
+      @update:model-value="close">
+      <w-card class="layout-inbox-card">
         <w-header class="layout-inbox-hdr card-header px-4 py-2">
           <w-icon name="mdi:inbox-full" left size="md" />
           <span>{{ t('inbox.title') }}</span>
@@ -21,10 +38,10 @@
               push
               color="white"
               text-color="grey-7"
-              :label="t('common.actions.goback')"
-              :aria-label="t('common.actions.goback')"
-              icon="la:arrow-circle-left"
-              @click="goBack" />
+              :label="t('common.actions.close')"
+              :aria-label="t('common.actions.close')"
+              icon="la:times"
+              @click="close" />
           </w-btn-group>
         </w-header>
         <div class="layout-inbox-body">
@@ -47,8 +64,8 @@
           </div>
           <router-view />
         </div>
-      </div>
-    </w-page-container>
+      </w-card>
+    </w-dialog>
     <main-overlay-dialog />
   </w-layout>
 </template>
@@ -69,9 +86,11 @@ import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 /**
  * The inbox: what has come in for this user, what they are following, and what is waiting on them.
  *
- * Same shape as the profile layout -- dark backdrop, one card, a rail down its left -- but the card
- * fills the viewport rather than sitting in a column, since these sections are lists to work through
- * rather than a form to read.
+ * The site's own header stays mounted behind it (this layout is still reached by a bookmarkable
+ * `/_inbox/*` route, not opened from wherever the reader happens to be), and the inbox itself opens as
+ * a real `WDialog` over that -- blurred backdrop, a Close button, a size well under a full-screen
+ * overlay's -- rather than a page-filling card standing in for one. See the template comment above for
+ * why this isn't the shared `MainOverlayDialog`/`siteStore.overlay` mechanism instead.
  */
 
 // STORES
@@ -84,7 +103,7 @@ const userStore = useUserStore()
 const router = useRouter()
 const route = useRoute()
 
-// -> Where "Go Back" returns to. Captured once, in onMounted rather than read fresh at click time --
+// -> Where "Close" returns to. Captured once, in onMounted rather than read fresh at click time --
 //    this layout's own route component is shared by both `/_inbox/watching` and `/_inbox/review`
 //    (see router/routes.js), so Vue Router reuses the same instance across those two child routes and
 //    onMounted only fires again on a real re-entry from outside `/_inbox`. Reading history state at
@@ -99,7 +118,11 @@ onMounted(() => {
   returnPath.value = typeof back === 'string' ? back : '/'
 })
 
-function goBack() {
+// -> The dialog's only exit: the header's Close button calls this directly, and it also answers
+//    `WDialog`'s own `update:model-value` event (fired on Escape or a backdrop click, since this
+//    dialog is not `persistent`) -- both dismiss the same way, by navigating back to wherever the
+//    reader came from.
+function close() {
   router.push(returnPath.value)
 }
 
@@ -152,131 +175,111 @@ watch(
 
 <style lang="scss">
 /*
-  The backdrop and the rail are the profile layout's, deliberately: these are the two places in the
-  app a signed in person manages their own things, and they should read as the same place.
-
-  What differs is the card. The profile card is a centred column of forms; this one is a workspace of
-  lists, so it takes the whole viewport less a margin.
+  The blurred backdrop is `MainOverlayDialog`'s own (`.main-overlay > .w-dialog-backdrop` in
+  `MainLayout.vue`), reproduced here rather than shared verbatim: reusing that class outright would
+  also pull in its viewport padding and `.w-dialog-panel` gradient background, both tuned for a
+  full-width/full-height overlay like FileManager, not this dialog's fixed, comfortably smaller size.
 */
 .layout-inbox {
-  // -> Dark in both themes, unlike the profile layout: there is no light half here for a light theme
-  //    to own, so the surface is the same either way
-  background-color: $dark-6;
+  > .w-dialog-backdrop {
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px) saturate(180%);
+  }
+}
 
-  /*
-    The profile layout's gradient, stretched over the whole viewport instead of a band across the top.
-    There it fades into a light page below it, which is what the 350px height and the border were for;
-    with nothing to fade into, both go.
-  */
-  &:before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: radial-gradient(ellipse at bottom, $dark-3, $dark-6);
+.layout-inbox-card {
+  // -> Well under `MainOverlayDialog`'s `full-width full-height` (what FileManager renders at):
+  //    two short lists don't need a page-filling workspace. `max-width`/`max-height` are what keep
+  //    this from overflowing a small viewport the way a bare fixed size would.
+  width: 900px;
+  max-width: 92vw;
+  height: 620px;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  // -> Clips the header and rail below to the dialog panel's own rounded corners (`WDialog` already
+  //    rounds and clips the panel itself, but the header's own background band still needs the same
+  //    treatment at this level so it doesn't square off past that curve).
+  overflow: hidden;
+
+  @at-root .body--light & {
+    background-color: #fff;
+    color: var(--color-black);
+  }
+  @at-root .body--dark & {
+    background-color: $dark-3;
+    color: var(--color-white);
+  }
+}
+
+.layout-inbox-hdr {
+  flex: 0 0 auto;
+}
+
+.layout-inbox-body {
+  flex: 1 1 auto;
+  // -> Lets the rail and the routed content below scroll independently inside the fixed-height card,
+  //    instead of growing it past `max-height` -- see `.w-page` below.
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.layout-inbox-sd {
+  flex: 0 0 260px;
+  overflow-y: auto;
+
+  @at-root .body--light & {
+    background-color: $grey-1;
+    border-right: 1px solid rgba($dark-3, 0.1);
+    box-shadow: inset -1px 0 0 #fff;
+  }
+  @at-root .body--dark & {
+    background-color: $dark-4;
+    border-right: 1px solid rgba(#fff, 0.12);
+    box-shadow: inset -1px 0 0 rgba($dark-6, 0.5);
   }
 
-  &:after {
-    content: '';
-    height: 1px;
-    position: fixed;
-    top: 64px;
-    width: 100%;
-    background: linear-gradient(
-      to right,
-      transparent 0%,
-      rgba(255, 255, 255, 0.1) 50%,
-      transparent 100%
-    );
-  }
+  .w-list .w-item {
+    font-weight: 500;
+    color: $grey-9;
 
-  &-card {
-    position: relative;
-    margin: 16px;
-    box-shadow: $shadow-2;
-    border-radius: 7px;
-    // -> Clips the header and rail below to the card's own rounded corners regardless of their own
-    //    radius (or lack of one) -- the same trick a `w-dialog`'s card relies on for its own
-    //    `.card-header`, now that a header band sits above the sidebar instead of the sidebar itself
-    //    starting flush against the card's top-left corner.
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    // -> No height of its own: the scrolling page container grows this into what is left beside the
-    //    16px margins above, and lets its content take it past that. See `.layout-profile-card`.
-
-    @at-root .body--light & {
-      background-color: #fff;
-      color: var(--color-black);
-    }
     @at-root .body--dark & {
-      background-color: $dark-3;
-      color: var(--color-white);
-    }
-  }
-
-  &-hdr {
-    flex: 0 0 auto;
-  }
-
-  &-body {
-    flex: 1 1 auto;
-    display: flex;
-    align-items: stretch;
-  }
-
-  &-sd {
-    flex: 0 0 300px;
-
-    @at-root .body--light & {
-      background-color: $grey-1;
-      border-right: 1px solid rgba($dark-3, 0.1);
-      box-shadow: inset -1px 0 0 #fff;
-    }
-    @at-root .body--dark & {
-      background-color: $dark-4;
-      border-right: 1px solid rgba(#fff, 0.12);
-      box-shadow: inset -1px 0 0 rgba($dark-6, 0.5);
+      color: rgba(255, 255, 255, 0.75);
     }
 
-    .w-list .w-item {
-      font-weight: 500;
-      color: $grey-9;
+    &.is-active {
+      background: linear-gradient(to bottom, rgba($primary, 0.25), rgba($primary, 0.1));
+      color: $primary;
+
+      // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
+      .w-icon,
+      iconify-icon {
+        color: $primary;
+      }
 
       @at-root .body--dark & {
-        color: rgba(255, 255, 255, 0.75);
-      }
+        color: var(--color-primary-light);
 
-      &.is-active {
-        background: linear-gradient(to bottom, rgba($primary, 0.25), rgba($primary, 0.1));
-        color: $primary;
-
-        // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
         .w-icon,
         iconify-icon {
-          color: $primary;
-        }
-
-        @at-root .body--dark & {
           color: var(--color-primary-light);
-
-          .w-icon,
-          iconify-icon {
-            color: var(--color-primary-light);
-          }
         }
       }
     }
   }
+}
 
-  .w-page {
-    flex: 1 1;
+.layout-inbox-card .w-page {
+  flex: 1 1;
+  min-height: 0;
+  overflow-y: auto;
 
-    @at-root .body--light & {
-      border-left: 1px solid #fff;
-    }
-    @at-root .body--dark & {
-      border-left: 1px solid rgba($dark-6, 0.75);
-    }
+  @at-root .body--light & {
+    border-left: 1px solid #fff;
+  }
+  @at-root .body--dark & {
+    border-left: 1px solid rgba($dark-6, 0.75);
   }
 }
 
