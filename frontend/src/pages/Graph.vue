@@ -133,13 +133,19 @@
         options-dense
         :options="tagOptions"
         :label="t('graph.filters.tags')" />
-      <w-input
-        v-model.number="activeFilters.folderDepth"
-        type="number"
-        min="0"
-        outlined
-        dense
-        :label="t('graph.filters.folderDepth')" />
+      <div class="flex flex-col gap-1">
+        <span class="text-caption opacity-70">{{ t('graph.filters.folderDepth') }}</span>
+        <input
+          v-model.number="folderDepthSlider"
+          type="range"
+          min="0"
+          :max="folderDepthSliderMax"
+          step="1"
+          class="w-full"
+          :aria-label="t('graph.filters.folderDepth')"
+          :aria-valuetext="folderDepthSliderLabel" />
+        <span class="text-caption opacity-70">{{ folderDepthSliderLabel }}</span>
+      </div>
       <w-select
         v-if="showLocaleFilter"
         v-model="activeFilters.locale"
@@ -406,6 +412,32 @@ const localeOptions = computed(() => filterOptions.value.locales)
  *  rather than trust `0` alone as meaning "this graph has no folders," or it will render a
  *  broken/0-step control while the graph is still loading. */
 const actualMaxFolderDepth = computed(() => deriveMaxFolderDepth(allNodes.value))
+
+/** The slider's upper bound in its own plain-integer position space: position `0` is "All", and
+ *  each position after it is one more depth -- so offering every depth from `0` through
+ *  `actualMaxFolderDepth` takes `actualMaxFolderDepth.value + 1` positions past "All". */
+const folderDepthSliderMax = computed(() => actualMaxFolderDepth.value + 1)
+
+/** Two-way bridge between the slider's plain integer position and `activeFilters.folderDepth`'s
+ *  own null-means-unrestricted semantics (`graphFilters.js#computeVisibleSubset`) -- position `0`
+ *  reads/writes `null` ("All"), position `n` (n >= 1) reads/writes depth `n - 1`. Giving the
+ *  slider this own explicit "All" position (rather than, say, defaulting to depth `0`) is what
+ *  keeps "no restriction" reachable and distinct from "root only" (OpenProject #898/#900's
+ *  distinction, carried into the slider). */
+const folderDepthSlider = computed({
+  get: () => (activeFilters.folderDepth == null ? 0 : activeFilters.folderDepth + 1),
+  set: (position) => {
+    activeFilters.folderDepth = position <= 0 ? null : position - 1
+  }
+})
+
+/** The slider's own visible current-value text -- `t('graph.filters.folderDepthAll')` at
+ *  position `0`, else the plain depth number. */
+const folderDepthSliderLabel = computed(() =>
+  activeFilters.folderDepth == null
+    ? t('graph.filters.folderDepthAll')
+    : String(activeFilters.folderDepth)
+)
 
 /** Whether the locale filter control is worth showing at all (OpenProject #2294): gated on both the
  *  reader-facing locale-switcher setting AND there being more than one locale actually represented
