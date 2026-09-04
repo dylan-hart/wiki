@@ -1426,7 +1426,14 @@ class Pages {
     //    move (this method's other two callers of `newPath !== current.path`, both below) touches no
     //    link target, and `relinkReferencingPages` would find nothing to do beyond the wasted query.
     if (newPath !== current.path) {
-      await this.relinkReferencingPages(tx, siteId, current.locale, current.path, newPath)
+      await this.relinkReferencingPages(
+        tx,
+        siteId,
+        current.locale,
+        current.path,
+        newPath,
+        destLocale
+      )
     }
 
     // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound
@@ -1452,14 +1459,18 @@ class Pages {
    * `oldLocale` is deliberately the moved page's locale as it stood BEFORE this move: bare-path link
    * targets only ever resolve within the referencing page's own locale (see `api/graph.ts`'s
    * `assembleGraph`/`nodeId` comment), so a referencing page in any OTHER locale could never have
-   * meant this page in the first place. A move that also changes locale (this method's caller only
-   * ever invokes it when the path itself changed, so a same-call locale change is possible too)
-   * leaves any same-locale bare-path reference to the old location unreachable no matter what gets
-   * rewritten here -- the `links: string[]` / `relations[].target: string` representation carries no
-   * locale of its own to redirect a referencing page toward, so there is nothing this method could
-   * write that would fix that case; it correctly does nothing rather than writing something
-   * misleading (`oldPath` unchanged, `newPath` targets a path in a locale the referencing page's
-   * own bare links can never reach).
+   * meant this page in the first place.
+   *
+   * `newLocale` guards the combined case (OpenProject #2519): a move that changes locale AS WELL AS
+   * path (this method's caller only ever invokes it when the path itself changed, so a same-call
+   * locale change is possible too) leaves any same-locale bare-path reference to the old location
+   * unreachable no matter what gets rewritten here -- the `links: string[]` / `relations[].target:
+   * string` representation carries no locale of its own to redirect a referencing page toward, so
+   * there is nothing this method could write that would fix that case. `newLocale !== oldLocale`
+   * below is what makes this method actually skip the rewrite rather than merely intending to:
+   * writing `newPath` into an old-locale referencing page's link would target a path that, in that
+   * page's own locale, no longer names the moved page at all (whatever -- or nothing -- happens to
+   * sit at that path in the old locale now).
    *
    * Deliberately not built on `listBacklinks()`: that query has no locale filter (fine for a
    * read-only listing; unsafe for a mutating rewrite, since a same-path translation's own unrelated
@@ -1474,9 +1485,10 @@ class Pages {
     siteId: string,
     oldLocale: string,
     oldPath: string,
-    newPath: string
+    newPath: string,
+    newLocale: string
   ): Promise<void> {
-    if (!oldPath || oldPath === newPath) {
+    if (!oldPath || oldPath === newPath || newLocale !== oldLocale) {
       return
     }
     interface RelinkCandidateRow {

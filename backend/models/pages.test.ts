@@ -1098,6 +1098,46 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(after!.content, 'Back to [top](/docs/relink-self-new).')
       assert.deepEqual(after!.links, ['docs/relink-self-new'])
     })
+
+    // -> OpenProject #2519: a move that changes BOTH path and locale in the same call must leave
+    //    every same-old-locale referencing page untouched -- its own bare-path link can never resolve
+    //    to a page that now lives in a different locale, so rewriting it to `newPath` would only
+    //    point it at whatever (or nothing) happens to occupy that path in the OLD locale afterward.
+    test('does not rewrite a same-old-locale reference when the move changes locale as well as path', async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-xlocale-target', locale: 'en' }),
+        actor
+      )
+      const referrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-xlocale-referrer',
+          locale: 'en',
+          content: 'See the [target](/docs/relink-xlocale-target) for more.',
+          render: '<p>See the <a href="/docs/relink-xlocale-target">target</a> for more.</p>'
+        }),
+        actor
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-xlocale-target-new', locale: 'fr' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      assert.equal(after!.content, 'See the [target](/docs/relink-xlocale-target) for more.')
+      assert.equal(
+        after!.render,
+        '<p>See the <a href="/docs/relink-xlocale-target">target</a> for more.</p>'
+      )
+      assert.deepEqual(after!.links, ['docs/relink-xlocale-target'])
+    })
   })
 
   /**
