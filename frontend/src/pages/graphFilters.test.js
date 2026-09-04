@@ -4,6 +4,7 @@ import {
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeHighlightedNodeIds,
+  computeTitleMatchNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
   deriveMaxFolderDepth,
@@ -118,6 +119,58 @@ describe('computeHighlightedNodeIds (OpenProject #2480)', () => {
       { path: 'docs/intro', locale: 'en' }
     ])
     expect(ids).toEqual(new Set(['en:docs/intro']))
+  })
+})
+
+describe('computeTitleMatchNodeIds (OpenProject #2533)', () => {
+  const TITLED_NODES = [
+    { path: 'guides/onboarding', locale: 'en', title: 'Onboarding Guide' },
+    { path: 'guides/onboarding', locale: 'fr', title: 'Guide d’intégration' },
+    { path: 'reference/api', locale: 'en', title: 'API Reference' }
+  ]
+
+  it('matches a node whose title contains the query as a plain substring', () => {
+    const ids = computeTitleMatchNodeIds(TITLED_NODES, 'onboard')
+    expect(ids).toEqual(new Set(['en:guides/onboarding']))
+  })
+
+  it('is case-insensitive', () => {
+    const ids = computeTitleMatchNodeIds(TITLED_NODES, 'ONBOARD')
+    expect(ids).toEqual(new Set(['en:guides/onboarding']))
+  })
+
+  it('matches every node whose title contains the query, across locales', () => {
+    const ids = computeTitleMatchNodeIds(TITLED_NODES, 'api')
+    // -> 'API Reference' matches directly; 'guides/onboarding' doesn't contain 'api' in either
+    //    locale's title, so only the one real match comes back.
+    expect(ids).toEqual(new Set(['en:reference/api']))
+  })
+
+  it('returns an empty Set for an empty, whitespace-only, null or undefined query', () => {
+    expect(computeTitleMatchNodeIds(TITLED_NODES, '')).toEqual(new Set())
+    expect(computeTitleMatchNodeIds(TITLED_NODES, '   ')).toEqual(new Set())
+    expect(computeTitleMatchNodeIds(TITLED_NODES, null)).toEqual(new Set())
+    expect(computeTitleMatchNodeIds(TITLED_NODES, undefined)).toEqual(new Set())
+  })
+
+  it('returns an empty Set when nothing matches, without throwing', () => {
+    expect(computeTitleMatchNodeIds(TITLED_NODES, 'nonexistent-keyword')).toEqual(new Set())
+  })
+
+  it('returns an empty Set for an empty, null or undefined node list', () => {
+    expect(computeTitleMatchNodeIds([], 'api')).toEqual(new Set())
+    expect(computeTitleMatchNodeIds(null, 'api')).toEqual(new Set())
+    expect(computeTitleMatchNodeIds(undefined, 'api')).toEqual(new Set())
+  })
+
+  it('never matches a node with no title (synthetic hub nodes carry none)', () => {
+    const nodes = [{ path: '__tag__foo', synthetic: true }]
+    expect(computeTitleMatchNodeIds(nodes, 'foo')).toEqual(new Set())
+  })
+
+  it('trims the query before matching, same as searchKeyword’s own watcher', () => {
+    const ids = computeTitleMatchNodeIds(TITLED_NODES, '  onboard  ')
+    expect(ids).toEqual(new Set(['en:guides/onboarding']))
   })
 })
 

@@ -153,7 +153,7 @@ describe('Graph.vue keyword search wiring', () => {
     expect(wrapper.vm.highlightedNodeIds).toEqual(new Set(['en:abc-page']))
   })
 
-  it('degrades to an empty (not stale) match set on a failed request, quietly', async () => {
+  it('degrades keywordMatches to empty (not stale) on a failed request, quietly -- but a client-side title match survives it (OpenProject #2533)', async () => {
     const wrapper = await mountGraph()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     API_CLIENT.get.mockReturnValueOnce({
@@ -164,7 +164,11 @@ describe('Graph.vue keyword search wiring', () => {
     await vi.advanceTimersByTimeAsync(400)
 
     expect(wrapper.vm.keywordMatches).toEqual([])
-    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set())
+    // -> The BACKEND half of the match set degrades to empty on failure, but the client-side
+    //    title-contains pass (#2533) is independent of the backend request entirely -- fixture node
+    //    'a' is titled 'A', which the query 'a' matches case-insensitively regardless of whether the
+    //    search request succeeded, failed, or is still in flight.
+    expect(wrapper.vm.highlightedNodeIds).toEqual(new Set(['en:a']))
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
