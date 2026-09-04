@@ -576,7 +576,7 @@
             :edges="state.deliveryEdges"
             :paths="state.deliveryPaths"
             :layouts="state.deliveryLayouts"
-            style="height: 600px; background-color: #fff">
+            :style="deliveryGraphStyle">
             <template #override-node="{ nodeId, scale, config, ...slotProps }">
               <rect
                 :rx="config.borderRadius * scale"
@@ -720,7 +720,14 @@ const state = reactive({
         borderRadius: (node) => node.borderRadius || 5
       },
       label: {
-        margin: 8
+        margin: 8,
+        // OpenProject #2500: the library's own default label color is a literal `#000000`, which
+        // is only readable against the hardcoded white background `deliveryGraphStyle` above used
+        // to draw. Read reactively (v-network-graph calls this per node, so `dark.isActive` is
+        // tracked as a normal Vue dependency the same way `node.normal.color` already is above) so
+        // a dark-mode toggle repaints existing labels instead of freezing them at whichever mode
+        // was active when the graph first mounted.
+        color: () => (dark.isActive ? '#e8eaed' : '#000000')
       }
     },
     edge: {
@@ -787,6 +794,18 @@ const syncModeHint = computed(() => {
 
 /** 'error' | 'never' | 'outOfDate' | 'synced' -- see `syncStatusKind` for the priority order. */
 const syncStatus = computed(() => syncStatusKind(state.syncStatus))
+
+/** OpenProject #2500: `<v-network-graph>` draws a transparent SVG, so the delivery-paths panel
+ *  needs an explicit background of its own -- this used to be a hardcoded `#fff`, a stark white box
+ *  inside an otherwise dark-themed admin page. Bound to `dark.isActive` the same way OpenProject
+ *  #2412 rebound the knowledge graph canvas's own hardcoded colors. The dark value is `.w-card`'s
+ *  own dark surface (`--color-dark-3` in `css/tailwind.css`) rather than a second hardcoded hex, so
+ *  the graph blends into the card it sits inside instead of reading as a mismatched panel of its
+ *  own. */
+const deliveryGraphStyle = computed(() => ({
+  height: '600px',
+  backgroundColor: dark.isActive ? 'var(--color-dark-3)' : '#fff'
+}))
 
 // WATCHERS
 
