@@ -43,12 +43,26 @@ defineProps({
 defineEmits(['update:modelValue'])
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .graph-client-type-filter {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+
+  /*
+    Sits in a transparent overlay directly over the graph canvas, with no page-level ancestor
+    supplying a dark-aware text color -- both this caption and the `w-checkbox` option labels
+    below it (deliberately colorless by design, per WCheckbox's own doc comment) inherit from
+    here. Without this, both fall back to browser-default black in both themes, illegible only in
+    dark mode (OpenProject #2522). Matches `.graph-view-control-caption`'s values in Graph.vue.
+  */
+  @at-root .body--light & {
+    color: rgba(0, 0, 0, 0.8);
+  }
+  @at-root .body--dark & {
+    color: #fff;
+  }
 }
 
 .graph-client-type-filter-caption {
