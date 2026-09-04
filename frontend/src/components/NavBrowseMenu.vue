@@ -300,7 +300,7 @@ function goUp() {
 .browse-menu-up-slot {
   flex: none;
   width: 28px;
-  margin-right: 12px;
+  margin-inline-end: 12px;
 }
 
 /*
@@ -312,7 +312,7 @@ function goUp() {
   overflow: hidden;
   transition:
     width 0.18s var(--ease-standard),
-    margin-right 0.18s var(--ease-standard),
+    margin-inline-end 0.18s var(--ease-standard),
     opacity 0.18s var(--ease-standard);
 }
 
@@ -326,7 +326,7 @@ function goUp() {
 .browse-menu-up-enter-from,
 .browse-menu-up-leave-to {
   width: 0;
-  margin-right: 0;
+  margin-inline-end: 0;
   opacity: 0;
 }
 

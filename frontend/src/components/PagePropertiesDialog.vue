@@ -24,7 +24,7 @@
       <div class="text-subtitle2">{{ t('editor.props.pageProperties') }}</div>
       <w-space />
       <w-btn
-        class="mr-2"
+        class="me-2"
         dense
         flat
         rounded
@@ -188,7 +188,7 @@
               dense
               :label="t(`editor.props.showToc`)" />
           </div>
-          <div v-if="pageStore.showSidebar && pageStore.showToc" style="padding-left: 40px">
+          <div v-if="pageStore.showSidebar && pageStore.showToc" style="padding-inline-start: 40px">
             <div class="text-caption">
               {{ t('editor.props.tocMinMaxDepth') }}
               <strong>(H{{ pageStore.tocDepth.min }} &rarr; H{{ pageStore.tocDepth.max }})</strong>
@@ -276,7 +276,7 @@
               dense
               :label="$t(`editor.props.requirePassword`)" />
           </div>
-          <div v-if="state.requirePassword" style="padding-left: 40px">
+          <div v-if="state.requirePassword" style="padding-inline-start: 40px">
             <!-- -> Masked, with WInput's own reveal toggle: this is a secret to hand out rather than
                     one to remember, so the author has to be able to read back what they typed.
                     Always starts empty -- the server never hands an existing password back

@@ -11,15 +11,15 @@
         @click="create(`wysiwyg`)"
         v-if="siteStore.editors.wysiwyg && flagsStore.experimental">
         <blueprint-icon icon="google-presentation" />
-        <w-item-section class="pr-2">{{ t('common.actions.newPage') }}</w-item-section>
+        <w-item-section class="pe-2">{{ t('common.actions.newPage') }}</w-item-section>
       </w-item>
       <w-item clickable @click="create(`markdown`)" v-if="siteStore.editors.markdown">
         <blueprint-icon icon="markdown" />
-        <w-item-section class="pr-2">{{ t('common.newPageMenu.markdown') }}</w-item-section>
+        <w-item-section class="pe-2">{{ t('common.newPageMenu.markdown') }}</w-item-section>
       </w-item>
       <w-item clickable @click="create(`code`)" v-if="siteStore.editors.code">
         <blueprint-icon icon="html" />
-        <w-item-section class="pr-2">{{ t('common.newPageMenu.code') }}</w-item-section>
+        <w-item-section class="pe-2">{{ t('common.newPageMenu.code') }}</w-item-section>
       </w-item>
       <!--
         Not behind the experimental flag, matching `AdminEditors.vue`'s own row for this editor
@@ -27,7 +27,7 @@
       -->
       <w-item clickable @click="create(`asciidoc`)" v-if="siteStore.editors.asciidoc">
         <blueprint-icon icon="asciidoc" />
-        <w-item-section class="pr-2">{{ t('common.newPageMenu.asciidoc') }}</w-item-section>
+        <w-item-section class="pe-2">{{ t('common.newPageMenu.asciidoc') }}</w-item-section>
       </w-item>
       <!--
         `channel`/`blog`/`api` used to be offered here too, unconditionally, once behind the
@@ -40,7 +40,7 @@
               with a target instead of a body -->
       <w-item clickable @click="create(`redirect`)">
         <blueprint-icon icon="advance" />
-        <w-item-section class="pr-2">{{ t('common.newPageMenu.redirect') }}</w-item-section>
+        <w-item-section class="pe-2">{{ t('common.newPageMenu.redirect') }}</w-item-section>
       </w-item>
       <!-- -> Always offered, not gated on an editor toggle or the Pandoc extension
               (OpenProject #1092): a `format: 'markdown'` import needs neither -- it is a
@@ -49,24 +49,24 @@
               inside the dialogs themselves, the same 503 they always answered without it. -->
       <w-item clickable @click="openImport">
         <blueprint-icon icon="new-document" />
-        <w-item-section class="pr-2">{{ t('pages.import.menuLabel') }}</w-item-section>
+        <w-item-section class="pe-2">{{ t('pages.import.menuLabel') }}</w-item-section>
       </w-item>
       <w-item clickable @click="openImportBatch">
         <blueprint-icon icon="merge-files" />
-        <w-item-section class="pr-2">{{ t('pages.importBatch.menuLabel') }}</w-item-section>
+        <w-item-section class="pe-2">{{ t('pages.importBatch.menuLabel') }}</w-item-section>
       </w-item>
       <template v-if="props.hideAssetBtn === false">
         <w-separator class="my-2" inset />
         <w-item clickable @click="openFileManager">
           <blueprint-icon icon="add-image" />
-          <w-item-section class="pr-2">{{ t('common.newPageMenu.uploadAsset') }}</w-item-section>
+          <w-item-section class="pe-2">{{ t('common.newPageMenu.uploadAsset') }}</w-item-section>
         </w-item>
       </template>
       <template v-if="props.showNewFolder">
         <w-separator class="my-2" inset />
         <w-item clickable @click="newFolder">
           <blueprint-icon icon="add-folder" />
-          <w-item-section class="pr-2">{{ t('common.actions.newFolder') }}</w-item-section>
+          <w-item-section class="pe-2">{{ t('common.actions.newFolder') }}</w-item-section>
         </w-item>
       </template>
     </w-list>

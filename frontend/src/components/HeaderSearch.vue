@@ -661,7 +661,7 @@ defineExpose({ focus, state })
   &-kbd {
     flex-shrink: 0;
     /* -> pulls it clear of the pill's edge, where the two mismatched radii read as a kink */
-    margin-right: 2px;
+    margin-inline-end: 2px;
     padding: 2px 8px;
     border: 1px solid currentColor;
     border-radius: 9999px;

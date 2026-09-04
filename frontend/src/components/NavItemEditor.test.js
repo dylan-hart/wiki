@@ -92,7 +92,7 @@ function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode, roots = [], 
 
 /** Opens the kebab ("more actions") menu and returns its teleported panel. */
 async function openKebabMenu(wrapper) {
-  await wrapper.find('button.ml-2').trigger('click')
+  await wrapper.find('button.ms-2').trigger('click')
   await vi.waitUntil(() => document.querySelector('.w-menu'))
   return document.querySelector('.w-menu')
 }

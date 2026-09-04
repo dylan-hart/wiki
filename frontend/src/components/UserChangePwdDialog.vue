@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-password-reset.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-password-reset.svg" size="sm" class="me-2" />
         <span>{{ t(`admin.users.changePassword`) }}</span>
       </w-card-section>
       <w-form ref="changeUserPwdForm" class="py-2" @submit="save">
@@ -27,7 +27,7 @@
                   <w-separator vertical class="mx-2 self-stretch" />
                   <w-btn flat dense padding="none xs" color="brown" @click="randomizePassword">
                     <w-icon name="la:dice-d6" />
-                    <div class="pl-1 text-caption"><strong>Generate</strong></div>
+                    <div class="ps-1 text-caption"><strong>Generate</strong></div>
                   </w-btn>
                 </div>
               </template>

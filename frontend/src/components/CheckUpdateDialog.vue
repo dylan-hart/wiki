@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-downloading-updates.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-downloading-updates.svg" size="sm" class="me-2" />
         <span>{{ t(`admin.system.checkingForUpdates`) }}</span>
       </w-card-section>
       <w-card-section>

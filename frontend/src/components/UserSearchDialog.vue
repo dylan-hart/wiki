@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card class="user-search-dialog" style="width: 600px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-account.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-account.svg" size="sm" class="me-2" />
         <span>{{ props.title || t('admin.users.selectUsers') }}</span>
       </w-card-section>
       <w-card-section class="py-2">
@@ -58,15 +58,15 @@
             </w-item-section>
             <w-item-section side>
               <div class="flex flex-nowrap items-center">
-                <span v-if="usr.isSystem" class="ml-2 inline-flex">
+                <span v-if="usr.isSystem" class="ms-2 inline-flex">
                   <w-icon name="la:lock" color="pink" />
                   <w-tooltip>{{ t('admin.users.systemUser') }}</w-tooltip>
                 </span>
-                <span v-if="!usr.isActive" class="ml-2 inline-flex">
+                <span v-if="!usr.isActive" class="ms-2 inline-flex">
                   <w-icon name="la:ban" color="pink" />
                   <w-tooltip>{{ t('admin.users.inactive') }}</w-tooltip>
                 </span>
-                <span v-if="!usr.isVerified" class="ml-2 inline-flex">
+                <span v-if="!usr.isVerified" class="ms-2 inline-flex">
                   <w-icon name="la:envelope" color="orange" />
                   <w-tooltip>{{ t('admin.users.unverified') }}</w-tooltip>
                 </span>
@@ -85,7 +85,7 @@
           direction-links />
       </div>
       <w-card-actions class="card-actions">
-        <div v-if="state.selected.length > 0" class="text-caption text-grey ml-2">
+        <div v-if="state.selected.length > 0" class="text-caption text-grey ms-2">
           {{ t('admin.users.selectedCount', { count: state.selected.length }) }}
         </div>
         <w-space />

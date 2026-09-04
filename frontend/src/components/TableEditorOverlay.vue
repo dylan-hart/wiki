@@ -72,7 +72,7 @@
           <w-separator vertical />
           <w-checkbox
             v-model="state.headerless"
-            class="ml-2"
+            class="ms-2"
             :label="t('editor.tableEditor.headerless')" />
           <w-checkbox
             v-model="state.compact"

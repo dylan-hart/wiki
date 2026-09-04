@@ -8,7 +8,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="mdi:source-branch-sync" size="sm" class="mr-2" />
+        <w-icon name="mdi:source-branch-sync" size="sm" class="me-2" />
         <span>{{ t(`editor.collab.saveConflict.title`) }}</span>
       </w-card-section>
       <w-card-section class="pb-0">

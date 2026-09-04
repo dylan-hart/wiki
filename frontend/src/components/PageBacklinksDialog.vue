@@ -17,7 +17,7 @@
     </w-toolbar>
     <w-scroll-area style="height: calc(100% - 50px)">
       <div v-if="!state.isLoading && state.backlinks.length < 1" class="text-center py-6">
-        <w-icon name="la:info-circle" size="sm" class="mr-1" />
+        <w-icon name="la:info-circle" size="sm" class="me-1" />
         <span class="text-caption">{{ t('editor.backlinks.empty') }}</span>
       </div>
       <w-list v-else separator>

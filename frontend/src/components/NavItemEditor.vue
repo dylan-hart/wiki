@@ -115,7 +115,7 @@
           </w-menu>
         </w-btn>
         <w-btn
-          class="ml-2 acrylic-btn"
+          class="ms-2 acrylic-btn"
           flat
           color="grey"
           :aria-label="t(`common.actions.add`)"
@@ -157,7 +157,7 @@
       <template v-if="state.items.length < 1">
         <w-card>
           <w-card-section>
-            <w-icon class="mr-2" name="la:arrow-left" size="xs" />
+            <w-icon class="me-2" name="la:arrow-left" size="xs" />
             <span>{{ t('navEdit.emptyMenuText') }}</span>
           </w-card-section>
         </w-card>
@@ -165,7 +165,7 @@
       <template v-else-if="!state.selected">
         <w-card>
           <w-card-section>
-            <w-icon class="mr-2" name="la:arrow-left" size="xs" />
+            <w-icon class="me-2" name="la:arrow-left" size="xs" />
             <span>{{ t('navEdit.noSelection') }}</span>
           </w-card-section>
         </w-card>
@@ -216,7 +216,7 @@
           </w-item>
           <w-item class="items-center" v-if="state.current.visibilityLimited">
             <w-space />
-            <div class="text-caption mr-4">{{ t('navEdit.selectGroups') }}</div>
+            <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
               outlined
@@ -392,7 +392,7 @@
           </w-item>
           <w-item class="items-center" v-if="state.current.visibilityLimited">
             <w-space />
-            <div class="text-caption mr-4">{{ t('navEdit.selectGroups') }}</div>
+            <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
               outlined
@@ -471,7 +471,7 @@
           </w-item>
           <w-item class="items-center" v-if="state.current.visibilityLimited">
             <w-space />
-            <div class="text-caption mr-4">{{ t('navEdit.selectGroups') }}</div>
+            <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
               outlined

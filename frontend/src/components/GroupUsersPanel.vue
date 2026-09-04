@@ -4,7 +4,7 @@
       <div class="text-subtitle1">{{ t('admin.groups.users') }}</div>
       <w-space />
       <w-input
-        class="denser fill-outline mr-2"
+        class="denser fill-outline me-2"
         outlined
         v-model="state.usersFilter"
         :placeholder="t(`admin.groups.filterUsers`)"
@@ -12,14 +12,14 @@
         <template #prepend><w-icon name="la:search" /></template>
       </w-input>
       <w-btn
-        class="mr-2 acrylic-btn"
+        class="me-2 acrylic-btn"
         icon="la:redo-alt"
         flat
         color="secondary"
         :aria-label="t(`common.actions.refresh`)"
         @click="refreshUsers" />
       <w-btn
-        class="mr-1"
+        class="me-1"
         unelevated
         icon="la:user-plus"
         :label="t(`admin.groups.assignUser`)"
@@ -61,8 +61,8 @@
             <w-td :props="props">
               <div class="flex items-center">
                 <strong>{{ props.value }}</strong>
-                <w-icon class="ml-2" v-if="props.row.isSystem" name="la:lock" color="pink" />
-                <w-icon class="ml-2" v-if="!props.row.isActive" name="la:ban" color="pink" />
+                <w-icon class="ms-2" v-if="props.row.isSystem" name="la:lock" color="pink" />
+                <w-icon class="ms-2" v-if="!props.row.isActive" name="la:ban" color="pink" />
               </div>
             </w-td>
           </template>
@@ -92,7 +92,7 @@
           <template #body-cell-edit="props">
             <w-td :props="props">
               <w-btn
-                class="acrylic-btn mr-2"
+                class="acrylic-btn me-2"
                 v-if="!props.row.isSystem"
                 flat
                 :to="`/_admin/users/` + props.row.id"

@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t('navEdit.copyFrom')" @hide="onDialogHide">
     <w-card style="width: 480px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="mdi:import" size="sm" class="mr-2" />
+        <w-icon name="mdi:import" size="sm" class="me-2" />
         <span>{{ t('navEdit.copyFrom') }}</span>
       </w-card-section>
       <w-card-section class="text-body2 text-grey-8">

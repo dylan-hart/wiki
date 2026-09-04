@@ -100,7 +100,7 @@
       <w-avatar size="40px" rounded :color="dark.isActive ? `dark-3` : `grey-2`">
         <w-icon :name="pendingValue" size="28px" color="primary" />
       </w-avatar>
-      <div class="min-w-0 flex-1 pl-2">
+      <div class="min-w-0 flex-1 ps-2">
         <div class="text-caption text-grey">{{ t('iconPicker.selection') }}</div>
         <div class="text-body2 icon-picker-ref">{{ pendingValue || '—' }}</div>
       </div>
