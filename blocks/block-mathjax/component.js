@@ -137,7 +137,7 @@ export class BlockMathjaxElement extends LitElement {
     block: 'mathjax',
     name: 'MathJax',
     description:
-      'Typesets a TeX formula, including chemical equations written with mhchem — \\ce{} and \\pu{}.',
+      "Typesets a TeX formula, including chemical equations written with mhchem's \\ce and \\pu commands.",
     icon: 'sigma',
     /*
       Fenced, and not as a nicety: TeX is made of the characters markdown reads as its own. A lone
