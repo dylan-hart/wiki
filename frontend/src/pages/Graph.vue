@@ -871,13 +871,22 @@ function findNodeAt(clientX, clientY) {
 }
 
 /** A node's in-app link (its page path plus locale prefix, per the site's locale-prefix rules) --
- *  shared by the canvas click handler and every fallback-list `<a>` (OpenProject #1686). */
+ *  shared by the canvas click handler and every fallback-list `<a>` (OpenProject #1686). When the
+ *  graph's own keyword filter (`keywordQuery`) is non-empty at the moment this is read, the term is
+ *  carried forward as a `?highlight=` query param (OpenProject #2540) so the loaded page can offer
+ *  an in-page highlight/find for it (sibling task, same parent Feature #2539) -- this is the ONE
+ *  place that decides whether the param is added, so both the real `<a href>` (keyboard/screen
+ *  reader, and anyone opening it in a new tab) and `navigateToNode()`'s `router.push()` target agree;
+ *  neither call site appends it separately. No active keyword at click time means no param, and
+ *  navigation is byte-for-byte what it was before this param existed. */
 function fallbackHref(node) {
-  return localizedPagePath(node.path, node.locale, {
+  const path = localizedPagePath(node.path, node.locale, {
     useLocales: siteStore.useLocales,
     primary: siteStore.locales.primary,
     forcePrefix: siteStore.locales.forcePrefix
   })
+  const keyword = keywordQuery.value.trim()
+  return keyword ? `${path}?highlight=${encodeURIComponent(keyword)}` : path
 }
 
 /** Navigates to a node's page, if it has one -- a synthetic (folder/tag/classification hub) node
