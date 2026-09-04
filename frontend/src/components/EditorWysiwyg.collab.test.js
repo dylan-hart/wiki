@@ -34,6 +34,10 @@ vi.mock('@/composables/collab', () => ({
   startCollabSession: vi.fn(),
   stopCollabSession: vi.fn(),
   bindCollabEditor: vi.fn(),
+  // -> Granted by default (OpenProject #2516) -- most of this file's tests are about the editor
+  //    swap and seeding behavior, not the claim itself, so the common case stays "seed it" unless a
+  //    test below overrides this to assert the denied path.
+  claimWysiwygSeed: vi.fn(async () => true),
   collabUserColor: vi.fn(() => '#1976D2'),
   collabStatusEffects: vi.fn((status, hasSynced) => ({
     shouldBindEditor: status === 'connected',
@@ -42,7 +46,8 @@ vi.mock('@/composables/collab', () => ({
   }))
 }))
 
-const { bindCollabEditor, startCollabSession } = await import('@/composables/collab')
+const { bindCollabEditor, claimWysiwygSeed, startCollabSession } =
+  await import('@/composables/collab')
 const EditorWysiwyg = (await import('./EditorWysiwyg.vue')).default
 
 /** The schema `swapToCollabEditor`'s own editor renders against, built here to seed a fragment the
@@ -192,7 +197,7 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       wrapper.unmount()
     })
 
-    it('seeds the shared fragment from the page content when nobody has written to it yet', async () => {
+    it('seeds the shared fragment from the page content when nobody has written to it yet, once the seed claim is granted', async () => {
       const { wrapper, collabStore } = await mountEditor('Hello from Wiki.js')
 
       collabStore.status = 'connected'
@@ -204,12 +209,69 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       const ytext = doc.getText('content')
 
       factory(ytext, fakeAwareness())
-      await nextTick()
+      // -> `swapToCollabEditor` is async now (OpenProject #2516): the editor swap itself happens
+      //    synchronously inside `factory(...)`, but the actual seed waits on `claimWysiwygSeed`'s
+      //    promise, so a plain `nextTick()` is not enough to observe it landing.
+      await flushPromises()
 
+      expect(claimWysiwygSeed).toHaveBeenCalledWith({ siteId: null, pageId: 'page-1' })
       expect(wrapper.vm.editor.getText()).toContain('Hello from Wiki.js')
       // -> Not just the local editor: the seed was written through a real transaction, so the shared
       //    fragment itself now carries it too, for the next person who joins the room.
       expect(doc.getXmlFragment('wysiwygBody').toString()).toContain('Hello from Wiki.js')
+
+      wrapper.unmount()
+    })
+
+    it('does not seed the fragment when the seed claim is denied', async () => {
+      claimWysiwygSeed.mockResolvedValueOnce(false)
+      const { wrapper, collabStore } = await mountEditor('Hello from Wiki.js')
+
+      collabStore.status = 'connected'
+      collabStore.hasSynced = true
+      await flushPromises()
+
+      const factory = bindCollabEditor.mock.calls.at(-1)[0]
+      const doc = new Y.Doc()
+      const ytext = doc.getText('content')
+
+      factory(ytext, fakeAwareness())
+      await flushPromises()
+
+      expect(wrapper.vm.editor.getText()).not.toContain('Hello from Wiki.js')
+      expect(doc.getXmlFragment('wysiwygBody').toString()).toBe('')
+
+      wrapper.unmount()
+    })
+
+    it('does not seed when the claim resolves granted but a peer already seeded the fragment meanwhile', async () => {
+      const { wrapper, collabStore } = await mountEditor('Hello from Wiki.js')
+
+      collabStore.status = 'connected'
+      collabStore.hasSynced = true
+      await flushPromises()
+
+      const factory = bindCollabEditor.mock.calls.at(-1)[0]
+      const doc = new Y.Doc()
+      const ytext = doc.getText('content')
+
+      claimWysiwygSeed.mockImplementationOnce(async () => {
+        // -> Stands in for real content arriving mid-flight (the room's own re-check reason,
+        //    documented on `swapToCollabEditor` itself): by the time the claim round trip resolves,
+        //    someone else's content is already there.
+        prosemirrorJSONToYXmlFragment(
+          schema,
+          paragraphDoc('A peer got there first'),
+          ytext.doc.getXmlFragment('wysiwygBody')
+        )
+        return true
+      })
+
+      factory(ytext, fakeAwareness())
+      await flushPromises()
+
+      expect(wrapper.vm.editor.getText()).toContain('A peer got there first')
+      expect(wrapper.vm.editor.getText()).not.toContain('Hello from Wiki.js')
 
       wrapper.unmount()
     })

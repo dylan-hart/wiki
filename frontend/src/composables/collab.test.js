@@ -125,6 +125,7 @@ vi.mock('@/boot/i18n', () => ({
 const {
   applyRestoredDraft,
   bindCollabEditor,
+  claimWysiwygSeed,
   collabStatusEffects,
   startCollabSession,
   stopCollabSession
@@ -485,5 +486,40 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     expect(() =>
       applyRestoredDraft({ content: 'x', title: 'x', description: 'x', icon: 'x' })
     ).not.toThrow()
+  })
+})
+
+/**
+ * OpenProject #2516: the schema-agnostic REST call `EditorWysiwyg.vue#swapToCollabEditor` makes
+ * before seeding an empty WYSIWYG fragment, so at most one concurrent opener actually writes to it.
+ */
+describe('claimWysiwygSeed', () => {
+  it('posts to the claim route and returns the granted verdict', async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ granted: true })
+    })
+
+    const granted = await claimWysiwygSeed({ siteId: 'site-1', pageId: 'page-1' })
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      'sites/site-1/pages/page-1/collab/wysiwyg-seed-claim'
+    )
+    expect(granted).toBe(true)
+  })
+
+  it('returns the denied verdict unchanged', async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ granted: false })
+    })
+
+    expect(await claimWysiwygSeed({ siteId: 'site-1', pageId: 'page-1' })).toBe(false)
+  })
+
+  it("fails open (granted) on a network error, matching this editor's pre-#2516 behaviour", async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.reject(new Error('network'))
+    })
+
+    expect(await claimWysiwygSeed({ siteId: 'site-1', pageId: 'page-1' })).toBe(true)
   })
 })

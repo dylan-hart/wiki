@@ -499,6 +499,30 @@ async function offerDraftRestore({ siteId, pageId }) {
     })
 }
 
+/**
+ * Asks the room's server-side coordinator whether this client may seed its WYSIWYG (TipTap) field --
+ * see `EditorWysiwyg.vue#swapToCollabEditor`, `core/collab.ts#claimWysiwygSeed` and OpenProject #2516
+ * for why this exists: unlike the markdown field, the shared `Y.XmlFragment` TipTap binds to has no
+ * server-side seed of its own, so two people opening a brand new room's WYSIWYG editor at the same
+ * instant could otherwise both seed it from their own locally-loaded copy of the page and duplicate
+ * its content. This never sends the actual ProseMirror JSON -- only a boolean crosses the wire either
+ * way, over an ordinary REST call rather than a new addition to the y-websocket protocol itself.
+ *
+ * Fails open (`true`) on any error -- a network hiccup or an older/misconfigured backend without this
+ * route is no worse than this editor's own pre-#2516 behaviour, which seeded unconditionally.
+ */
+export async function claimWysiwygSeed({ siteId, pageId }) {
+  try {
+    const { granted } = await API_CLIENT.post(
+      `sites/${siteId}/pages/${pageId}/collab/wysiwyg-seed-claim`
+    ).json()
+    return granted
+  } catch (err) {
+    console.warn(err)
+    return true
+  }
+}
+
 function refreshParticipants() {
   if (!provider || !doc) {
     return

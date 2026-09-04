@@ -61,6 +61,7 @@ export function makeInstance(id: string): any {
     rooms: new Map(),
     partials: new Map(),
     awaitingState: new Map(),
+    awaitingWysiwygClaim: new Map(),
     // -> Fresh per instance, like every other mutable collection above: `{ ...collab }` only copies
     //    the *reference* to the real singleton's maps, and sharing them across "instances" would let
     //    one test's connection-cap bookkeeping bleed into another's.

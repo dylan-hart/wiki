@@ -72,6 +72,7 @@ import { useI18n } from 'vue-i18n'
 
 import {
   bindCollabEditor,
+  claimWysiwygSeed,
   collabStatusEffects,
   collabUserColor,
   startCollabSession,
@@ -343,20 +344,20 @@ function init() {
  * one. This editor gets its own root type on the *same* shared `Y.Doc` instead (`ytext.doc`, which
  * Yjs sets once a root type is first read off a document): same room, same participants, same
  * header-field and save-notification wiring, independent content type.
+ *
+ * Async since OpenProject #2516: the editor swap itself still happens synchronously, exactly as
+ * before, but seeding an empty fragment now waits on `claimWysiwygSeed()` first -- see that
+ * function's own doc comment for why. The caller (`bindCollabEditor`'s factory below) deliberately
+ * does not return this function's promise, so `bindCollabEditor`'s own `binding` bookkeeping -- which
+ * expects either a real teardown object or a falsy value -- never mistakes it for one.
  */
-function swapToCollabEditor(ytext, awareness) {
+async function swapToCollabEditor(ytext, awareness) {
   const fragment = ytext.doc.getXmlFragment('wysiwygBody')
   /*
     Nobody has written to this field yet -- either this is the first person to open the page
     collaboratively, or the room emptied out since. Either way, what this editor was just showing
     (the page's saved content) becomes the room's starting state, the same way `core/collab.ts`'s
-    `buildSeed()` seeds a fresh room's markdown field from `page.content` server-side. That seeding is
-    deliberately server-side and coordinated across instances (see its own doc comment) because a Yjs
-    document cannot safely be seeded twice; this field has no equivalent coordination, so two people
-    opening a brand new room in the same instant could both seed at once and end up with the content
-    duplicated. Accepted as a narrow, unlikely race rather than reason to hold this WP for a matching
-    server-side seed path, which would need the backend to carry its own copy of this editor's
-    ProseMirror schema just to build one.
+    `buildSeed()` seeds a fresh room's markdown field from `page.content` server-side.
   */
   const seedContent = fragment.length === 0 ? editor.value.getJSON() : null
   const previousEditor = editor.value
@@ -378,7 +379,22 @@ function swapToCollabEditor(ytext, awareness) {
   })
   previousEditor.destroy()
 
-  if (seedContent) {
+  if (!seedContent) {
+    return
+  }
+
+  /*
+    Ask the room's server-side coordinator before actually writing anything (OpenProject #2516):
+    `fragment.length === 0` above only proves nobody had written to THIS client's own copy of the
+    shared document yet, which is exactly what used to race -- two people opening a brand new room's
+    WYSIWYG editor at the same instant would both see it empty and both seed, duplicating the content
+    once the two replicas merged. `claimWysiwygSeed` grants at most one caller across the whole
+    cluster, and never sees this editor's ProseMirror JSON at all -- only a boolean crosses that call.
+    `fragment.length` is re-checked after the round trip in case the room's real content (a peer's own
+    seed, or a draft restore) already landed while this one was in flight.
+  */
+  const granted = await claimWysiwygSeed({ siteId: siteStore.id, pageId: pageStore.id })
+  if (granted && fragment.length === 0) {
     // -> `emitUpdate: false`: nothing changed that `pageStore` doesn't already have from the interim
     //    editor above -- `y-tiptap`'s sync plugin observes the dispatched transaction regardless of
     //    the TipTap-level "update" event this flag gates.
@@ -651,7 +667,14 @@ onMounted(() => {
     (status) => {
       const effects = collabStatusEffects(status, collabStore.hasSynced)
       if (effects.shouldBindEditor) {
-        bindCollabEditor((ytext, awareness) => swapToCollabEditor(ytext, awareness))
+        // -> Not `(ytext, awareness) => swapToCollabEditor(ytext, awareness)`: `swapToCollabEditor`
+        //    is async now (OpenProject #2516), and `bindCollabEditor` treats its factory's return
+        //    value as a real teardown object to keep (or a falsy value if there is none) -- an
+        //    implicitly-returned Promise would be mistaken for one and later have `.destroy()`
+        //    called on it. This form fires it and deliberately returns nothing.
+        bindCollabEditor((ytext, awareness) => {
+          swapToCollabEditor(ytext, awareness)
+        })
       }
       editor.value.setEditable(!effects.readOnly)
       if (effects.notifyDenied) {
