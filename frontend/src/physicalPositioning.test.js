@@ -9,8 +9,9 @@ import { describe, expect, it } from 'vitest'
  * properties, shared library first").
  *
  * #1585 built the first source-scan-plus-allowlist for the SPACING population (Tailwind's
- * `ml-`/`mr-`/`pl-`/`pr-`, scoped to `components/shared` so far -- see
- * `components/shared/logicalSpacing.test.js`). This is the same idea for a different, smaller
+ * `ml-`/`mr-`/`pl-`/`pr-`, scoped to `components/shared` at the time -- #1594/#1596/#1601 later
+ * widened it to a single repo-wide scan, `frontend/src/logicalSpacing.test.js`). This is the same
+ * idea for a different, smaller
  * population the audit flagged separately: bare `left-*`/`right-*` Tailwind POSITION utilities,
  * which anchor an element to a physical screen edge rather than gutter it against a neighbour.
  * Most of the 422 `ml-`/`mr-`/`pl-`/`pr-` occurrences are ordinary leading/trailing spacing and

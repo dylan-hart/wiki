@@ -577,12 +577,13 @@ async function importRules() {
 <style lang="scss">
 .admin-groups-rule {
   position: relative;
-  padding: 10px 0 24px 40px;
+  padding-block: 10px 24px;
+  padding-inline-start: 40px;
 
   &-icon {
     position: absolute;
     top: 0;
-    left: 0;
+    inset-inline-start: 0;
     bottom: 0;
     width: 31px;
 
@@ -602,7 +603,7 @@ async function importRules() {
       width: 3px;
       top: 41px;
       bottom: 0;
-      left: 14px;
+      inset-inline-start: 14px;
       opacity: 0.4;
       background-color: currentColor;
       display: block;
@@ -620,7 +621,7 @@ async function importRules() {
     .w-icon {
       position: absolute;
       top: 4px;
-      left: 0;
+      inset-inline-start: 0;
       box-sizing: border-box;
       width: 31px;
       height: 31px;

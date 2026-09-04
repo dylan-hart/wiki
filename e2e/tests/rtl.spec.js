@@ -34,6 +34,9 @@ test.beforeAll(async () => {
  *
  * @param {import('@playwright/test').Page} page
  * @param {{ name: string }[]} testLocales
+ * @returns {Promise<string>} the default site's id, resolved along the way -- handed back so a
+ *   caller that needs to navigate to another `/_admin/:siteId/...` page afterward (OpenProject
+ *   #1601's required-field gutter check does) doesn't have to re-derive it from `/_admin/sites`.
  */
 async function activateTestLocales(page, testLocales) {
   // -> `models/locales.ts#getLocales()` answers from `WIKI.cache`, populated once at boot
@@ -78,6 +81,8 @@ async function activateTestLocales(page, testLocales) {
   }
   await page.getByRole('button', { name: 'Apply', exact: true }).click()
   await expect(page.getByText('successfully', { exact: false })).toBeVisible()
+
+  return siteId
 }
 
 test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
@@ -156,6 +161,70 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     await page.goto('/_admin/dashboard')
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await expect(page.getByText(RTL_TEST_LOCALE.strings['admin.adminArea'])).toBeVisible()
+  })
+
+  /**
+   * OpenProject #1601's "Done when" bullet: a rendered check on one converted required-field
+   * form, proving the asterisk gutter actually follows reading direction rather than merely
+   * asserting against source text (the way `frontend/src/logicalSpacing.test.js` does for every
+   * other declaration this epic converted). `WFieldFrame.vue`'s required-field asterisk
+   * (`<span class="text-negative pe-1">`, beside the glossary "Term" field's floated label) is the
+   * one live example of `padding-inline-end` in the shared field chrome every `w-input`/`w-select`
+   * in the app renders through.
+   *
+   * `padding-inline-end` resolves against the DOCUMENT's own `dir` at render time, not anything
+   * this test controls directly -- under `dir="rtl"` it computes as a physical `padding-left`, not
+   * `padding-right`. That is exactly the distinction a hand-written physical gutter (`pe-1` swapped
+   * back for a hard-coded `pr-1`, say) would get wrong: it would keep computing as `padding-right`
+   * regardless of `dir`, which is what this assertion would catch -- a real regression in the
+   * shared field chrome, not just a source-text scan, would fail this test and pass
+   * `logicalSpacing.test.js` (that scan's DECLARATION_PATTERN matches raw `padding-right:`
+   * declarations and Tailwind `pr-*` utilities, not a component's own logical Tailwind class
+   * resolving the "wrong" way at render time).
+   */
+  test("a required field's label asterisk gutter follows the document direction, not a fixed side", async ({
+    page
+  }) => {
+    await loginAsAdmin(page)
+    const siteId = await activateTestLocales(page, [RTL_TEST_LOCALE])
+
+    // -> Same reader-facing switch as the test above -- flips `dir` on `<html>` for the whole
+    //    document, admin area included.
+    await page.goto('/e2e-rtl-required-field-check')
+    await page.getByRole('button', { name: 'Switch Locale' }).click()
+    await page.getByText('العربية', { exact: true }).click()
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+
+    // -> The glossary's "New Term" dialog: an outlined, floating-label `w-input` with `required`
+    //    set (`GlossaryTermDialog.vue`), the same field chrome every other required `w-input`/
+    //    `w-select` in the app shares via `WFieldFrame.vue`. `admin.glossary.*` isn't among the
+    //    curated keys `backend/scripts/seed-rtl-test-locale.ts` seeds for `ar` (see its own header
+    //    comment), so both the button and the field label render their English fallback text
+    //    (`fallbackLocale: 'en'`, `boot/i18n.js`) regardless of the active interface locale --
+    //    asserting on that fallback text is deliberate, not an oversight.
+    await page.goto(`/_admin/${siteId}/glossary`)
+    await page.getByRole('button', { name: 'New Term', exact: true }).click()
+
+    const termField = page
+      .locator('.w-input')
+      .filter({ has: page.getByLabel('Term', { exact: true }) })
+    // -> The VISIBLE floated label's own asterisk, not the `aria-hidden` copy inside the outline's
+    //    notch-cutting `<legend>` (`WFieldFrame.vue` renders the same `pe-1` span in both places).
+    const asterisk = termField.locator('.w-input-float .text-negative')
+    await expect(asterisk).toBeVisible()
+
+    const padding = await asterisk.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return { left: style.paddingLeft, right: style.paddingRight }
+    })
+    expect(
+      padding.left,
+      'padding-inline-end should resolve to padding-left under dir="rtl"'
+    ).not.toBe('0px')
+    expect(
+      padding.right,
+      'padding-inline-end should not also carry a physical padding-right under dir="rtl"'
+    ).toBe('0px')
   })
 })
 

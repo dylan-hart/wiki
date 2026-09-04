@@ -832,6 +832,12 @@ $timeline-turn: 16px;
     position: relative;
   }
 
+  /*
+    -> `left`/`translateX(-50%)` stay physical on purpose (OpenProject #1601's repo-wide pass): this
+       centers the title over the whole header regardless of reading direction, the same centering
+       trick as `WSignal.vue`/`ErrorGeneric.vue` -- not a reading-direction lean. See
+       `frontend/src/logicalSpacing.test.js`.
+  */
   &-page {
     position: absolute;
     left: 50%;
@@ -849,7 +855,7 @@ $timeline-turn: 16px;
   &-sidebar {
     background-color: $dark-5;
     color: #fff;
-    border-right: 1px solid rgba(#fff, 0.08);
+    border-inline-end: 1px solid rgba(#fff, 0.08);
   }
 
   &-main {
@@ -868,29 +874,30 @@ $timeline-turn: 16px;
     padding: 1rem 0;
 
     /*
-      The line: down behind the dots, then a quarter turn out to the left edge rather than stopping
-      in mid-air.
+      The line: down behind the dots, then a quarter turn out to the leading edge rather than
+      stopping in mid-air.
 
-      Both halves are ONE border of ONE box -- the right and bottom edges of an invisible rectangle,
-      joined by a corner radius -- rather than a straight element meeting a curved one. Two elements
-      cannot be made to match under fractional display scaling: each snaps to the device pixel grid
-      from its own layout box, so at 125% or 150% one lands on a whole device pixel and the other
-      straddles two, and the seam shows as a change of thickness. As a single border there is nothing
-      to line up: the browser rasterises the straight stretch and the curve as one path.
+      Both halves are ONE border of ONE box -- the trailing and bottom edges of an invisible
+      rectangle, joined by a corner radius -- rather than a straight element meeting a curved one.
+      Two elements cannot be made to match under fractional display scaling: each snaps to the device
+      pixel grid from its own layout box, so at 125% or 150% one lands on a whole device pixel and the
+      other straddles two, and the seam shows as a change of thickness. As a single border there is
+      nothing to line up: the browser rasterises the straight stretch and the curve as one path.
 
-      The box's right edge sits under the middle of the dots: 1rem of padding, half of the 28px dot,
-      half of the 2px line.
+      The box's trailing edge sits under the middle of the dots: 1rem of padding, half of the 28px
+      dot, half of the 2px line. OpenProject #1601: `inset-inline-start`/`border-inline-end`/
+      `border-end-end-radius`, so the turn follows the dots to the leading edge under RTL too.
     */
     &::before {
       content: '';
       position: absolute;
       top: 0;
       bottom: 0;
-      left: 0;
+      inset-inline-start: 0;
       width: calc(1rem + 14px + 1px);
-      border-right: 2px solid $timeline-line;
+      border-inline-end: 2px solid $timeline-line;
       border-bottom: 2px solid $timeline-line;
-      border-bottom-right-radius: $timeline-turn;
+      border-end-end-radius: $timeline-turn;
     }
   }
 

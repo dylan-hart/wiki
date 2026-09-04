@@ -1020,19 +1020,30 @@ complete-or-not locale, direction aside) and each needs its own design pass:
   chrome was missed by that pass entirely — a real gap worth a dedicated small follow-up (the same
   mechanical fix as the two `AdminLayout.vue` instances above), not something to fold into this task's
   "seed and validate" brief.
-- **Physical spacing utilities/declarations reach well beyond the components task 721 audited, and
-  the sweep is incremental.** The 2026-08-24 audit (`docs/audit-2026-08-24/accessibility-i18n.md`
-  §15) counted 422 physical `ml-`/`mr-`/`pl-`/`pr-` Tailwind classes and 223 physical
-  `margin`/`padding`/`border-left|right`, bare `left:`/`right:`, and `text-align: left|right`
-  declarations across `frontend/src/**/*.vue` — task 721's pass covered only the named components
-  above. OpenProject epic #1582 tracks the sweep in tranches, shared library first (each fix there
-  multiplies across every consumer): #1585, done here, converts every physical Tailwind
-  margin/padding utility and CSS margin/padding declaration under `frontend/src/components/shared`
-  to its logical form and adds `components/shared/logicalSpacing.test.js` to hold the line, with an
-  allowlist for the rare case (`WTreeNode.vue`'s connector-line geometry) that needs a coordinated
-  redesign rather than a mechanical swap. `pages/`, the non-shared `components/`, and the remaining
-  CSS/SCSS `border`/`text-align`/bare `left`/`right` declarations are NOT yet converted — that is
-  #1590 (allowlist triage), #1594, #1596 and #1601, still open.
+- **Physical spacing utilities/declarations reached well beyond the components task 721 audited —
+  the sweep this note originally flagged as incremental is now closed.** The 2026-08-24 audit
+  (`docs/audit-2026-08-24/accessibility-i18n.md` §15) counted 422 physical `ml-`/`mr-`/`pl-`/`pr-`
+  Tailwind classes and 223 physical `margin`/`padding`/`border-left|right`, bare `left:`/`right:`,
+  and `text-align: left|right` declarations across `frontend/src/**/*.vue` — task 721's pass covered
+  only the named components above. OpenProject epic #1582 tracked the sweep in tranches, shared
+  library first (each fix there multiplies across every consumer): #1585 converted every physical
+  Tailwind margin/padding utility and CSS margin/padding declaration under
+  `frontend/src/components/shared`; #1590 triaged the separate, much smaller bare
+  `left-*`/`right-*` Tailwind POSITION-utility population repo-wide
+  (`frontend/src/physicalPositioning.test.js`, closed — nine genuinely screen-corner-anchored sites
+  allowlisted, two miscategorized ones fixed instead); #1594 and #1596 then took the same
+  margin/padding sweep to `pages/` and the non-shared `components/` respectively; and #1601 converted
+  what remained — every `border-left`/`border-right`, bare `left:`/`right:` CSS declaration, and
+  `text-align: left|right` across `frontend/src` (outside `css/_page-contents.scss`, which carries
+  its own fix and its own regression test, `css/_page-contents.test.js`) — and consolidated all three
+  tranche-scoped `logicalSpacing.test.js` scans plus this final pass into one recursive, repo-wide
+  `frontend/src/logicalSpacing.test.js`. A small, named ALLOWLIST remains in that file for sites that
+  are not reading-direction gutters at all — screen-centered decorative geometry (spinners, glows,
+  centered dialog titles), a code editor's line-number gutter (conventionally fixed like Monaco's
+  own), and a handful of cases genuinely coupled to a property this scan does not itself convert
+  (`transform-origin`, `border-radius`'s 4-value shorthand, a corner-nib connector) that would need a
+  coordinated redesign rather than a mechanical property swap — each with its own justification
+  inline at the call site and in the scan's own ALLOWLIST.
 
 ## 2.5.x → 3.0 settings/authentication/storage migration (Feature 420)
 

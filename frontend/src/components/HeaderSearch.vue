@@ -700,8 +700,8 @@ defineExpose({ focus, state })
 }
 
 /*
-  Hangs off the field, matching its width -- `left: 0; right: 0` against the wrapper rather than a
-  width of its own, so the two cannot drift apart.
+  Hangs off the field, matching its width -- `inset-inline-start: 0; inset-inline-end: 0` against the
+  wrapper rather than a width of its own, so the two cannot drift apart.
 
   The wrapper is the full height of the header, so `top: 100%` puts the panel flush against its
   bottom edge; square top corners then read as a continuation of the header rather than a card
@@ -710,8 +710,8 @@ defineExpose({ focus, state })
 .searchpanel {
   position: absolute;
   top: 100%;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   z-index: 10;
   background-color: rgba(0, 0, 0, 0.7);
   border-radius: 0 0 12px 12px;
@@ -756,7 +756,7 @@ defineExpose({ focus, state })
     margin-bottom: 0.5rem;
     color: inherit;
     opacity: 0.85;
-    text-align: left;
+    text-align: start;
     cursor: pointer;
     /* -> The suggested title is unbounded page content, same as a result row's -- ellipsis, not wrap/overflow */
     max-width: 100%;

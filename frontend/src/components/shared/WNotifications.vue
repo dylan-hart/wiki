@@ -163,8 +163,8 @@ function runAction(n) {
 */
 .w-notification-leave-active {
   position: absolute;
-  left: var(--w-notifications-inset);
-  right: var(--w-notifications-inset);
+  inset-inline-start: var(--w-notifications-inset);
+  inset-inline-end: var(--w-notifications-inset);
   width: auto;
 }
 .w-notification-move {

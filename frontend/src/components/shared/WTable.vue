@@ -224,8 +224,8 @@ thead + tbody .w-table__row:first-child :deep(td)::before {
   content: '';
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   height: 1px;
   background-color: rgb(0 0 0 / 0.12);
   transform: scaleY(calc(1 / var(--w-dpr, 1)));
