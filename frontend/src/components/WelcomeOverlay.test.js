@@ -20,7 +20,7 @@ import { createTestRouter } from '../../test/router.js'
  * still require opening a one-item menu and clicking its only entry. It should instead call
  * `pageStore.pageCreate` directly, skipping the menu.
  */
-async function mountOverlay({ editors = {}, experimental = false } = {}) {
+async function mountOverlay({ editors = {}, experimental = false, overlayOpts } = {}) {
   setActivePinia(createPinia())
 
   const siteStore = useSiteStore()
@@ -41,12 +41,28 @@ async function mountOverlay({ editors = {}, experimental = false } = {}) {
   const i18n = createTestI18n()
 
   const wrapper = mount(WelcomeOverlay, {
+    props: overlayOpts ? { overlayOpts } : {},
     attachTo: document.body,
     global: { plugins: [router, i18n] }
   })
 
   return { wrapper, pageStore }
 }
+
+/**
+ * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
+ * mounts as this prop -- WelcomeOverlay has no use for it, but must still declare it, or the value
+ * falls through onto this component's rendered DOM root as a stray attribute.
+ */
+describe('WelcomeOverlay overlayOpts prop (OpenProject #2530)', () => {
+  it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', async () => {
+    const { wrapper } = await mountOverlay({ overlayOpts: { unused: true } })
+
+    expect(wrapper.attributes('overlay-opts')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+})
 
 describe('WelcomeOverlay: create homepage button', () => {
   it('calls pageCreate directly, skipping the menu, when exactly one editor is enabled', async () => {

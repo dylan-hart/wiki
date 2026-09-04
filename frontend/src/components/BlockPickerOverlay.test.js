@@ -63,6 +63,21 @@ describe('BlockPickerOverlay', () => {
 
     expect(wrapper.html()).not.toContain('/guide/blocks')
   })
+
+  /**
+   * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
+   * mounts as this prop -- the picker has no use for it, but must still declare it, or the value
+   * falls through onto its rendered DOM root as a stray attribute.
+   */
+  it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([BLOCK]) })
+    const { wrapper } = mountWithApp(BlockPickerOverlay, {
+      props: { overlayOpts: { unused: true } }
+    })
+    await flushPromises()
+
+    expect(wrapper.attributes('overlay-opts')).toBeUndefined()
+  })
 })
 
 /**

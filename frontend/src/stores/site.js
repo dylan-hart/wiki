@@ -224,12 +224,22 @@ export const useSiteStore = defineStore('site', {
     }
   },
   actions: {
-    openFileManager(opts) {
+    /**
+     * The one entry point for opening any `MainOverlayDialog` overlay with initial state --
+     * `MainOverlayDialog.vue` forwards `overlayOpts` to the mounted component as a prop, so a new
+     * overlay reads its initial params off that prop rather than off this store directly (OpenProject
+     * #2530). `opts` defaults to `{}` rather than being left `undefined`, matching what `overlayOpts`
+     * already defaults to at rest.
+     */
+    openOverlay(name, opts) {
       this.$patch({
-        overlay: 'FileManager',
-        overlayOpts: {
-          insertMode: opts?.insertMode ?? false
-        }
+        overlay: name,
+        overlayOpts: opts ?? {}
+      })
+    },
+    openFileManager(opts) {
+      this.openOverlay('FileManager', {
+        insertMode: opts?.insertMode ?? false
       })
     },
     async loadSite(hostname) {
