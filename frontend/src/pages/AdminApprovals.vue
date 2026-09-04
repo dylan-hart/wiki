@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.approval.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.approval.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex flex-none">
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -93,10 +93,10 @@
                     }
                   " />
               </w-item-section>
-              <w-separator class="ml-4" vertical />
+              <w-separator class="ms-4" vertical />
               <w-item-section side style="flex-direction: row; align-items: center">
                 <w-btn
-                  class="acrylic-btn mr-2"
+                  class="acrylic-btn me-2"
                   flat
                   @click="editRule(rule)"
                   icon="la:pen"

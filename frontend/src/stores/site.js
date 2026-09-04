@@ -194,6 +194,14 @@ export const useSiteStore = defineStore('site', {
      * reads as `''` until `applySiteInfo` (via `loadSite` or `bootstrap`) fills it in.
      */
     docsBase: '',
+    /**
+     * This site's default menu id for its default locale (`backend/api/sites.ts`'s
+     * `buildSitePayload`, resolved via `WIKI.models.navigation.ensureSiteNav`) -- always server-
+     * provided, same as `docsBase` above. What `MainLayout.vue` and `NavSidebar.vue` fall back to on
+     * a route with no page-inherited `navigationId` of its own (the knowledge graph, tags browse),
+     * instead of leaving the sidebar with nothing to load (OpenProject #2527).
+     */
+    navigationId: null,
     nav: {
       currentId: null,
       items: [],
@@ -224,12 +232,22 @@ export const useSiteStore = defineStore('site', {
     }
   },
   actions: {
-    openFileManager(opts) {
+    /**
+     * The one entry point for opening any `MainOverlayDialog` overlay with initial state --
+     * `MainOverlayDialog.vue` forwards `overlayOpts` to the mounted component as a prop, so a new
+     * overlay reads its initial params off that prop rather than off this store directly (OpenProject
+     * #2530). `opts` defaults to `{}` rather than being left `undefined`, matching what `overlayOpts`
+     * already defaults to at rest.
+     */
+    openOverlay(name, opts) {
       this.$patch({
-        overlay: 'FileManager',
-        overlayOpts: {
-          insertMode: opts?.insertMode ?? false
-        }
+        overlay: name,
+        overlayOpts: opts ?? {}
+      })
+    },
+    openFileManager(opts) {
+      this.openOverlay('FileManager', {
+        insertMode: opts?.insertMode ?? false
       })
     },
     async loadSite(hostname) {
@@ -260,6 +278,7 @@ export const useSiteStore = defineStore('site', {
         logoText: siteInfo.logoText,
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
         docsBase: siteInfo.docsBase,
+        navigationId: siteInfo.navigationId ?? null,
         blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
         company: siteInfo.company,

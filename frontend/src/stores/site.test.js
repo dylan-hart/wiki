@@ -84,6 +84,34 @@ describe('site store: applySiteInfo() docsBase', () => {
 })
 
 /**
+ * OpenProject #2527: `navigationId` reaches `siteStore` from `applySiteInfo` the same way `docsBase`
+ * does above -- the site's default menu id (`backend/api/sites.ts`'s `buildSitePayload`, via
+ * `WIKI.models.navigation.ensureSiteNav`), what `NavSidebar.vue` and `MainLayout.vue` fall back to
+ * on a route with no page-inherited `navigationId` of its own.
+ */
+describe('site store: applySiteInfo() navigationId', () => {
+  it('has no hardcoded default before any site info is applied', () => {
+    const store = useSiteStore()
+
+    expect(store.navigationId).toBe(null)
+  })
+
+  it('adopts navigationId from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ navigationId: 'site-default-nav-id' }))
+
+    expect(store.navigationId).toBe('site-default-nav-id')
+  })
+
+  it('defaults to null when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.navigationId).toBe(null)
+  })
+})
+
+/**
  * OpenProject #954: `blocksIndex` reaches `siteStore` from `applySiteInfo` the same way
  * `pdfExportAvailable` does above, so `Index.vue`'s block-loading scan can resolve a custom block's
  * `id`/`isCustom` off the store instead of calling the manage:sites-gated `GET /sites/:siteId/blocks`
@@ -481,5 +509,55 @@ describe('site store: Page Data removal (#1911)', () => {
 
     expect(store.$state).not.toHaveProperty('pageDataTemplates')
     expect(store).not.toHaveProperty('pageDataTemplates')
+  })
+})
+
+/**
+ * OpenProject #2530: `openOverlay(name, opts)` is the one generic entry point for opening any
+ * `MainOverlayDialog` overlay with initial state -- `MainOverlayDialog.vue` forwards `overlayOpts` to
+ * the mounted component as a prop, so a future overlay (Inbox/Profile) calls this rather than
+ * inventing its own store field or action.
+ */
+describe('site store: openOverlay()', () => {
+  it('sets overlay and overlayOpts together', () => {
+    const store = useSiteStore()
+
+    store.openOverlay('PageHistory', { pageId: 'page-1' })
+
+    expect(store.overlay).toBe('PageHistory')
+    expect(store.overlayOpts).toEqual({ pageId: 'page-1' })
+  })
+
+  it('defaults overlayOpts to an empty object when no opts are given', () => {
+    const store = useSiteStore()
+
+    store.openOverlay('Welcome')
+
+    expect(store.overlay).toBe('Welcome')
+    expect(store.overlayOpts).toEqual({})
+  })
+})
+
+/**
+ * `openFileManager` is now a thin wrapper over `openOverlay` -- this locks down that its own
+ * pre-existing `insertMode` default/shape survived the refactor.
+ */
+describe('site store: openFileManager()', () => {
+  it('opens the FileManager overlay with insertMode defaulted to false', () => {
+    const store = useSiteStore()
+
+    store.openFileManager()
+
+    expect(store.overlay).toBe('FileManager')
+    expect(store.overlayOpts).toEqual({ insertMode: false })
+  })
+
+  it('carries insertMode: true through when given', () => {
+    const store = useSiteStore()
+
+    store.openFileManager({ insertMode: true })
+
+    expect(store.overlay).toBe('FileManager')
+    expect(store.overlayOpts).toEqual({ insertMode: true })
   })
 })

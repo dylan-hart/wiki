@@ -91,7 +91,14 @@ function collectPendingImage(node) {
   if (!src || !currentImageCollector) {
     return ''
   }
-  const alt = (node.getAttribute && node.getAttribute('alt')) || ''
+  // Word/OneNote auto-generate a multi-line OCR description as `alt` (literal embedded newlines).
+  // Collapse it to single-line markdown-image-safe text up front -- a multi-line value isn't valid
+  // alt text for inline markdown image syntax regardless, and this is what keeps the placeholder
+  // text built below in lockstep with the `alt` a caller later reconstructs it from (OpenProject
+  // #2534): `normalize()` trims trailing whitespace per line across the whole document, which
+  // would otherwise desync an un-sanitized multi-line placeholder from its reconstructed match.
+  const rawAlt = (node.getAttribute && node.getAttribute('alt')) || ''
+  const alt = rawAlt.replace(/\s+/g, ' ').trim()
   const token = `pending-image:${currentImageCollector.length}`
   currentImageCollector.push({ token, src, alt })
   return `![${alt}](${token})`

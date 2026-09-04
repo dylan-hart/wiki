@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`profile.api.newKeyTitle`)" @hide="onDialogHide">
     <w-card style="width: 700px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
         <span>{{ t(`profile.api.newKeyTitle`) }}</span>
       </w-card-section>
       <!--

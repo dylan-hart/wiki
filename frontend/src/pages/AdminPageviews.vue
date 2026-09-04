@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.pageviews.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.pageviews.subtitle') }}
@@ -16,18 +16,18 @@
       <div class="min-w-0 flex-1">
         <div class="flex items-center">
           <template v-if="state.enabled">
-            <w-signal class="mr-2" color="green" size="md" />
+            <w-signal class="me-2" color="green" size="md" />
             <div class="text-caption text-green">{{ t('admin.pageviews.enabled') }}</div>
           </template>
           <template v-else>
-            <w-signal class="mr-2" color="red" size="md" />
+            <w-signal class="me-2" color="red" size="md" />
             <div class="text-caption text-red">{{ t('admin.pageviews.disabled') }}</div>
           </template>
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -37,7 +37,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2"
+          class="me-2"
           unelevated
           icon="la:power-off"
           :label="!state.enabled ? t(`common.actions.activate`) : t(`common.actions.deactivate`)"
@@ -55,7 +55,7 @@
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
+            <w-card-section class="flex-none pe-0">
               <w-icon name="la:info-circle" size="sm" />
             </w-card-section>
             <w-card-section>
@@ -67,7 +67,7 @@
       <div class="col-span-12" v-if="state.summary.totalViews === 0">
         <w-card class="rounded" flat>
           <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
+            <w-card-section class="flex-none pe-0">
               <w-icon name="la:chart-area" size="sm" />
             </w-card-section>
             <w-card-section>

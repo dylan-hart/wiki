@@ -158,13 +158,13 @@ const routes = [
     /*
       OpenProject #2512: `meta.contentPage` marks the three routes that actually render `Index.vue`
       and therefore run a page through `pageStore.pageLoad()` -- this one, `/_create`, and `/_edit`
-      above. `MainLayout.vue`'s `isSidebarMini` reads it to scope its `!pageStore.navigationId`
-      fallback to those routes alone: every OTHER `/_`-prefixed route (the knowledge graph, tags
-      browse, admin, profile, ...) never touches `pageStore` at all, so `navigationId` is either
-      `null` on a fresh store or whatever a previously-viewed content page left behind -- neither of
-      which says anything about that route's own navigation. Without this flag either value made the
-      sidebar collapse to its mini rail by accident, inconsistently depending on how the route was
-      reached (a fresh load vs. an in-SPA navigation from a content page).
+      above. `MainLayout.vue`'s `effectiveNavigationId` (read by both `isSidebarMini` and
+      `NavSidebar.vue`'s own nav-loading watcher) reads this flag to decide whether to trust
+      `pageStore.navigationId` at all: only these three routes ever call `pageLoad()`, so on every
+      OTHER `/_`-prefixed route (the knowledge graph, tags browse, admin, profile, ...)
+      `pageStore.navigationId` is either `null` on a fresh store or whatever a previously-viewed
+      content page left behind -- neither of which says anything about that route's own navigation.
+      Those non-content routes fall back to the site's own default id instead (OpenProject #2527).
     */
     meta: { contentPage: true },
     component: () => import('../layouts/MainLayout.vue'),

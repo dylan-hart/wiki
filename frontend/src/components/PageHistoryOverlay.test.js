@@ -83,7 +83,7 @@ function mockGetEndpoints() {
   })
 }
 
-async function mountOverlay({ mockEndpoints = mockGetEndpoints } = {}) {
+async function mountOverlay({ mockEndpoints = mockGetEndpoints, overlayOpts } = {}) {
   mockEndpoints()
 
   const router = buildTestRouter(['/:pathMatch(.*)*'])
@@ -91,6 +91,7 @@ async function mountOverlay({ mockEndpoints = mockGetEndpoints } = {}) {
   const { wrapper } = mountWithApp(PageHistoryOverlay, {
     attachTo: document.body,
     router,
+    ...(overlayOpts ? { props: { overlayOpts } } : {}),
     stores: {
       page: (store) => {
         store.$patch({
@@ -134,6 +135,19 @@ beforeEach(() => {
   monaco.editor.createDiffEditor.mockClear()
   monaco.editor.createModel.mockClear()
   fileSave.mockClear()
+})
+
+/**
+ * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
+ * mounts as this prop -- this overlay has no use for it, but must still declare it, or the value
+ * falls through onto its rendered DOM root as a stray attribute.
+ */
+describe('PageHistoryOverlay overlayOpts prop (OpenProject #2530)', () => {
+  it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', async () => {
+    const { wrapper } = await mountOverlay({ overlayOpts: { unused: true } })
+
+    expect(wrapper.attributes('overlay-opts')).toBeUndefined()
+  })
 })
 
 describe('PageHistoryOverlay: branchFrom', () => {

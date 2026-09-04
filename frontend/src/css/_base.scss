@@ -167,14 +167,14 @@ body::-webkit-scrollbar-thumb {
   // margin on each button that a following header-nav-btn immediately cancels (below) -- flush
   // against its neighbor, but still separated from whatever non-header-nav-btn control (the
   // search toggle) precedes the group.
-  margin-left: 16px !important;
+  margin-inline-start: 16px !important;
 }
 
 // Zeroes the margin above wherever two header-nav-btn buttons are adjacent, so only the first
 // button rendered in the group (whichever one that is, since some are conditional on
 // permissions) keeps the separation from the search toggle button before it.
 .w-btn.header-nav-btn + .w-btn.header-nav-btn {
-  margin-left: 0 !important;
+  margin-inline-start: 0 !important;
 }
 
 // The admin toolbar's EXIT and locale-switcher buttons (`AdminLayout.vue`, task 822) carry a text

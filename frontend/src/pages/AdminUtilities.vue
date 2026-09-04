@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.utilities.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.utilities.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -168,7 +168,7 @@
                 dense
                 :options="purgeHistoryTimeframes" />
             </w-item-section>
-            <w-separator class="ml-2" vertical />
+            <w-separator class="ms-2" vertical />
             <w-item-section side>
               <w-btn
                 class="acrylic-btn"
@@ -237,7 +237,7 @@
             :key="check.key"
             v-show="check.entries.length > 0"
             :label="`${check.label} (${check.entries.length})`">
-            <w-list dense separator class="pl-4">
+            <w-list dense separator class="ps-4">
               <w-item v-for="(entry, idx) of check.entries" :key="idx">
                 <w-item-section>
                   <w-item-label class="font-robotomono">{{ check.format(entry) }}</w-item-label>

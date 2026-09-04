@@ -7,16 +7,16 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.storage.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
-        <w-spinner class="mr-4" v-show="state.loading > 0" color="accent" size="sm" />
+        <w-spinner class="me-4" v-show="state.loading > 0" color="accent" size="sm" />
         <w-btn-toggle
-          class="mr-4"
+          class="me-4"
           v-model="state.displayMode"
           push
           no-caps
@@ -29,9 +29,9 @@
             { label: t('admin.storage.targets'), value: 'targets' },
             { label: t('admin.storage.deliveryPaths'), value: 'delivery' }
           ]" />
-        <w-separator class="mr-4" vertical />
+        <w-separator class="me-4" vertical />
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -550,7 +550,7 @@
       <div class="min-w-0 flex-1">
         <w-card class="rounded">
           <w-card-section class="flex items-center">
-            <div class="text-caption mr-2">{{ t('admin.storage.deliveryPathsLegend') }}</div>
+            <div class="text-caption me-2">{{ t('admin.storage.deliveryPathsLegend') }}</div>
             <w-chip square dense color="blue-1" text-color="blue-8">
               <w-avatar icon="la:ellipsis-h" color="blue" text-color="white" />
               <span class="text-caption px-2">{{

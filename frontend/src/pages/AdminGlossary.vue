@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.glossary.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex flex-none flex-wrap items-center">
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:history"
           flat
           color="indigo"
@@ -23,7 +23,7 @@
           <w-tooltip labels>{{ t('admin.glossary.versionHistory') }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:file-export"
           flat
           color="indigo"
@@ -31,7 +31,7 @@
           <w-tooltip labels>{{ t('common.actions.export') }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:file-import"
           flat
           color="indigo"
@@ -40,14 +40,14 @@
         </w-btn>
         <w-btn
           v-if="isDirty"
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           :label="t(`common.actions.discard`)"
           flat
           no-caps
           color="grey"
           @click="discardChanges" />
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           unelevated
           no-caps
           :label="t('admin.glossary.saveGlossary')"
@@ -82,17 +82,17 @@
                 <w-chip v-for="alias of term.aliases" :key="alias" square dense>{{ alias }}</w-chip>
               </div>
               <w-item-label v-if="term.path" caption>
-                <w-icon name="la:link" size="12px" class="mr-1" />
+                <w-icon name="la:link" size="12px" class="me-1" />
                 /{{ term.path }}
               </w-item-label>
             </w-item-section>
             <w-item-section>
               <span class="text-caption text-grey">{{ term.definition }}</span>
             </w-item-section>
-            <w-separator class="ml-4" vertical />
+            <w-separator class="ms-4" vertical />
             <w-item-section side style="flex-direction: row; align-items: center">
               <w-btn
-                class="acrylic-btn mr-2"
+                class="acrylic-btn me-2"
                 flat
                 @click="editTerm(term)"
                 icon="la:pen"

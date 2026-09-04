@@ -29,6 +29,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           "Base URL this instance's in-app \"view docs\" / help links are built from (`WIKI.config.docsBase`, from `base.yml`). Instance-wide, not a per-site setting: `siteStore.docsBase` on the frontend appends a path to it, e.g. `docsBase + '/admin/general'`."
       },
+      navigationId: {
+        type: 'string',
+        format: 'uuid',
+        description:
+          "This site's default (locale-scoped) menu row id, resolved via `ensureSiteNav()` (`models/navigation.ts`). What `NavSidebar.vue`'s nav-loading watcher falls back to when there is no page-inherited `navigationId` -- a non-content `MainLayout` route (the knowledge graph, tags browse) never calls `pageLoad()`, so without this it never learns a real navigationId to load a menu for (OpenProject #2526/#2527)."
+      },
       blocksConfig: {
         type: 'object',
         description:

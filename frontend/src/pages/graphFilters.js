@@ -143,6 +143,33 @@ export function computeHighlightedNodeIds(matches) {
 }
 
 /**
+ * The composite ids of every currently-loaded node whose `title` case-insensitively CONTAINS
+ * `query` (OpenProject #2533) -- a thin, purely client-side second pass alongside the backend
+ * full-text search `computeHighlightedNodeIds` above draws from. The backend's
+ * `websearch_to_tsquery` engine matches stemmed lexemes, not substrings, so typing a partial word
+ * (e.g. "onboard" against a page titled "Onboarding Guide") doesn't reliably highlight a page whose
+ * title plainly contains it -- this fills exactly that gap, unioned into the same highlighted set
+ * by the caller (`Graph.vue`'s `highlightedNodeIds`), never replacing the backend pass. Takes
+ * `nodes` (the caller's `allNodes.value`, already in memory -- no extra request) rather than
+ * `matches`, since there is no search response here to draw ids from; a node with no `title` at all
+ * (synthetic hub nodes never carry one) simply never matches. `query` is trimmed the same way
+ * `searchKeyword`'s own watcher trims `keywordQuery` before firing (`Graph.vue`, ~line 511), so an
+ * empty or whitespace-only query yields an empty `Set` here too, same as the backend pass does for
+ * an unfired search.
+ */
+export function computeTitleMatchNodeIds(nodes, query) {
+  const trimmed = (query ?? '').trim().toLowerCase()
+  if (!trimmed) {
+    return new Set()
+  }
+  return new Set(
+    (nodes ?? [])
+      .filter((node) => node.title?.toLowerCase().includes(trimmed))
+      .map((node) => nodeId(node))
+  )
+}
+
+/**
  * Path-hierarchy synthetic nodes/edges (OpenProject #998, `edgeMode: 'paths'`, the default): every
  * node connects to its immediate parent path segment, climbed all the way up to a synthetic root
  * (`''`) -- "root fans out to everything," so even a wiki with zero authored relations/links renders

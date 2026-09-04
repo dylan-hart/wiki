@@ -134,6 +134,15 @@ describe('AdminNavigation', () => {
     expect(text).toContain('Hide Current + Descendants')
   })
 
+  it('shows the empty-source message, not the no-match one, when there are no overrides at all (OpenProject #2061)', async () => {
+    const { wrapper } = await mountPage({ apiClient: { overrides: [] } })
+    await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === 0)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('No pages or folders override the default navigation yet.')
+    expect(wrapper.text()).not.toContain('No overrides match your search.')
+  })
+
   it('filters rows by path only, not by locale or mode', async () => {
     const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)

@@ -7,18 +7,18 @@
         Which menu is on screen, when it is not this page's own: an inherited menu is shared with every
         page that falls back to it, so a change here is not local to the page it was made from.
       -->
-      <span class="ml-3 text-caption opacity-80" v-if="isEditingInherited">
+      <span class="ms-3 text-caption opacity-80" v-if="isEditingInherited">
         {{ t('navEdit.editingInherited') }}
       </span>
-      <span class="ml-3 text-caption opacity-80" v-if="menuMode === 'auto'">
+      <span class="ms-3 text-caption opacity-80" v-if="menuMode === 'auto'">
         {{ t('navEdit.menuSourceReadOnlyNotice') }}
       </span>
       <w-space />
       <transition name="syncing">
-        <w-spinner class="mr-2" v-show="isBusy" color="accent" size="24px" />
+        <w-spinner class="me-2" v-show="isBusy" color="accent" size="24px" />
       </transition>
       <w-btn
-        class="mr-2"
+        class="me-2"
         flat
         rounded
         color="white"
@@ -72,10 +72,22 @@ import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import NavItemEditor from '@/components/NavItemEditor.vue'
 
+// PROPS
+
+/**
+ * Initial state from whoever opened this overlay (`NavEditMenu.vue`'s `siteStore.$patch({ overlay:
+ * 'NavEdit', overlayOpts: {...} })`), forwarded here by `MainOverlayDialog.vue` (OpenProject #2530).
+ * `navId`/`menuMode` below read this prop, not `siteStore.overlayOpts` directly.
+ */
+const props = defineProps({
+  overlayOpts: { type: Object, default: () => ({}) }
+})
+
 /**
  * The per-page half of navigation editing, opened FROM a page (via `NavEditMenu.vue`'s mode picker,
  * itself opened from the page action menu) to edit THAT page's own `navigationMode` and menu — with
- * the ancestor menu it currently inherits (if any) resolved for it as `siteStore.overlayOpts.navId`.
+ * the ancestor menu it currently inherits (if any) resolved for it as `overlayOpts.navId` (the
+ * `overlay-opts` prop from `MainOverlayDialog.vue`).
  * See `navId` and `isEditingInherited` below for how that resolution plays out, and `save()` for why
  * the mode has to travel with the items rather than being fixed by which menu is on screen.
  *
@@ -124,11 +136,11 @@ const editorRef = ref(null)
  * menu keyed by its own id, which the server creates on the first save.
  */
 const navId = computed(() => {
-  return siteStore.overlayOpts.navId ?? (pageStore.isHome ? pageStore.navigationId : pageStore.id)
+  return props.overlayOpts.navId ?? (pageStore.isHome ? pageStore.navigationId : pageStore.id)
 })
 
 /** Whether the menu on screen is an inherited one, which is shared with every page using it. */
-const isEditingInherited = computed(() => Boolean(siteStore.overlayOpts.navId))
+const isEditingInherited = computed(() => Boolean(props.overlayOpts.navId))
 
 /**
  * The resolved menu's own source (`static`/`auto`/`mixed`) -- a different axis from the entry's own
@@ -142,7 +154,7 @@ const isEditingInherited = computed(() => Boolean(siteStore.overlayOpts.navId))
  * to a component's own default exactly the same as the prop being omitted -- so this only ever adds
  * information, never overrides the editor's default with a guess of its own.
  */
-const menuMode = computed(() => siteStore.overlayOpts.menuMode)
+const menuMode = computed(() => props.overlayOpts.menuMode)
 
 /**
  * Loading the menu, loading the group list, or saving — any of which the header spinner covers and
@@ -183,7 +195,7 @@ async function save() {
     */
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
       json: {
-        mode: siteStore.overlayOpts.mode ?? pageStore.navigationMode,
+        mode: props.overlayOpts.mode ?? pageStore.navigationMode,
         // -> Carried through unchanged (see `menuMode` above): the Save button is disabled while
         //    `auto`, so this only ever re-affirms whatever source was already resolved, or persists a
         //    source picked in the popup but not yet saved from there

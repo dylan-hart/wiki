@@ -135,7 +135,7 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
   }
 
   /*
-    The quick-jump rail, which sits outside the panel's left edge.
+    The quick-jump rail, which sits outside the panel's leading edge.
 
     Two things kept it off screen. It was `position: fixed` at a hard-coded `right: 486px`, a number
     derived from a panel 450px wide with a 24px margin -- once the panel sized itself to its content
@@ -145,10 +145,13 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     Anchored to the card instead (`WCard` is a positioned element), so it tracks whatever width the
     panel ends up with. The two `.q-transition--jump-*` rules that hid it mid-animation are gone with
     the Quasar transitions they named; the 300ms timer in the dialog already keeps it out of the slide.
+
+    -> `inset-inline-end`, not `right` (OpenProject #1601): the rail is a leading-edge companion to
+       the panel, not a screen-corner anchor, so it follows the panel to the other side under RTL.
   */
   &-quickaccess {
     position: absolute;
-    right: calc(100% + 12px);
+    inset-inline-end: calc(100% + 12px);
     top: 24px;
     width: 40px;
     display: flex;

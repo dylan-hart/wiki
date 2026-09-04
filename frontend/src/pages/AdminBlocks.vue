@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.blocks.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.blocks.subtitle') }}
@@ -23,16 +23,16 @@
         -->
         <template v-if="flagsStore.experimental">
           <w-btn
-            class="mr-2 acrylic-btn"
+            class="me-2 acrylic-btn"
             unelevated
             icon="la:plus"
             :label="t(`admin.blocks.add`)"
             color="primary"
             @click="addBlock" />
-          <w-separator class="mr-2" vertical />
+          <w-separator class="me-2" vertical />
         </template>
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -42,7 +42,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -123,7 +123,7 @@
                   padding="xs sm"
                   @click="deleteBlock(block.id)" />
               </w-item-section>
-              <w-separator class="ml-6" vertical />
+              <w-separator class="ms-6" vertical />
             </template>
             <!--
               Configure never renders for a custom block: a custom block has no manifest entry, so
@@ -144,11 +144,11 @@
                   padding="xs md"
                   @click="openConfig(block)" />
               </w-item-section>
-              <w-separator class="ml-4" vertical />
+              <w-separator class="ms-4" vertical />
             </template>
             <w-item-section side>
               <w-toggle
-                class="pr-2"
+                class="pe-2"
                 v-model="block.isEnabled"
                 :label="t(`admin.blocks.isEnabled`)"
                 :aria-label="t(`admin.blocks.isEnabled`)" />
@@ -187,7 +187,7 @@
                   <span class="text-caption">{{ credential.id }}</span>
                 </w-chip>
                 <w-btn
-                  class="ml-1"
+                  class="ms-1"
                   icon="la:copy"
                   flat
                   round
@@ -199,7 +199,7 @@
                 </w-btn>
               </w-item-label>
               <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
-                <w-icon name="la:globe" size="14px" class="mr-1" />
+                <w-icon name="la:globe" size="14px" class="me-1" />
                 <span v-if="credential.allowedOrigins?.length" class="text-caption">
                   {{ credential.allowedOrigins.join(', ') }}
                 </span>
@@ -210,7 +210,7 @@
             </w-item-section>
             <w-item-section side>
               <w-btn
-                class="mr-2"
+                class="me-2"
                 icon="la:globe"
                 :label="t(`admin.blocks.credentialDomains`)"
                 :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
@@ -221,7 +221,7 @@
             </w-item-section>
             <w-item-section side>
               <w-btn
-                class="mr-2"
+                class="me-2"
                 icon="la:sync-alt"
                 :label="t(`admin.blocks.credentialRotate`)"
                 :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
@@ -275,7 +275,7 @@
         <w-separator />
         <w-card-section class="flex justify-end">
           <w-btn
-            class="mr-2"
+            class="me-2"
             flat
             color="grey"
             :label="t(`common.actions.cancel`)"

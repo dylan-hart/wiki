@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.dashboard.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none flex">
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -25,7 +25,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -494,7 +494,7 @@ function checkForUpdates() {
 
     img {
       width: 32px;
-      margin-right: 12px;
+      margin-inline-end: 12px;
     }
 
     strong {
@@ -509,7 +509,7 @@ function checkForUpdates() {
 
     img {
       width: 64px;
-      margin-right: 12px;
+      margin-inline-end: 12px;
     }
 
     strong {
@@ -517,7 +517,7 @@ function checkForUpdates() {
       font-weight: 300;
       display: block;
       line-height: 1.2rem;
-      padding-left: 2px;
+      padding-inline-start: 2px;
     }
 
     span {

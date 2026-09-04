@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 550px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" size="sm" class="me-2" />
         <span>{{ t(`pageDeleteDialog.title`) }}</span>
       </w-card-section>
       <w-card-section>

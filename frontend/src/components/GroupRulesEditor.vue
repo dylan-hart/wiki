@@ -1,10 +1,10 @@
 <template>
   <w-page>
-    <w-toolbar class="pl-4" :class="dark.isActive ? `bg-dark-3 text-white` : `bg-white text-dark`">
+    <w-toolbar class="ps-4" :class="dark.isActive ? `bg-dark-3 text-white` : `bg-white text-dark`">
       <div class="text-subtitle1">{{ t('admin.groups.rules') }}</div>
       <w-space />
       <w-btn
-        class="acrylic-btn mr-2"
+        class="acrylic-btn me-2"
         flat
         color="indigo"
         icon="la:file-export"
@@ -12,7 +12,7 @@
         <w-tooltip labels>{{ t('admin.groups.exportRules') }}</w-tooltip>
       </w-btn>
       <w-btn
-        class="acrylic-btn mr-2"
+        class="acrylic-btn me-2"
         flat
         color="indigo"
         icon="la:file-import"
@@ -50,7 +50,7 @@
                   getRuleModeName(rule.mode)
                 }}</strong>
               </div>
-              <w-separator class="ml-2 mr-1" vertical />
+              <w-separator class="ms-2 me-1" vertical />
               <input type="text" v-model="rule.name" placeholder="Rule Name" />
             </div>
             <w-card class="admin-groups-rule-card mt-4" flat>
@@ -93,7 +93,7 @@
                   </template>
                 </w-select>
                 <w-btn
-                  class="acrylic-btn ml-4"
+                  class="acrylic-btn ms-4"
                   flat
                   icon="la:trash"
                   color="negative"
@@ -577,12 +577,13 @@ async function importRules() {
 <style lang="scss">
 .admin-groups-rule {
   position: relative;
-  padding: 10px 0 24px 40px;
+  padding-block: 10px 24px;
+  padding-inline-start: 40px;
 
   &-icon {
     position: absolute;
     top: 0;
-    left: 0;
+    inset-inline-start: 0;
     bottom: 0;
     width: 31px;
 
@@ -602,7 +603,7 @@ async function importRules() {
       width: 3px;
       top: 41px;
       bottom: 0;
-      left: 14px;
+      inset-inline-start: 14px;
       opacity: 0.4;
       background-color: currentColor;
       display: block;
@@ -620,7 +621,7 @@ async function importRules() {
     .w-icon {
       position: absolute;
       top: 4px;
-      left: 0;
+      inset-inline-start: 0;
       box-sizing: border-box;
       width: 31px;
       height: 31px;

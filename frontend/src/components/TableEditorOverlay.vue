@@ -72,7 +72,7 @@
           <w-separator vertical />
           <w-checkbox
             v-model="state.headerless"
-            class="ml-2"
+            class="ms-2"
             :label="t('editor.tableEditor.headerless')" />
           <w-checkbox
             v-model="state.compact"
@@ -238,6 +238,18 @@ import { ALIGNMENTS, buildTable, parseTable } from '@/helpers/markdownTable'
 
 import { useSiteStore } from '@/stores/site'
 
+// PROPS
+
+/**
+ * Initial state from whoever opened this overlay (the markdown editor's "Edit Table" lens
+ * `$patch({ overlay: 'TableEditor', overlayOpts: {...} })`), forwarded here by
+ * `MainOverlayDialog.vue` (OpenProject #2530). `editing` below reads this prop, not
+ * `siteStore.overlayOpts` directly.
+ */
+const props = defineProps({
+  overlayOpts: { type: Object, default: () => ({}) }
+})
+
 /**
  * Builds a markdown table and hands it to the editor.
  *
@@ -300,12 +312,12 @@ const ALIGN_LABELS = {
   A starter table when there is nothing to edit; the table that was there when there is. `replace` holds
   the lines it came from, and is what turns this from an insert into an update -- see `insert`.
 */
-const editing = siteStore.overlayOpts?.source
+const editing = props.overlayOpts?.source
   ? {
-      ...parseTable(siteStore.overlayOpts.source),
+      ...parseTable(props.overlayOpts.source),
       replace: {
-        startLine: siteStore.overlayOpts.startLine,
-        endLine: siteStore.overlayOpts.endLine
+        startLine: props.overlayOpts.startLine,
+        endLine: props.overlayOpts.endLine
       }
     }
   : null

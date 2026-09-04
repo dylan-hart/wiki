@@ -42,6 +42,7 @@
 <script setup>
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
 
@@ -54,6 +55,7 @@ import NavSidebarItem from './NavSidebarItem.vue'
 
 // STORES
 
+const route = useRoute()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -72,10 +74,24 @@ const canCreateAtRoot = computed(
     userStore.can('write:pages')
 )
 
+/**
+ * The menu id this route actually wants: a content page's own inherited id
+ * (`pageStore.navigationId`, set exclusively by `pageStore.pageLoad()`) for the routes that render
+ * one, or the site's default id (`siteStore.navigationId`, from the bootstrap payload) for every
+ * other `MainLayout` route -- the knowledge graph, tags browse -- which never call `pageLoad()` and
+ * so would otherwise leave `pageStore.navigationId` at `null` forever (OpenProject #2527). A
+ * content route deliberately keeps using `pageStore.navigationId` alone, with no fallback, while it
+ * is still `null` mid-load -- see `MainLayout.vue`'s `isSidebarMiniForced` for why that gap matters
+ * there.
+ */
+const effectiveNavigationId = computed(() =>
+  route.meta.contentPage ? pageStore.navigationId : siteStore.navigationId
+)
+
 // WATCHERS
 
 watch(
-  () => pageStore.navigationId,
+  effectiveNavigationId,
   (newValue) => {
     // -> The "already showing this menu" gate now lives in `fetchNavigation()` itself (OpenProject
     //    #1012), so a same-tab invalidation elsewhere in the app can bypass it with `forceRefresh`
@@ -102,15 +118,28 @@ $sidebar-overlay-max: 1199.98px;
      is what lets it shrink below its content so the scroll area actually scrolls. */
   flex: 1 1 0;
   min-height: 0;
+  /* -> A flex column of its own, so `> nav` below can be sized by the SAME flex layout pass as this
+     element's own (flex-computed, potentially fractional-pixel) height -- see the comment there for
+     why that, rather than a percentage height, is what this needs to be. */
+  display: flex;
+  flex-direction: column;
 
   /* -> The `<nav>` inside this scroll area has no height rule of its own, so with few or zero items
      it collapses to its content's height and leaves empty space below it that is inside
      `.sidebar-nav` but OUTSIDE `<nav>` -- exactly the space `WMenu`'s root-level context-menu
      trigger binds to. Without this, right-clicking that empty space (the case that matters most:
      an empty or near-empty sidebar, where "right-click to create the first page" is the whole
-     point) has no `<nav>` surface under the pointer to bind to, and does nothing. */
+     point) has no `<nav>` surface under the pointer to bind to, and does nothing.
+
+     `flex: 1 0 auto` rather than a percentage height (OpenProject #2535): a percentage height here
+     resolves against `.sidebar-nav`'s own flex-computed height in a SEPARATE layout pass, and that
+     height can be a fractional pixel value -- the two passes can round it differently, leaving `nav`
+     a hair taller than the actual available space and tripping `w-scroll-area`'s `overflow-auto`
+     even though nothing is actually cut off. Flex-growing `nav` inside `.sidebar-nav`'s own flex
+     column keeps both figures resolved by the same algorithm/pass, which does not have that
+     mismatch, while still guaranteeing `nav` is at least as tall as `.sidebar-nav`. */
   > nav {
-    min-height: 100%;
+    flex: 1 0 auto;
   }
 
   &-list > .w-separator {

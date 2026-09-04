@@ -7,7 +7,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -33,7 +33,7 @@
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
+            <w-card-section class="flex-none pe-0">
               <w-icon name="la:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">{{ t('profile.api.none') }}</w-card-section>
@@ -83,7 +83,7 @@
             </w-item-section>
             <w-item-section v-if="keyState(key)" side>
               <div class="flex items-center">
-                <w-icon class="mr-2" color="negative" size="xs" name="la:exclamation-triangle" />
+                <w-icon class="me-2" color="negative" size="xs" name="la:exclamation-triangle" />
                 <div class="text-caption text-negative">
                   {{ t(`profile.api.${keyState(key)}`) }}
                 </div>
@@ -92,7 +92,7 @@
                 {{ stateHint(key) }}
               </div>
             </w-item-section>
-            <w-separator class="ml-4" vertical />
+            <w-separator class="ms-4" vertical />
             <w-item-section side style="flex-direction: row; align-items: center">
               <w-btn
                 class="acrylic-btn"

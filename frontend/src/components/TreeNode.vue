@@ -6,7 +6,7 @@
       <div class="treeview-label-text">
         {{ displayMode === 'path' ? node.fileName : node.title }}
       </div>
-      <w-spinner class="mr-1" color="primary" v-if="state.isLoading" />
+      <w-spinner class="me-1" color="primary" v-if="state.isLoading" />
       <w-icon
         v-if="isActive"
         name="la:angle-right"

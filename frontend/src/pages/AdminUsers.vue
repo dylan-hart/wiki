@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.users.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.users.subtitle') }}
@@ -15,7 +15,7 @@
       </div>
       <div class="flex-none flex items-center">
         <w-input
-          class="denser mr-2"
+          class="denser me-2"
           outlined
           v-model="state.search"
           dense
@@ -25,7 +25,7 @@
           <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
         </w-input>
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:question-circle"
           flat
           color="grey"
@@ -35,7 +35,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2 acrylic-btn"
+          class="me-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -45,7 +45,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2"
+          class="me-2"
           v-if="canManage"
           icon="la:user-cog"
           unelevated
@@ -82,8 +82,8 @@
               <w-td :props="props">
                 <div class="flex items-center">
                   <strong>{{ props.value }}</strong>
-                  <w-icon class="ml-2" v-if="props.row.isSystem" name="la:lock" color="pink" />
-                  <w-icon class="ml-2" v-if="!props.row.isActive" name="la:ban" color="pink" />
+                  <w-icon class="ms-2" v-if="props.row.isSystem" name="la:lock" color="pink" />
+                  <w-icon class="ms-2" v-if="!props.row.isActive" name="la:ban" color="pink" />
                 </div>
               </w-td>
             </template>
@@ -113,7 +113,7 @@
             <template #body-cell-edit="props">
               <w-td :props="props">
                 <w-btn
-                  class="acrylic-btn mr-2"
+                  class="acrylic-btn me-2"
                   v-if="!props.row.isSystem"
                   flat
                   :to="`/_admin/users/` + props.row.id"

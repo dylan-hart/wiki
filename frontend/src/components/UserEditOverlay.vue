@@ -59,7 +59,7 @@
       <w-page v-if="state.loading > 0">
         <div class="flex p-6 items-center">
           <w-spinner color="primary" size="32px" />
-          <div class="text-caption text-primary pl-4">
+          <div class="text-caption text-primary ps-4">
             <strong>{{ t('admin.users.loading') }}</strong>
           </div>
         </div>
@@ -573,7 +573,7 @@
                   {{ t('admin.users.metadata') }}
                   <template #action>
                     <w-badge v-if="state.metadataInvalidJSON" color="negative">
-                      <w-icon class="mr-1" name="la:exclamation-triangle" size="20px" />
+                      <w-icon class="me-1" name="la:exclamation-triangle" size="20px" />
                       <span>{{ t('admin.users.invalidJSON') }}</span>
                     </w-badge>
                     <w-badge

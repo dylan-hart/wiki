@@ -834,11 +834,11 @@ defineExpose({ editor, menuBar })
     }
 
     blockquote {
-      padding-left: 1rem;
-      border-left: 2px solid rgba(#0d0d0d, 0.1);
+      padding-inline-start: 1rem;
+      border-inline-start: 2px solid rgba(#0d0d0d, 0.1);
 
       @at-root .body--dark & {
-        border-left-color: rgba(255, 255, 255, 0.2);
+        border-inline-start-color: rgba(255, 255, 255, 0.2);
       }
     }
 
@@ -879,7 +879,7 @@ defineExpose({ editor, menuBar })
 
       th {
         font-weight: bold;
-        text-align: left;
+        text-align: start;
         background-color: #f1f3f5;
 
         @at-root .body--dark & {
@@ -891,8 +891,8 @@ defineExpose({ editor, menuBar })
         z-index: 2;
         position: absolute;
         content: '';
-        left: 0;
-        right: 0;
+        inset-inline-start: 0;
+        inset-inline-end: 0;
         top: 0;
         bottom: 0;
         background: rgba(200, 200, 255, 0.4);
@@ -901,7 +901,7 @@ defineExpose({ editor, menuBar })
 
       .column-resize-handle {
         position: absolute;
-        right: -2px;
+        inset-inline-end: -2px;
         top: 0;
         bottom: -2px;
         width: 4px;
@@ -929,7 +929,7 @@ defineExpose({ editor, menuBar })
 
         > label {
           flex: 0 0 auto;
-          margin-right: 0.5rem;
+          margin-inline-end: 0.5rem;
         }
       }
     }
@@ -954,14 +954,22 @@ defineExpose({ editor, menuBar })
     */
     .collaboration-carets__caret {
       position: relative;
-      margin-left: -1px;
-      margin-right: -1px;
-      border-left: 1px solid;
-      border-right: 1px solid;
+      margin-inline-start: -1px;
+      margin-inline-end: -1px;
+      border-inline-start: 1px solid;
+      border-inline-end: 1px solid;
       word-break: normal;
       pointer-events: none;
     }
 
+    /*
+      -> `left`/the bottom-left square corner of `border-radius` stay physical on purpose (OpenProject
+         #1601's repo-wide pass): the label is a flag anchored to the caret's own left edge, its
+         bottom-left corner cut square to form the flag's point flush against the caret line. Moving
+         `left` to a logical offset without also flipping which `border-radius` corner is square would
+         separate the point from the line it is supposed to touch under RTL -- a coordinated redesign,
+         not a mechanical property swap. See `frontend/src/logicalSpacing.test.js`.
+    */
     .collaboration-carets__label {
       position: absolute;
       top: -1.4em;

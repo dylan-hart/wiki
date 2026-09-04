@@ -30,7 +30,7 @@
                 @click="createHomePage(`wysiwyg`)"
                 v-if="enabledEditors.includes(`wysiwyg`)">
                 <blueprint-icon icon="google-presentation" />
-                <w-item-section class="pr-2">{{ t('welcome.usingVisualEditor') }}</w-item-section>
+                <w-item-section class="pe-2">{{ t('welcome.usingVisualEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
               <w-item
@@ -38,7 +38,7 @@
                 @click="createHomePage(`markdown`)"
                 v-if="enabledEditors.includes(`markdown`)">
                 <blueprint-icon icon="markdown" />
-                <w-item-section class="pr-2">{{ t('welcome.usingMarkdownEditor') }}</w-item-section>
+                <w-item-section class="pe-2">{{ t('welcome.usingMarkdownEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
               <w-item
@@ -46,7 +46,7 @@
                 @click="createHomePage(`asciidoc`)"
                 v-if="enabledEditors.includes(`asciidoc`)">
                 <blueprint-icon icon="asciidoc" />
-                <w-item-section class="pr-2">{{ t('welcome.usingAsciidocEditor') }}</w-item-section>
+                <w-item-section class="pe-2">{{ t('welcome.usingAsciidocEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
             </w-list>
@@ -85,6 +85,17 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+
+// PROPS
+
+/**
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop
+ * (OpenProject #2530). Declared here even though this overlay opens with no initial state to read --
+ * without a declared prop, the value would fall through onto this component's DOM root instead.
+ */
+defineProps({
+  overlayOpts: { type: Object, default: () => ({}) }
+})
 
 // STORES
 

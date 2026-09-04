@@ -583,7 +583,7 @@ $card-gutter-max: 1199.98px;
 
   &-back {
     position: absolute;
-    left: -50px;
+    inset-inline-start: -50px;
   }
 
   &-card {
@@ -624,17 +624,18 @@ $card-gutter-max: 1199.98px;
 
   &-sd {
     flex: 0 0 300px;
-    border-radius: 8px 0 0 8px;
+    border-start-start-radius: 8px;
+    border-end-start-radius: 8px;
     overflow: hidden;
 
     @at-root .body--light & {
       background-color: $grey-1;
-      border-right: 1px solid rgba($dark-3, 0.1);
+      border-inline-end: 1px solid rgba($dark-3, 0.1);
       box-shadow: inset -1px 0 0 #fff;
     }
     @at-root .body--dark & {
       background-color: $dark-4;
-      border-right: 1px solid rgba(#fff, 0.12);
+      border-inline-end: 1px solid rgba(#fff, 0.12);
       box-shadow: inset -1px 0 0 rgba($dark-6, 0.5);
     }
   }
@@ -671,20 +672,20 @@ $card-gutter-max: 1199.98px;
     flex: 1 1;
 
     .section-header:first-child {
-      border-top-right-radius: 7px;
+      border-start-end-radius: 7px;
     }
 
     @at-root .body--light & {
-      border-left: 1px solid #fff;
+      border-inline-start: 1px solid #fff;
     }
     @at-root .body--dark & {
-      border-left: 1px solid rgba($dark-6, 0.75);
+      border-inline-start: 1px solid rgba($dark-6, 0.75);
     }
   }
 
   &-itemtags {
     .w-chip:last-child {
-      margin-right: 0;
+      margin-inline-end: 0;
     }
   }
 
@@ -720,7 +721,8 @@ $card-gutter-max: 1199.98px;
     }
 
     /*
-      And the back button goes with them. It is positioned into the gutter beside the card (`left: -50px`),
+      And the back button goes with them. It is positioned into the gutter beside the card
+      (`inset-inline-start: -50px`),
       so it needs 50px of gutter to sit in -- which a 2.5% gutter is not at any width this rule covers, and
       was not at 90% either much below 1000px: the circle was already being clipped by the left edge of the
       window. Hidden rather than moved, because the header above still has the search field that brought
@@ -782,32 +784,32 @@ $card-gutter-max: 1199.98px;
       border-radius: 0;
 
       @at-root .body--light & {
-        border-right: 0;
+        border-inline-end: 0;
         border-bottom: 1px solid $grey-3;
         box-shadow: none;
       }
       @at-root .body--dark & {
-        border-right: 0;
+        border-inline-end: 0;
         border-bottom: 1px solid rgba(#fff, 0.12);
         box-shadow: none;
       }
     }
 
-    /* -> The seam is the panel's bottom border now, and a left one would draw down the card's own edge */
+    /* -> The seam is the panel's bottom border now, and a leading one would draw down the card's own edge */
     .w-page {
       @at-root .body--light & {
-        border-left: 0;
+        border-inline-start: 0;
       }
       @at-root .body--dark & {
-        border-left: 0;
+        border-inline-start: 0;
       }
 
       /*
-        The results header is the top-right corner of the card no longer -- the disclosure bar above it is
+        The results header is the top corner of the card no longer -- the disclosure bar above it is
         the whole top edge, and rounds both corners itself.
       */
       .section-header:first-child {
-        border-top-right-radius: 0;
+        border-start-end-radius: 0;
       }
     }
   }
@@ -855,14 +857,14 @@ $card-gutter-max: 1199.98px;
         section carries as a TRAILING one -- which is a gutter between two columns, and there is only one
         column now.
       */
-      padding-left: 56px;
+      padding-inline-start: 56px;
 
       /*
         Both were written for a right-hand column and are Tailwind utilities, so they are layered -- these
         unlayered rules outrank them without `!important`.
       */
       .text-right {
-        text-align: left;
+        text-align: start;
       }
       .justify-end {
         justify-content: flex-start;

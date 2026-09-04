@@ -7,7 +7,7 @@
           size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
-      <div class="min-w-0 flex-1 pl-4">
+      <div class="min-w-0 flex-1 ps-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.api.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.api.subtitle') }}
@@ -16,11 +16,11 @@
       <div class="min-w-0 flex-1">
         <div class="flex items-center">
           <template v-if="state.enabled">
-            <w-signal class="mr-2" color="green" size="md" />
+            <w-signal class="me-2" color="green" size="md" />
             <div class="text-caption text-green">{{ t('admin.api.enabled') }}</div>
           </template>
           <template v-else>
-            <w-signal class="mr-2" color="red" size="md" />
+            <w-signal class="me-2" color="red" size="md" />
             <div class="text-caption text-red">{{ t('admin.api.disabled') }}</div>
           </template>
         </div>
@@ -30,7 +30,7 @@
              not part of this SPA. Labelled rather than tooltipped, so the visible text is already the
              accessible name and there is no `aria-label` -->
         <w-btn
-          class="acrylic-btn mr-2 ml-4"
+          class="acrylic-btn me-2 ms-4"
           icon="la:book"
           flat
           color="grey"
@@ -38,7 +38,7 @@
           href="/_api"
           target="_blank" />
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn me-2"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -48,7 +48,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="mr-2"
+          class="me-2"
           unelevated
           icon="la:power-off"
           :label="!state.enabled ? t(`admin.api.enableButton`) : t(`admin.api.disableButton`)"
@@ -79,7 +79,7 @@
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
+            <w-card-section class="flex-none pe-0">
               <w-icon name="la:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">
@@ -100,7 +100,7 @@
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
+            <w-card-section class="flex-none pe-0">
               <w-icon name="la:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">{{ t('admin.api.none') }}</w-card-section>
@@ -178,7 +178,7 @@
               -->
               <w-item-section v-if="keyState(key)" side>
                 <div class="flex items-center">
-                  <w-icon class="mr-2" color="negative" size="xs" name="la:exclamation-triangle" />
+                  <w-icon class="me-2" color="negative" size="xs" name="la:exclamation-triangle" />
                   <div class="text-caption text-negative">
                     {{ t(`admin.api.${keyState(key)}`) }}
                   </div>
@@ -189,7 +189,7 @@
                   {{ stateHint(key) }}
                 </div>
               </w-item-section>
-              <w-separator class="ml-4" vertical />
+              <w-separator class="ms-4" vertical />
               <w-item-section side style="flex-direction: row; align-items: center">
                 <w-btn
                   class="acrylic-btn"

@@ -588,6 +588,16 @@ html.theme-transition-suppress *::after {
     where the text will appear; floated, it shrinks and rises onto the outline. Pointer events are off
     so a click at rest reaches the field rather than the label.
   */
+  /*
+    -> `left` stays physical on purpose (OpenProject #1601's repo-wide pass, see
+       `frontend/src/logicalSpacing.test.js`): it is paired below with `transform-origin: left
+       center`, which CSS has no logical (`inline-start`) keyword for, so the label always scales
+       from its physical left edge regardless of `dir`. Converting just the position would move the
+       label to the right edge under RTL while it kept scaling from the left -- a worse, lopsided
+       bug, not a fix. Following the reading direction here needs a `[dir='rtl']` override this
+       codebase has never used anywhere else (every other RTL fix is a logical property), which is a
+       design decision for a dedicated follow-up, not a mechanical swap.
+  */
   .w-input-float {
     position: absolute;
     left: 0.75rem;
@@ -774,7 +784,7 @@ html.theme-transition-suppress *::after {
     content: '';
     position: absolute;
     bottom: -13px;
-    left: 0;
+    inset-inline-start: 0;
     z-index: 0;
     width: 100%;
     height: 10px;
@@ -796,7 +806,7 @@ html.theme-transition-suppress *::after {
     content: '';
     position: absolute;
     bottom: -2px;
-    left: 0;
+    inset-inline-start: 0;
     z-index: 0;
     width: 100%;
     height: 1px;

@@ -232,7 +232,7 @@ onMounted(() => {
     }
 
     > .w-icon {
-      margin-right: 5px;
+      margin-inline-end: 5px;
     }
 
     &-text {

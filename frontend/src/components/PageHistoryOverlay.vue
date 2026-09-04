@@ -11,13 +11,13 @@
       <span class="page-history-page">{{ pageStore.title }}</span>
       <w-space />
       <transition name="syncing">
-        <w-spinner class="mr-4" v-show="state.loading > 0" color="accent" size="20px" />
+        <w-spinner class="me-4" v-show="state.loading > 0" color="accent" size="20px" />
       </transition>
       <!--
         How the two versions are laid against each other. Up here rather than over the diff, so the
         compare bar below can stay exactly two halves lining up with the editor's own two panes.
       -->
-      <w-btn-group class="mr-6">
+      <w-btn-group class="me-6">
         <w-btn
           push
           dense
@@ -106,31 +106,31 @@
                 :aria-label="t(`history.versionActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
                   <!--
-                    `!min-w-0 !pr-2` on each icon section, and literal colour classes rather than
+                    `!min-w-0 !pe-2` on each icon section, and literal colour classes rather than
                     WIcon's `color` prop — both for the same reasons as the profile menu this copies.
                   -->
                   <w-list dense padding style="min-width: 260px">
                     <w-item clickable @click="pick(`a`, version.id)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="mdi:letter-a-box" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="pick(`b`, version.id)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="mdi:letter-b-box" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsTarget') }}</w-item-section>
                     </w-item>
                     <w-separator class="my-1" />
                     <w-item clickable @click="viewSource(version)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:code" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.viewSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="downloadVersion(version)">
-                      <w-item-section avatar class="!min-w-0 !pr-2">
+                      <w-item-section avatar class="!min-w-0 !pe-2">
                         <w-icon name="la:download" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.downloadVersion') }}</w-item-section>
@@ -142,13 +142,13 @@
                         same red the profile menu gives its one irreversible entry.
                       -->
                       <w-item clickable @click="restoreVersion(version)">
-                        <w-item-section avatar class="!min-w-0 !pr-2">
+                        <w-item-section avatar class="!min-w-0 !pe-2">
                           <w-icon name="la:undo" class="text-negative" />
                         </w-item-section>
                         <w-item-section>{{ t('history.restore') }}</w-item-section>
                       </w-item>
                       <w-item clickable @click="branchFrom(version)">
-                        <w-item-section avatar class="!min-w-0 !pr-2">
+                        <w-item-section avatar class="!min-w-0 !pe-2">
                           <w-icon name="la:code-branch" class="text-blue-7" />
                         </w-item-section>
                         <w-item-section>{{ t('history.branchOff') }}</w-item-section>
@@ -312,6 +312,17 @@ import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
+
+// PROPS
+
+/**
+ * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this prop
+ * (OpenProject #2530). Declared here even though this overlay opens with no initial state to read --
+ * without a declared prop, the value would fall through onto this component's DOM root instead.
+ */
+defineProps({
+  overlayOpts: { type: Object, default: () => ({}) }
+})
 
 /**
  * Everything that ever happened to a page, and the difference between any two moments of it.
@@ -832,6 +843,12 @@ $timeline-turn: 16px;
     position: relative;
   }
 
+  /*
+    -> `left`/`translateX(-50%)` stay physical on purpose (OpenProject #1601's repo-wide pass): this
+       centers the title over the whole header regardless of reading direction, the same centering
+       trick as `WSignal.vue`/`ErrorGeneric.vue` -- not a reading-direction lean. See
+       `frontend/src/logicalSpacing.test.js`.
+  */
   &-page {
     position: absolute;
     left: 50%;
@@ -849,7 +866,7 @@ $timeline-turn: 16px;
   &-sidebar {
     background-color: $dark-5;
     color: #fff;
-    border-right: 1px solid rgba(#fff, 0.08);
+    border-inline-end: 1px solid rgba(#fff, 0.08);
   }
 
   &-main {
@@ -868,29 +885,30 @@ $timeline-turn: 16px;
     padding: 1rem 0;
 
     /*
-      The line: down behind the dots, then a quarter turn out to the left edge rather than stopping
-      in mid-air.
+      The line: down behind the dots, then a quarter turn out to the leading edge rather than
+      stopping in mid-air.
 
-      Both halves are ONE border of ONE box -- the right and bottom edges of an invisible rectangle,
-      joined by a corner radius -- rather than a straight element meeting a curved one. Two elements
-      cannot be made to match under fractional display scaling: each snaps to the device pixel grid
-      from its own layout box, so at 125% or 150% one lands on a whole device pixel and the other
-      straddles two, and the seam shows as a change of thickness. As a single border there is nothing
-      to line up: the browser rasterises the straight stretch and the curve as one path.
+      Both halves are ONE border of ONE box -- the trailing and bottom edges of an invisible
+      rectangle, joined by a corner radius -- rather than a straight element meeting a curved one.
+      Two elements cannot be made to match under fractional display scaling: each snaps to the device
+      pixel grid from its own layout box, so at 125% or 150% one lands on a whole device pixel and the
+      other straddles two, and the seam shows as a change of thickness. As a single border there is
+      nothing to line up: the browser rasterises the straight stretch and the curve as one path.
 
-      The box's right edge sits under the middle of the dots: 1rem of padding, half of the 28px dot,
-      half of the 2px line.
+      The box's trailing edge sits under the middle of the dots: 1rem of padding, half of the 28px
+      dot, half of the 2px line. OpenProject #1601: `inset-inline-start`/`border-inline-end`/
+      `border-end-end-radius`, so the turn follows the dots to the leading edge under RTL too.
     */
     &::before {
       content: '';
       position: absolute;
       top: 0;
       bottom: 0;
-      left: 0;
+      inset-inline-start: 0;
       width: calc(1rem + 14px + 1px);
-      border-right: 2px solid $timeline-line;
+      border-inline-end: 2px solid $timeline-line;
       border-bottom: 2px solid $timeline-line;
-      border-bottom-right-radius: $timeline-turn;
+      border-end-end-radius: $timeline-turn;
     }
   }
 
@@ -948,7 +966,7 @@ $timeline-turn: 16px;
   &-notes {
     flex: 0 0 100%;
     min-width: 0;
-    padding-left: calc(28px + 0.75rem);
+    padding-inline-start: calc(28px + 0.75rem);
   }
 
   &-reason {

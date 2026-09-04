@@ -9,6 +9,8 @@ import NavSidebarItem from './NavSidebarItem.vue'
 import PageNewMenu from './PageNewMenu.vue'
 import BlueprintIcon from './BlueprintIcon.vue'
 import routes from '@/router/routes'
+import { useSiteStore } from '@/stores/site'
+import { usePageStore } from '@/stores/page'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { openDialogs } from '@/composables/dialog'
@@ -849,6 +851,115 @@ describe('NavSidebar landmark', () => {
   })
 })
 
+/**
+ * OpenProject #2527: loading or refreshing directly on a non-content `MainLayout` route (the
+ * knowledge graph, tags browse) used to leave the sidebar expanded but permanently empty, because the
+ * nav-loading watcher only ever read `pageStore.navigationId` -- which those routes never set (only
+ * `pageStore.pageLoad()` does, and neither route calls it) -- so `siteStore.fetchNavigation(null)`
+ * silently no-opped forever. Fixed by falling back to `siteStore.navigationId` (the site's own
+ * default menu id, carried on the bootstrap/site payload) whenever the current route is not one of
+ * the three that resolve a page-inherited id (`route.meta.contentPage`, `router/routes.js`).
+ *
+ * Real routes from the app's own route table drive each case, matching `MainLayout.test.js`'s own
+ * `mountLayout` convention, since the bug is precisely about which routes carry `meta.contentPage`.
+ */
+describe('NavSidebar navigationId fallback (OpenProject #2527)', () => {
+  async function mountAt(path, { site } = {}) {
+    const router = await createTestRouter(routes, path)
+    const { wrapper } = mountWithApp(NavSidebar, {
+      messages: { common: { sidebar: { browse: 'Browse' } } },
+      router,
+      stores: {
+        site: (store) => {
+          store.id = 'site-1'
+          if (site) {
+            Object.assign(store, site)
+          }
+        }
+      }
+    })
+    await wrapper.vm.$nextTick()
+    return { wrapper, router }
+  }
+
+  it('loads the site default navigation on a non-content route with no page-inherited id (the graph)', async () => {
+    await mountAt('/_graph', { site: { navigationId: 'site-default-nav' } })
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/site-default-nav')
+  })
+
+  it('loads the site default navigation on a non-content route (tags browse)', async () => {
+    await mountAt('/_tags', { site: { navigationId: 'site-default-nav' } })
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/site-default-nav')
+  })
+
+  it('does not fetch on a non-content route before the site default id has arrived (pre-bootstrap)', async () => {
+    await mountAt('/_graph')
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+
+  it('starts fetching once the site default id arrives after mount', async () => {
+    const { wrapper } = await mountAt('/_graph')
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+
+    const siteStore = useSiteStore()
+    siteStore.navigationId = 'site-default-nav-late'
+    await wrapper.vm.$nextTick()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/site-default-nav-late')
+  })
+
+  it('prefers a page-inherited navigationId over the site default on a content route', async () => {
+    const router = await createTestRouter(routes, '/some/wiki/page')
+    const { wrapper } = mountWithApp(NavSidebar, {
+      messages: { common: { sidebar: { browse: 'Browse' } } },
+      router,
+      stores: {
+        site: (store) => {
+          store.id = 'site-1'
+          store.navigationId = 'site-default-nav'
+        },
+        page: { navigationId: 'page-own-nav' }
+      }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/page-own-nav')
+    expect(API_CLIENT.get).not.toHaveBeenCalledWith('sites/site-1/navigation/site-default-nav')
+  })
+
+  it('does not fetch on a content route with no navigationId yet, even when the site default is available', async () => {
+    await mountAt('/some/wiki/page', { site: { navigationId: 'site-default-nav' } })
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+
+  it('switches from the site default to a stale page id becoming current on an in-app navigation to a content route', async () => {
+    const router = await createTestRouter(routes, '/_graph')
+    const { wrapper } = mountWithApp(NavSidebar, {
+      messages: { common: { sidebar: { browse: 'Browse' } } },
+      router,
+      stores: {
+        site: (store) => {
+          store.id = 'site-1'
+          store.navigationId = 'site-default-nav'
+        }
+      }
+    })
+    await wrapper.vm.$nextTick()
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/site-default-nav')
+
+    const pageStore = usePageStore()
+    pageStore.navigationId = 'content-page-nav'
+    await router.push('/some/wiki/page')
+    await wrapper.vm.$nextTick()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/content-page-nav')
+  })
+})
+
 describe('NavSidebar', () => {
   /**
    * OpenProject #1640: the sidebar had no `<nav>` landmark at all -- a screen reader's landmarks
@@ -893,5 +1004,32 @@ describe('NavSidebar', () => {
     expect(styleBlock).not.toMatch(/border-left\s*:/)
     expect(styleBlock).not.toMatch(/border-right\s*:/)
     expect(styleBlock).toMatch(/border-inline-start\s*:\s*10px/)
+  })
+
+  /**
+   * OpenProject #2535: `.sidebar-nav > nav { min-height: 100% }` resolved a percentage height
+   * against `.sidebar-nav`'s own flex-computed (`flex: 1 1 0`), potentially fractional-pixel
+   * height in a separate layout pass, and the two passes could round that value differently --
+   * enough to leave `nav` a hair taller than the actual available space and trip `w-scroll-area`'s
+   * `overflow-auto`, even though nothing was actually cut off. happy-dom has no real layout engine
+   * (see the file header above), so the sub-pixel scrollbar symptom itself can't be reproduced here
+   * -- this asserts, statically, that the fix (flex-growing `nav` inside `.sidebar-nav`'s own flex
+   * column, so both figures are resolved by the same layout pass) is in place and the old
+   * percentage-height rule -- the actual source of the rounding mismatch -- is gone.
+   */
+  it('sizes the nav landmark by flex-growing it, not by a percentage height, to avoid sub-pixel scrollbars', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+    const sidebarNavBlock = styleBlock.slice(
+      styleBlock.indexOf('.sidebar-nav {'),
+      styleBlock.indexOf('.sidebar-nav {') +
+        styleBlock.slice(styleBlock.indexOf('.sidebar-nav {')).indexOf('&-list >')
+    )
+
+    expect(sidebarNavBlock).toMatch(/display:\s*flex/)
+    expect(sidebarNavBlock).toMatch(/flex-direction:\s*column/)
+    expect(sidebarNavBlock).toMatch(/>\s*nav\s*{\s*[^}]*flex:\s*1\s+0\s+auto/)
+    expect(sidebarNavBlock).not.toMatch(/min-height:\s*100%/)
   })
 })

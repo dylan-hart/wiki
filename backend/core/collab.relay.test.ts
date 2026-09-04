@@ -219,7 +219,11 @@ describe('(d) pageSaved() to an instance with no open room for that page', () =>
     const inst = makeInstance('X')
     inst.relay = mock.fn()
     const doc = new Y.Doc()
-    inst.rooms.set('page-6', { doc, pageId: 'page-6' })
+    inst.rooms.set('page-6', {
+      doc,
+      pageId: 'page-6',
+      draftPersist: { timer: null, pendingSince: null }
+    })
     const info = { versionDate: '2026-08-18T00:00:00.000Z', authorId: 'u1', authorName: 'Ada' }
 
     inst.pageSaved('page-6', info)

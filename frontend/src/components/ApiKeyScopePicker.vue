@@ -26,7 +26,7 @@
             :class="isExpanded(group.verb) ? 'rotate-180' : ''" />
         </button>
       </div>
-      <div v-show="isExpanded(group.verb)" class="api-key-scope-picker__scopes pb-1 pl-8">
+      <div v-show="isExpanded(group.verb)" class="api-key-scope-picker__scopes pb-1 ps-8">
         <div v-for="scope in group.scopes" :key="scope" class="py-0.5">
           <w-checkbox
             :model-value="modelValue"

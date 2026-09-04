@@ -300,7 +300,7 @@ function goUp() {
 .browse-menu-up-slot {
   flex: none;
   width: 28px;
-  margin-right: 12px;
+  margin-inline-end: 12px;
 }
 
 /*
@@ -312,7 +312,7 @@ function goUp() {
   overflow: hidden;
   transition:
     width 0.18s var(--ease-standard),
-    margin-right 0.18s var(--ease-standard),
+    margin-inline-end 0.18s var(--ease-standard),
     opacity 0.18s var(--ease-standard);
 }
 
@@ -326,7 +326,7 @@ function goUp() {
 .browse-menu-up-enter-from,
 .browse-menu-up-leave-to {
   width: 0;
-  margin-right: 0;
+  margin-inline-end: 0;
   opacity: 0;
 }
 
@@ -352,7 +352,7 @@ function goUp() {
   gap: 8px;
   padding: 6px 12px;
   font-size: 13px;
-  text-align: left;
+  text-align: start;
   color: inherit;
   text-decoration: none;
   cursor: pointer;
@@ -378,10 +378,10 @@ function goUp() {
   padding: 0 10px;
   cursor: pointer;
   /* -> The seam that says the row has two hit targets rather than one */
-  border-left: 1px solid rgb(0 0 0 / 0.08);
+  border-inline-start: 1px solid rgb(0 0 0 / 0.08);
 
   @at-root .body--dark & {
-    border-left-color: rgb(255 255 255 / 0.12);
+    border-inline-start-color: rgb(255 255 255 / 0.12);
   }
 }
 
@@ -434,7 +434,7 @@ function goUp() {
 .browse-menu-back-leave-active {
   position: absolute;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
 }
 
 .browse-menu-forward-enter-from,
