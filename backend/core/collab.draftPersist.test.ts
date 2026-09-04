@@ -254,4 +254,39 @@ describe('pageSaved: clears the persisted draft', () => {
     assert.equal(pageDrafts.clear.mock.calls.length, 1)
     assert.equal(pageDrafts.clear.mock.calls[0].arguments[0], 'page-no-room')
   })
+
+  test('cancels a room pending draft-persist timer, so it cannot resurrect the draft after the clear (OpenProject #2536)', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const room = await harness.openRoom(collab, { id: 'page-12', siteId: 'site-1' })
+    const pageDrafts = harness.pageDrafts()
+
+    // -> Schedules the room's debounce timer, same as a large paste would.
+    room.doc.transact(() => room.doc.getText('content').insert(0, 'a big paste'))
+    assert.ok(room.draftPersist.timer, 'sanity: a timer is actually pending before the save')
+
+    // -> The save beats the debounce: clears the draft while the timer is still pending.
+    collab.pageSaved(room.pageId, {
+      versionDate: '2026-08-18T00:00:00.000Z',
+      authorId: 'u1',
+      authorName: 'Ada'
+    })
+    await Promise.resolve()
+
+    assert.equal(pageDrafts.clear.mock.calls.length, 1)
+    assert.equal(
+      room.draftPersist.timer,
+      null,
+      'the pending timer must be cancelled, not left running'
+    )
+    assert.equal(room.draftPersist.pendingSince, null)
+
+    // -> Advancing past the debounce (and the max-delay cap) must not fire a stale flush that would
+    //    write the draft row back in after the clear already ran.
+    t.mock.timers.tick(DRAFT_PERSIST_MAX_DELAY * 2)
+    assert.equal(
+      pageDrafts.save.mock.calls.length,
+      0,
+      'the cancelled timer must never resurrect the draft the save just cleared'
+    )
+  })
 })

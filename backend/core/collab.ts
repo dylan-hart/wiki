@@ -1037,11 +1037,23 @@ export default {
    * surviving past this point would offer to restore content a save has already overtaken. The row
    * lives in postgres, not in memory, so whichever instance's `PATCH` handler called this is the one
    * that gets to clear it, room or no room.
+   *
+   * If this instance also has the room open, it cancels the room's pending {@link scheduleDraftPersist}
+   * debounce timer too (the same `clearTimeout` + `pendingSince = null` reset {@link flushDraftPersist}
+   * itself does, but without the re-persist) — otherwise that timer would still fire afterward and
+   * write the draft row right back in, resurrecting a draft this save just cleared. A room open on a
+   * different instance (or not open anywhere) has no in-memory timer for this instance to cancel;
+   * `pageDrafts.clear()` alone is correct there, same as the no-room `lastSave` relay branch above.
    */
   pageSaved(pageId: string, info: SaveInfo): void {
     const room = this.rooms.get(pageId)
     if (room) {
       room.doc.getMap('meta').set('lastSave', info)
+      if (room.draftPersist.timer) {
+        clearTimeout(room.draftPersist.timer)
+        room.draftPersist.timer = null
+        room.draftPersist.pendingSince = null
+      }
     } else {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
     }
