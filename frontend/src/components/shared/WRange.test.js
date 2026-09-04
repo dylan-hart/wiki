@@ -104,4 +104,108 @@ describe('WRange', () => {
       expect(maxHandle.attributes('aria-label')).toBeUndefined()
     })
   })
+
+  describe('single-handle mode', () => {
+    it('renders exactly one handle, wired to the plain numeric modelValue', () => {
+      const wrapper = mount(WRange, {
+        props: { single: true, modelValue: 3, min: 0, max: 6 }
+      })
+
+      const handleButtons = handles(wrapper)
+      expect(handleButtons).toHaveLength(1)
+      expect(handleButtons[0].attributes('aria-valuenow')).toBe('3')
+      expect(handleButtons[0].attributes('aria-valuemin')).toBe('0')
+      expect(handleButtons[0].attributes('aria-valuemax')).toBe('6')
+    })
+
+    it('emits a plain number on ArrowRight/ArrowLeft/Home/End when enabled', async () => {
+      const wrapper = mount(WRange, {
+        props: { single: true, modelValue: 3, min: 0, max: 6 }
+      })
+      const [handle] = handles(wrapper)
+
+      await handle.trigger('keydown', { key: 'ArrowRight' })
+      expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([4])
+
+      await handle.trigger('keydown', { key: 'ArrowLeft' })
+      expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([2])
+
+      await handle.trigger('keydown', { key: 'End' })
+      expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([6])
+
+      await handle.trigger('keydown', { key: 'Home' })
+      expect(wrapper.emitted('update:modelValue').at(-1)).toEqual([0])
+    })
+
+    it('emits no update:modelValue on keyboard input while disabled', async () => {
+      const wrapper = mount(WRange, {
+        props: { single: true, modelValue: 3, min: 0, max: 6, disabled: true }
+      })
+      const [handle] = handles(wrapper)
+
+      await handle.trigger('keydown', { key: 'ArrowRight' })
+      await handle.trigger('keydown', { key: 'End' })
+
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      expect(handle.attributes('disabled')).toBeDefined()
+      expect(handle.attributes('aria-disabled')).toBe('true')
+    })
+
+    it('clamps a keyboard step at the min/max bounds rather than emitting past them', async () => {
+      const wrapper = mount(WRange, {
+        props: { single: true, modelValue: 6, min: 0, max: 6 }
+      })
+      const [handle] = handles(wrapper)
+
+      await handle.trigger('keydown', { key: 'ArrowRight' })
+
+      // -> Already at max and unchanged, so no event -- matches the two-handle no-op-emits-nothing
+      //    convention `update()` already follows.
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    })
+
+    it('sets aria-label from the ariaLabel prop, and leaves it unset when absent', () => {
+      const labeled = mount(WRange, {
+        props: { single: true, modelValue: 3, min: 0, max: 6, ariaLabel: 'Folder depth' }
+      })
+      expect(handles(labeled)[0].attributes('aria-label')).toBe('Folder depth')
+
+      const unlabeled = mount(WRange, {
+        props: { single: true, modelValue: 3, min: 0, max: 6 }
+      })
+      expect(handles(unlabeled)[0].attributes('aria-label')).toBeUndefined()
+    })
+
+    it('shows a value bubble from labelValue when label is set, overriding the raw number', () => {
+      const wrapper = mount(WRange, {
+        props: {
+          single: true,
+          modelValue: 3,
+          min: 0,
+          max: 6,
+          label: true,
+          labelValue: 'Depth 3'
+        }
+      })
+
+      expect(wrapper.text()).toContain('Depth 3')
+    })
+
+    it('falls back to the raw numeric value in the bubble when labelValue is absent', () => {
+      const wrapper = mount(WRange, {
+        props: { single: true, modelValue: 3, min: 0, max: 6, label: true }
+      })
+
+      expect(wrapper.text()).toContain('3')
+    })
+
+    it('draws a marker dot per step when markers is set, same as two-handle mode', () => {
+      const wrapper = mount(WRange, {
+        props: { single: true, modelValue: 3, min: 0, max: 6, markers: true }
+      })
+
+      // -> 7 steps (0..6 inclusive) -- one dot each, matching `steps` in two-handle mode.
+      expect(wrapper.findAll('.rounded-full.bg-black\\/38')).toHaveLength(7)
+    })
+  })
 })
