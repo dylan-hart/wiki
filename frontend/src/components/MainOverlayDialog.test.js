@@ -122,3 +122,40 @@ describe('MainOverlayDialog half-sized overlays', () => {
     expect(source).toContain("height: 'clamp(480px, 50vh, 800px)'")
   })
 })
+
+/**
+ * Follow-up feedback on WP 2531/2532: Profile, Inbox and FileManager dismiss on a backdrop click or
+ * Escape, like an ordinary modal, since none of the three can lose in-progress work to a stray click
+ * (a settings save, an inbox action, a file op each commit immediately) -- every other entry
+ * (BlockPicker, NavEdit, PageHistory, TableEditor, Welcome) keeps the persistent, Close-button-only
+ * behavior it already had, since those genuinely can sit mid-edit with real state to lose.
+ */
+describe('MainOverlayDialog dismissible overlays', () => {
+  it('drives persistent off isDismissible, not a fixed true', () => {
+    expect(source).toContain(':persistent="!isDismissible"')
+    expect(source).not.toMatch(/<w-dialog[^>]*\bpersistent\b(?!="!isDismissible")/)
+  })
+
+  it('only Profile, Inbox and FileManager are dismissible', () => {
+    expect(source).toMatch(
+      /DISMISSIBLE_OVERLAYS = new Set\(\['Profile', 'Inbox', 'FileManager'\]\)/
+    )
+  })
+
+  /**
+   * `siteStore.overlayIsShown` is a Pinia getter (computed from `state.overlay`), which has no
+   * setter -- a plain `v-model` on `<w-dialog>` assigns to it directly and Vue warns "target is
+   * readonly" instead of closing anything. Latent for as long as every entry was `persistent` (WDialog
+   * never had a reason to emit `update:model-value`), and only reachable once backdrop/Escape dismissal
+   * above was turned on. Fixed by reading the getter one-way (`:model-value`) and writing through the
+   * same `overlay: ''` `$patch` every overlay's own Close button already uses.
+   */
+  it('reads overlayIsShown one-way and writes back through a $patch, not a plain v-model', () => {
+    expect(source).not.toMatch(/v-model="siteStore\.overlayIsShown"/)
+    expect(source).toContain(':model-value="siteStore.overlayIsShown"')
+    expect(source).toContain('@update:model-value="onDialogModelUpdate"')
+    expect(source).toMatch(
+      /function onDialogModelUpdate\(value\) \{\s*if \(!value\) \{\s*siteStore\.\$patch\(\{ overlay: '' \}\)/
+    )
+  })
+})

@@ -1,92 +1,90 @@
 <template>
-  <div class="layout-profile">
-    <div class="layout-profile-card">
-      <!--
-        FileManager's own header language (OpenProject #2415/#2502, carried through #2510): a dark
-        `.card-header` band, an icon plus title on the left, and a single white/grey-7 push button on
-        the right.
-      -->
-      <w-header class="layout-profile-hdr card-header px-4 py-2">
-        <w-icon name="la:user-circle" left size="md" />
-        <span>{{ t('profile.title') }}</span>
-        <w-space />
-        <w-btn-group>
-          <w-btn
-            push
-            color="white"
-            text-color="grey-7"
-            :label="t('common.actions.close')"
-            :aria-label="t('common.actions.close')"
-            icon="la:times"
-            @click="close" />
-        </w-btn-group>
-      </w-header>
-      <div class="layout-profile-body">
-        <!--
-          Below 900px the section list is a disclosure rather than a column beside the content: even
-          shrunk to its own labels it is ~240px, and on a phone the fixed 300px of it left the content
-          overflowing the card and clipped at the edge of the screen. Closed to start with, and it
-          names the section being read -- so the bar that opens the nav is also what says where in
-          the profile the reader is.
-        -->
+  <div class="layout-profile-card">
+    <!--
+      FileManager's own header language (OpenProject #2415/#2502, carried through #2510): a dark
+      `.card-header` band, an icon plus title on the left, and a single white/grey-7 push button on
+      the right.
+    -->
+    <w-header class="layout-profile-hdr card-header px-4 py-2">
+      <w-icon name="la:user-circle" left size="md" />
+      <span>{{ t('profile.title') }}</span>
+      <w-space />
+      <w-btn-group>
         <w-btn
-          v-if="isNavCollapsed"
-          class="layout-profile-navbtn"
-          flat
-          no-caps
-          :icon="currentSection.icon"
-          :label="currentSection.label"
-          :aria-expanded="state.navOpen"
-          @click="toggleNav">
-          <w-icon
-            class="layout-profile-navchevron"
-            :class="{ 'is-open': state.navOpen }"
-            name="mdi:chevron-down" />
-        </w-btn>
-        <div class="layout-profile-sd" v-show="!isNavCollapsed || state.navOpen">
-          <w-list>
-            <template v-for="navItem of sidenav" :key="navItem.key">
-              <w-item
-                v-if="!navItem.disabled || flagsStore.experimental"
-                clickable
-                :class="{ 'is-active': navItem.key === state.section }"
-                :disabled="navItem.disabled"
-                @click="selectSection(navItem.key)">
-                <w-item-section side>
-                  <w-icon :name="navItem.icon" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ navItem.label }}</w-item-label>
-                </w-item-section>
-              </w-item>
-            </template>
-            <template v-if="flagsStore.experimental">
-              <w-separator inset spaced="sm" />
-              <!-- -> A real navigation away from the overlay, so it closes rather than floating over
-                      whatever page this lands the reader on -- same idiom as FileManager's own
-                      @new-page close-on-navigate. -->
-              <w-item clickable :to="`/_user/` + userStore.id" @click="close">
-                <w-item-section side>
-                  <w-icon name="la:id-card" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t('profile.viewPublicProfile') }}</w-item-label>
-                </w-item-section>
-              </w-item>
-            </template>
-            <w-separator inset spaced="sm" />
-            <w-item clickable @click="onLogoutClick">
+          push
+          color="white"
+          text-color="grey-7"
+          :label="t('common.actions.close')"
+          :aria-label="t('common.actions.close')"
+          icon="la:times"
+          @click="close" />
+      </w-btn-group>
+    </w-header>
+    <div class="layout-profile-body">
+      <!--
+        Below 900px the section list is a disclosure rather than a column beside the content: even
+        shrunk to its own labels it is ~240px, and on a phone the fixed 300px of it left the content
+        overflowing the card and clipped at the edge of the screen. Closed to start with, and it
+        names the section being read -- so the bar that opens the nav is also what says where in
+        the profile the reader is.
+      -->
+      <w-btn
+        v-if="isNavCollapsed"
+        class="layout-profile-navbtn"
+        flat
+        no-caps
+        :icon="currentSection.icon"
+        :label="currentSection.label"
+        :aria-expanded="state.navOpen"
+        @click="toggleNav">
+        <w-icon
+          class="layout-profile-navchevron"
+          :class="{ 'is-open': state.navOpen }"
+          name="mdi:chevron-down" />
+      </w-btn>
+      <div class="layout-profile-sd" v-show="!isNavCollapsed || state.navOpen">
+        <w-list>
+          <template v-for="navItem of sidenav" :key="navItem.key">
+            <w-item
+              v-if="!navItem.disabled || flagsStore.experimental"
+              clickable
+              :class="{ 'is-active': navItem.key === state.section }"
+              :disabled="navItem.disabled"
+              @click="selectSection(navItem.key)">
               <w-item-section side>
-                <w-icon name="la:sign-out-alt" color="negative" />
+                <w-icon :name="navItem.icon" />
               </w-item-section>
               <w-item-section>
-                <w-item-label class="text-negative">{{ t('common.header.logout') }}</w-item-label>
+                <w-item-label>{{ navItem.label }}</w-item-label>
               </w-item-section>
             </w-item>
-          </w-list>
-        </div>
-        <component :is="sectionComponents[state.section]" />
+          </template>
+          <template v-if="flagsStore.experimental">
+            <w-separator inset spaced="sm" />
+            <!-- -> A real navigation away from the overlay, so it closes rather than floating over
+                    whatever page this lands the reader on -- same idiom as FileManager's own
+                    @new-page close-on-navigate. -->
+            <w-item clickable :to="`/_user/` + userStore.id" @click="close">
+              <w-item-section side>
+                <w-icon name="la:id-card" />
+              </w-item-section>
+              <w-item-section>
+                <w-item-label>{{ t('profile.viewPublicProfile') }}</w-item-label>
+              </w-item-section>
+            </w-item>
+          </template>
+          <w-separator inset spaced="sm" />
+          <w-item clickable @click="onLogoutClick">
+            <w-item-section side>
+              <w-icon name="la:sign-out-alt" color="negative" />
+            </w-item-section>
+            <w-item-section>
+              <w-item-label class="text-negative">{{ t('common.header.logout') }}</w-item-label>
+            </w-item-section>
+          </w-item>
+        </w-list>
       </div>
+      <component :is="sectionComponents[state.section]" />
     </div>
   </div>
 </template>

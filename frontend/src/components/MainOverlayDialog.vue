@@ -1,13 +1,14 @@
 <template>
   <w-dialog
-    v-model="siteStore.overlayIsShown"
+    :model-value="siteStore.overlayIsShown"
     class="main-overlay"
-    persistent
+    :persistent="!isDismissible"
     :full-width="!isHalfSized"
     :full-height="!isHalfSized"
     :width="isHalfSized ? HALF_SIZE.width : null"
     :height="isHalfSized ? HALF_SIZE.height : null"
-    :aria-label="overlayAriaLabel">
+    :aria-label="overlayAriaLabel"
+    @update:model-value="onDialogModelUpdate">
     <!--
       `overlay-opts` carries whatever initial state the opener set via `siteStore.openOverlay(name,
       opts)` (or a plain `$patch`) through to the mounted overlay as a real prop -- every entry in
@@ -107,4 +108,30 @@ const HALF_SIZE = {
   height: 'clamp(480px, 50vh, 800px)'
 }
 const isHalfSized = computed(() => siteStore.overlay === 'Profile' || siteStore.overlay === 'Inbox')
+
+/**
+ * Profile, Inbox and FileManager are all "browse/manage, then leave" surfaces with no risk of losing
+ * unsaved work mid-action (a settings save, an inbox item, a file op each commit immediately) -- a
+ * stray click on the blurred rest of the app dismisses them the way a reader would expect from any
+ * ordinary modal. The remaining entries (BlockPicker, NavEdit, PageHistory, TableEditor, Welcome) can
+ * sit mid-edit with real state to lose (a half-built block insert, an in-progress nav/table edit, the
+ * first-run create-home-page flow) and keep the persistent, Close-button-only dismissal they already
+ * had.
+ */
+const DISMISSIBLE_OVERLAYS = new Set(['Profile', 'Inbox', 'FileManager'])
+const isDismissible = computed(() => DISMISSIBLE_OVERLAYS.has(siteStore.overlay))
+
+/**
+ * `siteStore.overlayIsShown` is a getter derived from `siteStore.overlay` (a Pinia getter has no
+ * setter), so a plain `v-model` on `<w-dialog>` -- which assigns to it directly -- silently failed
+ * a Vue `readonly` warning and never actually closed anything. Latent until now: every entry was
+ * `persistent`, so `WDialog` never had a reason to emit `update:model-value` at all. Now that
+ * Profile/Inbox/FileManager dismiss via backdrop click or Escape, this is reachable, and closing
+ * needs the same `overlay: ''` `$patch` every overlay's own Close button already uses.
+ */
+function onDialogModelUpdate(value) {
+  if (!value) {
+    siteStore.$patch({ overlay: '' })
+  }
+}
 </script>
