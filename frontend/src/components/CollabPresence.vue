@@ -1,6 +1,6 @@
 <template>
   <!--
-    The root has to stay a single element for `class="mr-2"` fallthrough from `PageHeader.vue` to
+    The root has to stay a single element for `class="me-2"` fallthrough from `PageHeader.vue` to
     still land on `.collab-presence` (see `inheritAttrs: false` below) -- so the always-present
     announcement region below is a sibling INSIDE it, not a sibling of it. It contributes no box of
     its own (an empty div around a single `position: absolute` child collapses to 0x0), so it changes
@@ -157,12 +157,12 @@ function initials(name) {
   display: flex;
   align-items: center;
   /* -> Leaves the leftmost bubble's own overlap margin with nothing to overlap into */
-  padding-left: 8px;
+  padding-inline-start: 8px;
 
   &-person {
     position: relative;
     /* -> The overlap that makes the row read as a group rather than a list of separate faces */
-    margin-left: -8px;
+    margin-inline-start: -8px;
   }
 
   /*

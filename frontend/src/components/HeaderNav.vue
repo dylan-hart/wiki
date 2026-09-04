@@ -8,7 +8,7 @@
           </w-avatar>
           <img v-else :src="`/_site/current/logo`" style="height: 34px" alt="" />
         </w-btn>
-        <div v-if="siteStore.logoText" class="site-title text-h6 ml-2 min-w-0 flex-1 truncate">
+        <div v-if="siteStore.logoText" class="site-title text-h6 ms-2 min-w-0 flex-1 truncate">
           {{ siteStore.title }}
         </div>
       </w-toolbar>
@@ -27,7 +27,7 @@
         -->
         <w-btn
           v-if="isSearchCollapsed && siteStore.features.search"
-          class="ml-4"
+          class="ms-4"
           flat
           round
           dense
@@ -135,7 +135,7 @@
           <account-menu v-if="userStore.authenticated" />
           <w-btn
             v-else
-            class="ml-4"
+            class="ms-4"
             flat
             rounded
             icon="la:sign-in-alt"

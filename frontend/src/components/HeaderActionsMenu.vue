@@ -1,6 +1,6 @@
 <template>
   <w-btn
-    class="header-actions-btn ml-4"
+    class="header-actions-btn ms-4"
     flat
     round
     dense

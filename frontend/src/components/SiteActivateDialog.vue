@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-shutdown.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-shutdown.svg" size="sm" class="me-2" />
         <span>{{
           props.targetState ? t(`admin.sites.activate`) : t(`admin.sites.deactivate`)
         }}</span>

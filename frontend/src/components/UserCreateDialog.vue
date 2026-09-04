@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.users.create`)" @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="mr-2" />
+        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
         <span>{{ t(`admin.users.create`) }}</span>
       </w-card-section>
       <w-form ref="createUserForm" class="py-2" @submit="create">
@@ -51,7 +51,7 @@
                   <w-separator vertical class="mx-2 self-stretch" />
                   <w-btn flat dense padding="none xs" color="brown" @click="randomizePassword">
                     <w-icon name="la:dice-d6" />
-                    <div class="pl-1 text-caption"><strong>Generate</strong></div>
+                    <div class="ps-1 text-caption"><strong>Generate</strong></div>
                   </w-btn>
                 </div>
               </template>
@@ -142,11 +142,11 @@
       </w-form>
       <w-card-actions class="card-actions">
         <!--
-          -> `ml-2` lines the checkbox up with the blueprint icons above it: the rows are `w-item`s,
+          -> `ms-2` lines the checkbox up with the blueprint icons above it: the rows are `w-item`s,
              padded 16px, while this action bar is padded 8px, so it started 8px to their left
         -->
         <w-checkbox
-          class="ml-2"
+          class="ms-2"
           v-model="state.keepOpened"
           color="primary"
           :label="t(`admin.users.createKeepOpened`)" />

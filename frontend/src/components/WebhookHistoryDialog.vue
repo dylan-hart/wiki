@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.webhooks.history`)" @hide="onDialogHide">
     <w-card class="relative" style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="la:history" size="sm" class="mr-2" />
+        <w-icon name="la:history" size="sm" class="me-2" />
         <span>{{ t(`admin.webhooks.history`) }}</span>
       </w-card-section>
       <w-card-section class="text-caption text-grey pt-0">
@@ -12,7 +12,7 @@
 
       <w-card-section style="max-height: 60vh; overflow-y: auto">
         <div v-if="!state.isLoading && state.deliveries.length < 1" class="text-center py-6">
-          <w-icon name="la:info-circle" size="sm" class="mr-1" />
+          <w-icon name="la:info-circle" size="sm" class="me-1" />
           <span class="text-caption">{{ t('admin.webhooks.historyNone') }}</span>
         </div>
         <w-list v-else separator>

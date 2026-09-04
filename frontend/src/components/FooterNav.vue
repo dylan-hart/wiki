@@ -3,7 +3,7 @@
     <div class="site-footer-line">
       <i18n-t
         v-if="hasSiteFooter"
-        class="mr-1"
+        class="me-1"
         :keypath="isCopyright ? `common.footerCopyright` : `common.footerLicense`"
         tag="span"
         scope="global">

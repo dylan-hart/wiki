@@ -27,7 +27,7 @@
         -->
         <w-btn
           v-if="siteStore.useLocales"
-          class="fileman-locale mr-2 acrylic-btn"
+          class="fileman-locale me-2 acrylic-btn"
           flat
           color="white"
           :label="state.locale"
@@ -47,7 +47,7 @@
                       :color="lang.code === state.locale ? `positive` : `grey`"
                       size="xs" />
                   </w-item-section>
-                  <w-item-section class="pr-2">
+                  <w-item-section class="pe-2">
                     <w-item-label>{{ lang.nativeName }}</w-item-label>
                     <w-item-label caption>{{ lang.code }}</w-item-label>
                   </w-item-section>
@@ -98,7 +98,7 @@
       <w-toolbar class="fileman-hdr-actions">
         <w-space />
         <w-btn
-          class="mr-2"
+          class="me-2"
           flat
           rounded
           color="white"
@@ -203,7 +203,7 @@
               </div>
             </div>
             <w-btn
-              class="acrylic-btn ml-2"
+              class="acrylic-btn ms-2"
               flat
               dense
               no-caps
@@ -221,7 +221,7 @@
             -->
             <w-btn
               v-if="isTreeOverlay"
-              class="mr-2"
+              class="me-2"
               flat
               dense
               no-caps
@@ -235,7 +235,7 @@
             </w-btn>
             <w-space />
             <w-btn
-              class="mr-2"
+              class="me-2"
               flat
               dense
               no-caps
@@ -256,7 +256,7 @@
                       <w-item-section side>
                         <w-icon name="la:list" color="grey" size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">{{ t('fileman.browseUsing') }}</w-item-section>
+                      <w-item-section class="pe-2">{{ t('fileman.browseUsing') }}</w-item-section>
                       <w-item-section side>
                         <w-icon name="la:angle-right" color="grey" size="xs" />
                       </w-item-section>
@@ -271,7 +271,7 @@
                                 :color="state.displayMode === `path` ? `positive` : `grey`"
                                 size="xs" />
                             </w-item-section>
-                            <w-item-section class="pr-2">{{
+                            <w-item-section class="pe-2">{{
                               t('fileman.browseUsingPaths')
                             }}</w-item-section>
                           </w-item>
@@ -284,7 +284,7 @@
                                 :color="state.displayMode === `title` ? `positive` : `grey`"
                                 size="xs" />
                             </w-item-section>
-                            <w-item-section class="pr-2">{{
+                            <w-item-section class="pe-2">{{
                               t('fileman.browseUsingTitles')
                             }}</w-item-section>
                           </w-item>
@@ -298,7 +298,7 @@
                           :color="state.isCompact ? `positive` : `grey`"
                           size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">{{ t('fileman.compactList') }}</w-item-section>
+                      <w-item-section class="pe-2">{{ t('fileman.compactList') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="state.shouldShowFolders = !state.shouldShowFolders">
                       <w-item-section side>
@@ -307,14 +307,14 @@
                           :color="state.shouldShowFolders ? `positive` : `grey`"
                           size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">{{ t('fileman.showFolders') }}</w-item-section>
+                      <w-item-section class="pe-2">{{ t('fileman.showFolders') }}</w-item-section>
                     </w-item>
                   </w-list>
                 </w-card>
               </w-menu>
             </w-btn>
             <w-btn
-              class="mr-2"
+              class="me-2"
               flat
               dense
               no-caps
@@ -326,9 +326,9 @@
                 t(`common.actions.refresh`)
               }}</w-tooltip>
             </w-btn>
-            <w-separator class="mr-2" inset vertical />
+            <w-separator class="me-2" inset vertical />
             <w-btn
-              class="mr-2"
+              class="me-2"
               flat
               dense
               no-caps
@@ -360,7 +360,7 @@
             -->
             <w-btn
               v-if="insertMode && !detailsPaneShown && state.currentFileId"
-              class="ml-2"
+              class="ms-2"
               flat
               dense
               no-caps
@@ -398,7 +398,7 @@
             </div>
             <w-scroll-area style="height: 100%">
               <div class="fileman-loadinglist" v-if="state.fileListLoading">
-                <w-spinner class="mr-2" color="primary" size="64px" />
+                <w-spinner class="me-2" color="primary" size="64px" />
                 <span class="text-primary">{{ t('fileman.fetchingFolderContents') }}</span>
               </div>
               <div class="fileman-emptylist" v-else-if="files.length < 1">
@@ -1546,7 +1546,7 @@ $fileman-hdr-wrap-max: 899.98px;
       }
 
       .fileman-filelist-icon {
-        padding-right: 6px;
+        padding-inline-end: 6px;
         min-width: 0;
       }
     }

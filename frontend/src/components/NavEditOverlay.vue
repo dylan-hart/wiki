@@ -7,18 +7,18 @@
         Which menu is on screen, when it is not this page's own: an inherited menu is shared with every
         page that falls back to it, so a change here is not local to the page it was made from.
       -->
-      <span class="ml-3 text-caption opacity-80" v-if="isEditingInherited">
+      <span class="ms-3 text-caption opacity-80" v-if="isEditingInherited">
         {{ t('navEdit.editingInherited') }}
       </span>
-      <span class="ml-3 text-caption opacity-80" v-if="menuMode === 'auto'">
+      <span class="ms-3 text-caption opacity-80" v-if="menuMode === 'auto'">
         {{ t('navEdit.menuSourceReadOnlyNotice') }}
       </span>
       <w-space />
       <transition name="syncing">
-        <w-spinner class="mr-2" v-show="isBusy" color="accent" size="24px" />
+        <w-spinner class="me-2" v-show="isBusy" color="accent" size="24px" />
       </transition>
       <w-btn
-        class="mr-2"
+        class="me-2"
         flat
         rounded
         color="white"
