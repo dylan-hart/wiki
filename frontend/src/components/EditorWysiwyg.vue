@@ -10,7 +10,7 @@
           :icon="menuItem.icon"
           padding="xs"
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
-          :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
+          :color="menuItem.isActive && menuItem.isActive() ? `primary` : inactiveIconColor"
           :aria-label="menuItem.title"
           :disabled="menuItem.disabled && menuItem.disabled()">
           <w-menu>
@@ -44,7 +44,7 @@
             :icon="child.icon"
             padding="xs"
             :class="{ 'is-active': child.isActive && child.isActive() }"
-            :color="child.isActive && child.isActive() ? `primary` : `grey-10`"
+            :color="child.isActive && child.isActive() ? `primary` : inactiveIconColor"
             @click="child.action"
             :aria-label="child.title"
             :disabled="menuItem.disabled && menuItem.disabled()" />
@@ -56,7 +56,7 @@
           :icon="menuItem.icon"
           padding="xs"
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
-          :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
+          :color="menuItem.isActive && menuItem.isActive() ? `primary` : inactiveIconColor"
           @click="menuItem.action"
           :aria-label="menuItem.title"
           :disabled="menuItem.disabled && menuItem.disabled()" />
@@ -78,6 +78,7 @@ import {
   stopCollabSession
 } from '@/composables/collab'
 import { dialog } from '@/composables/dialog'
+import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
 import { assetPath } from '@/helpers/assets'
@@ -125,10 +126,20 @@ const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
+const dark = useDark()
 
 // I18N
 
 const { t } = useI18n()
+
+/**
+ * Inactive toolbar-button icon color, per theme (OpenProject #2498). The template hardcoded
+ * `grey-10` (near-black, `#212121`) for every non-active menu entry, which is not itself a
+ * theme-aware CSS custom property -- so once the toolbar's own background below picks up a dark
+ * variant, an unchanged `grey-10` icon would go all but invisible against it. `grey-6` matches the
+ * tone `EditorMarkdown.vue`'s own dark preview toolbar already uses on the same `$dark-2` panel.
+ */
+const inactiveIconColor = computed(() => (dark.isActive ? 'grey-6' : 'grey-10'))
 
 // COMPUTED
 
@@ -709,16 +720,37 @@ defineExpose({ editor, menuBar })
 
   .wysiwyg-toolbar {
     border: none;
-    border-bottom: 1px solid $grey-4;
     display: flex;
     align-items: center;
     padding: 4px;
-    background: linear-gradient(to top, $grey-1 0%, #fff 100%);
+
+    /*
+      OpenProject #2498: this bar had no dark-mode treatment at all, so it stayed a bright white/grey
+      band regardless of theme. Dark values reuse the same `$dark-2`/`$dark-1` panel-and-border pair
+      `EditorMarkdown.vue`'s own dark preview toolbar uses -- the closest sibling shape, even though
+      this toolbar (formatting buttons, not a rendered preview) has no exact structural twin.
+    */
+    @at-root .body--light & {
+      background: linear-gradient(to top, $grey-1 0%, #fff 100%);
+      border-bottom: 1px solid $grey-4;
+    }
+    @at-root .body--dark & {
+      background: linear-gradient(to top, $dark-3 0%, $dark-2 100%);
+      border-bottom: 1px solid $dark-1;
+    }
   }
 
   .ProseMirror {
     padding: 16px;
     min-height: 75vh;
+
+    /*
+      The typed content itself, so a dark toolbar above isn't paired with the default (black-on-
+      whatever's-behind-it) text the rest of this rule otherwise never sets a color for.
+    */
+    @at-root .body--dark & {
+      color: rgba(255, 255, 255, 0.87);
+    }
 
     &-focused {
       border: none;
@@ -746,6 +778,11 @@ defineExpose({ editor, menuBar })
     code {
       background-color: rgba(#616161, 0.1);
       color: #616161;
+
+      @at-root .body--dark & {
+        background-color: rgba(255, 255, 255, 0.08);
+        color: $grey-4;
+      }
     }
 
     pre {
@@ -771,12 +808,20 @@ defineExpose({ editor, menuBar })
     blockquote {
       padding-left: 1rem;
       border-left: 2px solid rgba(#0d0d0d, 0.1);
+
+      @at-root .body--dark & {
+        border-left-color: rgba(255, 255, 255, 0.2);
+      }
     }
 
     hr {
       border: none;
       border-top: 2px solid rgba(#0d0d0d, 0.1);
       margin: 2rem 0;
+
+      @at-root .body--dark & {
+        border-top-color: rgba(255, 255, 255, 0.2);
+      }
     }
 
     table {
@@ -795,6 +840,10 @@ defineExpose({ editor, menuBar })
         box-sizing: border-box;
         position: relative;
 
+        @at-root .body--dark & {
+          border-color: $dark-1;
+        }
+
         > * {
           margin-bottom: 0;
         }
@@ -804,6 +853,10 @@ defineExpose({ editor, menuBar })
         font-weight: bold;
         text-align: left;
         background-color: #f1f3f5;
+
+        @at-root .body--dark & {
+          background-color: $dark-2;
+        }
       }
 
       .selectedCell:after {
@@ -859,6 +912,10 @@ defineExpose({ editor, menuBar })
       color: #ced4da;
       pointer-events: none;
       height: 0;
+
+      @at-root .body--dark & {
+        color: rgba(255, 255, 255, 0.35);
+      }
     }
 
     /*
