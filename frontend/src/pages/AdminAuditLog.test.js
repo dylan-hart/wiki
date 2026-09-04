@@ -14,6 +14,7 @@ function mountPage() {
     messages: {
       'admin.audit.title': 'Audit Log',
       'admin.audit.event.user.created': 'User Created',
+      'admin.audit.none': 'No audit events recorded yet.',
       'common.actions.save': 'Save'
     }
   }).wrapper
@@ -175,6 +176,23 @@ describe('AdminAuditLog', () => {
     expect(API_CLIENT.put).toHaveBeenCalledWith('audit-log/settings', {
       json: { retentionDays: 90 }
     })
+
+    wrapper.unmount()
+  })
+
+  it("renders the table's #no-data slot message when there are no entries (OpenProject #2061)", async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'audit-log') {
+        return { json: () => Promise.resolve({ total: 0, limit: 50, offset: 0, entries: [] }) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const wrapper = mountPage()
+    await flush(wrapper)
+
+    expect(wrapper.vm.state.entries).toHaveLength(0)
+    expect(wrapper.text()).toContain('No audit events recorded yet.')
 
     wrapper.unmount()
   })
