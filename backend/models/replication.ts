@@ -5,6 +5,7 @@ import crypto from 'node:crypto'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { CronExpressionParser } from 'cron-parser'
+import { runReplicationPostImport } from '../helpers/replicationPostImport.ts'
 
 /** The task `tick()` queues once the configured schedule is due. */
 export const REPLICATION_PULL_TASK = 'replicationPull'
@@ -38,6 +39,11 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *   for `WIKI.models.replicationImport.importSnapshot()` (OpenProject #2490,
  *   `models/replicationImport.ts`) through a narrow duck-typed lookup rather than a normal import, so
  *   this file stays testable in isolation from that model rather than binding to its exact shape.
+ *
+ * Once a snapshot has actually been restored, `pull()` runs the same post-import cache/index
+ * invalidation `tasks/simple/replication-import.ts` runs for the manual-upload path (OpenProject
+ * #2517) -- see `helpers/replicationPostImport.ts`, the implementation the two callers of
+ * `replicationImport.importSnapshot()` share so they cannot drift out of sync with each other again.
  */
 class Replication {
   /** `<dataPath>/replication` -- scratch space for a downloaded snapshot, cleaned up per-pull. */
@@ -126,6 +132,9 @@ class Replication {
     const filePath = await this.downloadSnapshot(cfg.sourceUrl, cfg.bearerToken)
     try {
       await this.importSnapshot(filePath)
+      // -> Only reached once the restore itself has actually succeeded (OpenProject #2517) -- a
+      //    failed/partial import never reloads caches or queues a reindex as though it had landed.
+      await this.runPostImportSideEffects()
       WIKI.logger.info('Replication pull: [ COMPLETED ]')
     } finally {
       await fs.rm(filePath, { force: true })
@@ -197,6 +206,25 @@ class Replication {
       throw new Error('Replication import is not available on this instance (OpenProject #2490).')
     }
     await replicationImport.importSnapshot(filePath)
+  }
+
+  /**
+   * Reload the `ClusterReloaded` caches a wipe-and-replace just invalidated wholesale, drop the
+   * glossary and asset path-resolution caches, and queue a search reindex per restored site --
+   * shared with `tasks/simple/replication-import.ts` via `helpers/replicationPostImport.ts` (see
+   * this class's doc comment). Unlike `importSnapshot()` above, these five models are always
+   * registered core models (not a feature-gated one that might not be installed), so a plain typed
+   * `WIKI.models.*` read is used rather than a duck-typed lookup.
+   */
+  private async runPostImportSideEffects(): Promise<void> {
+    await runReplicationPostImport({
+      sites: WIKI.models.sites,
+      groups: WIKI.models.groups,
+      classificationLevels: WIKI.models.classificationLevels,
+      glossary: WIKI.models.glossary,
+      assetServing: WIKI.models.assetServing,
+      addJob: (opts) => WIKI.scheduler.addJob(opts)
+    })
   }
 }
 

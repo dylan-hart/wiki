@@ -32,6 +32,57 @@ after(async () => {
   await fs.rm(tempDir, { recursive: true, force: true })
 })
 
+/** The `sites`/`groups`/`classificationLevels`/`glossary`/`assetServing` post-import side-effect
+ *  models `pull()` reaches for once a restore succeeds (OpenProject #2517) -- separated out from
+ *  `installWiki`'s per-test `models` override so a test can assert against them without repeating
+ *  this shape. `restoredSites` mirrors what a successful `sites.getAllSites()` would answer with. */
+const restoredSites = [{ id: 'site-1' }, { id: 'site-2' }]
+let postImportCalls: {
+  sitesBroadcastReload: number
+  groupsBroadcastReload: number
+  classificationLevelsBroadcastReload: number
+  forgetAllPaths: number
+  invalidateCache: string[]
+}
+
+function makePostImportModels() {
+  postImportCalls = {
+    sitesBroadcastReload: 0,
+    groupsBroadcastReload: 0,
+    classificationLevelsBroadcastReload: 0,
+    forgetAllPaths: 0,
+    invalidateCache: []
+  }
+  return {
+    sites: {
+      broadcastReload: mock.fn(async () => {
+        postImportCalls.sitesBroadcastReload++
+      }),
+      getAllSites: mock.fn(async () => restoredSites)
+    },
+    groups: {
+      broadcastReload: mock.fn(async () => {
+        postImportCalls.groupsBroadcastReload++
+      })
+    },
+    classificationLevels: {
+      broadcastReload: mock.fn(async () => {
+        postImportCalls.classificationLevelsBroadcastReload++
+      })
+    },
+    glossary: {
+      invalidateCache: mock.fn((siteId: string) => {
+        postImportCalls.invalidateCache.push(siteId)
+      })
+    },
+    assetServing: {
+      forgetAllPaths: mock.fn(() => {
+        postImportCalls.forgetAllPaths++
+      })
+    }
+  }
+}
+
 function installWiki(config: Record<string, any> = {}, models: Record<string, any> = {}) {
   addJob = mock.fn(async () => ({ id: 'queued-job' }))
   saveToDb = mock.fn(async () => true)
@@ -166,11 +217,11 @@ describe('replication.pull', () => {
     assert.equal(fetchSpy.mock.callCount(), 0)
   })
 
-  test('downloads a completed export and hands it to the target-side import (OpenProject #2489/#2490 contract)', async () => {
+  test('downloads a completed export, hands it to the target-side import, and runs the shared post-import cache/index side effects (OpenProject #2489/#2490/#2517 contract)', async () => {
     const importSnapshot = mock.fn(async (_filePath: string) => {})
     installWiki(
       { isEnabled: true, sourceUrl: 'https://prod.example.com', bearerToken: 'tok' },
-      { replicationImport: { importSnapshot } }
+      { replicationImport: { importSnapshot }, ...makePostImportModels() }
     )
     let downloadCalls = 0
     globalThis.fetch = mock.fn(async (input: any) => {
@@ -192,6 +243,71 @@ describe('replication.pull', () => {
     const filePath = importSnapshot.mock.calls[0]!.arguments[0]
     assert.ok(filePath.endsWith('.tar.gz'))
     // -> The scratch file is cleaned up once the import has run, whether it succeeded or not.
+    await assert.rejects(fs.access(filePath))
+
+    // -> OpenProject #2517: a scheduled pull must reload the same caches and queue the same
+    //    reindex jobs the manual-upload path already does, once the restore has actually succeeded.
+    assert.equal(postImportCalls.sitesBroadcastReload, 1)
+    assert.equal(postImportCalls.groupsBroadcastReload, 1)
+    assert.equal(postImportCalls.classificationLevelsBroadcastReload, 1)
+    assert.equal(postImportCalls.forgetAllPaths, 1)
+    assert.deepEqual(postImportCalls.invalidateCache, ['site-1', 'site-2'])
+    assert.deepEqual(
+      addJob.mock.calls.map((c) => c.arguments[0]),
+      [
+        { task: 'rebuildSearchIndex', payload: { siteId: 'site-1' } },
+        { task: 'rebuildSearchIndex', payload: { siteId: 'site-2' } }
+      ]
+    )
+  })
+
+  test('does not reload caches or queue a reindex when the import itself fails', async () => {
+    const importSnapshot = mock.fn(async (_filePath: string) => {
+      throw new Error('malformed replication archive')
+    })
+    installWiki(
+      { isEnabled: true, sourceUrl: 'https://prod.example.com', bearerToken: 'tok' },
+      { replicationImport: { importSnapshot }, ...makePostImportModels() }
+    )
+    globalThis.fetch = mock.fn(async (input: any) => {
+      const url = String(input)
+      if (url.endsWith('/_api/system/replication/export')) {
+        return new Response(JSON.stringify({ id: 'export-job-1' }), { status: 200 })
+      }
+      return new Response('fake-archive-bytes', { status: 200 })
+    }) as unknown as typeof fetch
+
+    await assert.rejects(replication.pull(), /malformed replication archive/)
+
+    assert.equal(postImportCalls.sitesBroadcastReload, 0)
+    assert.equal(postImportCalls.groupsBroadcastReload, 0)
+    assert.equal(postImportCalls.classificationLevelsBroadcastReload, 0)
+    assert.equal(postImportCalls.forgetAllPaths, 0)
+    assert.deepEqual(postImportCalls.invalidateCache, [])
+    assert.equal(addJob.mock.callCount(), 0)
+  })
+
+  test('still cleans up the downloaded snapshot when a post-import side effect throws', async () => {
+    const importSnapshot = mock.fn(async (_filePath: string) => {})
+    const postImportModels = makePostImportModels()
+    postImportModels.groups.broadcastReload = mock.fn(async () => {
+      throw new Error('cache reload failed')
+    })
+    installWiki(
+      { isEnabled: true, sourceUrl: 'https://prod.example.com', bearerToken: 'tok' },
+      { replicationImport: { importSnapshot }, ...postImportModels }
+    )
+    globalThis.fetch = mock.fn(async (input: any) => {
+      const url = String(input)
+      if (url.endsWith('/_api/system/replication/export')) {
+        return new Response(JSON.stringify({ id: 'export-job-1' }), { status: 200 })
+      }
+      return new Response('fake-archive-bytes', { status: 200 })
+    }) as unknown as typeof fetch
+
+    await assert.rejects(replication.pull(), /cache reload failed/)
+
+    const filePath = importSnapshot.mock.calls[0]!.arguments[0]
     await assert.rejects(fs.access(filePath))
   })
 
