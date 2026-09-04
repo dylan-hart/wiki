@@ -5,9 +5,11 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  258 icons.
+  260 icons.
 */
 export const BUNDLED_ICONS = {
+  "la:angle-double-left": {"body":"<path fill=\"currentColor\" d=\"M15.906 4.781L4.687 16l11.22 11.219l1.405-1.438L7.533 16l9.78-9.781zm7 0L11.688 16l11.218 11.219l1.407-1.438L14.53 16l9.781-9.781z\"/>","width":32,"height":32},
+  "la:angle-double-right": {"body":"<path fill=\"currentColor\" d=\"M9.094 4.781L7.688 6.22l9.78 9.78l-9.78 9.781l1.406 1.438L20.313 16zm7 0L14.687 6.22L24.47 16l-9.782 9.781l1.407 1.438L27.312 16z\"/>","width":32,"height":32},
   "la:angle-right": {"body":"<path fill=\"currentColor\" d=\"M12.969 4.281L11.53 5.72L21.812 16l-10.28 10.281l1.437 1.438l11-11l.687-.719l-.687-.719z\"/>","width":32,"height":32},
   "la:arrow-circle-left": {"body":"<path fill=\"currentColor\" d=\"M16 3C8.832 3 3 8.832 3 16s5.832 13 13 13s13-5.832 13-13S23.168 3 16 3m0 2c6.086 0 11 4.914 11 11s-4.914 11-11 11S5 22.086 5 16S9.914 5 16 5m-.719 4.594L8.875 16l6.406 6.406L16.72 21l-4-4H23v-2H12.719l4-4z\"/>","width":32,"height":32},
   "la:arrow-circle-right": {"body":"<path fill=\"currentColor\" d=\"M16 3C8.832 3 3 8.832 3 16s5.832 13 13 13s13-5.832 13-13S23.168 3 16 3m0 2c6.086 0 11 4.914 11 11s-4.914 11-11 11S5 22.086 5 16S9.914 5 16 5m.719 4.594L15.28 11l4 4H9v2h10.281l-4 4l1.438 1.406L23.125 16z\"/>","width":32,"height":32},
