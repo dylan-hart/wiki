@@ -324,7 +324,7 @@ const state = reactive({
  * Below 900px, where the filter panel stops being a column beside the results and becomes a disclosure
  * above them.
  *
- * This layout's own breakpoint rather than one of the app's, and the same one `ProfileLayout` uses for its
+ * This layout's own breakpoint rather than one of the app's, and the same one `ProfileOverlay` uses for its
  * nav: the two screens are the same shape -- a card with a 300px sidebar -- so they run out of room at the
  * same width. The stylesheet has to agree with it; `$filters-collapse-max` is the same boundary from the
  * other side.
@@ -535,7 +535,7 @@ onUnmounted(() => {
 
 <style lang="scss">
 /*
-  Where this card's two desktop assumptions give out -- the same two widths `layouts/ProfileLayout.vue`
+  Where this card's two desktop assumptions give out -- the same two widths `components/ProfileOverlay.vue`
   declares, because the two screens are the same shape and run out of room together. Deliberately not in
   `_palette.scss`, which is for breakpoints the whole app shares; these describe one kind of card. Change
   them in one file and the other wants the same change.
@@ -693,7 +693,7 @@ $card-gutter-max: 1199.98px;
     THREE NARROWER LAYOUTS
     ======================
 
-    Same shape and same thresholds as `layouts/ProfileLayout.vue`, which is the app's other card-beside-a-
+    Same shape and same thresholds as `components/ProfileOverlay.vue`, which is the app's other card-beside-a-
     sidebar screen: a sheet floating in a tinted page -- 90% of the width, 50px of gutter all round -- with
     a 300px sidebar down its left side. Both give out as the window narrows, so the card gives them up one
     at a time:

@@ -30,7 +30,7 @@ describe('bootstrapFailureRedirectFor()', () => {
 
     expect(bootstrapFailureRedirectFor('/_admin/sites', err)).toBeNull()
     expect(bootstrapFailureRedirectFor('/_error/unknownsite', err)).toBeNull()
-    expect(bootstrapFailureRedirectFor('/_profile/info', err)).toBeNull()
+    expect(bootstrapFailureRedirectFor('/_inbox/watching', err)).toBeNull()
   })
 
   it("leaves /login alone so a disabled site's administrator can still sign in to fix it", () => {

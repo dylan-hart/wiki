@@ -22,7 +22,7 @@
             :label="t(`common.header.profile`)"
             icon="la:user-alt"
             color="primary"
-            to="/_profile"
+            @click="siteStore.openOverlay('Profile')"
             no-caps />
           <w-btn
             flat
@@ -41,10 +41,12 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 
+import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 // STORES
 
+const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // I18N

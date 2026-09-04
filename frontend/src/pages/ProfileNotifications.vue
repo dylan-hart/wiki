@@ -64,7 +64,7 @@ useMeta(() => ({
  *
  * A computed, not a plain array evaluated once at setup, so switching interface language relabels
  * every row immediately rather than only after a remount -- same reasoning as
- * `ProfileLayout.vue`'s own `sidenav`.
+ * `ProfileOverlay.vue`'s own `sidenav`.
  */
 const eventGroups = computed(() => [
   {

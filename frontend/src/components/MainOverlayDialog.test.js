@@ -73,6 +73,7 @@ describe('MainOverlayDialog accessible-name map', () => {
         'Inbox',
         'NavEdit',
         'PageHistory',
+        'Profile',
         'TableEditor',
         'Welcome'
       ].sort()

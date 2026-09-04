@@ -106,9 +106,10 @@
             @click="openInbox">
             <!--
               Same `floating` badge shape `PageActionsCol`'s pending-assets button uses, on the one
-              button here that is reachable from every page (`HeaderNav` is shared by `MainLayout`
-              and `ProfileLayout`) -- see `unreadNotifications` for where the count comes from and
-              how it stays current.
+              button here that is reachable from every page (`HeaderNav` is shared by `MainLayout` --
+              Profile and Inbox are both `MainOverlayDialog` entries now, OpenProject #2531/#2532, so
+              neither has a layout of its own left to share this with) -- see `unreadNotifications`
+              for where the count comes from and how it stays current.
             -->
             <w-badge
               v-if="unreadNotifications > 0"
