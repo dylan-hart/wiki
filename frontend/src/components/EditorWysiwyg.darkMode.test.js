@@ -104,9 +104,14 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
     const lightCode = getComputedStyle(lightWrapper.find('.ProseMirror code').element)
     const lightCodeColor = lightCode.color
     const lightCodeBg = lightCode.backgroundColor
+    // -> `borderInlineStartColor`, not `borderLeftColor`: OpenProject #1601 converted the
+    //    blockquote rule's border to the logical `border-inline-start` form, and happy-dom's CSS
+    //    engine tracks logical longhands as their own computed properties rather than resolving
+    //    them to the physical property a real browser would (verified directly: `border-inline-
+    //    start-color` alone reads back on `getComputedStyle`, `border-left-color` never does).
     const lightQuoteBorder = getComputedStyle(
       lightWrapper.find('.ProseMirror blockquote').element
-    ).borderLeftColor
+    ).borderInlineStartColor
     const lightHrBorder = getComputedStyle(
       lightWrapper.find('.ProseMirror hr').element
     ).borderTopColor
@@ -118,7 +123,7 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
     const darkCode = getComputedStyle(darkWrapper.find('.ProseMirror code').element)
     const darkQuoteBorder = getComputedStyle(
       darkWrapper.find('.ProseMirror blockquote').element
-    ).borderLeftColor
+    ).borderInlineStartColor
     const darkHrBorder = getComputedStyle(
       darkWrapper.find('.ProseMirror hr').element
     ).borderTopColor
