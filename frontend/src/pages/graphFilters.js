@@ -143,24 +143,51 @@ export function computeHighlightedNodeIds(matches) {
 }
 
 /**
+ * Reuses a previously-synthesized hub/folder/root node across `applyFilters()` calls instead of
+ * always building a fresh literal (OpenProject #2538): a synthetic node that's still visible after
+ * a filter/edgeMode change keeps the same object identity, so it keeps whatever `x`/`y`/`vx`/`vy`
+ * d3-force has since assigned it rather than being handed back to `initializeNodes()`'s
+ * origin-centered phyllotaxis spiral and yanked back into place over the first several ticks (the
+ * "flash-jitter" this bug describes). `cache` is keyed by the synthetic node's own id and is the
+ * caller's responsibility to create once and pass into every builder call, then discard on a
+ * wholesale reload -- see `Graph.vue`'s `syntheticNodeCache`. A key not yet in the cache still gets
+ * a brand-new object with no `x`/`y`, which falls through to d3-force's default placement exactly
+ * as before -- matching the already-accepted behavior for a real node that reappears after being
+ * filtered out.
+ */
+function internSyntheticNode(cache, id, factory) {
+  let node = cache.get(id)
+  if (!node) {
+    node = factory()
+    cache.set(id, node)
+  }
+  return node
+}
+
+/**
  * Path-hierarchy synthetic nodes/edges (OpenProject #998, `edgeMode: 'paths'`, the default): every
  * node connects to its immediate parent path segment, climbed all the way up to a synthetic root
  * (`''`) -- "root fans out to everything," so even a wiki with zero authored relations/links renders
  * a fully connected graph. A real page is reused as a folder's node when one exists at that exact
  * path (so an index-style page at `docs` doesn't get a duplicate dot next to a synthetic `docs`
- * marker); otherwise a bare `{ path, locale, title, synthetic: true }` stand-in is synthesized.
- * Edges are de-duped via a `Set` keyed on `"parent target"` composite ids, since many sibling pages
- * under the same folder all climb through the same parent segment -- cheap to always climb every
- * node fully to root rather than short-circuiting on "already wired," given the graph's confirmed
- * real-world scale (low hundreds to low thousands of pages).
+ * marker); otherwise a bare `{ path, locale, title, synthetic: true }` stand-in is synthesized --
+ * reused by identity across calls via `cache` (`internSyntheticNode`, OpenProject #2538) rather than
+ * always freshly built, so an already-settled folder/root marker doesn't jitter on the next
+ * `activeFilters`/`edgeMode` change. Edges are de-duped via a `Set` keyed on `"parent target"`
+ * composite ids, since many sibling pages under the same folder all climb through the same parent
+ * segment -- cheap to always climb every node fully to root rather than short-circuiting on "already
+ * wired," given the graph's confirmed real-world scale (low hundreds to low thousands of pages).
  *
  * Everything here -- the `byId` reuse lookup, the de-dupe key, the synthesized folder nodes
  * (including the root) and the emitted edges -- is keyed on the composite `${locale}:${path}` id,
  * not the bare path (OpenProject #1632): two locales sharing a folder path must climb to two
  * distinct folder nodes and a locale-qualified root each, not merge into one shared tree. A
  * synthetic folder node therefore carries its climbing node's `locale`, same as a real page node.
+ *
+ * `cache` defaults to a fresh, empty `Map` when the caller doesn't pass one (e.g. every existing
+ * unit test call site) -- with nothing to reuse, behavior is identical to before this cache existed.
  */
-export function buildPathHierarchyEdges(nodes) {
+export function buildPathHierarchyEdges(nodes, cache = new Map()) {
   const byId = new Map(nodes.map((n) => [nodeId(n), n]))
   const synthesized = new Map()
   const edgeKeys = new Set()
@@ -176,12 +203,15 @@ export function buildPathHierarchyEdges(nodes) {
     if (byId.has(id) || synthesized.has(id)) {
       return
     }
-    synthesized.set(id, {
-      path,
-      locale,
-      title: path === '' ? '(root)' : path.split('/').at(-1),
-      synthetic: true
-    })
+    synthesized.set(
+      id,
+      internSyntheticNode(cache, id, () => ({
+        path,
+        locale,
+        title: path === '' ? '(root)' : path.split('/').at(-1),
+        synthetic: true
+      }))
+    )
   }
 
   for (const node of nodes) {
@@ -209,9 +239,12 @@ export function buildPathHierarchyEdges(nodes) {
  * a multi-tagged page gets one edge per tag here -- simpler than `buildPathHierarchyEdges` above,
  * since there's no chaining and no root. Each edge's `target` is `nodeId(node)`, not the bare
  * `node.path` (OpenProject #1629/#1632), so two locales' same-path pages carrying the same tag get
- * two distinct edges instead of colliding on one.
+ * two distinct edges instead of colliding on one. Each hub node is reused by identity across calls
+ * via `cache` (`internSyntheticNode`, OpenProject #2538) rather than always freshly built, so an
+ * already-settled tag hub doesn't jitter on the next `activeFilters`/`edgeMode` change; `cache`
+ * defaults to a fresh, empty `Map` when the caller doesn't pass one, matching prior behavior.
  */
-export function buildTagHubEdges(nodes) {
+export function buildTagHubEdges(nodes, cache = new Map()) {
   const hubs = new Map()
   const edges = []
 
@@ -219,7 +252,14 @@ export function buildTagHubEdges(nodes) {
     for (const tag of node.tags ?? []) {
       const hubPath = `__tag__${tag}`
       if (!hubs.has(hubPath)) {
-        hubs.set(hubPath, { path: hubPath, title: tag, synthetic: true })
+        hubs.set(
+          hubPath,
+          internSyntheticNode(cache, hubPath, () => ({
+            path: hubPath,
+            title: tag,
+            synthetic: true
+          }))
+        )
       }
       edges.push({ source: hubPath, target: nodeId(node), type: 'tag' })
     }
@@ -239,9 +279,13 @@ export function buildTagHubEdges(nodes) {
  * under a shared `'(unclassified)'` hub rather than dropped, the same fallback `Graph.vue`'s
  * `groupKeyFor()` uses for the Classification grouping. Each edge's `target` is `nodeId(node)`, not
  * the bare `node.path` (OpenProject #1629/#1632), so two locales' same-path pages sharing a
- * classification get two distinct edges instead of colliding on one.
+ * classification get two distinct edges instead of colliding on one. Each hub node is reused by
+ * identity across calls via `cache` (`internSyntheticNode`, OpenProject #2538) rather than always
+ * freshly built, so an already-settled classification hub doesn't jitter on the next
+ * `activeFilters`/`edgeMode` change; `cache` defaults to a fresh, empty `Map` when the caller
+ * doesn't pass one, matching prior behavior.
  */
-export function buildClassificationHubEdges(nodes) {
+export function buildClassificationHubEdges(nodes, cache = new Map()) {
   const hubs = new Map()
   const edges = []
 
@@ -249,7 +293,14 @@ export function buildClassificationHubEdges(nodes) {
     const classification = node.classification ?? '(unclassified)'
     const hubPath = `__classification__${classification}`
     if (!hubs.has(hubPath)) {
-      hubs.set(hubPath, { path: hubPath, title: classification, synthetic: true })
+      hubs.set(
+        hubPath,
+        internSyntheticNode(cache, hubPath, () => ({
+          path: hubPath,
+          title: classification,
+          synthetic: true
+        }))
+      )
     }
     edges.push({ source: hubPath, target: nodeId(node), type: 'classification' })
   }
