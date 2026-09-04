@@ -894,4 +894,31 @@ describe('NavSidebar', () => {
     expect(styleBlock).not.toMatch(/border-right\s*:/)
     expect(styleBlock).toMatch(/border-inline-start\s*:\s*10px/)
   })
+
+  /**
+   * OpenProject #2535: `.sidebar-nav > nav { min-height: 100% }` resolved a percentage height
+   * against `.sidebar-nav`'s own flex-computed (`flex: 1 1 0`), potentially fractional-pixel
+   * height in a separate layout pass, and the two passes could round that value differently --
+   * enough to leave `nav` a hair taller than the actual available space and trip `w-scroll-area`'s
+   * `overflow-auto`, even though nothing was actually cut off. happy-dom has no real layout engine
+   * (see the file header above), so the sub-pixel scrollbar symptom itself can't be reproduced here
+   * -- this asserts, statically, that the fix (flex-growing `nav` inside `.sidebar-nav`'s own flex
+   * column, so both figures are resolved by the same layout pass) is in place and the old
+   * percentage-height rule -- the actual source of the rounding mismatch -- is gone.
+   */
+  it('sizes the nav landmark by flex-growing it, not by a percentage height, to avoid sub-pixel scrollbars', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+    const sidebarNavBlock = styleBlock.slice(
+      styleBlock.indexOf('.sidebar-nav {'),
+      styleBlock.indexOf('.sidebar-nav {') +
+        styleBlock.slice(styleBlock.indexOf('.sidebar-nav {')).indexOf('&-list >')
+    )
+
+    expect(sidebarNavBlock).toMatch(/display:\s*flex/)
+    expect(sidebarNavBlock).toMatch(/flex-direction:\s*column/)
+    expect(sidebarNavBlock).toMatch(/>\s*nav\s*{\s*[^}]*flex:\s*1\s+0\s+auto/)
+    expect(sidebarNavBlock).not.toMatch(/min-height:\s*100%/)
+  })
 })
