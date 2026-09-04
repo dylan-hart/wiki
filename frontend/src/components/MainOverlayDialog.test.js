@@ -96,3 +96,29 @@ describe('MainOverlayDialog overlay-opts pass-through', () => {
     )
   })
 })
+
+/**
+ * OpenProject #2543 follow-up: Profile and Inbox are short, focused forms/lists, not a file browser
+ * or a block gallery -- a full-screen panel dwarfed either one, so they render at roughly half the
+ * viewport instead. Checked against the source rather than a full mount, matching this file's other
+ * checks: every `overlays` entry is a real, dynamically-imported SFC with its own mount cost.
+ */
+describe('MainOverlayDialog half-sized overlays', () => {
+  it('drives full-width/full-height and width/height off isHalfSized, not a fixed true', () => {
+    expect(source).toContain(':full-width="!isHalfSized"')
+    expect(source).toContain(':full-height="!isHalfSized"')
+    expect(source).toContain(':width="isHalfSized ? HALF_SIZE.width : null"')
+    expect(source).toContain(':height="isHalfSized ? HALF_SIZE.height : null"')
+  })
+
+  it('only Profile and Inbox are half-sized -- every other overlay stays full-screen', () => {
+    expect(source).toMatch(
+      /isHalfSized = computed\(\(\) => siteStore\.overlay === 'Profile' \|\| siteStore\.overlay === 'Inbox'\)/
+    )
+  })
+
+  it('clamps HALF_SIZE so it never gets crushed on a small window nor sprawls on a large one', () => {
+    expect(source).toContain("width: 'clamp(560px, 50vw, 960px)'")
+    expect(source).toContain("height: 'clamp(480px, 50vh, 800px)'")
+  })
+})

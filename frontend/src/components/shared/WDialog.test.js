@@ -603,6 +603,67 @@ describe('WDialog', () => {
 })
 
 /**
+ * `width`/`height` (OpenProject #2543 follow-up): a caller wanting something between "fits its
+ * content" and `fullWidth`/`fullHeight`'s edge-to-edge panel -- `MainOverlayDialog.vue`'s Profile and
+ * Inbox entries, sized at roughly half the viewport instead of full-screen.
+ *
+ * Plain pixel values here, deliberately not the real `clamp(...)` values `MainOverlayDialog.vue`
+ * actually passes: jsdom's `cssstyle` package does not parse the modern `clamp()` CSS function, so a
+ * `:style` binding carrying it is silently dropped rather than rendered -- a jsdom limitation, not a
+ * bug in `panelStyle`, and real browsers apply it correctly. What's under test here is the prop
+ * plumbing and precedence, not `clamp()` support, so the values themselves don't matter; the exact
+ * `clamp(...)` constants are instead checked against `MainOverlayDialog.vue`'s own source text in
+ * `MainOverlayDialog.test.js`.
+ */
+describe('WDialog width/height', () => {
+  it('applies width and height as inline panel styles when full-width/full-height are unset', () => {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, width: '480px', height: '360px' },
+      global: { stubs: { teleport: true } }
+    })
+
+    const panel = wrapper.find('.w-dialog-panel')
+    expect(panel.attributes('style')).toContain('width: 480px')
+    expect(panel.attributes('style')).toContain('height: 360px')
+    expect(panel.classes()).not.toContain('w-full')
+    expect(panel.classes()).not.toContain('h-full')
+  })
+
+  it('ignores width in favor of the w-full class when fullWidth is also set', () => {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, fullWidth: true, width: '480px' },
+      global: { stubs: { teleport: true } }
+    })
+
+    const panel = wrapper.find('.w-dialog-panel')
+    expect(panel.classes()).toContain('w-full')
+    expect(panel.attributes('style') ?? '').not.toContain('width:')
+  })
+
+  it('ignores height in favor of the h-full class when fullHeight is also set', () => {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, fullHeight: true, height: '360px' },
+      global: { stubs: { teleport: true } }
+    })
+
+    const panel = wrapper.find('.w-dialog-panel')
+    expect(panel.classes()).toContain('h-full')
+    expect(panel.attributes('style') ?? '').not.toContain('height:')
+  })
+
+  it('width takes priority over maxWidth when both are given', () => {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, width: '480px', maxWidth: '550px' },
+      global: { stubs: { teleport: true } }
+    })
+
+    const panel = wrapper.find('.w-dialog-panel')
+    expect(panel.attributes('style')).toContain('width: 480px')
+    expect(panel.attributes('style') ?? '').not.toContain('max-width: 550px')
+  })
+})
+
+/**
  * OpenProject #2370: `WDialog`'s Escape handler used to listen on `document` in the CAPTURE phase,
  * which fires before a nested `WMenu` dropdown's own (bubble-phase, #2364) handler ever gets a turn
  * -- so pressing Escape to close just the dropdown closed the whole dialog instead, discarding an

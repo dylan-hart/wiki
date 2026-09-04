@@ -90,6 +90,17 @@ const props = defineProps({
     type: String,
     default: null
   },
+  /** Any CSS length, e.g. `clamp(560px, 50vw, 960px)`. Ignored when `fullWidth` is set; takes
+   * priority over `maxWidth` when both are given. */
+  width: {
+    type: String,
+    default: null
+  },
+  /** Any CSS length, e.g. `clamp(480px, 50vh, 800px)`. Ignored when `fullHeight` is set. */
+  height: {
+    type: String,
+    default: null
+  },
   /**
    * Id of an element (typically a `WCardHeader`'s exposed `headingId`) that names this dialog for
    * assistive tech. Explicit props, not fallthrough attributes: `inheritAttrs: false` above sends a
@@ -152,9 +163,20 @@ const panelClasses = computed(() => [
   props.fullWidth ? 'w-full' : ''
 ])
 
-const panelStyle = computed(() =>
-  !props.fullWidth && props.maxWidth ? { maxWidth: props.maxWidth } : undefined
-)
+const panelStyle = computed(() => {
+  const style = {}
+  if (!props.fullWidth) {
+    if (props.width) {
+      style.width = props.width
+    } else if (props.maxWidth) {
+      style.maxWidth = props.maxWidth
+    }
+  }
+  if (!props.fullHeight && props.height) {
+    style.height = props.height
+  }
+  return Object.keys(style).length ? style : undefined
+})
 
 // METHODS
 
