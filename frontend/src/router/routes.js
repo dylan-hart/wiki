@@ -32,19 +32,6 @@ const routes = [
     }
   },
   {
-    path: '/_profile',
-    component: () => import('@/layouts/ProfileLayout.vue'),
-    children: [
-      { path: '', redirect: '/_profile/info' },
-      { path: 'info', component: () => import('@/pages/ProfileInfo.vue') },
-      { path: 'avatar', component: () => import('@/pages/ProfileAvatar.vue') },
-      { path: 'auth', component: () => import('@/pages/ProfileAuth.vue') },
-      { path: 'groups', component: () => import('@/pages/ProfileGroups.vue') },
-      { path: 'api', component: () => import('@/pages/ProfileApi.vue') },
-      { path: 'notifications', component: () => import('@/pages/ProfileNotifications.vue') }
-    ]
-  },
-  {
     path: '/_inbox',
     component: () => import('@/layouts/InboxLayout.vue'),
     children: [

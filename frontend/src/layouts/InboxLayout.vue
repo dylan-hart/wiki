@@ -143,7 +143,7 @@ useMeta(() => {
 
 // DATA
 
-// -> A computed, not a plain array evaluated once at setup -- see ProfileLayout's identical comment;
+// -> A computed, not a plain array evaluated once at setup -- see ProfileOverlay's identical comment;
 //    a plain array's t() calls freeze these labels in whatever language was active when this layout
 //    mounted, so switching interface language would leave them stale until a remount.
 const sidenav = computed(() => [

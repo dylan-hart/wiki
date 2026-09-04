@@ -106,9 +106,10 @@
             :aria-label="t(`inbox.title`)">
             <!--
               Same `floating` badge shape `PageActionsCol`'s pending-assets button uses, on the one
-              button here that is reachable from every page (`HeaderNav` is shared by `MainLayout`,
-              `ProfileLayout` and `InboxLayout`) -- see `unreadNotifications` for where the count comes
-              from and how it stays current.
+              button here that is reachable from every page (`HeaderNav` is shared by `MainLayout`
+              and `InboxLayout` -- Profile is a `MainOverlayDialog` entry now, OpenProject #2532, so
+              it no longer has a layout of its own to share this with) -- see `unreadNotifications`
+              for where the count comes from and how it stays current.
             -->
             <w-badge
               v-if="unreadNotifications > 0"

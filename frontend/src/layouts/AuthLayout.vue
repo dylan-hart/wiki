@@ -20,9 +20,10 @@
  * 2.5.x's login screen included this footer; its absence here was a gap introduced during the 3.x
  * rewrite, not an intentional redesign.
  *
- * `ProfileLayout` no longer belongs in that list (OpenProject #2510): its card now lives inside an
- * always-open modal dialog whose backdrop covers the full viewport, so a footer behind it would never
- * actually be visible -- the same reason `InboxLayout` (the same dialog shape, #2502) never had one.
+ * Profile never belonged in that list either: it was a routed `/_profile/*` layout with the same
+ * always-open-modal shape as `InboxLayout` (#2510, following #2502) and is now a `MainOverlayDialog`
+ * entry with no layout of its own at all (OpenProject #2532) -- either way, a footer behind its full-
+ * viewport backdrop/panel would never actually be visible, the same reason `InboxLayout` never had one.
  */
 import FooterNav from '@/components/FooterNav.vue'
 </script>

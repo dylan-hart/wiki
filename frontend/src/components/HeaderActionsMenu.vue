@@ -93,7 +93,7 @@
           menu is on the screens it exists for.
         -->
         <template v-if="userStore.authenticated">
-          <w-item clickable to="/_profile" @click="close">
+          <w-item clickable @click="openProfile">
             <w-item-section avatar>
               <w-icon name="la:user-alt" class="text-primary" />
             </w-item-section>
@@ -190,6 +190,11 @@ function close() {
 function openFileManager() {
   close()
   siteStore.openFileManager()
+}
+
+function openProfile() {
+  close()
+  siteStore.openOverlay('Profile')
 }
 
 function logout() {

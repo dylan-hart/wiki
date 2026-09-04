@@ -129,7 +129,6 @@ describe('content page route meta (OpenProject #2512)', () => {
     ['/_tags', false],
     ['/_admin', false],
     ['/_admin/dashboard', false],
-    ['/_profile', false],
     ['/_inbox', false],
     ['/_search', false],
     ['/_error/notfound', false],
