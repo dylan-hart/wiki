@@ -38,7 +38,8 @@ describe('Graph.vue fallbacks, filters and truncation', () => {
   it('hides the locale filter on a single-locale site (OpenProject #2294)', async () => {
     // -> FIXTURE_GRAPH's two nodes both carry locale 'en' -- the common single-locale install this
     //    work package targets. Only `.graph-view-filters`'s own `w-select` is counted: `folderDepth`
-    //    is a `w-input`, not a `w-select`, so the tags filter is the only one left once locale hides.
+    //    is a plain range slider (OpenProject #2521), not a `w-select`, so the tags filter is the
+    //    only one left once locale hides.
     const wrapper = await mountGraph()
 
     expect(wrapper.vm.localeOptions).toEqual(['en'])

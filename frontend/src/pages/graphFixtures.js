@@ -26,6 +26,7 @@ export const GRAPH_MESSAGES = {
   'graph.accessibleName.summary': 'Knowledge graph: {pages}, {links}, grouped by {groupBy}',
   'graph.filters.tags': 'Tags',
   'graph.filters.folderDepth': 'Folder Depth',
+  'graph.filters.folderDepthAll': 'All',
   'graph.filters.keyword': 'Keyword',
   'graph.filters.locale': 'Locale',
   'graph.filters.clear': 'Clear filters',

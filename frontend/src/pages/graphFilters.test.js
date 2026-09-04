@@ -6,6 +6,9 @@ import {
   computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
+  deriveMaxFolderDepth,
+  folderDepthOf,
+  MAX_DEPTH,
   nodeId
 } from './graphFilters.js'
 
@@ -95,6 +98,31 @@ const EDGES2 = [
   { source: 'en:a', target: 'fr:docs/b', type: 'link' },
   { source: 'en:a', target: 'en:docs/deep/c', type: 'link' }
 ]
+
+describe('folderDepthOf / deriveMaxFolderDepth (OpenProject #2520/#2521)', () => {
+  it('reads the number of directory segments in a path, not node.folder', () => {
+    expect(folderDepthOf({ path: 'a', folder: '' })).toBe(0)
+    expect(folderDepthOf({ path: 'docs/b', folder: 'docs' })).toBe(1)
+    expect(folderDepthOf({ path: 'docs/deep/c', folder: 'docs' })).toBe(2)
+  })
+
+  it('returns the deepest folderDepthOf() among the given nodes', () => {
+    expect(deriveMaxFolderDepth(NODES2)).toBe(2)
+  })
+
+  it('returns 0 for an empty node set -- the pre-load `allNodes` state', () => {
+    expect(deriveMaxFolderDepth([])).toBe(0)
+  })
+
+  it("is not itself capped at MAX_DEPTH -- capping is the caller's job", () => {
+    const deepNodes = [{ path: Array.from({ length: MAX_DEPTH + 5 }, (_, i) => `s${i}`).join('/') }]
+    expect(deriveMaxFolderDepth(deepNodes)).toBe(MAX_DEPTH + 4)
+  })
+
+  it('mirrors backend/models/tree.ts MAX_DEPTH', () => {
+    expect(MAX_DEPTH).toBe(10)
+  })
+})
 
 describe('computeVisibleSubset (OpenProject #900)', () => {
   it('with no active filters, everything is visible', () => {

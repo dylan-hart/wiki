@@ -133,13 +133,19 @@
         options-dense
         :options="tagOptions"
         :label="t('graph.filters.tags')" />
-      <w-input
-        v-model.number="activeFilters.folderDepth"
-        type="number"
-        min="0"
-        outlined
-        dense
-        :label="t('graph.filters.folderDepth')" />
+      <div class="flex flex-col gap-1">
+        <span class="text-caption opacity-70">{{ t('graph.filters.folderDepth') }}</span>
+        <input
+          v-model.number="folderDepthSlider"
+          type="range"
+          min="0"
+          :max="folderDepthSliderMax"
+          step="1"
+          class="w-full"
+          :aria-label="t('graph.filters.folderDepth')"
+          :aria-valuetext="folderDepthSliderLabel" />
+        <span class="text-caption opacity-70">{{ folderDepthSliderLabel }}</span>
+      </div>
       <w-select
         v-if="showLocaleFilter"
         v-model="activeFilters.locale"
@@ -195,6 +201,8 @@ import {
   computeHighlightedNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
+  deriveMaxFolderDepth,
+  MAX_DEPTH,
   nodeId
 } from './graphFilters.js'
 import { paintGraph } from './graphDraw.js'
@@ -391,6 +399,41 @@ const highlightedNodeIds = computed(() => computeHighlightedNodeIds(keywordMatch
 const filterOptions = computed(() => deriveFilterOptions(allNodes.value))
 const tagOptions = computed(() => filterOptions.value.tags)
 const localeOptions = computed(() => filterOptions.value.locales)
+
+/** The folder-depth slider's ceiling (OpenProject #2520/#2521): the graph's own actual max folder
+ *  depth (`graphFilters.js#deriveMaxFolderDepth`, read off `allNodes` -- the full universe, same
+ *  reasoning as `filterOptions` above), capped at the mirrored `MAX_DEPTH`. Resolves to `0` before
+ *  `loadGraph()` populates `allNodes` (`deriveMaxFolderDepth([])` is `0`), so the slider renders
+ *  one real depth-0 step past "All" during initial load rather than a broken/negative range. */
+const graphMaxFolderDepth = computed(() =>
+  Math.min(deriveMaxFolderDepth(allNodes.value), MAX_DEPTH)
+)
+
+/** The slider's upper bound in its own plain-integer position space: position `0` is "All", and
+ *  each position after it is one more depth -- so offering every depth from `0` through
+ *  `graphMaxFolderDepth` takes `graphMaxFolderDepth.value + 1` positions past "All". */
+const folderDepthSliderMax = computed(() => graphMaxFolderDepth.value + 1)
+
+/** Two-way bridge between the slider's plain integer position and `activeFilters.folderDepth`'s
+ *  own null-means-unrestricted semantics (`graphFilters.js#computeVisibleSubset`) -- position `0`
+ *  reads/writes `null` ("All"), position `n` (n >= 1) reads/writes depth `n - 1`. Giving the
+ *  slider this own explicit "All" position (rather than, say, defaulting to depth `0`) is what
+ *  keeps "no restriction" reachable and distinct from "root only" (OpenProject #898/#900's
+ *  distinction, carried into the slider). */
+const folderDepthSlider = computed({
+  get: () => (activeFilters.folderDepth == null ? 0 : activeFilters.folderDepth + 1),
+  set: (position) => {
+    activeFilters.folderDepth = position <= 0 ? null : position - 1
+  }
+})
+
+/** The slider's own visible current-value text -- `t('graph.filters.folderDepthAll')` at
+ *  position `0`, else the plain depth number. */
+const folderDepthSliderLabel = computed(() =>
+  activeFilters.folderDepth == null
+    ? t('graph.filters.folderDepthAll')
+    : String(activeFilters.folderDepth)
+)
 
 /** Whether the locale filter control is worth showing at all (OpenProject #2294): gated on both the
  *  reader-facing locale-switcher setting AND there being more than one locale actually represented

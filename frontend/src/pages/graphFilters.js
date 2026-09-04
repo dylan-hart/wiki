@@ -1,8 +1,51 @@
 /**
+ * Mirrors `backend/models/tree.ts`'s `MAX_DEPTH` (the recursion/listing ceiling the tree browser
+ * itself enforces) -- the same "mirror a backend constant by hand" convention
+ * `helpers/systemIds.js` documents for `systemIds`. The folder-depth slider (OpenProject #2520/
+ * #2521) uses this as its own ceiling on top of whatever depth the currently-loaded graph actually
+ * reaches (`deriveMaxFolderDepth` below), so a wiki with pages nested deeper than the tree browser
+ * would ever let a folder go doesn't get an equally-deep slider it can't act on.
+ */
+export const MAX_DEPTH = 10
+
+/**
+ * The number of directory segments in a node's `path` -- `0` for a root-level page, `2` for
+ * `guides/deep/two`. Shared by `computeVisibleSubset`'s depth filter and `deriveMaxFolderDepth`
+ * below so the two never drift on what "depth" means; see `computeVisibleSubset`'s own doc comment
+ * for why this reads `path` rather than the coarser `node.folder`.
+ */
+export function folderDepthOf(node) {
+  return node.path.split('/').length - 1
+}
+
+/**
+ * The deepest folder depth actually present among `nodes` (OpenProject #2520) -- the graph's own
+ * ceiling before `Graph.vue` additionally caps it at `MAX_DEPTH` above. `nodes` is expected to be
+ * the full-universe `allNodes`, not the currently-filtered/visible set, for the same reason
+ * `deriveFilterOptions` below reads the full universe: narrowing by one filter must not also
+ * shrink the depth slider's own range out from under a viewer trying to combine filters.
+ *
+ * Answers `0` for an empty node set -- deliberately the same value a single root-level page would
+ * produce, so `Graph.vue`'s pre-load state (`allNodes` still `[]`, before `loadGraph()` resolves)
+ * renders the slider with one real depth-0 step past "All" rather than a broken/negative range.
+ */
+export function deriveMaxFolderDepth(nodes) {
+  let max = 0
+  for (const node of nodes) {
+    const depth = folderDepthOf(node)
+    if (depth > max) {
+      max = depth
+    }
+  }
+  return max
+}
+
+/**
  * The tag and locale values a viewer can filter the graph by, derived from whichever nodes are
  * currently loaded — no separate endpoint (OpenProject #875's design). Folder depth has no
  * discrete "options" list the way tags/locale do (it's a numeric range), so it isn't part of this
- * function; `Graph.vue`'s folder-depth control just clamps against the graph's max folder depth.
+ * function; `Graph.vue`'s folder-depth slider derives its own range via `deriveMaxFolderDepth`
+ * above.
  */
 export function deriveFilterOptions(nodes) {
   const tags = new Set()
@@ -67,9 +110,9 @@ export function computeVisibleSubset(nodes, edges, filters) {
   //    on purpose for Feature 874's clustering buckets -- it can only ever be "empty" or
   //    "non-empty" and can't distinguish `guides/one` from `guides/deep/two`. The depth filter is
   //    a different concept (progressive reveal by path depth), so it derives depth from `path`
-  //    directly: `guides/deep/two` has 2 directory segments (depth 2), a root-level page like
-  //    `standalone` has 0 (depth 0). `node.folder` itself stays untouched for grouping.
-  const folderDepthOf = (node) => node.path.split('/').length - 1
+  //    directly via the shared `folderDepthOf` above: `guides/deep/two` has 2 directory segments
+  //    (depth 2), a root-level page like `standalone` has 0 (depth 0). `node.folder` itself stays
+  //    untouched for grouping.
   const passesFolderDepth = (node) =>
     filters.folderDepth == null || folderDepthOf(node) <= filters.folderDepth
 
