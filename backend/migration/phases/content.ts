@@ -202,7 +202,12 @@ export const contentPhase = definePhase({
       //    2.x source's own original author's (unknown, possibly nonexistent on this install)
       //    permissions could ever meaningfully stand in for. See page-import.ts's own doc comment,
       //    "The synthetic per-page actor".
-      actorPermissions: ['write:scripts', 'write:styles']
+      actorPermissions: ['write:scripts', 'write:styles'],
+      // -> Already resolved to a concrete 'passthrough'/'queue' by `tasks/migrate.ts` before this
+      //    `MigrationContext` was built — see `context.ts`'s own doc on `renderMode` for why this
+      //    phase never resolves Puppeteer availability itself. Falls back to 'passthrough' (matching
+      //    `createPageImporter()`'s own default) for a hand-built `MigrationContext` that omits it.
+      renderBootstrap: ctx.renderMode ?? 'passthrough'
     })
     // Handed to the assets/comments phase (dependsOn: ['content']) — see context.ts's own
     // doc on pageIdMap for why this is a live Map reference, not a snapshot.

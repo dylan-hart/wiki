@@ -30,7 +30,8 @@ describe('parseMigrationArgs', () => {
       },
       siteId: 'site-1',
       dryRun: false,
-      only: undefined
+      only: undefined,
+      renderMode: 'auto'
     })
   })
 
@@ -137,6 +138,38 @@ describe('parseMigrationArgs', () => {
   test('omits reportFile entirely when --report-file is not given', () => {
     const args = parseMigrationArgs(['--site-id', 'site-1', '--bundle-path', '/bundle'])
     assert.equal('reportFile' in args, false)
+  })
+
+  test('defaults --render-mode to "auto"', () => {
+    const args = parseMigrationArgs(['--site-id', 'site-1', '--bundle-path', '/bundle'])
+    assert.equal(args.renderMode, 'auto')
+  })
+
+  test('parses an explicit --render-mode', () => {
+    const args = parseMigrationArgs([
+      '--site-id',
+      'site-1',
+      '--bundle-path',
+      '/bundle',
+      '--render-mode',
+      'passthrough'
+    ])
+    assert.equal(args.renderMode, 'passthrough')
+  })
+
+  test('rejects an unknown --render-mode', () => {
+    assert.throws(
+      () =>
+        parseMigrationArgs([
+          '--site-id',
+          'site-1',
+          '--bundle-path',
+          '/bundle',
+          '--render-mode',
+          'sometimes'
+        ]),
+      /Unknown --render-mode "sometimes"/
+    )
   })
 
   test('rejects a non-numeric --source-port', () => {

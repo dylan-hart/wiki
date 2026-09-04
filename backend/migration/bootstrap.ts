@@ -2,20 +2,23 @@
  * Shared boot sequence for every standalone migration-CLI entry point under `../tasks/` —
  * `migrate.ts` (the import) and `verify-migration.ts` (Feature 421 task 748's post-import
  * verification). Both need the exact same minimal runtime and nothing else: modeled on `worker.ts`'s
- * minimal `WIKI` global, not `index.ts`'s full boot — no HTTP server, no scheduler, no real cache
+ * minimal `WIKI` global, not `index.ts`'s full boot — no HTTP server, no real scheduler, no real cache
  * backend, no collab websockets, just enough to talk to the 3.0 destination database and run the
- * model methods each script needs. `WIKI.events`/`WIKI.cache` are still populated, with no-op stubs
- * (see `createEventsStub()`/`createCacheStub()` below) rather than left undefined, because the
- * models this bootstrap loads unconditionally reach for both on their normal write paths.
+ * model methods each script needs. `WIKI.events`/`WIKI.cache`/`WIKI.scheduler` are still populated,
+ * with no-op-or-best-effort stubs (see `createEventsStub()`/`createCacheStub()`/
+ * `createSchedulerStub()` below) rather than left undefined, because the models this bootstrap loads
+ * unconditionally reach for all three on their normal write paths.
  *
  * Extracted out of `migrate.ts` (which originally inlined this) so `verify-migration.ts` does not
  * have to duplicate it — see task 748's own description, "sharing the harness's bootstrap".
  */
 
+import crypto from 'node:crypto'
 import path from 'node:path'
 import configSvc from '../core/config.ts'
 import dbManager from '../core/db.ts'
 import logger from '../core/logger.ts'
+import { jobs as jobsTable } from '../db/schema.ts'
 import { ExportBundleSourceConnector } from './connectors/export-bundle.ts'
 import { PostgresSourceConnector } from './connectors/postgres.ts'
 import type { ParsedSource } from './source-args.ts'
@@ -36,9 +39,26 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  *   `importers/page-import.ts`.
  * - `comments` — called directly by `importers/comment-import.ts`, via `phases/assets.ts`'s
  *   `commentsModel.create()`.
- * - `locales`, `rendering`, `search`, `hooks`, `flags`, `classificationLevels` — reached
- *   transitively via `WIKI.models.pages.createPage()` (`models/pages.ts:681,688,697,728,766,825,
- *   918,919,927`), the only page write path an importer calls today.
+ * - `locales`, `rendering`, `search`, `hooks`, `flags`, `classificationLevels`, `pageClassification`,
+ *   `blocks` — reached transitively via `WIKI.models.pages.createPage()`
+ *   (`models/pages.ts:681,688,697,728,766,825,878,918,919,927`), the only page write path an importer
+ *   calls today. `pageClassification` specifically backs `createPage()`'s
+ *   `resolveCreateClassification()` call (`models/pages.ts:878`); `blocks` backs
+ *   `models/rendering.ts`'s `getEnabledKeys(siteId)` call in the render pipeline `createPage()` runs
+ *   every new page through. `blocks.getEnabledKeys()` is a plain live `WIKI.db` read with no cache to
+ *   warm — unlike `classificationLevels` below, adding it needed no companion reload call.
+ * - `extensions` — reached transitively via `WIKI.models.assets.upload()`'s thumbnail generation
+ *   (`helpers/images.ts`'s `resizeImageToSquareJpeg()`/`normalizeImage()`, both call
+ *   `WIKI.models.extensions.getDefinition('sharp')`) AND via `helpers/puppeteer.ts#isPuppeteerAvailable()`
+ *   (`WIKI.models.extensions.getDefinition('puppeteer')`), which `tasks/migrate.ts`'s
+ *   `resolveRenderMode()` calls to resolve `--render-mode auto`. Its `definitions` array is only ever
+ *   populated by an explicit `refreshFromDisk()` — this bootstrap calls it, same as the
+ *   `authentication`/`storage` calls just below, specifically so the Puppeteer check answers for
+ *   real rather than unconditionally `false` (a real instance without Sharp/Puppeteer installed looks
+ *   identical to one this bootstrap never refreshed, which is exactly why the gap went unnoticed until
+ *   a real migration run against an instance that DID have Puppeteer resolved `'auto'` to
+ *   `'passthrough'` anyway).
+ *
  * - `navigation` — called directly by `phases/content.ts` (`WIKI.models.navigation.ensureSiteNav`
  *   et al.).
  * - `security` — called directly by `phases/settings.ts`: the settings phase's
@@ -46,6 +66,22 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  *   (the same merge-then-`saveToDb()` path `api/system/settings.ts` uses), not a raw
  *   `WIKI.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
  *   that would silently delete every 3.0-only `security` field the 2.x mapper's patch doesn't produce.
+ * - `eventSubscriptions` — reached transitively via `models/hooks.ts`'s
+ *   `notifyEventSubscriptionSubscribers()` (`WIKI.models.eventSubscriptions.listSubscribers(event)`),
+ *   itself called unconditionally by `createPage()`'s own `announce('page:create', ...)`. Unreachable
+ *   on a migration into a fresh site in practice (no subscriber rows exist yet to notify), but
+ *   `hooks.ts` calls `.listSubscribers()` before checking whether any exist, so the unloaded-model
+ *   `TypeError` fired on every single page anyway — caught by `hooks.ts`'s own try/catch (a warning
+ *   per page, not a failed import), but 158 warnings is still worth not shipping.
+ *
+ * `pageClassification`, `extensions`, `blocks` and `eventSubscriptions` were each omitted here once —
+ * every one threw `Cannot read properties of undefined` on every real (non-dry-run) write that reached
+ * it, while a dry run stayed silent, since `--dry-run` never reaches the real `createPage()`/
+ * `upload()` paths. `pageClassification`/`blocks`/`extensions`(Puppeteer) failed the whole page;
+ * `eventSubscriptions` only warned, since `hooks.ts` already wraps that call — the reason a live
+ * migration run is the only thing that can prove this model set is actually complete; a dry run
+ * cannot, and neither can a clean phase report alone, since a caught-and-logged failure like this one
+ * leaves `wouldCreate` looking correct.
  *
  * `glossary` is deliberately NOT included: it is only reached through `pages.ts`'s `updatePage`/
  * `movePage`/`deletePage`, and no importer built so far calls any of those. Add it here the moment
@@ -64,6 +100,9 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     { tree },
     { pages },
     { pageHistory },
+    { pageClassification },
+    { extensions },
+    { blocks },
     { assets },
     { comments },
     { locales },
@@ -74,7 +113,8 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     { flags },
     { classificationLevels },
     { navigation },
-    { security }
+    { security },
+    { eventSubscriptions }
   ] = await Promise.all([
     import('../models/sites.ts'),
     import('../models/settings.ts'),
@@ -86,6 +126,9 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     import('../models/tree.ts'),
     import('../models/pages.ts'),
     import('../models/pageHistory.ts'),
+    import('../models/pageClassification.ts'),
+    import('../models/extensions.ts'),
+    import('../models/blocks.ts'),
     import('../models/assets.ts'),
     import('../models/comments.ts'),
     import('../models/locales.ts'),
@@ -96,7 +139,8 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     import('../models/flags.ts'),
     import('../models/classificationLevels.ts'),
     import('../models/navigation.ts'),
-    import('../models/security.ts')
+    import('../models/security.ts'),
+    import('../models/eventSubscriptions.ts')
   ])
   return {
     sites,
@@ -109,6 +153,9 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     tree,
     pages,
     pageHistory,
+    pageClassification,
+    extensions,
+    blocks,
     assets,
     comments,
     locales,
@@ -119,7 +166,8 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     flags,
     classificationLevels,
     navigation,
-    security
+    security,
+    eventSubscriptions
   } as WikiGlobal['models']
 }
 
@@ -159,6 +207,69 @@ export function createCacheStub(): WikiGlobal['cache'] {
     clear: () => store.clear()
   }
   return stub as unknown as WikiGlobal['cache']
+}
+
+/**
+ * `WIKI.scheduler` stand-in for this bootstrap: no poolifier pool, no registered task-function map,
+ * so unlike the real `core/scheduler.ts` this cannot execute a job itself. `addJob()` is the one
+ * method any model this bootstrap loads reaches for — `models/renderQueue.ts#queuePage()`, to kick a
+ * headless-browser render for `--render-mode queue`/`auto`'s 'queue' path (`models/pages.ts#createPage()`'s
+ * `enqueueRerender()` call), and `models/hooks.ts`'s webhook/event-subscriber dispatch (unreachable on
+ * a migration into a fresh site, since every one of those call sites is gated behind an already-
+ * existing webhook/subscriber row a fresh site never has yet). Rather than execute anything, it
+ * inserts the same `jobs` row the real `addJob()` would, best-effort (matching its own
+ * error-swallowing behavior — `WIKI.logger.warn` rather than throw) — this bootstrap's own
+ * `bootstrapMigrationRuntime()` already refuses a destination that was never booted, so the operator's
+ * already-running live server picks the row up on its own next poll (`core/scheduler.ts`'s 5-second
+ * `pollingCheck`), the same way it would pick up a page left queued across a restart (`index.ts`'s own
+ * boot-time `renderPages` sweep) — no NOTIFY needed for that, the poll alone is enough, just slower.
+ *
+ * Only `'renderPages'` (a `tasks/simple/` task, run in-process — never a worker thread) is actually
+ * supported. A real scheduler decides a job's `useWorker` from its own registered task-function map,
+ * which this stub has none of, so guessing wrong for an unlisted task would misroute it on whichever
+ * live server picks the row up; logging and skipping is the safe default for anything else, matching
+ * `WIKI.events`/`WIKI.cache`'s own "reached transitively, never actually needed yet" stub philosophy.
+ */
+export function createSchedulerStub(): WikiGlobal['scheduler'] {
+  const USE_WORKER: Record<string, boolean> = { renderPages: false }
+  return {
+    async addJob({
+      task,
+      payload = {},
+      maxRetries,
+      isScheduled = false,
+      waitUntil
+    }: {
+      task: string
+      payload?: any
+      maxRetries?: number
+      isScheduled?: boolean
+      waitUntil?: Date
+    }) {
+      if (!(task in USE_WORKER)) {
+        WIKI.logger.warn(
+          `migrate-cli: cannot queue task "${task}" — this bootstrap's scheduler stub only supports ` +
+            '"renderPages".'
+        )
+        return undefined
+      }
+      try {
+        await WIKI.db.insert(jobsTable).values({
+          id: crypto.randomUUID(),
+          task,
+          useWorker: USE_WORKER[task]!,
+          payload,
+          maxRetries: maxRetries ?? 0,
+          isScheduled,
+          waitUntil,
+          createdBy: 'migrate-cli'
+        })
+      } catch (err: any) {
+        WIKI.logger.warn(`migrate-cli: failed to queue task "${task}": ${err.message}`)
+      }
+      return undefined
+    }
+  } as unknown as WikiGlobal['scheduler']
 }
 
 /**
@@ -214,6 +325,7 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   WIKI.models = await loadModels()
   WIKI.events = createEventsStub()
   WIKI.cache = createCacheStub()
+  WIKI.scheduler = createSchedulerStub()
 
   // The `settings` phase reads/writes through `WIKI.models.authentication`/
   // `WIKI.models.storage` as the mappers' own `AuthModuleResolver`/`StorageModuleResolver` — both
@@ -225,6 +337,30 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   // `null` and get misreported `unsupported`, regardless of the source module's real 3.0 support.
   await WIKI.models.authentication.refreshStrategiesFromDisk()
   await WIKI.models.storage.refreshFromDisk()
+
+  // Same gap as the two calls above, for `extensions`: `helpers/puppeteer.ts#isPuppeteerAvailable()`
+  // (and therefore `WIKI.models.renderQueue.isAvailable()`, which `tasks/migrate.ts`'s
+  // `resolveRenderMode()` calls to decide `--render-mode auto`) reads
+  // `WIKI.models.extensions.getDefinition('puppeteer')`, which answers `null` — "not available" —
+  // until `refreshFromDisk()` has populated `definitions` at least once. Left uncalled, `auto` always
+  // resolved to `'passthrough'` regardless of whether this destination actually has Puppeteer
+  // installed, silently defeating the whole point of the default (caught only by running a real
+  // migration against an instance that does have it — a dry run/unit test never reaches this call at
+  // all). The `extensions`/Sharp-thumbnail use inside `helpers/images.ts` (see `loadModels()`'s own
+  // doc comment above) stays correct either way — an empty `definitions` there answers "Sharp isn't
+  // available" precisely because a real instance without the extension looks identical, and thumbnail
+  // generation already treats that as "fall back to the original bytes", not an error.
+  await WIKI.models.extensions.refreshFromDisk()
+
+  // Same shape of gap as the two calls above, for a `ClusterReloaded` cache instead of a disk read:
+  // `WIKI.models.pages.createPage()` -> `pageClassification.resolveCreateClassification()` falls back
+  // to `WIKI.models.classificationLevels.defaultLevel()` for every page with no parent to inherit a
+  // floor from, and `byId()` for one with an explicit level — both read the model's in-memory
+  // `levels` array, which starts empty and is only ever populated by `reloadCache()` (a real server
+  // boot calls it during `preBoot()`; this minimal bootstrap otherwise never would). Left unpopulated,
+  // `defaultLevel()` throws `No classification levels are configured.` on the very first page a live
+  // `content` phase writes — again invisible to `--dry-run`, which never reaches `createPage()`.
+  await WIKI.models.classificationLevels.reloadCache()
 
   // The `users` phase needs `WIKI.config.auth.rootAdminGroupId`/`rootAdminUserId` —
   // real, per-install ids `Settings.init()` persisted to the `settings` table at seed time, not

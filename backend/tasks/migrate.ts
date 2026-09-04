@@ -54,6 +54,48 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * Resolves `--render-mode`'s `'auto'` (the default) into a concrete `'queue'`/`'passthrough'` before a
+ * `MigrationContext` is ever built — `phases/content.ts` itself never checks Puppeteer availability
+ * (see `context.ts`'s `renderMode` doc for why: keeping that phase ignorant of Puppeteer/`renderQueue`
+ * keeps its own tests, and this file's `entities()` synchronous-return contract, unaffected). `'queue'`/
+ * `'passthrough'` given explicitly pass straight through unchanged — an operator who explicitly asked
+ * for `'queue'` gets exactly that, including the `renderPuppeteerMissing` refusal `createPage()`'s own
+ * `ensureCanRender()` throws per page if this destination turns out not to have Puppeteer after all,
+ * rather than a silent, unrequested fallback to `'passthrough'`.
+ *
+ * This is what fixes the migration's own long-standing default gap (2.5.x's already-rendered HTML
+ * carried straight through onto a destination whose asset-serving convention it does not match — a
+ * `/_files/`-less image `src` that renders in the editor's live preview, which resolves `content`
+ * fresh, but not on the published page, which serves this stale `render` blob as-is): a fresh
+ * destination almost always has Puppeteer (the Dockerfile installs the distro Chromium package it
+ * needs unconditionally), so `'auto'` gets a real, correct 3.0 render for every markdown page without
+ * the operator having to know this distinction exists at all.
+ */
+async function resolveRenderMode(
+  WIKI: WikiGlobal,
+  requested: ParsedMigrationArgs['renderMode']
+): Promise<'passthrough' | 'queue'> {
+  if (requested !== 'auto') {
+    return requested
+  }
+  const available = await WIKI.models.renderQueue.isAvailable()
+  if (!available) {
+    WIKI.logger.info(
+      'render-mode "auto": this destination has no Puppeteer extension installed, so imported pages ' +
+        "will carry 2.x's stored render through unchanged (2.x's own asset-URL convention, not " +
+        '3.0\'s "/_files/" one) until re-rendered by hand afterwards (Admin > Pages > select all > ' +
+        'Re-render).'
+    )
+    return 'passthrough'
+  }
+  WIKI.logger.info(
+    'render-mode "auto": this destination can render pages natively -- imported markdown pages will ' +
+      "be queued for a real 3.0 render instead of carrying 2.x's stored render through unchanged."
+  )
+  return 'queue'
+}
+
 async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs): Promise<void> {
   const site = await WIKI.models.sites.getSiteById({ id: args.siteId, forceReload: true })
   if (!site) {
@@ -80,6 +122,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       siteId: args.siteId,
       dryRun: args.dryRun,
       log: (message) => WIKI.logger.info(message),
+      renderMode: await resolveRenderMode(WIKI, args.renderMode),
       ...resolveUsersImportContext(WIKI)
     }
 

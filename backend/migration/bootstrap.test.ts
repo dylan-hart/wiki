@@ -5,6 +5,7 @@ import {
   buildWikiShell,
   createCacheStub,
   createEventsStub,
+  createSchedulerStub,
   loadModels,
   resolveUsersImportContext
 } from './bootstrap.ts'
@@ -40,6 +41,9 @@ const EXPECTED_MODEL_NAMES = [
   'tree',
   'pages',
   'pageHistory',
+  'pageClassification',
+  'extensions',
+  'blocks',
   'assets',
   'comments',
   'locales',
@@ -49,7 +53,8 @@ const EXPECTED_MODEL_NAMES = [
   'flags',
   'classificationLevels',
   'navigation',
-  'security'
+  'security',
+  'eventSubscriptions'
 ]
 
 describe('migration bootstrap', () => {
@@ -100,6 +105,29 @@ describe('migration bootstrap', () => {
     assert.equal(cache.get('key'), 'value')
     cache.delete('key')
     assert.equal(cache.has('key'), false)
+  })
+
+  test('createSchedulerStub() warns and never touches WIKI.db for an unsupported task', async () => {
+    const warnings: string[] = []
+    const wikiHandle = installTestWiki({
+      logger: { warn: (msg: string) => warnings.push(msg) },
+      // -> Throws if the stub's addJob() ever reaches for it — proving the unsupported-task branch
+      //    returns before attempting the insert, not merely that the insert itself was a no-op.
+      db: {
+        insert: () => {
+          throw new Error('should not be called for an unsupported task')
+        }
+      }
+    })
+    try {
+      const scheduler = createSchedulerStub()
+      const result = await scheduler.addJob({ task: 'dispatchWebhook' } as any)
+      assert.equal(result, undefined)
+      assert.equal(warnings.length, 1)
+      assert.match(warnings[0]!, /cannot queue task "dispatchWebhook"/)
+    } finally {
+      wikiHandle.restore()
+    }
   })
 })
 

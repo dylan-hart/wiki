@@ -82,6 +82,17 @@ export interface MigrationContext {
    * owning page. Optional for the same reason `userIdMap` is: it does not exist before the `content`
    * phase has run. */
   pageIdMap?: Map<number, string>
+  /** How the `content` phase seeds each imported page's initial render — `'queue'` for a native 3.0
+   * render (correct asset URLs, correct markdown-it plugin output, at the cost of one headless-browser
+   * render per markdown page) or `'passthrough'` to carry 2.x's already-rendered HTML straight through
+   * unchanged (instant, but that HTML reflects 2.x's own renderer and asset-URL convention — notably,
+   * an asset reference with no `/_files/` prefix, since 2.x never used one — until the page is next
+   * edited or explicitly re-rendered). Resolved to one of these two concrete values before a
+   * `MigrationContext` is ever built (`tasks/migrate.ts`'s `resolveRenderMode()` — see its own doc
+   * comment for the `'auto'` CLI default's Puppeteer-availability check); phases never see `'auto'`
+   * themselves. Optional, defaulting to `'passthrough'`, only for a hand-built `MigrationContext` that
+   * skips it entirely (a unit test exercising `content.ts` alone). */
+  renderMode?: 'passthrough' | 'queue'
 }
 
 /** One phase in the sequence, plus the dependency ids it declares for documentation and future
