@@ -95,3 +95,47 @@ describe('edit route', () => {
     expect(Array.isArray(pagePath)).toBe(false)
   })
 })
+
+/**
+ * Regression coverage for OpenProject #2512: `MainLayout.vue`'s `isSidebarMini` scopes its
+ * `!pageStore.navigationId` fallback to `route.meta.contentPage`, so this flag has to actually be
+ * true on every route that renders `Index.vue` (and therefore runs a page through
+ * `pageStore.pageLoad()`, which is what sets `navigationId`) and false/absent everywhere else --
+ * getting either direction wrong would either bring back the mini-sidebar bug the WP fixed, or wrongly
+ * apply the content-page fallback to a route that never sets `navigationId` at all.
+ *
+ * `buildTestRouter(routes)` (not a per-route object lookup) is what's actually asserted against: Vue
+ * Router merges `meta` across every matched record for a resolved path, and each of these routes
+ * nests its real component a level below the `MainLayout.vue` wrapper as an empty-path child -- so the
+ * meta that matters is what `route.meta` resolves to once matched, not merely what's declared on the
+ * parent route object in `routes.js`.
+ */
+describe('content page route meta (OpenProject #2512)', () => {
+  const router = buildTestRouter(routes)
+
+  it.each([
+    ['/_create', true],
+    ['/_create/markdown', true],
+    ['/_edit', true],
+    ['/_edit/some/nested/page', true],
+    ['/some/ordinary/wiki/page', true]
+  ])('marks %s as a content page route', async (path, expected) => {
+    await router.push(path)
+    expect(Boolean(router.currentRoute.value.meta.contentPage)).toBe(expected)
+  })
+
+  it.each([
+    ['/_graph', false],
+    ['/_tags', false],
+    ['/_admin', false],
+    ['/_admin/dashboard', false],
+    ['/_profile', false],
+    ['/_inbox', false],
+    ['/_search', false],
+    ['/_error/notfound', false],
+    ['/login', false]
+  ])('does not mark %s as a content page route', async (path, expected) => {
+    await router.push(path)
+    expect(Boolean(router.currentRoute.value.meta.contentPage)).toBe(expected)
+  })
+})

@@ -327,8 +327,22 @@ const showSidebarBtn = computed(() => {
   return isSidebarAvailable.value && !isWideViewport.value && !isNarrowSidebarOpen.value
 })
 
+/*
+  OpenProject #2512: `!pageStore.navigationId` is meant to catch a CONTENT page that hasn't finished
+  telling `pageStore` which menu it belongs to yet -- not to double as a generic default for every
+  other route this layout renders. `pageStore.navigationId` is only ever set by `pageLoad()` (see
+  that action's own doc), so on a route that never calls it -- the knowledge graph, tags browse, any
+  non-content `/_` route -- it just sits at whatever the LAST content page left it at: `null` on a
+  fresh store (direct load/refresh), or a stale value from whatever page was viewed before navigating
+  here via the SPA. Neither means anything about the current route, so the fallback is scoped to
+  `route.meta.contentPage` -- the routes that actually render `Index.vue` and run a real page through
+  `pageLoad()` (see `router/routes.js`) -- leaving every other route at its normal, expanded width.
+*/
 const isSidebarMini = computed(() => {
-  return ['hide', 'hideExact'].includes(pageStore.navigationMode) || !pageStore.navigationId
+  return (
+    ['hide', 'hideExact'].includes(pageStore.navigationMode) ||
+    (Boolean(route.meta.contentPage) && !pageStore.navigationId)
+  )
 })
 
 /** Sidebar widths, in px: the full nav, and the icon rail it collapses to. */
