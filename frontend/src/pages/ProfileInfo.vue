@@ -3,7 +3,7 @@
     <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item v-if="!canEdit">
       <w-item-section>
-        <w-card class="bg-negative rounded text-white" flat>
+        <w-card class="bg-negative rounded text-white">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="shrink-0 pe-0">
               <w-icon name="la:ban" size="lg" />
@@ -17,7 +17,7 @@
       </w-item-section>
     </w-item>
     <w-item>
-      <blueprint-icon icon="contact" />
+      <blueprint-icon icon="tabler:address-book" />
       <w-item-section>
         <w-item-label>{{ t(`profile.displayName`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.displayNameHint`) }}</w-item-label>
@@ -25,7 +25,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.name"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.displayName`)"
@@ -34,23 +33,18 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="envelope" />
+      <blueprint-icon icon="tabler:mail" />
       <w-item-section>
         <w-item-label>{{ t(`profile.email`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.emailHint`) }}</w-item-label>
       </w-item-section>
       <w-item-section>
-        <w-input
-          v-model="state.config.email"
-          outlined
-          dense
-          :aria-label="t(`profile.email`)"
-          readonly />
+        <w-input v-model="state.config.email" dense :aria-label="t(`profile.email`)" readonly />
       </w-item-section>
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="address" />
+      <blueprint-icon icon="tabler:map-pin" />
       <w-item-section>
         <w-item-label>{{ t(`profile.location`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.locationHint`) }}</w-item-label>
@@ -58,7 +52,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.location"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.location`)"
@@ -67,7 +60,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="new-job" />
+      <blueprint-icon icon="tabler:briefcase" />
       <w-item-section>
         <w-item-label>{{ t(`profile.jobTitle`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.jobTitleHint`) }}</w-item-label>
@@ -75,7 +68,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.jobTitle"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.jobTitle`)"
@@ -84,7 +76,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="gender" />
+      <blueprint-icon icon="tabler:gender-bigender" />
       <w-item-section>
         <w-item-label>{{ t(`profile.pronouns`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.pronounsHint`) }}</w-item-label>
@@ -92,7 +84,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.pronouns"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.pronouns`)"
@@ -101,7 +92,7 @@
     </w-item>
     <h2 class="w-section-header mt-6">{{ t('profile.preferences') }}</h2>
     <w-item>
-      <blueprint-icon icon="timezone" />
+      <blueprint-icon icon="tabler:clock-hour-4" />
       <w-item-section>
         <w-item-label>{{ t(`profile.timezone`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.timezoneHint`) }}</w-item-label>
@@ -114,7 +105,6 @@
         -->
         <w-select
           v-model="state.config.timezone"
-          outlined
           :options="timezones"
           dense
           options-dense
@@ -125,7 +115,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="calendar" />
+      <blueprint-icon icon="tabler:calendar" />
       <w-item-section>
         <w-item-label>{{ t(`profile.dateFormat`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.dateFormatHint`) }}</w-item-label>
@@ -133,7 +123,6 @@
       <w-item-section>
         <w-select
           v-model="state.config.dateFormat"
-          outlined
           emit-value
           map-options
           dense
@@ -145,7 +134,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="clock" />
+      <blueprint-icon icon="tabler:clock" />
       <w-item-section>
         <w-item-label>{{ t(`profile.timeFormat`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.timeFormatHint`) }}</w-item-label>
@@ -153,9 +142,6 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.timeFormat"
-          push
-          glossy
-          no-caps
           toggle-color="primary"
           :options="timeFormats"
           :disabled="!canEdit"
@@ -164,7 +150,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="light-on" />
+      <blueprint-icon icon="tabler:bulb" />
       <w-item-section>
         <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
@@ -172,9 +158,6 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.appearance"
-          push
-          glossy
-          no-caps
           toggle-color="primary"
           :options="appearances"
           :disabled="!canEdit"
@@ -183,7 +166,7 @@
     </w-item>
     <h2 class="w-section-header mt-6">{{ t('profile.accessibility') }}</h2>
     <w-item>
-      <blueprint-icon icon="visualy-impaired" />
+      <blueprint-icon icon="tabler:eye-off" />
       <w-item-section>
         <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
@@ -191,9 +174,6 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.cvd"
-          push
-          glossy
-          no-caps
           toggle-color="primary"
           :options="cvdChoices"
           :disabled="!canEdit"
@@ -203,7 +183,6 @@
     <div v-if="canEdit" class="actions-bar mt-6">
       <w-btn
         icon="mdi:check"
-        unelevated
         :label="t(`common.actions.saveChanges`)"
         color="secondary"
         :disabled="state.loading > 0"

@@ -5,7 +5,7 @@
       ><img :src="`/_user/current/avatar`" :alt="userStore.name"
     /></w-avatar>
     <w-menu class="translucent-menu" auto-close>
-      <w-card flat style="width: 300px">
+      <w-card style="width: 300px">
         <!--
           -> The two greys are pitched for the light menu and go muddy on the dark one, where the
              surface is nearly black: the name takes white and the address a light grey, keeping the
@@ -22,15 +22,13 @@
             :label="t(`common.header.profile`)"
             icon="la:user-alt"
             color="primary"
-            @click="siteStore.openOverlay('Profile')"
-            no-caps />
+            @click="siteStore.openOverlay('Profile')" />
           <w-btn
             flat
             :label="t(`common.header.logout`)"
             icon="la:sign-out-alt"
             color="red"
-            @click="userStore.logout()"
-            no-caps />
+            @click="userStore.logout()" />
         </w-card-actions>
       </w-card>
     </w-menu>
@@ -57,7 +55,16 @@ const { t } = useI18n()
 <style lang="scss">
 // -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline
 //    `color`, which would outrank this rule
+/*
+  The account button takes the same chrome tone as the other five icons in the band rather than a
+  dimmed white -- Cardinal's header is a white plate, so a translucent white here rendered the glyph
+  almost invisible. `--color-slate-soft` is the icon-stroke tone the whole band is drawn in.
+*/
 .account-avbtn {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--color-slate-soft);
+}
+
+.body--dark .account-avbtn {
+  color: var(--color-slate-light);
 }
 </style>

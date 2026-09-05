@@ -2,14 +2,11 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-inspection-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:checkbox" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.approval.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.approval.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.approval.subtitle') }}
         </div>
       </div>
@@ -25,7 +22,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.approval.newRule`)"
           color="primary"
@@ -55,7 +51,7 @@
         <w-card>
           <w-list separator>
             <w-item v-for="rule of state.rules" :key="rule.id">
-              <blueprint-icon icon="rules" />
+              <blueprint-icon icon="tabler:checklist" />
               <!--
                 A disabled rule keeps everything it says but covers nothing, so it is dimmed rather
                 than hidden or moved: it is still part of the configuration being read.
@@ -101,8 +97,7 @@
                   @click="editRule(rule)"
                   icon="la:pen"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
-                  :label="t(`common.actions.edit`)"
-                  no-caps />
+                  :label="t(`common.actions.edit`)" />
                 <w-btn
                   class="acrylic-btn"
                   flat

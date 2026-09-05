@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:trash" size="sm" class="me-2" />
         <span>{{ t(`admin.sites.delete`) }}</span>
       </w-card-section>
       <w-card-section>
@@ -23,7 +23,6 @@
         <w-input
           v-model="state.confirmText"
           class="mt-4"
-          outlined
           dense
           :label="t(`admin.sites.deleteConfirmType`, { siteTitle: props.site.title })" />
       </w-card-section>
@@ -37,7 +36,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"

@@ -2,43 +2,39 @@
   <w-page class="admin-auth">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-security-lock.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:lock-open" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.auth.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.auth.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.auth.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/auth`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="refresh">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :loading="state.loading > 0" />
       </div>
@@ -117,7 +113,6 @@
               <div class="p-2">
                 <w-input
                   v-model="state.strategyFilter"
-                  outlined
                   dense
                   clearable
                   hide-bottom-space
@@ -160,14 +155,13 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.auth.info') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="information" />
+            <blueprint-icon icon="tabler:info-circle" />
             <w-item-section>
               <w-item-label>{{ t(`admin.auth.infoName`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.auth.infoNameHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.strategy.displayName"
                 dense
                 hide-bottom-space
@@ -176,7 +170,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="shutdown" />
+            <blueprint-icon icon="tabler:power" />
             <w-item-section>
               <w-item-label>{{ t(`admin.auth.enabled`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.auth.enabledHint`) }}</w-item-label>
@@ -207,7 +201,7 @@
                auto-provisions whoever it signs in -- the two are enforced separately server-side, so
                only the one that applies to this module is ever shown. -->
           <w-item tag="label" v-if="state.strategy.strategy.useForm">
-            <blueprint-icon icon="register" />
+            <blueprint-icon icon="tabler:user-plus" />
             <w-item-section>
               <w-item-label>{{ t(`admin.auth.selfRegistration`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.auth.selfRegistrationHint`) }}</w-item-label>
@@ -219,7 +213,7 @@
             </w-item-section>
           </w-item>
           <w-item tag="label" v-else>
-            <blueprint-icon icon="register" />
+            <blueprint-icon icon="tabler:user-plus" />
             <w-item-section>
               <w-item-label>{{ t(`admin.auth.autoProvision`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.auth.autoProvisionHint`) }}</w-item-label>
@@ -240,7 +234,7 @@
             v-if="!state.strategy.strategy.useForm || state.strategy.strategy.provisionable">
             <w-separator class="my-2" inset />
             <w-item tag="label">
-              <blueprint-icon icon="link" />
+              <blueprint-icon icon="tabler:link" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.auth.trustEmailForLinking`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.auth.trustEmailForLinkingHint`) }}</w-item-label>
@@ -260,14 +254,13 @@
             ">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="team" />
+              <blueprint-icon icon="tabler:users" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.auth.autoEnrollGroups`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.auth.autoEnrollGroupsHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-select
-                  outlined
                   :options="state.groups"
                   v-model="state.strategy.autoEnrollGroups"
                   multiple
@@ -317,14 +310,13 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="private" />
+              <blueprint-icon icon="tabler:eye-off" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.auth.allowedEmailRegex`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.auth.allowedEmailRegexHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.strategy.allowedEmailRegex"
                   dense
                   hide-bottom-space
@@ -342,7 +334,7 @@
             <template v-if="state.strategy.strategy.useForm">
               <w-separator class="my-2" inset />
               <w-item>
-                <blueprint-icon icon="private" />
+                <blueprint-icon icon="tabler:eye-off" />
                 <w-item-section>
                   <w-item-label>{{ t(`admin.auth.allowedEmailDomains`) }}</w-item-label>
                   <w-item-label caption>{{ t(`admin.auth.allowedEmailDomainsHint`) }}</w-item-label>
@@ -353,7 +345,6 @@
                     is what lets a domain that is not in the list yet be typed in.
                   -->
                   <w-select
-                    outlined
                     v-model="state.strategy.allowedEmailDomains"
                     :options="[]"
                     dense
@@ -402,14 +393,13 @@
           <template v-if="state.strategy.config?.mapGroups?.value">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="team" />
+              <blueprint-icon icon="tabler:users" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.auth.mappableGroups`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.auth.mappableGroupsHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-select
-                  outlined
                   :options="state.groups"
                   v-model="state.strategy.mappableGroups"
                   multiple
@@ -481,7 +471,7 @@
             <template #hint>{{ t('admin.auth.configReferenceSubtitle') }}</template>
           </w-card-header>
           <w-item v-for="strRef of strategyRefs" :key="strRef.key">
-            <blueprint-icon :icon="strRef.icon" :hue-rotate="-45" />
+            <blueprint-icon :icon="strRef.icon" />
             <w-item-section>
               <w-item-label>{{ strRef.title }}</w-item-label>
               <w-item-label caption>{{ strRef.hint }}</w-item-label>
@@ -495,13 +485,7 @@
               <w-item-label v-if="state.strategy.isNew" caption>
                 {{ t('admin.auth.refAfterSave') }}
               </w-item-label>
-              <w-input
-                v-else
-                outlined
-                v-model="strRef.value"
-                dense
-                :aria-label="strRef.title"
-                readonly />
+              <w-input v-else v-model="strRef.value" dense :aria-label="strRef.title" readonly />
             </w-item-section>
           </w-item>
         </w-card>

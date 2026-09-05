@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:trash" size="sm" class="me-2" />
         <span>{{ t(`admin.users.deleteConfirmTitle`) }}</span>
       </w-card-section>
       <w-card-section>
@@ -35,7 +35,6 @@
           <w-btn
             flat
             dense
-            no-caps
             color="primary"
             :label="t(`admin.users.deleteReassignChoose`)"
             @click="chooseTargetUser" />
@@ -54,7 +53,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"

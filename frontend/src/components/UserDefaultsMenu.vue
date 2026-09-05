@@ -7,19 +7,18 @@
     ref="menuRef">
     <w-card style="width: 850px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-choose.svg" left size="sm" />
+        <w-icon name="tabler:adjustments-horizontal" left size="sm" />
         <span>{{ t(`admin.users.defaults`) }}</span>
       </w-card-section>
       <w-list padding>
         <w-item>
-          <blueprint-icon icon="timezone" />
+          <blueprint-icon icon="tabler:clock-hour-4" />
           <w-item-section>
             <w-item-label>{{ t(`admin.general.defaultTimezone`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.general.defaultTimezoneHint`) }}</w-item-label>
           </w-item-section>
           <w-item-section>
             <w-select
-              outlined
               v-model="state.timezone"
               :options="timezones"
               option-value="value"
@@ -33,14 +32,13 @@
         </w-item>
         <w-separator class="my-2" inset />
         <w-item>
-          <blueprint-icon icon="calendar" />
+          <blueprint-icon icon="tabler:calendar" />
           <w-item-section>
             <w-item-label>{{ t(`admin.general.defaultDateFormat`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.general.defaultDateFormatHint`) }}</w-item-label>
           </w-item-section>
           <w-item-section>
             <w-select
-              outlined
               v-model="state.dateFormat"
               emit-value
               map-options
@@ -51,7 +49,7 @@
         </w-item>
         <w-separator class="my-2" inset />
         <w-item>
-          <blueprint-icon icon="clock" />
+          <blueprint-icon icon="tabler:clock" />
           <w-item-section>
             <w-item-label>{{ t(`admin.general.defaultTimeFormat`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.general.defaultTimeFormatHint`) }}</w-item-label>
@@ -59,9 +57,6 @@
           <w-item-section class="flex-none">
             <w-btn-toggle
               v-model="state.timeFormat"
-              push
-              glossy
-              no-caps
               toggle-color="primary"
               :aria-label="t(`admin.general.defaultTimeFormat`)"
               :options="timeFormats" />
@@ -77,12 +72,7 @@
           color="grey"
           padding="xs md"
           @click="menuRef.hide()" />
-        <w-btn
-          unelevated
-          :label="t(`common.actions.save`)"
-          color="primary"
-          padding="xs md"
-          @click="save" />
+        <w-btn :label="t(`common.actions.save`)" color="primary" padding="xs md" @click="save" />
       </w-card-actions>
       <w-inner-loading :showing="state.loading > 0" />
     </w-card>

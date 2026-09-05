@@ -2,21 +2,17 @@
   <w-page class="admin-groups">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-account.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:user" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.users.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.users.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.users.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex items-center">
         <w-input
           class="denser me-2"
-          outlined
           v-model="state.search"
           dense
           :placeholder="t('admin.users.searchUsers')"
@@ -35,10 +31,10 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.refresh`)"
           @click="load"
           :loading="state.loading > 0">
@@ -48,7 +44,6 @@
           class="me-2"
           v-if="canManage"
           icon="la:user-cog"
-          unelevated
           color="secondary"
           :aria-label="t(`admin.users.defaults`)">
           <w-tooltip>{{ t(`admin.users.defaults`) }}</w-tooltip>
@@ -56,7 +51,6 @@
         </w-btn>
         <w-btn
           v-if="canManage"
-          unelevated
           icon="la:plus"
           :label="t(`admin.users.create`)"
           color="primary"
@@ -119,8 +113,7 @@
                   :to="`/_admin/users/` + props.row.id"
                   :icon="canManage ? `la:pen` : `la:eye`"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
-                  :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)"
-                  no-caps />
+                  :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)" />
                 <!--
                   Disabled rather than hidden for your own account: the row is yours and the action
                   exists, it is just not yours to take — deleting the account you are signed in as

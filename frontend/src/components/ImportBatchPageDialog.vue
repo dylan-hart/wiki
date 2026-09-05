@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`pages.importBatch.title`)" @hide="onDialogHide">
     <w-card class="import-batch-page-dialog" style="width: 760px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:folder" size="sm" class="me-2" />
         <span>{{ t(`pages.importBatch.title`) }}</span>
       </w-card-section>
 
@@ -21,7 +21,6 @@
             <w-btn
               outline
               color="primary"
-              no-caps
               icon="la:folder-open"
               :label="t(`common.actions.browse`)"
               @click="pickFiles" />
@@ -40,7 +39,6 @@
               <w-item-section>{{ file.name }}</w-item-section>
               <w-select
                 v-model="state.formats[idx]"
-                outlined
                 dense
                 style="width: 180px"
                 class="me-2 shrink-0"
@@ -81,7 +79,6 @@
             @click="onDialogCancel" />
           <w-btn
             class="import-convert-btn"
-            unelevated
             color="primary"
             padding="xs md"
             :label="t(`pages.importBatch.convert`)"
@@ -101,7 +98,6 @@
 
           <w-select
             v-model="state.conflictBehavior"
-            outlined
             dense
             class="mb-3"
             :options="conflictOptions"
@@ -131,7 +127,6 @@
               <div class="flex flex-wrap gap-2">
                 <w-input
                   v-model="row.title"
-                  outlined
                   dense
                   class="flex-1"
                   hide-bottom-space
@@ -139,7 +134,6 @@
                   :label="t(`pages.importBatch.pageTitle`)" />
                 <w-input
                   v-model="row.path"
-                  outlined
                   dense
                   class="flex-1"
                   hide-bottom-space
@@ -173,7 +167,6 @@
             @click="onDialogCancel" />
           <w-btn
             class="import-batch-save-btn"
-            unelevated
             color="primary"
             padding="xs md"
             :label="t(`pages.importBatch.saveAll`)"

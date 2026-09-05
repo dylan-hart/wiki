@@ -2,33 +2,29 @@
   <w-page class="admin-flags">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-windsock-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:flag" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.flags.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.flags.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.flags.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :loading="state.loading > 0" />
       </div>
@@ -39,7 +35,7 @@
         <w-card class="py-2">
           <w-item>
             <w-item-section>
-              <w-card class="bg-negative text-white rounded" flat>
+              <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
@@ -53,7 +49,7 @@
             </w-item-section>
           </w-item>
           <w-item tag="label">
-            <blueprint-icon icon="flag-filled" />
+            <blueprint-icon icon="tabler:flag" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.experimental.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.experimental.hint`) }}</w-item-label>
@@ -66,7 +62,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="flag-filled" />
+            <blueprint-icon icon="tabler:flag" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.authDebug.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.authDebug.hint`) }}</w-item-label>
@@ -79,7 +75,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="flag-filled" />
+            <blueprint-icon icon="tabler:flag" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.sqlLog.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.sqlLog.hint`) }}</w-item-label>
@@ -100,7 +96,7 @@
         </w-card>
         <w-card class="py-2 mt-4">
           <w-item>
-            <blueprint-icon icon="administrative-tools" />
+            <blueprint-icon icon="tabler:tool" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.advanced.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.advanced.hint`) }}</w-item-label>
@@ -113,7 +109,6 @@
             <w-item-section avatar>
               <w-btn
                 :label="t(`common.actions.edit`)"
-                unelevated
                 icon="la:code"
                 color="primary"
                 text-color="white"

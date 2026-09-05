@@ -81,28 +81,32 @@ describe('AdminTheme — CVD preview swatches', () => {
 })
 
 describe('AdminTheme — WCAG AA contrast warning', () => {
-  it('warns when colorHeader is too light for the white header text', async () => {
+  /*
+    The chrome's foreground is Cardinal's ink now, not white (`CHROME_TEXT_COLOR`), so this check has
+    turned around: what it warns about is a header or sidebar too DARK to read ink over, where it
+    used to be one too light to read white over. Same rule, opposite end of the ramp.
+  */
+  it('warns when colorHeader is too dark for the ink header text', async () => {
     const wrapper = await mountPage({
-      colorPrimary: '#1976D2',
-      colorSecondary: '#02C39A',
-      colorAccent: '#FF9800',
-      colorHeader: '#fff9c4',
-      colorSidebar: '#1976D2'
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
+      colorHeader: '#1c2233',
+      colorSidebar: '#f0f2f7'
     })
 
     expect(wrapper.findAll('.text-negative, [color="negative"]').length).toBeGreaterThan(0)
   })
 
   it('does not warn when every color has plenty of contrast against the text drawn over it', async () => {
+    // -> The app's own `resetColors()` defaults, which is the point: a fresh install and a reset
+    //    theme both have to come out clean, not merely close.
     const wrapper = await mountPage({
-      colorPrimary: '#1976D2',
-      // -> Dark enough to clear WCAG AA against the white chrome text -- unlike the app's own
-      // `resetColors()` defaults (`#02C39A` / `#FF9800`), which is exactly the pair task 1678 is
-      // about: see the "checks secondary and accent" describe block below.
-      colorSecondary: '#00695C',
-      colorAccent: '#8a4b00',
-      colorHeader: '#000000',
-      colorSidebar: '#1976D2'
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
+      colorHeader: '#ffffff',
+      colorSidebar: '#f0f2f7'
     })
 
     const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
@@ -112,10 +116,10 @@ describe('AdminTheme — WCAG AA contrast warning', () => {
   it('warns on colorPrimary when it is too close to the (light) page background', async () => {
     const wrapper = await mountPage({
       colorPrimary: '#fefefe',
-      colorSecondary: '#00695C',
-      colorAccent: '#8a4b00',
-      colorHeader: '#000000',
-      colorSidebar: '#1976D2'
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
+      colorHeader: '#ffffff',
+      colorSidebar: '#f0f2f7'
     })
 
     const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
@@ -125,15 +129,17 @@ describe('AdminTheme — WCAG AA contrast warning', () => {
 
 describe('AdminTheme — WCAG AA contrast warning checks secondary and accent (task 1678)', () => {
   it('raises the warning for both secondary and accent, paired against white the same way WBtn renders solid buttons', async () => {
-    // -> `resetColors()`'s own defaults: previously exempt from the check entirely (`contrastPairFor`
-    // returned null for these two), so the theme screen reported a clean bill of health for the
-    // colors that actually fail worst.
+    // -> The 3.x defaults these two used to carry (#02c39a / #FF9800), which were previously exempt
+    // from the check entirely (`contrastPairFor` returned null for both) -- so the theme screen
+    // reported a clean bill of health for the colors that actually failed worst. Kept as the
+    // fixture even though neither is a default any more: they are still exactly the shape of value
+    // this check exists to catch.
     const wrapper = await mountPage({
-      colorPrimary: '#1976D2',
+      colorPrimary: '#c14a52',
       colorSecondary: '#02c39a',
       colorAccent: '#FF9800',
-      colorHeader: '#000000',
-      colorSidebar: '#1976D2'
+      colorHeader: '#ffffff',
+      colorSidebar: '#f0f2f7'
     })
 
     // -> Only secondary and accent fail here -- primary/header/sidebar are all the passing defaults.

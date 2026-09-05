@@ -80,16 +80,24 @@ const isCopyright = computed(() => {
 </script>
 
 <style scoped>
+/*
+  The colophon at the foot of the article column: Cardinal's tint, ruled off above, set in Roboto
+  Mono at 11px. `--color-text-caption` rather than anything fainter -- this is the one place the site
+  puts its own copyright notice, so it has to be readable, and the caption tier is the floor.
+*/
 .site-footer {
-  background-color: var(--color-grey-3);
-  color: var(--color-grey-8);
-  padding: 4px 12px;
+  background-color: var(--color-tint);
+  border-top: 1px solid var(--color-hairline);
+  color: var(--color-text-caption);
+  padding: 8px 16px;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
 :global(body.body--dark .site-footer) {
   background-color: var(--color-dark-4);
-  color: rgb(255 255 255 / 0.4);
+  border-top-color: var(--color-hairline-dark);
+  color: var(--color-text-caption-dark);
 }
 
 .site-footer-line {

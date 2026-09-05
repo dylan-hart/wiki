@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-unavailable.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:circle-x" size="sm" class="me-2" />
         <span>{{ t(`${labelPrefix}.revokeConfirm`) }}</span>
       </w-card-section>
       <w-card-section>
@@ -28,7 +28,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`${labelPrefix}.revoke`)"
           color="negative"
           padding="xs md"

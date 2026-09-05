@@ -1,5 +1,5 @@
 <template>
-  <div class="site-header bg-header text-white">
+  <div class="site-header bg-header text-ink dark:text-text-dark">
     <div class="flex flex-nowrap">
       <w-toolbar style="height: 64px">
         <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
@@ -8,8 +8,17 @@
           </w-avatar>
           <img v-else :src="`/_site/current/logo`" style="height: 34px" alt="" />
         </w-btn>
-        <div v-if="siteStore.logoText" class="site-title text-h6 ms-2 min-w-0 flex-1 truncate">
-          {{ siteStore.title }}
+        <!--
+          The wordmark: the site's name in tracked uppercase Barlow Condensed, with its description
+          under it in Roboto Mono at a fraction of the size. Two lines, not one -- Cardinal's header
+          is a plate, and the mono underline is what makes it read as one rather than as a title
+          floating in a bar.
+        -->
+        <div v-if="siteStore.logoText" class="ms-2.5 min-w-0 flex-1">
+          <div class="site-title truncate">{{ siteStore.title }}</div>
+          <div v-if="siteStore.description" class="site-subtitle truncate">
+            {{ siteStore.description }}
+          </div>
         </div>
       </w-toolbar>
       <!-- -> Inline between the title and the actions only where there is room for all three; on a
@@ -32,7 +41,7 @@
           round
           dense
           :icon="searchRowIsOpen ? `la:times` : `la:search`"
-          color="white"
+          color="slate-soft"
           :aria-label="searchRowIsOpen ? t(`common.actions.close`) : t(`common.header.search`)"
           :aria-expanded="searchRowIsOpen"
           @click="toggleSearchRow" />
@@ -47,7 +56,7 @@
             class="header-nav-btn"
             flat
             icon="la:plus"
-            color="blue-4"
+            color="slate-soft"
             :aria-label="t('common.header.createNewPage')">
             <w-tooltip>{{ t('common.header.createNewPage') }}</w-tooltip>
             <new-menu />
@@ -64,7 +73,7 @@
             class="header-nav-btn"
             flat
             icon="la:folder-open"
-            color="positive"
+            color="slate-soft"
             :aria-label="t('fileman.title')"
             @click="openFileManager">
             <w-tooltip>{{ t('fileman.title') }}</w-tooltip>
@@ -74,7 +83,7 @@
             class="header-nav-btn"
             flat
             icon="mdi:graph-outline"
-            color="teal"
+            color="slate-soft"
             to="/_graph"
             :aria-label="t(`common.header.graph`)">
             <w-tooltip>{{ t('common.header.graph') }}</w-tooltip>
@@ -101,7 +110,7 @@
             class="header-nav-btn"
             flat
             icon="la:bell"
-            color="amber"
+            color="slate-soft"
             :aria-label="t(`inbox.title`)"
             @click="openInbox">
             <!--
@@ -126,7 +135,7 @@
             class="header-nav-btn"
             flat
             icon="la:tools"
-            color="pink"
+            color="slate-soft"
             to="/_admin"
             :aria-label="t(`common.header.admin`)">
             <w-tooltip>{{ t('common.header.admin') }}</w-tooltip>
@@ -140,12 +149,11 @@
             flat
             rounded
             icon="la:sign-in-alt"
-            color="white"
+            color="slate"
             :label="$t(`common.actions.login`)"
             :aria-label="$t(`common.actions.login`)"
             to="/login"
-            padding="sm"
-            no-caps />
+            padding="sm" />
         </template>
       </w-toolbar>
     </div>
@@ -322,29 +330,83 @@ function openInbox() {
 
 <style scoped lang="scss">
 /*
-  The site name, a step down on a phone: `text-h6` is 20px, which is a heading's size next to a 34px
-  logo and two buttons on a 390px bar. Slight on purpose -- the title is still the first thing the bar
-  says.
+  The header band. A white plate ruled off from the page with a hairline -- not a dark bar -- so the
+  rule is what separates it, and the rule has to be here rather than left to whatever is below it:
+  the sidebar and the breadcrumb bar each start with their own top edge, and only one of the three
+  should draw the line between them.
+
+  `--q-header` is the site's own to choose and is rewritten at runtime, so the band's FILL comes from
+  `bg-header` on the element; only the rule is fixed.
+*/
+.site-header {
+  border-bottom: 1px solid $hairline;
+}
+
+.body--dark .site-header {
+  border-bottom-color: $hairline-dark;
+}
+
+/*
+  The wordmark. Barlow Condensed, tracked and upper-cased -- the one place in the interface where
+  the display face is set as a logotype rather than as a heading.
+*/
+.site-title {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/*
+  And the site's description under it, in Roboto Mono at 8.5px with very wide tracking. Small enough
+  that it reads as a rule of type rather than as a sentence, which is the point -- it is the plate's
+  second line, not a subtitle anyone is expected to stop and read.
+
+  `$text-secondary` rather than a caption tone: at this size the tracking already holds it back, and
+  anything fainter stops resolving as letters at all on a non-retina display.
+*/
+.site-subtitle {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: $text-secondary;
+}
+
+.body--dark .site-subtitle {
+  color: $text-secondary-dark;
+}
+
+/*
+  The site name, a step down on a phone: 21px is a heading's size next to a 34px logo and two buttons
+  on a 390px bar. Slight on purpose -- the title is still the first thing the bar says.
 */
 @media (max-width: $breakpoint-xs-max) {
   .site-title {
-    font-size: 1.0625rem;
+    font-size: 17px;
   }
 }
 
 /*
-  The site's sidebar colour, which is what says this IS a second row rather than more of the bar: the
-  header's colour is the site's to choose and is black by default, so against an identical black the
-  field read as a pill floating in one tall bar -- generously padded above and cropped below.
+  The phone search field's own row, which is what says it IS a second row rather than more of the
+  bar: it takes the sidebar's tint, because on a phone the sidebar is the panel this same header
+  opens -- so the two things that come out from behind the bar are the one colour.
 
-  The sidebar's rather than any other: on a phone the sidebar is the panel this same header opens, so the
-  two things that come out from behind the bar are the one colour.
-
-  Through `--color-sidebar` rather than the `bg-sidebar` utility, so the row follows a site that themes
-  its colours at runtime (the variable is rewritten in place; see `tailwind.css`).
+  Through `--color-sidebar` rather than the `bg-sidebar` utility, so the row follows a site that
+  themes its colours at runtime (the variable is rewritten in place; see `tailwind.css`).
 */
 .header-search-row {
   background-color: var(--color-sidebar);
+  border-top: 1px solid $hairline;
+}
+
+.body--dark .header-search-row {
+  border-top-color: $hairline-dark;
 }
 
 /*

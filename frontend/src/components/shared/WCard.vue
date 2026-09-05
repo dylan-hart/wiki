@@ -5,22 +5,21 @@
     with, since two background utilities are ordered within the layer rather than by who wrote them.
   -->
   <div
-    class="w-card relative rounded"
-    :class="[flat ? '' : 'shadow-card', horizontal ? 'flex flex-nowrap' : '']">
+    class="w-card relative border border-hairline dark:border-hairline-dark"
+    :class="horizontal ? 'flex flex-nowrap' : ''">
     <slot />
   </div>
 </template>
 
 <script setup>
 /**
- * Surface container. Pair with `WCardSection` / `WCardActions` for its internal bands.
+ * Surface container: a square white (or, in dark, panel-toned) box with a hairline edge. Pair with
+ * `WCardSection` / `WCardActions` for its internal bands.
+ *
+ * There is no `flat` prop: Cardinal separates a card from its ground with a hairline and never with
+ * elevation, so there is no shadow for a caller to drop.
  */
 defineProps({
-  /** Drops the elevation shadow. */
-  flat: {
-    type: Boolean,
-    default: false
-  },
   /** Lays sections out in a row instead of stacked. */
   horizontal: {
     type: Boolean,

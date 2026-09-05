@@ -11,9 +11,8 @@
       <w-space />
       <w-btn-group>
         <w-btn
-          push
           color="white"
-          text-color="grey-7"
+          text-color="text-secondary"
           :label="t('common.actions.close')"
           :aria-label="t('common.actions.close')"
           icon="la:times"
@@ -32,7 +31,6 @@
         v-if="isNavCollapsed"
         class="layout-profile-navbtn"
         flat
-        no-caps
         :icon="currentSection.icon"
         :label="currentSection.label"
         :aria-expanded="state.navOpen"
@@ -156,7 +154,10 @@ const sectionComponents = {
 const sidenav = computed(() => [
   {
     key: 'info',
-    label: t('profile.title'),
+    // -> `profile.identity`, not `profile.title`: the overlay itself is "Profile", so a first rail
+    //    entry by the same name read as a link back to the thing you are already in. It is the
+    //    reader's own identity -- name, address, location, job title -- which is what it now says.
+    label: t('profile.identity'),
     icon: 'la:user-circle'
   },
   {
@@ -295,12 +296,12 @@ $nav-shrink-max: 1199.98px;
     The light value is the black it was already inheriting, so only dark mode changes.
   */
   @at-root .body--light & {
-    background-color: #fff;
-    color: var(--color-black);
+    background-color: $surface;
+    color: $text-body;
   }
   @at-root .body--dark & {
     background-color: $dark-3;
-    color: var(--color-white);
+    color: $text-dark;
   }
 }
 
@@ -323,42 +324,49 @@ $nav-shrink-max: 1199.98px;
   flex: 0 0 300px;
   overflow-y: auto;
 
+  /*
+    The section rail: Cardinal's tint, ruled off with a hairline. The inset white/near-black
+    box-shadow that used to sit alongside the border was a bevel, drawing a second, lighter line just
+    inside the first -- which is exactly the relief this language does without.
+  */
   @at-root .body--light & {
-    background-color: $grey-1;
-    border-inline-end: 1px solid rgba($dark-3, 0.1);
-    box-shadow: inset -1px 0 0 #fff;
+    background-color: $tint-alt;
+    border-inline-end: 1px solid $hairline;
   }
   @at-root .body--dark & {
     background-color: $dark-4;
-    border-inline-end: 1px solid rgba(#fff, 0.12);
-    box-shadow: inset -1px 0 0 rgba($dark-6, 0.5);
+    border-inline-end: 1px solid $hairline-dark;
   }
 
   .w-list .w-item {
-    font-weight: 500;
-    color: $grey-9;
+    font-weight: 400;
+    color: $slate;
+    border-inline-start: 2px solid transparent;
 
     @at-root .body--dark & {
-      color: rgba(255, 255, 255, 0.75);
+      color: $text-secondary-dark;
     }
 
+    // -> The same "you are here" mark as the inbox rail, the site sidebar and the folder tree
     &.is-active {
-      background: linear-gradient(to bottom, rgba($primary, 0.25), rgba($primary, 0.1));
-      color: $primary;
+      background-color: $surface;
+      border-inline-start-color: $accent-fill;
+      color: $ink;
+      font-weight: 500;
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
       .w-icon,
       iconify-icon {
-        color: $primary;
+        color: $accent-fill;
       }
 
-      // -> Same lightened brand blue as the section headings; `$primary` is too dim on this surface
       @at-root .body--dark & {
-        color: var(--color-primary-light);
+        background-color: $dark-3;
+        color: $text-dark;
 
         .w-icon,
         iconify-icon {
-          color: var(--color-primary-light);
+          color: $accent-dark;
         }
       }
     }
@@ -369,57 +377,27 @@ $nav-shrink-max: 1199.98px;
   flex: 1 1;
   overflow-y: auto;
 
-  @at-root .body--light & {
-    border-inline-start: 1px solid #fff;
-  }
-  @at-root .body--dark & {
-    border-inline-start: 1px solid rgba($dark-6, 0.75);
-  }
+  // -> The rail already draws the seam between the two columns; a second line here doubled it
 }
 
+/*
+  The save bar at the foot of a section. A hairline above it and the page tint behind it, which is
+  how every other action bar in the language is drawn (`WCardActions`, the dialogs' own footers).
+
+  What this replaces was four stacked gradients across three elements -- a white-to-transparent wash
+  crossed with a green one, a 10px band above it, and a fading rule -- to suggest the bar lifting off
+  the content. One rule says the same thing.
+*/
 .layout-profile-body .actions-bar {
   display: flex;
-  padding: 16px;
-  background:
-    linear-gradient(to right, #fff, transparent),
-    linear-gradient(to bottom, rgba($secondary, 0.1), transparent);
   justify-content: flex-end;
-  position: relative;
+  padding: 12px 16px;
+  background-color: $paper;
+  border-top: 1px solid $hairline;
 
   @at-root .body--dark & {
-    background:
-      linear-gradient(to right, $dark-3, transparent),
-      linear-gradient(to bottom, rgba($secondary, 0.1), transparent);
-  }
-
-  &:before {
-    content: '';
-    width: 100%;
-    height: 10px;
-    background:
-      linear-gradient(to right, #fff, transparent),
-      linear-gradient(to top, rgba($secondary, 0.05), transparent);
-    position: absolute;
-    top: -13px;
-    inset-inline-start: 0;
-    z-index: 0;
-
-    @at-root .body--dark & {
-      background:
-        linear-gradient(to right, $dark-3, transparent),
-        linear-gradient(to top, rgba($secondary, 0.05), transparent);
-    }
-  }
-
-  &:after {
-    content: '';
-    width: 100%;
-    height: 1px;
-    background: linear-gradient(to right, transparent, rgba($secondary, 0.25));
-    position: absolute;
-    top: -2px;
-    inset-inline-start: 0;
-    z-index: 0;
+    background-color: $dark-4;
+    border-top-color: $hairline-dark;
   }
 }
 
@@ -463,12 +441,12 @@ $nav-shrink-max: 1199.98px;
     justify-content: space-between;
 
     @at-root .body--light & {
-      background-color: $grey-1;
-      border-bottom: 1px solid $grey-3;
+      background-color: $tint-alt;
+      border-bottom: 1px solid $hairline;
     }
     @at-root .body--dark & {
       background-color: $dark-4;
-      border-bottom: 1px solid $dark-2;
+      border-bottom: 1px solid $hairline-dark;
     }
   }
 
@@ -497,23 +475,11 @@ $nav-shrink-max: 1199.98px;
 
     @at-root .body--light & {
       border-inline-end: 0;
-      border-bottom: 1px solid $grey-3;
-      box-shadow: none;
+      border-bottom: 1px solid $hairline;
     }
     @at-root .body--dark & {
       border-inline-end: 0;
-      border-bottom: 1px solid rgba(#fff, 0.12);
-      box-shadow: none;
-    }
-  }
-
-  /* -> The seam is the nav's bottom border now, and a leading one would draw down the content's own edge */
-  .layout-profile-body .w-page {
-    @at-root .body--light & {
-      border-inline-start: 0;
-    }
-    @at-root .body--dark & {
-      border-inline-start: 0;
+      border-bottom: 1px solid $hairline-dark;
     }
   }
 }

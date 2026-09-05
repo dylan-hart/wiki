@@ -6,7 +6,6 @@
         <w-input
           ref="nameIpt"
           v-model="state.newName"
-          outlined
           :rules="nameValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -18,7 +17,6 @@
           class="mt-2"
           type="email"
           v-model="state.newEmail"
-          outlined
           :rules="emailValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -29,7 +27,6 @@
         <w-input
           class="mt-2"
           v-model="state.newPassword"
-          outlined
           :label="t(`auth.fields.password`)"
           type="password"
           autocomplete="new-password"
@@ -47,7 +44,6 @@
         <w-input
           class="mt-2"
           v-model="state.newPasswordVerify"
-          outlined
           :label="t(`auth.fields.verifyPassword`)"
           type="password"
           autocomplete="new-password"
@@ -59,10 +55,8 @@
         <w-btn
           class="w-full mt-2"
           type="submit"
-          push
           color="primary"
           :label="t(`auth.actions.register`)"
-          no-caps
           icon="la:user-plus" />
       </w-form>
       <w-separator class="my-4" />
@@ -71,7 +65,6 @@
         flat
         color="primary"
         :label="t(`auth.switchToLogin.link`)"
-        no-caps
         icon="la:arrow-circle-left"
         @click="emit(`back-to-login`)" />
     </template>
@@ -89,7 +82,6 @@
         flat
         color="primary"
         :label="t(`auth.switchToLogin.link`)"
-        no-caps
         icon="la:arrow-circle-left"
         @click="emit(`back-to-login`)" />
     </template>

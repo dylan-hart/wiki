@@ -8,7 +8,7 @@
           <!-- Title -->
           <!-- ----------------------- -->
           <w-item>
-            <blueprint-icon icon="new-document" />
+            <blueprint-icon icon="tabler:file-plus" />
             <w-item-section>
               <w-item-label>{{ t('editor.redirect.pageTitle') }}</w-item-label>
               <w-item-label caption>{{ t('editor.redirect.pageTitleHint') }}</w-item-label>
@@ -19,7 +19,6 @@
                 type it: both write to the store, and the header's watcher follows what is typed here.
               -->
               <w-input
-                outlined
                 dense
                 hide-bottom-space
                 :model-value="pageStore.title"
@@ -32,7 +31,7 @@
           <!-- Target -->
           <!-- ----------------------- -->
           <w-item>
-            <blueprint-icon icon="advance" />
+            <blueprint-icon icon="tabler:player-track-next" />
             <w-item-section>
               <w-item-label>{{ t('editor.redirect.target') }}</w-item-label>
               <w-item-label caption>{{ t('editor.redirect.targetHint') }}</w-item-label>
@@ -44,7 +43,6 @@
                 icon="la:folder-open"
                 color="primary"
                 padding="xs md"
-                no-caps
                 :label="t(`editor.redirect.choose`)"
                 @click="chooseTarget" />
             </w-item-section>
@@ -72,7 +70,7 @@
           <!-- Interstitial -->
           <!-- ----------------------- -->
           <w-item>
-            <blueprint-icon icon="timer" />
+            <blueprint-icon icon="tabler:clock-play" />
             <w-item-section>
               <w-item-label>{{ t('editor.redirect.showInterstitial') }}</w-item-label>
               <w-item-label caption>{{ t('editor.redirect.showInterstitialHint') }}</w-item-label>

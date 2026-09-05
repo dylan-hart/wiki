@@ -2,16 +2,13 @@
   <w-page class="admin-pages-deleted">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-delete-bin.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:trash" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="admin-page-title animated fadeInLeft">
           {{ t('history.recovery.title') }}
         </h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('history.recovery.subtitle') }}
         </div>
       </div>
@@ -73,7 +70,6 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                no-caps
                 icon="la:undo"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`history.recovery.recover`)"

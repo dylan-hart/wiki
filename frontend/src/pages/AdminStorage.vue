@@ -2,14 +2,11 @@
   <w-page class="admin-storage">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-ssd-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:database" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.storage.subtitle') }}
         </div>
       </div>
@@ -18,8 +15,6 @@
         <w-btn-toggle
           class="me-4"
           v-model="state.displayMode"
-          push
-          no-caps
           :toggle-color="dark.isActive ? `white` : `black`"
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
@@ -31,20 +26,19 @@
           ]" />
         <w-separator class="me-4" vertical />
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/storage`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save()"
           :loading="state.loading > 0" />
       </div>
@@ -178,7 +172,6 @@
                 </w-item-section>
                 <w-item-section side>
                   <w-input
-                    outlined
                     :label="t(`admin.storage.contentTypeLargeFilesThreshold`)"
                     v-model="state.target.contentTypes.largeThreshold"
                     style="min-width: 150px"
@@ -336,8 +329,6 @@
                 <w-item-section side>
                   <w-btn-toggle
                     v-model="state.target.sync.mode"
-                    push
-                    no-caps
                     toggle-color="primary"
                     :options="syncModeOptions"
                     :aria-label="t(`admin.storage.syncDirection`)"
@@ -362,7 +353,6 @@
                 </w-item-section>
                 <w-item-section side>
                   <w-input
-                    outlined
                     v-model="state.target.sync.scheduleOverride"
                     :placeholder="state.target.sync.schedule || ``"
                     style="min-width: 150px"
@@ -409,7 +399,7 @@
                 <template v-for="(act, idx) in state.target.actions" :key="act.handler">
                   <w-separator class="my-2" inset v-if="idx > 0" />
                   <w-item>
-                    <blueprint-icon class="self-start" :icon="act.icon" :hue-rotate="45" />
+                    <blueprint-icon class="self-start" :icon="act.icon" />
                     <w-item-section>
                       <w-item-label>{{ act.label }}</w-item-label>
                       <w-item-label caption>{{ act.hint }}</w-item-label>
@@ -551,19 +541,19 @@
         <w-card class="rounded">
           <w-card-section class="flex items-center">
             <div class="text-caption me-2">{{ t('admin.storage.deliveryPathsLegend') }}</div>
-            <w-chip square dense color="blue-1" text-color="blue-8">
+            <w-chip dense color="blue-1" text-color="blue-8">
               <w-avatar icon="la:ellipsis-h" color="blue" text-color="white" />
               <span class="text-caption px-2">{{
                 t('admin.storage.deliveryPathsUserRequest')
               }}</span>
             </w-chip>
-            <w-chip square dense color="teal-1" text-color="teal-8">
+            <w-chip dense color="teal-1" text-color="teal-8">
               <w-avatar icon="la:ellipsis-h" color="positive" text-color="white" />
               <span class="text-caption px-2">{{
                 t('admin.storage.deliveryPathsPushToOrigin')
               }}</span>
             </w-chip>
-            <w-chip square dense color="red-1" text-color="red-8">
+            <w-chip dense color="red-1" text-color="red-8">
               <w-avatar icon="la:minus" color="negative" text-color="white" />
               <span class="text-caption px-2">{{ t('admin.storage.missingOrigin') }}</span>
             </w-chip>

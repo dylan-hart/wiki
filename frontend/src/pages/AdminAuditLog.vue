@@ -2,33 +2,30 @@
   <w-page class="admin-audit-log">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-event-log.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:file-description" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.audit.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.audit.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.audit.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/audit-log`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="reload">
@@ -38,12 +35,11 @@
     </div>
     <w-separator inset />
     <div class="p-4">
-      <w-card class="rounded mb-4" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
+      <w-card class="rounded mb-4" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
         <w-card-section class="flex flex-wrap gap-3 items-end">
           <div style="min-width: 220px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterActor') }}</div>
             <w-select
-              outlined
               dense
               options-dense
               emit-value
@@ -55,7 +51,6 @@
           <div style="min-width: 220px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterEvent') }}</div>
             <w-select
-              outlined
               dense
               options-dense
               emit-value
@@ -67,7 +62,6 @@
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterFrom') }}</div>
             <w-input
-              outlined
               dense
               type="date"
               v-model="state.filters.from"
@@ -76,7 +70,6 @@
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterTo') }}</div>
             <w-input
-              outlined
               dense
               type="date"
               v-model="state.filters.to"
@@ -98,7 +91,7 @@
         </w-card-section>
       </w-card>
 
-      <w-card flat>
+      <w-card>
         <w-table
           :rows="state.entries"
           :columns="headers"
@@ -177,7 +170,7 @@
         and its filter card above already commits locally the same way -- see
         `docs/decisions/embedded-setting-save-affordance.md`.
       -->
-      <w-card class="rounded" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
+      <w-card class="rounded" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
         <w-card-section>
           <div class="text-subtitle1">{{ t('admin.audit.retentionTitle') }}</div>
           <div class="text-caption text-grey mb-2">{{ t('admin.audit.retentionSubtitle') }}</div>
@@ -197,7 +190,6 @@
             <div style="width: 160px">
               <w-input
                 ref="retentionInput"
-                outlined
                 dense
                 type="number"
                 min="1"

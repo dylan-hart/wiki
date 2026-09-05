@@ -213,8 +213,16 @@ async function applyTheme() {
   setCssVar('accent', userStore.getAccessibleColor('accent', siteStore.theme.colorAccent))
   setCssVar('header', userStore.getAccessibleColor('header', siteStore.theme.colorHeader))
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
-  setCssVar('positive', userStore.getAccessibleColor('positive', '#018569'))
-  setCssVar('negative', userStore.getAccessibleColor('negative', '#e81221'))
+  /*
+    The two status colours are fixed rather than site-configurable, but they still go through
+    `setCssVar` so the colour-vision-deficiency remapping reaches them. Cardinal's positive and
+    negative TEXT tones -- the darker half of each pair -- because both are drawn under a white
+    label here (a toast, a solid button); the brighter fills they pair with are
+    `--color-positive-fill` / `--color-negative-fill`, which nothing resolves through this path.
+    Kept equal to `css/tailwind.css`'s `:root`, and pinned in `helpers/accessibility.test.js`.
+  */
+  setCssVar('positive', userStore.getAccessibleColor('positive', '#3f7a66'))
+  setCssVar('negative', userStore.getAccessibleColor('negative', '#c14a52'))
 
   // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)

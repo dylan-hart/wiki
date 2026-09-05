@@ -1,7 +1,7 @@
 <template>
   <w-layout container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="img:/_assets/icons/ultraviolet-markdown.svg" left size="md" />
+      <w-icon name="tabler:markdown" left size="md" />
       <span>{{ t('editor.settings.markdown') }}</span>
       <w-space />
       <w-btn
@@ -16,7 +16,6 @@
         type="a" />
       <w-btn-group>
         <w-btn
-          push
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
@@ -28,7 +27,6 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
-          push
           color="white"
           text-color="grey-7"
           :label="t(`common.actions.cancel`)"
@@ -36,7 +34,6 @@
           icon="la:times"
           @click="close" />
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="t(`common.actions.apply`)"
@@ -50,7 +47,7 @@
       <w-page class="p-4" style="max-width: 1200px; margin: 0 auto">
         <w-card class="shadow-1 py-2">
           <w-item tag="label">
-            <blueprint-icon icon="enter-key" />
+            <blueprint-icon icon="tabler:corner-down-left" />
             <w-item-section>
               <w-item-label>{{ t(`editor.settings.markdownPreviewShown`) }}</w-item-label>
               <w-item-label caption>{{
@@ -65,7 +62,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="width" />
+            <blueprint-icon icon="tabler:arrows-horizontal" />
             <w-item-section>
               <w-item-label>{{ t(`editor.settings.markdownFontSize`) }}</w-item-label>
               <w-item-label caption>{{ t(`editor.settings.markdownFontSizeHint`) }}</w-item-label>
@@ -76,7 +73,6 @@
                 min="10"
                 max="32"
                 style="width: 100px"
-                outlined
                 v-model="state.config.fontSize"
                 dense
                 :aria-label="t(`editor.settings.markdownFontSize`)" />

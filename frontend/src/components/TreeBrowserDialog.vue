@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card class="page-save-dialog" style="width: 860px; max-width: 90vw">
       <w-card-section v-if="props.mode === `savePage`" class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-save-as.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:file-plus" size="sm" class="me-2" />
         <span>{{ t('pageSaveDialog.title') }}</span>
       </w-card-section>
       <w-card-section v-else-if="props.mode === `duplicatePage`" class="card-header">
@@ -10,7 +10,7 @@
         <span>{{ t('pageDuplicateDialog.title') }}</span>
       </w-card-section>
       <w-card-section v-else-if="props.mode === `renamePage`" class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-rename.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:cursor-text" size="sm" class="me-2" />
         <span>{{ t('pageRenameDialog.title') }}</span>
       </w-card-section>
       <div class="page-save-dialog-browser flex flex-nowrap">
@@ -62,27 +62,25 @@
       <div class="page-save-dialog-path font-robotomono">{{ currentFolderPath }}</div>
       <w-list class="py-2">
         <w-item>
-          <blueprint-icon icon="new-document" />
+          <blueprint-icon icon="tabler:file-plus" />
           <w-item-section>
             <w-input
               ref="iptTitle"
               v-model="state.title"
               :label="t(`pageSaveDialog.pageTitle`)"
               dense
-              outlined
               @focus="state.currentFileId = null"
               @keyup:enter="save" />
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="file-submodule" />
+          <blueprint-icon icon="tabler:file-symlink" />
           <w-item-section>
             <w-input
               v-model="state.path"
               :label="t(`pageSaveDialog.pathName`)"
               :rules="pathRules"
               dense
-              outlined
               @focus="onPathFocus"
               @keyup:enter="onPathEnter" />
           </w-item-section>
@@ -148,7 +146,6 @@
         <w-btn
           icon="la:check"
           :label="t(`common.actions.save`)"
-          unelevated
           color="primary"
           padding="xs md"
           :disabled="pathHasSlash"

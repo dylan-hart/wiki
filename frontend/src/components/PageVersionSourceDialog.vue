@@ -3,7 +3,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t('history.viewSource')" @hide="onDialogHide">
     <w-card class="page-version-source" style="width: 1200px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-code.svg" left size="sm" />
+        <w-icon name="tabler:code" left size="sm" />
         <span>{{ t('history.viewSource') }}</span>
         <w-space />
         <span class="page-version-source-date">{{ date }}</span>
@@ -27,7 +27,6 @@
           :label="t(`common.actions.copy`)"
           @click="copy" />
         <w-btn
-          unelevated
           color="primary"
           padding="xs md"
           :label="t(`common.actions.close`)"

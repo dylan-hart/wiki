@@ -92,7 +92,6 @@
                 :ref="(el) => setEditInputRef(entry.comment.id, el)"
                 v-model="editDrafts[entry.comment.id]"
                 type="textarea"
-                outlined
                 dense
                 :rows="3"
                 :hint="t(`common.comments.markdownFormat`)"
@@ -101,7 +100,6 @@
                 :aria-label="t(`common.comments.fieldContent`)" />
               <div class="page-comments-edit-actions mt-2 flex flex-wrap items-center gap-3">
                 <w-btn
-                  unelevated
                   dense
                   color="primary"
                   :loading="editSubmittingIds.has(entry.comment.id)"

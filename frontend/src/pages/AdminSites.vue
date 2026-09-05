@@ -2,33 +2,25 @@
   <w-page class="admin-locale">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-change-theme.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:browser" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.sites.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.sites.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.sites.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.refresh`)"
           @click="refresh">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
-        <w-btn
-          unelevated
-          icon="la:plus"
-          :label="t(`admin.sites.new`)"
-          color="primary"
-          @click="createSite" />
+        <w-btn icon="la:plus" :label="t(`admin.sites.new`)" color="primary" @click="createSite" />
       </div>
     </div>
     <w-separator inset />
@@ -54,20 +46,13 @@
                     <w-chip
                       class="mx-0"
                       v-if="site.hostname !== `*`"
-                      square
                       color="blue-7"
                       text-color="white"
                       size="sm">
                       <w-avatar icon="la:angle-right" color="blue-5" text-color="white" />
                       <span>{{ site.hostname }}</span>
                     </w-chip>
-                    <w-chip
-                      class="mx-0"
-                      v-else
-                      square
-                      color="indigo-7"
-                      text-color="white"
-                      size="sm">
+                    <w-chip class="mx-0" v-else color="indigo-7" text-color="white" size="sm">
                       <w-avatar icon="la:asterisk" color="indigo-5" text-color="white" />
                       <span>catch-all</span>
                     </w-chip>
@@ -105,8 +90,7 @@
                   @click="editSite(site)"
                   icon="la:pen"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
-                  :label="t(`common.actions.edit`)"
-                  no-caps />
+                  :label="t(`common.actions.edit`)" />
                 <w-btn
                   class="acrylic-btn"
                   flat

@@ -150,21 +150,19 @@ describe('InboxOverlay: dark mode', () => {
   it('gives .inbox-overlay a background + color pairing for both themes', () => {
     const overlayRule = source.match(/\.inbox-overlay\s*\{[\s\S]*?\n\}\n/)[0]
 
-    expect(overlayRule).toMatch(/@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*#fff/)
     expect(overlayRule).toMatch(
-      /@at-root\s+\.body--light\s+&\s*\{[^}]*color:\s*var\(--color-black\)/
+      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*\$surface/
     )
+    expect(overlayRule).toMatch(/@at-root\s+\.body--light\s+&\s*\{[^}]*color:\s*\$text-body/)
     expect(overlayRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*\$dark-3/)
-    expect(overlayRule).toMatch(
-      /@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*var\(--color-white\)/
-    )
+    expect(overlayRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*\$text-dark/)
   })
 
   it('gives .inbox-overlay-sidebar its own themed background too, not just its nav item text', () => {
     const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*\}\n<\/style>/)[0]
 
     expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*\$grey-1/
+      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*\$tint-alt/
     )
     expect(sidebarRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*\$dark-4/)
   })

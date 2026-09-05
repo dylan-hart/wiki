@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-shutdown.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:power" size="sm" class="me-2" />
         <span>{{
           props.targetState ? t(`admin.sites.activate`) : t(`admin.sites.deactivate`)
         }}</span>
@@ -33,7 +33,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="props.targetState ? t(`common.actions.activate`) : t(`common.actions.deactivate`)"
           :color="props.targetState ? `positive` : `negative`"
           padding="xs md"

@@ -6,18 +6,17 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-add-key.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:fingerprint" size="sm" class="me-2" />
         <span>{{ t(`profile.passkeysAdd`) }}</span>
       </w-card-section>
       <w-form ref="passkeyForm" class="py-2" @submit="save">
         <div class="text-body2 px-4 py-2">{{ t(`profile.passkeysNameHint`) }}</div>
         <w-item>
-          <blueprint-icon icon="key" />
+          <blueprint-icon icon="tabler:key" />
           <w-item-section>
             <w-input
               ref="iptName"
               v-model="state.name"
-              outlined
               dense
               :rules="nameValidation"
               hide-bottom-space
@@ -36,12 +35,7 @@
           color="grey"
           padding="xs md"
           @click="onDialogCancel" />
-        <w-btn
-          unelevated
-          :label="t(`common.actions.save`)"
-          color="primary"
-          padding="xs md"
-          @click="save" />
+        <w-btn :label="t(`common.actions.save`)" color="primary" padding="xs md" @click="save" />
       </w-card-actions>
     </w-card>
   </w-dialog>

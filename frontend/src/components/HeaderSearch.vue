@@ -208,7 +208,6 @@
             <w-chip
               v-for="tag of popularTags"
               :key="tag"
-              square
               color="grey-8"
               text-color="white"
               icon="la:hashtag"
@@ -563,64 +562,55 @@ defineExpose({ focus, state })
 /*
   The header search box.
 
-  Deliberately not built on WInput: that is a form field -- label, hint line, error line, inset
-  focus ring -- and this is none of those. It is a pill on a dark bar that inverts when you use it,
-  so it owns its own markup and styling rather than fighting a component's.
+  Deliberately not built on WInput: that is a form field -- label, hint line, error line -- and this
+  is none of those. It owns its own markup and styling rather than fighting a component's.
+
+  Cardinal draws it as a square box on the header's paper tint with a hairline edge, capped at 480px
+  and centred in the bar. The pill this replaces was a dark slab that INVERTED to white when you
+  used it -- which made sense on a black header, where a field had to be darker still to read as a
+  well; on a white plate it was the loudest thing in the chrome, and inverting it had nowhere to go.
+  Focus darkens the hairline to the chrome slate instead, exactly as a form field does.
 */
 .header-search {
+  max-width: 480px;
+  margin: 0 auto;
+
   &-field {
     display: flex;
     align-items: center;
-    gap: 8px;
-    height: 40px;
-    padding: 0 8px 0 12px;
-    border-radius: 9999px;
-    background-color: #212121;
-    color: rgba(255, 255, 255, 0.85);
+    gap: 10px;
+    height: 36px;
+    padding: 0 6px 0 12px;
+    background-color: $paper;
+    border: 1px solid $hairline;
+    color: $text-caption;
     transition:
-      background-color 0.25s var(--ease-standard),
-      color 0.25s var(--ease-standard);
+      border-color 0.2s var(--ease-standard),
+      background-color 0.2s var(--ease-standard);
   }
 
-  /*
-    Docked against the tags button below (never in `row` form, which stands alone) -- squares off
-    the right corners so the seam between the two doesn't double-round, leaving only the left half
-    of the pill.
-  */
+  /* -> Docked against the tags button below (never in `row` form, which stands alone) */
   &-field--docked {
-    border-radius: 9999px 0 0 9999px;
+    border-inline-end: 0;
   }
 
   /*
-    In `row` form, a wash of black over whatever is behind rather than a grey of its own.
+    Driven by a class rather than `:focus-within` so the field stays marked while the panel below is
+    being used -- clicking a tag in there moves focus out of the input, and the border flicking back
+    mid-interaction reads as a glitch.
 
-    The row is the site's sidebar colour (see `HeaderNav`), which is the site's to choose -- so a fixed
-    grey is a slab of a foreign colour sitting on it, right for one theme and wrong for the rest. A
-    translucent black darkens whatever it is given and reads as a well sunk into the row on any of them.
-
-    The inline form keeps its grey: it sits on the HEADER, which is black by default, and a translucent
-    black on black is no field at all.
-  */
-  &-field--row {
-    background-color: rgb(0 0 0 / 0.25);
-  }
-
-  /*
-    In use, the field inverts: white fill, dark ink. Driven by a class rather than `:focus-within`
-    so it stays inverted while the panel below is being used -- clicking a tag in there moves focus
-    out of the input, and the field flickering back to dark mid-interaction reads as a glitch.
-
-    Two classes, so this outranks the `--row` wash above whichever order they end up in.
+    Two classes, so this outranks the `--row` rule above whichever order they end up in.
   */
   &-field.is-focused {
-    background-color: #fff;
-    color: rgba(0, 0, 0, 0.87);
+    background-color: $surface;
+    border-color: $slate;
+    color: $ink;
   }
 
   &-lead {
     flex-shrink: 0;
-    font-size: 20px;
-    opacity: 0.7;
+    font-size: 17px;
+    color: $slate-soft;
   }
 
   &-input {
@@ -647,55 +637,95 @@ defineExpose({ focus, state })
     flex-shrink: 0;
     display: inline-flex;
     padding: 4px;
-    border-radius: 9999px;
-    color: inherit;
-    opacity: 0.6;
+    color: $slate-soft;
     cursor: pointer;
 
     &:hover {
-      opacity: 1;
+      color: $ink;
     }
   }
 
-  /* Sits inside the pill, against its fill, so it inverts with everything else */
+  /* The shortcut hint: a square mono key cap on the field's own ground, as Cardinal sets every key */
   &-kbd {
     flex-shrink: 0;
-    /* -> pulls it clear of the pill's edge, where the two mismatched radii read as a kink */
-    margin-inline-end: 2px;
-    padding: 2px 8px;
-    border: 1px solid currentColor;
-    border-radius: 9999px;
-    font-size: 11px;
+    padding: 2px 5px;
+    background-color: $surface;
+    border: 1px solid $hairline;
+    color: $text-caption;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
     line-height: 1.4;
     white-space: nowrap;
-    opacity: 0.5;
     cursor: pointer;
     user-select: none;
   }
 }
 
+.body--dark .header-search {
+  &-field {
+    background-color: $dark-4;
+    border-color: $hairline-dark;
+    color: $text-caption-dark;
+  }
+
+  &-field.is-focused {
+    background-color: $dark-3;
+    border-color: $slate-light;
+    color: $text-dark;
+  }
+
+  &-lead {
+    color: $slate-light;
+  }
+
+  &-clear:hover {
+    color: $text-dark;
+  }
+
+  &-kbd {
+    background-color: $dark-3;
+    border-color: $hairline-dark;
+    color: $text-caption-dark;
+  }
+}
+
 /*
-  The browse-by-tags button docked to the search field's right edge (OpenProject #987, #1120,
-  #1218) -- same fixed 40px height and dark fill as `.header-search-field`, so the seam between the
-  two reads as one continuous pill rather than a field with a detached button beside it. Only the
-  right corners are rounded; the left edge butts flush against the field's now-square right edge.
+  The browse-by-tags button docked to the search field's trailing edge (OpenProject #987, #1120,
+  #1218) -- the same 36px box and hairline edge as `.header-search-field`, sharing the field's own
+  border rather than drawing a second one beside it, so the seam reads as one control.
 */
 .header-search-tags-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 0 9999px 9999px 0;
-  background-color: #212121;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 20px;
-  transition: background-color 0.25s var(--ease-standard);
+  width: 36px;
+  height: 36px;
+  background-color: $paper;
+  border: 1px solid $hairline;
+  color: $slate-soft;
+  font-size: 17px;
+  transition:
+    background-color 0.2s var(--ease-standard),
+    color 0.2s var(--ease-standard);
 
   &:hover,
   &:focus-visible {
-    background-color: #2f2f2f;
+    background-color: $tint;
+    color: $ink;
+  }
+}
+
+.body--dark .header-search-tags-btn {
+  background-color: $dark-4;
+  border-color: $hairline-dark;
+  color: $slate-light;
+
+  &:hover,
+  &:focus-visible {
+    background-color: $dark-2;
+    color: $text-dark;
   }
 }
 
@@ -713,15 +743,12 @@ defineExpose({ focus, state })
   inset-inline-start: 0;
   inset-inline-end: 0;
   z-index: 10;
-  background-color: rgba(0, 0, 0, 0.7);
-  border-radius: 0 0 12px 12px;
-  color: #fff;
+  background-color: $surface;
+  border: 1px solid $hairline;
+  border-top: 0;
+  color: $text-body;
   padding: 0.5rem 1rem 1rem;
-  backdrop-filter: blur(7px) saturate(180%);
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.2),
-    0 1px 1px rgba(0, 0, 0, 0.14),
-    0 2px 1px -1px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 24px rgba(28, 34, 51, 0.12);
   /*
     A short viewport (a phone in `row` form, or any window a reader has made shorter than its width)
     otherwise lets the panel grow past the bottom of the screen once results are added on top of the
@@ -734,7 +761,8 @@ defineExpose({ focus, state })
 
   &-header {
     font-weight: 500;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    color: $text-caption;
+    border-bottom: 1px solid $hairline;
     padding: 0 0 0.5rem 0;
     margin-bottom: 0.5rem;
     display: flex;
@@ -780,14 +808,35 @@ defineExpose({ focus, state })
     }
   }
 
+  /* -> A search operator, set the way Cardinal sets every inline code run: a tinted square chip */
   code {
-    background-color: rgba(0, 0, 0, 0.7);
-    padding: 2px 8px;
-    font-weight: 700;
-    border-radius: 4px;
+    background-color: $tint;
+    border: 1px solid $hairline;
+    color: $accent-strong;
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
   }
 
   // -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s
   //    `@layer components`, shared with `Search.vue`'s full results screen this panel previews.
+}
+
+.body--dark .searchpanel {
+  background-color: $dark-3;
+  border-color: $hairline-dark;
+  color: $text-dark;
+
+  &-header {
+    color: $text-caption-dark;
+    border-bottom-color: $hairline-dark;
+  }
+
+  code {
+    background-color: $accent-wash-dark;
+    border-color: $hairline-dark;
+    color: $accent-dark;
+  }
 }
 </style>

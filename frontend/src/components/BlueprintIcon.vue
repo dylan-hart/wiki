@@ -1,30 +1,38 @@
 <template>
   <w-item-section avatar>
-    <w-avatar
-      class="blueprint-icon"
-      :color="avatarBgColor"
-      :text-color="avatarTextColor"
-      font-size="14px"
-      rounded
-      :style="props.hueRotate !== 0 ? `filter: hue-rotate(` + props.hueRotate + `deg)` : ``">
-      <w-badge v-if="indicatorDot" rounded :color="indicatorDot" floating>
+    <div class="blueprint-icon">
+      <w-badge v-if="indicatorDot" :color="indicatorDot" floating>
         <w-tooltip v-if="props.indicatorText">{{ props.indicatorText }}</w-tooltip>
       </w-badge>
-      <w-icon
-        v-if="!textMode"
-        :name="`img:/_assets/icons/ultraviolet-` + icon + `.svg`"
-        size="sm" />
-      <span class="uppercase" v-else>{{ props.text }}</span>
-    </w-avatar>
+      <w-icon v-if="!textMode" :name="icon" />
+      <span v-else class="blueprint-icon__text">{{ props.text }}</span>
+    </div>
   </w-item-section>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 
-import { useDark } from '@/composables/dark'
-
+/**
+ * The icon at the head of a settings row.
+ *
+ * Cardinal draws it as a square hairline plate on paper with a monochrome line glyph inside, in the
+ * chrome tone -- the treatment the primitives sheet's "section header & row" and the profile
+ * overlay's info rows both use (`ui-redesign/Cardinal Wiki - Primitives 3x.dc.html`).
+ *
+ * What it replaces: a rounded blue-tinted avatar holding one of ~148 colourful `ultraviolet-*`
+ * illustrations, which is where the admin area's last remaining 2.x-era artwork lived. Two props
+ * went with them. `hueRotate` tinted a coloured asset by rotating its hue -- meaningless against a
+ * glyph that draws in `currentColor` -- and the avatar's own `color`/`textColor` pair, which chose
+ * between a light-blue and a dark-grey fill and is now the plate.
+ *
+ * `icon` is an ordinary Iconify reference (`tabler:key`), not an asset name assembled here: a name
+ * built by concatenation is invisible to `scripts/generate-icons.mjs`'s scanner, so it would resolve
+ * at runtime through `/_icons` instead of being inlined at build time -- see CLAUDE.md's note under
+ * Icons, and `WIcon`'s own header.
+ */
 const props = defineProps({
+  /** An Iconify reference, e.g. `tabler:key`. */
   icon: {
     type: String,
     default: ''
@@ -37,35 +45,56 @@ const props = defineProps({
     type: String,
     default: null
   },
-  hueRotate: {
-    type: Number,
-    default: 0
-  },
+  /** Two or three letters in place of a glyph, for a row identified by a code rather than a thing. */
   text: {
     type: String,
     default: null
   }
 })
 
-// COMPOSABLES
-
-const dark = useDark()
-
 // COMPUTED
 
-const textMode = computed(() => {
-  return props.text !== null
-})
-const avatarBgColor = computed(() => {
-  return dark.isActive ? 'dark-4' : 'blue-1'
-})
-const avatarTextColor = computed(() => {
-  return dark.isActive ? 'white' : 'blue-7'
-})
+const textMode = computed(() => props.text !== null)
+
 const indicatorDot = computed(() => {
   if (props.indicator === null) {
     return null
   }
-  return props.indicator === '' ? 'pink' : props.indicator
+  return props.indicator === '' ? 'accent' : props.indicator
 })
 </script>
+
+<style scoped>
+/*
+  34px is the primitives sheet's own measurement, and the glyph inside it is half that -- which is
+  what leaves the plate reading as a frame rather than as a border drawn tight around an icon.
+*/
+.blueprint-icon {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-paper);
+  color: var(--color-slate);
+  font-size: 17px;
+}
+
+:global(body.body--dark) .blueprint-icon {
+  border-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-4);
+  color: var(--color-slate-light);
+}
+
+/* -> A code rather than a glyph: mono, because that is what Cardinal sets every short code in */
+.blueprint-icon__text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+</style>

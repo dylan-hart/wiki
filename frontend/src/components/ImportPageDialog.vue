@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`pages.import.title`)" @hide="onDialogHide">
     <w-card class="import-page-dialog" style="width: 700px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:folder" size="sm" class="me-2" />
         <span>{{ t(`pages.import.title`) }}</span>
       </w-card-section>
 
@@ -13,7 +13,6 @@
             <w-btn
               outline
               color="primary"
-              no-caps
               icon="la:folder-open"
               :label="state.fileName || t(`common.actions.browse`)"
               @click="pickFile" />
@@ -26,7 +25,6 @@
           </div>
           <w-select
             v-model="state.format"
-            outlined
             dense
             :options="formatOptions"
             map-options
@@ -55,7 +53,6 @@
             @click="onDialogCancel" />
           <w-btn
             class="import-convert-btn"
-            unelevated
             color="primary"
             padding="xs md"
             :label="t(`pages.import.convert`)"
@@ -88,7 +85,6 @@
             @click="onDialogCancel" />
           <w-btn
             class="import-confirm-btn"
-            unelevated
             color="primary"
             padding="xs md"
             :label="t(`pages.import.useContent`)"

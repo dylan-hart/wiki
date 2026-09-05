@@ -2,33 +2,29 @@
   <w-page class="admin-analytics">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-bar-chart.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:chart-line" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.analytics.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.analytics.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.analytics.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="refresh">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :loading="state.loading > 0" />
       </div>
@@ -75,7 +71,7 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.analytics.info') }}</w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="shutdown" />
+            <blueprint-icon icon="tabler:power" />
             <w-item-section>
               <w-item-label>{{ t(`admin.analytics.enabled`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.analytics.enabledHint`) }}</w-item-label>

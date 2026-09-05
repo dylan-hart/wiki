@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest'
  * carrying a `text-h5` Tailwind class purely for size, with no real heading element behind it. A
  * screen reader's heading navigation (the H key / rotor) found nothing to land on for the one thing
  * on each admin screen most worth jumping straight to: its title. Fixed by changing the element to
- * `<h1>` and keeping the same classes, so nothing shifts visually.
+ * `<h1>`; the Cardinal re-skin then replaced the repeated utility pair with one named class,
+ * `admin-page-title`, declared in `AdminLayout.vue`'s own stylesheet.
  *
  * This is a source-level regression test in the same style as `_page-contents.test.js`: it reads the
  * raw `.vue` source of every page under `pages/` rather than mounting each component (36 admin
@@ -39,22 +40,31 @@ describe('admin page titles render as <h1>, not a text-h4/text-h5 pseudo-heading
     expect(pageFiles.length).toBeGreaterThanOrEqual(30)
   })
 
-  it('carries no page-title `<div class="text-h4 …">`/`text-h5` under pages/', () => {
+  it('carries no page-title `<div>` sized by a heading class under pages/', () => {
     const offenders = []
     for (const file of pageFiles) {
       const source = readFileSync(join(pagesDir, file), 'utf-8')
-      if (/<div\s+class="text-h[45]\s+text-primary\s+animated\s+fadeInLeft"/.test(source)) {
+      if (
+        /<div\s+class="(?:text-h[45]\s+text-primary|admin-page-title)\s+animated\s+fadeInLeft"/.test(
+          source
+        )
+      ) {
         offenders.push(file)
       }
     }
     expect(offenders).toEqual([])
   })
 
-  it('renders the page title as a real `<h1>` carrying the same typography classes', () => {
+  /*
+    `admin-page-title`, not `text-h5 text-primary`: the Cardinal re-skin gave all 37 of these one
+    named class, declared once in `AdminLayout.vue`'s own stylesheet, rather than a pair of utilities
+    repeated per page. The element is still what this test is about -- a real `<h1>`.
+  */
+  it('renders the page title as a real `<h1>` carrying the shared title class', () => {
     const missing = []
     for (const file of pageFiles) {
       const source = readFileSync(join(pagesDir, file), 'utf-8')
-      if (!/<h1\s+class="text-h5\s+text-primary\s+animated\s+fadeInLeft"/.test(source)) {
+      if (!/<h1\s+class="admin-page-title\s+animated\s+fadeInLeft"/.test(source)) {
         missing.push(file)
       }
     }
@@ -65,7 +75,7 @@ describe('admin page titles render as <h1>, not a text-h4/text-h5 pseudo-heading
     for (const file of pageFiles) {
       const source = readFileSync(join(pagesDir, file), 'utf-8')
       const openCount = (
-        source.match(/<h1\s+class="text-h5\s+text-primary\s+animated\s+fadeInLeft"/g) || []
+        source.match(/<h1\s+class="admin-page-title\s+animated\s+fadeInLeft"/g) || []
       ).length
       const closeCount = (source.match(/<\/h1>/g) || []).length
       expect(closeCount, `${file} should close as many <h1> as it opens`).toBeGreaterThanOrEqual(

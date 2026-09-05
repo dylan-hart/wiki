@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`fileman.folderCreate`)" @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:plus" size="sm" class="me-2" />
         <span>{{ t(`fileman.folderCreate`) }}</span>
       </w-card-section>
       <!--
@@ -12,12 +12,11 @@
       -->
       <w-form ref="newFolderForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="folder" />
+          <blueprint-icon icon="tabler:folder" />
           <w-item-section>
             <w-input
               ref="iptTitle"
               v-model="state.title"
-              outlined
               dense
               :rules="titleValidation"
               hide-bottom-space
@@ -27,11 +26,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="file-submodule" />
+          <blueprint-icon icon="tabler:file-symlink" />
           <w-item-section>
             <w-input
               v-model="state.path"
-              outlined
               dense
               :rules="pathValidation"
               hide-bottom-space
@@ -53,7 +51,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

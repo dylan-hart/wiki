@@ -2,23 +2,19 @@
   <w-page class="admin-navigation">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-tree-structure.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:sitemap" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="admin-page-title animated fadeInLeft">
           {{ t('admin.navigation.title') }}
         </h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.navigation.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex items-center">
         <w-input
           class="denser me-2"
-          outlined
           v-model="state.search"
           dense
           :placeholder="t('admin.navigation.searchPlaceholder')"
@@ -29,7 +25,6 @@
         <w-select
           class="me-2"
           style="min-width: 180px"
-          outlined
           dense
           v-model="state.locale"
           :options="localeOptions"
@@ -92,14 +87,8 @@
             </template>
             <template v-slot:body-cell-locale="props">
               <w-td :props="props" class="cursor-pointer" @click="openEntry(props.row)">
-                <w-chip
-                  class="text-caption"
-                  square
-                  dense
-                  :color="dark.isActive ? `dark-6` : `grey-2`"
-                  :text-color="dark.isActive ? `white` : `grey-8`"
-                  >{{ props.value }}</w-chip
-                >
+                <!-- -> Uncoloured: Cardinal draws a plain chip as a hairline outline, see AdminGroups -->
+                <w-chip class="text-caption" dense>{{ props.value }}</w-chip>
               </w-td>
             </template>
             <template v-slot:body-cell-mode="props">
@@ -126,7 +115,7 @@
         `AdminAuditLog.vue`'s retention card (OpenProject #2089/#2574).
       -->
       <div class="col-span-12">
-        <w-card class="rounded" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
+        <w-card class="rounded" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
           <w-card-section>
             <div class="text-subtitle1">{{ t('admin.navigation.pathDisplayTitle') }}</div>
             <div class="text-caption text-grey mb-2">
@@ -135,7 +124,6 @@
             <div class="flex items-center gap-3">
               <div style="width: 220px">
                 <w-select
-                  outlined
                   dense
                   v-model="state.pathDisplayCase"
                   :options="pathDisplayCaseOptions"

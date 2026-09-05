@@ -53,19 +53,43 @@ describe('WToggle', () => {
     expect(wrapper.find('.w-toggle__knob').exists()).toBe(true)
   })
 
+  /*
+    Cardinal puts the knob at one END of the track with flexbox rather than translating it across --
+    which is what makes the two ends stay put whatever the track's width or the knob's size is,
+    where the four hand-picked translate distances this replaces had to be re-derived for every
+    combination of the two.
+  */
   it.each([
-    { dense: false, modelValue: false, expected: 'translate-x-0.5' },
-    { dense: false, modelValue: true, expected: 'translate-x-6.5' },
-    { dense: true, modelValue: false, expected: 'translate-x-0.5' },
-    { dense: true, modelValue: true, expected: 'translate-x-5.5' }
+    { dense: false, modelValue: false, expected: 'justify-start' },
+    { dense: false, modelValue: true, expected: 'justify-end' },
+    { dense: true, modelValue: false, expected: 'justify-start' },
+    { dense: true, modelValue: true, expected: 'justify-end' }
   ])(
-    'offsets the knob by $expected when dense=$dense modelValue=$modelValue',
+    'sits the knob at $expected when dense=$dense modelValue=$modelValue',
     ({ dense, modelValue, expected }) => {
       const wrapper = mount(WToggle, { props: { modelValue, ariaLabel: 'Feature', dense } })
 
-      expect(wrapper.find('.w-toggle__knob').classes()).toContain(expected)
+      expect(wrapper.find('.w-toggle__track').classes()).toContain(expected)
     }
   )
+
+  it.each([
+    { dense: false, expected: 'size-3.5' },
+    { dense: true, expected: 'size-3' }
+  ])('sizes the knob $expected when dense=$dense', ({ dense, expected }) => {
+    const wrapper = mount(WToggle, { props: { modelValue: true, ariaLabel: 'Feature', dense } })
+
+    expect(wrapper.find('.w-toggle__knob').classes()).toContain(expected)
+  })
+
+  it('fills the track in the accent when on, and leaves it a hairline box when off', () => {
+    const on = mount(WToggle, { props: { modelValue: true, ariaLabel: 'Feature' } })
+    const off = mount(WToggle, { props: { modelValue: false, ariaLabel: 'Feature' } })
+
+    expect(on.find('.w-toggle__track').classes()).toContain('w-toggle__track--on')
+    expect(off.find('.w-toggle__track').classes()).not.toContain('w-toggle__track--on')
+    expect(off.find('.w-toggle__track').classes()).toContain('border-slate-pale')
+  })
 
   it('does not centre the knob rest position on the track', () => {
     const wrapper = mount(WToggle, { props: { modelValue: false, ariaLabel: 'Feature' } })

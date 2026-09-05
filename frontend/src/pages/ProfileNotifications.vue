@@ -24,7 +24,6 @@
     <div class="actions-bar mt-6">
       <w-btn
         icon="mdi:check"
-        unelevated
         :label="t(`common.actions.saveChanges`)"
         color="secondary"
         :disabled="state.loading > 0"

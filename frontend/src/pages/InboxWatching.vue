@@ -123,7 +123,6 @@
                     <w-card-header>{{ t('inbox.watchingPreferences') }}</w-card-header>
                     <div class="px-4 pb-2" v-if="state.editingPreference">
                       <w-select
-                        outlined
                         dense
                         class="mb-3"
                         :label="t('inbox.watchingPreferencesMode')"
@@ -151,7 +150,6 @@
                         :label="t('common.actions.cancel')"
                         @click="closePreferenceMenu(page)" />
                       <w-btn
-                        unelevated
                         color="primary"
                         :label="t('common.actions.save')"
                         :loading="state.savingPreferenceFor === page.pageId"

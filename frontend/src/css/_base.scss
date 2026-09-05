@@ -47,37 +47,63 @@ body::-webkit-scrollbar-thumb {
 // ------------------------------------------------------------------
 // THEME COLORS
 // ------------------------------------------------------------------
+//
+// -> Cardinal chrome: a white header band and the cooler of the two tints for the sidebar, both
+//    drawing their contents in ink. See `css/tailwind.css`'s `:root` for the whole set.
 
 :root {
-  --q-header: #000;
-  --q-sidebar: #1976d2;
+  --q-header: #fff;
+  --q-sidebar: #f0f2f7;
 }
 
 .header,
 .bg-header {
-  background: #000;
+  background: #fff;
   background: var(--q-header);
 }
 .sidebar,
 .bg-sidebar {
-  background: #1976d2;
+  background: #f0f2f7;
   background: var(--q-sidebar);
 }
 
+// In dark mode the chrome takes the RAMP rather than the site's own colour.
+//
+// `--q-header` / `--q-sidebar` are one value each, chosen by a site administrator and checked (in
+// `AdminTheme.vue`) against the ink the chrome draws its contents in -- which is a light-theme
+// question. There is no second setting for what that colour should become on ink, and an arbitrary
+// saturated colour cannot be trusted to hold its contrast against the dark palette's foregrounds:
+// the same reasoning `--color-primary-light` already uses for the brand blue.
+//
+// So dark mode is the language's own, not the site's: panel for the header band, the recessed tone
+// for the sidebar beside it. Stated at `body.body--dark .x` -- two classes, so it beats the single
+// class above without `!important`.
+body.body--dark {
+  .header,
+  .bg-header {
+    background: theme.$dark-3;
+  }
+
+  .sidebar,
+  .bg-sidebar {
+    background: theme.$dark-4;
+  }
+}
+
 .bg-dark-6 {
-  background-color: #070a0d;
+  background-color: #0f1219;
 }
 .bg-dark-5 {
-  background-color: #0d1117;
+  background-color: #14171f;
 }
 .bg-dark-4 {
-  background-color: #161b22;
+  background-color: #171b24;
 }
 .bg-dark-3 {
-  background-color: #1e232a;
+  background-color: #1b1f2a;
 }
 .bg-dark-2 {
-  background-color: #292f39;
+  background-color: #242b3a;
 }
 
 // ------------------------------------------------------------------
@@ -100,7 +126,9 @@ body::-webkit-scrollbar-thumb {
 }
 
 // A button that sits IN a corner of the viewport rather than floating near it: square on the two edges
-// it is flush against, and still fully round on the one corner that faces the page.
+// it is flush against, and still fully round on the one corner that faces the page -- the one place
+// Cardinal keeps a curve, because the curve is what says "this reaches into the page from off-screen"
+// rather than "this is a control sitting on the page".
 //
 // `round` stays on the button, because that is what gives it its 3em square box and drops its padding --
 // only the radius is restated here. Unlayered (this file is plain CSS, not a Tailwind layer), which is
@@ -145,46 +173,25 @@ body::-webkit-scrollbar-thumb {
 
 // The site header's five icon buttons (new page / file manager / inbox / admin / account, in
 // `HeaderNav.vue` and `AccountMenu.vue`) -- a toolbar band, not a floating action, so the small
-// circular hit area `round` gives every other icon button reads wrong here: too little of the 64px
-// band actually lights up on hover, and what does is too faint against the header's dark background.
+// circular hit area `round` gives every other icon button reads wrong here.
 //
 // The caller drops `round` (and the now-inert `dense`, since both of its effects are overridden
-// below anyway) and keeps just `flat`. Squared off to a true 64x64 -- matching `min-height` with an
-// explicit `width` -- and with WBtn's default `rounded-[3px]` zeroed out entirely, so the four
-// corners read flush against the header band and against each other rather than as a pill floating
-// in a taller box. `min-height` and `padding` need `!important` because WBtn sets them as inline
-// styles (a JS-computed `style` binding beats any class regardless of layer); see
-// `EditorMarkdown.vue`'s own toolbar for the same fight against the same two properties. `width` and
-// `border-radius` don't strictly need it (WBtn sets neither), but carry it anyway for consistency
-// with the rest of this rule.
+// below anyway) and keeps just `flat`. Squared off to 40x40 with a 6px gap between them, which is
+// the design's own spacing: the full-height 64x64 squares this replaces made sense against a solid
+// dark bar, where each button's hover fill needed to read as a segment OF the bar -- on Cardinal's
+// white plate they read as five tall panels stamped into it instead.
+//
+// `min-height` and `padding` need `!important` because WBtn sets them as inline styles (a
+// JS-computed `style` binding beats any class regardless of layer); see `EditorMarkdown.vue`'s own
+// toolbar for the same fight against the same two properties. `width` and `border-radius` don't
+// strictly need it (WBtn sets neither), but carry it anyway for consistency with the rest of this
+// rule.
 .w-btn.header-nav-btn {
-  min-height: 64px !important;
-  width: 64px !important;
-  padding: 0 16px !important;
+  min-height: 40px !important;
+  width: 40px !important;
+  padding: 0 !important;
   border-radius: 0 !important;
-  // Replaces the `ml-4` utility the five buttons used to carry individually: that put a gap
-  // between every pair, not just before the first one, so it is expressed here instead as a
-  // margin on each button that a following header-nav-btn immediately cancels (below) -- flush
-  // against its neighbor, but still separated from whatever non-header-nav-btn control (the
-  // search toggle) precedes the group.
-  margin-inline-start: 16px !important;
-}
-
-// Zeroes the margin above wherever two header-nav-btn buttons are adjacent, so only the first
-// button rendered in the group (whichever one that is, since some are conditional on
-// permissions) keeps the separation from the search toggle button before it.
-.w-btn.header-nav-btn + .w-btn.header-nav-btn {
-  margin-inline-start: 0 !important;
-}
-
-// The admin toolbar's EXIT and locale-switcher buttons (`AdminLayout.vue`, task 822) carry a text
-// label beside their icon, unlike the site header's five icon-only buttons the base rule above was
-// sized for -- a fixed 64px width would clip the label. This modifier keeps everything else the
-// base rule gives them (the 64px band, squared corners, the 20% hover fill, the flush-against-
-// neighbor margin) but lets width and padding size to content instead of forcing a square.
-.w-btn.header-nav-btn.header-nav-btn--auto-width {
-  width: auto !important;
-  padding: 0 16px !important;
+  margin-inline-start: 6px !important;
 }
 
 // Unlayered (this file is plain CSS, not a Tailwind layer), so the hover fill beats the
@@ -193,25 +200,7 @@ body::-webkit-scrollbar-thumb {
 // doesn't leave the fill stuck on afterwards.
 @media (hover: hover) {
   .w-btn.header-nav-btn:hover {
-    background-color: color-mix(in srgb, currentcolor 20%, transparent);
-  }
-
-  // The account button dims its own icon to 60% white (`.account-avbtn` below) rather than taking a
-  // `color` prop, so mixing off `currentcolor` at the same 20% as the other four nets a fill only
-  // ~12% opaque (0.6 x 20%) -- raised here so all five read as equally visible on hover, not just the
-  // four with an opaque color.
-  .w-btn.account-avbtn.header-nav-btn:hover {
-    background-color: color-mix(in srgb, currentcolor 34%, transparent);
-  }
-}
-
-// ------------------------------------------------------------------
-// ICONS
-// ------------------------------------------------------------------
-
-.blueprint-icon {
-  &-alt {
-    filter: hue-rotate(100);
+    background-color: color-mix(in srgb, currentcolor 16%, transparent);
   }
 }
 
@@ -219,63 +208,47 @@ body::-webkit-scrollbar-thumb {
 // DIALOGS
 // ------------------------------------------------------------------
 
+// A dialog's own title band: the raised tone, in tracked uppercase Barlow Condensed. Flat -- the
+// radial gradient and the pair of edge shadows this replaces were elevation, which Cardinal draws
+// with a hairline instead.
 .card-header {
   display: flex;
   align-items: center;
-  font-weight: 500;
-  font-size: 0.9rem;
-  background-color: theme.$dark-3;
-  background-image: radial-gradient(at bottom right, theme.$dark-3, theme.$dark-5);
+  padding: 10px 14px;
+  background-color: theme.$dark-2;
   color: #fff;
-
-  @at-root .body--light & {
-    border-bottom: 1px solid theme.$dark-3;
-    box-shadow: 0 1px 0 0 theme.$dark-6;
-  }
-  @at-root .body--dark & {
-    border-bottom: 1px solid #000;
-    box-shadow: 0 1px 0 0 color.adjust(theme.$dark-3, $lightness: 2%);
-  }
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid theme.$hairline-dark;
 }
 
+// The same band in the accent, for a dialog whose whole subject is a refusal or a destructive act.
 .card-negative {
   display: flex;
   align-items: center;
-  font-size: 0.9rem;
-
-  @at-root .body--light & {
-    background-color: palette.$red-1;
-    background-image: radial-gradient(
-      at bottom center,
-      color.adjust(palette.$red-1, $lightness: 2%),
-      color.adjust(palette.$red-2, $lightness: 2%)
-    );
-    border-bottom: 1px solid palette.$red-3;
-    text-shadow: 0 0 4px #fff;
-    color: palette.$red-9;
-  }
-  @at-root .body--dark & {
-    background-color: palette.$red-9;
-    background-image: radial-gradient(at bottom center, palette.$red-7, palette.$red-9);
-    border-bottom: 1px solid palette.$red-7;
-    text-shadow: 0 0 4px color.adjust(palette.$red-9, $lightness: -10%);
-    color: #fff;
-  }
+  padding: 10px 14px;
+  background-color: theme.$negative;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
+// A dialog's action bar. `WCardActions` already rules it off from the body; all this adds is the
+// ground, which is the page tint rather than the card's own white so the bar reads as a footer.
 .card-actions {
   @at-root .body--light & {
-    background-color: #fafafa;
-    background-image: linear-gradient(to bottom, #fcfcfc, #f0f0f0);
-    color: theme.$dark-3;
-    border-top: 1px solid #eee;
-    box-shadow: inset 0 1px 0 0 #fff;
+    background-color: theme.$paper;
+    color: theme.$text-secondary;
   }
   @at-root .body--dark & {
-    background-color: theme.$dark-3;
-    background-image: radial-gradient(at top left, theme.$dark-3, theme.$dark-5);
-    border-top: 1px solid #000;
-    box-shadow: 0 -1px 0 0 color.adjust(theme.$dark-3, $lightness: 2%);
+    background-color: theme.$dark-4;
+    color: theme.$text-secondary-dark;
   }
 }
 

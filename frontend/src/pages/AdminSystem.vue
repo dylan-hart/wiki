@@ -2,33 +2,30 @@
   <w-page class="admin-system">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-processor.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:cpu" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.system.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.system.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.system.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/system`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
@@ -53,7 +50,7 @@
         <w-card class="pb-2">
           <w-card-header>Wiki.js</w-card-header>
           <w-item>
-            <blueprint-icon icon="breakable" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:alert-triangle" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.currentVersion') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.currentVersionHint') }}</w-item-label>
@@ -66,7 +63,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="cloud-checked" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:cloud-check" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.latestVersion') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.latestVersionHint') }}</w-item-label>
@@ -90,8 +87,7 @@
           <w-separator inset />
           <w-item>
             <blueprint-icon
-              icon="heart-outline"
-              :hue-rotate="-45"
+              icon="tabler:heart"
               :indicator="state.info.isSchedulerHealthy ? 'positive' : 'negative'"
               :indicator-text="
                 state.info.isSchedulerHealthy
@@ -112,7 +108,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="automation" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:automatic-gearbox" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.upgradeCapable') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.upgradeCapableHint') }}</w-item-label>
@@ -132,7 +128,7 @@
         <w-card class="mt-4 pb-2">
           <w-card-header>{{ t('admin.system.client') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="navigation-toolbar-top" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:layout-navbar" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.browser') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.browserHint') }}</w-item-label>
@@ -143,7 +139,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="computer" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:device-desktop" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.clientPlatform') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.clientPlatformHint') }}</w-item-label>
@@ -154,7 +150,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="translation" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:language" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.clientLanguage') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.clientLanguageHint') }}</w-item-label>
@@ -165,7 +161,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="cookies" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:cookie" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.clientCookies') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.clientCookiesHint') }}</w-item-label>
@@ -176,7 +172,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="widescreen" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:aspect-ratio" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.clientViewport') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.clientViewportHint') }}</w-item-label>
@@ -194,7 +190,7 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.system.engines') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="nodejs" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:brand-nodejs" />
             <w-item-section>
               <w-item-label>Node.js</w-item-label>
               <w-item-label caption>{{ t('admin.system.nodejsHint') }}</w-item-label>
@@ -205,7 +201,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="postgresql" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:database" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.database') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.databaseHint') }}</w-item-label>
@@ -216,7 +212,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="database" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:database" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.databaseHost') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.databaseHostHint') }}</w-item-label>
@@ -232,7 +228,7 @@
         <w-card class="mt-4 pb-2">
           <w-card-header>{{ t('admin.system.hostInfo') }}</w-card-header>
           <w-item>
-            <blueprint-icon :icon="platformLogo" :hue-rotate="-45" />
+            <blueprint-icon :icon="platformLogo" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.os') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.osHint') }}</w-item-label>
@@ -247,7 +243,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="server" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:server" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.hostname') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.hostnameHint') }}</w-item-label>
@@ -258,7 +254,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="processor" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:cpu" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.cpuCores') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.cpuCoresHint') }}</w-item-label>
@@ -269,7 +265,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="memory-slot" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:device-sd-card" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.totalRAM') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.totalRAMHint') }}</w-item-label>
@@ -280,7 +276,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="program" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:app-window" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.workingDirectory') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.workingDirectoryHint') }}</w-item-label>
@@ -293,7 +289,7 @@
           </w-item>
           <w-separator inset />
           <w-item>
-            <blueprint-icon icon="automation" :hue-rotate="-45" />
+            <blueprint-icon icon="tabler:automatic-gearbox" />
             <w-item-section>
               <w-item-label>{{ t('admin.system.configFile') }}</w-item-label>
               <w-item-label caption>{{ t('admin.system.configFileHint') }}</w-item-label>

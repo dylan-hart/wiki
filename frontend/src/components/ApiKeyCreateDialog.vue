@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.api.newKeyTitle`)" @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:plus" size="sm" class="me-2" />
         <span>{{ t(`admin.api.newKeyTitle`) }}</span>
       </w-card-section>
       <!--
@@ -14,12 +14,11 @@
       -->
       <w-form ref="createKeyForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="grand-master-key" />
+          <blueprint-icon icon="tabler:key" />
           <w-item-section>
             <w-input
               ref="iptName"
               v-model="state.keyName"
-              outlined
               dense
               :rules="keyNameValidation"
               hide-bottom-space
@@ -29,7 +28,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="schedule" />
+          <blueprint-icon icon="tabler:calendar-time" />
           <w-item-section>
             <!--
               Single-select: a key has one lifetime. It was declared `multiple` against a string
@@ -37,7 +36,6 @@
             -->
             <w-select
               v-model="state.keyExpiration"
-              outlined
               :options="expirations"
               map-options
               option-value="value"
@@ -51,7 +49,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="home" />
+          <blueprint-icon icon="tabler:home" />
           <w-item-section>
             <!--
               Single-select, same reasoning as expiration above: a key is pinned to one site or none.
@@ -60,7 +58,6 @@
             -->
             <w-select
               v-model="state.keySiteId"
-              outlined
               :options="siteOptions"
               map-options
               option-value="id"
@@ -75,11 +72,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="access" />
+          <blueprint-icon icon="tabler:shield-lock" />
           <w-item-section>
             <w-select
               v-model="state.keyGroups"
-              outlined
               :options="state.groups"
               multiple
               map-options
@@ -115,7 +111,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="lock" />
+          <blueprint-icon icon="tabler:lock" />
           <w-item-section>
             <!--
               Left empty, a key carries the full union of its groups' permissions -- exactly what
@@ -133,7 +129,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="secure" />
+          <blueprint-icon icon="tabler:shield-check" />
           <w-item-section>
             <!--
               OpenProject #1205: a checkbox grid replacing the earlier #1055 single-select "ceiling" --
@@ -171,7 +167,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

@@ -2,14 +2,11 @@
   <w-page class="admin-terminal">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-bot-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:robot" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.scheduler.subtitle') }}
         </div>
       </div>
@@ -17,8 +14,6 @@
         <w-btn-toggle
           class="me-4"
           v-model="state.displayMode"
-          push
-          no-caps
           :disabled="state.loading > 0"
           :toggle-color="dark.isActive ? `white` : `black`"
           :toggle-text-color="dark.isActive ? `black` : `white`"
@@ -34,10 +29,10 @@
           ]" />
         <w-separator class="me-4" vertical />
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
@@ -92,14 +87,14 @@
             </template>
             <template v-slot:body-cell-cron="props">
               <w-td :props="props">
-                <w-chip square size="md" color="blue" text-color="white">
+                <w-chip size="md" color="blue" text-color="white">
                   <span class="font-robotomono">{{ props.value }}</span>
                 </w-chip>
               </w-td>
             </template>
             <template v-slot:body-cell-type="props">
               <w-td :props="props">
-                <w-chip square size="md" dense color="deep-orange" text-color="white">
+                <w-chip size="md" dense color="deep-orange" text-color="white">
                   <small class="uppercase">{{ props.value }}</small>
                 </w-chip>
               </w-td>
@@ -309,7 +304,7 @@
                     class="shrink-0 transition-transform"
                     :class="props.row.groupExpanded ? '' : '-rotate-90'" />
                   <strong>{{ props.value }}</strong>
-                  <w-chip square dense size="xs" color="grey-8" text-color="white">
+                  <w-chip dense size="xs" color="grey-8" text-color="white">
                     {{
                       t(
                         'admin.scheduler.groupRuns',

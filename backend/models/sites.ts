@@ -111,11 +111,11 @@ const DEFAULT_SITE_EDITORS = {
  * darker with.
  */
 export const DEFAULT_THEME_COLORS = {
-  colorPrimary: '#1976D2',
-  colorSecondary: '#018569',
-  colorAccent: '#E81221',
-  colorHeader: '#000000',
-  colorSidebar: '#1976D2'
+  colorPrimary: '#c14a52',
+  colorSecondary: '#3f7a66',
+  colorAccent: '#c14a52',
+  colorHeader: '#ffffff',
+  colorSidebar: '#f0f2f7'
 }
 
 /**
@@ -250,8 +250,8 @@ class Sites extends ClusterReloaded {
               sidebarPosition: 'left',
               tocPosition: 'right',
               showPrintBtn: true,
-              baseFont: 'roboto',
-              contentFont: 'roboto'
+              baseFont: 'barlow',
+              contentFont: 'barlow'
             },
             editors: DEFAULT_SITE_EDITORS,
             uploads: {
@@ -618,8 +618,8 @@ class Sites extends ClusterReloaded {
           sidebarPosition: 'left',
           tocPosition: 'right',
           showPrintBtn: true,
-          baseFont: 'roboto',
-          contentFont: 'roboto'
+          baseFont: 'barlow',
+          contentFont: 'barlow'
         },
         uploads: {
           conflictBehavior: 'overwrite'

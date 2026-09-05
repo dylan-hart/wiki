@@ -5,17 +5,16 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:list-search" size="sm" class="me-2" />
         <span>{{ isEdit ? t('admin.glossary.editTerm') : t('admin.glossary.newTerm') }}</span>
       </w-card-section>
       <w-form ref="termForm" class="py-2" @submit="save">
         <w-item>
-          <blueprint-icon icon="rename" />
+          <blueprint-icon icon="tabler:cursor-text" />
           <w-item-section>
             <w-input
               ref="iptTerm"
               v-model="state.term"
-              outlined
               dense
               required
               :rules="termValidation"
@@ -32,12 +31,11 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="quote-left" />
+          <blueprint-icon icon="tabler:quote" />
           <w-item-section>
             <w-input
               v-model="state.definition"
               type="textarea"
-              outlined
               dense
               required
               rows="3"
@@ -49,13 +47,12 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="matches" />
+          <blueprint-icon icon="tabler:flame" />
           <w-item-section>
             <div class="flex flex-wrap gap-1 mb-2" v-if="state.aliases.length > 0">
               <w-chip
                 v-for="alias of state.aliases"
                 :key="alias.value"
-                square
                 dense
                 clickable
                 removable
@@ -72,7 +69,6 @@
             </div>
             <w-input
               v-model="state.aliasInput"
-              outlined
               dense
               hide-bottom-space
               :label="t(`admin.glossary.aliases`)"
@@ -95,11 +91,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="link" />
+          <blueprint-icon icon="tabler:link" />
           <w-item-section>
             <w-input
               v-model="state.path"
-              outlined
               dense
               hide-bottom-space
               :label="t(`admin.glossary.canonicalPage`)"
@@ -132,7 +127,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="isEdit ? t(`common.actions.save`) : t(`common.actions.create`)"
           color="primary"
           padding="xs md"

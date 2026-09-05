@@ -97,8 +97,8 @@ describe('AdminGeneral — Sharp availability indicator', () => {
     ])
 
     const icons = wrapper.findAllComponents(BlueprintIcon)
-    const logoIcon = icons.find((c) => c.props('icon') === 'butterfly')
-    const faviconIcon = icons.find((c) => c.props('icon') === 'starfish')
+    const logoIcon = icons.find((c) => c.props('icon') === 'tabler:photo')
+    const faviconIcon = icons.find((c) => c.props('icon') === 'tabler:browser')
 
     expect(logoIcon.props('indicator')).toBe(null)
     expect(faviconIcon.props('indicator')).toBe(null)
@@ -111,8 +111,8 @@ describe('AdminGeneral — Sharp availability indicator', () => {
     ])
 
     const icons = wrapper.findAllComponents(BlueprintIcon)
-    const logoIcon = icons.find((c) => c.props('icon') === 'butterfly')
-    const faviconIcon = icons.find((c) => c.props('icon') === 'starfish')
+    const logoIcon = icons.find((c) => c.props('icon') === 'tabler:photo')
+    const faviconIcon = icons.find((c) => c.props('icon') === 'tabler:browser')
 
     expect(logoIcon.props('indicator')).toBe('')
     expect(faviconIcon.props('indicator')).toBe('')
@@ -123,7 +123,7 @@ describe('AdminGeneral — Sharp availability indicator', () => {
     const wrapper = await mountPage([])
 
     const icons = wrapper.findAllComponents(BlueprintIcon)
-    const logoIcon = icons.find((c) => c.props('icon') === 'butterfly')
+    const logoIcon = icons.find((c) => c.props('icon') === 'tabler:photo')
 
     expect(logoIcon.props('indicator')).toBe('')
   })

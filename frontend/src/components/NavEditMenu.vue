@@ -1,7 +1,7 @@
 <template>
   <w-card style="min-width: 350px">
     <w-card-section class="card-header">
-      <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="sm" />
+      <w-icon name="tabler:layout-sidebar" left size="sm" />
       <span>{{ t(`navEdit.title`) }}</span>
     </w-card-section>
     <w-list padding>
@@ -89,7 +89,6 @@
       <w-card-section>
         <w-btn
           class="w-full"
-          unelevated
           icon="mdi:playlist-edit"
           color="deep-orange-9"
           :label="t(`navEdit.editMenuItems`)"
@@ -106,7 +105,6 @@
         padding="xs md"
         @click="props.menuHideHandler" />
       <w-btn
-        unelevated
         :label="t(`common.actions.save`)"
         color="positive"
         padding="xs md"

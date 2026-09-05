@@ -5,14 +5,13 @@
     @hide="onDialogHide">
     <w-card class="user-search-dialog" style="width: 600px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-account.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:user" size="sm" class="me-2" />
         <span>{{ props.title || t('admin.users.selectUsers') }}</span>
       </w-card-section>
       <w-card-section class="py-2">
         <w-input
           ref="iptSearch"
           v-model="state.search"
-          outlined
           dense
           :placeholder="t(`admin.users.searchUsers`)"
           :aria-label="t(`admin.users.searchUsers`)"
@@ -97,7 +96,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.select`)"
           color="primary"
           padding="xs md"

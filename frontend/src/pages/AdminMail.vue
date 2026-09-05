@@ -2,43 +2,39 @@
   <w-page class="admin-mail">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-message-settings-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:mail" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.mail.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.mail.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.mail.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/mail`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :disabled="state.loading > 0" />
       </div>
@@ -52,14 +48,13 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.mail.configuration') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="contact" />
+            <blueprint-icon icon="tabler:address-book" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.senderName`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.senderNameHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.senderName"
                 dense
                 hide-bottom-space
@@ -68,14 +63,13 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="envelope" />
+            <blueprint-icon icon="tabler:mail" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.senderEmail`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.senderEmailHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.senderEmail"
                 dense
                 :aria-label="t(`admin.mail.senderEmail`)" />
@@ -83,14 +77,13 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="dns" />
+            <blueprint-icon icon="tabler:world-www" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.defaultBaseURL`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.defaultBaseURLHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.defaultBaseURL"
                 dense
                 :aria-label="t(`admin.mail.defaultBaseURL`)" />
@@ -103,14 +96,13 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.mail.smtp') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="dns" />
+            <blueprint-icon icon="tabler:world-www" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.smtpHost`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.smtpHostHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.host"
                 dense
                 hide-bottom-space
@@ -119,22 +111,18 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="ethernet-off" />
+            <blueprint-icon icon="tabler:network-off" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.smtpPort`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.smtpPortHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section style="flex: 0 0 120px">
-              <w-input
-                outlined
-                v-model="state.config.port"
-                dense
-                :aria-label="t(`admin.mail.smtpPort`)" />
+              <w-input v-model="state.config.port" dense :aria-label="t(`admin.mail.smtpPort`)" />
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="secure" />
+            <blueprint-icon icon="tabler:shield-check" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.smtpTLS`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.smtpTLSHint`) }}</w-item-label>
@@ -145,7 +133,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="security-ssl" />
+            <blueprint-icon icon="tabler:certificate" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.smtpVerifySSL`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.smtpVerifySSLHint`) }}</w-item-label>
@@ -158,44 +146,35 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="test-account" />
+            <blueprint-icon icon="tabler:user-check" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.smtpUser`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.smtpUserHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
-              <w-input
-                outlined
-                v-model="state.config.user"
-                dense
-                :aria-label="t(`admin.mail.smtpUser`)" />
+              <w-input v-model="state.config.user" dense :aria-label="t(`admin.mail.smtpUser`)" />
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="password" />
+            <blueprint-icon icon="tabler:password" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.smtpPwd`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.smtpPwdHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
-              <w-input
-                outlined
-                v-model="state.config.pass"
-                dense
-                :aria-label="t(`admin.mail.smtpPwd`)" />
+              <w-input v-model="state.config.pass" dense :aria-label="t(`admin.mail.smtpPwd`)" />
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="server" />
+            <blueprint-icon icon="tabler:server" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.smtpName`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.smtpNameHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.name"
                 dense
                 hide-bottom-space
@@ -210,7 +189,7 @@
           <w-card-header>{{ t('admin.mail.dkim') }}</w-card-header>
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-info text-white rounded" flat>
+              <w-card class="bg-info text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:info-circle" size="lg" />
@@ -223,7 +202,7 @@
             </w-item-section>
           </w-item>
           <w-item tag="label">
-            <blueprint-icon icon="received" />
+            <blueprint-icon icon="tabler:inbox" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.dkimUse`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.dkimUseHint`) }}</w-item-label>
@@ -235,14 +214,13 @@
           <template v-if="state.config.useDKIM">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="dns" />
+              <blueprint-icon icon="tabler:world-www" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.mail.dkimDomainName`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.mail.dkimDomainNameHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.dkimDomainName"
                   dense
                   :aria-label="t(`admin.mail.dkimDomainName`)" />
@@ -250,14 +228,13 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="access" />
+              <blueprint-icon icon="tabler:shield-lock" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.mail.dkimKeySelector`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.mail.dkimKeySelectorHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.dkimKeySelector"
                   dense
                   :aria-label="t(`admin.mail.dkimKeySelector`)" />
@@ -265,14 +242,13 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="grand-master-key" />
+              <blueprint-icon icon="tabler:key" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.mail.dkimPrivateKey`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.mail.dkimPrivateKeyHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.dkimPrivateKey"
                   dense
                   :aria-label="t(`admin.mail.dkimPrivateKey`)"
@@ -289,13 +265,12 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.mail.test') }}</w-card-header>
           <w-item>
-            <blueprint-icon class="self-start" icon="email" />
+            <blueprint-icon class="self-start" icon="tabler:mail" />
             <w-item-section>
               <w-item-label>{{ t(`admin.mail.testRecipient`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.mail.testRecipientHint`) }}</w-item-label>
               <w-input
                 class="mt-4"
-                outlined
                 v-model="state.testEmail"
                 dense
                 :aria-label="t(`admin.mail.testRecipient`)" />
@@ -303,7 +278,6 @@
           </w-item>
           <div class="flex justify-end pe-4 py-2">
             <w-btn
-              unelevated
               color="primary"
               icon="la:paper-plane"
               :label="t(`admin.mail.testSend`)"

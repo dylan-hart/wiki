@@ -2,16 +2,13 @@
   <w-page class="admin-classification">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-tag.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:stack-2" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="admin-page-title animated fadeInLeft">
           {{ t('admin.classification.title') }}
         </h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.classification.subtitle') }}
         </div>
       </div>
@@ -27,7 +24,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.classification.new`)"
           color="primary"
@@ -69,7 +65,6 @@
                   :ref="(el) => (renameInput = el)"
                   v-model="state.editingName"
                   dense
-                  outlined
                   :aria-label="t('common.field.name')"
                   @keyup.enter="commitRename(level)"
                   @blur="commitRename(level)" />
@@ -130,11 +125,7 @@
                 <w-item-label>{{ row.name }}</w-item-label>
               </w-item-section>
               <w-item-section side>
-                <w-chip
-                  dense
-                  square
-                  :color="row.count > 0 ? `primary` : `grey-5`"
-                  text-color="white">
+                <w-chip dense :color="row.count > 0 ? `primary` : `grey-5`" text-color="white">
                   {{ row.count }}
                 </w-chip>
               </w-item-section>

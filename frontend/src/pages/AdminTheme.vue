@@ -2,43 +2,39 @@
   <w-page class="admin-theme">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-paint-roller-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:layout-navbar" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.theme.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.theme.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.theme.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/theme`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :loading="state.loading > 0" />
       </div>
@@ -64,7 +60,7 @@
             </template>
           </w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="light-on" />
+            <blueprint-icon icon="tabler:bulb" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.darkMode`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.darkModeHint`) }}</w-item-label>
@@ -79,7 +75,7 @@
           <template v-for="cl of colorKeys" :key="cl">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="fill-color" />
+              <blueprint-icon icon="tabler:color-swatch" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.theme.` + cl + `Color`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.theme.` + cl + `ColorHint`) }}</w-item-label>
@@ -113,9 +109,7 @@
                 <w-btn
                   class="me-2"
                   :key="`btnpick-` + cl"
-                  glossy
                   padding="xs md"
-                  no-caps
                   size="sm"
                   :style="`background-color: ` + state.config[`color` + startCase(cl)] + `;`"
                   text-color="white">
@@ -147,14 +141,13 @@
             </template>
           </w-card-header>
           <w-item>
-            <blueprint-icon icon="code" />
+            <blueprint-icon icon="tabler:code" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.codeBlocksAppearance`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.codeBlocksAppearanceHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.codeBlocksTheme"
                 :options="codeThemes"
                 emit-value
@@ -172,7 +165,7 @@
           <w-card-header>{{ t('admin.theme.layout') }}</w-card-header>
           <template v-if="flagStore.experimental">
             <w-item>
-              <blueprint-icon icon="width" />
+              <blueprint-icon icon="tabler:arrows-horizontal" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.theme.contentWidth`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.theme.contentWidthHint`) }}</w-item-label>
@@ -180,9 +173,6 @@
               <w-item-section class="flex-none">
                 <w-btn-toggle
                   v-model="state.config.contentWidth"
-                  push
-                  glossy
-                  no-caps
                   toggle-color="primary"
                   :aria-label="t(`admin.theme.contentWidth`)"
                   :options="widthOptions" />
@@ -191,7 +181,7 @@
             <w-separator class="my-2" inset />
           </template>
           <w-item>
-            <blueprint-icon icon="right-navigation-toolbar" />
+            <blueprint-icon icon="tabler:layout-sidebar-right" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.sidebarPosition`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.sidebarPositionHint`) }}</w-item-label>
@@ -199,9 +189,6 @@
             <w-item-section class="flex-none">
               <w-btn-toggle
                 v-model="state.config.sidebarPosition"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`admin.theme.sidebarPosition`)"
                 :options="rightLeftOptions" />
@@ -209,7 +196,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="index" />
+            <blueprint-icon icon="tabler:list" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.tocPosition`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.tocPositionHint`) }}</w-item-label>
@@ -217,9 +204,6 @@
             <w-item-section class="flex-none">
               <w-btn-toggle
                 v-model="state.config.tocPosition"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`admin.theme.tocPosition`)"
                 :options="rightLeftOptions" />
@@ -227,7 +211,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="print" />
+            <blueprint-icon icon="tabler:printer" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.showPrintBtn`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.showPrintBtnHint`) }}</w-item-label>
@@ -260,14 +244,13 @@
             </template>
           </w-card-header>
           <w-item>
-            <blueprint-icon icon="fonts-app" />
+            <blueprint-icon icon="tabler:typography" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.baseFont`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.baseFontHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.baseFont"
                 :options="fonts"
                 emit-value
@@ -277,14 +260,13 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="fonts-app" />
+            <blueprint-icon icon="tabler:typography" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.contentFont`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.contentFontHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.contentFont"
                 :options="fonts"
                 emit-value
@@ -300,7 +282,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.theme.codeInjection') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="css" />
+            <blueprint-icon icon="tabler:brand-css3" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.cssOverride`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.cssOverrideHint`) }}</w-item-label>
@@ -316,7 +298,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="html" />
+            <blueprint-icon icon="tabler:brand-html5" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.headHtmlInjection`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.headHtmlInjectionHint`) }}</w-item-label>
@@ -332,7 +314,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="html" />
+            <blueprint-icon icon="tabler:brand-html5" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.bodyHtmlInjection`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.bodyHtmlInjectionHint`) }}</w-item-label>
@@ -402,18 +384,18 @@ function defaultConfig() {
     injectCSS: '',
     injectHead: '',
     injectBody: '',
-    colorPrimary: '#1976D2',
-    colorSecondary: '#018569',
-    colorAccent: '#E81221',
-    colorHeader: '#000000',
-    colorSidebar: '#1976D2',
+    colorPrimary: '#c14a52',
+    colorSecondary: '#3f7a66',
+    colorAccent: '#c14a52',
+    colorHeader: '#ffffff',
+    colorSidebar: '#f0f2f7',
     codeBlocksTheme: 'github-dark',
     contentWidth: 'full',
     sidebarPosition: 'left',
     tocPosition: 'right',
     showPrintBtn: true,
-    baseFont: 'roboto',
-    contentFont: 'roboto'
+    baseFont: 'barlow',
+    contentFont: 'barlow'
   }
 }
 
@@ -465,12 +447,19 @@ const colorKeys = ['primary', 'secondary', 'accent', 'header', 'sidebar']
  * The two page backgrounds `colorPrimary`'s own contrast is checked against below -- `body.body--dark`
  * swaps the page surface to `--color-dark-3` (see `css/tailwind.css`), so which one applies depends on
  * the config being edited, not the admin's own current appearance.
+ *
+ * `#1b1f2a` is Cardinal's `--color-dark-3`; it was still the pre-re-skin `#1e232a` until this was
+ * noticed measuring a real warning against the wrong ground.
  */
 const PAGE_BG_LIGHT = '#ffffff'
-const PAGE_BG_DARK = '#1e232a'
+const PAGE_BG_DARK = '#1b1f2a'
 
-/** The site header and sidebar both draw their nav text in white (`HeaderNav.vue`, `NavSidebar.vue`). */
-const CHROME_TEXT_COLOR = '#ffffff'
+/**
+ * The site header and sidebar both draw their nav text in Cardinal's ink (`HeaderNav.vue`,
+ * `NavSidebar.vue`) -- so a site picking a dark chrome colour is now the case this warns about,
+ * where before it was a site picking a light one.
+ */
+const CHROME_TEXT_COLOR = '#1c2233'
 
 const widthOptions = [
   { label: 'Full Width', value: 'full' },
@@ -484,6 +473,9 @@ const rightLeftOptions = [
 ]
 
 const fonts = [
+  // -> First, and the default: Barlow is the app's own design language, and the only entry that
+  //    brings a display companion with it (Barlow Condensed, for headings) -- see helpers/fonts.js.
+  { label: 'Barlow', value: 'barlow' },
   { label: 'Inter', value: 'inter' },
   { label: 'Open Sans', value: 'opensans' },
   { label: 'Montserrat', value: 'montserrat' },
@@ -766,8 +758,18 @@ function contrastPairFor(cl) {
   if (!base) {
     return null
   }
-  if (cl === 'header' || cl === 'sidebar' || cl === 'secondary' || cl === 'accent') {
+  /*
+    The chrome and the brand fills are measured against DIFFERENT foregrounds, and were not always:
+    Cardinal's header and sidebar draw their contents in ink (`CHROME_TEXT_COLOR`), while a solid
+    button, chip or toast in `secondary`/`accent` still carries a white label -- so pairing all four
+    against one colour, as this used to, would now pass a chrome tone that is unreadable and fail a
+    fill that is fine.
+  */
+  if (cl === 'header' || cl === 'sidebar') {
     return { fg: CHROME_TEXT_COLOR, bg: base }
+  }
+  if (cl === 'secondary' || cl === 'accent') {
+    return { fg: '#ffffff', bg: base }
   }
   if (cl === 'primary') {
     return { fg: base, bg: state.config.dark ? PAGE_BG_DARK : PAGE_BG_LIGHT }
@@ -787,16 +789,16 @@ function contrastWarningRatio(cl) {
 
 function resetColors() {
   state.config.dark = false
-  state.config.colorPrimary = '#1976D2'
-  state.config.colorSecondary = '#018569'
-  state.config.colorAccent = '#E81221'
-  state.config.colorHeader = '#000'
-  state.config.colorSidebar = '#1976D2'
+  state.config.colorPrimary = '#c14a52'
+  state.config.colorSecondary = '#3f7a66'
+  state.config.colorAccent = '#c14a52'
+  state.config.colorHeader = '#ffffff'
+  state.config.colorSidebar = '#f0f2f7'
 }
 
 function resetFonts() {
-  state.config.baseFont = 'roboto'
-  state.config.contentFont = 'roboto'
+  state.config.baseFont = 'barlow'
+  state.config.contentFont = 'barlow'
 }
 
 function resetCodeBlocks() {

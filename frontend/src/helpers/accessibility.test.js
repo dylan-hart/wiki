@@ -82,31 +82,113 @@ describe('contrastRatio()', () => {
 })
 
 /**
- * Every color a solid `WBtn`/chip/header can be painted, paired with the white foreground it draws
- * over that background (`WBtn.vue`'s `color`/`textColor` resolution, `AdminTheme.vue`'s
- * `CHROME_TEXT_COLOR` for `header`/`sidebar`). Values mirror the CSS defaults at
- * `frontend/src/css/tailwind.css`'s `:root` block -- `secondary`/`warning`/`accent` (and the fixed
- * `positive`/`negative`, which reuse `secondary`'s/`accent`'s value) were darkened by Task 1682 from
- * their original, too-light tones (#02c39a, #f99d4d, #f03a47) specifically so this pins above AA.
- * A future edit to any of these tokens that regresses contrast fails this test rather than shipping
- * quietly, per Task 1682/1670's "Done when".
+ * Every color a solid `WBtn`/chip/header/status mark can be painted, PAIRED WITH THE FOREGROUND IT
+ * IS ACTUALLY DRAWN UNDER. Values mirror the CSS tokens at `frontend/src/css/tailwind.css` (and
+ * their SCSS twins in `_theme.scss`).
+ *
+ * The pairing is the whole point, and it is what changed when the app moved onto Cardinal. Before,
+ * every fill drew WHITE text, so one list checked against `#ffffff` said everything. Cardinal has
+ * two tones of each colour -- a bright FILL and a darker TEXT tone -- and picks a foreground per
+ * tone: the darker tone carries white, the brighter fill carries `--color-ink` (`#1c2233`) or no
+ * text at all. Checking a `-fill` against white would fail, correctly, because nothing draws that
+ * combination; checking it against nothing at all would be the regression this file exists to catch.
+ *
+ * So a token here is listed with the ground it is paired with in the design, and every pair clears
+ * WCAG AA. An edit that swaps a brand token for its brighter sibling without also moving the
+ * foreground fails this test rather than shipping a 3.2:1 button.
  */
-const SHIPPED_PALETTE_TOKENS = {
-  primary: '#1976d2',
-  secondary: '#018569',
-  accent: '#e81221',
-  positive: '#018569',
-  negative: '#e81221',
-  warning: '#ba5a06',
-  info: '#3e6990',
-  header: '#000',
-  sidebar: '#1976d2'
-}
+const INK = '#1c2233'
+const INK_DARK = '#14171f'
+/** `tailwind.css`'s Cardinal dark ramp -- `-3` is the panel a dark-mode card is painted. */
+const DARK_3 = '#1b1f2a'
+
+const SHIPPED_PALETTE_PAIRS = [
+  // -- The brand tokens `WBtn`/chips resolve to, all of which carry a white label ----------
+  { name: 'primary', hex: '#c14a52', on: '#ffffff' },
+  { name: 'secondary', hex: '#3f7a66', on: '#ffffff' },
+  { name: 'accent', hex: '#c14a52', on: '#ffffff' },
+  { name: 'positive', hex: '#3f7a66', on: '#ffffff' },
+  { name: 'negative', hex: '#c14a52', on: '#ffffff' },
+  { name: 'info', hex: '#38465f', on: '#ffffff' },
+  // -> The one brand token whose fill takes dark ink rather than white. Cardinal has no gold dark
+  //    enough to carry a white label AND still read as a warning, so the foreground moves instead.
+  { name: 'warning', hex: '#d9a441', on: INK },
+  // -- The chrome: a white band and the cooler tint, both drawing their contents in ink ----
+  { name: 'header', hex: '#ffffff', on: INK },
+  { name: 'sidebar', hex: '#f0f2f7', on: INK },
+  // -- The bright fills: under `--color-ink`, never under white ----------------------------
+  { name: 'accent-fill', hex: '#e4676b', on: INK },
+  { name: 'positive-fill', hex: '#5f9c86', on: INK },
+  { name: 'warning-fill', hex: '#d9a441', on: INK },
+  { name: 'negative-fill', hex: '#e4676b', on: INK },
+  // -- Dark theme: the accent lightens and its fills take dark ink -------------------------
+  { name: 'accent-dark', hex: '#f08287', on: INK_DARK },
+  // -> The two filled toasts DARKEN on ink rather than lightening, so they keep a white label.
+  { name: 'positive-dark', hex: '#3f7a66', on: '#ffffff' },
+  { name: 'negative-dark', hex: '#a83f45', on: '#ffffff' },
+  { name: 'warning-fill (dark)', hex: '#d9a441', on: INK_DARK }
+]
 
 describe('shipped palette tokens (frontend/src/css/tailwind.css)', () => {
-  it('clears WCAG AA (4.5:1) against white, the foreground each is paired with', () => {
-    for (const [name, hex] of Object.entries(SHIPPED_PALETTE_TOKENS)) {
-      expect(meetsWcagAA(hex, '#ffffff'), `${name} (${hex}) vs white`).toBe(true)
+  it('clears WCAG AA (4.5:1) against the foreground each is actually paired with', () => {
+    for (const { name, hex, on } of SHIPPED_PALETTE_PAIRS) {
+      expect(meetsWcagAA(hex, on), `${name} (${hex}) vs ${on}`).toBe(true)
+    }
+  })
+
+  /*
+   * The trap this palette is shaped around: swapping a brand token for the brighter fill of the same
+   * hue looks like a no-op in a diff and drops a button's label to ~3:1.
+   */
+  it('would fail if a brand token were swapped for its brighter fill under a white label', () => {
+    expect(meetsWcagAA('#e4676b', '#ffffff')).toBe(false)
+    expect(meetsWcagAA('#5f9c86', '#ffffff')).toBe(false)
+    expect(meetsWcagAA('#d9a441', '#ffffff')).toBe(false)
+    expect(meetsWcagAA('#f08287', '#ffffff')).toBe(false)
+  })
+})
+
+/**
+ * The Cardinal text tiers, on the ground each is specified against. Nothing lighter than
+ * `--color-text-caption` carries text on paper -- `--color-slate-soft` and `--color-slate-faint` are
+ * for hairlines, icon strokes and separators, and the second assertion is what keeps someone from
+ * reaching for one as a "subtle" text colour.
+ */
+describe('Cardinal text tiers', () => {
+  const PAPER = '#f5f6f9'
+
+  it('every light tier clears AA on white AND on paper', () => {
+    for (const hex of ['#1c2233', '#2f3a4f', '#4e5d7d', '#57668a']) {
+      expect(meetsWcagAA(hex, '#ffffff'), `${hex} vs white`).toBe(true)
+      expect(meetsWcagAA(hex, PAPER), `${hex} vs paper`).toBe(true)
+    }
+  })
+
+  it('every dark tier clears AA on ink AND on the panel a card is painted', () => {
+    for (const hex of ['#e6eaf2', '#9aa6bd', '#8792ab']) {
+      expect(meetsWcagAA(hex, INK_DARK), `${hex} vs ink`).toBe(true)
+      expect(meetsWcagAA(hex, DARK_3), `${hex} vs dark-3`).toBe(true)
+    }
+  })
+
+  it('the two faint slates are NOT text colours on white', () => {
+    expect(meetsWcagAA('#64789f', '#ffffff')).toBe(false)
+    expect(meetsWcagAA('#8a99b8', '#ffffff')).toBe(false)
+  })
+
+  /*
+   * Accent text is SURFACE-QUALIFIED, and this is the assertion that says where the boundary
+   * actually falls. `--color-accent` (#c14a52) clears the floor on white and nowhere else: on paper
+   * it is 4.45:1, a hair under, and on the two tinted strips 4.25:1 / 4.29:1. So anything off white
+   * -- paper included, not just the tints -- takes `--color-accent-strong` (#a83f45), which clears
+   * all four. Links use the strong tone everywhere for that reason.
+   */
+  it('accent text is surface-qualified: white takes the accent, everything else the strong tone', () => {
+    expect(meetsWcagAA('#c14a52', '#ffffff')).toBe(true)
+
+    for (const ground of [PAPER, '#eef1f7', '#f0f2f7']) {
+      expect(meetsWcagAA('#c14a52', ground), `accent on ${ground}`).toBe(false)
+      expect(meetsWcagAA('#a83f45', ground), `accent-strong on ${ground}`).toBe(true)
     }
   })
 })
@@ -127,9 +209,9 @@ describe('placeholder and muted-text token pinning', () => {
     return `#${[1, 3, 5].map((start) => mix(start).toString(16).padStart(2, '0')).join('')}`
   }
 
-  // frontend/src/css/tailwind.css's dark surface ramp -- the ground WInput.vue's dark-theme
-  // placeholder and `--color-muted-dark` are measured against.
-  const DARK_3 = '#1e232a'
+  // frontend/src/css/tailwind.css's Cardinal dark ramp -- `-3` is the panel ground WInput.vue's
+  // dark-theme placeholder and `--color-muted-dark` are measured against.
+  const DARK_3 = '#1b1f2a'
 
   describe('WInput.vue placeholder (`/54`, up from the `/40` that failed AA)', () => {
     it('clears AA for black-on-white in light theme', () => {
@@ -146,10 +228,10 @@ describe('placeholder and muted-text token pinning', () => {
   })
 
   describe('`--color-muted` / `--color-muted-dark` (tailwind.css)', () => {
-    // Same values as `--color-grey-8` / `--color-grey-6` -- see the token comment in tailwind.css
-    // for why the muted pair is its own tokens rather than a raised `grey-6`/`grey-7`.
-    const MUTED = '#616161'
-    const MUTED_DARK = '#9e9e9e'
+    // Cardinal's own secondary text tiers (`--color-text-secondary` / `--color-text-secondary-dark`)
+    // rather than a step of the neutral Material grey ramp -- see the token comment in tailwind.css.
+    const MUTED = '#4e5d7d'
+    const MUTED_DARK = '#9aa6bd'
 
     it('`--color-muted` clears AA on a white (light-theme) ground', () => {
       expect(meetsWcagAA(MUTED, '#ffffff')).toBe(true)

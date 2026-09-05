@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-inspection.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:checkbox" size="sm" class="me-2" />
         <span>{{ isEdit ? t('admin.approval.editRule') : t('admin.approval.newRule') }}</span>
       </w-card-section>
       <w-form ref="ruleForm" class="py-2" @submit="save">
@@ -16,12 +16,11 @@
           the icon to the top instead put it 6px above the control it belongs to.
         -->
         <w-item>
-          <blueprint-icon icon="rename" />
+          <blueprint-icon icon="tabler:cursor-text" />
           <w-item-section>
             <w-input
               ref="iptName"
               v-model="state.name"
-              outlined
               dense
               :rules="nameValidation"
               hide-bottom-space
@@ -31,11 +30,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="filtration" />
+          <blueprint-icon icon="tabler:filter" />
           <w-item-section>
             <w-select
               v-model="state.match"
-              outlined
               dense
               :options="matchOptions"
               map-options
@@ -57,7 +55,6 @@
             -->
             <w-input
               v-model="state.path"
-              outlined
               dense
               :prefix="isTagMatch ? null : `/`"
               :suffix="state.match === `REGEX` ? `/` : null"
@@ -70,11 +67,10 @@
         </w-item>
         <w-separator class="my-2" inset />
         <w-item>
-          <blueprint-icon icon="pen" />
+          <blueprint-icon icon="tabler:pencil" />
           <w-item-section>
             <w-select
               v-model="state.submitterGroups"
-              outlined
               dense
               :options="props.groups"
               multiple
@@ -91,11 +87,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="validation" />
+          <blueprint-icon icon="tabler:checkbox" />
           <w-item-section>
             <w-select
               v-model="state.reviewerGroups"
-              outlined
               dense
               :options="props.groups"
               multiple
@@ -112,11 +107,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="user-groups" />
+          <blueprint-icon icon="tabler:users-group" />
           <w-item-section>
             <w-input
               v-model.number="state.minApprovals"
-              outlined
               dense
               type="number"
               min="1"
@@ -139,7 +133,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="isEdit ? t(`common.actions.save`) : t(`common.actions.create`)"
           color="primary"
           padding="xs md"

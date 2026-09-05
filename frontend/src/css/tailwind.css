@@ -83,26 +83,51 @@ html.theme-transition-suppress *::after {
   keeps runtime theming working. Do not inline these.
 */
 /*
-  `secondary`/`positive`, `warning` and `accent`/`negative` are darkened from their original
-  brighter tones -- #02c39a, #f99d4d and #f03a47 respectively -- because a solid `WBtn` in one of
-  these colors always draws white text over it (`WBtn.vue`'s `color` prop), and none of the
-  originals cleared 4.5:1 (WCAG AA) against white: 2.26:1, 2.11:1 and 3.89:1. These three do (see
-  `helpers/accessibility.test.js`'s palette-pinning test), each darkened along its own hue so the
-  brand colors stay recognizable rather than converging on a single "safe" shade. `colorSecondary`/
-  `colorAccent` are also site-configurable (`AdminTheme.vue`) -- kept equal to `backend/models/sites.ts`'s
-  `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s `resetColors()`, so a fresh install and a reset
-  theme both start accessible instead of only the CSS fallback being fixed.
+  The Cardinal accent, chrome and status tones -- see `css/_theme.scss` for the same palette as SCSS
+  and for what each one is FOR. Every value here is paired with a foreground it actually gets drawn
+  under, and every such pair clears WCAG AA (4.5:1); `helpers/accessibility.test.js` pins them, so a
+  future edit that regresses one fails the suite rather than shipping quietly.
+
+  The pairing is the part worth reading twice. Cardinal has two tones of each colour -- a bright FILL
+  and a darker TEXT tone -- and the brand tokens below always resolve to the tone that survives the
+  foreground it is drawn with:
+
+    accent/negative  #c14a52 under white (4.81:1)   -- #e4676b would be 3.26:1
+    secondary/positive #3f7a66 under white (5.01:1) -- #5f9c86 would be 3.19:1
+    warning          #d9a441 under `--color-ink`  (7.04:1) -- the one fill that takes DARK ink
+    info             #38465f under white (9.51:1)
+
+  The brighter fills are published separately as `--color-*-fill` and are for a surface carrying no
+  text, or carrying `--color-ink`: a status light, a toggle's track, a badge's edge, a callout's
+  gutter. Reaching for a `-fill` under a white label is the mistake this split exists to prevent.
+
+  `colorPrimary`/`colorSecondary`/`colorAccent` are also site-configurable (`AdminTheme.vue`) -- kept
+  equal to `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s
+  `resetColors()`, so a fresh install and a reset theme both start on Cardinal rather than only the
+  CSS fallback being right.
+
+  Brand colors indirect through `--q-*` custom properties rather than being literal values. The app
+  recolors itself at runtime (per-site theme + the accessible-color / colour-vision-deficiency
+  remapping in `stores/user.js`) by writing those properties on :root, so the indirection is what
+  keeps runtime theming working. Do not inline these.
 */
 :root {
-  --q-primary: #1976d2;
-  --q-secondary: #018569;
-  --q-accent: #e81221;
-  --q-positive: #018569;
-  --q-negative: #e81221;
-  --q-info: #3e6990;
-  --q-warning: #ba5a06;
-  --q-header: #000;
-  --q-sidebar: #1976d2;
+  --q-primary: #c14a52;
+  --q-secondary: #3f7a66;
+  --q-accent: #c14a52;
+  --q-positive: #3f7a66;
+  --q-negative: #c14a52;
+  --q-info: #38465f;
+  --q-warning: #d9a441;
+  /*
+    Chrome. Cardinal's header is a WHITE band ruled off with a hairline and its sidebar the cooler of
+    the two tints -- continuous light slate, not a dark bar over a saturated column. Both draw their
+    contents in `--color-ink` (`HeaderNav.vue`, `NavSidebar.vue`, and `AdminTheme.vue`'s
+    `CHROME_TEXT_COLOR`, which is what its contrast warnings measure against), where the 3.x chrome
+    drew them in white.
+  */
+  --q-header: #fff;
+  --q-sidebar: #f0f2f7;
 }
 
 /*
@@ -149,14 +174,88 @@ html.theme-transition-suppress *::after {
   --color-white: #fff;
   --color-black: #000;
 
-  /* -- Wiki.js dark surface ramp (from the old css/_theme.scss) ------------ */
-  --color-dark: #0d1117;
-  --color-dark-1: #343b48;
-  --color-dark-2: #292f39;
-  --color-dark-3: #1e232a;
-  --color-dark-4: #161b22;
-  --color-dark-5: #0d1117;
-  --color-dark-6: #070a0d;
+  /* -- Cardinal: the accent, in all three of its tones ---------------------- */
+  /*
+    `--color-accent` (above) is the one a button or chip resolves to. These two are the other half of
+    the language: the bright fill for a surface carrying no text, or `--color-ink`; and the darkened
+    tone for accent text on any ground that is NOT white.
+
+    That boundary is narrower than it looks and is pinned in `helpers/accessibility.test.js`.
+    `--color-accent` clears 4.5:1 on white (4.81:1) and on nothing else -- 4.45:1 on `--color-paper`,
+    4.25:1 on `--color-tint` -- so paper counts as "not white" here just as much as the tinted strips
+    do. `--color-accent-strong` clears all four (5.4:1 -- 5.9:1), which is why links take it
+    everywhere rather than switching tone with whatever they happen to be sitting on.
+  */
+  --color-accent-fill: #e4676b;
+  --color-accent-strong: #a83f45;
+  --color-accent-wash: #fdeced;
+
+  /* The brighter status fills. Under `--color-ink` only -- never under a white label. */
+  --color-positive-fill: #5f9c86;
+  --color-warning-fill: #d9a441;
+  --color-negative-fill: #e4676b;
+
+  /* -- Cardinal: chrome and paper ------------------------------------------- */
+  --color-slate: #38465f;
+  /*
+    The two faint slates are for HAIRLINES, ICON STROKES AND SEPARATORS. Neither is a text colour:
+    `slate-soft` is 3.53:1 on white and `slate-faint` 2.42:1, both under the 4.5:1 floor. Use
+    `--color-text-caption` for the faintest thing that carries words.
+  */
+  --color-slate-soft: #64789f;
+  --color-slate-faint: #8a99b8;
+  /*
+    The palest of the four, and the one an OFF control is drawn in: an unchecked box's edge, a
+    switch's track and knob at rest, an empty state's icon. Not a text colour either (1.94:1) --
+    it is the tone that says "there is a control here and it is not doing anything".
+  */
+  --color-slate-pale: #a9b7d0;
+  --color-slate-light: #8ea6cf;
+
+  --color-ink: #1c2233;
+  --color-paper: #f5f6f9;
+  --color-surface: #fff;
+  --color-tint: #eef1f7;
+  --color-tint-alt: #f0f2f7;
+  --color-hairline: #dbe1ec;
+  --color-rule: #c9d2e2;
+
+  /* -- Cardinal: light text tiers ------------------------------------------- */
+  --color-text-body: #2f3a4f;
+  --color-text-secondary: #4e5d7d;
+  --color-text-caption: #57668a;
+
+  /* -- Cardinal: dark ------------------------------------------------------- */
+  --color-hairline-dark: #2a3040;
+  --color-border-dark: #3a4256;
+  --color-disabled-dark: #4a5470;
+  --color-text-dark: #e6eaf2;
+  --color-text-secondary-dark: #9aa6bd;
+  --color-text-caption-dark: #8792ab;
+  /*
+    The accent lightened for an ink ground, and its fills take `--color-ink-dark` rather than white
+    -- white on #f08287 is 2.62:1. The two filled toasts go the other way and DARKEN, because a light
+    chip on ink glares; that is what `--color-positive-dark` / `--color-negative-dark` are for.
+  */
+  --color-accent-dark: #f08287;
+  --color-accent-wash-dark: #3a2b34;
+  --color-positive-dark: #3f7a66;
+  --color-negative-dark: #a83f45;
+  --color-ink-dark: #14171f;
+
+  /*
+    -- Cardinal dark surface ramp ------------------------------------------
+    Darkest (`-6`) to lightest (`-1`), which is the order every existing `bg-dark-N` utility and SFC
+    rule assumes. Cardinal names four of the six rungs; the other two extend the same ladder past
+    each end. `-3` is what `.w-card` paints a card in dark mode, so it is Cardinal's panel tone.
+  */
+  --color-dark: #14171f;
+  --color-dark-1: #2f374a; /* raised, hovered */
+  --color-dark-2: #242b3a; /* raised: a card header, a menu, a filled chip */
+  --color-dark-3: #1b1f2a; /* panel: a card, a dialog body */
+  --color-dark-4: #171b24; /* recessed: a read-only field, an inset gutter */
+  --color-dark-5: #14171f; /* ink: the page ground */
+  --color-dark-6: #0f1219; /* below ink: the deepest well */
 
   /*
     -- Material palette ---------------------------------------------------
@@ -177,18 +276,14 @@ html.theme-transition-suppress *::after {
   --color-grey-10: #212121;
 
   /*
-    Muted/secondary body text, split by ground the same way `--color-primary-light` splits headings:
-    `grey-6` on white is 2.68:1 and `grey-7` on `dark-3` is 3.43:1 -- both below AA, and the two
-    grounds need opposite fixes (darker for white, lighter for dark-3), so no single grey ramp step
-    covers both. Raising `grey-6`/`grey-7` themselves isn't an option either -- `grey-6` reads
-    lighter than `grey-7` everywhere else they're both used (`PageToc.vue`'s ink/ink-soft pair is the
-    clearest example), and darkening `grey-6` enough to pass on white while lightening `grey-7`
-    enough to pass on `dark-3` would invert that ordering. `grey-8`/`grey-6` already clear AA on
-    their respective grounds (6.19:1, 5.90:1 -- pinned in `accessibility.test.js`) without any new
-    hex, so these just name that pairing for reuse: `text-muted dark:text-muted-dark`.
+    Muted/secondary body text, split by ground -- Cardinal's own secondary tier on each side rather
+    than a step of the Material grey ramp, which is neutral where everything else here is cooled
+    towards slate. `--color-text-secondary` is 6.42:1 on white; `--color-text-secondary-dark` is
+    6.71:1 on `dark-3`, the card ground it is measured against. Both pinned in
+    `helpers/accessibility.test.js`. Written as `text-muted dark:text-muted-dark`.
   */
-  --color-muted: var(--color-grey-8);
-  --color-muted-dark: var(--color-grey-6);
+  --color-muted: var(--color-text-secondary);
+  --color-muted-dark: var(--color-text-secondary-dark);
 
   --color-blue-grey: #607d8b;
   --color-blue-grey-1: #eceff1;
@@ -327,7 +422,23 @@ html.theme-transition-suppress *::after {
   --color-yellow-9: #f9a825;
 
   /* -- Typography ---------------------------------------------------------- */
-  --font-sans: 'Roboto', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  /*
+    Cardinal sets type in three faces: Barlow Condensed for headings and any short, uppercase chrome
+    label, Barlow for body copy and controls, Roboto Mono for metadata (a path, a timestamp, a count,
+    a section overline).
+
+    `--font-sans` is rewritten at runtime by `helpers/fonts.js` from the site's own `baseFont`
+    setting, and `--font-display` alongside it when that font declares a display companion (Barlow's
+    is Barlow Condensed). The literals here are the fallback for a site that overrides neither, and
+    the tail of each stack is what a browser gets while the webfont is still in flight -- so
+    `--font-display` names two system condensed faces before giving up on the condensed idea, rather
+    than falling straight back to the body stack and reflowing every heading when Barlow Condensed
+    lands.
+  */
+  --font-sans: 'Barlow', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-display:
+    'Barlow Condensed', 'Roboto Condensed', 'Helvetica Neue Condensed', -apple-system, Helvetica,
+    Arial, sans-serif;
   --font-mono: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
 
   /*
@@ -504,166 +615,32 @@ html.theme-transition-suppress *::after {
     declared in. The ring itself is an inline box-shadow on each control; this supplies the resting
     colour and the transition that animates between resting and active.
   */
+  /*
+    Shared frame colours for the form controls (WInput, WSelect). Four states, one pixel each --
+    `composables/fieldFrame.js` picks between them and paints the chosen one as an inset ring.
+
+    Here rather than in a component's scoped style because both components use it, and a scoped rule
+    would only ever match the one it was declared in. As custom properties rather than values in the
+    composable because that is what lets dark mode restate them in CSS instead of the composable
+    having to know which theme is active.
+  */
   .w-input-control {
-    --w-input-ring: rgb(0 0 0 / 0.24);
-    /* Pointer-over: a full-strength edge, so the field reads as reachable before it is focused */
-    --w-input-ring-hover: var(--color-black);
-    /* .36s cubic-bezier(.4,0,.2,1) is Quasar's own field transition, kept so the timing matches */
+    --w-input-ring: var(--color-hairline);
+    /* Pointer-over: halfway to the focused edge, so the field reads as reachable before it is focused */
+    --w-input-ring-hover: var(--color-slate-faint);
+    /* Focus is a DARKENED hairline, not a thickened one -- the box never changes size */
+    --w-input-ring-active: var(--color-slate);
+    --w-input-ring-error: var(--color-accent-fill);
     transition:
-      box-shadow 0.36s cubic-bezier(0.4, 0, 0.2, 1),
-      background-color 0.36s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow 0.2s var(--ease-standard),
+      background-color 0.2s var(--ease-standard);
   }
 
   body.body--dark .w-input-control {
-    --w-input-ring: rgb(255 255 255 / 0.3);
-    --w-input-ring-hover: var(--color-white);
-  }
-
-  /*
-    The Material notched outline, for an outlined field that carries a label: at rest the label stands
-    in the middle of the field, and on focus or once there is a value it rises into the top border.
-    Shared by WInput and WSelect, for the reason given above.
-
-    Drawn as a fieldset whose legend cuts the notch. A fieldset is the only element that interrupts
-    its own top border for a child, which is what makes a REAL gap rather than a patch -- so the label
-    needs no background of its own and works over a white card, a grey `alt-card` section or a dark
-    surface alike. The legend widening from nothing to the label's width IS the notch opening.
-
-    Three measurements interlock, so changing one means checking the others:
-      - the outline sits 6px above the control, putting its top border through the label's middle
-      - the outline's side padding plus the legend span's places the gap's left edge
-      - the label's own `left` has to land inside that gap, or it sits on solid border
-  */
-  .w-input-outline {
-    position: absolute;
-    inset: -6px 0 0;
-    margin: 0;
-    padding: 0 0.5rem;
-    border-style: solid;
-    border-radius: inherit;
-    /* -> Clicks belong to the field underneath */
-    pointer-events: none;
-    min-inline-size: 0;
-    transition: border-color 0.36s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .w-input-outline legend {
-    float: unset;
-    display: block;
-    width: auto;
-    height: 0.6875rem;
-    padding: 0;
-    font-size: 0.75rem;
-    /* -> Hidden, but still occupying the top border, which is what interrupts it */
-    visibility: hidden;
-    white-space: nowrap;
-    max-width: 0.01px;
-    transition: max-width 0.05s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  /*
-    3px, and it has to stay in step with the outline's side padding above.
-
-    This padding is what becomes the visible gap either side of the label, but it is measured around
-    the SPAN's text, which starts one border-width inboard of the label's own `left`. So the numbers
-    are chosen to make the span's text land exactly where the label's does -- outline padding + 1px
-    border + 3px equals the label's `left`, at both densities -- and then equal padding either side
-    gives an equal gap either side. Change one of the three and the gap goes lopsided.
-  */
-  .w-input-outline legend > span {
-    display: inline-block;
-    padding: 0 0.1875rem;
-    opacity: 0;
-  }
-
-  /* -> Qualified with `legend` so it outranks the resting rule above rather than tying on specificity */
-  .w-input-outline legend.w-input-outline-notch--open {
-    max-width: 100%;
-    /* -> Opens a beat after the label starts moving, so the gap appears under it rather than ahead */
-    transition: max-width 0.1s 0.05s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  /*
-    The label itself. At rest it is centred in the field at the field's own text size, sitting exactly
-    where the text will appear; floated, it shrinks and rises onto the outline. Pointer events are off
-    so a click at rest reaches the field rather than the label.
-  */
-  /*
-    -> `left` stays physical on purpose (OpenProject #1601's repo-wide pass, see
-       `frontend/src/logicalSpacing.test.js`): it is paired below with `transform-origin: left
-       center`, which CSS has no logical (`inline-start`) keyword for, so the label always scales
-       from its physical left edge regardless of `dir`. Converting just the position would move the
-       label to the right edge under RTL while it kept scaling from the left -- a worse, lopsided
-       bug, not a fix. Following the reading direction here needs a `[dir='rtl']` override this
-       codebase has never used anywhere else (every other RTL fix is a logical property), which is a
-       design decision for a dedicated follow-up, not a mechanical swap.
-  */
-  .w-input-float {
-    position: absolute;
-    left: 0.75rem;
-    top: 50%;
-    /*
-      Sized at the FLOATED size and scaled UP to rest, rather than the other way round.
-
-      The notch is cut from a legend laid out at this same 0.75rem, and a transform-scaled 0.875rem
-      label is not exactly the width of a 0.75rem one -- hinting differs -- so scaling down to float
-      left the gap wider than the text it was cut for. Floated is therefore the untransformed state,
-      where label and notch are the same string at the same size and cannot disagree; 1.1667 is 14/12,
-      which brings the resting label back to the field's own text size.
-    */
-    font-size: 0.75rem;
-    transform: translateY(-50%) scale(1.1667);
-    /*
-      Scaling about the left edge at mid-height: the box is translated up by half its own height, and
-      growing it about that same midline keeps the resting text centred in the field and its left edge
-      aligned with where the field's text begins.
-    */
-    transform-origin: left center;
-    max-width: calc(100% - 1.5rem);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    pointer-events: none;
-    /*
-      `top` is in here deliberately. It carries the whole vertical move -- from the middle of the
-      field to its top edge -- and leaving it out is what made the label JUMP: only the transform and
-      the font size were animating, and the transform is identical in both states.
-    */
-    transition:
-      top 0.2s var(--ease-standard),
-      transform 0.2s var(--ease-standard),
-      color 0.2s var(--ease-standard);
-  }
-
-  /*
-    Floated is simply the unscaled state.
-
-    Animating `font-size` instead would re-lay the text out on every frame, and since `translateY(-50%)`
-    resolves against the element's own height, that height changing under the transform made the label
-    drift as well as shrink. A scale is one operation on a box whose layout never changes.
-  */
-  .w-input-float--up {
-    top: 0;
-    transform: translateY(-50%) scale(1);
-  }
-
-  /* -> A dense field's text starts 8px in rather than 12px, so its label and notch follow */
-  .w-input-control--dense .w-input-outline {
-    padding: 0 0.25rem;
-  }
-
-  .w-input-control--dense .w-input-float {
-    left: 0.5rem;
-    max-width: calc(100% - 1rem);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .w-input-outline,
-    .w-input-outline legend,
-    .w-input-outline legend.w-input-outline-notch--open,
-    .w-input-float {
-      transition-duration: 0.01ms;
-    }
+    --w-input-ring: var(--color-hairline-dark);
+    --w-input-ring-hover: var(--color-border-dark);
+    --w-input-ring-active: var(--color-slate-light);
+    --w-input-ring-error: var(--color-accent-dark);
   }
 
   /*
@@ -702,125 +679,39 @@ html.theme-transition-suppress *::after {
   }
 
   /*
-    The "push" treatment: a ledge along the bottom edge that makes the control read as raised, and
-    collapses as it is pressed while the control drops by the same 2px. Drawn inside the box as a
-    bottom border on an overlay, so it darkens the control's own bottom edge rather than casting
-    anything outside it.
+    Section header: the band that opens a card, a settings group or a side-panel section.
 
-    Shared with the segmented control, which raises each of its segments the same way.
+    Cardinal draws it as a tinted strip ruled off underneath -- Roboto Mono, 10px, uppercase, wide
+    tracking, in the chrome slate. The treatment this replaces was a primary-coloured heading over a
+    radial wash with two soft rules trailing off beneath it, which was elevation by another name and
+    read as decoration rather than as structure.
 
-    Content must sit in a positioned child, or this overlay paints over it -- WBtn and WBtnToggle
-    both mark theirs `relative`.
-  */
-  .w-push::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    border-bottom: 3px solid rgb(0 0 0 / 0.15);
-    pointer-events: none;
-    transition: border-bottom-width 0.3s cubic-bezier(0.25, 0.8, 0.5, 1);
-  }
-
-  .w-push:active {
-    transform: translateY(2px);
-  }
-
-  .w-push:active::before {
-    border-bottom-width: 0;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .w-push::before {
-      transition-duration: 0.01ms;
-    }
-  }
-
-  /*
-    Material gloss overlay: a highlight over the top half and a shade over the bottom, painted on
-    top of whatever fill the control has. Shared because both the button and the segmented control
-    offer it, and a second copy of the gradient would be a second thing to keep in step.
-  */
-  .w-glossy {
-    background-image: linear-gradient(
-      180deg,
-      hsl(0deg 0% 100% / 30%),
-      hsl(0deg 0% 100% / 0%) 50%,
-      rgb(0 0 0 / 12%) 51%,
-      rgb(0 0 0 / 4%)
-    );
-  }
-
-  /*
-    Section heading: primary-coloured text over a blue wash that fades out to the right, with two
-    soft rules trailing off beneath it. Lifted from the profile pages, where it was scoped to that
-    layout, so the admin cards can use the same treatment.
-
-    Every layer fades to `transparent`, never to the colour of the surface behind it, so the heading
-    blends into whatever it is drawn on -- a page, a card, a tinted panel. Fading in two directions
-    at once is what the ellipse is for: it is anchored to the corner the wash is strongest at, and
-    falls off towards both far edges. Fading a flat wash out sideways the other way round means
-    laying an opaque copy of the surface over it, which lines up on exactly one surface.
-
-    Colours resolve through `--color-primary`, so a re-themed site recolours these too -- the
-    original hard-coded the palette's blue.
+    Full-bleed by NOT having a margin of its own: it runs edge to edge inside whatever box holds it,
+    which for the two commonest cases -- a `WCard` (no padding of its own) and an overlay's content
+    column -- is exactly right. A negative inline margin was tried and is wrong: it assumes every
+    caller pads by the same 16px, and where one does not (the profile overlay's section column) the
+    band slides out under the rail beside it and loses its first character.
   */
   .w-section-header {
-    position: relative;
-    margin-bottom: 10px;
-    padding: 0 16px 6px;
-    font-size: 17px;
-    font-weight: 500;
-    color: var(--color-primary);
-    background: radial-gradient(
-      farthest-side at left bottom,
-      color-mix(in srgb, var(--color-primary) 7.5%, transparent),
-      transparent
-    );
-  }
-
-  /* The wider, fainter band trailing below the heading */
-  .w-section-header::before {
-    content: '';
-    position: absolute;
-    bottom: -13px;
-    inset-inline-start: 0;
-    z-index: 0;
-    width: 100%;
-    height: 10px;
-    background: radial-gradient(
-      farthest-side at left top,
-      color-mix(in srgb, var(--color-primary) 5%, transparent),
-      transparent
-    );
-  }
-
-  /*
-    The hairline immediately under it, fading out towards the right.
-
-    Scaled by `1 / --w-dpr` like `.w-hairline`, so it paints exactly one DEVICE pixel: a 1px CSS
-    rule is 1.5 device pixels at 150% display scaling, which reads visibly heavier than the same
-    rule elsewhere on the page.
-  */
-  .w-section-header::after {
-    content: '';
-    position: absolute;
-    bottom: -2px;
-    inset-inline-start: 0;
-    z-index: 0;
-    width: 100%;
-    height: 1px;
-    background: linear-gradient(
-      to left,
-      transparent,
-      color-mix(in srgb, var(--color-primary) 25%, transparent)
-    );
-    transform: scaleY(calc(1 / var(--w-dpr, 1)));
-    transform-origin: bottom;
+    display: flex;
+    align-items: center;
+    min-height: 34px;
+    margin-block-end: 12px;
+    padding: 6px 16px;
+    background-color: var(--color-tint);
+    border-block-end: 1px solid var(--color-hairline);
+    color: var(--color-slate);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
   }
 
   body.body--dark .w-section-header {
-    color: var(--color-primary-light);
+    background-color: var(--color-dark-2);
+    border-block-end-color: var(--color-hairline-dark);
+    color: var(--color-slate-light);
   }
 
   .w-unstyled {

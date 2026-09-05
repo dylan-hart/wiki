@@ -2,16 +2,13 @@
   <w-page class="admin-extensions">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-module.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:puzzle" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="admin-page-title animated fadeInLeft">
           {{ t('admin.extensions.title') }}
         </h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.extensions.subtitle') }}
         </div>
       </div>
@@ -44,7 +41,7 @@
         <w-card>
           <w-list separator>
             <w-item v-for="ext of state.extensions" :key="`ext-` + ext.key">
-              <blueprint-icon icon="module" />
+              <blueprint-icon icon="tabler:puzzle" />
               <w-item-section>
                 <w-item-label class="flex items-center gap-2">
                   {{ ext.title }}
@@ -88,7 +85,7 @@
                       </div>
                     </div>
                   </div>
-                  <w-btn-group v-else unelevated>
+                  <w-btn-group v-else>
                     <w-btn
                       icon="la:check"
                       size="sm"
@@ -103,19 +100,16 @@
                       :label="t(`admin.extensions.install`)"
                       color="blue-7"
                       v-if="ext.isCompatible && !ext.isInstalled && ext.isInstallable"
-                      @click="install(ext)"
-                      no-caps />
+                      @click="install(ext)" />
                     <w-btn
                       v-else-if="ext.isCompatible && ext.isInstalled && ext.isInstallable"
                       :label="t(`admin.extensions.reinstall`)"
                       color="blue-7"
-                      @click="install(ext)"
-                      no-caps />
+                      @click="install(ext)" />
                     <w-btn
                       v-else-if="ext.isCompatible && ext.isInstalled && !ext.isInstallable"
                       :label="t(`admin.extensions.installed`)"
-                      color="positive"
-                      no-caps />
+                      color="positive" />
                     <w-btn
                       v-else-if="ext.isCompatible"
                       :label="t(`admin.extensions.instructions`)"
@@ -123,8 +117,7 @@
                       color="indigo"
                       outline
                       :href="siteStore.docsBase + `/system/extensions#` + ext.key"
-                      target="_blank"
-                      no-caps>
+                      target="_blank">
                       <w-tooltip anchor="center left" self="center right">{{
                         t('admin.extensions.instructionsHint')
                       }}</w-tooltip>
@@ -133,8 +126,7 @@
                       v-else
                       color="negative"
                       outline
-                      :label="t(`admin.extensions.incompatible`)"
-                      no-caps>
+                      :label="t(`admin.extensions.incompatible`)">
                       <w-tooltip
                         v-if="ext.incompatibleReason"
                         anchor="center left"

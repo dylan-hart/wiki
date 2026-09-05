@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.sites.new`)" @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:plus" size="sm" class="me-2" />
         <span>{{ t(`admin.sites.new`) }}</span>
       </w-card-section>
       <!--
@@ -12,11 +12,10 @@
       -->
       <w-form ref="createSiteForm" class="py-2">
         <w-item>
-          <blueprint-icon icon="home" />
+          <blueprint-icon icon="tabler:home" />
           <w-item-section>
             <w-input
               v-model="state.siteName"
-              outlined
               dense
               :rules="siteNameValidation"
               hide-bottom-space
@@ -26,11 +25,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="dns" />
+          <blueprint-icon icon="tabler:world-www" />
           <w-item-section>
             <w-input
               v-model="state.siteHostname"
-              outlined
               dense
               :rules="siteHostnameValidation"
               :hint="t(`admin.sites.hostnameHint`)"
@@ -50,7 +48,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

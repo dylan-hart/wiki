@@ -6,9 +6,8 @@
       <w-space />
       <w-btn-group>
         <w-btn
-          push
           color="white"
-          text-color="grey-7"
+          text-color="text-secondary"
           :label="t('common.actions.close')"
           :aria-label="t('common.actions.close')"
           icon="la:times"
@@ -126,49 +125,63 @@ function close() {
 */
 .inbox-overlay {
   @at-root .body--light & {
-    background-color: #fff;
-    color: var(--color-black);
+    background-color: $surface;
+    color: $text-body;
   }
   @at-root .body--dark & {
     background-color: $dark-3;
-    color: var(--color-white);
+    color: $text-dark;
   }
 }
 
+/*
+  The overlay's own section rail. Cardinal's tint, ruled off -- the same column the profile overlay
+  and the file manager's folder tree draw, so the three overlays that have one all read alike.
+*/
 .inbox-overlay-sidebar {
   @at-root .body--light & {
-    background-color: $grey-1;
-    border-inline-end: 1px solid rgba($dark-3, 0.1);
+    background-color: $tint-alt;
+    border-inline-end: 1px solid $hairline;
   }
   @at-root .body--dark & {
     background-color: $dark-4;
-    border-inline-end: 1px solid rgba(#fff, 0.12);
+    border-inline-end: 1px solid $hairline-dark;
   }
 
   .w-list .w-item {
-    font-weight: 500;
-    color: $grey-9;
+    font-weight: 400;
+    color: $slate;
+    border-inline-start: 2px solid transparent;
 
     @at-root .body--dark & {
-      color: rgba(255, 255, 255, 0.75);
+      color: $text-secondary-dark;
     }
 
+    /*
+      The active section: lifted onto the panel's own white with an accent bar down its leading
+      edge. The same mark the site sidebar, the folder tree and the file list all use for "you are
+      here" -- where this used to be a two-stop wash of the brand colour, which is elevation drawn
+      in paint.
+    */
     &.is-active {
-      background: linear-gradient(to bottom, rgba($primary, 0.25), rgba($primary, 0.1));
-      color: $primary;
+      background-color: $surface;
+      border-inline-start-color: $accent-fill;
+      color: $ink;
+      font-weight: 500;
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
       .w-icon,
       iconify-icon {
-        color: $primary;
+        color: $accent-fill;
       }
 
       @at-root .body--dark & {
-        color: var(--color-primary-light);
+        background-color: $dark-3;
+        color: $text-dark;
 
         .w-icon,
         iconify-icon {
-          color: var(--color-primary-light);
+          color: $accent-dark;
         }
       }
     }

@@ -3,13 +3,13 @@
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
         <w-icon
-          name="img:/_assets/icons/fluent-spring.svg"
+          name="tabler:star"
           size="64px"
           class="admin-icon admin-icons-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.icons.subtitle') }}
         </div>
       </div>
@@ -45,7 +45,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.icons.addSet`)"
           color="primary"
@@ -74,7 +73,7 @@
               <w-item-section>
                 <w-item-label>
                   <strong>{{ set.name }}</strong>
-                  <w-chip class="ms-2" square dense size="sm" color="primary" text-color="white">{{
+                  <w-chip class="ms-2" dense size="sm" color="primary" text-color="white">{{
                     set.prefix
                   }}</w-chip>
                 </w-item-label>
@@ -90,7 +89,6 @@
                   :label="t(`admin.icons.reference`)"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
                   flat
-                  no-caps
                   padding="xs md"
                   :href="referenceUrl(set)"
                   target="_blank">
@@ -185,7 +183,6 @@
           <w-input
             class="mt-4"
             v-model="state.availableFilter"
-            outlined
             dense
             clearable
             :label="t(`admin.icons.filterSets`)"
@@ -221,7 +218,7 @@
               <w-item-section>
                 <w-item-label>
                   <strong>{{ set.name }}</strong>
-                  <w-chip class="ms-2" square dense size="sm" color="primary" text-color="white">{{
+                  <w-chip class="ms-2" dense size="sm" color="primary" text-color="white">{{
                     set.prefix
                   }}</w-chip>
                 </w-item-label>

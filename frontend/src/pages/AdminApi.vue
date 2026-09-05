@@ -2,14 +2,11 @@
   <w-page class="admin-api">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-rest-api-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:plug-connected" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.api.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.api.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.api.subtitle') }}
         </div>
       </div>
@@ -49,7 +46,6 @@
         </w-btn>
         <w-btn
           class="me-2"
-          unelevated
           icon="la:power-off"
           :label="!state.enabled ? t(`admin.api.enableButton`) : t(`admin.api.disableButton`)"
           :color="!state.enabled ? `positive` : `negative`"
@@ -57,7 +53,6 @@
           :loading="state.isToggleLoading"
           :disabled="state.loading > 0" />
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.api.newKeyButton`)"
           color="primary"
@@ -76,7 +71,6 @@
       <div class="col-span-12">
         <w-card
           class="rounded"
-          flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
@@ -100,7 +94,6 @@
       <div class="col-span-12" v-if="state.keys.length < 1">
         <w-card
           class="rounded"
-          flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">

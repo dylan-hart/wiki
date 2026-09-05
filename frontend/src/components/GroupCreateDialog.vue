@@ -2,16 +2,15 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.groups.create`)" @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:plus" size="sm" class="me-2" />
         <span>{{ t(`admin.groups.create`) }}</span>
       </w-card-section>
       <w-form ref="createGroupForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="team" />
+          <blueprint-icon icon="tabler:users" />
           <w-item-section>
             <w-input
               v-model="state.groupName"
-              outlined
               dense
               :rules="groupNameValidation"
               hide-bottom-space
@@ -31,7 +30,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

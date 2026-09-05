@@ -8,14 +8,12 @@
       <div class="errorpage-actions">
         <w-btn
           v-if="error.showHomeBtn"
-          push
           color="primary"
           :label="t('common.error.goHome')"
           icon="la:home"
           to="/" />
         <w-btn
           v-if="error.showLoginBtn"
-          push
           color="primary"
           :label="t('common.error.loginAs')"
           icon="la:sign-in-alt"

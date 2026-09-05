@@ -2,14 +2,11 @@
   <w-page class="admin-flags">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-plugin.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:components" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.blocks.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.blocks.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.blocks.subtitle') }}
         </div>
       </div>
@@ -24,7 +21,6 @@
         <template v-if="flagsStore.experimental">
           <w-btn
             class="me-2 acrylic-btn"
-            unelevated
             icon="la:plus"
             :label="t(`admin.blocks.add`)"
             color="primary"
@@ -32,30 +28,29 @@
           <w-separator class="me-2" vertical />
         </template>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/editors`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :disabled="state.loading > 0" />
       </div>
@@ -88,7 +83,6 @@
               <w-item-label class="flex items-center" caption>
                 <w-chip
                   class="m-0"
-                  square
                   dense
                   :color="dark.isActive ? `pink-8` : `pink-1`"
                   :text-color="dark.isActive ? `white` : `pink-9`">
@@ -103,7 +97,6 @@
               <w-item-section side style="min-width: 260px">
                 <w-input
                   dense
-                  outlined
                   v-model="block.config.server"
                   :label="t('admin.blocks.server')"
                   :aria-label="t('admin.blocks.server')"
@@ -119,7 +112,6 @@
                   :aria-label="t(`common.actions.delete`)"
                   color="negative"
                   outline
-                  no-caps
                   padding="xs sm"
                   @click="deleteBlock(block.id)" />
               </w-item-section>
@@ -140,7 +132,6 @@
                   :label="t(`admin.blocks.configure`)"
                   :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
                   outline
-                  no-caps
                   padding="xs md"
                   @click="openConfig(block)" />
               </w-item-section>
@@ -164,7 +155,6 @@
         </div>
         <w-btn
           class="acrylic-btn"
-          unelevated
           icon="la:plus"
           :label="t(`admin.blocks.credentialAdd`)"
           color="primary"
@@ -180,7 +170,6 @@
               <w-item-label caption class="flex items-center">
                 <w-chip
                   class="m-0"
-                  square
                   dense
                   :color="dark.isActive ? `blue-grey-8` : `blue-grey-1`"
                   :text-color="dark.isActive ? `white` : `blue-grey-9`">
@@ -215,7 +204,6 @@
                 :label="t(`admin.blocks.credentialDomains`)"
                 :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
                 outline
-                no-caps
                 padding="xs md"
                 @click="editDomains(credential)" />
             </w-item-section>
@@ -226,7 +214,6 @@
                 :label="t(`admin.blocks.credentialRotate`)"
                 :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
                 outline
-                no-caps
                 padding="xs md"
                 @click="rotateCredential(credential)" />
             </w-item-section>
@@ -236,7 +223,6 @@
                 :aria-label="t(`common.actions.delete`)"
                 color="negative"
                 outline
-                no-caps
                 padding="xs sm"
                 @click="deleteCredential(credential)" />
             </w-item-section>
@@ -280,7 +266,7 @@
             color="grey"
             :label="t(`common.actions.cancel`)"
             @click="closeConfig" />
-          <w-btn unelevated color="primary" :label="t(`common.actions.save`)" @click="saveConfig" />
+          <w-btn color="primary" :label="t(`common.actions.save`)" @click="saveConfig" />
         </w-card-section>
       </w-card>
     </w-dialog>

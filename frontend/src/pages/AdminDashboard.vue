@@ -2,33 +2,30 @@
   <w-page class="admin-dashboard">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-apps-tab-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:layout-dashboard" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.dashboard.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
@@ -40,7 +37,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-change-theme.svg" alt="" />
+            <w-icon name="tabler:browser" />
             <div>
               <strong>{{ t('admin.sites.title') }}</strong>
               <span>{{ adminStore.sites.length }}</span>
@@ -69,7 +66,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-people.svg" alt="" />
+            <w-icon name="tabler:users" />
             <div>
               <strong>{{ t('admin.groups.title') }}</strong>
               <span>{{ adminStore.info.groupsTotal }}</span>
@@ -98,7 +95,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-account.svg" alt="" />
+            <w-icon name="tabler:user" />
             <div>
               <strong>{{ t('admin.users.title') }}</strong>
               <span>{{ adminStore.info.usersTotal }}</span>
@@ -127,7 +124,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-document-in-folder.svg" alt="" />
+            <w-icon name="tabler:folder" />
             <div>
               <strong>{{ t('admin.pages.title') }}</strong>
               <span>{{ adminStore.info.pagesTotal }}</span>
@@ -147,7 +144,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-female-working-with-a-laptop.svg" alt="" />
+            <w-icon name="tabler:eye" />
             <div>
               <strong>{{ t(`admin.dashboard.logins`) }}</strong>
               <small
@@ -170,7 +167,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img :src="versionCard.icon" alt="" />
+            <w-icon :name="versionCard.icon" :color="versionCard.color" />
             <div>
               <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
               <small :class="{ pending: versionCard.pending }"
@@ -208,7 +205,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-bot.svg" alt="" />
+            <w-icon name="tabler:robot" />
             <div>
               <strong>{{ t('admin.dashboard.activeWorkers') }}</strong>
               <span>{{ adminStore.info.activeWorkers }}</span>
@@ -229,7 +226,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-network.svg" alt="" />
+            <w-icon name="tabler:binary-tree" />
             <div>
               <strong>{{ t('admin.cluster.title') }}</strong>
               <span>{{ adminStore.info.clusterTotal }}</span>
@@ -250,7 +247,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-lightning-bolt.svg" alt="" />
+            <w-icon name="tabler:bolt" />
             <div>
               <strong>{{ t('admin.webhooks.title') }}</strong>
               <span>{{ adminStore.info.webhooksTotal }}</span>
@@ -271,7 +268,7 @@
       <div class="col-span-12 lg:col-span-6">
         <w-card>
           <w-card-section class="admin-dashboard-panel">
-            <img src="/_assets/icons/fluent-key-2.svg" alt="" />
+            <w-icon name="tabler:key" />
             <strong>{{ t('admin.dashboard.lastLogins') }}</strong>
           </w-card-section>
           <w-separator />
@@ -345,11 +342,15 @@ const userStore = useUserStore()
 const dark = useDark()
 
 /*
-  WBtn emits its colour as an inline style, so no `dark:` class can reach it -- the theme has to be
-  read here. `primary` is a mid-tone picked to read on white; on the dark card it needs the lightened
-  mix, the same one the section headings use.
+  A card's footer actions take the CHROME tone, not the accent: the figure above them is already the
+  accent, and Cardinal allows one live edge per surface -- two would leave the card with nothing to
+  look at first. Which is also why they are flat rather than filled.
+
+  WBtn emits its colour as an inline style, so no `dark:` class can reach it and the theme has to be
+  read here: `slate` is a mid-tone picked to read on white, and on the dark card it needs the
+  lightened one.
 */
-const actionColor = computed(() => (dark.isActive ? 'primary-light' : 'primary'))
+const actionColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
 
 /*
   Manage only opens the list, which `read:*` is enough for -- the same rule the nav entries in
@@ -381,7 +382,8 @@ const versionCard = computed(() => {
   switch (adminStore.versionStatus) {
     case 'latest':
       return {
-        icon: '/_assets/icons/fluent-done.svg',
+        icon: 'tabler:checkbox',
+        color: 'positive',
         status: t('admin.dashboard.versionUpToDate'),
         version: adminStore.info.currentVersion,
         latestVersion: null,
@@ -389,7 +391,8 @@ const versionCard = computed(() => {
       }
     case 'outdated':
       return {
-        icon: '/_assets/icons/fluent-double-up.svg',
+        icon: 'tabler:refresh-alert',
+        color: 'warning-fill',
         status: t('admin.dashboard.versionUpdateAvailable'),
         version: adminStore.info.currentVersion,
         latestVersion: adminStore.info.latestVersion,
@@ -397,7 +400,8 @@ const versionCard = computed(() => {
       }
     default:
       return {
-        icon: '/_assets/icons/fluent-refresh.svg',
+        icon: 'tabler:refresh',
+        color: 'slate-soft',
         status: t('admin.dashboard.versionChecking'),
         version: null,
         latestVersion: null,
@@ -492,9 +496,15 @@ function checkForUpdates() {
     display: flex;
     align-items: center;
 
-    img {
-      width: 32px;
+    /*
+      `.w-icon`, not `img`: these were raster `<img>` assets and are inline SVG now, so the size has
+      to be stated as a font-size (which is what WIcon sizes from) rather than a width.
+    */
+    > .w-icon {
+      font-size: 26px;
       margin-inline-end: 12px;
+      color: var(--color-slate-soft);
+      flex: none;
     }
 
     strong {
@@ -507,32 +517,47 @@ function checkForUpdates() {
     display: flex;
     align-items: center;
 
-    img {
-      width: 64px;
-      margin-inline-end: 12px;
+    /* -> See `-panel` above: inline SVG now, so sized by font-size rather than width */
+    > .w-icon {
+      font-size: 34px;
+      margin-inline-end: 14px;
+      color: var(--color-slate-soft);
+      flex: none;
     }
 
     strong {
-      font-size: 1.1rem;
+      font-size: 16px;
       font-weight: 300;
       display: block;
-      line-height: 1.2rem;
+      line-height: 1.2;
+      color: var(--color-slate);
       padding-inline-start: 2px;
+
+      @at-root .body--dark & {
+        color: var(--color-text-secondary-dark);
+      }
     }
 
+    /*
+      The figure itself: Barlow Condensed at the size a counter card is built around, in the accent.
+      This is the one place the accent is used as a NUMBER rather than as an action -- the card's
+      whole content is that figure, so it is what the reader's eye is meant to land on.
+    */
     span {
-      font-size: 2rem;
-      line-height: 2rem;
-      font-weight: 500;
-      color: var(--q-secondary);
+      font-family: var(--font-display);
+      font-size: 30px;
+      line-height: 1.1;
+      font-weight: 700;
+      color: var(--color-accent);
       display: block;
     }
 
     small {
-      font-size: 1.4rem;
-      line-height: 2rem;
-      font-weight: 400;
-      color: var(--q-secondary);
+      font-family: var(--font-display);
+      font-size: 22px;
+      line-height: 1.2;
+      font-weight: 700;
+      color: var(--color-accent);
       display: block;
 
       i {

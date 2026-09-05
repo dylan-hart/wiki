@@ -8,7 +8,6 @@
         v-if="field.type === `select`"
         v-model="values[field.name]"
         :options="field.options ?? []"
-        outlined
         dense
         options-dense
         :label="fieldLabel(field)"
@@ -22,7 +21,6 @@
       <w-input
         v-else
         v-model="values[field.name]"
-        outlined
         dense
         :type="field.type === `number` ? `number` : `text`"
         :label="fieldLabel(field)"

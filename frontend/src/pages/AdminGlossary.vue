@@ -2,14 +2,11 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-find-and-replace-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:list-search" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.glossary.subtitle') }}
         </div>
       </div>
@@ -43,20 +40,16 @@
           class="acrylic-btn me-2"
           :label="t(`common.actions.discard`)"
           flat
-          no-caps
           color="grey"
           @click="discardChanges" />
         <w-btn
           class="acrylic-btn me-2"
-          unelevated
-          no-caps
           :label="t('admin.glossary.saveGlossary')"
           color="positive"
           :disabled="!isDirty"
           :loading="state.saving"
           @click="saveGlossary" />
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.glossary.newTerm`)"
           color="primary"
@@ -73,13 +66,12 @@
       <w-card v-else>
         <w-list separator>
           <w-item v-for="term of state.terms" :key="term._key">
-            <blueprint-icon icon="quote-left" />
+            <blueprint-icon icon="tabler:quote" />
             <w-item-section>
               <w-item-label>
                 <strong>{{ term.term }}</strong>
                 <w-chip
                   v-if="term.isAcronym"
-                  square
                   dense
                   size="sm"
                   class="ms-2"
@@ -91,7 +83,6 @@
                 <w-chip
                   v-for="alias of term.aliases"
                   :key="alias.value"
-                  square
                   dense
                   :icon="alias.isAcronym ? 'mdi:alpha-a-box-outline' : null">
                   {{ alias.value }}
@@ -113,8 +104,7 @@
                 @click="editTerm(term)"
                 icon="la:pen"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
-                :label="t(`common.actions.edit`)"
-                no-caps />
+                :label="t(`common.actions.edit`)" />
               <w-btn
                 class="acrylic-btn"
                 flat

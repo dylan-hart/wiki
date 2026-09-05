@@ -4,11 +4,10 @@
       <w-icon name="img:/_assets/icons/color-data-grid.svg" left size="md" />
       <span>{{ t(`editor.tableEditor.title`) }}</span>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
-          push
           color="white"
-          text-color="grey-7"
+          text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
           icon="la:times"
@@ -16,7 +15,6 @@
         <!-- -> "Update" when the overlay was opened over a table that is already in the page: the
                 button says what pressing it does, and what it does is replace that one -->
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="state.replace ? t('common.actions.update') : t('common.actions.insert')"
@@ -42,16 +40,12 @@
           <!-- -> `push`, like the overlay's own header buttons and the Styling menu at the far end of
                   this strip: solid, with the ledge that collapses under the press -->
           <w-btn
-            push
-            no-caps
             icon="la:plus"
             color="primary"
             padding="xs sm"
             :label="t(`editor.tableEditor.addRow`)"
             @click="addRow" />
           <w-btn
-            push
-            no-caps
             icon="la:plus"
             color="primary"
             padding="xs sm"
@@ -90,8 +84,6 @@
           -->
           <w-separator vertical />
           <w-btn
-            push
-            no-caps
             icon="mdi:palette"
             color="secondary"
             padding="xs sm"

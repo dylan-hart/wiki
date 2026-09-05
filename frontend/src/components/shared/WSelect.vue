@@ -15,15 +15,9 @@
     :required="required"
     :hint="hint"
     :label-for="selectId"
-    :float-label-id="`${selectId}-label`"
-    label-tag="span"
-    :has-floating-label="hasFloatingLabel"
-    :is-floating="isFloating"
-    :float-color-class="floatColorClass"
-    :outline-style="outlineStyle"
     :control-tag="useInput ? 'div' : 'button'"
     :control-props="controlProps"
-    control-base-class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded text-start"
+    control-base-class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 text-start"
     :control-classes="controlClasses"
     :control-style="controlStyle"
     :shows-bottom="showsBottom"
@@ -63,19 +57,18 @@
       :aria-required="required || undefined"
       aria-haspopup="listbox"
       :aria-label="label ? undefined : ariaLabel"
-      :aria-labelledby="hasFloatingLabel ? `${selectId}-label` : undefined"
       :aria-controls="isOpen ? `${selectId}-listbox` : undefined"
       :aria-activedescendant="isOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined"
       :disabled="isDisabled"
       :readonly="readonly"
       :placeholder="showsChips ? '' : placeholder"
-      class="w-unstyled min-w-8 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/40 dark:placeholder:text-white/40"
+      class="w-unstyled min-w-8 flex-1 bg-transparent outline-none placeholder:text-text-caption dark:placeholder:text-text-caption-dark"
       @focus="readonly || open(0)"
       @keydown="onKeydown" />
     <span
       v-else
-      class="min-w-0 flex-1 truncate pt-0.5"
-      :class="hasSelection || displayValue ? '' : 'text-black/40 dark:text-white/40'">
+      class="min-w-0 flex-1 truncate"
+      :class="hasSelection || displayValue ? '' : 'text-text-caption dark:text-text-caption-dark'">
       <!--
         `selected` lets a caller summarise the selection instead of listing it -- e.g. "3 groups
         selected" rather than three comma-joined names.
@@ -444,28 +437,18 @@ const standoutClass = computed(() => {
   its descent, so a geometrically centred line box renders its glyphs 2px high. See WInput for the
   full note.
 */
-const {
-  hasFloatingLabel,
-  isFloating,
-  floatColorClass,
-  controlStyle,
-  outlineStyle,
-  controlClasses,
-  showsBottom,
-  errorMessage,
-  validate
-} = useFieldFrame({
+const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = useFieldFrame({
   props,
   active: isOpen,
   hovered: isHovered,
   hasValue: computed(() => hasSelection.value || Boolean(props.displayValue)),
   hasLeadingAdornment: computed(() => Boolean(slots.prepend)),
   noFrame: computed(() => props.standout),
-  // -> Its own surface, white or a dark well, matching WInput; see the note there
+  // -> Its own surface, white or the dark panel tone, matching WInput; see the note there
   surface: computed(
     () =>
       standoutClass.value ??
-      (props.outlined ? 'bg-white dark:bg-black/20' : 'rounded-b-none bg-black/4 dark:bg-white/6')
+      (props.readonly ? 'bg-[#f8f9fc] dark:bg-dark-4' : 'bg-surface dark:bg-dark-3')
   ),
   // -> readonly keeps full contrast; only the pointer affordance goes away
   extraClasses: computed(() =>
@@ -488,7 +471,6 @@ const controlProps = computed(() => ({
   'aria-expanded': props.useInput ? undefined : String(isOpen.value),
   'aria-haspopup': props.useInput ? undefined : 'listbox',
   'aria-label': props.useInput || props.label ? undefined : props.ariaLabel,
-  'aria-labelledby': hasFloatingLabel.value && !props.useInput ? `${selectId}-label` : undefined,
   'aria-readonly': !props.useInput && props.readonly ? true : undefined,
   'aria-controls': !props.useInput && isOpen.value ? `${selectId}-listbox` : undefined,
   'aria-activedescendant':

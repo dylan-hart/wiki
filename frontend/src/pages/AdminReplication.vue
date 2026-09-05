@@ -2,33 +2,29 @@
   <w-page class="admin-replication">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/ultraviolet-synchronize.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:refresh" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.replication.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.replication.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.replication.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :disabled="state.loading > 0" />
       </div>
@@ -42,7 +38,7 @@
         <w-card class="py-2 mb-4">
           <w-item>
             <w-item-section>
-              <w-card class="bg-negative text-white rounded" flat>
+              <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
@@ -61,14 +57,13 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.replication.title') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="link" />
+            <blueprint-icon icon="tabler:link" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.sourceUrl`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.replication.sourceUrlHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.sourceUrl"
                 dense
                 hide-bottom-space
@@ -78,14 +73,13 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="key" />
+            <blueprint-icon icon="tabler:key" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.bearerToken`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.replication.bearerTokenHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.bearerToken"
                 dense
                 hide-bottom-space
@@ -96,7 +90,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="schedule" />
+            <blueprint-icon icon="tabler:calendar-time" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.cronSchedule`) }}</w-item-label>
               <w-item-label caption>{{
@@ -105,7 +99,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.cronSchedule"
                 dense
                 :rules="rulesCronSchedule"
@@ -116,7 +109,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="access" />
+            <blueprint-icon icon="tabler:shield-lock" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.enabled`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.replication.enabledHint`) }}</w-item-label>

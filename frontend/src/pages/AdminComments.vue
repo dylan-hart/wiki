@@ -2,24 +2,21 @@
   <w-page class="admin-comments">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-comments.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:message" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.comments.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
         <w-spinner class="me-4" v-show="state.loading > 0" color="accent" size="sm" />
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/comments`"
           target="_blank">
@@ -38,10 +35,9 @@
         </w-btn>
         <w-btn
           v-if="state.mode === `provider`"
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save()"
           :disabled="!selectedProvider || !selectedProvider.isSelectable"
           :loading="state.loading > 0" />
@@ -112,7 +108,6 @@
           <template #action>
             <w-btn
               flat
-              no-caps
               :label="t('admin.comments.goToGeneral')"
               :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
           </template>
@@ -175,12 +170,10 @@
         <template #action>
           <w-btn
             flat
-            no-caps
             :label="t('admin.comments.goToGeneral')"
             :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
           <w-btn
             flat
-            no-caps
             :label="t('admin.comments.configureProvider')"
             @click="state.mode = `provider`" />
         </template>
@@ -189,7 +182,6 @@
         <div class="flex flex-wrap gap-2 mb-4">
           <w-input
             class="denser"
-            outlined
             v-model="state.searchPath"
             dense
             :placeholder="t('admin.comments.searchByPage')"
@@ -199,7 +191,6 @@
           </w-input>
           <w-input
             class="denser"
-            outlined
             v-model="state.searchAuthor"
             dense
             :placeholder="t('admin.comments.searchByAuthor')"

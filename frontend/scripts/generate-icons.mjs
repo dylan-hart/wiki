@@ -34,7 +34,26 @@ const OUT = path.join(SRC, 'assets/icons.generated.js')
  * The skip is silent on purpose: `prefix:name` also describes every permission string in the frontend
  * (`write:pages`, `manage:system`), and those must not be mistaken for icons.
  */
-const SETS = ['mdi', 'la']
+const SETS = ['mdi', 'la', 'tabler']
+
+/**
+ * Tabler is drawn at `stroke-width: 2` with ROUND caps and joins. Cardinal is a language of squares
+ * and hairlines — the glyphs in `ui-redesign/`'s design files are 1.5px with butt caps and mitre
+ * joins, and declare no linecap at all — so a Tabler icon dropped in unchanged reads a weight
+ * heavier and a shade softer than everything around it.
+ *
+ * Restyling rather than redrawing: the geometry is Tabler's and stays untouched, only its
+ * presentation attributes move. Applied at bundle time so the source stays an ordinary
+ * `tabler:<name>` reference that anyone can look up, rather than a fork nobody can trace back.
+ *
+ * Scoped to `tabler` deliberately — `mdi` and `la` are FILLED sets with no stroke to restyle, and
+ * running this over them would do nothing but risk mangling a path.
+ */
+function restyleForCardinal(body) {
+  return body
+    .replaceAll(/\s*stroke-line(?:cap|join)="round"/g, '')
+    .replaceAll('stroke-width="2"', 'stroke-width="1.5"')
+}
 
 /**
  * A quoted string that is EXACTLY an Iconify reference. Requiring the whole literal to match is what
@@ -124,7 +143,7 @@ export function build() {
       continue
     }
     icons[ref] = {
-      body: icon.body,
+      body: prefix === 'tabler' ? restyleForCardinal(icon.body) : icon.body,
       // -> Default to the set's own grid; an icon may override it
       width: icon.width ?? set.width ?? 16,
       height: icon.height ?? set.height ?? 16,

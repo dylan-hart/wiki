@@ -1,7 +1,7 @@
 <template>
   <w-layout container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="md" />
+      <w-icon name="tabler:layout-sidebar" left size="md" />
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
       <!--
         Which menu is on screen, when it is not this page's own: an inherited menu is shared with every
@@ -30,15 +30,13 @@
       </w-btn>
       <w-btn-group>
         <w-btn
-          push
           color="white"
-          text-color="grey-7"
+          text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
           icon="la:times"
           @click="close" />
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"

@@ -17,7 +17,6 @@
               ref="iptReason"
               v-model="state.reason"
               type="textarea"
-              outlined
               dense
               :rows="3"
               hide-bottom-space
@@ -34,12 +33,7 @@
           color="grey"
           padding="xs md"
           @click="onDialogCancel" />
-        <w-btn
-          unelevated
-          :label="t(`inbox.reviewDecline`)"
-          color="negative"
-          padding="xs md"
-          @click="commit" />
+        <w-btn :label="t(`inbox.reviewDecline`)" color="negative" padding="xs md" @click="commit" />
       </w-card-actions>
     </w-card>
   </w-dialog>

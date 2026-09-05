@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-fingerprint.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:list-numbers" size="sm" class="me-2" />
         <span>{{ t(`profile.authSetTfa`) }}</span>
       </w-card-section>
       <template v-if="!state.isInit">
@@ -63,7 +63,6 @@
             padding="xs md"
             @click="onDialogCancel" />
           <w-btn
-            unelevated
             :label="t(`auth.tfa.verifyToken`)"
             color="primary"
             padding="xs md"
@@ -85,7 +84,6 @@
         <w-card-actions class="card-actions">
           <w-space />
           <w-btn
-            unelevated
             :label="t(`common.actions.close`)"
             color="primary"
             padding="xs md"

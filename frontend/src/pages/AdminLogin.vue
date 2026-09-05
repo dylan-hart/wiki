@@ -2,43 +2,39 @@
   <w-page class="admin-login">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-bunch-of-keys-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:login" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.login.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.login.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.login.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/auth`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :disabled="state.loading > 0" />
       </div>
@@ -54,7 +50,7 @@
           <w-item>
             <blueprint-icon
               class="self-start"
-              icon="full-image"
+              icon="tabler:photo"
               :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
@@ -67,7 +63,6 @@
                   <div class="flex gap-2">
                     <w-btn
                       :label="t(`common.actions.upload`)"
-                      unelevated
                       icon="la:upload"
                       color="primary"
                       text-color="white"
@@ -91,7 +86,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="close-pane" />
+            <blueprint-icon icon="tabler:layout-sidebar-right-collapse" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.bypassScreen`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.bypassScreenHint`) }}</w-item-label>
@@ -105,7 +100,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="no-access" />
+            <blueprint-icon icon="tabler:lock-off" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.bypassUnauthorized`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.bypassUnauthorizedHint`) }}</w-item-label>
@@ -119,14 +114,13 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="double-right" />
+            <blueprint-icon icon="tabler:chevrons-right" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.loginRedirect`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.loginRedirectHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.loginRedirect"
                 dense
                 :rules="[
@@ -139,14 +133,13 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="chevron-right" />
+            <blueprint-icon icon="tabler:chevron-right" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.welcomeRedirect`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.welcomeRedirectHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.welcomeRedirect"
                 dense
                 :rules="[
@@ -160,14 +153,13 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="exit" />
+            <blueprint-icon icon="tabler:logout" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.logoutRedirect`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.logoutRedirectHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.logoutRedirect"
                 dense
                 :rules="[
@@ -216,7 +208,7 @@
           </w-card-section>
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-info text-white rounded" flat>
+              <w-card class="bg-info text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:info-circle" size="lg" />

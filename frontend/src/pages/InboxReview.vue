@@ -121,7 +121,6 @@
           icon="la:external-link-alt"
           color="grey"
           :label="t(`inbox.reviewViewPage`)"
-          no-caps
           :href="`/` + state.selected.page.path"
           target="_blank" />
         <w-btn
@@ -130,14 +129,11 @@
           icon="la:times"
           color="negative"
           :label="t(`inbox.reviewDecline`)"
-          no-caps
           @click="rejectSubmission" />
         <w-btn
-          unelevated
           icon="la:check"
           color="positive"
           :label="t(`inbox.reviewApprove`)"
-          no-caps
           @click="approveSubmission" />
       </div>
       <!--

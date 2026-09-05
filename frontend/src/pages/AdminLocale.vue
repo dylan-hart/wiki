@@ -2,43 +2,39 @@
   <w-page class="admin-locale">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-language.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:language" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.locale.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.locale.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.locale.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/localisation`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save"
           :disabled="state.loading > 0" />
       </div>
@@ -52,14 +48,13 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.locale.settings') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="translation" />
+            <blueprint-icon icon="tabler:language" />
             <w-item-section>
               <w-item-label>{{ t(`admin.locale.primary`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.locale.primaryHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.primary"
                 :options="state.locales"
                 option-value="code"
@@ -72,7 +67,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="close-pane" />
+            <blueprint-icon icon="tabler:layout-sidebar-right-collapse" />
             <w-item-section>
               <w-item-label>{{ t(`admin.locale.forcePrefix`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.locale.forcePrefixHint`) }}</w-item-label>
@@ -85,7 +80,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="geography" />
+            <blueprint-icon icon="tabler:map" />
             <w-item-section>
               <w-item-label>{{ t(`admin.locale.showMenu`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.locale.showMenuHint`) }}</w-item-label>

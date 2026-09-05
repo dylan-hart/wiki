@@ -29,7 +29,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.apply`)"
           color="primary"
           padding="xs md"

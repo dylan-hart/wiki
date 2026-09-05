@@ -1,5 +1,7 @@
 <template>
-  <div class="w-card-actions flex flex-nowrap items-center gap-2 p-2" :class="alignClass">
+  <div
+    class="w-card-actions flex flex-nowrap items-center gap-2 border-t border-hairline p-2.5 dark:border-hairline-dark"
+    :class="alignClass">
     <slot />
   </div>
 </template>
@@ -8,7 +10,8 @@
 import { computed } from 'vue'
 
 /**
- * The action bar at the foot of a `WCard`.
+ * The action bar at the foot of a `WCard`, ruled off from the body above it by a hairline -- which
+ * is how Cardinal separates every band inside a card, the dialogs included.
  */
 const props = defineProps({
   /** Horizontal alignment of the buttons. */

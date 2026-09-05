@@ -33,7 +33,6 @@
           padding="xs md"
           @click="onDialogOK('discard')" />
         <w-btn
-          unelevated
           :label="t(`editor.collab.saveConflict.saveAnyway`)"
           color="primary"
           padding="xs md"

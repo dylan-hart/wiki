@@ -49,14 +49,12 @@
             ref="iptTitle"
             v-model="pageStore.title"
             :label="t(`editor.props.title`)"
-            outlined
             dense />
           <w-input
             v-model="pageStore.description"
             :label="t(`editor.props.shortDescription`)"
-            outlined
             dense />
-          <w-input v-model="pageStore.icon" :label="t(`editor.props.icon`)" outlined dense>
+          <w-input v-model="pageStore.icon" :label="t(`editor.props.icon`)" dense>
             <template #prepend>
               <w-icon :name="pageStore.icon" size="20px" color="primary" />
             </template>
@@ -85,7 +83,6 @@
             v-if="pageStore.path !== `home`"
             v-model="pageStore.alias"
             :label="t(`editor.props.alias`)"
-            outlined
             dense
             prefix="/a/" />
         </w-form>
@@ -96,9 +93,6 @@
           <div>
             <w-btn-toggle
               v-model="pageStore.publishState"
-              push
-              glossy
-              no-caps
               toggle-color="primary"
               :aria-label="t(`editor.props.publishState`)"
               :options="[
@@ -137,7 +131,7 @@
               <w-item-label caption>{{ rel.caption }}</w-item-label>
             </w-item-section>
             <w-item-section side>
-              <w-chip class="px-2" dense square color="primary" text-color="white">
+              <w-chip class="px-2" dense color="primary" text-color="white">
                 <div class="text-caption">{{ rel.position }}</div>
               </w-chip>
             </w-item-section>
@@ -165,8 +159,6 @@
           class="w-full"
           :label="t(`editor.props.relationAdd`)"
           icon="la:plus"
-          no-caps
-          unelevated
           color="secondary"
           @click="newRelation">
           <w-tooltip>{{ t('editor.props.relationAddHint') }}</w-tooltip>
@@ -294,7 +286,6 @@
                   ? t(`editor.props.passwordKeepHint`)
                   : t(`editor.props.passwordHint`)
               "
-              outlined
               dense />
           </div>
         </w-form>

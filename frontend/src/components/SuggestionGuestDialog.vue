@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 550px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-inspection.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:checkbox" size="sm" class="me-2" />
         <span>{{ t(`common.page.suggestIdentifyTitle`) }}</span>
       </w-card-section>
       <w-card-section>
@@ -18,12 +18,11 @@
           letting both sections centre in the row is what lines the icon up with the field.
         -->
         <w-item>
-          <blueprint-icon icon="contact" />
+          <blueprint-icon icon="tabler:address-book" />
           <w-item-section>
             <w-input
               ref="iptName"
               v-model="state.name"
-              outlined
               dense
               :rules="nameValidation"
               hide-bottom-space
@@ -33,11 +32,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="envelope" />
+          <blueprint-icon icon="tabler:mail" />
           <w-item-section>
             <w-input
               v-model="state.email"
-              outlined
               dense
               type="email"
               :rules="emailValidation"
@@ -59,7 +57,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.submitEdits`)"
           color="positive"
           padding="xs md"

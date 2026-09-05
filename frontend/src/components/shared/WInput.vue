@@ -15,12 +15,8 @@
     :required="required"
     :hint="hint"
     :label-for="inputId"
-    :has-floating-label="hasFloatingLabel"
-    :is-floating="isFloating"
-    :float-color-class="floatColorClass"
-    :outline-style="outlineStyle"
     :control-props="controlEvents"
-    control-base-class="w-input-control flex flex-nowrap items-center gap-2 rounded"
+    control-base-class="w-input-control flex flex-nowrap items-center gap-2"
     :control-classes="controlClasses"
     :control-style="controlStyle"
     :shows-bottom="showsBottom"
@@ -36,7 +32,7 @@
     <span
       v-if="prefix"
       aria-hidden="true"
-      class="shrink-0 pt-0.5 text-black/54 select-none dark:text-white/60">
+      class="shrink-0 text-text-caption select-none dark:text-text-caption-dark">
       {{ prefix }}
     </span>
 
@@ -59,7 +55,7 @@
       :aria-invalid="hasError || undefined"
       :aria-required="required || undefined"
       :aria-describedby="describedBy"
-      class="w-unstyled min-w-0 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/54 dark:placeholder:text-white/54"
+      class="w-unstyled min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-caption dark:placeholder:text-text-caption-dark"
       :class="monospaced ? 'font-mono text-[13px] leading-[1.4] font-semibold' : ''"
       @input="onInput"
       @focus="onFocus"
@@ -74,7 +70,7 @@
     <span
       v-if="suffix"
       aria-hidden="true"
-      class="shrink-0 pt-0.5 text-black/54 select-none dark:text-white/60">
+      class="shrink-0 text-text-caption select-none dark:text-text-caption-dark">
       {{ suffix }}
     </span>
 
@@ -255,42 +251,34 @@ const hasValue = computed(() => String(props.modelValue ?? '').length > 0)
 */
 const hasLeadingAdornment = computed(() => Boolean(slots.prepend || props.prefix))
 
-const {
-  hasFloatingLabel,
-  isFloating,
-  floatColorClass,
-  controlStyle,
-  outlineStyle,
-  controlClasses,
-  showsBottom,
-  errorMessage,
-  validate
-} = useFieldFrame({
+const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = useFieldFrame({
   props,
   active: hasFocus,
   hovered: isHovered,
   hasValue,
   hasLeadingAdornment,
   /*
-    An outlined field carries its own surface rather than borrowing whatever it sits on: white in
-    light mode, a darker well in dark mode. Transparent read fine on a white card and wrong
-    everywhere else -- a grey `alt-card` section, the admin page background, the profile card -- where
-    the field dissolved into its surroundings.
+    A field carries its own surface rather than borrowing whatever it sits on: white in light mode,
+    the panel tone in dark. Transparent read fine on a white card and wrong everywhere else -- a
+    tinted section, the page ground, the profile card -- where the field dissolved into its
+    surroundings.
 
-    The dark value is translucent black rather than a fixed tone so it holds up on each of those
-    surfaces; the light one can be flat white because that IS the surface a field should present.
+    Flat tones on both sides rather than a translucency, because Cardinal's grounds are a known,
+    short list and a field is meant to present the SAME surface on every one of them.
 
     `transparent` opts out, for the surfaces where that reasoning inverts -- see the prop.
   */
-  surface: computed(() =>
-    props.transparent
-      ? props.outlined
-        ? ''
-        : 'rounded-b-none'
-      : props.outlined
-        ? 'bg-white dark:bg-black/20'
-        : 'rounded-b-none bg-black/4 dark:bg-white/6'
-  )
+  surface: computed(() => {
+    if (props.transparent) {
+      return ''
+    }
+    // -> A read-only field is recessed rather than merely uneditable: the design gives it its own
+    //    slightly-sunken ground (#f8f9fc / the dark ramp's `-4`) so it reads as displayed, not typed
+    if (props.readonly) {
+      return 'bg-[#f8f9fc] dark:bg-dark-4'
+    }
+    return 'bg-surface dark:bg-dark-3'
+  })
 })
 
 // COMPUTED

@@ -5,17 +5,16 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-password-reset.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:lock-cog" size="sm" class="me-2" />
         <span>{{ t(`admin.users.changePassword`) }}</span>
       </w-card-section>
       <w-form ref="changeUserPwdForm" class="py-2" @submit="save">
         <w-item>
-          <blueprint-icon icon="password" />
+          <blueprint-icon icon="tabler:password" />
           <w-item-section>
             <w-input
               ref="iptPassword"
               v-model="state.userPassword"
-              outlined
               dense
               :rules="userPasswordValidation"
               hide-bottom-space
@@ -40,7 +39,7 @@
           handler and cancelling itself out.
         -->
         <w-item clickable @click="state.userMustChangePassword = !state.userMustChangePassword">
-          <blueprint-icon icon="password-reset" />
+          <blueprint-icon icon="tabler:lock-cog" />
           <w-item-section>
             <w-item-label>{{ t(`admin.users.mustChangePwd`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.mustChangePwdHint`) }}</w-item-label>
@@ -63,7 +62,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.update`)"
           color="primary"
           padding="xs md"

@@ -69,7 +69,6 @@
           <span class="graph-view-control-caption">{{ t('graph.controls.groupByLabel') }}</span>
           <w-btn-toggle
             v-model="groupBy"
-            no-caps
             :aria-label="t('graph.controls.groupByLabel')"
             :options="groupByOptions" />
         </div>
@@ -77,7 +76,6 @@
           <span class="graph-view-control-caption">{{ t('graph.controls.sizeByLabel') }}</span>
           <w-btn-toggle
             v-model="sizeBy"
-            no-caps
             :aria-label="t('graph.controls.sizeByLabel')"
             :options="sizeByOptions" />
         </div>
@@ -85,7 +83,6 @@
           <span class="graph-view-control-caption">{{ t('graph.controls.countLabel') }}</span>
           <w-btn-toggle
             v-model="sizeCountMode"
-            no-caps
             :aria-label="t('graph.controls.countAriaLabel')"
             :options="sizeCountModeOptions" />
         </div>
@@ -98,7 +95,6 @@
           <span class="graph-view-control-caption">{{ t('graph.controls.overLabel') }}</span>
           <w-btn-toggle
             v-model="pageviewsWindow"
-            no-caps
             :aria-label="t('graph.controls.overAriaLabel')"
             :options="pageviewsWindowOptions" />
         </div>
@@ -110,17 +106,11 @@
       </div>
     </div>
     <div class="graph-view-filters">
-      <w-input
-        v-model="keywordQuery"
-        clearable
-        outlined
-        dense
-        :label="t('graph.filters.keyword')" />
+      <w-input v-model="keywordQuery" clearable dense :label="t('graph.filters.keyword')" />
       <w-select
         v-model="activeFilters.tags"
         multiple
         use-chips
-        outlined
         dense
         options-dense
         :options="tagOptions"
@@ -140,7 +130,6 @@
             <w-input
               v-model.number="folderDepthSlider"
               dense
-              outlined
               type="number"
               min="0"
               :max="actualMaxFolderDepth"
@@ -152,7 +141,6 @@
       <w-select
         v-if="showLocaleFilter"
         v-model="activeFilters.locale"
-        outlined
         dense
         options-dense
         :options="localeOptions"

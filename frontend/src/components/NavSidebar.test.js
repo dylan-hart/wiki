@@ -797,17 +797,16 @@ describe('NavSidebar empty-space context menu', () => {
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 721. Mounting at all is
  * itself a meaningful check: this component's `<style lang="scss">` was rewritten from physical
  * `left`/`right`/`border-left` declarations to logical `inset-inline-*`/`border-inline-*` ones (the
- * edge-notch triangle and the open-group rail), and Vite's Sass pipeline would fail the whole render
- * on a malformed declaration -- a compile error here, not a failed assertion, is what would catch a
+ * current-page bar and the open-group rail), and Vite's Sass pipeline would fail the whole render on
+ * a malformed declaration -- a compile error here, not a failed assertion, is what would catch a
  * typo in that rewrite.
  *
  * The actual mirroring under `dir="rtl"` cannot be asserted from here: happy-dom's CSS engine does
  * not resolve logical properties against `direction` the way a real layout engine does (verified
  * separately, against real Chromium, while making this change -- see the task's notes). What IS
- * asserted here is the one thing that stayed JS-driven rather than becoming pure CSS: `sidebarPosition`
- * (a SITE setting) and the reader's text direction are two independent axes, and `sidebarPosition`
- * alone must still be what decides whether `sidebar-nav--flipped` is applied -- switching locale must
- * not silently flip it too.
+ * asserted here is that `sidebarPosition` reaches this component's markup not at all any more: the
+ * one thing it used to drive (the current-page notch's edge) is now an accent bar on the reader's
+ * own starting edge, which is pure CSS and a different axis entirely.
  */
 async function mountSidebar(sidebarPosition) {
   const router = await createTestRouter(['/'])
@@ -977,12 +976,20 @@ describe('NavSidebar', () => {
     expect(nav.find('.sidebar-nav-list').exists()).toBe(true)
   })
 
-  it('applies sidebar-nav--flipped only when sidebarPosition is "right"', async () => {
-    const defaultSidebar = await mountSidebar('left')
-    expect(defaultSidebar.classes()).not.toContain('sidebar-nav--flipped')
+  /*
+    `sidebarPosition` no longer reaches this component's own markup at all. It existed here to drive
+    a `sidebar-nav--flipped` class, and that class existed to bite the current-page notch out of
+    whichever edge faced the content column. Cardinal marks the current page with an accent bar on
+    the edge the READER starts from instead, which is the reading direction's question and not the
+    site setting's -- so the class, its rule, and the JS that applied it are all gone together.
+    `WLayout`'s grid still places the sidebar itself on whichever side the setting names.
+  */
+  it('renders identically whichever side the site puts the sidebar on', async () => {
+    const left = await mountSidebar('left')
+    const right = await mountSidebar('right')
 
-    const flippedSidebar = await mountSidebar('right')
-    expect(flippedSidebar.classes()).toContain('sidebar-nav--flipped')
+    expect(right.classes()).toEqual(left.classes())
+    expect(right.classes()).not.toContain('sidebar-nav--flipped')
   })
 
   /**

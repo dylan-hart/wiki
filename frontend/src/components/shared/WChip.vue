@@ -20,7 +20,7 @@
     <button
       v-if="removable"
       type="button"
-      class="w-unstyled shrink-0 cursor-pointer rounded-full opacity-70 hover:opacity-100"
+      class="w-unstyled shrink-0 cursor-pointer opacity-70 hover:opacity-100"
       :aria-label="resolvedRemoveLabel"
       @click.stop="$emit('remove')">
       <w-icon name="mdi:close" />
@@ -57,11 +57,6 @@ const props = defineProps({
     type: String,
     default: 'md'
   },
-  /** Sharp corners instead of a pill. */
-  square: {
-    type: Boolean,
-    default: false
-  },
   dense: {
     type: Boolean,
     default: false
@@ -90,12 +85,21 @@ const resolvedRemoveLabel = computed(
 
 const SIZES = { xs: '10px', sm: '12px', md: '14px', lg: '16px' }
 
+/*
+  Square, always. Cardinal has no pill: a tag, a status mark and a selected value are all the same
+  rectangle, which is why the `square` prop -- once the opt-IN to sharp corners -- is gone.
+
+  An uncoloured chip is an OUTLINE (white with a hairline edge), not a grey fill. That is what makes
+  the tag row in the design read as a row of small documents rather than a row of pills, and it is
+  what leaves the solid fill free to mean "selected".
+*/
 const classes = computed(() => [
-  props.square ? 'rounded-sm' : 'rounded-full',
-  props.dense ? 'px-2 py-0.5' : 'px-3 py-1',
+  'rounded-none',
+  props.dense ? 'px-1.5 py-0.5' : 'px-2 py-[3px]',
   props.clickable ? 'cursor-pointer hover:brightness-110' : '',
-  // -> Uncoloured chips fall back to a neutral surface tint rather than being invisible
-  props.color ? '' : 'bg-black/8 dark:bg-white/12'
+  props.color
+    ? ''
+    : 'border border-hairline bg-surface text-slate dark:border-border-dark dark:bg-dark-3 dark:text-text-secondary-dark'
 ])
 
 const styles = computed(() => ({

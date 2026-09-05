@@ -81,7 +81,7 @@ describe('AdminLayout sidebar nav', () => {
   it('shows the Comments link enabled, independent of the experimental flag', async () => {
     const wrapper = await mountLayout({ experimental: false })
 
-    const commentsItem = findItemByIcon(wrapper, 'img:/_assets/icons/fluent-comments.svg')
+    const commentsItem = findItemByIcon(wrapper, 'tabler:message')
 
     expect(commentsItem).toBeDefined()
     expect(commentsItem.attributes('aria-disabled')).toBeUndefined()
@@ -92,7 +92,7 @@ describe('AdminLayout sidebar nav', () => {
   it('shows the Analytics link enabled, independent of the experimental flag', async () => {
     const wrapper = await mountLayout({ experimental: false })
 
-    const analyticsItem = findItemByIcon(wrapper, 'img:/_assets/icons/fluent-bar-chart.svg')
+    const analyticsItem = findItemByIcon(wrapper, 'tabler:chart-line')
 
     expect(analyticsItem).toBeDefined()
     expect(analyticsItem.attributes('aria-disabled')).toBeUndefined()
@@ -102,7 +102,7 @@ describe('AdminLayout sidebar nav', () => {
   it('keeps the Comments link visible when the experimental flag is on too', async () => {
     const wrapper = await mountLayout({ experimental: true })
 
-    const commentsItem = findItemByIcon(wrapper, 'img:/_assets/icons/fluent-comments.svg')
+    const commentsItem = findItemByIcon(wrapper, 'tabler:message')
 
     expect(commentsItem).toBeDefined()
     expect(commentsItem.attributes('aria-disabled')).toBeUndefined()
@@ -128,8 +128,8 @@ describe('AdminLayout sidebar nav', () => {
       sitePermissions: ['site:theme']
     })
 
-    expect(findItemByIcon(wrapper, 'img:/_assets/icons/fluent-bar-chart.svg')).toBeUndefined()
-    expect(findItemByIcon(wrapper, 'img:/_assets/icons/fluent-comments.svg')).toBeUndefined()
+    expect(findItemByIcon(wrapper, 'tabler:chart-line')).toBeUndefined()
+    expect(findItemByIcon(wrapper, 'tabler:message')).toBeUndefined()
   })
 })
 
@@ -352,24 +352,32 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
     return wrapper.findAll('.w-btn').find((btn) => btn.find(`[data-icon="${iconName}"]`).exists())
   }
 
-  it('gives the EXIT button the header-nav-btn hover treatment', async () => {
+  /*
+    The Cardinal re-skin moved these two off the `header-nav-btn` band. That band is a hover FILL on a
+    solid dark bar, and the admin header is a white plate now -- so a control needs an edge of its
+    own to read as one, which is what `outline` gives it. `header-nav-btn--auto-width` existed only
+    to let these two size to their labels inside that band, and went with them.
+  */
+  it('outlines the EXIT button, in the accent -- the one control in the bar that leaves', async () => {
     const wrapper = await mountToolbar()
 
     const exitBtn = findButtonByIcon(wrapper, 'la:times-circle')
 
     expect(exitBtn).toBeDefined()
-    expect(exitBtn.classes()).toContain('header-nav-btn')
-    expect(exitBtn.classes()).toContain('header-nav-btn--auto-width')
+    expect(exitBtn.classes()).not.toContain('header-nav-btn')
+    expect(exitBtn.classes()).toContain('border')
+    expect(exitBtn.attributes('style')).toContain('var(--color-accent)')
   })
 
-  it('gives the locale-switcher button the header-nav-btn hover treatment', async () => {
+  it('outlines the locale switcher too, in the chrome tone', async () => {
     const wrapper = await mountToolbar()
 
     const localeBtn = findButtonByIcon(wrapper, 'la:language')
 
     expect(localeBtn).toBeDefined()
-    expect(localeBtn.classes()).toContain('header-nav-btn')
-    expect(localeBtn.classes()).toContain('header-nav-btn--auto-width')
+    expect(localeBtn.classes()).not.toContain('header-nav-btn')
+    expect(localeBtn.classes()).toContain('border')
+    expect(localeBtn.attributes('style')).toContain('var(--color-slate)')
   })
 
   it('keeps the account-menu button on the shared header-nav-btn treatment too, for a flush group', async () => {
@@ -381,17 +389,15 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
     expect(accountBtn.classes()).toContain('header-nav-btn')
   })
 
-  it('defines the header-nav-btn--auto-width modifier in _base.scss, sizing to content', () => {
-    // -> Vue Test Utils never loads the app's stylesheet, so the class-presence assertions above
-    //    can't catch the CSS rule itself going missing. Guards the modifier directly, the same way
-    //    the SSL dead-code describe block above asserts on file contents rather than rendered style.
+  it('no longer declares the header-nav-btn--auto-width modifier, which has no callers left', () => {
+    // -> Vue Test Utils never loads the app's stylesheet, so the class assertions above cannot catch
+    //    a dead rule left behind in the CSS. Guards the removal directly, the same way the SSL
+    //    dead-code describe block above asserts on file contents rather than rendered style.
     const dir = dirname(fileURLToPath(import.meta.url))
     const scssPath = join(dir, '../css/_base.scss')
     const source = readFileSync(scssPath, 'utf-8')
 
-    expect(source).toMatch(
-      /\.w-btn\.header-nav-btn\.header-nav-btn--auto-width\s*\{[^}]*width:\s*auto\s*!important/
-    )
+    expect(source).not.toMatch(/header-nav-btn--auto-width/)
   })
 })
 

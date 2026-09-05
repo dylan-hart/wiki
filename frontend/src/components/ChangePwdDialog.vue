@@ -5,17 +5,16 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-password-reset.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:lock-cog" size="sm" class="me-2" />
         <span>{{ t(`admin.users.changePassword`) }}</span>
       </w-card-section>
       <w-form ref="changeUserPwdForm" class="py-2" @submit="save">
         <w-item>
-          <blueprint-icon icon="lock" />
+          <blueprint-icon icon="tabler:lock" />
           <w-item-section>
             <w-input
               ref="currentPasswordIpt"
               v-model="state.currentPassword"
-              outlined
               dense
               type="password"
               autocomplete="current-password"
@@ -26,12 +25,11 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="password" />
+          <blueprint-icon icon="tabler:password" />
           <w-item-section>
             <w-input
               ref="newPasswordIpt"
               v-model="state.newPassword"
-              outlined
               dense
               type="password"
               autocomplete="new-password"
@@ -54,11 +52,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="good-pincode" />
+          <blueprint-icon icon="tabler:lock-check" />
           <w-item-section>
             <w-input
               v-model="state.verifyPassword"
-              outlined
               dense
               type="password"
               autocomplete="new-password"
@@ -79,7 +76,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.update`)"
           color="primary"
           padding="xs md"

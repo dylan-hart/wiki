@@ -10,7 +10,7 @@
       </w-card-section>
       <w-separator />
       <w-item v-if="props.otherSites.length > 0" tag="label">
-        <blueprint-icon icon="server" />
+        <blueprint-icon icon="tabler:server" />
         <w-item-section>
           <w-item-label>{{ t('navEdit.copyFromOtherSite') }}</w-item-label>
         </w-item-section>
@@ -19,14 +19,13 @@
         </w-item-section>
       </w-item>
       <w-item v-if="state.otherSite">
-        <blueprint-icon icon="server" />
+        <blueprint-icon icon="tabler:server" />
         <w-item-section>
           <w-item-label>{{ t('navEdit.sourceSite') }}</w-item-label>
           <w-item-label caption>{{ t('navEdit.sourceSiteHint') }}</w-item-label>
         </w-item-section>
         <w-item-section>
           <w-select
-            outlined
             dense
             hide-bottom-space
             v-model="state.sourceSiteId"
@@ -39,14 +38,13 @@
         </w-item-section>
       </w-item>
       <w-item>
-        <blueprint-icon icon="translation" />
+        <blueprint-icon icon="tabler:language" />
         <w-item-section>
           <w-item-label>{{ t('navEdit.sourceLocale') }}</w-item-label>
           <w-item-label caption>{{ t('navEdit.sourceLocaleHint') }}</w-item-label>
         </w-item-section>
         <w-item-section>
           <w-select
-            outlined
             dense
             hide-bottom-space
             :loading="state.isFetching"
@@ -74,7 +72,6 @@
         <w-btn
           icon="la:check"
           :label="t('common.actions.copy')"
-          unelevated
           color="primary"
           padding="xs md"
           :disabled="!canSubmit"

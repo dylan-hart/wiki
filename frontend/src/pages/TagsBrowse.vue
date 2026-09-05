@@ -7,13 +7,12 @@
         <template v-if="state.selectedTags.length > 0">
           <div class="tags-browse-subheader flex items-center justify-between">
             <span>{{ t('tags.currentSelection') }}</span>
-            <w-btn flat dense no-caps :label="t('tags.clearSelection')" @click="clearSelection" />
+            <w-btn flat dense :label="t('tags.clearSelection')" @click="clearSelection" />
           </div>
           <div class="flex flex-wrap items-center gap-1 p-2">
             <w-chip
               v-for="tag of state.selectedTags"
               :key="`selected-${tag}`"
-              square
               color="primary"
               text-color="white"
               dense
@@ -46,7 +45,6 @@
               <w-input
                 ref="iptRename"
                 dense
-                outlined
                 class="flex-1"
                 v-model="state.renameValue"
                 :aria-label="t('tags.renameTagLabel')"
@@ -98,7 +96,6 @@
           <w-chip
             v-for="entry of availableTags"
             :key="`available-${entry.tag}`"
-            square
             color="secondary"
             text-color="white"
             dense
@@ -117,7 +114,6 @@
         <div class="tags-browse-subheader">{{ t('tags.locale') }}</div>
         <div class="p-2">
           <w-select
-            outlined
             dense
             options-dense
             emit-value
@@ -133,7 +129,6 @@
         <div class="tags-browse-subheader">{{ t('tags.orderBy') }}</div>
         <div class="p-2">
           <w-select
-            outlined
             dense
             options-dense
             emit-value
@@ -162,7 +157,6 @@
         </div>
         <div class="p-2">
           <w-input
-            outlined
             dense
             clearable
             v-model="state.filterQuery"
@@ -206,7 +200,6 @@
                 <w-chip
                   v-for="tag of item.tags"
                   :key="`${item.id}-${tag}`"
-                  square
                   color="secondary"
                   text-color="white"
                   icon="la:hashtag"
@@ -222,7 +215,6 @@
           v-if="state.results.length > 0 && state.results.length < state.total">
           <w-btn
             flat
-            no-caps
             color="primary"
             :label="t('search.loadMore')"
             :loading="state.loading > 0"

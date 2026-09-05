@@ -2,14 +2,11 @@
   <w-page class="admin-search">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-find-and-replace-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:list-search" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.search.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.search.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.search.subtitle') }}
         </div>
       </div>
@@ -24,20 +21,20 @@
           :loading="state.rebuildLoading" />
         <w-separator class="me-2" vertical />
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/search`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="refresh">
@@ -101,10 +98,9 @@
             <template #hint>{{ selectedEngine.description }}</template>
             <template #action>
               <w-btn
-                unelevated
                 icon="mdi:check"
                 :label="t(`common.actions.apply`)"
-                color="secondary"
+                color="slate"
                 @click="save()"
                 :loading="state.loading > 0" />
             </template>
@@ -134,7 +130,7 @@
           <template v-if="selectedEngine.key === DB_ENGINE_KEY">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon class="self-start" icon="search" />
+              <blueprint-icon class="self-start" icon="tabler:search" />
               <w-item-section>
                 <w-item-label>{{ t('admin.search.dictOverrides') }}</w-item-label>
                 <util-code-editor

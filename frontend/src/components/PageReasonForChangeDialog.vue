@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-query.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:message-circle" size="sm" class="me-2" />
         <span>{{ t(`editor.reasonForChange.title`) }}</span>
       </w-card-section>
       <!-- -> `pb-0`: the row below pads itself and the field adds its own margin for the floating
@@ -22,7 +22,6 @@
             <w-input
               ref="iptReason"
               v-model="state.reason"
-              outlined
               dense
               :rules="reasonValidation"
               hide-bottom-space
@@ -41,7 +40,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.save`)"
           color="primary"
           padding="xs md"

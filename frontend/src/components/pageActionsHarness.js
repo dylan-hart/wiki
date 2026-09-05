@@ -144,6 +144,16 @@ export function menuItemLabels() {
   return [...document.querySelectorAll('.w-menu .w-item')].map((el) => el.textContent.trim())
 }
 
+/**
+ * Opens the rail's "..." menu, which is where duplicate / rename-move / delete now live -- Cardinal
+ * folded the three of them in from the rail itself (`PageActionsCol.vue`), so a test that used to
+ * click one of the three buttons has to open the menu first and then `clickMenuItem` its label.
+ */
+export async function openPageActionsMenu(wrapper) {
+  await wrapper.get('[aria-label="common.header.pageActions"]').trigger('click')
+  await flushPromises()
+}
+
 export function clickMenuItem(label) {
   const item = [...document.querySelectorAll('.w-menu .w-item')].find((el) =>
     el.textContent.includes(label)

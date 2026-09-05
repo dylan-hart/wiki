@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 600px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-key-2.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:key" size="sm" class="me-2" />
         <span>{{ t(`${labelPrefix}.copyKeyTitle`) }}</span>
       </w-card-section>
       <w-card-section class="card-negative">
@@ -18,12 +18,11 @@
       </w-card-section>
       <w-form class="py-2">
         <w-item>
-          <blueprint-icon icon="binary-file" class="self-start" />
+          <blueprint-icon icon="tabler:file-code" class="self-start" />
           <w-item-section>
             <w-input
               ref="iptKey"
               type="textarea"
-              outlined
               :model-value="props.keyValue"
               readonly
               dense
@@ -39,11 +38,10 @@
           is not exclusive to the personal-token flow that write tools actually require.
         -->
         <w-item>
-          <blueprint-icon icon="run-command" class="self-start" />
+          <blueprint-icon icon="tabler:terminal-2" class="self-start" />
           <w-item-section>
             <w-input
               type="textarea"
-              outlined
               :model-value="mcpInstallCommand"
               readonly
               dense
@@ -52,9 +50,6 @@
               :hint="t(`admin.api.mcpInstallCommandHint`)" />
             <w-btn-toggle
               v-model="mcpInstallScope"
-              push
-              glossy
-              no-caps
               toggle-color="primary"
               class="mt-2"
               :aria-label="t(`admin.api.mcpInstallScope`)"
@@ -85,7 +80,6 @@
           padding="xs md"
           @click="copyKey" />
         <w-btn
-          unelevated
           :label="t(`common.actions.close`)"
           color="primary"
           padding="xs md"

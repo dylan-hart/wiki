@@ -1,11 +1,11 @@
 <template>
   <div
-    class="w-banner flex gap-4 rounded p-4"
-    :class="[dense ? 'py-2' : '', inlineActions ? 'flex-nowrap items-center' : 'flex-wrap']">
+    class="w-banner flex gap-3 px-3 py-2.5 text-body2"
+    :class="[dense ? 'py-1.5' : '', inlineActions ? 'flex-nowrap items-center' : 'flex-wrap']">
     <div v-if="$slots.avatar" class="flex shrink-0 items-center">
       <slot name="avatar" />
     </div>
-    <div class="min-w-0 flex-1 text-body2">
+    <div class="min-w-0 flex-1">
       <slot />
     </div>
     <div
@@ -21,8 +21,11 @@
 /**
  * Prominent inline message with an optional leading icon and trailing actions.
  *
- * Carries no colour of its own -- callers set the surface with a utility class, which is how the
- * existing banners are already written.
+ * Square and unpadded-looking by Cardinal's standards -- 12px in from each edge, no radius, no
+ * shadow. Carries no colour of its own: callers set the surface with a utility class, which is how
+ * the existing banners are already written, and the design's three variants are exactly that --
+ * a hairline box on `--color-tint` for information, a `--color-warning-fill` block under
+ * `--color-ink` for a caution, and `--color-negative` under white for a refusal.
  */
 defineProps({
   dense: {

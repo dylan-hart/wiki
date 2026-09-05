@@ -1,7 +1,7 @@
 <template>
   <w-layout container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="img:/_assets/icons/fluent-people.svg" left size="md" />
+      <w-icon name="tabler:users" left size="md" />
       <div>
         <span>{{ t(`admin.groups.edit`) }}</span>
         <div class="text-caption">{{ state.group.name }}</div>
@@ -9,7 +9,6 @@
       <w-space />
       <w-btn-group>
         <w-btn
-          push
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
@@ -20,14 +19,12 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
-          push
           color="white"
           text-color="grey-7"
           :label="t(`common.actions.close`)"
           icon="la:times"
           @click="close" />
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"
@@ -84,14 +81,13 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.groups.general') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="team" />
+                  <blueprint-icon icon="tabler:users" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.groups.name`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.groups.nameHint`) }}</w-item-label>
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.name"
                       dense
                       :rules="groupNameValidation"
@@ -104,14 +100,13 @@
               <w-card class="shadow-1 pb-2 mt-4" v-if="!isGuestGroup">
                 <w-card-header>{{ t('admin.groups.authBehaviors') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="double-right" />
+                  <blueprint-icon icon="tabler:chevrons-right" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.groups.redirectOnLogin`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.groups.redirectOnLoginHint`) }}</w-item-label>
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.redirectOnLogin"
                       dense
                       :aria-label="t(`admin.groups.redirectOnLogin`)" />
@@ -119,7 +114,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="chevron-right" />
+                  <blueprint-icon icon="tabler:chevron-right" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.groups.redirectOnFirstLogin`) }}</w-item-label>
                     <w-item-label caption>{{
@@ -128,7 +123,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.redirectOnFirstLogin"
                       dense
                       :aria-label="t(`admin.groups.redirectOnLogin`)" />
@@ -136,7 +130,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="exit" />
+                  <blueprint-icon icon="tabler:logout" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.groups.redirectOnLogout`) }}</w-item-label>
                     <w-item-label caption>{{
@@ -145,7 +139,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.redirectOnLogout"
                       dense
                       :aria-label="t(`admin.groups.redirectOnLogout`)" />
@@ -157,7 +150,7 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.groups.info') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="team" :hue-rotate="-45" />
+                  <blueprint-icon icon="tabler:users" />
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.id`) }}</w-item-label>
                     <w-item-label
@@ -167,7 +160,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="calendar-plus" :hue-rotate="-45" />
+                  <blueprint-icon icon="tabler:calendar-plus" />
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.createdOn`) }}</w-item-label>
                     <w-item-label>
@@ -177,7 +170,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="summertime" :hue-rotate="-45" />
+                  <blueprint-icon icon="tabler:sun" />
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.lastUpdated`) }}</w-item-label>
                     <w-item-label>

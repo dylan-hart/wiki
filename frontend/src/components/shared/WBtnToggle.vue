@@ -1,14 +1,7 @@
 <template>
   <div
     class="w-btn-toggle inline-flex flex-nowrap align-middle"
-    :class="[
-      isDisabled ? 'pointer-events-none opacity-60' : '',
-      /*
-        A push group rounds and raises its segments itself, so it must not clip them -- the 2px
-        drop on press moves a segment past the group's box, which `overflow-hidden` would cut off.
-      */
-      push ? '' : 'w-btn-toggle--framed overflow-hidden rounded'
-    ]"
+    :class="isDisabled ? 'pointer-events-none opacity-60' : ''"
     role="radiogroup"
     :aria-label="ariaLabel">
     <button
@@ -17,20 +10,15 @@
       type="button"
       role="radio"
       :aria-checked="String(opt.value === modelValue)"
-      class="w-btn-toggle__segment w-unstyled relative cursor-pointer px-3 py-1.5 text-sm font-medium transition-[background-color,color,transform]"
+      class="w-btn-toggle__segment w-unstyled relative flex cursor-pointer items-center border px-3 text-[12px] leading-none transition-[background-color,border-color,color]"
       :class="[
-        noCaps ? 'normal-case' : 'uppercase',
+        // -> Every segment carries a border, selected included, so selection never shifts the row
+        idx > 0 ? 'border-s-0' : '',
+        opt.value === modelValue
+          ? 'font-medium'
+          : 'border-hairline font-normal dark:border-border-dark',
         opt.value === modelValue && !toggleTextColor ? 'text-white' : '',
-        opt.value !== modelValue ? 'hover:brightness-95 dark:hover:brightness-110' : '',
-        glossy ? 'w-glossy' : '',
-        push ? pushClasses(idx) : '',
-        /*
-          Bevelled seam between segments, so the group reads as one control rather than a row.
-          Never on the selected segment: the bevel is meant to catch light on an unlit surface, and
-          over a solid fill it just looks like a stray line. The colour change already marks that
-          edge, so nothing is lost by leaving it off.
-        */
-        idx > 0 && opt.value !== modelValue ? 'w-btn-toggle__seam' : ''
+        opt.value !== modelValue ? 'hover:bg-tint dark:hover:bg-dark-2' : ''
       ]"
       :style="segmentStyle(opt)"
       @click="$emit('update:modelValue', opt.value)">
@@ -47,6 +35,16 @@ import { computed } from 'vue'
  * Segmented single-choice control.
  *
  * `options` is `[{ label, value, icon? }]`, the same shape the templates already build.
+ *
+ * Cardinal draws it as a run of square hairline boxes sharing their edges, with the selected one
+ * filled in the accent and the rest left as outline. The engraved treatment this replaces -- a
+ * bevelled seam between segments, a letterpress text shadow, an optional raised ledge and gloss --
+ * is gone with the rest of the app's relief, and the `push`/`glossy`/`noCaps` props that selected
+ * those variants went with it.
+ *
+ * Every segment carries a border, the selected one included (in its own fill colour, where it
+ * disappears), rather than only the unselected ones. Otherwise selecting a segment would take a
+ * pixel off its width and shuffle the whole row sideways.
  *
  * The four colour props are kept, because the admin toolbars flip all of them on the theme rather
  * than relying on a `dark:` variant.
@@ -81,21 +79,6 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Raises each segment, with a ledge along its bottom edge that collapses when pressed. */
-  push: {
-    type: Boolean,
-    default: false
-  },
-  /** Adds the Material gloss overlay to each segment. */
-  glossy: {
-    type: Boolean,
-    default: false
-  },
-  /** Leave labels cased as written. */
-  noCaps: {
-    type: Boolean,
-    default: false
-  },
   disabled: {
     type: Boolean,
     default: false
@@ -110,25 +93,12 @@ defineEmits(['update:modelValue'])
 
 const isDisabled = computed(() => props.disabled)
 
-/**
- * Raised-segment classes.
- *
- * Only the group's outer corners are rounded. Rounding every segment would put a pair of facing
- * curves at each seam, which reads as separate buttons pushed together rather than one control.
- * The ledge follows along, since its overlay inherits the segment's radius.
- */
-function pushClasses(idx) {
-  return [
-    'w-push',
-    idx === 0 ? 'rounded-l-[7px]' : '',
-    idx === props.options.length - 1 ? 'rounded-r-[7px]' : ''
-  ]
-}
-
 function segmentStyle(opt) {
   if (opt.value === props.modelValue) {
     return {
       backgroundColor: `var(--color-${props.toggleColor})`,
+      // -> Matches the fill, so the border is invisible but still occupies its pixel
+      borderColor: `var(--color-${props.toggleColor})`,
       color: props.toggleTextColor ? `var(--color-${props.toggleTextColor})` : undefined
     }
   }
@@ -141,75 +111,24 @@ function segmentStyle(opt) {
 
 <style scoped>
 /*
-  The seam between two segments: a dark line with a light one immediately to its right, which is
-  what gives the join its engraved look rather than reading as a flat divider.
+  An unselected segment is a control, not secondary text, so it takes Cardinal's chrome tone rather
+  than inheriting whatever the context dims to -- an item's `side` section drops its contents to 54%
+  black, which left these labels a washed-out grey. A `text-color` prop still wins, since that
+  arrives as an inline style.
 
-  Painted as an overlay rather than a border for two reasons. A border would add a pixel of width
-  to every segment but the first, shifting their labels out of step with the first one's; and the
-  pair has to stay exactly two device pixels under fractional display scaling -- at 150% a 2px
-  border pair paints three device rows and splits them unevenly between the two colours, which is
-  the same artefact `.w-hairline` exists to avoid. `--w-dpr` comes from helpers/hairline.js.
+  Height is stated here rather than as a padding pair: the design's 30px band has to hold whether a
+  segment carries a label, an icon, or both, and `min-height` on the segment is the one measurement
+  that does not change with its contents.
 */
+.w-btn-toggle__segment {
+  min-height: 30px;
+}
+
 .w-btn-toggle__segment[aria-checked='false'] {
-  text-shadow: var(--w-btn-toggle-text-shadow);
-  /*
-    An unselected segment is a control, not secondary text, so it takes the page foreground rather
-    than inheriting whatever the context dims to -- an item's `side` section drops its contents to
-    54% black, which left these labels a washed-out grey. A `text-color` prop still wins, since
-    that arrives as an inline style.
-  */
-  color: var(--color-black);
+  color: var(--color-slate);
 }
 
 :global(body.body--dark .w-btn-toggle__segment[aria-checked='false']) {
-  color: var(--color-white);
-}
-
-.w-btn-toggle__seam::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  inset-inline-start: 0;
-  width: 2px;
-  background-image: linear-gradient(
-    to right,
-    var(--w-seam-dark) 0 50%,
-    var(--w-seam-light) 50% 100%
-  );
-  transform: scaleX(calc(1 / var(--w-dpr, 1)));
-  transform-origin: left;
-  pointer-events: none;
-}
-
-.w-btn-toggle {
-  --w-seam-dark: rgb(0 0 0 / 0.12);
-  --w-seam-light: rgb(255 255 255 / 0.7);
-  /*
-    A hard 1px highlight under the label, no blur, so it reads as a cut edge rather than a glow --
-    the letterpress effect, where the light catching the lower lip of an engraved character is what
-    makes it look pressed into the surface. The glossy gradient darkens towards the bottom, which
-    is exactly where this sits, so it also keeps the label legible over the darker half.
-  */
-  --w-btn-toggle-text-shadow: 0 1px 0 rgb(255 255 255 / 0.6);
-}
-
-:global(body.body--dark .w-btn-toggle) {
-  /*
-    Far dimmer than the light theme's highlight. The same white that reads as a soft sheen against
-    a pale surface reads as a lit edge against a dark one, so the bevel leans on its shadow half
-    here and only hints at the highlight.
-  */
-  --w-seam-dark: rgb(0 0 0 / 0.4);
-  --w-seam-light: rgb(255 255 255 / 0.06);
-  /* Nothing to separate here: the dark theme's labels already sit on a uniformly dark fill */
-  --w-btn-toggle-text-shadow: none;
-}
-
-.w-btn-toggle--framed {
-  border: 1px solid rgb(0 0 0 / 0.12);
-}
-:global(body.body--dark .w-btn-toggle--framed) {
-  border-color: rgb(255 255 255 / 0.15);
+  color: var(--color-text-dark);
 }
 </style>

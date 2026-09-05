@@ -7,12 +7,11 @@
       </w-card-section>
       <w-form ref="unlockForm" class="py-2" @submit="unlock">
         <w-item>
-          <blueprint-icon icon="key" />
+          <blueprint-icon icon="tabler:key" />
           <w-item-section>
             <w-input
               ref="iptPassword"
               v-model="state.password"
-              outlined
               dense
               type="password"
               autocomplete="current-password"
@@ -34,7 +33,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           icon="la:lock-open"
           :label="t(`common.page.unlock`)"
           color="primary"

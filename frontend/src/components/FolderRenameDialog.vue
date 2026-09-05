@@ -2,17 +2,16 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`fileman.folderRename`)" @hide="onDialogHide">
     <w-card class="relative" style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-rename.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:cursor-text" size="sm" class="me-2" />
         <span>{{ t(`fileman.folderRename`) }}</span>
       </w-card-section>
       <w-form ref="renameFolderForm" class="py-2" @submit="rename">
         <w-item>
-          <blueprint-icon icon="folder" />
+          <blueprint-icon icon="tabler:folder" />
           <w-item-section>
             <w-input
               ref="iptTitle"
               v-model="state.title"
-              outlined
               dense
               :rules="titleValidation"
               hide-bottom-space
@@ -22,11 +21,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="file-submodule" class="self-start" />
+          <blueprint-icon icon="tabler:file-symlink" class="self-start" />
           <w-item-section>
             <w-input
               v-model="state.path"
-              outlined
               dense
               :rules="pathValidation"
               hide-bottom-space
@@ -48,7 +46,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.rename`)"
           color="primary"
           padding="xs md"

@@ -183,14 +183,13 @@
             <div class="text-subtitle1">{{ t('navEdit.header') }}</div>
           </w-card-section>
           <w-item>
-            <blueprint-icon icon="typography" />
+            <blueprint-icon icon="tabler:typography" />
             <w-item-section>
               <w-item-label>{{ t(`navEdit.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`navEdit.labelHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.current.label"
                 dense
                 hide-bottom-space
@@ -198,7 +197,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="user-groups" />
+            <blueprint-icon icon="tabler:users-group" />
             <w-item-section>
               <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
               <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
@@ -206,9 +205,6 @@
             <w-item-section avatar>
               <w-btn-toggle
                 v-model="state.current.visibilityLimited"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
@@ -219,7 +215,6 @@
             <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
-              outlined
               v-model="state.current.visibilityGroups"
               :options="state.groups"
               option-value="id"
@@ -256,14 +251,13 @@
             ><div class="text-subtitle1">{{ t('navEdit.link') }}</div></w-card-section
           >
           <w-item>
-            <blueprint-icon icon="typography" />
+            <blueprint-icon icon="tabler:typography" />
             <w-item-section>
               <w-item-label>{{ t(`navEdit.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`navEdit.labelHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.current.label"
                 dense
                 hide-bottom-space
@@ -272,13 +266,13 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="spring" />
+            <blueprint-icon icon="tabler:star" />
             <w-item-section>
               <w-item-label>{{ t(`navEdit.icon`) }}</w-item-label>
               <w-item-label caption>{{ t(`navEdit.iconHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
-              <w-input outlined v-model="state.current.icon" dense :aria-label="t(`navEdit.icon`)">
+              <w-input v-model="state.current.icon" dense :aria-label="t(`navEdit.icon`)">
                 <template #append>
                   <!--
                     A button, not a bare `w-icon`: for a bundled icon WIcon renders an <svg> whose
@@ -311,7 +305,7 @@
           -->
           <template v-if="currentIsParent">
             <w-item tag="label">
-              <blueprint-icon icon="chevron-right" />
+              <blueprint-icon icon="tabler:chevron-right" />
               <w-item-section>
                 <w-item-label>{{ t(`navEdit.expandByDefault`) }}</w-item-label>
                 <w-item-label caption>{{ t(`navEdit.expandByDefaultHint`) }}</w-item-label>
@@ -325,14 +319,13 @@
           </template>
           <template v-else>
             <w-item>
-              <blueprint-icon icon="link" />
+              <blueprint-icon icon="tabler:link" />
               <w-item-section>
                 <w-item-label>{{ t(`navEdit.target`) }}</w-item-label>
                 <w-item-label caption>{{ t(`navEdit.targetHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.current.target"
                   dense
                   hide-bottom-space
@@ -360,7 +353,7 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item tag="label">
-              <blueprint-icon icon="external-link" />
+              <blueprint-icon icon="tabler:external-link" />
               <w-item-section>
                 <w-item-label>{{ t(`navEdit.openInNewWindow`) }}</w-item-label>
                 <w-item-label caption>{{ t(`navEdit.openInNewWindowHint`) }}</w-item-label>
@@ -374,7 +367,7 @@
           </template>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="user-groups" />
+            <blueprint-icon icon="tabler:users-group" />
             <w-item-section>
               <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
               <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
@@ -382,9 +375,6 @@
             <w-item-section avatar>
               <w-btn-toggle
                 v-model="state.current.visibilityLimited"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
@@ -395,7 +385,6 @@
             <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
-              outlined
               v-model="state.current.visibilityGroups"
               :options="state.groups"
               option-value="id"
@@ -453,7 +442,7 @@
             <div class="text-subtitle1">{{ t('navEdit.separator') }}</div>
           </w-card-section>
           <w-item>
-            <blueprint-icon icon="user-groups" />
+            <blueprint-icon icon="tabler:users-group" />
             <w-item-section>
               <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
               <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
@@ -461,9 +450,6 @@
             <w-item-section avatar>
               <w-btn-toggle
                 v-model="state.current.visibilityLimited"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
@@ -474,7 +460,6 @@
             <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
-              outlined
               v-model="state.current.visibilityGroups"
               :options="state.groups"
               option-value="id"

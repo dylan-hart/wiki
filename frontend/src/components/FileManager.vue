@@ -8,7 +8,7 @@
     -->
     <w-header class="card-header">
       <w-toolbar class="fileman-hdr-title">
-        <w-icon name="img:/_assets/icons/fluent-folder.svg" left size="md" />
+        <w-icon name="tabler:folder" left size="md" />
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
       <w-toolbar class="fileman-hdr-search">
@@ -111,9 +111,8 @@
         </w-btn>
         <w-btn-group>
           <w-btn
-            push
             color="white"
-            text-color="grey-7"
+            text-color="text-secondary"
             :label="t(`common.actions.close`)"
             :aria-label="t(`common.actions.close`)"
             icon="la:times"
@@ -174,7 +173,6 @@
                 :label="t(`common.actions.insert`)"
                 color="primary"
                 icon="la:plus"
-                push
                 padding="sm" />
             </template>
           </template>
@@ -206,7 +204,6 @@
               class="acrylic-btn ms-2"
               flat
               dense
-              no-caps
               color="negative"
               :aria-label="t(`common.actions.cancel`)"
               icon="la:square"
@@ -224,8 +221,7 @@
               class="me-2"
               flat
               dense
-              no-caps
-              color="grey"
+              color="slate-soft"
               :aria-label="t(`common.sidebar.browse`)"
               icon="mdi:file-tree"
               @click="state.treeOpen = true">
@@ -238,8 +234,7 @@
               class="me-2"
               flat
               dense
-              no-caps
-              color="grey"
+              color="slate-soft"
               :aria-label="t(`fileman.viewOptions`)"
               icon="la:th-list">
               <w-tooltip anchor="bottom middle" self="top middle">{{
@@ -254,11 +249,11 @@
                     <w-separator class="my-2" />
                     <w-item clickable>
                       <w-item-section side>
-                        <w-icon name="la:list" color="grey" size="xs" />
+                        <w-icon name="la:list" color="slate-soft" size="xs" />
                       </w-item-section>
                       <w-item-section class="pe-2">{{ t('fileman.browseUsing') }}</w-item-section>
                       <w-item-section side>
-                        <w-icon name="la:angle-right" color="grey" size="xs" />
+                        <w-icon name="la:angle-right" color="slate-soft" size="xs" />
                       </w-item-section>
                       <w-menu anchor="top end" self="top start">
                         <w-list class="p-2" dense>
@@ -304,7 +299,7 @@
                       <w-item-section side>
                         <w-icon
                           :name="state.shouldShowFolders ? `la:check-square` : `la:stop`"
-                          :color="state.shouldShowFolders ? `positive` : `grey`"
+                          :color="state.shouldShowFolders ? `positive` : `slate-pale`"
                           size="xs" />
                       </w-item-section>
                       <w-item-section class="pe-2">{{ t('fileman.showFolders') }}</w-item-section>
@@ -317,8 +312,7 @@
               class="me-2"
               flat
               dense
-              no-caps
-              color="grey"
+              color="slate-soft"
               :aria-label="t(`common.actions.refresh`)"
               icon="la:redo-alt"
               @click="reloadFolder(state.currentFolderId)">
@@ -331,8 +325,7 @@
               class="me-2"
               flat
               dense
-              no-caps
-              color="blue"
+              color="slate-soft"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
               icon="la:plus">
@@ -343,11 +336,11 @@
                 @new-page="() => close()"
                 :base-path="folderPath" />
             </w-btn>
+            <!-- -> The pane's own primary action, and so the one accent-coloured control in it -->
             <w-btn
               flat
               dense
-              no-caps
-              color="positive"
+              color="accent"
               :label="t(`common.actions.upload`)"
               :aria-label="t(`common.actions.upload`)"
               icon="la:cloud-upload-alt"
@@ -363,7 +356,6 @@
               class="ms-2"
               flat
               dense
-              no-caps
               color="primary"
               :label="t(`common.actions.insert`)"
               :aria-label="t(`common.actions.insert`)"
@@ -439,7 +431,7 @@
                         </w-item>
                         <w-item clickable v-if="item.type === `page`" @click="editItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:edit" color="orange" />
+                            <w-icon name="la:edit" color="warning-fill" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.edit`) }}</w-item-section>
                         </w-item>
@@ -456,7 +448,7 @@
                           "
                           @click="rerenderPage(item)">
                           <w-item-section side>
-                            <w-icon name="la:magic" color="orange" />
+                            <w-icon name="la:magic" color="warning-fill" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.rerender`) }}</w-item-section>
                         </w-item>
@@ -480,7 +472,7 @@
                         </w-item>
                         <w-item clickable v-if="item.type === `page`" @click="duplicateItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:copy" color="teal" />
+                            <w-icon name="la:copy" color="slate-soft" />
                           </w-item-section>
                           <w-item-section>{{ t('fileman.duplicateItem') }}</w-item-section>
                         </w-item>
@@ -491,14 +483,14 @@
                         -->
                         <w-item clickable v-if="item.type === `page`" @click="renameMovePage(item)">
                           <w-item-section side>
-                            <w-icon name="la:share" color="teal" />
+                            <w-icon name="la:share" color="slate-soft" />
                           </w-item-section>
                           <w-item-section>{{ t('fileman.renameMovePage') }}</w-item-section>
                         </w-item>
                         <template v-else>
                           <w-item clickable @click="renameItem(item)">
                             <w-item-section side>
-                              <w-icon name="la:redo" color="teal" />
+                              <w-icon name="la:redo" color="slate-soft" />
                             </w-item-section>
                             <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
                           </w-item>
@@ -1341,25 +1333,27 @@ $fileman-hdr-wrap-max: 899.98px;
     min-width: 0;
     align-items: center;
     gap: 8px;
-    height: 40px;
-    padding: 0 8px 0 12px;
-    border-radius: 7px;
-    background-color: $dark-2;
-    color: rgba(255, 255, 255, 0.85);
-    transition:
-      background-color 0.25s var(--ease-standard),
-      color 0.25s var(--ease-standard);
+    height: 34px;
+    padding: 0 8px 0 11px;
+    /*
+      A white box on the dialog's dark title band -- the design's own treatment, and the mirror of
+      what `HeaderSearch` does on the light one: a search field always presents the surface it is
+      typed on, whichever ground it happens to sit against. So this one goes lighter than its bar
+      where the header's goes darker, and neither inverts on focus any more.
+    */
+    background-color: $surface;
+    color: $text-caption;
+    transition: color 0.2s var(--ease-standard);
 
     // -> Driven by a class rather than `:focus-within`, matching HeaderSearch
     &.is-focused {
-      background-color: #fff;
-      color: rgba(0, 0, 0, 0.87);
+      color: $ink;
     }
 
     &-lead {
       flex-shrink: 0;
-      font-size: 20px;
-      opacity: 0.7;
+      font-size: 16px;
+      color: $slate-faint;
     }
 
     &-input {
@@ -1403,49 +1397,65 @@ $fileman-hdr-wrap-max: 899.98px;
   */
   &-left {
     @at-root .body--light & {
-      background-color: $blue-grey-1;
+      background-color: $tint-alt;
+      border-inline-end: 1px solid $hairline;
+      color: $slate;
     }
     @at-root .body--dark & {
       background-color: $dark-4;
-      color: #fff;
+      border-inline-end: 1px solid $hairline-dark;
+      color: $text-secondary-dark;
     }
   }
 
   &-center {
     @at-root .body--light & {
-      background-color: #fff;
+      background-color: $surface;
+      color: $text-body;
     }
     @at-root .body--dark & {
-      background-color: $dark-6;
-      color: #fff;
+      background-color: $dark-3;
+      color: $text-dark;
     }
   }
 
   &-right {
     @at-root .body--light & {
-      background-color: $grey-1;
+      background-color: #fbfcfe;
+      border-inline-start: 1px solid $hairline;
+      color: $text-body;
     }
     @at-root .body--dark & {
-      background-color: $dark-5;
-      color: #fff;
+      background-color: $dark-4;
+      border-inline-start: 1px solid $hairline-dark;
+      color: $text-dark;
     }
   }
 
   &-toolbar {
     @at-root .body--light & {
-      background-color: $grey-1;
+      background-color: $surface;
+      border-block-end: 1px solid $hairline;
     }
     @at-root .body--dark & {
-      background-color: $dark-5;
+      background-color: $dark-3;
+      border-block-end: 1px solid $hairline-dark;
     }
   }
 
   &-path {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+
     @at-root .body--light & {
-      background-color: $blue-grey-1 !important;
+      background-color: $tint !important;
+      border-block-start: 1px solid $hairline;
+      color: $text-caption;
     }
     @at-root .body--dark & {
       background-color: $dark-4 !important;
+      border-block-start: 1px solid $hairline-dark;
+      color: $text-caption-dark;
     }
   }
 
@@ -1482,10 +1492,10 @@ $fileman-hdr-wrap-max: 899.98px;
     }
 
     @at-root .body--light & {
-      color: $grey-6;
+      color: $text-caption;
     }
     @at-root .body--dark & {
-      color: $grey-7;
+      color: $text-caption-dark;
 
       > img {
         filter: invert(1);
@@ -1512,8 +1522,7 @@ $fileman-hdr-wrap-max: 899.98px;
     align-items: center;
     justify-content: center;
     gap: 12px;
-    border: 2px dashed var(--color-primary);
-    border-radius: 12px;
+    border: 2px dashed var(--color-accent);
     pointer-events: none;
     font-size: 1.1rem;
     font-weight: 500;
@@ -1521,31 +1530,36 @@ $fileman-hdr-wrap-max: 899.98px;
 
     @at-root .body--light & {
       background-color: rgba(255, 255, 255, 0.9);
-      color: $grey-8;
+      color: $text-body;
     }
     @at-root .body--dark & {
-      background-color: rgba(0, 0, 0, 0.75);
-      color: #fff;
+      background-color: rgba(20, 23, 31, 0.85);
+      color: $text-dark;
     }
   }
 
   &-filelist {
     padding: 8px 12px;
 
+    /*
+      The selected row: the tint plus an accent bar down its leading edge, matching how the site
+      sidebar and the folder tree beside this list both mark what the reader is on. A solid accent
+      fill (what this used to do) is the treatment a BUTTON gets; a selected row in a list is not
+      one, and filling it meant the file name, its type and its size all had to be restated in
+      white -- three overrides that existed only to survive the fill.
+    */
     > .w-item {
       padding: 4px 6px;
-      border-radius: 8px;
+      border-inline-start: 2px solid transparent;
 
       &.active {
-        background-color: var(--color-primary);
-        color: #fff;
+        border-inline-start-color: var(--color-accent-fill);
+        background-color: var(--color-tint);
+        color: var(--color-ink);
 
-        .fileman-filelist-label .w-item-label--caption {
-          color: rgba(255, 255, 255, 0.7);
-        }
-
-        .fileman-filelist-side .text-caption {
-          color: rgba(255, 255, 255, 0.7);
+        @at-root .body--dark & {
+          background-color: var(--color-dark-2);
+          color: var(--color-text-dark);
         }
       }
     }
@@ -1571,21 +1585,25 @@ $fileman-hdr-wrap-max: 899.98px;
       font-size: 0.7rem;
       font-weight: 500;
 
+      font-family: var(--font-mono);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+
       @at-root .body--light & {
-        color: $grey-6;
+        color: $text-caption;
       }
       @at-root .body--dark & {
-        color: $blue-grey-4;
+        color: $text-caption-dark;
       }
     }
     span {
       font-size: 0.85rem;
 
       @at-root .body--light & {
-        color: $grey-8;
+        color: $text-body;
       }
       @at-root .body--dark & {
-        color: $blue-grey-2;
+        color: $text-dark;
       }
     }
 

@@ -2,23 +2,20 @@
   <w-page class="admin-utilities">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-swiss-army-knife-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:tool" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.utilities.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.utilities.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.utilities.subtitle') }}
         </div>
       </div>
       <div class="flex-none">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/utilities`"
           target="_blank">
@@ -31,7 +28,7 @@
       <w-card>
         <w-list separator>
           <w-item>
-            <blueprint-icon icon="disconnected" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:plug-connected-x" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.disconnectWS`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.disconnectWSHint`) }}</w-item-label>
@@ -47,7 +44,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="database-export" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:database-export" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.export`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.exportHint`) }}</w-item-label>
@@ -66,7 +63,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="datalake" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:stack-2" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.flushCache`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.flushCacheHint`) }}</w-item-label>
@@ -82,7 +79,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="database-restore" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:database-import" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.import`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.importHint`) }}</w-item-label>
@@ -98,7 +95,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="matches" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:flame" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.invalidApiCertificates`) }}</w-item-label>
               <w-item-label caption>{{
@@ -116,7 +113,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="key" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:key" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.invalidSessionSecret`) }}</w-item-label>
               <w-item-label caption>{{
@@ -134,7 +131,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="fingerprint-scan" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:fingerprint" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.rotatePageviewsHashKey`) }}</w-item-label>
               <w-item-label caption>{{
@@ -152,14 +149,13 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="historical" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:history" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.purgeHistory`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.purgeHistoryHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section side>
               <w-select
-                outlined
                 :label="t(`admin.utilities.purgeHistoryTimeframe`)"
                 v-model="state.purgeHistoryTimeframe"
                 style="min-width: 175px"
@@ -180,7 +176,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="trash" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:trash" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.purgeRevokedKeys`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.purgeRevokedKeysHint`) }}</w-item-label>
@@ -196,7 +192,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="rescan-document" :hue-rotate="45" />
+            <blueprint-icon icon="tabler:file-search" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.scanPageProblems`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.scanPageProblemsHint`) }}</w-item-label>

@@ -19,18 +19,14 @@
       -->
       <w-btn-group class="me-6">
         <w-btn
-          push
           dense
-          no-caps
           :label="t(`history.sideBySide`)"
           padding="0.285em sm"
           :color="state.inline ? `white` : `secondary`"
           :text-color="state.inline ? `black` : `white`"
           @click="state.inline = false" />
         <w-btn
-          push
           dense
-          no-caps
           :label="t(`history.inline`)"
           padding="0.285em sm"
           :color="state.inline ? `secondary` : `white`"
@@ -39,7 +35,7 @@
       </w-btn-group>
       <w-btn
         icon="la:times"
-        color="pink-2"
+        color="accent-fill"
         dense
         flat
         :aria-label="t(`common.actions.close`)"
@@ -83,7 +79,7 @@
                   #1119: provenance -- did the person actually type this, or did an MCP tool call
                   acting as them? `version.via` comes straight off the `pageHistory` row.
                 -->
-                <w-badge v-if="version.via === 'mcp'" outline color="grey-5" rounded>
+                <w-badge v-if="version.via === 'mcp'" outline color="slate-pale" rounded>
                   {{ t('history.viaMcp') }}
                   <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
                 </w-badge>
@@ -102,7 +98,7 @@
                 dense
                 round
                 icon="la:ellipsis-h"
-                color="grey-5"
+                color="slate-pale"
                 :aria-label="t(`history.versionActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
                   <!--
@@ -160,20 +156,14 @@
               <!-- Not `unelevated`: the push ledge is the point, and that prop would flatten it. -->
               <w-btn-group>
                 <w-btn
-                  push
-                  glossy
                   dense
-                  no-caps
                   :label="t(`history.versionLabelA`)"
                   padding="0.285em sm"
                   :color="version.id === state.aId ? `pink-6` : `dark-3`"
                   :aria-label="t(`history.pickA`)"
                   @click="pick(`a`, version.id)" />
                 <w-btn
-                  push
-                  glossy
                   dense
-                  no-caps
                   :label="t(`history.versionLabelB`)"
                   padding="0.285em sm"
                   :color="version.id === state.bId ? `pink-6` : `dark-3`"
@@ -202,7 +192,6 @@
             <w-btn
               outline
               dense
-              no-caps
               color="secondary"
               padding="0.4em md"
               :loading="state.loadingMore"
@@ -260,7 +249,6 @@
               <w-btn
                 outline
                 dense
-                no-caps
                 color="secondary"
                 :disabled="!sideA"
                 @click="downloadVersion(sideA)">
@@ -269,7 +257,6 @@
               <w-btn
                 outline
                 dense
-                no-caps
                 color="secondary"
                 :disabled="!sideB"
                 @click="downloadVersion(sideB)">
@@ -834,7 +821,7 @@ onBeforeUnmount(disposeEditor)
 
 <style lang="scss">
 /** The subway line: its colour, and the radius of the turn it makes at the end. */
-$timeline-line: rgba(#fff, 0.12);
+$timeline-line: $hairline-dark;
 $timeline-turn: 16px;
 
 .page-history {
@@ -863,17 +850,24 @@ $timeline-turn: 16px;
     opacity: 0.6;
   }
 
+  /*
+    This overlay is drawn on INK in both themes -- the design's own choice, and the only screen in
+    the app that is (`ui-redesign/Cardinal Wiki - History 3x.dc.html`). A diff is code, and code is
+    read on a dark ground here the way it is in the editor; the light theme has nothing to say about
+    it. So the tones below are Cardinal's dark ramp stated directly rather than through a theme
+    branch: panel for the timeline column, the recessed tone for the diff beside it.
+  */
   &-sidebar {
-    background-color: $dark-5;
-    color: #fff;
-    border-inline-end: 1px solid rgba(#fff, 0.08);
+    background-color: $dark-4;
+    color: $text-dark;
+    border-inline-end: 1px solid $hairline-dark;
   }
 
   &-main {
     display: flex;
     flex-direction: column;
-    background-color: $dark-6;
-    color: #fff;
+    background-color: $dark-3;
+    color: $text-dark;
     /* -> The grid cell already has a height; this claims it so the diff can fill what is left */
     height: 100%;
     min-height: 0;
@@ -924,7 +918,7 @@ $timeline-turn: 16px;
     cursor: pointer;
 
     &:hover {
-      background-color: rgba(#fff, 0.04);
+      background-color: $dark-2;
     }
 
     /*
@@ -945,7 +939,7 @@ $timeline-turn: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
+    color: $text-dark;
     /* -> A ring in the sidebar's own colour, so the line appears to pass behind the dot */
     box-shadow: 0 0 0 3px $dark-5;
   }
@@ -959,7 +953,7 @@ $timeline-turn: 16px;
 
   &-meta {
     font-size: 0.75rem;
-    color: rgba(#fff, 0.6);
+    color: $text-secondary-dark;
   }
 
   /* -> Full width, indented to sit under the entry's text rather than under its dot */
@@ -973,14 +967,14 @@ $timeline-turn: 16px;
     margin-top: 0.25rem;
     font-size: 0.78rem;
     font-style: italic;
-    color: rgba(#fff, 0.8);
+    color: $text-dark;
     word-break: break-word;
   }
 
   &-fields {
     margin-top: 0.25rem;
     font-size: 0.7rem;
-    color: rgba(#fff, 0.45);
+    color: $text-caption-dark;
     word-break: break-word;
   }
 
@@ -1003,7 +997,7 @@ $timeline-turn: 16px;
     align-items: center;
     /* -> No gap: each side owns exactly half the width, and its own padding keeps the two apart */
     padding: 0.75rem 0;
-    border-bottom: 1px solid rgba(#fff, 0.1);
+    border-bottom: 1px solid $hairline-dark;
     font-size: 0.85rem;
   }
 
@@ -1023,7 +1017,7 @@ $timeline-turn: 16px;
     height: 24px;
     border-radius: 4px;
     background-color: $primary;
-    color: #fff;
+    color: $text-dark;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1035,8 +1029,8 @@ $timeline-turn: 16px;
     flex: 0 0 auto;
     padding: 0.5rem 1rem;
     font-size: 0.8rem;
-    color: rgba(#fff, 0.6);
-    background-color: rgba(#fff, 0.04);
+    color: $text-secondary-dark;
+    background-color: $dark-2;
   }
 
   /* -> Takes the diff pane's own place rather than sitting alongside it, unlike `-same` above: there
@@ -1050,7 +1044,7 @@ $timeline-turn: 16px;
     gap: 0.75rem;
     padding: 2rem;
     text-align: center;
-    color: rgba(#fff, 0.7);
+    color: $text-secondary-dark;
   }
 
   &-toolarge-text {

@@ -2,17 +2,16 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.users.create`)" @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:plus" size="sm" class="me-2" />
         <span>{{ t(`admin.users.create`) }}</span>
       </w-card-section>
       <w-form ref="createUserForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="person" />
+          <blueprint-icon icon="tabler:user" />
           <w-item-section>
             <w-input
               ref="iptName"
               v-model="state.userName"
-              outlined
               dense
               :rules="userNameValidation"
               hide-bottom-space
@@ -21,11 +20,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="email" />
+          <blueprint-icon icon="tabler:mail" />
           <w-item-section>
             <w-input
               v-model="state.userEmail"
-              outlined
               dense
               type="email"
               :rules="userEmailValidation"
@@ -35,11 +33,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="password" />
+          <blueprint-icon icon="tabler:password" />
           <w-item-section>
             <w-input
               v-model="state.userPassword"
-              outlined
               dense
               :rules="userPasswordValidation"
               hide-bottom-space
@@ -59,11 +56,10 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="team" />
+          <blueprint-icon icon="tabler:users" />
           <w-item-section>
             <w-select
               v-model="state.userGroups"
-              outlined
               :options="state.groups"
               multiple
               map-options
@@ -98,7 +94,7 @@
           </w-item-section>
         </w-item>
         <w-item clickable @click="state.userMustChangePassword = !state.userMustChangePassword">
-          <blueprint-icon icon="password-reset" />
+          <blueprint-icon icon="tabler:lock-cog" />
           <w-item-section>
             <w-item-label>{{ t(`admin.users.mustChangePwd`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.mustChangePwdHint`) }}</w-item-label>
@@ -111,7 +107,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="email-open" />
+          <blueprint-icon icon="tabler:mail-opened" />
           <w-item-section>
             <w-item-label>{{ t(`admin.users.sendWelcomeEmail`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.sendWelcomeEmailHint`) }}</w-item-label>
@@ -123,11 +119,10 @@
           </w-item-section>
         </w-item>
         <w-item v-if="state.userSendWelcomeEmail">
-          <blueprint-icon icon="web-design" />
+          <blueprint-icon icon="tabler:layout" />
           <w-item-section>
             <w-select
               v-model="state.userSendWelcomeEmailFromSiteId"
-              outlined
               :options="adminStore.sites"
               map-options
               emit-value
@@ -159,7 +154,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

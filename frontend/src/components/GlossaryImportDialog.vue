@@ -28,7 +28,6 @@
           <w-btn
             outline
             dense
-            no-caps
             color="primary"
             icon="la:folder-open"
             :label="t('common.actions.browse')"
@@ -53,7 +52,6 @@
           @click="onDialogCancel" />
         <w-btn
           class="acrylic-btn"
-          unelevated
           color="primary"
           padding="xs md"
           :label="t('common.actions.import')"

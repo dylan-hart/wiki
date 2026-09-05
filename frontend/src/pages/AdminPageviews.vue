@@ -2,14 +2,11 @@
   <w-page class="admin-pageviews">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-live.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:eye" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.pageviews.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.pageviews.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.pageviews.subtitle') }}
         </div>
       </div>
@@ -38,7 +35,6 @@
         </w-btn>
         <w-btn
           class="me-2"
-          unelevated
           icon="la:power-off"
           :label="!state.enabled ? t(`common.actions.activate`) : t(`common.actions.deactivate`)"
           :color="!state.enabled ? `positive` : `negative`"
@@ -52,7 +48,6 @@
       <div class="col-span-12">
         <w-card
           class="rounded"
-          flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
@@ -65,7 +60,7 @@
         </w-card>
       </div>
       <div class="col-span-12" v-if="state.summary.totalViews === 0">
-        <w-card class="rounded" flat>
+        <w-card class="rounded">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
               <w-icon name="la:chart-area" size="sm" />
@@ -78,39 +73,39 @@
       </div>
       <template v-else>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
-              <div class="text-caption text-grey">{{ t('admin.pageviews.totalViews') }}</div>
-              <div class="text-h5">{{ state.summary.totalViews }}</div>
+              <div class="pageviews-stat-label">{{ t('admin.pageviews.totalViews') }}</div>
+              <div class="pageviews-stat-figure">{{ state.summary.totalViews }}</div>
             </w-card-section>
           </w-card>
         </div>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
-              <div class="text-caption text-grey">{{ t('admin.pageviews.last24h') }}</div>
-              <div class="text-h5">{{ state.summary.last24h }}</div>
+              <div class="pageviews-stat-label">{{ t('admin.pageviews.last24h') }}</div>
+              <div class="pageviews-stat-figure">{{ state.summary.last24h }}</div>
             </w-card-section>
           </w-card>
         </div>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
-              <div class="text-caption text-grey">{{ t('admin.pageviews.last7d') }}</div>
-              <div class="text-h5">{{ state.summary.last7d }}</div>
+              <div class="pageviews-stat-label">{{ t('admin.pageviews.last7d') }}</div>
+              <div class="pageviews-stat-figure">{{ state.summary.last7d }}</div>
             </w-card-section>
           </w-card>
         </div>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
-              <div class="text-caption text-grey">{{ t('admin.pageviews.distinctPages') }}</div>
-              <div class="text-h5">{{ state.summary.distinctPages }}</div>
+              <div class="pageviews-stat-label">{{ t('admin.pageviews.distinctPages') }}</div>
+              <div class="pageviews-stat-figure">{{ state.summary.distinctPages }}</div>
             </w-card-section>
           </w-card>
         </div>
         <div class="col-span-12">
-          <div class="text-caption text-grey">
+          <div class="pageviews-stat-label">
             {{ t('admin.pageviews.mostRecentView') }}:
             {{ relativeDate(state.summary.mostRecentAt) }}
           </div>
@@ -211,4 +206,29 @@ async function globalSwitch() {
 }
 </script>
 
-<style lang="scss"></style>
+<style scoped>
+/*
+  A counter card's label and figure. `text-caption`/`text-h5` before -- and `text-h5` is what the
+  heading-hierarchy scan (`pageTitleHeadings.test.js`) looks for, correctly: these are numbers, not
+  headings, and sizing them with a heading class is exactly the pseudo-heading that scan exists to
+  catch. Cardinal sets a figure in Barlow Condensed in the accent, as the dashboard's own counter
+  cards do.
+*/
+.pageviews-stat-label {
+  font-size: 12px;
+  letter-spacing: 0.03333em;
+  color: var(--color-text-caption);
+}
+
+:global(body.body--dark) .pageviews-stat-label {
+  color: var(--color-text-caption-dark);
+}
+
+.pageviews-stat-figure {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-accent);
+}
+</style>

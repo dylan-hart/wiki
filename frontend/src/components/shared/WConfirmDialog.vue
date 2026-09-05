@@ -49,7 +49,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="effectiveOkLabel ?? t('common.actions.ok')"
           :color="effectiveColor"
           padding="xs md"
