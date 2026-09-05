@@ -2,6 +2,7 @@
   <w-dialog
     :model-value="siteStore.overlayIsShown"
     class="main-overlay"
+    :class="{ 'is-half-sized': isHalfSized }"
     :persistent="!isDismissible"
     :full-width="!isHalfSized"
     :full-height="!isHalfSized"
@@ -98,14 +99,17 @@ const overlayAriaLabel = computed(() => OVERLAY_TITLES[siteStore.overlay]?.())
 
 /**
  * Profile and Inbox are short, focused forms/lists, not a file browser or a block gallery -- a
- * full-screen panel for either dwarfed its own content (OpenProject #2543 follow-up feedback).
- * Sized at roughly half the viewport instead, clamped so it never gets crushed on a small window nor
- * sprawls uselessly wide on a large one; every other entry keeps the full-screen treatment it needs
- * for its own content (a tree, a table, a block gallery).
+ * full-screen panel for either dwarfed its own content (OpenProject #2543 follow-up feedback). Half
+ * the viewport instead, exactly as the design draws it
+ * (`ui-redesign/Cardinal Wiki - Inbox 3x.dc.html`: `50vw`/`50vh` with a `min(560px, 100%)` /
+ * `420px` floor, and no ceiling above it -- a `clamp()` capped both at a size the design does not).
+ * The floor is in `MainLayout.vue`'s `.main-overlay.is-half-sized` rule, since it belongs on the
+ * panel rather than on the dialog's own box. Every other entry keeps the full-screen treatment it
+ * needs for its own content (a tree, a table, a block gallery).
  */
 const HALF_SIZE = {
-  width: 'clamp(560px, 50vw, 960px)',
-  height: 'clamp(480px, 50vh, 800px)'
+  width: '50vw',
+  height: '50vh'
 }
 const isHalfSized = computed(() => siteStore.overlay === 'Profile' || siteStore.overlay === 'Inbox')
 

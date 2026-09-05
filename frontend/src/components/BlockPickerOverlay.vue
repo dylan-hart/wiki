@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:square-plus" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
       <w-space />

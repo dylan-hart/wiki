@@ -52,6 +52,8 @@ export const GRAPH_MESSAGES = {
   'graph.controls.visitsByBrowser': 'Browser',
   'graph.controls.visitsByApi': 'API',
   'graph.controls.visitsByMcp': 'MCP',
+  'graph.truncationNotice':
+    'Showing {shown} of {total} pages. Filters and search apply only to the pages shown here.',
   'graph.tooltip.contributors': '{count} contributor | {count} contributors',
   'graph.tooltip.edits': '{count} edit | {count} edits',
   'graph.tooltip.uniqueVisitors': '{count} unique visitor | {count} unique visitors',

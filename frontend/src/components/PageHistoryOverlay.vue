@@ -1,6 +1,6 @@
 <template>
   <w-layout class="page-history" container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:history" left size="md" />
       <span>{{ t('history.title') }}</span>
       <!--
@@ -161,20 +161,28 @@
                   </w-list>
                 </w-menu>
               </w-btn>
-              <!-- Not `unelevated`: the push ledge is the point, and that prop would flatten it. -->
-              <w-btn-group>
+              <!--
+                The pair of cursors, as the design draws them: two square mono plates, the one
+                holding this letter in the accent and the other in the chrome tone
+                (`ui-redesign/Cardinal Wiki - History 3x.dc.html`). `pink-6` was a ramp colour
+                standing in for the accent and `dark-3` a panel tone standing in for slate; neither
+                is a colour this language has a use for on a control.
+              -->
+              <w-btn-group class="page-history-pick-group">
                 <w-btn
                   dense
                   :label="t(`history.versionLabelA`)"
                   padding="0.285em sm"
-                  :color="version.id === state.aId ? `pink-6` : `dark-3`"
+                  :color="version.id === state.aId ? `accent-fill` : `slate`"
+                  text-color="white"
                   :aria-label="t(`history.pickA`)"
                   @click="pick(`a`, version.id)" />
                 <w-btn
                   dense
                   :label="t(`history.versionLabelB`)"
                   padding="0.285em sm"
-                  :color="version.id === state.bId ? `pink-6` : `dark-3`"
+                  :color="version.id === state.bId ? `accent-fill` : `slate`"
+                  text-color="white"
                   :aria-label="t(`history.pickB`)"
                   @click="pick(`b`, version.id)" />
               </w-btn-group>
@@ -1010,16 +1018,24 @@ $timeline-turn: 16px;
     padding: 0 1rem;
   }
 
+  /* -> The accent FILL, and the mono the design sets both cursors in -- see the timeline's own pair */
   &-letter {
     flex: 0 0 24px;
     height: 24px;
-    background-color: $primary;
-    color: $text-dark;
+    background-color: $accent-fill;
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-family: var(--font-mono);
     font-weight: 600;
-    font-size: 0.75rem;
+    font-size: 12px;
+  }
+
+  &-pick-group .w-btn {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 11px;
   }
 
   &-same {

@@ -20,8 +20,8 @@
         <w-separator dark v-if="idx < quickaccess.length - 1" />
       </template>
     </div>
-    <w-toolbar class="bg-primary text-white flex">
-      <div class="text-subtitle2">{{ t('editor.props.pageProperties') }}</div>
+    <w-toolbar class="card-header card-header--slate flex">
+      <div>{{ t('editor.props.pageProperties') }}</div>
       <w-space />
       <w-btn
         class="me-2"
@@ -48,13 +48,19 @@
           <w-input
             ref="iptTitle"
             v-model="pageStore.title"
-            :label="t(`editor.props.title`)"
+            :placeholder="t(`editor.props.title`)"
+            :aria-label="t(`editor.props.title`)"
             dense />
           <w-input
             v-model="pageStore.description"
-            :label="t(`editor.props.shortDescription`)"
+            :placeholder="t(`editor.props.shortDescription`)"
+            :aria-label="t(`editor.props.shortDescription`)"
             dense />
-          <w-input v-model="pageStore.icon" :label="t(`editor.props.icon`)" dense>
+          <w-input
+            v-model="pageStore.icon"
+            :placeholder="t(`editor.props.icon`)"
+            :aria-label="t(`editor.props.icon`)"
+            dense>
             <template #prepend>
               <w-icon :name="pageStore.icon" size="20px" color="primary" />
             </template>
@@ -82,7 +88,8 @@
           <w-input
             v-if="pageStore.path !== `home`"
             v-model="pageStore.alias"
-            :label="t(`editor.props.alias`)"
+            :placeholder="t(`editor.props.alias`)"
+            :aria-label="t(`editor.props.alias`)"
             dense
             prefix="/a/" />
         </w-form>
@@ -238,7 +245,8 @@
           :options="adminStore.classificationLevels"
           option-value="id"
           option-label="name"
-          :label="t('editor.props.classification')" />
+          :placeholder="t('editor.props.classification')"
+          :aria-label="t('editor.props.classification')" />
         <div class="text-caption mt-1">
           <em>{{ t('editor.props.classificationHint') }}</em>
         </div>
@@ -280,7 +288,8 @@
               type="password"
               revealable
               autocomplete="off"
-              :label="t(`editor.props.password`)"
+              :placeholder="t(`editor.props.password`)"
+              :aria-label="t(`editor.props.password`)"
               :hint="
                 pageStore.hasPassword
                   ? t(`editor.props.passwordKeepHint`)
@@ -507,20 +516,34 @@ onMounted(async () => {
   }
 
   /*
-    The section headings, in the treatment the profile pages use.
+    The design's own section rhythm: a full-bleed 34px band, then 14px/16px of content under it
+    (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`). `WCardSection` pads itself `p-4`, so
+    the sections here take the design's inset instead and the band cancels exactly that inset back
+    out -- it used to cancel 16px against a 16px pad while giving 16px back at the top, which left
+    the band sitting a couple of pixels off the fields under it in every section.
 
-    `.w-section-header` carries its own 16px inset and expects to sit in a column that has none --
-    inside a `w-card-section` it would be indented twice, and its wash would stop short of the panel
-    on both sides. So the section's padding is cancelled around it: the band then spans the panel and
-    its text lines up with the fields beneath it, exactly as on a profile page. The top padding is
-    given back so the heading sits where the section's own padding had it.
+    The band also rules off ABOVE itself, so two sections running together read as two bands rather
+    than as one long strip -- which is how the design draws every section after the first.
 
     The tinted `alt-card` sections keep their stripe: the heading is inside the section, so the wash
     is drawn over whichever surface that section has.
   */
+  .w-card-section {
+    padding: 14px 16px;
+  }
+
   .w-section-header {
-    margin: -16px -16px 10px;
-    padding-top: 16px;
+    margin: -14px -16px 14px;
+    border-block-start: 1px solid $hairline;
+  }
+
+  .body--dark & .w-section-header {
+    border-block-start-color: $hairline-dark;
+  }
+
+  /* -> Nothing above the first one to rule off from */
+  .w-scroll-area .w-card-section:first-child .w-section-header {
+    border-block-start: 0;
   }
 }
 </style>

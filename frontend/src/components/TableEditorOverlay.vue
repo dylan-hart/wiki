@@ -1,6 +1,6 @@
 <template>
   <w-layout class="table-editor" container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="img:/_assets/icons/color-data-grid.svg" left size="md" />
       <span>{{ t(`editor.tableEditor.title`) }}</span>
       <w-space />

@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:markdown" left size="md" />
       <span>{{ t('editor.settings.markdown') }}</span>
       <w-space />

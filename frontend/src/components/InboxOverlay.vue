@@ -1,6 +1,6 @@
 <template>
   <w-layout class="inbox-overlay" container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:inbox" left size="md" />
       <span>{{ t('inbox.title') }}</span>
       <w-space />
@@ -166,7 +166,7 @@ function close() {
     &.is-active {
       background-color: $surface;
       border-inline-start-color: $accent-fill;
-      color: $ink;
+      color: $accent-text;
       font-weight: 500;
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon

@@ -224,6 +224,14 @@ body.body--dark {
   border-bottom: 1px solid theme.$hairline-dark;
 }
 
+// The same band in the chrome tone, for a side panel: the design draws the page-properties panel's
+// head in slate rather than in the near-black the overlays use, so a panel docked beside the page
+// reads as part of the app's chrome rather than as something laid over it.
+.card-header--slate {
+  background-color: theme.$slate;
+  border-bottom-color: theme.$slate;
+}
+
 // The same band in the accent, for a dialog whose whole subject is a refusal or a destructive act.
 .card-negative {
   display: flex;
