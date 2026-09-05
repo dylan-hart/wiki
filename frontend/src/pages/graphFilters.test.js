@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildClassificationHubEdges,
   buildPathHierarchyEdges,
-  buildTagHubEdges,
   computeHighlightedNodeIds,
   computeTitleMatchNodeIds,
   computeVisibleSubset,
@@ -453,67 +451,6 @@ describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632
   })
 })
 
-describe('buildTagHubEdges (OpenProject #999)', () => {
-  it('creates one hub per distinct tag, with an edge from the hub to each carrying page', () => {
-    const { syntheticNodes, edges } = buildTagHubEdges([
-      { path: 'a', tags: ['foo'] },
-      { path: 'b', tags: ['bar'] }
-    ])
-    expect(syntheticNodes).toEqual([
-      { path: '__tag__foo', title: 'foo', synthetic: true },
-      { path: '__tag__bar', title: 'bar', synthetic: true }
-    ])
-    expect(edges).toEqual([
-      { source: '__tag__foo', target: 'a', type: 'tag' },
-      { source: '__tag__bar', target: 'b', type: 'tag' }
-    ])
-  })
-
-  it('gives a multi-tagged page one edge per tag, not just its first', () => {
-    const { edges } = buildTagHubEdges([{ path: 'a', tags: ['foo', 'bar'] }])
-    expect(edges).toEqual([
-      { source: '__tag__foo', target: 'a', type: 'tag' },
-      { source: '__tag__bar', target: 'a', type: 'tag' }
-    ])
-  })
-
-  it('shares one hub node across every page carrying the same tag', () => {
-    const { syntheticNodes, edges } = buildTagHubEdges([
-      { path: 'a', tags: ['foo'] },
-      { path: 'b', tags: ['foo'] }
-    ])
-    expect(syntheticNodes).toEqual([{ path: '__tag__foo', title: 'foo', synthetic: true }])
-    expect(edges).toEqual([
-      { source: '__tag__foo', target: 'a', type: 'tag' },
-      { source: '__tag__foo', target: 'b', type: 'tag' }
-    ])
-  })
-
-  it('produces no hubs or edges for an untagged page', () => {
-    const { syntheticNodes, edges } = buildTagHubEdges([{ path: 'a', tags: [] }])
-    expect(syntheticNodes).toEqual([])
-    expect(edges).toEqual([])
-  })
-
-  it('treats a missing tags array the same as an empty one', () => {
-    const { syntheticNodes, edges } = buildTagHubEdges([{ path: 'a' }])
-    expect(syntheticNodes).toEqual([])
-    expect(edges).toEqual([])
-  })
-
-  it('gives two locales of the same path sharing a tag two distinct edges (OpenProject #1629/#1632)', () => {
-    const { syntheticNodes, edges } = buildTagHubEdges([
-      { path: 'a', locale: 'en', tags: ['foo'] },
-      { path: 'a', locale: 'fr', tags: ['foo'] }
-    ])
-    expect(syntheticNodes).toEqual([{ path: '__tag__foo', title: 'foo', synthetic: true }])
-    expect(edges).toEqual([
-      { source: '__tag__foo', target: 'en:a', type: 'tag' },
-      { source: '__tag__foo', target: 'fr:a', type: 'tag' }
-    ])
-  })
-})
-
 describe('buildPathHierarchyEdges: combined scenario (OpenProject #1002)', () => {
   it('produces exactly one synthetic node per distinct missing folder and one edge per parent-child pair, across a mixed real/synthetic tree', () => {
     const nodes = [
@@ -538,97 +475,6 @@ describe('buildPathHierarchyEdges: combined scenario (OpenProject #1002)', () =>
     //    produce exactly 5 edges once the shared `docs -> docs/guides` and `'' -> docs` legs are
     //    de-duped across every page that climbs through them.
     expect(edges).toHaveLength(5)
-  })
-})
-
-describe('buildTagHubEdges: combined scenario (OpenProject #1002)', () => {
-  it('produces exactly one hub per distinct tag and one edge per (page, tag) pair, across shared and multi-tagged pages', () => {
-    const nodes = [
-      { path: 'a', tags: ['guide', 'beginner'] },
-      { path: 'b', tags: ['guide'] },
-      { path: 'c', tags: ['beginner', 'reference'] },
-      { path: 'd', tags: [] }
-    ]
-    const { syntheticNodes, edges } = buildTagHubEdges(nodes)
-
-    expect(syntheticNodes.map((n) => n.path).sort()).toEqual([
-      '__tag__beginner',
-      '__tag__guide',
-      '__tag__reference'
-    ])
-    expect(edges).toHaveLength(5)
-    expect(edges).toEqual(
-      expect.arrayContaining([
-        { source: '__tag__guide', target: 'a', type: 'tag' },
-        { source: '__tag__beginner', target: 'a', type: 'tag' },
-        { source: '__tag__guide', target: 'b', type: 'tag' },
-        { source: '__tag__beginner', target: 'c', type: 'tag' },
-        { source: '__tag__reference', target: 'c', type: 'tag' }
-      ])
-    )
-  })
-})
-
-describe('buildClassificationHubEdges (OpenProject #1217)', () => {
-  it('creates one hub per distinct classification, with an edge from the hub to each carrying page', () => {
-    const { syntheticNodes, edges } = buildClassificationHubEdges([
-      { path: 'a', classification: 'Public' },
-      { path: 'b', classification: 'Restricted' }
-    ])
-    expect(syntheticNodes).toEqual([
-      { path: '__classification__Public', title: 'Public', synthetic: true },
-      { path: '__classification__Restricted', title: 'Restricted', synthetic: true }
-    ])
-    expect(edges).toEqual([
-      { source: '__classification__Public', target: 'a', type: 'classification' },
-      { source: '__classification__Restricted', target: 'b', type: 'classification' }
-    ])
-  })
-
-  it('shares one hub node across every page carrying the same classification', () => {
-    const { syntheticNodes, edges } = buildClassificationHubEdges([
-      { path: 'a', classification: 'Public' },
-      { path: 'b', classification: 'Public' }
-    ])
-    expect(syntheticNodes).toEqual([
-      { path: '__classification__Public', title: 'Public', synthetic: true }
-    ])
-    expect(edges).toEqual([
-      { source: '__classification__Public', target: 'a', type: 'classification' },
-      { source: '__classification__Public', target: 'b', type: 'classification' }
-    ])
-  })
-
-  it('groups a node with no resolved classification under a shared (unclassified) hub', () => {
-    const { syntheticNodes, edges } = buildClassificationHubEdges([
-      { path: 'a', classification: null },
-      { path: 'b' }
-    ])
-    expect(syntheticNodes).toEqual([
-      { path: '__classification__(unclassified)', title: '(unclassified)', synthetic: true }
-    ])
-    expect(edges).toEqual([
-      { source: '__classification__(unclassified)', target: 'a', type: 'classification' },
-      { source: '__classification__(unclassified)', target: 'b', type: 'classification' }
-    ])
-  })
-
-  it('produces nothing for an empty node set', () => {
-    expect(buildClassificationHubEdges([])).toEqual({ syntheticNodes: [], edges: [] })
-  })
-
-  it('gives two locales of the same path sharing a classification two distinct edges (OpenProject #1629/#1632)', () => {
-    const { syntheticNodes, edges } = buildClassificationHubEdges([
-      { path: 'a', locale: 'en', classification: 'Public' },
-      { path: 'a', locale: 'fr', classification: 'Public' }
-    ])
-    expect(syntheticNodes).toEqual([
-      { path: '__classification__Public', title: 'Public', synthetic: true }
-    ])
-    expect(edges).toEqual([
-      { source: '__classification__Public', target: 'en:a', type: 'classification' },
-      { source: '__classification__Public', target: 'fr:a', type: 'classification' }
-    ])
   })
 })
 
@@ -684,62 +530,5 @@ describe('synthetic node identity cache (OpenProject #2538)', () => {
     const secondDocs = second.syntheticNodes.find((n) => n.path === 'docs')
     expect(firstDocs).not.toBe(secondDocs)
     expect(firstDocs).toEqual(secondDocs)
-  })
-
-  it('buildTagHubEdges reuses the same hub node object across two calls sharing a cache', () => {
-    const nodes = [{ path: 'a', tags: ['guide'] }]
-    const cache = new Map()
-    const first = buildTagHubEdges(nodes, cache)
-    const second = buildTagHubEdges(nodes, cache)
-    expect(first.syntheticNodes[0]).toBe(second.syntheticNodes[0])
-  })
-
-  it('buildTagHubEdges carries forward a hub node position set between calls', () => {
-    const cache = new Map()
-    const { syntheticNodes } = buildTagHubEdges([{ path: 'a', tags: ['guide'] }], cache)
-    syntheticNodes[0].x = 10
-    syntheticNodes[0].y = 20
-    const { syntheticNodes: reSynced } = buildTagHubEdges([{ path: 'a', tags: ['guide'] }], cache)
-    expect(reSynced[0]).toMatchObject({ x: 10, y: 20 })
-  })
-
-  it('buildClassificationHubEdges reuses the same hub node object across two calls sharing a cache', () => {
-    const nodes = [{ path: 'a', classification: 'Public' }]
-    const cache = new Map()
-    const first = buildClassificationHubEdges(nodes, cache)
-    const second = buildClassificationHubEdges(nodes, cache)
-    expect(first.syntheticNodes[0]).toBe(second.syntheticNodes[0])
-  })
-
-  it('buildClassificationHubEdges carries forward a hub node position set between calls', () => {
-    const cache = new Map()
-    const { syntheticNodes } = buildClassificationHubEdges(
-      [{ path: 'a', classification: 'Public' }],
-      cache
-    )
-    syntheticNodes[0].x = 7
-    syntheticNodes[0].y = 8
-    const { syntheticNodes: reSynced } = buildClassificationHubEdges(
-      [{ path: 'a', classification: 'Public' }],
-      cache
-    )
-    expect(reSynced[0]).toMatchObject({ x: 7, y: 8 })
-  })
-
-  it('a shared cache does not collide across the three builders (disjoint key namespaces)', () => {
-    const cache = new Map()
-    const paths = buildPathHierarchyEdges([{ path: 'guide/intro', locale: 'en' }], cache)
-    const tags = buildTagHubEdges([{ path: 'a', tags: ['guide'] }], cache)
-    const classifications = buildClassificationHubEdges(
-      [{ path: 'b', classification: 'guide' }],
-      cache
-    )
-
-    expect(paths.syntheticNodes.find((n) => n.path === 'guide')).toBeTruthy()
-    expect(tags.syntheticNodes.find((n) => n.path === '__tag__guide')).toBeTruthy()
-    expect(
-      classifications.syntheticNodes.find((n) => n.path === '__classification__guide')
-    ).toBeTruthy()
-    expect(cache.size).toBe(4) // en: root, en:guide folder, __tag__guide hub, __classification__guide hub
   })
 })

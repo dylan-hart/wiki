@@ -79,7 +79,7 @@ describe('Graph.vue fallbacks, filters and truncation', () => {
     it("renders one focusable <a> per real node, pointing at that node's page path", async () => {
       const wrapper = await mountGraph()
 
-      // -> Default `edgeMode` ('paths') synthesizes a root node for 'a'/'b' (both top-level
+      // -> The path-hierarchy edge builder synthesizes a root node for 'a'/'b' (both top-level
       //    paths); the fallback list gets no top-level entry for it -- only 'a' and 'b' do.
       const links = wrapper.findAll('.graph-view-fallback > li > a')
       expect(links).toHaveLength(2)

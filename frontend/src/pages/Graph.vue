@@ -11,12 +11,12 @@
         Canvas fallback content (OpenProject #1686): a visually-hidden ("sr-only", the same
         Tailwind utility `CollabPresence.vue` uses) but focusable text alternative to the painted
         graph, for keyboard and screen-reader access -- one entry per REAL node (a synthetic
-        folder/tag/classification hub has no page to link to, so it never gets a top-level entry
-        of its own), each an `<a>` to that node's page, with its direct graph-neighbors listed
-        underneath: a real neighbor as another `<a>`, a synthetic one as plain text. Reuses
+        folder/root node has no page to link to, so it never gets a top-level entry of its own),
+        each an `<a>` to that node's page, with its direct graph-neighbors listed underneath: a
+        real neighbor as another `<a>`, a synthetic one as plain text. Reuses
         `nodes.value`/`edges.value` -- the same currently-visible set the canvas draws, already
-        shaped by `groupBy`/`edgeMode`/`activeFilters` -- rather than fetching or deriving
-        anything separately, so the alternative always describes what is actually on screen.
+        shaped by `groupBy`/`activeFilters` -- rather than fetching or deriving anything
+        separately, so the alternative always describes what is actually on screen.
       -->
       <ul class="graph-view-fallback sr-only">
         <li v-for="entry in fallbackNodes" :key="entry.node.path">
@@ -72,14 +72,6 @@
             no-caps
             :aria-label="t('graph.controls.groupByLabel')"
             :options="groupByOptions" />
-        </div>
-        <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">{{ t('graph.controls.connectByLabel') }}</span>
-          <w-btn-toggle
-            v-model="edgeMode"
-            no-caps
-            :aria-label="t('graph.controls.connectByLabel')"
-            :options="edgeModeOptions" />
         </div>
         <div class="graph-view-control-group">
           <span class="graph-view-control-caption">{{ t('graph.controls.sizeByLabel') }}</span>
@@ -208,9 +200,7 @@ import { useDark } from '@/composables/dark'
 import { useSiteStore } from '@/stores/site'
 import GraphClientTypeFilter from '@/components/GraphClientTypeFilter.vue'
 import {
-  buildClassificationHubEdges,
   buildPathHierarchyEdges,
-  buildTagHubEdges,
   computeHighlightedNodeIds,
   computeTitleMatchNodeIds,
   computeVisibleSubset,
@@ -273,12 +263,6 @@ const totalNodes = ref(0)
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
 const groupBy = ref('folder')
 
-/** Which zero-authoring edge source drives the graph's connections (OpenProject #997): `paths`
- *  (default) chains every page to its parent path segment up to a synthetic root; `tags` connects
- *  every page to a synthetic hub per tag it carries. The 872 endpoint's `relation`/`link` edges
- *  (`allEdges` below) are still fetched but not wired into either mode's rendering. */
-const edgeMode = ref('paths')
-
 /** Node-sizing dimension (OpenProject #1141/#1269): 'edits' (default), which scales a node's radius
  *  by its contributor count, or 'visits', by its pageview count -- see `radiusFor()`. There is no
  *  'uniform' mode any more (OpenProject #1270 dropped it): every real node is always sized by one
@@ -322,11 +306,6 @@ const groupByOptions = computed(() => [
   { label: t('graph.controls.groupByFolder'), value: 'folder' },
   { label: t('graph.controls.groupByTag'), value: 'tag' },
   { label: t('graph.controls.groupByClassification'), value: 'classification' }
-])
-const edgeModeOptions = computed(() => [
-  { label: t('graph.controls.connectByPaths'), value: 'paths' },
-  { label: t('graph.controls.connectByTags'), value: 'tags' },
-  { label: t('graph.controls.connectByClassification'), value: 'classification' }
 ])
 const sizeCountModeOptions = computed(() => [
   { label: t('graph.controls.countUnique'), value: 'unique' },
@@ -559,8 +538,8 @@ function groupKeyFor(node) {
 /** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
  *  reader announces the graph as nothing, so this is the minimum text alternative: a live summary
  *  of what's currently drawn. Reads `nodes.value`/`edges.value`/`groupBy` -- already-held reactive
- *  state, no separate computation -- and excludes synthetic hub/root nodes (`applyFilters()`'s
- *  `edgeMode`-driven stand-ins, never real pages) from the page count. `groupBy`'s own values
+ *  state, no separate computation -- and excludes synthetic folder/root nodes (`applyFilters()`'s
+ *  path-hierarchy stand-ins, never real pages) from the page count. `groupBy`'s own values
  *  ('folder'/'tag'/'classification') already read as the words used here, so no separate label
  *  lookup is needed for that part; a real focusable text alternative (per-node links) is #1686's
  *  larger scope. The sentence is sourced from `graph.*` i18n keys (OpenProject #1690, #2359) --
@@ -669,7 +648,7 @@ function resolveEndpoint(endpoint) {
 
 /** A node's direct graph-neighbors, in first-seen order with no duplicates -- every other
  *  endpoint of an edge in `edges.value` (the edges currently drawn) that touches this node,
- *  whether the neighbor is a real page or a synthetic folder/tag/classification hub. */
+ *  whether the neighbor is a real page or a synthetic folder/root node. */
 function fallbackLinksFor(node) {
   const seen = new Set()
   const links = []
@@ -692,7 +671,7 @@ function fallbackLinksFor(node) {
  *  paired with its direct neighbors (`fallbackLinksFor`) -- a synthetic node never gets a
  *  top-level entry since it has no page for its `<a>` to point at, but it can still appear as a
  *  (non-link) neighbor under a real node's entry. Recomputes off `nodes.value`/`edges.value`, so
- *  it stays in step with `groupBy`/`edgeMode`/`activeFilters` the same way the canvas drawing does. */
+ *  it stays in step with `groupBy`/`activeFilters` the same way the canvas drawing does. */
 const fallbackNodes = computed(() =>
   nodes.value
     .filter((node) => !node.synthetic)
@@ -703,9 +682,9 @@ let simulation = null
 let ctx = null
 let resizeObserver = null
 let nodeQuadtree = null
-/** Identity cache for `applyFilters()`'s synthetic hub/folder/root nodes (OpenProject #2538) -- keyed
- *  by each synthetic node's own id and passed into whichever `graphFilters.js` builder is active, so
- *  a node still visible across an `activeFilters`/`edgeMode` change reuses the same object (and
+/** Identity cache for `applyFilters()`'s synthetic folder/root nodes (OpenProject #2538) -- keyed
+ *  by each synthetic node's own id and passed into `graphFilters.js#buildPathHierarchyEdges`, so
+ *  a node still visible across an `activeFilters` change reuses the same object (and
  *  whatever `x`/`y`/`vx`/`vy` d3-force has since assigned it) instead of jittering in from
  *  d3-force's origin-centered default placement. Reset in `loadGraph()`, never mutated elsewhere --
  *  a wholesale new site/keyword/sizeBy fetch is a fresh graph and must not carry stale positions
@@ -946,8 +925,8 @@ function fallbackHref(node) {
   return keyword ? `${path}?highlight=${encodeURIComponent(keyword)}` : path
 }
 
-/** Navigates to a node's page, if it has one -- a synthetic (folder/tag/classification hub) node
- *  is not a real page and is silently ignored, same as a canvas click that misses every dot. */
+/** Navigates to a node's page, if it has one -- a synthetic folder/root node is not a real page
+ *  and is silently ignored, same as a canvas click that misses every dot. */
 function navigateToNode(node) {
   if (!node || node.synthetic) {
     return
@@ -1061,20 +1040,20 @@ async function loadPageviewsTrackingState() {
 }
 
 /** Recomputes `nodes.value`/`edges.value` (what the simulation actually runs on) from `allNodes`
- *  against `activeFilters`, then layers on the current `edgeMode`'s synthetic nodes/edges -- the 872
- *  endpoint's `relation`/`link` edges (`computeVisibleSubset`'s `visibleEdges`) are deliberately not
- *  used here; see OpenProject #997. Called on initial load, by the `activeFilters` watcher, and by
- *  the `edgeMode` watcher below. Does not touch the live simulation itself; that's
- *  `syncSimulationToVisibleSet`'s job, since the initial call here runs before `startSimulation()`
- *  has created one. */
+ *  against `activeFilters`, then layers on `buildPathHierarchyEdges`'s synthetic folder/root nodes
+ *  and edges -- the graph's sole edge source (OpenProject #2580 removed the sibling `'tags'`/
+ *  `'classification'` hub-edge modes that used to be selectable here, so every non-root node now
+ *  has exactly one incoming `type: 'path'` edge, a strict tree). The 872 endpoint's `relation`/
+ *  `link` edges (`computeVisibleSubset`'s `visibleEdges`) are deliberately not used here; see
+ *  OpenProject #997. Called on initial load and by the `activeFilters` watcher below. Does not
+ *  touch the live simulation itself; that's `syncSimulationToVisibleSet`'s job, since the initial
+ *  call here runs before `startSimulation()` has created one. */
 function applyFilters() {
   const { visibleNodes } = computeVisibleSubset(allNodes.value, allEdges.value, activeFilters)
-  const { syntheticNodes, edges: syntheticEdges } =
-    edgeMode.value === 'tags'
-      ? buildTagHubEdges(visibleNodes, syntheticNodeCache)
-      : edgeMode.value === 'classification'
-        ? buildClassificationHubEdges(visibleNodes, syntheticNodeCache)
-        : buildPathHierarchyEdges(visibleNodes, syntheticNodeCache)
+  const { syntheticNodes, edges: syntheticEdges } = buildPathHierarchyEdges(
+    visibleNodes,
+    syntheticNodeCache
+  )
   // -> `visibleNodes` are already-raw objects filtered from `allNodes.value` (markRaw'd in
   //    `loadGraph()`); `syntheticNodes`/`syntheticEdges` are built fresh only for a genuinely new
   //    key each call (see `graphFilters.js`'s `syntheticNodeCache`-backed reuse, OpenProject #2538)
@@ -1153,17 +1132,17 @@ watch(showLocaleFilter, (visible) => {
   re-settles, rather than just being drawn hidden"): re-settling is the explicitly wanted behavior
   for a REAL node, not a bug to work around.
 
-  Synthetic hub/folder/root nodes (OpenProject #997) are a different case, and used to re-settle
-  right along with real nodes on every `edgeMode`/`activeFilters` change -- but that was never a
-  considered part of the above spec, just an incidental side effect of `applyFilters()`'s builders
-  (`graphFilters.js`) always constructing brand-new objects with no `x`/`y`, even for a marker that
-  was already visible and already settled. That produced a visible flash-jitter on every filter
-  change (OpenProject #2538): a stacked cluster of synthetic nodes at d3-force's origin-centered
-  default placement, snapping into position as `forceLink`/`forceManyBody` pulled them across the
-  canvas. `applyFilters()` now passes `syntheticNodeCache` into each builder so an already-visible
-  synthetic node keeps its object identity (and therefore its settled position) across calls; only a
-  genuinely new key still falls through to d3-force's default placement, same as a reappearing real
-  node above.
+  Synthetic folder/root nodes (OpenProject #997/#998) are a different case, and used to re-settle
+  right along with real nodes on every `activeFilters` change -- but that was never a considered
+  part of the above spec, just an incidental side effect of `applyFilters()`'s
+  `buildPathHierarchyEdges` call (`graphFilters.js`) always constructing brand-new objects with no
+  `x`/`y`, even for a marker that was already visible and already settled. That produced a visible
+  flash-jitter on every filter change (OpenProject #2538): a stacked cluster of synthetic nodes at
+  d3-force's origin-centered default placement, snapping into position as `forceLink`/`forceManyBody`
+  pulled them across the canvas. `applyFilters()` now passes `syntheticNodeCache` into the builder so
+  an already-visible synthetic node keeps its object identity (and therefore its settled position)
+  across calls; only a genuinely new key still falls through to d3-force's default placement, same as
+  a reappearing real node above.
 */
 function syncSimulationToVisibleSet() {
   if (!simulation) {
@@ -1184,15 +1163,10 @@ watch(
   { deep: true }
 )
 
-watch(edgeMode, () => {
-  applyFilters()
-  syncSimulationToVisibleSet()
-})
-
 /** OpenProject #2480, extended by #2533: a keyword match -- from EITHER the backend full-text
  *  search or the client-side title-contains pass -- changes only which ALREADY-visible nodes draw
  *  highlighted, no node/edge set changes, no simulation restart, just a repaint against the current
- *  layout (unlike `activeFilters`'/`edgeMode`'s watchers above, which do change what's visible).
+ *  layout (unlike `activeFilters`'s watcher above, which does change what's visible).
  *  Watches the unioned `highlightedNodeIds` itself, not `keywordMatches` alone: the backend pass
  *  populates `keywordMatches` only once its (debounced, async) request resolves, but the title pass
  *  is synchronous off `keywordQuery`/`allNodes` and never touches `keywordMatches` at all -- a
