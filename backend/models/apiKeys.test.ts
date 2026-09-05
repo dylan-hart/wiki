@@ -14,6 +14,114 @@ import type { GroupRule } from './groups.ts'
 import type { KeyExpiration } from './apiKeys.ts'
 
 /**
+ * Builds a stand-in for the global `Temporal` namespace with `Now.zonedDateTimeISO` pinned to
+ * `fixedZonedDateTimeISO` and every other member forwarding to the real implementation.
+ *
+ * Object-spreading `Temporal` (or `Temporal.Now`) does not work for this: it copies only **own
+ * enumerable** properties, and a native `Temporal` follows the same convention as the `Math`/
+ * `JSON`/`Reflect` namespaces -- its own methods are non-enumerable. `{ ...Temporal.Now }` silently
+ * drops every method except one explicitly re-listed in the same object literal, `instant` included
+ * -- exactly what `helpers/jwt.ts#epochSeconds()`'s default argument calls on every `createKey()`.
+ * The `@js-temporal/polyfill` this sandbox runs under (pre-Temporal Node) happens to declare its
+ * methods as ordinary enumerable properties, so the spread accidentally worked here while failing on
+ * CI's real Node 26 (OpenProject #2585). `Object.getOwnPropertyNames` sees non-enumerable properties
+ * too, and `.bind()`-ing each function to the real object it came from keeps native `this`
+ * expectations intact regardless of how the method is later invoked.
+ */
+function withFixedNow(
+  realTemporal: typeof Temporal,
+  fixedZonedDateTimeISO: () => Temporal.ZonedDateTime
+): typeof Temporal {
+  const cloneOwnProps = <T extends object>(source: T): T => {
+    const clone: Record<string, unknown> = {}
+    for (const key of Object.getOwnPropertyNames(source)) {
+      const value = (source as any)[key]
+      clone[key] = typeof value === 'function' ? value.bind(source) : value
+    }
+    return clone as T
+  }
+
+  const fakeNow = cloneOwnProps(realTemporal.Now)
+  ;(fakeNow as any).zonedDateTimeISO = fixedZonedDateTimeISO
+
+  const fakeTemporal = cloneOwnProps(realTemporal)
+  ;(fakeTemporal as any).Now = fakeNow
+  return fakeTemporal
+}
+
+/**
+ * `withFixedNow` exists specifically to survive a `Temporal.Now` whose methods are non-enumerable
+ * (real native Node 26 behavior, OpenProject #2585) -- something this sandbox's polyfill-backed
+ * `Temporal` never exhibits (its methods happen to be enumerable), so this suite builds that shape
+ * by hand rather than relying on the ambient global to demonstrate the bug it fixes.
+ */
+describe('apiKeys.test.ts withFixedNow', () => {
+  function makeNonEnumerableNow(instant: () => { tag: string }): any {
+    const now = {}
+    for (const [key, value] of Object.entries({
+      instant,
+      zonedDateTimeISO: () => ({ tag: 'real-zonedDateTimeISO' }),
+      plainDateISO: () => ({ tag: 'real-plainDateISO' })
+    })) {
+      Object.defineProperty(now, key, {
+        value,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      })
+    }
+    return now
+  }
+
+  test('a plain object spread over a non-enumerable Now silently drops its other methods (the bug)', () => {
+    const nonEnumerableNow = makeNonEnumerableNow(() => ({ tag: 'real-instant' }))
+    const naiveSpread: any = { ...nonEnumerableNow, zonedDateTimeISO: () => ({ tag: 'fixed' }) }
+    assert.equal(typeof naiveSpread.instant, 'undefined')
+  })
+
+  test('preserves every other Now method when Now itself is non-enumerable', () => {
+    const nonEnumerableNow = makeNonEnumerableNow(() => ({ tag: 'real-instant' }))
+    const fakeTemporal = withFixedNow(
+      { Now: nonEnumerableNow } as unknown as typeof Temporal,
+      () => ({ tag: 'fixed' }) as unknown as Temporal.ZonedDateTime
+    )
+    assert.equal((fakeTemporal.Now.instant() as any).tag, 'real-instant')
+    assert.equal((fakeTemporal.Now.plainDateISO() as any).tag, 'real-plainDateISO')
+  })
+
+  test('overrides zonedDateTimeISO to the fixed value', () => {
+    const nonEnumerableNow = makeNonEnumerableNow(() => ({ tag: 'real-instant' }))
+    const fixed = { tag: 'fixed' } as unknown as Temporal.ZonedDateTime
+    const fakeTemporal = withFixedNow(
+      { Now: nonEnumerableNow } as unknown as typeof Temporal,
+      () => fixed
+    )
+    assert.equal(fakeTemporal.Now.zonedDateTimeISO('UTC'), fixed)
+  })
+
+  test('preserves a non-Now, non-enumerable member of Temporal itself', () => {
+    const temporalStub: any = {}
+    Object.defineProperty(temporalStub, 'Now', {
+      value: makeNonEnumerableNow(() => ({ tag: 'real-instant' })),
+      enumerable: false,
+      writable: true,
+      configurable: true
+    })
+    Object.defineProperty(temporalStub, 'Instant', {
+      value: { tag: 'real-Instant' },
+      enumerable: false,
+      writable: true,
+      configurable: true
+    })
+    const fakeTemporal = withFixedNow(
+      temporalStub,
+      () => ({ tag: 'fixed' }) as unknown as Temporal.ZonedDateTime
+    )
+    assert.equal((fakeTemporal as any).Instant.tag, 'real-Instant')
+  })
+})
+
+/**
  * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
  * permissions away from what the key's groups grant, never hand it one the groups didn't already
  * hold. It touches neither `WIKI` nor the database, so this is a pure unit test — the DB-backed
@@ -229,10 +337,7 @@ describe('apiKeys.createKey expiration lifetimes', () => {
     test(`createKey's '${lifetime}' expiry is calendar-aware across a leap year, not a flat 365-day multiple`, async () => {
       const realTemporal = globalThis.Temporal
       const fixedNow = realTemporal.ZonedDateTime.from(fixedNowIso)
-      ;(globalThis as any).Temporal = {
-        ...realTemporal,
-        Now: { ...realTemporal.Now, zonedDateTimeISO: () => fixedNow }
-      }
+      ;(globalThis as any).Temporal = withFixedNow(realTemporal, () => fixedNow)
       try {
         const { id } = await apiKeys.createKey({
           name: `${lifetime} key from a fixed leap-crossing date`,
