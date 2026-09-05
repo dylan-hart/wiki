@@ -445,8 +445,31 @@ class Authentication {
       })
       .returning({ id: authenticationTable.id })
 
+    const newId = result[0].id
+
+    // -> A newly configured strategy should already be offered on every existing site: left absent,
+    //    a site's per-strategy entry falls back to `isVisible: false` (`api/auth/site.ts`), which would
+    //    mean the strategy shows up nowhere until an admin separately visits every site's Login
+    //    settings and turns it on. Mirrors how a fresh site itself seeds `local` as visible
+    //    (`createSite()`, above) -- the same "read the full array, append, write the whole array
+    //    back" shape `deleteStrategy()` below already uses, since `updateSite()` replaces an array
+    //    wholesale rather than merging it index-wise.
+    for (const site of await WIKI.models.sites.getAllSites()) {
+      const configured = ((site.config as Record<string, any>)?.authStrategies ?? []) as Array<{
+        id: string
+        order?: number
+        isVisible?: boolean
+      }>
+      const nextOrder = configured.reduce((max, s) => Math.max(max, s.order ?? 0), -1) + 1
+      await WIKI.models.sites.updateSite(site.id, {
+        config: {
+          authStrategies: [...configured, { id: newId, order: nextOrder, isVisible: true }]
+        }
+      })
+    }
+
     await this.activateStrategies()
-    return result[0].id
+    return newId
   }
 
   /**
