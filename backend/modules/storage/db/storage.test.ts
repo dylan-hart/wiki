@@ -2,15 +2,12 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import os from 'node:os'
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { eq } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { Pool } from 'pg'
-import { relations } from '../../../db/relations.ts'
 import {
-  assets as assetsTable,
   sites as sitesTable,
   tree as treeTable,
-  users as usersTable
+  assets as assetsTable
 } from '../../../db/schema.ts'
 import { assetServing } from '../../../models/assetServing.ts'
 import { assets } from '../../../models/assets.ts'
@@ -18,7 +15,12 @@ import { tree } from '../../../models/tree.ts'
 import dbStorageModule, { purge } from './storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
-import { installTestWiki } from '../../../test/mocks.ts'
+import {
+  hasTestDatabase,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../../../test/db.ts'
 
 /**
  * Exercises `purge()` against a real Postgres instance rather than a mocked `WIKI.db` chain, because
@@ -27,70 +29,49 @@ import { installTestWiki } from '../../../test/mocks.ts'
  * mock of the query builder would only prove that the code calls what it calls, not that the SQL it
  * builds does the right thing.
  *
- * Skipped unless `DATABASE_URL` points at a real database with this repo's migrations applied — see
- * `models/contentSync.test.ts` for the same convention. Nothing here mutates outside the sites created
- * and torn down by this file.
+ * Skipped unless `DATABASE_URL` is set. Uses `test/db.ts`'s `setupTestDb()`/`teardownTestDb()` — the
+ * same fresh, fully-migrated, per-run schema every other DB-backed suite in this repo uses — rather
+ * than hand-rolling a `Pool` against whatever happens to already be sitting in the target database's
+ * `public` schema. The latter used to be exactly what this file did (mirroring the same bug
+ * `models/contentSync.test.ts` was already fixed for, OpenProject #1639/#1650): against a genuinely
+ * fresh database — a freshly-spun-up CI service container, or a first local run — `public` has no
+ * tables at all, so every query failed with `relation "sites" does not exist` rather than testing
+ * anything.
  */
-const DATABASE_URL = process.env.DATABASE_URL
-const skip = DATABASE_URL
-  ? false
-  : 'requires DATABASE_URL (a Postgres instance with migrations applied)'
+const skip = hasTestDatabase() ? false : 'requires DATABASE_URL (a Postgres instance)'
 
-let pool: Pool
+let fixtures: TestFixtures
 let siteId: string
 let otherSiteId: string
 let userId: string
 
 before(async () => {
-  if (!DATABASE_URL) {
+  if (!hasTestDatabase()) {
     return
   }
   await ensureTemporal()
 
-  pool = new Pool({ connectionString: DATABASE_URL })
-  const db = drizzle({ client: pool, relations })
-  installTestWiki({
-    db,
-    // -> `dropCachedContent()`'s `cachePath` getter reads both of these; pointed at a throwaway temp
-    //    directory so this test never touches a real instance's file cache.
-    ROOTPATH: await import('node:fs/promises').then((fs) =>
-      fs.mkdtemp(path.join(os.tmpdir(), 'wiki-db-storage-test-'))
-    ),
-    config: { dataPath: '.' },
-    models: { assets, assetServing }
-  })
+  fixtures = await setupTestDb()
+  siteId = fixtures.siteId
+  userId = fixtures.userId
 
-  const [site] = await WIKI.db
-    .insert(sitesTable)
-    .values({ hostname: `db-storage-purge-test-${Date.now()}.example.com`, config: {} })
-    .returning({ id: sitesTable.id })
-  siteId = site.id
+  // -> `dropCachedContent()`'s `cachePath` getter reads both of these; pointed at a throwaway temp
+  //    directory so this test never touches a real instance's file cache.
+  WIKI.ROOTPATH = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-db-storage-test-'))
+  WIKI.config.dataPath = '.'
 
   const [other] = await WIKI.db
     .insert(sitesTable)
     .values({ hostname: `db-storage-purge-test-other-${Date.now()}.example.com`, config: {} })
     .returning({ id: sitesTable.id })
   otherSiteId = other.id
-
-  const [user] = await WIKI.db
-    .insert(usersTable)
-    .values({ email: `db-storage-purge-test-${Date.now()}@example.com`, name: 'Purge Test' })
-    .returning({ id: usersTable.id })
-  userId = user.id
 })
 
 after(async () => {
-  if (!DATABASE_URL) {
+  if (!hasTestDatabase()) {
     return
   }
-  await WIKI.db.delete(treeTable).where(eq(treeTable.siteId, siteId))
-  await WIKI.db.delete(treeTable).where(eq(treeTable.siteId, otherSiteId))
-  await WIKI.db.delete(assetsTable).where(eq(assetsTable.siteId, siteId))
-  await WIKI.db.delete(assetsTable).where(eq(assetsTable.siteId, otherSiteId))
-  await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, siteId))
-  await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, otherSiteId))
-  await WIKI.db.delete(usersTable).where(eq(usersTable.id, userId))
-  await pool.end()
+  await teardownTestDb()
 })
 
 /**
