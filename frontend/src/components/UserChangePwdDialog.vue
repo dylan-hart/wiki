@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:password-reset" size="sm" class="me-2" />
+        <w-icon name="tabler:lock-cog" size="sm" class="me-2" />
         <span>{{ t(`admin.users.changePassword`) }}</span>
       </w-card-section>
       <w-form ref="changeUserPwdForm" class="py-2" @submit="save">

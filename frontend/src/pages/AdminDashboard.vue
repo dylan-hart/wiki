@@ -2,7 +2,7 @@
   <w-page class="admin-dashboard">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon name="cardinal:dashboard" size="64px" class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:layout-dashboard" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
@@ -37,7 +37,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:sites" />
+            <w-icon name="tabler:browser" />
             <div>
               <strong>{{ t('admin.sites.title') }}</strong>
               <span>{{ adminStore.sites.length }}</span>
@@ -66,7 +66,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:groups" />
+            <w-icon name="tabler:users" />
             <div>
               <strong>{{ t('admin.groups.title') }}</strong>
               <span>{{ adminStore.info.groupsTotal }}</span>
@@ -95,7 +95,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:users" />
+            <w-icon name="tabler:user" />
             <div>
               <strong>{{ t('admin.users.title') }}</strong>
               <span>{{ adminStore.info.usersTotal }}</span>
@@ -124,7 +124,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:pages" />
+            <w-icon name="tabler:folder" />
             <div>
               <strong>{{ t('admin.pages.title') }}</strong>
               <span>{{ adminStore.info.pagesTotal }}</span>
@@ -144,7 +144,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:pageviews" />
+            <w-icon name="tabler:eye" />
             <div>
               <strong>{{ t(`admin.dashboard.logins`) }}</strong>
               <small
@@ -205,7 +205,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:scheduler" />
+            <w-icon name="tabler:robot" />
             <div>
               <strong>{{ t('admin.dashboard.activeWorkers') }}</strong>
               <span>{{ adminStore.info.activeWorkers }}</span>
@@ -226,7 +226,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:cluster" />
+            <w-icon name="tabler:binary-tree" />
             <div>
               <strong>{{ t('admin.cluster.title') }}</strong>
               <span>{{ adminStore.info.clusterTotal }}</span>
@@ -247,7 +247,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <w-icon name="cardinal:webhooks" />
+            <w-icon name="tabler:bolt" />
             <div>
               <strong>{{ t('admin.webhooks.title') }}</strong>
               <span>{{ adminStore.info.webhooksTotal }}</span>
@@ -268,7 +268,7 @@
       <div class="col-span-12 lg:col-span-6">
         <w-card>
           <w-card-section class="admin-dashboard-panel">
-            <w-icon name="cardinal:credential" />
+            <w-icon name="tabler:key" />
             <strong>{{ t('admin.dashboard.lastLogins') }}</strong>
           </w-card-section>
           <w-separator />
@@ -382,7 +382,7 @@ const versionCard = computed(() => {
   switch (adminStore.versionStatus) {
     case 'latest':
       return {
-        icon: 'cardinal:approvals',
+        icon: 'tabler:checkbox',
         color: 'positive',
         status: t('admin.dashboard.versionUpToDate'),
         version: adminStore.info.currentVersion,
@@ -391,7 +391,7 @@ const versionCard = computed(() => {
       }
     case 'outdated':
       return {
-        icon: 'cardinal:check-update',
+        icon: 'tabler:refresh-alert',
         color: 'warning-fill',
         status: t('admin.dashboard.versionUpdateAvailable'),
         version: adminStore.info.currentVersion,
@@ -400,7 +400,7 @@ const versionCard = computed(() => {
       }
     default:
       return {
-        icon: 'cardinal:replication',
+        icon: 'tabler:refresh',
         color: 'slate-soft',
         status: t('admin.dashboard.versionChecking'),
         version: null,

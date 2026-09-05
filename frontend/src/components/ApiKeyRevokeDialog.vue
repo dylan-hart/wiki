@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:revoke" size="sm" class="me-2" />
+        <w-icon name="tabler:circle-x" size="sm" class="me-2" />
         <span>{{ t(`${labelPrefix}.revokeConfirm`) }}</span>
       </w-card-section>
       <w-card-section>

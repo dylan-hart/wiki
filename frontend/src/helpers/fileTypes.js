@@ -48,7 +48,7 @@ export default {
     icon: 'img:/_assets/icons/color-audio-file.svg'
   },
   folder: {
-    icon: 'cardinal:folder'
+    icon: 'tabler:folder'
   },
   gif: {
     icon: 'img:/_assets/icons/color-gif.svg'

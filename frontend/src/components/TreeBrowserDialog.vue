@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card class="page-save-dialog" style="width: 860px; max-width: 90vw">
       <w-card-section v-if="props.mode === `savePage`" class="card-header">
-        <w-icon name="cardinal:save-as" size="sm" class="me-2" />
+        <w-icon name="tabler:file-plus" size="sm" class="me-2" />
         <span>{{ t('pageSaveDialog.title') }}</span>
       </w-card-section>
       <w-card-section v-else-if="props.mode === `duplicatePage`" class="card-header">
@@ -10,7 +10,7 @@
         <span>{{ t('pageDuplicateDialog.title') }}</span>
       </w-card-section>
       <w-card-section v-else-if="props.mode === `renamePage`" class="card-header">
-        <w-icon name="cardinal:rename" size="sm" class="me-2" />
+        <w-icon name="tabler:cursor-text" size="sm" class="me-2" />
         <span>{{ t('pageRenameDialog.title') }}</span>
       </w-card-section>
       <div class="page-save-dialog-browser flex flex-nowrap">

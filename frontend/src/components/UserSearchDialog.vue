@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card class="user-search-dialog" style="width: 600px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:users" size="sm" class="me-2" />
+        <w-icon name="tabler:user" size="sm" class="me-2" />
         <span>{{ props.title || t('admin.users.selectUsers') }}</span>
       </w-card-section>
       <w-card-section class="py-2">

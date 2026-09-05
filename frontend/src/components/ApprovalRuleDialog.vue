@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:approvals" size="sm" class="me-2" />
+        <w-icon name="tabler:checkbox" size="sm" class="me-2" />
         <span>{{ isEdit ? t('admin.approval.editRule') : t('admin.approval.newRule') }}</span>
       </w-card-section>
       <w-form ref="ruleForm" class="py-2" @submit="save">

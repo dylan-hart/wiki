@@ -93,7 +93,7 @@
           </w-item>
           <w-item to="/_admin/dashboard" active-class="admin-nav-active">
             <w-item-section avatar>
-              <w-icon name="cardinal:dashboard" />
+              <w-icon name="tabler:layout-dashboard" />
             </w-item-section>
             <w-item-section>{{ t('admin.dashboard.title') }}</w-item-section>
           </w-item>
@@ -102,7 +102,7 @@
             active-class="admin-nav-active"
             v-if="userStore.can(`manage:sites`)">
             <w-item-section avatar>
-              <w-icon name="cardinal:sites" />
+              <w-icon name="tabler:browser" />
             </w-item-section>
             <w-item-section>{{ t('admin.sites.title') }}</w-item-section>
             <w-item-section side>
@@ -135,7 +135,7 @@
               active-class="admin-nav-active"
               v-if="maySeeGeneral">
               <w-item-section avatar>
-                <w-icon name="cardinal:general" />
+                <w-icon name="tabler:world" />
               </w-item-section>
               <w-item-section>{{ t('admin.general.title') }}</w-item-section>
             </w-item>
@@ -144,7 +144,7 @@
               active-class="admin-nav-active"
               v-if="maySeeApprovals">
               <w-item-section avatar>
-                <w-icon name="cardinal:approvals" />
+                <w-icon name="tabler:checkbox" />
               </w-item-section>
               <w-item-section>{{ t('admin.approval.title') }}</w-item-section>
             </w-item>
@@ -153,7 +153,7 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
-                <w-icon name="cardinal:analytics" />
+                <w-icon name="tabler:chart-line" />
               </w-item-section>
               <w-item-section>{{ t('admin.analytics.title') }}</w-item-section>
             </w-item>
@@ -162,7 +162,7 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
-                <w-icon name="cardinal:comments" />
+                <w-icon name="tabler:message" />
               </w-item-section>
               <w-item-section>{{ t('admin.comments.title') }}</w-item-section>
             </w-item>
@@ -171,7 +171,7 @@
               active-class="admin-nav-active"
               v-if="maySeeBlocks">
               <w-item-section avatar>
-                <w-icon name="cardinal:blocks" />
+                <w-icon name="tabler:components" />
               </w-item-section>
               <w-item-section>{{ t('admin.blocks.title') }}</w-item-section>
             </w-item>
@@ -180,7 +180,7 @@
               active-class="admin-nav-active"
               v-if="maySeeEditors">
               <w-item-section avatar>
-                <w-icon name="cardinal:editors" />
+                <w-icon name="tabler:writing" />
               </w-item-section>
               <w-item-section>{{ t('admin.editors.title') }}</w-item-section>
             </w-item>
@@ -189,7 +189,7 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:glossary`)">
               <w-item-section avatar>
-                <w-icon name="cardinal:glossary" />
+                <w-icon name="tabler:list-search" />
               </w-item-section>
               <w-item-section>{{ t('admin.glossary.title') }}</w-item-section>
             </w-item>
@@ -198,7 +198,7 @@
               active-class="admin-nav-active"
               v-if="maySeeLocale">
               <w-item-section avatar>
-                <w-icon name="cardinal:locale" />
+                <w-icon name="tabler:language" />
               </w-item-section>
               <w-item-section>{{ t('admin.locale.title') }}</w-item-section>
             </w-item>
@@ -207,7 +207,7 @@
               active-class="admin-nav-active"
               v-if="maySeeLogin">
               <w-item-section avatar>
-                <w-icon name="cardinal:login" />
+                <w-icon name="tabler:login" />
               </w-item-section>
               <w-item-section>{{ t('admin.login.title') }}</w-item-section>
             </w-item>
@@ -216,7 +216,7 @@
               active-class="admin-nav-active"
               v-if="maySeeNavigation">
               <w-item-section avatar>
-                <w-icon name="cardinal:navigation" />
+                <w-icon name="tabler:sitemap" />
               </w-item-section>
               <w-item-section>{{ t('admin.navigation.title') }}</w-item-section>
             </w-item>
@@ -224,7 +224,7 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/pages`"
               active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:pages" />
+                <w-icon name="tabler:folder" />
               </w-item-section>
               <w-item-section>{{ t('admin.pages.title') }}</w-item-section>
             </w-item>
@@ -232,7 +232,7 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/pages/deleted`"
               active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:pages-deleted" />
+                <w-icon name="tabler:trash" />
               </w-item-section>
               <w-item-section>{{ t('history.recovery.title') }}</w-item-section>
             </w-item>
@@ -241,7 +241,7 @@
               active-class="admin-nav-active"
               v-if="maySeeStorage">
               <w-item-section avatar>
-                <w-icon name="cardinal:storage" />
+                <w-icon name="tabler:database" />
               </w-item-section>
               <w-item-section>{{ t('admin.storage.title') }}</w-item-section>
             </w-item>
@@ -250,7 +250,7 @@
               active-class="admin-nav-active"
               v-if="maySeeTheme">
               <w-item-section avatar>
-                <w-icon name="cardinal:theme" />
+                <w-icon name="tabler:layout-navbar" />
               </w-item-section>
               <w-item-section>{{ t('admin.theme.title') }}</w-item-section>
             </w-item>
@@ -262,13 +262,13 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:system`)">
               <w-item-section avatar>
-                <w-icon name="cardinal:authentication" />
+                <w-icon name="tabler:lock-open" />
               </w-item-section>
               <w-item-section>{{ t('admin.auth.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/groups" active-class="admin-nav-active" v-if="groupsAreVisible">
               <w-item-section avatar>
-                <w-icon name="cardinal:groups" />
+                <w-icon name="tabler:users" />
               </w-item-section>
               <w-item-section>{{ t('admin.groups.title') }}</w-item-section>
               <w-item-section side>
@@ -280,7 +280,7 @@
             </w-item>
             <w-item to="/_admin/users" active-class="admin-nav-active" v-if="usersAreVisible">
               <w-item-section avatar>
-                <w-icon name="cardinal:users" />
+                <w-icon name="tabler:user" />
               </w-item-section>
               <w-item-section>{{ t('admin.users.title') }}</w-item-section>
               <w-item-section side>
@@ -297,7 +297,7 @@
             }}</w-item-label>
             <w-item to="/_admin/api" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:api" />
+                <w-icon name="tabler:plug-connected" />
               </w-item-section>
               <w-item-section>{{ t('admin.api.title') }}</w-item-section>
               <w-item-section side>
@@ -306,7 +306,7 @@
             </w-item>
             <w-item to="/_admin/audit" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:audit-log" />
+                <w-icon name="tabler:file-description" />
               </w-item-section>
               <w-item-section>{{ t('admin.audit.title') }}</w-item-section>
             </w-item>
@@ -318,19 +318,19 @@
             </w-item>
             <w-item to="/_admin/extensions" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:extensions" />
+                <w-icon name="tabler:puzzle" />
               </w-item-section>
               <w-item-section>{{ t('admin.extensions.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/icons" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:icons" />
+                <w-icon name="tabler:star" />
               </w-item-section>
               <w-item-section>{{ t('admin.icons.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/cluster" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:cluster" />
+                <w-icon name="tabler:binary-tree" />
               </w-item-section>
               <w-item-section>{{ t('admin.cluster.title') }}</w-item-section>
               <w-item-section side>
@@ -342,7 +342,7 @@
             </w-item>
             <w-item to="/_admin/mail" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:mail" />
+                <w-icon name="tabler:mail" />
               </w-item-section>
               <w-item-section>{{ t('admin.mail.title') }}</w-item-section>
               <w-item-section side>
@@ -353,7 +353,7 @@
             </w-item>
             <w-item to="/_admin/metrics" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:metrics" />
+                <w-icon name="tabler:chart-bar" />
               </w-item-section>
               <w-item-section>{{ t('admin.metrics.title') }}</w-item-section>
               <w-item-section side>
@@ -362,7 +362,7 @@
             </w-item>
             <w-item to="/_admin/pageviews" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:pageviews" />
+                <w-icon name="tabler:eye" />
               </w-item-section>
               <w-item-section>{{ t('admin.pageviews.title') }}</w-item-section>
               <w-item-section side>
@@ -372,7 +372,7 @@
             </w-item>
             <w-item to="/_admin/replication" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:replication" />
+                <w-icon name="tabler:refresh" />
               </w-item-section>
               <w-item-section>{{ t('admin.replication.title') }}</w-item-section>
               <w-item-section side>
@@ -382,7 +382,7 @@
             </w-item>
             <w-item to="/_admin/scheduler" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:scheduler" />
+                <w-icon name="tabler:robot" />
               </w-item-section>
               <w-item-section>{{ t('admin.scheduler.title') }}</w-item-section>
               <w-item-section side>
@@ -393,19 +393,19 @@
             </w-item>
             <w-item to="/_admin/search" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:glossary" />
+                <w-icon name="tabler:list-search" />
               </w-item-section>
               <w-item-section>{{ t('admin.search.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/security" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:security" />
+                <w-icon name="tabler:shield" />
               </w-item-section>
               <w-item-section>{{ t('admin.security.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/system" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:system-info" />
+                <w-icon name="tabler:cpu" />
               </w-item-section>
               <w-item-section>{{ t('admin.system.title') }}</w-item-section>
               <w-item-section side>
@@ -414,19 +414,19 @@
             </w-item>
             <w-item to="/_admin/terminal" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:terminal" />
+                <w-icon name="tabler:terminal-2" />
               </w-item-section>
               <w-item-section>{{ t('admin.terminal.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/utilities" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:utilities" />
+                <w-icon name="tabler:tool" />
               </w-item-section>
               <w-item-section>{{ t('admin.utilities.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/webhooks" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:webhooks" />
+                <w-icon name="tabler:bolt" />
               </w-item-section>
               <w-item-section>{{ t('admin.webhooks.title') }}</w-item-section>
               <w-item-section side>
@@ -438,7 +438,7 @@
             </w-item>
             <w-item to="/_admin/flags" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="cardinal:feature-flags" />
+                <w-icon name="tabler:flag" />
               </w-item-section>
               <w-item-section>{{ t('admin.dev.flags.title') }}</w-item-section>
             </w-item>

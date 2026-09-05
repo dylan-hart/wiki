@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:recovery-codes" size="sm" class="me-2" />
+        <w-icon name="tabler:list-numbers" size="sm" class="me-2" />
         <span>{{ t(`profile.authSetTfa`) }}</span>
       </w-card-section>
       <template v-if="!state.isInit">

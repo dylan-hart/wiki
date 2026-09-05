@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 600px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:credential" size="sm" class="me-2" />
+        <w-icon name="tabler:key" size="sm" class="me-2" />
         <span>{{ t(`${labelPrefix}.copyKeyTitle`) }}</span>
       </w-card-section>
       <w-card-section class="card-negative">

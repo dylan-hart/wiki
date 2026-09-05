@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`pages.import.title`)" @hide="onDialogHide">
     <w-card class="import-page-dialog" style="width: 700px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:pages" size="sm" class="me-2" />
+        <w-icon name="tabler:folder" size="sm" class="me-2" />
         <span>{{ t(`pages.import.title`) }}</span>
       </w-card-section>
 

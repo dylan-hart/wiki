@@ -41,7 +41,7 @@ describe('WIcon', () => {
     //    accessibility tree rather than have assistive tech announce its filename.
     //
     //    The admin page headers used to be the example here and no longer are: they draw from the
-    //    bundled `cardinal:` set now, which renders as inline SVG rather than an <img>.
+    //    bundled `tabler:` set now, which renders as inline SVG rather than an <img>.
     const wrapper = mount(WIcon, { props: { name: 'img:/_assets/icons/ultraviolet-local.svg' } })
 
     expect(wrapper.attributes('aria-hidden')).toBe('true')

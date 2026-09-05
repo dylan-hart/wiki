@@ -7,7 +7,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:upload" size="sm" class="me-2" />
+        <w-icon name="tabler:cloud-upload" size="sm" class="me-2" />
         <span>{{ t(`editor.pendingAssetsUploading`) }}</span>
       </w-card-section>
       <w-card-section>

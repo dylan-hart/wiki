@@ -2,7 +2,7 @@
   <w-page class="admin-replication">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon name="cardinal:replication" size="64px" class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:refresh" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.replication.title') }}</h1>

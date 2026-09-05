@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card style="width: 450px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:credential" size="sm" class="me-2" />
+        <w-icon name="tabler:key" size="sm" class="me-2" />
         <span>{{ dialogTitle }}</span>
       </w-card-section>
       <w-card-section>

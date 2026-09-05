@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:site-activate" size="sm" class="me-2" />
+        <w-icon name="tabler:power" size="sm" class="me-2" />
         <span>{{
           props.targetState ? t(`admin.sites.activate`) : t(`admin.sites.deactivate`)
         }}</span>

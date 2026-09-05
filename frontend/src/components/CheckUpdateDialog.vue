@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:check-update" size="sm" class="me-2" />
+        <w-icon name="tabler:refresh-alert" size="sm" class="me-2" />
         <span>{{ t(`admin.system.checkingForUpdates`) }}</span>
       </w-card-section>
       <w-card-section>

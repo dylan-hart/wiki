@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:pages-deleted" size="sm" class="me-2" />
+        <w-icon name="tabler:trash" size="sm" class="me-2" />
         <span>{{ t(`admin.sites.delete`) }}</span>
       </w-card-section>
       <w-card-section>

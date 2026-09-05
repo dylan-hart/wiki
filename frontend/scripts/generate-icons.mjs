@@ -34,21 +34,25 @@ const OUT = path.join(SRC, 'assets/icons.generated.js')
  * The skip is silent on purpose: `prefix:name` also describes every permission string in the frontend
  * (`write:pages`, `manage:system`), and those must not be mistaken for icons.
  */
-const SETS = ['mdi', 'la', 'cardinal']
+const SETS = ['mdi', 'la', 'tabler']
 
 /**
- * `cardinal` is this project's OWN set, checked in rather than installed: 57 stroke glyphs lifted
- * from the design files in `ui-redesign/` (see `ui-redesign/ICONS-HANDOFF.md`), replacing the 2.x-era
- * `fluent-*` / `ultraviolet-*` illustration assets the chrome used to draw with.
+ * Tabler is drawn at `stroke-width: 2` with ROUND caps and joins. Cardinal is a language of squares
+ * and hairlines — the glyphs in `ui-redesign/`'s design files are 1.5px with butt caps and mitre
+ * joins, and declare no linecap at all — so a Tabler icon dropped in unchanged reads a weight
+ * heavier and a shade softer than everything around it.
  *
- * It is an ordinary `IconifyJSON` file, so nothing else here has to know it is local — only where to
- * read it from. Two things follow from bundling it the same way as `mdi`/`la` rather than serving it:
- * a `cardinal:` reference resolves to inline SVG at build time and so takes `currentColor` (which is
- * what lets one glyph be the chrome tone in a nav row and the accent in the active one), and no
- * administrator action can take it away, exactly as the file header argues for the other two.
+ * Restyling rather than redrawing: the geometry is Tabler's and stays untouched, only its
+ * presentation attributes move. Applied at bundle time so the source stays an ordinary
+ * `tabler:<name>` reference that anyone can look up, rather than a fork nobody can trace back.
+ *
+ * Scoped to `tabler` deliberately — `mdi` and `la` are FILLED sets with no stroke to restyle, and
+ * running this over them would do nothing but risk mangling a path.
  */
-const LOCAL_SETS = {
-  cardinal: 'src/assets/icons.cardinal.json'
+function restyleForCardinal(body) {
+  return body
+    .replaceAll(/\s*stroke-line(?:cap|join)="round"/g, '')
+    .replaceAll('stroke-width="2"', 'stroke-width="1.5"')
 }
 
 /**
@@ -123,10 +127,7 @@ export function build() {
     SETS.map((p) => [
       p,
       JSON.parse(
-        fs.readFileSync(
-          path.join(ROOT, LOCAL_SETS[p] ?? `node_modules/@iconify-json/${p}/icons.json`),
-          'utf8'
-        )
+        fs.readFileSync(path.join(ROOT, `node_modules/@iconify-json/${p}/icons.json`), 'utf8')
       )
     ])
   )
@@ -142,7 +143,7 @@ export function build() {
       continue
     }
     icons[ref] = {
-      body: icon.body,
+      body: prefix === 'tabler' ? restyleForCardinal(icon.body) : icon.body,
       // -> Default to the set's own grid; an icon may override it
       width: icon.width ?? set.width ?? 16,
       height: icon.height ?? set.height ?? 16,

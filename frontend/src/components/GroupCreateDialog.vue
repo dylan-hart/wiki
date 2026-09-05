@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.groups.create`)" @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:add" size="sm" class="me-2" />
+        <w-icon name="tabler:plus" size="sm" class="me-2" />
         <span>{{ t(`admin.groups.create`) }}</span>
       </w-card-section>
       <w-form ref="createGroupForm" class="py-2" @submit="create">

@@ -3,7 +3,7 @@
     <!-- ROOT NODE -->
     <li class="treeview-node" v-if="!props.parentId">
       <div class="treeview-label" @click="setRoot" :class="{ active: !selection }">
-        <w-icon name="cardinal:folder-remote" size="sm" />
+        <w-icon name="tabler:folder-share" size="sm" />
         <div class="treeview-label-text" :class="dark.isActive ? `text-purple-4` : `text-purple`">
           root
         </div>

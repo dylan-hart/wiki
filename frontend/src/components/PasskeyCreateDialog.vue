@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:passkey" size="sm" class="me-2" />
+        <w-icon name="tabler:fingerprint" size="sm" class="me-2" />
         <span>{{ t(`profile.passkeysAdd`) }}</span>
       </w-card-section>
       <w-form ref="passkeyForm" class="py-2" @submit="save">

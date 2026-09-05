@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.users.create`)" @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:add" size="sm" class="me-2" />
+        <w-icon name="tabler:plus" size="sm" class="me-2" />
         <span>{{ t(`admin.users.create`) }}</span>
       </w-card-section>
       <w-form ref="createUserForm" class="py-2" @submit="create">

@@ -2,7 +2,7 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <w-icon name="cardinal:glossary" size="64px" class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:list-search" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>

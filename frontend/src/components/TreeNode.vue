@@ -118,7 +118,7 @@ const icon = computed(() => {
   if (props.node.icon) {
     return props.node.icon
   }
-  return isOpened.value ? 'cardinal:folder-open' : 'cardinal:folder'
+  return isOpened.value ? 'tabler:folder-open' : 'tabler:folder'
 })
 
 const hasChildren = computed(() => {

@@ -6,11 +6,11 @@
     <w-card class="relative" style="min-width: 850px">
       <w-card-section class="card-header">
         <template v-if="props.hookId">
-          <w-icon name="cardinal:webhook-edit" size="sm" class="me-2" />
+          <w-icon name="tabler:pencil" size="sm" class="me-2" />
           <span>{{ t(`admin.webhooks.edit`) }}</span>
         </template>
         <template v-else>
-          <w-icon name="cardinal:add" size="sm" class="me-2" />
+          <w-icon name="tabler:plus" size="sm" class="me-2" />
           <span>{{ t(`admin.webhooks.new`) }}</span>
         </template>
       </w-card-section>

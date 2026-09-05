@@ -2,7 +2,7 @@
   <w-page class="admin-theme">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon name="cardinal:theme" size="64px" class="admin-icon animated fadeInLeft" />
+        <w-icon name="tabler:layout-navbar" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.theme.title') }}</h1>

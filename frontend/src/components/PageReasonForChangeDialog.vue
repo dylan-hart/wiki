@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:reason-for-change" size="sm" class="me-2" />
+        <w-icon name="tabler:message-circle" size="sm" class="me-2" />
         <span>{{ t(`editor.reasonForChange.title`) }}</span>
       </w-card-section>
       <!-- -> `pb-0`: the row below pads itself and the field adds its own margin for the floating

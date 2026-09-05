@@ -1,7 +1,7 @@
 <template>
   <w-layout container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="cardinal:users" left size="md" />
+      <w-icon name="tabler:user" left size="md" />
       <div>
         <span>{{ t(`admin.users.edit`) }}</span>
         <div class="text-caption">{{ state.user.name }}</div>

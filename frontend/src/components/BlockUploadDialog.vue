@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.blocks.upload`)" @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="cardinal:upload" size="sm" class="me-2" />
+        <w-icon name="tabler:cloud-upload" size="sm" class="me-2" />
         <span>{{ t(`admin.blocks.upload`) }}</span>
       </w-card-section>
       <w-card-section>
