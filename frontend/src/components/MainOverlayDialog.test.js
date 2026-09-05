@@ -117,9 +117,22 @@ describe('MainOverlayDialog half-sized overlays', () => {
     )
   })
 
-  it('clamps HALF_SIZE so it never gets crushed on a small window nor sprawls on a large one', () => {
-    expect(source).toContain("width: 'clamp(560px, 50vw, 960px)'")
-    expect(source).toContain("height: 'clamp(480px, 50vh, 800px)'")
+  it('sizes HALF_SIZE at half the viewport, with the floor on the panel and no ceiling', () => {
+    // -> The design draws `50vw`/`50vh` with a `min(560px, 100%)` / `420px` floor and nothing above
+    //    it (`ui-redesign/Cardinal Wiki - Inbox 3x.dc.html`). The floor belongs on the panel rather
+    //    than on the dialog's own box, so it lives in `MainLayout.vue`'s `.is-half-sized` rule --
+    //    which this asserts too, since a `50vw` with no floor anywhere would be crushed on a phone.
+    expect(source).toContain("width: '50vw'")
+    expect(source).toContain("height: '50vh'")
+    expect(source).toContain(':class="{ \'is-half-sized\': isHalfSized }"')
+
+    const layout = readFileSync(
+      join(import.meta.dirname, '..', 'layouts', 'MainLayout.vue'),
+      'utf-8'
+    )
+    expect(layout).toContain('&.is-half-sized > .w-dialog-viewport > .w-dialog-panel')
+    expect(layout).toContain('min-width: min(560px, 100%)')
+    expect(layout).toContain('min-height: 420px')
   })
 })
 

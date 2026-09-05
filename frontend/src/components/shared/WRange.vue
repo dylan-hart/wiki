@@ -1,16 +1,22 @@
 <template>
   <div
     ref="trackEl"
-    class="w-range relative h-6 w-full cursor-pointer select-none"
+    class="w-range relative h-[18px] w-full cursor-pointer select-none"
     :class="[isDisabled ? 'pointer-events-none opacity-60' : '', label ? 'mb-7' : '']"
     @pointerdown="onPointerDown">
+    <!--
+      A 2px hairline rail with the selected span painted over it in the accent, square handles on
+      top and the steps ticked off UNDER the rail rather than dotted along it -- the design's own
+      slider (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`). What this replaces was a
+      4px pill rail with round dots on it and round, shadowed handles: relief and radius, both of
+      which the language drops.
+    -->
     <!-- Rail -->
-    <div
-      class="absolute top-1/2 h-1 w-full -translate-y-1/2 rounded-full bg-black/24 dark:bg-white/30" />
+    <div class="absolute top-1/2 h-0.5 w-full -translate-y-1/2 bg-hairline dark:bg-hairline-dark" />
 
     <!-- Selected span -->
     <div
-      class="absolute top-1/2 h-1 -translate-y-1/2 rounded-full"
+      class="absolute top-1/2 h-0.5 -translate-y-1/2"
       :style="{
         left: `${toPercent(model.min)}%`,
         width: `${toPercent(model.max) - toPercent(model.min)}%`,
@@ -22,7 +28,7 @@
       <div
         v-for="value of steps"
         :key="value"
-        class="absolute top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/38 dark:bg-white/50"
+        class="bg-rule dark:bg-border-dark absolute top-[13px] h-1 w-px -translate-x-1/2"
         :style="{ left: `${toPercent(value)}%` }" />
     </template>
 
@@ -31,7 +37,7 @@
       :key="handle"
       type="button"
       role="slider"
-      class="w-unstyled absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full shadow-card transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 active:cursor-grabbing"
+      class="w-unstyled absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-grab transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 active:cursor-grabbing"
       :style="{ left: `${toPercent(model[handle])}%`, backgroundColor: `var(--color-${color})` }"
       :aria-label="single ? ariaLabel : handle === 'min' ? ariaLabelMin : ariaLabelMax"
       :aria-valuemin="handle === 'min' ? min : model.min"
@@ -56,7 +62,7 @@
       -->
       <span
         v-if="label"
-        class="pointer-events-none absolute top-full left-1/2 mt-1 -translate-x-1/2 rounded px-1.5 py-0.5 text-caption whitespace-nowrap text-white"
+        class="pointer-events-none absolute top-full left-1/2 mt-1 -translate-x-1/2 px-1.5 py-0.5 text-caption whitespace-nowrap text-white"
         :style="{ backgroundColor: `var(--color-${color})` }">
         {{ labelFor(handle) }}
       </span>

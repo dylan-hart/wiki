@@ -5,7 +5,7 @@
       `.card-header` band, an icon plus title on the left, and a single white/grey-7 push button on
       the right.
     -->
-    <w-header class="layout-profile-hdr card-header px-4 py-2">
+    <w-header class="layout-profile-hdr card-header">
       <w-icon name="tabler:user-circle" left size="md" />
       <span>{{ t('profile.title') }}</span>
       <w-space />

@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:user" left size="md" />
       <div>
         <span>{{ t(`admin.users.edit`) }}</span>

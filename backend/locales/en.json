@@ -2848,6 +2848,7 @@
   "graph.tooltip.edits": "{count} edit | {count} edits",
   "graph.tooltip.uniqueVisitors": "{count} unique visitor | {count} unique visitors",
   "graph.tooltip.visits": "{count} visit | {count} visits",
+  "graph.truncationNotice": "Showing {shown} of {total} pages. Filters and search apply only to the pages shown here.",
   "history.action.created": "Created",
   "history.action.deleted": "Deleted",
   "history.action.moved": "Moved",

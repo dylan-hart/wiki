@@ -199,13 +199,13 @@ describe('WRange', () => {
       expect(wrapper.text()).toContain('3')
     })
 
-    it('draws a marker dot per step when markers is set, same as two-handle mode', () => {
+    it('draws a marker tick per step when markers is set, same as two-handle mode', () => {
       const wrapper = mount(WRange, {
         props: { single: true, modelValue: 3, min: 0, max: 6, markers: true }
       })
 
-      // -> 7 steps (0..6 inclusive) -- one dot each, matching `steps` in two-handle mode.
-      expect(wrapper.findAll('.rounded-full.bg-black\\/38')).toHaveLength(7)
+      // -> 7 steps (0..6 inclusive) -- one tick each, matching `steps` in two-handle mode.
+      expect(wrapper.findAll('.bg-rule')).toHaveLength(7)
     })
   })
 })

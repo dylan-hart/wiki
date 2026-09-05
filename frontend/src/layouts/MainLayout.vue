@@ -650,22 +650,35 @@ body.body--dark {
     }
 
     /*
-      A flat panel with a hairline edge, and enough shadow to say it is over the page rather than in
-      it. The gradient this replaces -- a 10px dark strip along the top, then a step to grey and a
-      fade -- was drawing a title bar the overlays no longer have.
+      A flat panel under a solid ink edge, with enough shadow to say it is over the page rather than
+      in it. The edge is the design's own (`ui-redesign/Cardinal Wiki - Inbox 3x.dc.html`): 10px of
+      ink across the top, above the overlay's own dark title bar, which is what makes an overlay read
+      as a thing laid over the wiki rather than a region of it. What it replaces was a GRADIENT
+      standing in for a title bar -- a dark strip fading to grey -- and the two are not the same
+      drawing.
     */
     > .w-dialog-panel {
-      box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
+      border-top: 10px solid $dark-5;
 
       @at-root .body--light & {
-        background-color: $paper;
-        border: 1px solid $hairline;
+        background-color: $surface;
       }
       @at-root .body--dark & {
         background-color: $dark-5;
-        border: 1px solid $hairline-dark;
+        border-top-color: $dark-6;
       }
     }
+  }
+
+  /*
+    The half-viewport entries (Profile, Inbox) take a floor but no ceiling -- see
+    `MainOverlayDialog.vue`'s `HALF_SIZE`. `min-width` is `min(560px, 100%)` rather than a flat
+    560px so the panel still fits a phone, where 100% is the smaller of the two.
+  */
+  &.is-half-sized > .w-dialog-viewport > .w-dialog-panel {
+    min-width: min(560px, 100%);
+    min-height: 420px;
   }
 }
 

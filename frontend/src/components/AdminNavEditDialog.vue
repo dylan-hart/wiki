@@ -7,7 +7,7 @@
     :aria-label="title || t(`navEdit.editMenuItems`)"
     @hide="onDialogHide">
     <w-layout container>
-      <w-header class="card-header px-4 py-2">
+      <w-header class="card-header">
         <w-icon name="tabler:layout-sidebar" left size="md" />
         <span>{{ title || t(`navEdit.editMenuItems`) }}</span>
         <w-space />
