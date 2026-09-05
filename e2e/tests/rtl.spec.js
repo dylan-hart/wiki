@@ -40,14 +40,31 @@ test.beforeAll(async () => {
  */
 async function activateTestLocales(page, testLocales) {
   // -> `models/locales.ts#getLocales()` answers from `WIKI.cache`, populated once at boot
-  //    (`index.ts#postBoot`) and never invalidated on its own -- a locale inserted straight into the
-  //    table (as `beforeAll` above just did) is invisible to `GET /_api/locales`, and so to
-  //    `AdminLocale.vue`, until something busts that cache. `POST /_api/system/cache/flush` is the
-  //    real, existing mechanism for exactly this (`AdminUtilities.vue`'s "Flush Caches" button,
-  //    `core/maintenance.ts#flushCaches`) -- not a test-only workaround, and the same step a real
-  //    administrator would take after loading a locale outside the normal boot-time
-  //    `refreshFromDisk()` path.
-  await page.request.post('/_api/system/cache/flush')
+  //    (`index.ts#postBoot`, via `refreshFromDisk()` then `reloadCache()`) and never invalidated on
+  //    its own -- a locale inserted straight into the table (as `beforeAll` above just did) is
+  //    invisible to `GET /_api/locales`, and so to `AdminLocale.vue`, until something busts that
+  //    cache. `POST /_api/system/cache/flush` is the real, existing mechanism for exactly this
+  //    (`AdminUtilities.vue`'s "Flush Caches" button, `core/maintenance.ts#flushCaches`) -- not a
+  //    test-only workaround, and the same step a real administrator would take after loading a
+  //    locale outside the normal boot-time `refreshFromDisk()` path.
+  // -> Must go through `page.evaluate()`, not `page.request.post()` (OpenProject #2569 follow-up):
+  //    this route sits behind `core/http/authHooks.ts`'s same-origin gate (task 2118 / WP 2105 §3),
+  //    which fails closed on a missing/foreign `Origin` and no `Sec-Fetch-Site: same-origin` --
+  //    exactly what Playwright's `page.request` API sends, since it is a bare HTTP client sharing
+  //    the browser context's cookies but not its browsing-context origin headers. The call silently
+  //    403'd every run (its result was never checked), leaving the boot-time cache permanently
+  //    stale for the rest of the suite: every toggle this test waits for by a
+  //    `(RTL Test)`/`(LTR Test)`-suffixed name timed out, because `AdminLocale.vue` kept rendering
+  //    the pre-seed, real Localazy names instead. A real in-page `fetch()` carries a genuine
+  //    same-origin `Origin`/`Sec-Fetch-Site` pair, exactly like `AdminUtilities.vue`'s own button
+  //    click would.
+  const flushed = await page.evaluate(async () => {
+    const res = await fetch('/_api/system/cache/flush', { method: 'POST' })
+    return res.ok
+  })
+  if (!flushed) {
+    throw new Error('POST /_api/system/cache/flush failed -- the locale toggles below would be stale')
+  }
 
   await page.goto('/_admin/sites')
   await page.getByRole('button', { name: 'Edit', exact: true }).first().click()

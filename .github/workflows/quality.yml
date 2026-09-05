@@ -107,7 +107,14 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
     steps:
+      # fetch-depth: 0 (full history) -- backend/test/changelog.test.ts runs `git-cliff --unreleased`
+      # against this checkout's own history; the default shallow (depth-1) clone leaves only the tip
+      # commit, which git-cliff's commit_parsers then drops entirely (a squash-merge "Cycle: ..."
+      # subject matches none of them), producing a changelog with zero sections and failing every
+      # assertion in that suite.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js environment
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

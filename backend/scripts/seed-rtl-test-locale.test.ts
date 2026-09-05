@@ -89,7 +89,13 @@ describe('RTL_TEST_LOCALE', () => {
         throw new TypeError('textInfo is not a function or its return value is not iterable')
       }
       override getTextInfo() {
-        return { direction: (new RealLocale(this.toString()) as any).textInfo.direction }
+        // -> Delegate through the same feature-detecting `textDirection()` helper, not a bare
+        //    `.textInfo.direction` read: on a Node build where the REAL `Intl.Locale` is itself
+        //    already getTextInfo()-only (no `.textInfo` getter at all -- exactly the CI shape this
+        //    test simulates), reading `.textInfo` directly throws before this override's caller
+        //    ever sees a result. `textDirection()` on a genuine, unpatched `RealLocale` instance
+        //    resolves correctly regardless of which shape that real object actually has.
+        return { direction: textDirection(new RealLocale(this.toString())) }
       }
     }
     ;(Intl as any).Locale = GetTextInfoOnlyLocale

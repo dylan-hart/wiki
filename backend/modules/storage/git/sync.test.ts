@@ -159,7 +159,14 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
 /** A bare repo standing in for "origin", plus a working copy already pushed to it (`seedPath`). */
 async function makeOrigin(): Promise<{ originPath: string; seedPath: string }> {
   const originPath = await makeTempDir('wiki-git-sync-origin-')
-  await simpleGit(originPath).init(true)
+  // -> OpenProject #2586 follow-up: the bare origin's own advertised HEAD (what `git clone`
+  //    checks out by default) also defers to the ambient default absent `--initial-branch`, same
+  //    as the seed below — and it is what `makePeer()`'s plain `clone(originPath, '.')` follows.
+  //    Left unset, `origin`'s HEAD points at a branch (e.g. `master`) that never actually gets
+  //    created (only `main` ever does, via the seed's push below), so a peer clone lands on an
+  //    unborn, wrong-named local branch — exactly the "src refspec main does not match any" this
+  //    suite kept failing with on CI, where the ambient default isn't `main`.
+  await simpleGit(originPath).init(true, ['--initial-branch=main'])
 
   const seedPath = await makeTempDir('wiki-git-sync-seed-')
   const seed = simpleGit(seedPath)
