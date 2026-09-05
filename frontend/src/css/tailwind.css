@@ -83,24 +83,47 @@ html.theme-transition-suppress *::after {
   keeps runtime theming working. Do not inline these.
 */
 /*
-  `secondary`/`positive`, `warning` and `accent`/`negative` are darkened from their original
-  brighter tones -- #02c39a, #f99d4d and #f03a47 respectively -- because a solid `WBtn` in one of
-  these colors always draws white text over it (`WBtn.vue`'s `color` prop), and none of the
-  originals cleared 4.5:1 (WCAG AA) against white: 2.26:1, 2.11:1 and 3.89:1. These three do (see
-  `helpers/accessibility.test.js`'s palette-pinning test), each darkened along its own hue so the
-  brand colors stay recognizable rather than converging on a single "safe" shade. `colorSecondary`/
-  `colorAccent` are also site-configurable (`AdminTheme.vue`) -- kept equal to `backend/models/sites.ts`'s
-  `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s `resetColors()`, so a fresh install and a reset
-  theme both start accessible instead of only the CSS fallback being fixed.
+  The Cardinal accent, chrome and status tones -- see `css/_theme.scss` for the same palette as SCSS
+  and for what each one is FOR. Every value here is paired with a foreground it actually gets drawn
+  under, and every such pair clears WCAG AA (4.5:1); `helpers/accessibility.test.js` pins them, so a
+  future edit that regresses one fails the suite rather than shipping quietly.
+
+  The pairing is the part worth reading twice. Cardinal has two tones of each colour -- a bright FILL
+  and a darker TEXT tone -- and the brand tokens below always resolve to the tone that survives the
+  foreground it is drawn with:
+
+    accent/negative  #c14a52 under white (4.81:1)   -- #e4676b would be 3.26:1
+    secondary/positive #3f7a66 under white (5.01:1) -- #5f9c86 would be 3.19:1
+    warning          #d9a441 under `--color-ink`  (7.04:1) -- the one fill that takes DARK ink
+    info             #38465f under white (9.51:1)
+
+  The brighter fills are published separately as `--color-*-fill` and are for a surface carrying no
+  text, or carrying `--color-ink`: a status light, a toggle's track, a badge's edge, a callout's
+  gutter. Reaching for a `-fill` under a white label is the mistake this split exists to prevent.
+
+  `colorPrimary`/`colorSecondary`/`colorAccent` are also site-configurable (`AdminTheme.vue`) -- kept
+  equal to `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s
+  `resetColors()`, so a fresh install and a reset theme both start on Cardinal rather than only the
+  CSS fallback being right.
+
+  Brand colors indirect through `--q-*` custom properties rather than being literal values. The app
+  recolors itself at runtime (per-site theme + the accessible-color / colour-vision-deficiency
+  remapping in `stores/user.js`) by writing those properties on :root, so the indirection is what
+  keeps runtime theming working. Do not inline these.
 */
 :root {
-  --q-primary: #1976d2;
-  --q-secondary: #018569;
-  --q-accent: #e81221;
-  --q-positive: #018569;
-  --q-negative: #e81221;
-  --q-info: #3e6990;
-  --q-warning: #ba5a06;
+  --q-primary: #c14a52;
+  --q-secondary: #3f7a66;
+  --q-accent: #c14a52;
+  --q-positive: #3f7a66;
+  --q-negative: #c14a52;
+  --q-info: #38465f;
+  --q-warning: #d9a441;
+  /*
+    Chrome. Still the black/blue the 3.x default site seeds, because their foreground is hard-coded
+    white in `HeaderNav.vue` / `NavSidebar.vue` -- Cardinal's white header band and #f0f2f7 sidebar
+    land with those two components, not before them, or the header would be white text on white.
+  */
   --q-header: #000;
   --q-sidebar: #1976d2;
 }
@@ -149,14 +172,82 @@ html.theme-transition-suppress *::after {
   --color-white: #fff;
   --color-black: #000;
 
-  /* -- Wiki.js dark surface ramp (from the old css/_theme.scss) ------------ */
-  --color-dark: #0d1117;
-  --color-dark-1: #343b48;
-  --color-dark-2: #292f39;
-  --color-dark-3: #1e232a;
-  --color-dark-4: #161b22;
-  --color-dark-5: #0d1117;
-  --color-dark-6: #070a0d;
+  /* -- Cardinal: the accent, in all three of its tones ---------------------- */
+  /*
+    `--color-accent` (above) is the one a button or chip resolves to. These two are the other half of
+    the language: the bright fill for a surface carrying no text, or `--color-ink`; and the darkened
+    tone for accent text on any ground that is NOT white.
+
+    That boundary is narrower than it looks and is pinned in `helpers/accessibility.test.js`.
+    `--color-accent` clears 4.5:1 on white (4.81:1) and on nothing else -- 4.45:1 on `--color-paper`,
+    4.25:1 on `--color-tint` -- so paper counts as "not white" here just as much as the tinted strips
+    do. `--color-accent-strong` clears all four (5.4:1 -- 5.9:1), which is why links take it
+    everywhere rather than switching tone with whatever they happen to be sitting on.
+  */
+  --color-accent-fill: #e4676b;
+  --color-accent-strong: #a83f45;
+  --color-accent-wash: #fdeced;
+
+  /* The brighter status fills. Under `--color-ink` only -- never under a white label. */
+  --color-positive-fill: #5f9c86;
+  --color-warning-fill: #d9a441;
+  --color-negative-fill: #e4676b;
+
+  /* -- Cardinal: chrome and paper ------------------------------------------- */
+  --color-slate: #38465f;
+  /*
+    The two faint slates are for HAIRLINES, ICON STROKES AND SEPARATORS. Neither is a text colour:
+    `slate-soft` is 3.53:1 on white and `slate-faint` 2.42:1, both under the 4.5:1 floor. Use
+    `--color-text-caption` for the faintest thing that carries words.
+  */
+  --color-slate-soft: #64789f;
+  --color-slate-faint: #8a99b8;
+  --color-slate-light: #8ea6cf;
+
+  --color-ink: #1c2233;
+  --color-paper: #f5f6f9;
+  --color-surface: #fff;
+  --color-tint: #eef1f7;
+  --color-tint-alt: #f0f2f7;
+  --color-hairline: #dbe1ec;
+  --color-rule: #c9d2e2;
+
+  /* -- Cardinal: light text tiers ------------------------------------------- */
+  --color-text-body: #2f3a4f;
+  --color-text-secondary: #4e5d7d;
+  --color-text-caption: #57668a;
+
+  /* -- Cardinal: dark ------------------------------------------------------- */
+  --color-hairline-dark: #2a3040;
+  --color-border-dark: #3a4256;
+  --color-disabled-dark: #4a5470;
+  --color-text-dark: #e6eaf2;
+  --color-text-secondary-dark: #9aa6bd;
+  --color-text-caption-dark: #8792ab;
+  /*
+    The accent lightened for an ink ground, and its fills take `--color-ink-dark` rather than white
+    -- white on #f08287 is 2.62:1. The two filled toasts go the other way and DARKEN, because a light
+    chip on ink glares; that is what `--color-positive-dark` / `--color-negative-dark` are for.
+  */
+  --color-accent-dark: #f08287;
+  --color-accent-wash-dark: #3a2b34;
+  --color-positive-dark: #3f7a66;
+  --color-negative-dark: #a83f45;
+  --color-ink-dark: #14171f;
+
+  /*
+    -- Cardinal dark surface ramp ------------------------------------------
+    Darkest (`-6`) to lightest (`-1`), which is the order every existing `bg-dark-N` utility and SFC
+    rule assumes. Cardinal names four of the six rungs; the other two extend the same ladder past
+    each end. `-3` is what `.w-card` paints a card in dark mode, so it is Cardinal's panel tone.
+  */
+  --color-dark: #14171f;
+  --color-dark-1: #2f374a; /* raised, hovered */
+  --color-dark-2: #242b3a; /* raised: a card header, a menu, a filled chip */
+  --color-dark-3: #1b1f2a; /* panel: a card, a dialog body */
+  --color-dark-4: #171b24; /* recessed: a read-only field, an inset gutter */
+  --color-dark-5: #14171f; /* ink: the page ground */
+  --color-dark-6: #0f1219; /* below ink: the deepest well */
 
   /*
     -- Material palette ---------------------------------------------------
@@ -177,18 +268,14 @@ html.theme-transition-suppress *::after {
   --color-grey-10: #212121;
 
   /*
-    Muted/secondary body text, split by ground the same way `--color-primary-light` splits headings:
-    `grey-6` on white is 2.68:1 and `grey-7` on `dark-3` is 3.43:1 -- both below AA, and the two
-    grounds need opposite fixes (darker for white, lighter for dark-3), so no single grey ramp step
-    covers both. Raising `grey-6`/`grey-7` themselves isn't an option either -- `grey-6` reads
-    lighter than `grey-7` everywhere else they're both used (`PageToc.vue`'s ink/ink-soft pair is the
-    clearest example), and darkening `grey-6` enough to pass on white while lightening `grey-7`
-    enough to pass on `dark-3` would invert that ordering. `grey-8`/`grey-6` already clear AA on
-    their respective grounds (6.19:1, 5.90:1 -- pinned in `accessibility.test.js`) without any new
-    hex, so these just name that pairing for reuse: `text-muted dark:text-muted-dark`.
+    Muted/secondary body text, split by ground -- Cardinal's own secondary tier on each side rather
+    than a step of the Material grey ramp, which is neutral where everything else here is cooled
+    towards slate. `--color-text-secondary` is 6.42:1 on white; `--color-text-secondary-dark` is
+    6.71:1 on `dark-3`, the card ground it is measured against. Both pinned in
+    `helpers/accessibility.test.js`. Written as `text-muted dark:text-muted-dark`.
   */
-  --color-muted: var(--color-grey-8);
-  --color-muted-dark: var(--color-grey-6);
+  --color-muted: var(--color-text-secondary);
+  --color-muted-dark: var(--color-text-secondary-dark);
 
   --color-blue-grey: #607d8b;
   --color-blue-grey-1: #eceff1;
@@ -327,7 +414,23 @@ html.theme-transition-suppress *::after {
   --color-yellow-9: #f9a825;
 
   /* -- Typography ---------------------------------------------------------- */
-  --font-sans: 'Roboto', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  /*
+    Cardinal sets type in three faces: Barlow Condensed for headings and any short, uppercase chrome
+    label, Barlow for body copy and controls, Roboto Mono for metadata (a path, a timestamp, a count,
+    a section overline).
+
+    `--font-sans` is rewritten at runtime by `helpers/fonts.js` from the site's own `baseFont`
+    setting, and `--font-display` alongside it when that font declares a display companion (Barlow's
+    is Barlow Condensed). The literals here are the fallback for a site that overrides neither, and
+    the tail of each stack is what a browser gets while the webfont is still in flight -- so
+    `--font-display` names two system condensed faces before giving up on the condensed idea, rather
+    than falling straight back to the body stack and reflowing every heading when Barlow Condensed
+    lands.
+  */
+  --font-sans: 'Barlow', -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-display:
+    'Barlow Condensed', 'Roboto Condensed', 'Helvetica Neue Condensed', -apple-system, Helvetica,
+    Arial, sans-serif;
   --font-mono: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
 
   /*

@@ -1,0 +1,36 @@
+/* barlow-regular - vietnamese_latin-ext_latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  src:
+    local(''),
+    url('/_assets/fonts/barlow/barlow-all-regular.woff2') format('woff2');
+}
+/* barlow-500 - vietnamese_latin-ext_latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  src:
+    local(''),
+    url('/_assets/fonts/barlow/barlow-all-500.woff2') format('woff2');
+}
+/* barlow-600 - vietnamese_latin-ext_latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  src:
+    local(''),
+    url('/_assets/fonts/barlow/barlow-all-600.woff2') format('woff2');
+}
+/* barlow-700 - vietnamese_latin-ext_latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 700;
+  src:
+    local(''),
+    url('/_assets/fonts/barlow/barlow-all-700.woff2') format('woff2');
+}

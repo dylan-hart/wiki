@@ -30,7 +30,10 @@ import type { PageActor } from './pages.ts'
 /**
  * Task 1682: `DEFAULT_THEME_COLORS` -- what `createSite()` and `init()` both seed -- must agree with
  * the CSS defaults at `frontend/src/css/tailwind.css`'s `:root` block and `AdminTheme.vue`'s
- * `resetColors()`/`defaultConfig()`. Pure/no-DB: `DEFAULT_THEME_COLORS` is a plain exported constant,
+ * `resetColors()`/`defaultConfig()`. They are the Cardinal accent (`#c14a52`) and its positive
+ * (`#3f7a66`) as of the re-skin; `colorHeader`/`colorSidebar` still carry the 3.x chrome, because
+ * their foreground is hard-coded white in `HeaderNav.vue`/`NavSidebar.vue` and Cardinal's white
+ * header band lands with those components, not with the palette. Pure/no-DB: `DEFAULT_THEME_COLORS` is a plain exported constant,
  * so this runs on every `npm run test`, not just when `DATABASE_URL` is set. The frontend half of
  * this pin -- that the CSS/AdminTheme values themselves clear WCAG AA -- lives in
  * `frontend/src/helpers/accessibility.test.js`.
@@ -38,9 +41,9 @@ import type { PageActor } from './pages.ts'
 describe('sites.DEFAULT_THEME_COLORS', () => {
   test('matches the CSS defaults (frontend/src/css/tailwind.css) exactly', () => {
     assert.deepEqual(DEFAULT_THEME_COLORS, {
-      colorPrimary: '#1976D2',
-      colorSecondary: '#018569',
-      colorAccent: '#E81221',
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
       colorHeader: '#000000',
       colorSidebar: '#1976D2'
     })

@@ -1,31 +1,98 @@
-// Quasar SCSS (& Sass) Variables
-// --------------------------------------------------
-// To customize the look and feel of this app, you can override
-// the Sass/SCSS variables found in Quasar's source Sass/SCSS files.
+// Cardinal — brand colours, as SCSS.
+// --------------------------------------------------------------------------------------
+// Injected into every SFC by `css.preprocessorOptions.scss.additionalData` in `vite.config.js`,
+// which is why a `<style lang="scss">` block can write a bare `$primary` or `$dark-3`.
+//
+// These are the SCSS FACE of the same palette `css/tailwind.css` publishes as `--color-*` custom
+// properties -- the two have to agree, because a component drawn partly with Tailwind utilities and
+// partly with a scoped SCSS rule would otherwise show two different reds. Where a value can be
+// re-themed by a site administrator at runtime (`primary`, `secondary`, `accent`, `header`,
+// `sidebar` -- written onto `:root` as `--q-*` by `helpers/cssVars.js`), prefer the custom property
+// in new code: a literal here is baked in at build time and cannot follow the site's own theme.
+//
+// The Cardinal language in one paragraph: continuous light slate chrome, hairline borders, one
+// pastel cardinal red reserved for the live edge (active nav, the page's own primary action,
+// alerts). Nothing else competes for attention.
 
-// Check documentation for full list of Quasar variables
+// -- The live edge ---------------------------------------------------------------------
+//
+// Two tones of the same red, and which one to use is decided by the SURFACE, not by taste:
+//   $accent-fill    #e4676b  a fill with no text over it, or with dark ink over it
+//   $primary        #c14a52  accent TEXT on white/paper, and any fill that carries white text
+//   $accent-strong  #a83f45  links, and accent text on the tinted #eef1f7 / #f0f2f7 strips
+//
+// `$primary` is the darker of the two on purpose. It is what a solid button, a chip and a link all
+// resolve to, and it is the only one of the three that clears WCAG AA (4.5:1) BOTH as text on white
+// (4.81:1) and under white text (the same 4.81:1). `#e4676b` under white is 3.26:1 -- fine as an
+// untexted fill or under `$ink`, not fine under a label -- so the brighter tone is never the one a
+// button or a badge resolves to. See `helpers/accessibility.test.js`, which pins this.
+$primary: #c14a52;
+$accent-fill: #e4676b;
+$accent-strong: #a83f45;
+$accent-wash: #fdeced;
 
-// Your own variables (that are declared here) and Quasar's own
-// ones will be available out of the box in your .vue/.scss/.sass files
+// -- Chrome and paper ------------------------------------------------------------------
+$slate: #38465f; // the chrome tone: nav labels, section headers, a settings form's commit button
+$slate-soft: #64789f; // icon strokes and separators -- NEVER text (3.5:1 on white)
+$slate-faint: #8a99b8; // fainter icon strokes and rules -- NEVER text
+$slate-light: #8ea6cf; // the chrome tone lightened for a dark ground
 
-// It's highly recommended to change the default colors
-// to match your app's branding.
-// Tip: Use the "Theme Builder" on Quasar's documentation website.
+$ink: #1c2233; // headings, and the foreground over a light status fill
+$paper: #f5f6f9; // the app's own ground
+$surface: #fff; // cards, the header band, the content column
+$tint: #eef1f7; // tinted strips: section headers, code chips, a callout's gutter
+$tint-alt: #f0f2f7; // the site sidebar's ground -- a hair cooler than $tint
+$hairline: #dbe1ec; // every border in the language
+$rule: #c9d2e2; // the fainter separator inside a run of metadata (breadcrumb slashes)
 
-$primary: #1976d2;
-$secondary: #02c39a;
+// -- Light text tiers ------------------------------------------------------------------
+//
+// Three tiers, and nothing lighter than $text-caption carries text on paper. $slate-soft and
+// $slate-faint are for hairlines, icon strokes and separators only -- using either as text is the
+// single easiest way to fall through the 4.5:1 floor.
+$text-body: #2f3a4f; // 9.9:1 on white
+$text-secondary: #4e5d7d; // 6.4:1 on white
+$text-caption: #57668a; // 5.3:1 on white
 
-$dark: #0d1117;
+// -- Status ----------------------------------------------------------------------------
+//
+// Same fill/text split as the accent: the bright tone is the FILL (under $ink), the dark tone is the
+// same status as TEXT on white -- and is what a solid button carrying a white label resolves to.
+$positive: #3f7a66; // 5.0:1 on white
+$positive-fill: #5f9c86; // 4.97:1 under $ink
+$negative: #c14a52; // 4.81:1 on white
+$negative-fill: #e4676b; // 4.87:1 under $ink
+$warning: #a8801f; // accent text for a warning -- 3.64:1, so headings and marks, not body copy
+$warning-fill: #d9a441; // 7.0:1 under $ink
+$secondary: $positive;
+$info: $slate;
 
-$positive: #02c39a;
-$negative: #f03a47;
-$warning: #f99d4d;
+// -- Dark ------------------------------------------------------------------------------
+//
+// The ladder runs darkest ($dark-6) to lightest ($dark-1), which is the order the existing
+// `bg-dark-N` utilities and SFC rules assume. Cardinal names four of its six rungs: ink (the page
+// ground), a recessed well, panel (a card) and raised (a card's own header, a menu).
+$dark: #14171f;
+$dark-6: #0f1219; // below ink -- the deepest well
+$dark-5: #14171f; // ink: the page ground
+$dark-4: #171b24; // recessed: a read-only field, an inset gutter
+$dark-3: #1b1f2a; // panel: a card, a dialog body
+$dark-2: #242b3a; // raised: a card header, a menu, a filled chip
+$dark-1: #2f374a; // raised, hovered
 
-$sidebar: $primary;
+$hairline-dark: #2a3040;
+$border-dark: #3a4256; // an outlined control's edge -- heavier than a hairline, still not text
+$disabled-dark: #4a5470; // a disabled label, an unchecked box's edge
+$text-dark: #e6eaf2;
+$text-secondary-dark: #9aa6bd;
+$text-caption-dark: #8792ab;
 
-$dark-6: #070a0d;
-$dark-5: #0d1117;
-$dark-4: #161b22;
-$dark-3: #1e232a;
-$dark-2: #292f39;
-$dark-1: #343b48;
+// The accent lightens on ink so it keeps its contrast, and takes DARK ink on fills: white on
+// #f08287 is 2.6:1, under the floor. The filled toasts go the other way and DARKEN, because a light
+// chip on ink glares.
+$accent-dark: #f08287;
+$accent-wash-dark: #3a2b34;
+$positive-dark: #3f7a66;
+$negative-dark: #a83f45;
+
+$sidebar: $tint-alt;

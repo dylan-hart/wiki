@@ -1,0 +1,27 @@
+/* barlow-condensed-500 - vietnamese_latin-ext_latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 500;
+  src:
+    local(''),
+    url('/_assets/fonts/barlow-condensed/barlow-condensed-all-500.woff2') format('woff2');
+}
+/* barlow-condensed-600 - vietnamese_latin-ext_latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 600;
+  src:
+    local(''),
+    url('/_assets/fonts/barlow-condensed/barlow-condensed-all-600.woff2') format('woff2');
+}
+/* barlow-condensed-700 - vietnamese_latin-ext_latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  src:
+    local(''),
+    url('/_assets/fonts/barlow-condensed/barlow-condensed-all-700.woff2') format('woff2');
+}

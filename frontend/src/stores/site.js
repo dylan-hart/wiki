@@ -189,9 +189,9 @@ export const useSiteStore = defineStore('site', {
       injectCSS: '',
       injectHead: '',
       injectBody: '',
-      colorPrimary: '#1976D2',
-      colorSecondary: '#018569',
-      colorAccent: '#e81221',
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
       colorHeader: '#000',
       colorSidebar: '#1976D2',
       codeBlocksTheme: '',
@@ -199,8 +199,8 @@ export const useSiteStore = defineStore('site', {
       sidebarPosition: 'left',
       tocPosition: 'right',
       showPrintBtn: true,
-      baseFont: 'roboto',
-      contentFont: 'roboto'
+      baseFont: 'barlow',
+      contentFont: 'barlow'
     },
     sideDialogShown: false,
     sideDialogComponent: '',

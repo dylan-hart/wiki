@@ -34,6 +34,8 @@ import { applyFonts } from './fonts.js'
 const FONTS_DIR = path.join(process.cwd(), 'public', '_assets', 'fonts')
 
 const FAMILIES = [
+  { dir: 'barlow', css: 'barlow.css', family: 'Barlow' },
+  { dir: 'barlow-condensed', css: 'barlow-condensed.css', family: 'Barlow Condensed' },
   { dir: 'roboto', css: 'roboto.css', family: 'Roboto' },
   { dir: 'rubik', css: 'rubik.css', family: 'Rubik' },
   { dir: 'inter', css: 'inter.css', family: 'Inter' },
@@ -128,6 +130,46 @@ describe('vendored font assets', () => {
     }
   })
 
+  /*
+   * Barlow and Barlow Condensed are the app's own design language (Cardinal), and the pair has to
+   * stay a pair: `helpers/fonts.js` links the condensed sheet as the `barlow` entry's `display`
+   * companion, so a Barlow vendored without its companion would leave every heading falling back to
+   * a system condensed face with nothing to say so.
+   */
+  it('barlow ships the four weights the interface sets body copy and controls in', () => {
+    const content = readFileSync(path.join(FONTS_DIR, 'barlow', 'barlow.css'), 'utf-8')
+    const weights = parseFontFaces(content).map((face) => face.weight)
+    expect(weights.sort()).toEqual(['400', '500', '600', '700'])
+  })
+
+  it('barlow-condensed ships the three weights headings and chrome labels are set in', () => {
+    const content = readFileSync(
+      path.join(FONTS_DIR, 'barlow-condensed', 'barlow-condensed.css'),
+      'utf-8'
+    )
+    const faces = parseFontFaces(content)
+    expect(faces.map((face) => face.weight).sort()).toEqual(['500', '600', '700'])
+    for (const face of faces) {
+      expect(face.family).toBe('Barlow Condensed')
+    }
+  })
+
+  it('neither Barlow covers cyrillic or greek upstream, so both stop at vietnamese_latin-ext_latin', () => {
+    // Not a gap to fix: Google publishes no cyrillic/greek instance of either family. Text in those
+    // scripts falls through the `--font-sans` / `--font-display` stacks to a system face, which is
+    // the same thing that happens today for any script a vendored font does not cover.
+    for (const dir of ['barlow', 'barlow-condensed']) {
+      const content = readFileSync(path.join(FONTS_DIR, dir, `${dir}.css`), 'utf-8')
+      const subsetTokens = [
+        ...content.matchAll(new RegExp(`\\/\\* ${dir}-\\S+ - (\\S+) `, 'g'))
+      ].map((m) => m[1])
+      expect(subsetTokens.length, dir).toBeGreaterThan(0)
+      for (const token of subsetTokens) {
+        expect(token, dir).toBe('vietnamese_latin-ext_latin')
+      }
+    }
+  })
+
   it('tajawal has no latin-ext subset upstream (documented variance, not a bug)', () => {
     const content = readFileSync(path.join(FONTS_DIR, 'tajawal', 'tajawal.css'), 'utf-8')
     // The subset-composition token in each face's header comment (mirroring roboto.css's own
@@ -189,6 +231,41 @@ describe('applyFonts() (runtime baseFont / contentFont loader)', () => {
     expect(document.querySelectorAll('link[data-theme-font="roboto"]').length).toBe(1)
     expect(document.querySelectorAll('link[data-theme-font="tajawal"]').length).toBe(1)
     expect(document.querySelectorAll('link[data-theme-font]').length).toBe(2)
+  })
+
+  /*
+   * The display companion: `barlow` is the only catalog entry that declares one, and it is what
+   * makes Cardinal's "Barlow Condensed headings over Barlow body" a single admin choice rather than
+   * two that can be got wrong independently.
+   */
+  it("links the base font's display companion and writes --font-display", () => {
+    applyFonts('barlow', 'barlow')
+
+    expect(document.querySelectorAll('link[data-theme-font="barlow"]').length).toBe(1)
+    const companion = document.querySelector('link[data-theme-font="barlow-display"]')
+    expect(companion).not.toBeNull()
+    expect(companion.href).toContain('/_assets/fonts/barlow-condensed/barlow-condensed.css')
+
+    const display = document.documentElement.style.getPropertyValue('--font-display')
+    expect(display).toContain("'Barlow Condensed'")
+    // -> Falls back through CONDENSED faces, so a heading does not reflow to normal width and back
+    expect(display).toContain('Roboto Condensed')
+  })
+
+  it('clears --font-display for a base font with no display companion', () => {
+    applyFonts('barlow', 'user')
+    applyFonts('inter', 'user')
+
+    expect(document.documentElement.style.getPropertyValue('--font-display')).toBe('')
+    expect(document.querySelector('link[data-theme-font="barlow-display"]')).toBeNull()
+  })
+
+  it('never links a display companion for contentFont alone -- headings are chrome, not content', () => {
+    applyFonts('inter', 'barlow')
+
+    expect(document.querySelectorAll('link[data-theme-font="barlow"]').length).toBe(1)
+    expect(document.querySelector('link[data-theme-font="barlow-display"]')).toBeNull()
+    expect(document.documentElement.style.getPropertyValue('--font-display')).toBe('')
   })
 
   it('treats baseFont "user" as no override: removes --font-sans, links nothing for it', () => {

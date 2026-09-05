@@ -402,9 +402,9 @@ function defaultConfig() {
     injectCSS: '',
     injectHead: '',
     injectBody: '',
-    colorPrimary: '#1976D2',
-    colorSecondary: '#018569',
-    colorAccent: '#E81221',
+    colorPrimary: '#c14a52',
+    colorSecondary: '#3f7a66',
+    colorAccent: '#c14a52',
     colorHeader: '#000000',
     colorSidebar: '#1976D2',
     codeBlocksTheme: 'github-dark',
@@ -412,8 +412,8 @@ function defaultConfig() {
     sidebarPosition: 'left',
     tocPosition: 'right',
     showPrintBtn: true,
-    baseFont: 'roboto',
-    contentFont: 'roboto'
+    baseFont: 'barlow',
+    contentFont: 'barlow'
   }
 }
 
@@ -484,6 +484,9 @@ const rightLeftOptions = [
 ]
 
 const fonts = [
+  // -> First, and the default: Barlow is the app's own design language, and the only entry that
+  //    brings a display companion with it (Barlow Condensed, for headings) -- see helpers/fonts.js.
+  { label: 'Barlow', value: 'barlow' },
   { label: 'Inter', value: 'inter' },
   { label: 'Open Sans', value: 'opensans' },
   { label: 'Montserrat', value: 'montserrat' },
@@ -787,16 +790,16 @@ function contrastWarningRatio(cl) {
 
 function resetColors() {
   state.config.dark = false
-  state.config.colorPrimary = '#1976D2'
-  state.config.colorSecondary = '#018569'
-  state.config.colorAccent = '#E81221'
+  state.config.colorPrimary = '#c14a52'
+  state.config.colorSecondary = '#3f7a66'
+  state.config.colorAccent = '#c14a52'
   state.config.colorHeader = '#000'
   state.config.colorSidebar = '#1976D2'
 }
 
 function resetFonts() {
-  state.config.baseFont = 'roboto'
-  state.config.contentFont = 'roboto'
+  state.config.baseFont = 'barlow'
+  state.config.contentFont = 'barlow'
 }
 
 function resetCodeBlocks() {
