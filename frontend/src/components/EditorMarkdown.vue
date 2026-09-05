@@ -1368,11 +1368,19 @@ onMounted(async () => {
     base: 'vs-dark',
     inherit: true,
     rules: [],
+    /*
+      Cardinal's own dark ramp, not the near-black this carried before: both design files that draw a
+      code surface (`ui-redesign/Cardinal Wiki - Editor 3x.dc.html` and `… - History 3x.dc.html`) set
+      the text ground at ink and the line-number gutter one rung below it, with the numbers in a muted
+      slate. `#070a0d`/`#0d1117` were a step darker than anything in the ramp, so the editor read as a
+      different application's window sitting inside this one.
+    */
     colors: {
-      'editor.background': '#070a0d',
-      'editor.lineHighlightBackground': '#0d1117',
-      'editorLineNumber.foreground': '#546e7a',
-      'editorGutter.background': '#0d1117'
+      'editor.background': '#14171f',
+      'editor.foreground': '#c3cee2',
+      'editor.lineHighlightBackground': '#171b24',
+      'editorLineNumber.foreground': '#3f4a63',
+      'editorGutter.background': '#171b24'
     }
   })
 

@@ -18,17 +18,22 @@
         compare bar below can stay exactly two halves lining up with the editor's own two panes.
       -->
       <!--
-        The selected half takes the accent fill and the other an outline, which is how the design
-        draws every segmented control (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`'s
+        The selected half is filled in the accent and the other left as an outline, which is how the
+        design draws every segmented control (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`'s
         publish-state row). It used to be white-on-slate either way, so the pair read as two chrome
         buttons rather than as one control with a state.
+
+        `accent`, not `accent-fill`: this carries a white label, and `#e4676b` under white text is
+        2.9:1 -- the fill tone is for a surface with no text on it or with ink over it (see
+        `css/tailwind.css`'s own note, and `helpers/accessibility.test.js`, which pins each token
+        against the foreground it is actually drawn under).
       -->
       <w-btn-group class="me-6">
         <w-btn
           dense
           :label="t(`history.sideBySide`)"
           padding="0.285em sm"
-          :color="state.inline ? `transparent` : `accent-fill`"
+          :color="state.inline ? `transparent` : `accent`"
           :text-color="state.inline ? `slate` : `white`"
           :outline="state.inline"
           @click="state.inline = false" />
@@ -36,7 +41,7 @@
           dense
           :label="t(`history.inline`)"
           padding="0.285em sm"
-          :color="state.inline ? `accent-fill` : `transparent`"
+          :color="state.inline ? `accent` : `transparent`"
           :text-color="state.inline ? `white` : `slate`"
           :outline="!state.inline"
           @click="state.inline = true" />
@@ -166,14 +171,15 @@
                 holding this letter in the accent and the other in the chrome tone
                 (`ui-redesign/Cardinal Wiki - History 3x.dc.html`). `pink-6` was a ramp colour
                 standing in for the accent and `dark-3` a panel tone standing in for slate; neither
-                is a colour this language has a use for on a control.
+                is a colour this language has a use for on a control. Both carry a white letter, so
+                both take a tone that clears contrast under one -- see the mode toggle above.
               -->
               <w-btn-group class="page-history-pick-group">
                 <w-btn
                   dense
                   :label="t(`history.versionLabelA`)"
                   padding="0.285em sm"
-                  :color="version.id === state.aId ? `accent-fill` : `slate`"
+                  :color="version.id === state.aId ? `accent` : `slate`"
                   text-color="white"
                   :aria-label="t(`history.pickA`)"
                   @click="pick(`a`, version.id)" />
@@ -181,7 +187,7 @@
                   dense
                   :label="t(`history.versionLabelB`)"
                   padding="0.285em sm"
-                  :color="version.id === state.bId ? `accent-fill` : `slate`"
+                  :color="version.id === state.bId ? `accent` : `slate`"
                   text-color="white"
                   :aria-label="t(`history.pickB`)"
                   @click="pick(`b`, version.id)" />
@@ -872,7 +878,8 @@ $timeline-turn: 16px;
   &-main {
     display: flex;
     flex-direction: column;
-    background-color: $dark-3;
+    /* -> Ink, a step BELOW the timeline rail beside it: the diff is the recessed half of the pair */
+    background-color: $dark-5;
     color: $text-dark;
     /* -> The grid cell already has a height; this claims it so the diff can fill what is left */
     height: 100%;
@@ -1018,11 +1025,11 @@ $timeline-turn: 16px;
     padding: 0 1rem;
   }
 
-  /* -> The accent FILL, and the mono the design sets both cursors in -- see the timeline's own pair */
+  /* -> The accent under a white letter, and the mono the design sets both cursors in */
   &-letter {
     flex: 0 0 24px;
     height: 24px;
-    background-color: $accent-fill;
+    background-color: $primary;
     color: #fff;
     display: flex;
     align-items: center;

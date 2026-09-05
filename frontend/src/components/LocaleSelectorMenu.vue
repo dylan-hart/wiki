@@ -15,7 +15,7 @@
         <w-item-section side>
           <w-avatar
             rounded
-            :color="lang.code === pageStore.locale ? `accent-fill` : `slate`"
+            :color="lang.code === pageStore.locale ? `accent` : `slate`"
             text-color="white"
             size="sm">
             <div class="text-caption uppercase">

@@ -89,20 +89,26 @@ Graph, against `Cardinal Wiki - Graph 3x.dc.html`:
 
 Ordered by how far each is from the design file it should match.
 
-1. **Graph.** The panels and the notice are done; the control shapes inside them (the joined
-   segmented rows, the 13px square checkboxes, the depth field beside its slider) are not.
-2. **Inbox.** The rail and the frame match; `InboxWatching`/`InboxReview`'s own content — the banded
-   section marker, the `16px 20px` body, the framed notification list with its 36px accent plates —
-   does not.
-3. **Page history.** The A/B markers and the mode toggle are done. The panel/rail/diff grounds
-   (`#1b1f2a` / `#171b24` / `#14171f`, gutter `#11141b`), the `12.5px/1.9` mono and the timeline
-   entry's own layout are not.
-4. **Profile**, against `Cardinal Wiki - Profile 3x.dc.html` — not yet compared at all.
+1. **Graph.** The panels, the notice, the segmented rows and the checkboxes are done; the depth
+   field beside its slider and the per-node visuals are not.
+2. **Inbox.** The rail, the frame and the notifications body match; `InboxReview`'s own content does
+   not, and neither does the framed list's 36px accent plate.
+3. **Page history.** The A/B markers, the mode toggle and the panel/rail/diff grounds are done. The
+   timeline entry's own layout — the 28px round action dot, the wrapped reason/fields row — is not.
+4. **Profile.** The rail matches. `ProfileInfo` and the sections under it have not been compared.
 5. **Editor**, **File manager**, **Tags**, **Login/Auth**, **Table editor**, **Admin blocks** — each
    has its own design file and none has been compared against it in this pass.
 6. **Padding, everywhere.** The recurring note in review has been "odd padding not matching the
-   mockups". The section-header rhythm is fixed in the page-properties panel; the same treatment
-   needs applying wherever `.w-section-header` is used.
+   mockups". `.w-section-header` now rules on both edges and the page-properties panel takes the
+   design's 14/16 rhythm; every other caller of that class still needs walking through.
+
+## One deliberate divergence
+
+The design fills a selected segment, an A/B cursor and a primary button with `#e4676b` and puts a
+white label on it. That pair is 2.9:1, and the brief that opened this work set a hard floor of 4.5:1
+for body text. Where a fill carries white text the app therefore uses `#c14a52` — the same hue, the
+tone `css/tailwind.css` and `helpers/accessibility.test.js` already reserve for exactly this job —
+and keeps `#e4676b` for fills that carry no text, or ink: the active-nav bar, an icon, a plate edge.
 
 ## Known flaky
 
