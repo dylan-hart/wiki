@@ -35,6 +35,9 @@ const DEEP_NAV_TREE = [
   }
 ]
 
+/** Calls made to `WIKI.models.sites.updateSite` -- asserted by the `pathDisplay` route's tests. */
+let updateSiteCalls: Array<{ id: string; patch: any }> = []
+
 let currentSitePermissionHeader: string | undefined
 function checkSiteAccess(actor: { permissions: string[] }, permission: string, siteId: string) {
   if (actor.permissions.includes('manage:system')) {
@@ -69,6 +72,12 @@ before(async () => {
       sites: { [SITE_ID]: { id: SITE_ID } },
       models: {
         groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
+        sites: {
+          updateSite: async (id: string, patch: any) => {
+            updateSiteCalls.push({ id, patch })
+            return true
+          }
+        },
         navigation: {
           inheritedNavId: async () => 'inherited-nav-id',
           updateNavigation: async (opts: any) => ({
@@ -237,6 +246,75 @@ test('GET .../navigation/:navId passes the request-resolved actor through to get
   } finally {
     ;(globalThis as any).WIKI.models.navigation.getNav = originalGetNav
   }
+})
+
+/**
+ * WP #2577: `PUT .../navigation/pathDisplay` stores the site's path-display case style
+ * (`config.pathDisplayCase`) via `WIKI.models.sites.updateSite`, gated the same way as every other
+ * `site:navigation` surface in this file rather than through `api/sites.ts`'s general `PUT
+ * /:siteId` -- see that route's own header comment for why.
+ */
+test('manage:navigation may set the path display case style', async () => {
+  updateSiteCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_ID}/navigation/pathDisplay`,
+    headers: { 'x-test-permissions': 'manage:navigation' },
+    payload: { caseStyle: 'title' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.equal(updateSiteCalls[0].id, SITE_ID)
+  assert.deepEqual(updateSiteCalls[0].patch, { config: { pathDisplayCase: 'title' } })
+})
+
+test('site:navigation on this site may set the path display case style', async () => {
+  updateSiteCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_ID}/navigation/pathDisplay`,
+    headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+    payload: { caseStyle: 'off' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+})
+
+test('site:navigation on a DIFFERENT site may not set the path display case style here', async () => {
+  updateSiteCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_ID}/navigation/pathDisplay`,
+    headers: { 'x-test-site-permissions': 'site:navigation@some-other-site' },
+    payload: { caseStyle: 'off' }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('a caller with neither manage:navigation nor site:navigation may not set the path display case style', async () => {
+  updateSiteCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_ID}/navigation/pathDisplay`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { caseStyle: 'off' }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('an unknown caseStyle is rejected by the schema and never reaches updateSite', async () => {
+  updateSiteCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_ID}/navigation/pathDisplay`,
+    headers: { 'x-test-permissions': 'manage:navigation' },
+    payload: { caseStyle: 'shouty' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
 })
 
 /**

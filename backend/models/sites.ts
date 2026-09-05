@@ -43,6 +43,19 @@ export const siteAssetKinds = ['logo', 'favicon', 'loginBg'] as const
 export type SiteAssetKind = (typeof siteAssetKinds)[number]
 
 /**
+ * The case styles a site may pick for its `config.pathDisplayCase` setting (Feature #2574) — the
+ * live, render-time transform applied to a path-derived label wherever one is shown (breadcrumbs,
+ * sidebar/tree navigation, auto-nav, a page's own displayed name), computed off the raw lowercase
+ * tree segment rather than the stored `title`. `'off'` is the explicit disable value: the raw
+ * lowercase segment is shown unchanged. This is the vocabulary the path-segment humanization helper
+ * (sibling Task #2576) and its render-site call sites (Task #2578) key their switch on — do not
+ * rename or reorder these without updating both.
+ */
+export const pathDisplayCaseStyles = ['off', 'lower', 'upper', 'camel', 'pascal', 'title'] as const
+
+export type PathDisplayCaseStyle = (typeof pathDisplayCaseStyles)[number]
+
+/**
  * The size and format each image is stored at, i.e. what a browser is eventually handed. Every one
  * is far smaller than what an administrator is likely to upload: these are a header logo, a tab icon
  * and a login backdrop, not artwork to be kept at its original resolution.
@@ -198,6 +211,9 @@ class Sites extends ClusterReloaded {
             },
             logoText: true,
             sitemap: true,
+            // -> Off by default: a fresh site shows the raw lowercase path segment unchanged until
+            //    an admin opts into a case style (Feature #2574).
+            pathDisplayCase: 'off',
             robots: {
               index: true,
               follow: true
@@ -565,6 +581,7 @@ class Sites extends ClusterReloaded {
         },
         logoText: true,
         sitemap: true,
+        pathDisplayCase: 'off',
         robots: {
           index: true,
           follow: true

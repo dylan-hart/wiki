@@ -172,6 +172,7 @@ export async function buildSitePayload(site: {
     uploads: config.uploads,
     logoText: config.logoText,
     sitemap: config.sitemap,
+    pathDisplayCase: config.pathDisplayCase,
     robots: config.robots,
     auth: config.auth,
     authStrategies: config.authStrategies,
