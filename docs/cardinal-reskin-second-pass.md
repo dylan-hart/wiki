@@ -89,8 +89,8 @@ Graph, against `Cardinal Wiki - Graph 3x.dc.html`:
 
 Ordered by how far each is from the design file it should match.
 
-1. **Graph.** The panels, the notice, the segmented rows and the checkboxes are done; the depth
-   field beside its slider and the per-node visuals are not.
+1. **Graph.** The panels, the notice, the segmented rows, the checkboxes, the filter overlines and
+   the depth readout are done. Nothing outstanding that a comparison has turned up.
 2. **Inbox.** The rail, the frame and the notifications body match; `InboxReview`'s own content does
    not, and neither does the framed list's 36px accent plate.
 3. **Page history.** The A/B markers, the mode toggle and the panel/rail/diff grounds are done. The
@@ -112,10 +112,10 @@ and keeps `#e4676b` for fills that carry no text, or ink: the active-nav bar, an
 
 ## Known flaky
 
-Neither is a product defect, and neither is in code this pass touched — but both cost a re-run, so
-they are worth pinning down separately.
-
-- `frontend/src/components/ProfileApiKeyCreateDialog.test.js`'s "real layout" describe drives a real
-  headless Chromium and fails intermittently under the full suite's parallelism. Passes alone.
 - `backend/mcp/http.test.ts`'s "an active session is not evicted while it is still being used" is
   timing-sensitive and fails intermittently under the full `node --test` run. Passes alone, twice.
+  Not a product defect, and not in code this pass touched.
+
+The two `— real layout` describes that drive a real headless Chromium used to fail the same way; they
+were timing out on the browser LAUNCH under the full suite's eight workers, not on anything they
+measure, and now carry a 30s timeout.

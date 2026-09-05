@@ -23,14 +23,22 @@ export const DEFAULT_PAGE_ICON = 'tabler:file-text'
  * A page response, shaped for `$patch`.
  *
  * Three actions apply a page the server just handed back -- `pageLoad`, `pageUnlock` and the tail of
- * `pageSave` -- and each has to do the same three things to it first: keep only the relation fields
- * this store models, keep only the two `tocDepth` bounds, and clear the password fields, which the
- * API never returns (OpenProject #2232) and which must therefore not be left holding the previous
- * page's -- or the just-saved -- typed value.
+ * `pageSave` -- and each has to do the same four things to it first: keep only the relation fields
+ * this store models, keep only the two `tocDepth` bounds, clear the password fields, which the API
+ * never returns (OpenProject #2232) and which must therefore not be left holding the previous page's
+ * -- or the just-saved -- typed value, and give a page that has never had an icon picked for it the
+ * default one.
+ *
+ * That last is what puts a glyph in the masthead's plate at all: `pages.icon` is nullable and a page
+ * created before the picker existed (or through the API, or by the importer) carries an empty string,
+ * which `WIcon` renders as nothing -- so the plate drew an empty box with corner marks around it. The
+ * initial state below has always been `DEFAULT_PAGE_ICON`; this is the same answer for the loaded
+ * page, rather than only for the store before one arrives.
  */
 function pagePatch(pageData) {
   return {
     ...pageData,
+    icon: pageData.icon || DEFAULT_PAGE_ICON,
     relations: (pageData.relations ?? []).map((r) =>
       pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
     ),

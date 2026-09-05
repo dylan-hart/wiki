@@ -194,9 +194,16 @@ describe('ProfileApiKeyCreateDialog layout', () => {
  * single-column admin form. See `test/realGridLayout.js` for why a real headless Chromium page is
  * what actually answers "how many columns did this render as."
  */
+/*
+  Launching a real Chromium is not a 5-second operation when the rest of the suite is running beside
+  it: `vitest` runs matched files across eight workers, and this describe's `before` pays for a
+  browser launch, a page and a stylesheet build while seven other files are transforming. The 5s
+  default timed this out intermittently -- a scheduling fact about the whole run, not anything about
+  the layout being measured, which passes in well under a second once the browser is up.
+*/
 describe(
   'ProfileApiKeyCreateDialog classification grid — real layout',
-  { skip: !hasChromium() },
+  { skip: !hasChromium(), timeout: 30000 },
   () => {
     let browser
 

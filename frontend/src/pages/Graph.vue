@@ -110,18 +110,30 @@
           :options="pageviewClientTypeOptions" />
       </div>
     </div>
+    <!--
+      Each filter is an overline over its control, in the same mono the panel opposite uses for its
+      own group captions -- the design labels every control on this screen that way. They were
+      `WInput`/`WSelect` floating labels, which set them in body size and left the two panels
+      speaking in two voices about the same kind of thing.
+    -->
     <div class="graph-view-filters">
-      <w-input v-model="keywordQuery" clearable dense :label="t('graph.filters.keyword')" />
-      <w-select
-        v-model="activeFilters.tags"
-        multiple
-        use-chips
-        dense
-        options-dense
-        :options="tagOptions"
-        :label="t('graph.filters.tags')" />
-      <div class="flex flex-col gap-1">
-        <span class="text-caption opacity-70">{{ t('graph.filters.folderDepth') }}</span>
+      <div class="flex flex-col gap-[5px]">
+        <span class="graph-view-control-caption">{{ t('graph.filters.keyword') }}</span>
+        <w-input v-model="keywordQuery" clearable dense :aria-label="t('graph.filters.keyword')" />
+      </div>
+      <div class="flex flex-col gap-[5px]">
+        <span class="graph-view-control-caption">{{ t('graph.filters.tags') }}</span>
+        <w-select
+          v-model="activeFilters.tags"
+          multiple
+          use-chips
+          dense
+          options-dense
+          :options="tagOptions"
+          :aria-label="t('graph.filters.tags')" />
+      </div>
+      <div class="flex flex-col gap-[5px]">
+        <span class="graph-view-control-caption">{{ t('graph.filters.folderDepth') }}</span>
         <div class="flex items-center gap-3">
           <w-range
             v-model="folderDepthSlider"
@@ -131,7 +143,8 @@
             :max="actualMaxFolderDepth"
             :aria-label="t('graph.filters.folderDepth')"
             class="min-w-0 flex-1" />
-          <div style="width: 64px">
+          <!-- -> 56px, the width the design gives the readout beside this slider -->
+          <div style="width: 56px">
             <w-input
               v-model.number="folderDepthSlider"
               dense
@@ -143,13 +156,15 @@
           </div>
         </div>
       </div>
-      <w-select
-        v-if="showLocaleFilter"
-        v-model="activeFilters.locale"
-        dense
-        options-dense
-        :options="localeOptions"
-        :label="t('graph.filters.locale')" />
+      <div class="flex flex-col gap-[5px]" v-if="showLocaleFilter">
+        <span class="graph-view-control-caption">{{ t('graph.filters.locale') }}</span>
+        <w-select
+          v-model="activeFilters.locale"
+          dense
+          options-dense
+          :options="localeOptions"
+          :aria-label="t('graph.filters.locale')" />
+      </div>
       <w-btn
         v-if="
           activeFilters.tags.length ||

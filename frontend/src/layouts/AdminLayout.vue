@@ -99,7 +99,7 @@
                 color="accent-dark"
                 icon="tabler:heart"
                 :label="t(`admin.contribute.title`)"
-                href="https://js.wiki/donate"
+                href="https://github.com/dylan-hart/wiki"
                 target="_blank" />
             </w-item-section>
           </w-item>
