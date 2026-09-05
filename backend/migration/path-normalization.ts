@@ -8,7 +8,8 @@
  * hyphen only, duplicated below as `RE_FOLDER_SEGMENT` since `tree.ts` keeps its copy private). This
  * module is the read-only, db-free translation between the two: given a 2.x `path` + `localeCode`, it
  * produces the `parentPath`/`fileName` pair `tree.createFolder`/`tree.addPage` expect, folding case
- * and underscores the way 2.x paths were free to use but 3.0 segments are not.
+ * and every character 2.x paths were free to use but 3.0 segments are not (underscores, spaces,
+ * punctuation, unicode, …) down to hyphens.
  *
  * Folding is lossy — `FooBar` and `foobar` both fold to `foobar` — so a fold can land two distinct
  * 2.x pages on the same `(locale, parentPath, fileName)`, or land one on a location a pre-existing
@@ -76,15 +77,20 @@ interface PathNormalizationFailure {
 }
 
 /**
- * Fold one path segment down to 3.0's folder-segment rule: lowercase, and underscore — the one
- * character 2.x's `rePagePath` allows in a segment that 3.0's `rePathName` does not — mapped to a
- * hyphen. Returns `null` if what is left still does not satisfy `RE_FOLDER_SEGMENT` (empty, or a
- * character outside 2.x's own allowed set to begin with — not reachable through a well-formed 2.x
- * `pages.path`, but this module does not assume its input was well-formed).
+ * Fold one path segment down to 3.0's folder-segment rule: lowercase, then every run of one or
+ * more characters outside `RE_FOLDER_SEGMENT`'s charset (underscores, spaces, punctuation, unicode,
+ * …) collapsed to a single hyphen, then any resulting run of consecutive hyphens collapsed to one,
+ * then leading/trailing hyphens trimmed. Returns `null` only when nothing usable remains — a
+ * segment made entirely of disallowed characters (e.g. `'!!!'`) folds to the empty string.
  */
 export function normalizeSegment(segment: string): string | null {
-  const folded = segment.toLowerCase().replaceAll('_', '-')
-  return RE_FOLDER_SEGMENT.test(folded) ? folded : null
+  const folded = segment
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '')
+  return folded.length > 0 && RE_FOLDER_SEGMENT.test(folded) ? folded : null
 }
 
 /**
@@ -115,7 +121,7 @@ export function normalizeMigratedPath(
     if (normalized === null) {
       return {
         reason: 'invalid-segment',
-        message: `page path "${rawPath}" segment "${raw}" is not a valid 3.0 folder name even after lowercasing and folding underscores to hyphens.`
+        message: `page path "${rawPath}" segment "${raw}" is not a valid 3.0 folder name even after lowercasing and folding disallowed characters to hyphens.`
       }
     }
     segments.push(normalized)
