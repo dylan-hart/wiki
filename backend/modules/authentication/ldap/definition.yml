@@ -9,6 +9,12 @@ vendor: 'Microsoft Corporation'
 website: 'https://www.microsoft.com/windowsserver'
 isAvailable: true
 useForm: true
+# Form-based, but its authenticate() verifies the person against the directory and then always
+# throws ProvisionableLoginError (backend/modules/authentication/ldap/authentication.ts) rather than
+# resolving a local user directly -- the same find-or-create-by-email path a redirect-based provider
+# uses. This is what makes trustEmailForLinking meaningful for LDAP: see models/login.ts's dispatch
+# and the admin UI's AuthModule#provisionable-gated toggle.
+provisionable: true
 usernameType: username
 props:
   url:

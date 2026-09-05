@@ -35,6 +35,15 @@ export interface AuthModule {
   website?: string
   isAvailable: boolean
   useForm: boolean
+  /**
+   * Only meaningful when `useForm` is true: whether this module's own `authenticate()` can throw
+   * `ProvisionableLoginError` and so dispatch through the same find-or-create-by-email path a
+   * redirect-based provider uses (see `models/login.ts`'s catch of it, and `ProvisionableLoginError`
+   * below). LDAP declares this; Local does not — it resolves directly against its own stored
+   * password hash and never produces a provisionable external profile. This is what the admin UI
+   * gates the `trustEmailForLinking` toggle on for a form-based module.
+   */
+  provisionable?: boolean
   usernameType: string
   props: Record<string, ModuleProp>
   refs?: Record<string, { title?: string; hint?: string; icon?: string; value: string }>

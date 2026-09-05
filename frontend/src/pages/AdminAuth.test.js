@@ -578,6 +578,134 @@ describe('AdminAuth allowed-email-domains field', () => {
   })
 })
 
+/**
+ * OpenProject #2548: the `trustEmailForLinking` toggle used to be gated on a blanket `!useForm`
+ * check, hiding it for every form-based module including LDAP -- even though LDAP's `authenticate()`
+ * always throws `ProvisionableLoginError` on a successful bind and dispatches through the very same
+ * find-or-create-by-email path a redirect-based provider uses (`models/login.ts`). The fix gates on
+ * the module's own `provisionable` flag instead, OR'd with the existing `!useForm` check, so a
+ * redirect-based provider keeps showing it unconditionally, LDAP (which declares `provisionable:
+ * true`) gains it, and Local (which does not declare it) stays hidden.
+ */
+describe('AdminAuth trust-email-for-linking toggle', () => {
+  const TRUST_MESSAGES = {
+    admin: {
+      auth: {
+        ...MESSAGES.admin.auth,
+        trustEmailForLinking: 'Trust Email For Linking',
+        trustEmailForLinkingHint: 'Link to an existing account by email.'
+      }
+    }
+  }
+  const LOCAL_MODULE = {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  }
+  const LDAP_MODULE = {
+    key: 'ldap',
+    title: 'LDAP / AD',
+    icon: 'ultraviolet-ldap.svg',
+    description: 'LDAP.',
+    useForm: true,
+    provisionable: true
+  }
+  const OIDC_MODULE = {
+    key: 'oidc',
+    title: 'Generic OIDC',
+    icon: 'ultraviolet-oidc.svg',
+    description: 'Generic OIDC.',
+    useForm: false
+  }
+
+  function trustToggleNode(wrapper) {
+    return wrapper.find('[aria-label="Trust Email For Linking"]')
+  }
+
+  it('renders for an LDAP strategy, a form-based module declaring provisionable: true', async () => {
+    stubApi({
+      'authentication/modules': [LDAP_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-ldap',
+          module: 'ldap',
+          displayName: 'Directory login',
+          isEnabled: true,
+          isNew: false,
+          trustEmailForLinking: false,
+          config: {}
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: TRUST_MESSAGES
+    })
+    await flushPromises()
+
+    expect(trustToggleNode(wrapper).exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('stays hidden for a Local strategy, a form-based module not declaring provisionable', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          trustEmailForLinking: false,
+          config: {}
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: TRUST_MESSAGES
+    })
+    await flushPromises()
+
+    expect(trustToggleNode(wrapper).exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('still renders unconditionally for a redirect-based (non-useForm) strategy', async () => {
+    stubApi({
+      'authentication/modules': [OIDC_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-oidc',
+          module: 'oidc',
+          displayName: 'OIDC login',
+          isEnabled: true,
+          isNew: false,
+          trustEmailForLinking: false,
+          config: {}
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: TRUST_MESSAGES
+    })
+    await flushPromises()
+
+    expect(trustToggleNode(wrapper).exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminAuth configured-strategy list', () => {
   it("renders each active strategy's icon from its resolved module, keyed by module key", async () => {
     const activeStrategies = [
