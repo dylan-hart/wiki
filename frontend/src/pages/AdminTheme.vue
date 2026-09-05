@@ -405,8 +405,8 @@ function defaultConfig() {
     colorPrimary: '#c14a52',
     colorSecondary: '#3f7a66',
     colorAccent: '#c14a52',
-    colorHeader: '#000000',
-    colorSidebar: '#1976D2',
+    colorHeader: '#ffffff',
+    colorSidebar: '#f0f2f7',
     codeBlocksTheme: 'github-dark',
     contentWidth: 'full',
     sidebarPosition: 'left',
@@ -469,8 +469,12 @@ const colorKeys = ['primary', 'secondary', 'accent', 'header', 'sidebar']
 const PAGE_BG_LIGHT = '#ffffff'
 const PAGE_BG_DARK = '#1e232a'
 
-/** The site header and sidebar both draw their nav text in white (`HeaderNav.vue`, `NavSidebar.vue`). */
-const CHROME_TEXT_COLOR = '#ffffff'
+/**
+ * The site header and sidebar both draw their nav text in Cardinal's ink (`HeaderNav.vue`,
+ * `NavSidebar.vue`) -- so a site picking a dark chrome colour is now the case this warns about,
+ * where before it was a site picking a light one.
+ */
+const CHROME_TEXT_COLOR = '#1c2233'
 
 const widthOptions = [
   { label: 'Full Width', value: 'full' },
@@ -769,8 +773,18 @@ function contrastPairFor(cl) {
   if (!base) {
     return null
   }
-  if (cl === 'header' || cl === 'sidebar' || cl === 'secondary' || cl === 'accent') {
+  /*
+    The chrome and the brand fills are measured against DIFFERENT foregrounds, and were not always:
+    Cardinal's header and sidebar draw their contents in ink (`CHROME_TEXT_COLOR`), while a solid
+    button, chip or toast in `secondary`/`accent` still carries a white label -- so pairing all four
+    against one colour, as this used to, would now pass a chrome tone that is unreadable and fail a
+    fill that is fine.
+  */
+  if (cl === 'header' || cl === 'sidebar') {
     return { fg: CHROME_TEXT_COLOR, bg: base }
+  }
+  if (cl === 'secondary' || cl === 'accent') {
+    return { fg: '#ffffff', bg: base }
   }
   if (cl === 'primary') {
     return { fg: base, bg: state.config.dark ? PAGE_BG_DARK : PAGE_BG_LIGHT }
@@ -793,8 +807,8 @@ function resetColors() {
   state.config.colorPrimary = '#c14a52'
   state.config.colorSecondary = '#3f7a66'
   state.config.colorAccent = '#c14a52'
-  state.config.colorHeader = '#000'
-  state.config.colorSidebar = '#1976D2'
+  state.config.colorHeader = '#ffffff'
+  state.config.colorSidebar = '#f0f2f7'
 }
 
 function resetFonts() {

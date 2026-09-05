@@ -8,25 +8,37 @@
       `me-2` (Tailwind's logical spacing utilities) are used in place of `pl-4`/`ml-4`/`mr-2` below so
       that gap stays on the correct side of each element rather than staying physically left/right.
     -->
+    <!--
+      The page's own icon, set in a square hairline plate rather than standing loose beside the title
+      -- Cardinal's masthead is a plate, and the icon is the one thing in it that is a picture rather
+      than type, so it gets a frame to sit in.
+
+      The plate is the same box in both states; only what is inside it changes (a button that opens
+      the picker while editing, a bare icon while reading), so the masthead's geometry does not shift
+      the moment an author starts editing.
+    -->
     <div class="flex-none ps-4 flex items-center">
-      <w-btn
-        class="rounded"
-        v-if="isEditing"
-        padding="none"
-        :size="iconSize"
-        color="primary"
-        flat
-        :aria-label="t(`editor.props.icon`)"
-        :style="{ minHeight: iconSize }">
-        <!-- -> The same size the icon has when the page is merely being read; see the branch below -->
-        <w-icon :name="pageStore.icon" :size="iconSize" />
-        <!-- -> Not `v-model`: writing the store is only half of what picking an icon means here, and
-                the other half is telling the editor the page changed. See `setIcon`. -->
-        <w-menu content-class="shadow-7">
-          <icon-picker-dialog :model-value="pageStore.icon" @update:model-value="setIcon" />
-        </w-menu>
-      </w-btn>
-      <w-icon class="rounded" v-else :name="pageStore.icon" :size="iconSize" color="primary" />
+      <div
+        class="page-header-icon flex flex-none items-center justify-center border border-hairline bg-paper dark:border-hairline-dark dark:bg-dark-4"
+        :style="plateStyle">
+        <w-btn
+          v-if="isEditing"
+          padding="none"
+          :size="glyphSize"
+          color="accent-fill"
+          flat
+          :aria-label="t(`editor.props.icon`)"
+          :style="{ minHeight: glyphSize, width: glyphSize }">
+          <!-- -> The same size the icon has when the page is merely being read; see the branch below -->
+          <w-icon :name="pageStore.icon" :size="glyphSize" />
+          <!-- -> Not `v-model`: writing the store is only half of what picking an icon means here, and
+                  the other half is telling the editor the page changed. See `setIcon`. -->
+          <w-menu content-class="shadow-7">
+            <icon-picker-dialog :model-value="pageStore.icon" @update:model-value="setIcon" />
+          </w-menu>
+        </w-btn>
+        <w-icon v-else :name="pageStore.icon" :size="glyphSize" color="accent-fill" />
+      </div>
     </div>
     <!-- PAGE HEADER -->
     <!--
@@ -118,7 +130,7 @@
           flat
           dense
           :icon="pageStore.isWatching ? `mdi:bell` : `mdi:bell-outline`"
-          :color="pageStore.isWatching ? `deep-orange-9` : `grey`"
+          :color="pageStore.isWatching ? `accent` : `slate-soft`"
           :aria-label="pageStore.isWatching ? t(`common.page.unwatch`) : t(`common.page.watch`)"
           :aria-pressed="pageStore.isWatching"
           @click="toggleWatch">
@@ -132,7 +144,7 @@
           flat
           dense
           icon="la:print"
-          color="grey"
+          color="slate-soft"
           :aria-label="t('common.actions.print')"
           @click="printPage">
           <w-tooltip>{{ t('common.actions.print') }}</w-tooltip>
@@ -154,7 +166,7 @@
           v-if="pageStore.canReview && !isRedirect"
           flat
           dense
-          :color="pendingCount > 0 ? `deep-orange-9` : `grey`"
+          :color="pendingCount > 0 ? `accent` : `slate-soft`"
           :aria-label="t(`inbox.pendingReview`)">
           <!--
             The badge is a sibling of the icon, not a child of it: WIcon renders a bare `<svg>` and no
@@ -162,12 +174,7 @@
             SVG in any case. It floats against the button, which is the positioned box here.
           -->
           <w-icon :name="pendingCount > 0 ? `mdi:inbox-full` : `la:inbox`" />
-          <w-badge
-            v-if="pendingCount > 0"
-            color="deep-orange-9"
-            text-color="white"
-            rounded
-            floating>
+          <w-badge v-if="pendingCount > 0" color="accent" text-color="white" floating>
             <strong>{{ pendingCount }}</strong>
           </w-badge>
           <w-tooltip>{{ t('inbox.pendingReview') }}</w-tooltip>
@@ -201,7 +208,7 @@
                 clickable
                 @click="reviewSubmission(submission)">
                 <w-item-section class="items-center" avatar>
-                  <w-icon class="text-deep-orange-9" name="la:file-alt" size="sm" />
+                  <w-icon class="text-slate-soft" name="la:file-alt" size="sm" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>
@@ -239,10 +246,10 @@
         -->
         <collab-presence class="me-2" />
         <w-btn
-          class="ms-4 acrylic-btn"
+          class="ms-4"
           icon="la:question-circle"
           flat
-          color="grey"
+          color="slate-soft"
           :href="siteStore.docsBase + `/guide/editors/${editorStore.editor}`"
           target="_blank"
           type="a">
@@ -255,14 +262,18 @@
         the content at all. Ahead of the commit actions so those stay rightmost.
       -->
       <template v-if="!editorStore.isActive && userStore.can(`write:pages`)">
+        <!--
+          The page's own primary action, and the one filled button on this surface (Cardinal: one
+          filled button per surface). Everything else in the row -- watch, print, the review queue,
+          the docs link -- is a bare icon in the chrome tone.
+        -->
         <w-btn
-          class="acrylic-btn ms-4"
-          flat
+          class="ms-4"
+          unelevated
           icon="la:edit"
-          color="deep-orange-9"
+          color="accent"
           :label="t(`common.actions.edit`)"
           :aria-label="t(`common.actions.edit`)"
-          no-caps
           @click="editPage" />
       </template>
       <!--
@@ -278,10 +289,10 @@
       -->
       <template v-else-if="!editorStore.isActive && pageStore.canSuggestEdits && !isRedirect">
         <w-btn
-          class="acrylic-btn ms-4"
-          flat
+          class="ms-4"
+          unelevated
           icon="la:edit"
-          color="deep-orange-9"
+          color="accent"
           :label="
             pageStore.hasOpenSuggestion
               ? t(`common.actions.continueSuggestion`)
@@ -297,10 +308,10 @@
       </template>
       <template v-if="editorStore.isActive || editorStore.hasPendingChanges">
         <w-btn
-          class="acrylic-btn ms-2"
-          flat
+          class="ms-2"
+          outline
           icon="la:times"
-          color="negative"
+          color="accent"
           :label="
             editorStore.hasPendingChanges ? t(`common.actions.discard`) : t(`common.actions.close`)
           "
@@ -310,9 +321,9 @@
           no-caps
           @click="discardChanges" />
         <w-btn
-          class="acrylic-btn ms-2"
+          class="ms-2"
           v-if="isSuggesting"
-          flat
+          unelevated
           icon="la:paper-plane"
           color="positive"
           :label="t(`common.actions.submitEdits`)"
@@ -321,9 +332,9 @@
           no-caps
           @click="submitSuggestion" />
         <w-btn
-          class="acrylic-btn ms-2"
+          class="ms-2"
           v-else-if="editorStore.mode === `create`"
-          flat
+          unelevated
           icon="la:check"
           color="positive"
           :label="t(`editor.createPage`)"
@@ -332,8 +343,7 @@
           @click="createPage" />
         <w-btn-group class="ms-2" v-else>
           <w-btn
-            class="acrylic-btn"
-            flat
+            unelevated
             icon="la:check"
             color="positive"
             :label="t(`common.actions.saveChanges`)"
@@ -343,10 +353,9 @@
             @click.exact="saveChanges(false)"
             @click.ctrl.exact="saveChanges(true)" />
           <template v-if="editorStore.isActive">
-            <w-separator vertical dark />
+            <w-separator vertical />
             <w-btn
-              class="acrylic-btn"
-              flat
+              unelevated
               icon="la:check-double"
               color="positive"
               :aria-label="t(`common.actions.saveAndClose`)"
@@ -492,7 +501,14 @@ const isPhoneViewport = computed(() => !isAtLeastSm.value)
  * Bound rather than left to a media query: `WIcon` renders `size` as an inline `font-size`, which no
  * stylesheet can outrank without `!important`.
  */
-const iconSize = computed(() => (isPhoneViewport.value ? '32px' : '64px'))
+/*
+  The plate and the glyph inside it. The plate is the 64px square the design draws (halved on a
+  phone, along with everything else in this row); the glyph is a little over half of it, which is
+  what leaves the frame reading as a frame rather than as a border drawn round an icon.
+*/
+const plateSize = computed(() => (isPhoneViewport.value ? '36px' : '64px'))
+const glyphSize = computed(() => (isPhoneViewport.value ? '20px' : '34px'))
+const plateStyle = computed(() => ({ width: plateSize.value, height: plateSize.value }))
 
 /**
  * Whether this row holds an editor's own controls — Save, Discard, Submit — rather than only the

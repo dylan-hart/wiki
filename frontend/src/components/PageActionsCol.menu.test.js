@@ -15,7 +15,8 @@ import {
   clickMenuItem,
   menuItemLabels,
   mountRailForGuard,
-  mountRailWithPageActions
+  mountRailWithPageActions,
+  openPageActionsMenu
 } from './pageActionsHarness.js'
 
 describe('PageActionsCol page actions menu', () => {
@@ -119,7 +120,8 @@ describe('PageActionsCol duplicate page (OpenProject #1787)', () => {
     ;({ wrapper } = ctx = await mountRailWithPageActions())
     vi.spyOn(ctx.pageStore, 'pageDuplicate').mockRejectedValue(new Error('duplicate failed'))
 
-    await wrapper.get('[aria-label="pageActions.duplicatePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Duplicate Page')
     expect(openDialogs).toHaveLength(1)
 
     closeDialog(openDialogs[0].id, true, { path: 'copy', title: 'Copy' })
@@ -139,7 +141,8 @@ describe('PageActionsCol duplicate page (OpenProject #1787)', () => {
     ;({ wrapper } = ctx = await mountRailWithPageActions())
     vi.spyOn(ctx.pageStore, 'pageDuplicate').mockResolvedValue(undefined)
 
-    await wrapper.get('[aria-label="pageActions.duplicatePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Duplicate Page')
     closeDialog(openDialogs[0].id, true, { path: 'copy', title: 'Copy' })
     await flushPromises()
 
@@ -163,7 +166,8 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('confirms before deleting the home page, then opens the real delete dialog', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
 
-    await wrapper.get('[aria-label="pageActions.deletePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Delete Page')
 
     expect(openDialogs).toHaveLength(1)
     expect(openDialogs[0].props).toMatchObject({
@@ -183,7 +187,8 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('does not delete the home page when the guard is cancelled', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
 
-    await wrapper.get('[aria-label="pageActions.deletePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Delete Page')
     closeDialog(openDialogs[0].id, false)
     await flushPromises()
 
@@ -193,7 +198,8 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('deletes an ordinary page with no extra guard', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'docs/getting-started' }))
 
-    await wrapper.get('[aria-label="pageActions.deletePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Delete Page')
 
     expect(openDialogs).toHaveLength(1)
     expect(openDialogs[0].props).toMatchObject({ pageId: 'page-1', pageName: 'Welcome' })
@@ -204,7 +210,8 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = ctx = await mountRailForGuard({ path: 'home' }))
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Rename / Move Page')
     closeDialog(openDialogs[0].id, true, {
       path: 'about-us',
       title: 'Welcome',
@@ -232,7 +239,8 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('does not move when the homepage move guard is cancelled', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
 
-    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Rename / Move Page')
     closeDialog(openDialogs[0].id, true, {
       path: 'about-us',
       title: 'Welcome',
@@ -250,7 +258,8 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
     API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Rename / Move Page')
     closeDialog(openDialogs[0].id, true, {
       path: 'home',
       title: 'New Title',
@@ -268,7 +277,8 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = ctx = await mountRailForGuard({ path: 'docs/getting-started' }))
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Rename / Move Page')
     closeDialog(openDialogs[0].id, true, {
       path: 'docs/other',
       title: 'Getting Started',

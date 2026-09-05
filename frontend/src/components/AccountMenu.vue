@@ -57,7 +57,16 @@ const { t } = useI18n()
 <style lang="scss">
 // -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline
 //    `color`, which would outrank this rule
+/*
+  The account button takes the same chrome tone as the other five icons in the band rather than a
+  dimmed white -- Cardinal's header is a white plate, so a translucent white here rendered the glyph
+  almost invisible. `--color-slate-soft` is the icon-stroke tone the whole band is drawn in.
+*/
 .account-avbtn {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--color-slate-soft);
+}
+
+.body--dark .account-avbtn {
+  color: var(--color-slate-light);
 }
 </style>

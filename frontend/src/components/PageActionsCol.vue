@@ -22,7 +22,7 @@
         class="aspect-square"
         flat
         icon="la:pen-nib"
-        :color="editorStore.isActive ? `white` : `deep-orange-9`"
+        :color="editorStore.isActive ? `white` : `accent-fill`"
         :disabled="isRedirect"
         :aria-label="t('pageActions.pageProperties')"
         @click="togglePageProperties">
@@ -36,7 +36,7 @@
         v-if="editorStore.isActive && !isRedirect"
         flat
         color="white"
-        :text-color="hasPendingAssets ? `white` : `deep-orange-3`"
+        :text-color="hasPendingAssets ? `white` : `accent-wash`"
         :aria-label="t('pageActions.pendingAssetUploads')">
         <!-- Outside the icon for the same reason as the review badge above -->
         <w-icon name="mdi:image-sync-outline" />
@@ -155,7 +155,7 @@
         v-if="userStore.can(`read:history`)"
         flat
         icon="la:history"
-        :color="editorStore.isActive ? `white` : `grey`"
+        :color="editorStore.isActive ? `white` : `slate-soft`"
         :aria-label="t('pageActions.pageHistory')"
         @click="viewPageHistory">
         <w-tooltip anchor="center left" self="center right">{{
@@ -173,7 +173,7 @@
         flat
         icon="la:file-export"
         :loading="exportingPdf"
-        :color="editorStore.isActive ? `white` : `grey`"
+        :color="editorStore.isActive ? `white` : `slate-soft`"
         :aria-label="t('pageActions.exportPage')">
         <w-tooltip anchor="center left" self="center right">{{
           t('pages.export.title')
@@ -215,15 +215,15 @@
         class="h-12"
         flat
         icon="la:ellipsis-h"
-        :color="editorStore.isActive ? `deep-orange-2` : `grey`"
+        :color="editorStore.isActive ? `white` : `slate-soft`"
         :aria-label="t('common.header.pageActions')">
         <w-tooltip anchor="center left" self="center right">{{
           t('common.header.pageActions')
         }}</w-tooltip>
         <!--
           Literal colour classes, not WIcon's `color` prop: that builds `text-<name>` at runtime and
-          Tailwind only emits a utility it can see spelled out, so these three icons had been drawing
-          in the inherited text colour rather than the rail's orange.
+          Tailwind only emits a utility it can see spelled out, so these icons had been drawing in the
+          inherited text colour rather than the rail's own.
         -->
         <w-menu class="translucent-menu" anchor="top left" self="top right" auto-close>
           <w-list padding style="min-width: 225px">
@@ -231,7 +231,7 @@
                     rejects any editor but markdown -->
             <w-item clickable v-if="canRerenderPage" @click="rerenderPage">
               <w-item-section class="items-center" avatar>
-                <w-icon class="text-deep-orange-9" name="la:magic" size="sm" />
+                <w-icon class="text-slate-soft" name="la:magic" size="sm" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ t('common.page.rerender') }}</w-item-label></w-item-section
@@ -239,62 +239,60 @@
             </w-item>
             <w-item clickable @click="toggleBacklinks">
               <w-item-section class="items-center" avatar>
-                <w-icon class="text-deep-orange-9" name="la:sun" size="sm" />
+                <w-icon class="text-slate-soft" name="la:sun" size="sm" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ t('common.page.viewBacklinks') }}</w-item-label></w-item-section
               >
             </w-item>
+            <!--
+              Duplicate, rename/move and delete live HERE rather than as three more buttons down the
+              rail (Cardinal, `ui-redesign/CLAUDE.md`). Six icon-only buttons whose labels exist only
+              in a tooltip is five too many for a column 56px wide, and the three that were cut are
+              the three a reader never wants: they act on the page as a FILE, not on its contents,
+              which is what a more menu is for.
+
+              Hidden outright while a suggestion is being written or a page is being created:
+              duplicating, moving or deleting is not part of suggesting a change, and a submitter who
+              happens to hold those rights elsewhere would otherwise find them here. Same condition
+              the three buttons carried, moved with them.
+            -->
+            <template v-if="showsFileActions">
+              <w-separator v-if="canDuplicate || canRenameMove || canDelete" class="my-1" />
+              <w-item clickable v-if="canDuplicate" @click="duplicatePage">
+                <w-item-section class="items-center" avatar>
+                  <w-icon class="text-slate-soft" name="la:copy" size="sm" />
+                </w-item-section>
+                <w-item-section
+                  ><w-item-label>{{ t('common.page.duplicate') }}</w-item-label></w-item-section
+                >
+              </w-item>
+              <w-item clickable v-if="canRenameMove" @click="renamePage">
+                <w-item-section class="items-center" avatar>
+                  <w-icon class="text-slate-soft" name="la:share" size="sm" />
+                </w-item-section>
+                <w-item-section
+                  ><w-item-label>{{ t('common.page.renameMove') }}</w-item-label></w-item-section
+                >
+              </w-item>
+              <w-item clickable v-if="canDelete" @click="deletePage">
+                <w-item-section class="items-center" avatar>
+                  <w-icon class="text-accent" name="la:trash" size="sm" />
+                </w-item-section>
+                <w-item-section
+                  ><w-item-label class="text-accent">{{
+                    t('common.page.delete')
+                  }}</w-item-label></w-item-section
+                >
+              </w-item>
+            </template>
           </w-list>
         </w-menu>
       </w-btn>
     </template>
     <w-space />
-    <!--
-      Hidden outright while a suggestion is being written: duplicating, moving or deleting the page is
-      not part of suggesting a change to it, and a submitter who happens to hold those rights elsewhere
-      would otherwise find them here.
-    -->
-    <template v-if="!(editorStore.isActive && [`create`, `suggest`].includes(editorStore.mode))">
-      <w-btn
-        class="h-12"
-        v-if="userStore.can(`write:pages`)"
-        flat
-        icon="la:copy"
-        :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        :aria-label="t('pageActions.duplicatePage')"
-        @click="duplicatePage">
-        <w-tooltip anchor="center left" self="center right">{{
-          t('common.page.duplicate')
-        }}</w-tooltip>
-      </w-btn>
-      <w-btn
-        class="h-12"
-        v-if="userStore.can(`manage:pages`)"
-        flat
-        icon="la:share"
-        :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        :aria-label="t('pageActions.renameMovePage')"
-        @click="renamePage">
-        <w-tooltip anchor="center left" self="center right">{{
-          t('common.page.renameMove')
-        }}</w-tooltip>
-      </w-btn>
-      <w-btn
-        class="h-12"
-        v-if="userStore.can(`delete:pages`)"
-        flat
-        icon="la:trash"
-        :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        :aria-label="t('pageActions.deletePage')"
-        @click="deletePage">
-        <w-tooltip anchor="center left" self="center right">{{
-          t('common.page.delete')
-        }}</w-tooltip>
-      </w-btn>
-    </template>
-    <!-- What the rail says instead: which of the two write modes the editor is in. -->
-    <span class="page-actions-mode" v-else>{{
+    <!-- Which of the two write modes the editor is in, set down the rail's own length. -->
+    <span v-if="!showsFileActions && editorStore.isActive" class="page-actions-mode">{{
       editorStore.mode === `suggest`
         ? t('common.actions.suggestedEdit')
         : t('common.actions.newPage')
@@ -415,6 +413,23 @@ const canRerenderPage = computed(
   () =>
     userStore.can('write:pages') && siteStore.pdfExportAvailable && pageStore.editor === 'markdown'
 )
+
+/**
+ * Whether the more menu offers the three actions that treat the page as a FILE -- duplicate,
+ * rename/move, delete (Cardinal folded them in from the rail; see the menu's own comment).
+ *
+ * Off while a suggestion is being written or a page is being created: neither is an act ON an
+ * existing page, and a submitter who happens to hold those rights elsewhere should not find them
+ * offered here. The three permissions below are checked individually on top of this, since a reader
+ * may hold any one of them without the others.
+ */
+const showsFileActions = computed(
+  () => !(editorStore.isActive && ['create', 'suggest'].includes(editorStore.mode))
+)
+
+const canDuplicate = computed(() => userStore.can('write:pages'))
+const canRenameMove = computed(() => userStore.can('manage:pages'))
+const canDelete = computed(() => userStore.can('delete:pages'))
 
 // METHODS
 
@@ -752,19 +767,41 @@ $action-btn-height: 3rem;
     }
   }
 
+  /*
+    The rail's own ground: the tint, ruled off from the article column beside it. Cardinal's chrome is
+    continuous light slate, so the rail is a strip of the same paper the sidebar is, not a grey block.
+  */
   @at-root .body--light & {
-    background-color: $grey-3;
+    background-color: $tint;
+    border-inline-start: 1px solid $hairline;
   }
   @at-root .body--dark & {
     background-color: $dark-4;
+    border-inline-start: 1px solid $hairline-dark;
   }
 
+  /*
+    Editing turns the rail's own edge accent rather than filling the whole column: a 56px block of
+    saturated red down the side of an article is the loudest thing on the screen, and what it has to
+    say ("you are editing") is already said by the header, the toolbar and the save button. The strip
+    marks the same state without competing with the work.
+  */
   &.is-editor {
+    border-inline-start: 2px solid $accent-fill;
+  }
+
+  /*
+    The rail's first cell -- page properties, its primary action -- lifted onto the article column's
+    own white so it reads as the head of the rail rather than as the first of a row of equals.
+  */
+  > .aspect-square:first-child {
     @at-root .body--light & {
-      background-color: $deep-orange-9;
+      background-color: $surface;
+      border-block-end: 1px solid $hairline;
     }
     @at-root .body--dark & {
-      background-color: $deep-orange-9;
+      background-color: $dark-3;
+      border-block-end: 1px solid $hairline-dark;
     }
   }
 
@@ -772,12 +809,17 @@ $action-btn-height: 3rem;
   overflow-y: auto;
   scrollbar-width: none;
 
+  /* -> Set down the rail in Cardinal's chrome overline: tracked uppercase Roboto Mono */
   &-mode {
     writing-mode: vertical-rl;
     text-orientation: mixed;
     padding: 1.75rem 1rem 1.75rem 0;
-    color: $deep-orange-3;
-    font-weight: 500;
+    color: $accent-text;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
   }
 
   &-pending-badge {

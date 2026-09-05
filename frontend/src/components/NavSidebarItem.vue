@@ -10,10 +10,8 @@
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
-      <w-item-section side><w-icon :name="item.icon" color="white" /></w-item-section>
-      <w-item-section class="text-wordbreak-all text-white">{{
-        displayLabel(item)
-      }}</w-item-section>
+      <w-item-section side><w-icon :name="item.icon" color="slate-faint" /></w-item-section>
+      <w-item-section class="text-wordbreak-all">{{ displayLabel(item) }}</w-item-section>
       <!-- -> Create inside this folder: right-click anywhere on its own header row -->
       <page-new-menu
         v-if="canCreate"
@@ -23,7 +21,7 @@
         :hide-asset-btn="!canUploadAsset"
         @new-folder="openFolderDialog(parentIdFor(item))" />
     </template>
-    <w-list dense dark>
+    <w-list dense>
       <!-- -> One nav item, plus its own expansion behavior if it has children -- rendered for each
               child so a folder nested any number of levels deep still draws its own contents,
               rather than only the first level under the sidebar root -->
@@ -31,8 +29,8 @@
     </w-list>
   </w-expansion-item>
   <w-item v-else v-bind="destination(item)">
-    <w-item-section side><w-icon :name="item.icon" color="white" /></w-item-section>
-    <w-item-section class="text-wordbreak-all text-white">{{ displayLabel(item) }}</w-item-section>
+    <w-item-section side><w-icon :name="item.icon" color="slate-faint" /></w-item-section>
+    <w-item-section class="text-wordbreak-all">{{ displayLabel(item) }}</w-item-section>
     <!-- -> Create as a sibling, in the folder this page lives in: right-click anywhere on its row -->
     <page-new-menu
       v-if="canCreate"

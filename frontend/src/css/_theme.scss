@@ -28,6 +28,7 @@
 // button or a badge resolves to. See `helpers/accessibility.test.js`, which pins this.
 $primary: #c14a52;
 $accent-fill: #e4676b;
+$accent-text: $primary; // the same tone, named for the job it does: accent TEXT on white
 $accent-strong: #a83f45;
 $accent-wash: #fdeced;
 
@@ -96,4 +97,5 @@ $accent-wash-dark: #3a2b34;
 $positive-dark: #3f7a66;
 $negative-dark: #a83f45;
 
+$header: $surface;
 $sidebar: $tint-alt;

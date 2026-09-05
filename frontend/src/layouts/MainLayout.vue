@@ -25,7 +25,7 @@
           class="py-4"
           flat
           icon="la:angle-double-right"
-          color="white"
+          color="slate"
           :aria-label="t('common.sidebar.expand')"
           @click="sidebarExpandOverride = true">
           <w-tooltip anchor="center right" self="center left">{{
@@ -37,7 +37,7 @@
           class="py-4"
           flat
           icon="la:globe"
-          color="white"
+          color="slate"
           :aria-label="t('common.sidebar.switchLocale')">
           <locale-selector-menu anchor="top right" self="top left" />
           <w-tooltip anchor="center right" self="center left">{{
@@ -49,7 +49,7 @@
           class="py-4"
           flat
           icon="la:sitemap"
-          color="white"
+          color="slate"
           :aria-label="t(`common.sidebar.browse`)">
           <nav-browse-menu anchor="top right" self="top left" />
           <w-tooltip anchor="center right" self="center left">
@@ -62,7 +62,7 @@
           class="py-1"
           flat
           icon="la:dharmachakra"
-          color="white"
+          color="slate"
           :aria-label="t(`common.sidebar.editNav`)"
           size="sm">
           <w-menu ref="navEditMenuMini" anchor="top right" self="bottom left">
@@ -119,7 +119,7 @@
         </div>
         <nav-sidebar />
         <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one -->
-        <w-bar v-if="showEditNav" class="sidebar-footerbtns text-white" dense>
+        <w-bar v-if="showEditNav" class="sidebar-footerbtns" dense>
           <w-btn class="flex-1" icon="la:dharmachakra" :label="t(`common.sidebar.editNav`)" flat>
             <w-menu ref="navEditMenu" anchor="top left" self="bottom left" :offset="[0, 10]">
               <nav-edit-menu
@@ -553,15 +553,30 @@ function openSidebar() {
   }
 }
 
+/*
+  The strip across the top of the sidebar holding the locale switcher and the tree browser. A flat
+  38px band ruled off underneath -- the gradient it used to carry (a white sheen fading to a black
+  wash) was relief, and read as a bevel on a tint that is four percent off white.
+
+  Two hairlines, not one: the sidebar's own column starts here, so this band needs an edge above it
+  as well as below, or it merges into the header band it sits under.
+*/
 .sidebar-actions {
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 0%, rgba(0, 0, 0, 0.05) 100%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
   height: 38px;
+  border-bottom: 1px solid $hairline;
 
   // -> Where the two buttons above get their colour, so neither carries a `color` prop: `WBtn` emits
   //    an inline `color`, which would outrank this rule
   .w-btn {
-    color: rgba(255, 255, 255, 0.8);
+    color: $slate;
+  }
+}
+
+.body--dark .sidebar-actions {
+  border-bottom-color: $hairline-dark;
+
+  .w-btn {
+    color: $text-secondary-dark;
   }
 }
 
@@ -574,9 +589,27 @@ function openSidebar() {
   above scrolls inside itself, so this bar sits at the bottom of the window by being last in the
   column. WBar's own translucent tint is what colours it -- the `background-color` that used to be
   declared here never applied, its scoped rule outranking a single class.
+
+  Ruled off from the list above, matching the strip at the top of the same column.
 */
 .sidebar-footerbtns {
   flex-shrink: 0;
+  border-top: 1px solid $hairline;
+  color: $text-secondary;
+}
+
+.body--dark .sidebar-footerbtns {
+  border-top-color: $hairline-dark;
+  color: $text-secondary-dark;
+}
+
+/*
+  The app's own ground, behind every column. `--color-paper` rather than white: Cardinal's surfaces
+  (the header band, the content column, a card) are white, and the paper behind them is what makes
+  each of them read as a plate rather than as more of the same sheet.
+*/
+body {
+  background-color: $paper;
 }
 
 body.body--dark {
@@ -614,16 +647,21 @@ body.body--dark {
       padding: 0;
     }
 
-    // -> The radius is WDialog's, and the panel clips to it there; this only adds the depth and the
-    //    title-bar strip an overlay wants on top of it
+    /*
+      A flat panel with a hairline edge, and enough shadow to say it is over the page rather than in
+      it. The gradient this replaces -- a 10px dark strip along the top, then a step to grey and a
+      fade -- was drawing a title bar the overlays no longer have.
+    */
     > .w-dialog-panel {
-      box-shadow: 0 0 30px 0 rgba(0, 0, 0, 0.3);
+      box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
 
       @at-root .body--light & {
-        background-image: linear-gradient(to bottom, $dark-5 10px, $grey-3 11px, $grey-4);
+        background-color: $paper;
+        border: 1px solid $hairline;
       }
       @at-root .body--dark & {
-        background-image: linear-gradient(to bottom, $dark-4 10px, $dark-4 11px, $dark-3);
+        background-color: $dark-5;
+        border: 1px solid $hairline-dark;
       }
     }
   }

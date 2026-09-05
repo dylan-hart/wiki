@@ -113,9 +113,9 @@ const SHIPPED_PALETTE_PAIRS = [
   // -> The one brand token whose fill takes dark ink rather than white. Cardinal has no gold dark
   //    enough to carry a white label AND still read as a warning, so the foreground moves instead.
   { name: 'warning', hex: '#d9a441', on: INK },
-  // -- The chrome, still on the 3.x default seed until HeaderNav/NavSidebar move ------------
-  { name: 'header', hex: '#000', on: '#ffffff' },
-  { name: 'sidebar', hex: '#1976d2', on: '#ffffff' },
+  // -- The chrome: a white band and the cooler tint, both drawing their contents in ink ----
+  { name: 'header', hex: '#ffffff', on: INK },
+  { name: 'sidebar', hex: '#f0f2f7', on: INK },
   // -- The bright fills: under `--color-ink`, never under white ----------------------------
   { name: 'accent-fill', hex: '#e4676b', on: INK },
   { name: 'positive-fill', hex: '#5f9c86', on: INK },

@@ -120,12 +120,14 @@ html.theme-transition-suppress *::after {
   --q-info: #38465f;
   --q-warning: #d9a441;
   /*
-    Chrome. Still the black/blue the 3.x default site seeds, because their foreground is hard-coded
-    white in `HeaderNav.vue` / `NavSidebar.vue` -- Cardinal's white header band and #f0f2f7 sidebar
-    land with those two components, not before them, or the header would be white text on white.
+    Chrome. Cardinal's header is a WHITE band ruled off with a hairline and its sidebar the cooler of
+    the two tints -- continuous light slate, not a dark bar over a saturated column. Both draw their
+    contents in `--color-ink` (`HeaderNav.vue`, `NavSidebar.vue`, and `AdminTheme.vue`'s
+    `CHROME_TEXT_COLOR`, which is what its contrast warnings measure against), where the 3.x chrome
+    drew them in white.
   */
-  --q-header: #000;
-  --q-sidebar: #1976d2;
+  --q-header: #fff;
+  --q-sidebar: #f0f2f7;
 }
 
 /*

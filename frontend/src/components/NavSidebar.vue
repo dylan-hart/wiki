@@ -1,13 +1,9 @@
 <template>
-  <!-- -> The dent marking the current page is cut out of the edge FACING the content, which is the
-          right one only while the sidebar is on the left; see the stylesheet -->
-  <w-scroll-area
-    class="sidebar-nav"
-    :class="siteStore.theme.sidebarPosition === `right` ? `sidebar-nav--flipped` : ``">
+  <w-scroll-area class="sidebar-nav">
     <!-- -> The primary navigation landmark: distinct from `PageToc`'s own `<nav>` so the two are
             reachable and tellable apart from the landmarks rotor -->
     <nav :aria-label="t(`common.sidebar.browse`)">
-      <w-list class="sidebar-nav-list" dense dark>
+      <w-list class="sidebar-nav-list" dense>
         <template v-for="item of siteStore.nav.items" :key="item.id">
           <w-item-label
             class="sidebar-nav-header text-caption text-wordbreak-all"
@@ -19,7 +15,7 @@
                   folder nested any number of levels deep still draws its own contents rather than
                   only the first level under the sidebar root -->
           <nav-sidebar-item v-else-if="item.type === `link`" :item="item" />
-          <w-separator v-else-if="item.type === `separator`" dark />
+          <w-separator v-else-if="item.type === `separator`" />
         </template>
       </w-list>
       <!-- -> Right-click empty space to create at this menu's own generator root -- only meaningful
@@ -111,7 +107,13 @@ watch(
 $sidebar-overlay-max: 1199.98px;
 
 .sidebar-nav {
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-top: 1px solid $hairline;
+  /*
+    The column's own foreground, stated rather than inherited: the drawer takes the site's chosen
+    sidebar colour (or, in dark mode, the ramp -- see `css/_base.scss`), and what a nav row inherits
+    from the layout above it is the document's own ink either way.
+  */
+  color: $slate;
   /* -> Fills whatever the drawer's flex column has left over, rather than subtracting the action bar
      and footer bar by hand: both are conditional, so a fixed `calc()` left dead space at the bottom
      for an anonymous reader (no footer bar) and for a site with no action bar at all. `min-height: 0`
@@ -163,11 +165,11 @@ $sidebar-overlay-max: 1199.98px;
       padding-top: 10px;
     }
 
-    /* -> Full white, like the icons and labels this sidebar sets by hand: the chevron is what says the
-       row opens, so it is not the secondary content a trailing section is dimmed for. Set on the icon
-       rather than on its section, which is what makes it beat the inherited dimmed colour. */
+    /* -> The chevron is what says the row opens, so it is not the secondary content a trailing
+       section is dimmed for: it takes the sidebar's own chrome tone at full strength. Set on the
+       icon rather than on its section, which is what makes it beat the inherited dimmed colour. */
     .w-expansion-item__arrow {
-      color: #fff;
+      color: $slate-soft;
     }
 
     .w-item-section--avatar {
@@ -175,52 +177,47 @@ $sidebar-overlay-max: 1199.98px;
     }
 
     /*
-      The row holding the page being read, marked by a notch bitten out of the sidebar's inner edge.
+      The row holding the page being read: lifted onto the content column's own white, with a 2px
+      accent bar down the edge it shares with the rest of the sidebar and its label in ink.
 
-      Painted in the colour of what is on the other side of that edge -- the page itself, which is the
-      body's own background, since nothing between here and the article column paints one. So it is not a
-      marker drawn ON the sidebar but a piece of the sidebar missing, with the content showing through.
+      This replaces a notch bitten out of the sidebar's inner edge -- a triangle painted in the
+      colour of the page beyond it, so the mark was a piece of the sidebar MISSING rather than
+      something drawn on it. That worked because the sidebar was a saturated column against a white
+      page; on Cardinal's tint the two grounds are four percent apart and the absence read as a
+      smudge. A bar states the same thing, and states it on the edge the reader is already scanning.
 
       `router-link-exact-active` is `RouterLink`'s own, so the mark follows the reader without this
-      component tracking anything: a row rendered as a plain `<a>` -- an address that leaves the wiki or
-      opens in a new tab -- never carries it, which is right, because a reader is never already there.
+      component tracking anything: a row rendered as a plain `<a>` -- an address that leaves the wiki
+      or opens in a new tab -- never carries it, which is right, because a reader is never already
+      there.
     */
     .w-item.router-link-exact-active {
-      position: relative;
-
+      background-color: $surface;
+      color: $ink;
+      font-weight: 500;
       /*
-        A triangle out of one border: the INLINE-END border is the only one with a colour, and the
-        inline-start one has no width, so the shape tapers to a point on the inline-start side. Flush
-        to the edge and centred on the row.
+        Logical, and paired with the padding below rather than layered over it: the bar is a real
+        border, so it takes 2px off the row's own inline-start padding and the label has to give
+        them back, or an active row's text would step 2px further in than its neighbours'.
 
-        Written in logical properties rather than `left`/`right` on purpose: this edge always faces
-        the content column, whether that column sits at the sidebar's inline-end (this rule) or its
-        inline-start (the `--flipped` override below) is decided by `sidebarPosition`, a SITE setting
-        -- and which physical side "inline-end" resolves to is decided independently by the reader's
-        text direction. `WLayout`'s grid (`ldrawer main rdrawer`) already places those areas along the
-        inline axis, so the sidebar itself swaps physical sides under `dir="rtl"` with no extra CSS;
-        what logical properties buy here is keeping the NOTCH glued to the edge that swapped with it,
-        for every one of the four `sidebarPosition` × direction combinations, without this rule having
-        to ask which one it is currently in.
+        Which physical side "inline-start" resolves to is the reader's direction, and that is the
+        right question here -- unlike the notch this replaces, which had to follow the CONTENT
+        column (a site setting) rather than the reading direction, and needed a `--flipped` variant
+        to do it. A bar on the edge you start reading from needs no such thing.
       */
-      &::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        inset-inline-end: 0;
-        width: 0;
-        height: 0;
-        transform: translateY(-50%);
-        border-style: solid;
-        border-block-width: 7px;
-        border-inline-start-width: 0;
-        border-inline-end-width: 7px;
-        border-block-color: transparent;
-        border-inline-start-color: transparent;
-        border-inline-end-color: #fff;
+      border-inline-start: 2px solid $accent-fill;
+      padding-inline-start: 14px;
 
-        @at-root .body--dark & {
-          border-inline-end-color: $dark-6;
+      .w-icon {
+        color: $accent-fill;
+      }
+
+      @at-root .body--dark & {
+        background-color: $dark-3;
+        color: $text-dark;
+
+        .w-icon {
+          color: $accent-dark;
         }
       }
     }
@@ -269,7 +266,7 @@ $sidebar-overlay-max: 1199.98px;
         to the same wash the nesting itself already darkens by makes a rail's shade tell you which
         level's group it belongs to, the same way the row colours already do.
       */
-      border-inline-start: 10px solid rgb(0 0 0 / 0.12);
+      border-inline-start: 10px solid rgb(0 0 0 / 0.05);
       /*
         And a step DOWN from the sidebar rather than up, which is the one place this parts company with
         `NavEditOverlay`: there the nested rows lift off a near-black panel, here they sit in a coloured
@@ -277,14 +274,15 @@ $sidebar-overlay-max: 1199.98px;
         editors shade a folder's contents relative to its siblings.
 
         A translucent black, not a colour: the sidebar's own is the site's to choose (`--q-sidebar`,
-        rewritten at runtime for per-site theming), so anything fixed would be right for the default blue
-        and wrong for every other site.
+        rewritten at runtime for per-site theming), so anything fixed would be right for the default
+        tint and wrong for every other site. Held at 5% rather than the 12% it was: the same step that
+        read as one shade of a saturated blue reads as a bruise on a near-white tint.
 
         `padding-box` keeps this wash off the border area -- the rail (above) draws its OWN, unclipped
         copy of this same colour there instead, which is what lets the two compound into progressively
         darker shades with depth rather than the wash silently doubling up under the rail on top of it.
       */
-      background-color: rgb(0 0 0 / 0.12);
+      background-color: rgb(0 0 0 / 0.05);
       background-clip: padding-box;
 
       /*
@@ -317,68 +315,49 @@ $sidebar-overlay-max: 1199.98px;
         border-inline-end-color: transparent;
         /* -> Same colour as the rail above, for the same reason: this elbow is this level's own
                 turn into it, so it carries this level's own shade, not a fixed one. */
-        border-block-end-color: rgb(0 0 0 / 0.12);
-        border-inline-start-color: rgb(0 0 0 / 0.12);
+        border-block-end-color: rgb(0 0 0 / 0.05);
+        border-inline-start-color: rgb(0 0 0 / 0.05);
       }
     }
   }
 
   /*
-    A site can put this sidebar on the right instead, which puts the page on the other side of it: the
-    notch has to be bitten out of the inline-start edge then, and point the other way, or it is a white
-    arrow pointing at nothing. `sidebarPosition` is a SITE setting, independent of the reader's text
-    direction -- see the comment on the base rule above -- so this override exists whether the locale
-    is LTR or RTL, and each of those still resolves "inline-start"/"inline-end" for itself.
-
-    Same specificity as the rule it overrides and stated after it, so the sides swap cleanly.
+    The active row's own bar follows the READING direction, not `sidebarPosition`, and so needs
+    nothing said about it here -- which is the whole reason it replaced the notch. That notch needed
+    two overrides this file no longer carries, plus a `sidebar-nav--flipped` class on the root to
+    drive one of them: a `--flipped` rule to bite it out of the other edge when a site puts its
+    sidebar on the right, and a breakpoint rule to suppress it entirely once the drawer overlays the
+    page, since a mark made of the page showing through has nothing to show through while it floats
+    OVER that page. Neither applies to a bar.
   */
-  &--flipped .w-list .w-item.router-link-exact-active::after {
-    inset-inline-end: auto;
-    inset-inline-start: 0;
-    border-inline-start-width: 7px;
-    border-inline-end-width: 0;
-    border-inline-start-color: #fff;
-    border-inline-end-color: transparent;
-
-    @at-root .body--dark & {
-      border-inline-start-color: $dark-6;
-    }
-  }
 
   /*
-    A child row starts 10px in, past the rule that marks the group -- and on this side that is the edge
-    the notch is cut from, so it would be bitten out of the middle of the sidebar with a strip of colour
-    still outside it. Pushed back out to where the sidebar itself ends.
-
-    The other way round this does not arise: with the sidebar on the left the notch is on the right edge,
-    and only the left of a child row is indented.
+    A group heading: Cardinal's chrome overline, in tracked uppercase Roboto Mono. `!important`
+    because `WItemLabel`'s `header` variant sets its own colour.
   */
-  /*
-    No notch at all once the drawer overlays the page instead of taking a column beside it.
+  @at-root .body--dark & {
+    border-top-color: $hairline-dark;
+    color: $text-secondary-dark;
 
-    The mark is not drawn ON the sidebar -- it is a piece of the sidebar MISSING, painted in the colour
-    of whatever is on the other side of that edge, which is the page. Overlaying, there is nothing on
-    the other side to show through: the panel floats over the article with a scrim behind it, so the
-    notch stops being an absence and becomes what it is made of -- a white arrow on a coloured panel,
-    pointing at the middle of a page it is covering. Which is also why hiding it is a matter of the
-    layout rather than of the screen being a phone: the same arrow is just as wrong on a tablet.
-
-    `content: none` rather than `display: none`, so the box is never generated. Stated after both
-    `--flipped` rules and at their specificity, so it takes the notch away whichever edge it was cut
-    from -- and `$sidebar-overlay-max` is the width MainLayout hands the drawer as `overlayBelow`, which
-    the two have to agree on.
-  */
-  @media (max-width: $sidebar-overlay-max) {
-    .w-list .w-item.router-link-exact-active::after {
-      content: none;
+    .w-expansion-item__arrow {
+      color: $slate-light;
     }
   }
 
   &-header {
-    color: rgba(255, 255, 255, 0.75) !important;
+    color: $text-caption !important;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
     /* -> WItemLabel's uniform `p-4` leaves the heading floating between its own group and the one
        above it; tightening the bottom side ties it to the links it labels */
     padding-bottom: 4px;
+
+    @at-root .body--dark & {
+      color: $text-caption-dark !important;
+    }
   }
 }
 </style>

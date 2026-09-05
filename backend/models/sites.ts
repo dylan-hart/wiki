@@ -114,8 +114,8 @@ export const DEFAULT_THEME_COLORS = {
   colorPrimary: '#c14a52',
   colorSecondary: '#3f7a66',
   colorAccent: '#c14a52',
-  colorHeader: '#000000',
-  colorSidebar: '#1976D2'
+  colorHeader: '#ffffff',
+  colorSidebar: '#f0f2f7'
 }
 
 /**

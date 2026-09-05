@@ -1126,23 +1126,30 @@ $toc-overlay-max: 749.98px;
   opacity: 0.12;
 }
 
+/*
+  The trail, above the masthead. Cardinal sets a path in Roboto Mono on the content column's own white,
+  ruled off underneath -- so it reads as the page's address rather than as another band of chrome. The
+  gradient it used to carry (grey-1 to grey-3 with a heavier rule under it) was a bevel, and the whole
+  point of the trail is that it gives way to the page beneath it.
+*/
 .page-breadcrumbs {
-  @at-root .body--light & {
-    background: linear-gradient(to bottom, $grey-1 0%, $grey-3 100%);
-    border-bottom: 1px solid $grey-4;
-  }
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+
   /*
     The bar sets a background per theme, so it owes a foreground too: the LAST crumb -- the current
     page -- deliberately inherits rather than taking `active-color`, and what it was inheriting in
     dark mode was the document's black.
   */
   @at-root .body--light & {
-    color: var(--color-black);
+    background-color: $surface;
+    border-bottom: 1px solid $hairline;
+    color: $text-caption;
   }
   @at-root .body--dark & {
-    background: linear-gradient(to bottom, $dark-3 0%, $dark-4 100%);
-    border-bottom: 1px solid $dark-3;
-    color: var(--color-white);
+    background-color: $dark-3;
+    border-bottom: 1px solid $hairline-dark;
+    color: $text-caption-dark;
   }
 
   /*
@@ -1154,9 +1161,15 @@ $toc-overlay-max: 749.98px;
     on the screen -- what is wanted is a bar that gives way to the page under it, not one nobody can read.
   */
   @media (max-width: $breakpoint-xs-max) {
-    font-size: 0.8125rem;
+    font-size: 10.5px;
   }
 }
+
+/*
+  The masthead. A white plate with the page's icon in a hairline square beside its title, ruled off
+  from the article -- the two-stop gradient and the white top edge it used to carry were the same
+  bevel the trail above it had, and they are gone for the same reason.
+*/
 .page-header {
   height: 95px;
 
@@ -1174,34 +1187,45 @@ $toc-overlay-max: 749.98px;
   }
 
   @at-root .body--light & {
-    background: linear-gradient(to bottom, $grey-2 0%, $grey-1 100%);
-    border-bottom: 1px solid $grey-4;
-    border-top: 1px solid #fff;
+    background-color: $surface;
+    border-bottom: 1px solid $hairline;
   }
   @at-root .body--dark & {
-    background: linear-gradient(to bottom, $dark-4 0%, $dark-3 100%);
-    // border-bottom: 1px solid $dark-5;
-    border-top: 1px solid $dark-6;
+    background-color: $dark-3;
+    border-bottom: 1px solid $hairline-dark;
   }
 
-  .no-height .q-field__control {
-    height: auto;
-  }
-
+  /*
+    The page's own title, and the one place in the interface the display face is set at full size:
+    Barlow Condensed at 36px/700, which is what lets a long title stay on one line in a bar this
+    height. `text-wrap: pretty` keeps a two-line title from leaving one orphaned word.
+  */
   &-title {
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: normal;
+    text-wrap: pretty;
+
     @at-root .body--light & {
-      color: $grey-9;
+      color: $ink;
     }
     @at-root .body--dark & {
-      color: #fff;
+      color: $text-dark;
     }
   }
+
   &-subtitle {
+    font-size: 14.5px;
+    line-height: 1.45;
+    letter-spacing: normal;
+
     @at-root .body--light & {
-      color: $grey-7;
+      color: $text-secondary;
     }
     @at-root .body--dark & {
-      color: rgba(255, 255, 255, 0.6);
+      color: $text-secondary-dark;
     }
   }
 }
@@ -1240,13 +1264,18 @@ $toc-overlay-max: 749.98px;
   }
 }
 
+/*
+  The article column's own ground: white, so it reads as a sheet laid on the paper behind it. Stated
+  here rather than left to the body, because the page's ground is `--color-paper` now -- see
+  `MainLayout`.
+*/
 .page-container {
   @at-root .body--light & {
-    border-top: 1px solid #fff;
+    background-color: $surface;
   }
-  // @at-root .body--dark & {
-  //   border-top: 1px solid $dark-6;
-  // }
+  @at-root .body--dark & {
+    background-color: $dark-3;
+  }
 }
 /*
   The Tags heading's edit toggle. `visibility` is transitioned alongside the opacity so it still fades
@@ -1323,24 +1352,32 @@ $toc-overlay-max: 749.98px;
     }
   }
 
+  /*
+    A hair off the article column's white rather than a grey panel beside it -- the rail holds the
+    page's own metadata (contents, tags, revision, watchers), so it belongs to the sheet, and the
+    hairline down its leading edge is what separates the two.
+  */
   @at-root .body--light & {
-    background-color: $grey-2;
+    background-color: #fbfcfe;
+    border-inline-start: 1px solid $hairline;
   }
   @at-root .body--dark & {
-    background-color: $dark-5;
+    background-color: $dark-4;
+    border-inline-start: 1px solid $hairline-dark;
   }
 
-  // A light rule on the light sidebar, near-black on the dark one -- it reads as the bevel between
-  // two panels rather than as a drawn line.
+  // The rules BETWEEN this rail's own sections, which are hairlines like every other rule in the
+  // language -- where they used to be a light-on-light / near-black-on-dark pair drawing the bevel
+  // between two panels.
   //
   // The original set a background-colour here as well as a border. It never showed: the element is
   // 1px tall with `box-sizing: border-box`, so the content box is 0px and the opaque border covers
   // it completely. Only the border colour is carried across.
   .w-separator {
-    --w-hairline-color: #fff;
+    --w-hairline-color: #{$hairline};
   }
   @at-root .body--dark & .w-separator {
-    --w-hairline-color: #070a0d;
+    --w-hairline-color: #{$hairline-dark};
   }
 
   /*
