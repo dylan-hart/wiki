@@ -242,12 +242,16 @@ import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
+import { cloneDeep } from 'es-toolkit/object'
+import { isEqual } from 'es-toolkit/predicate'
+
 import { notify } from '@/composables/notify'
 
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 
 import GroupRulesEditor from '@/components/GroupRulesEditor.vue'
@@ -273,6 +277,14 @@ const state = reactive({
   group: {
     rules: []
   },
+  /**
+   * A deep-cloned snapshot of `state.group` as last fetched (or last saved) -- what `save()` diffs
+   * against, so it PUTs only the fields the admin actually changed rather than resubmitting the
+   * entire fetched group verbatim (OpenProject #2555: stale/legacy data in an untouched field --
+   * e.g. a pre-existing group's `permissions` -- must not be able to trip a save of something else
+   * entirely).
+   */
+  original: null,
   isLoading: false,
   /**
    * Members, for the section badge only -- seeded from the group's own `userCount` and kept up to
@@ -280,6 +292,20 @@ const state = reactive({
    */
   usersTotal: 0
 })
+
+/**
+ * The fields `save()` may PUT, each with how to normalize a value before comparing/sending it --
+ * `undefined` (never fetched, or cleared client-side) and the field's own empty default must compare
+ * equal, or an untouched field would look "changed" purely from that difference.
+ */
+const EDITABLE_FIELDS = [
+  { key: 'name', normalize: (v) => v ?? '' },
+  { key: 'redirectOnLogin', normalize: (v) => v ?? '' },
+  { key: 'redirectOnFirstLogin', normalize: (v) => v ?? '' },
+  { key: 'redirectOnLogout', normalize: (v) => v ?? '' },
+  { key: 'permissions', normalize: (v) => v ?? [] },
+  { key: 'rules', normalize: (v) => v ?? [] }
+]
 
 const sections = [
   { key: 'overview', text: t('admin.groups.overview'), icon: 'la:users' },
@@ -380,6 +406,7 @@ async function fetchGroup() {
       throw new Error(t('common.error.unexpected'))
     }
     state.group = resp
+    state.original = cloneDeep(resp)
     state.usersTotal = state.group.userCount ?? 0
   } catch (err) {
     notify({
@@ -393,16 +420,27 @@ async function fetchGroup() {
 async function save() {
   state.isLoading = true
   try {
-    const resp = await API_CLIENT.put(`groups/${state.group.id}`, {
-      json: {
-        name: state.group.name,
-        redirectOnLogin: state.group.redirectOnLogin ?? '',
-        redirectOnFirstLogin: state.group.redirectOnFirstLogin ?? '',
-        redirectOnLogout: state.group.redirectOnLogout ?? '',
-        permissions: state.group.permissions ?? [],
-        rules: state.group.rules ?? []
+    // -> Diff-and-send: only a field that actually differs from the last-fetched (or last-saved)
+    //    snapshot is included, so stale/legacy data sitting untouched in another field (see
+    //    OpenProject #2555) can never ride along on a save of something else.
+    const patch = {}
+    for (const field of EDITABLE_FIELDS) {
+      const current = field.normalize(state.group[field.key])
+      const original = field.normalize(state.original?.[field.key])
+      if (!isEqual(current, original)) {
+        patch[field.key] = current
       }
-    }).json()
+    }
+
+    if (Object.keys(patch).length < 1) {
+      state.isLoading = false
+      return
+    }
+
+    await API_CLIENT.put(`groups/${state.group.id}`, { json: patch }).json()
+    // -> Merge the just-sent patch onto the snapshot rather than refetching, so a second save in the
+    //    same session diffs correctly with no extra round trip.
+    state.original = { ...state.original, ...cloneDeep(patch) }
     notify({
       type: 'positive',
       message: t('admin.groups.saveSuccess')

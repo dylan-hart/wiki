@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import type { FastifyRequest } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
@@ -1509,3 +1510,64 @@ describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () 
     }
   })
 })
+
+/**
+ * OpenProject #2555: `permissions` (the group-wide column, validated against the closed
+ * `GlobalPermission#` enum by `PUT /groups/:groupId`) used to be seeded with `PAGE_PERMISSIONS`
+ * strings (`read:pages`/`read:assets`/`read:comments`) by both `init()`'s Users/Guests rows and
+ * `createGroup()` -- values that are not GLOBAL permissions at all, so a straight fetch-then-PUT of
+ * any freshly-seeded group 400'd once that schema was tightened (commit `a3a6c799`). The fix is at
+ * the source: neither seeding path writes a page-permission string into `permissions` any more --
+ * page access still comes entirely from the seeded rule's `roles`, unchanged.
+ */
+describe(
+  'groups seeding: no page-permission strings in the global permissions column (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let groupsModel: typeof import('./groups.ts').groups
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ groups: groupsModel } = await import('./groups.ts'))
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('createGroup seeds an empty global-permissions list, but keeps the page-permission rule roles', async () => {
+      const id = await groupsModel.createGroup('OpenProject 2555 Round Trip Group')
+      const group = await groupsModel.getGroupById(id)
+
+      assert.deepEqual(group?.permissions, [])
+      assert.deepEqual(group?.rules[0]?.roles, ['read:pages', 'read:assets', 'read:comments'])
+    })
+
+    test("init() seeds the Users and Guests groups' global permissions empty too", async () => {
+      const ids = {
+        groupAdminId: crypto.randomUUID(),
+        groupUserId: crypto.randomUUID(),
+        groupGuestId: crypto.randomUUID(),
+        siteId: fixtures.siteId,
+        authModuleId: crypto.randomUUID(),
+        userAdminId: crypto.randomUUID(),
+        userGuestId: crypto.randomUUID(),
+        classificationPublicId: crypto.randomUUID(),
+        classificationInternalId: crypto.randomUUID(),
+        classificationRestrictedId: crypto.randomUUID()
+      }
+      await groupsModel.init(ids)
+
+      const admin = await groupsModel.getGroupById(ids.groupAdminId)
+      const users = await groupsModel.getGroupById(ids.groupUserId)
+      const guests = await groupsModel.getGroupById(ids.groupGuestId)
+
+      assert.deepEqual(admin?.permissions, ['manage:system'])
+      assert.deepEqual(users?.permissions, [])
+      assert.deepEqual(users?.rules[0]?.roles, ['read:pages', 'read:assets', 'read:comments'])
+      assert.deepEqual(guests?.permissions, [])
+      assert.deepEqual(guests?.rules[0]?.roles, ['read:pages', 'read:assets', 'read:comments'])
+    })
+  }
+)

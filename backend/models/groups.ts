@@ -627,7 +627,11 @@ class Groups extends ClusterReloaded {
       {
         id: ids.groupUserId,
         name: 'Users',
-        permissions: ['read:pages', 'read:assets', 'read:comments'],
+        // -> `permissions` is the GLOBAL, `GlobalPermission#`-validated list (OpenProject #1658) --
+        //    page access for this group comes from `rules.roles` below, not from here. Seeding
+        //    page-permission strings into this column (OpenProject #2555) made every fetch-then-PUT
+        //    round trip of this group 400 the moment the schema was tightened.
+        permissions: [],
         rules: [
           {
             id: crypto.randomUUID(),
@@ -645,7 +649,8 @@ class Groups extends ClusterReloaded {
       {
         id: ids.groupGuestId,
         name: 'Guests',
-        permissions: ['read:pages', 'read:assets', 'read:comments'],
+        // -> Same as the Users group above -- global permissions, not page permissions, live here.
+        permissions: [],
         rules: [
           {
             id: crypto.randomUUID(),
@@ -664,24 +669,28 @@ class Groups extends ClusterReloaded {
   }
 
   /**
-   * Create a new (non-system) group, seeded with the same starting permissions and default rule as
-   * the `Users` group.
+   * Create a new (non-system) group, seeded with the same default page-permission rule as the
+   * `Users` group. `permissions` (the GLOBAL, `GlobalPermission#`-validated list) starts empty --
+   * page access comes entirely from the seeded rule's `roles`, never from this column (OpenProject
+   * #2555: these are two different closed vocabularies, and seeding page-permission strings into
+   * `permissions` made every fetch-then-PUT round trip of a fresh group 400 once that column's
+   * schema was tightened to the `GlobalPermission#` enum).
    *
    * @param name Group name
    * @returns The new group's ID
    */
   async createGroup(name: string): Promise<string> {
-    const startingPermissions = ['read:pages', 'read:assets', 'read:comments']
+    const startingPageRoles = ['read:pages', 'read:assets', 'read:comments']
     const result = await WIKI.db
       .insert(groupsTable)
       .values({
         name,
-        permissions: startingPermissions,
+        permissions: [],
         rules: [
           {
             id: crypto.randomUUID(),
             name: 'Default Rule',
-            roles: startingPermissions,
+            roles: startingPageRoles,
             match: 'START',
             mode: 'ALLOW',
             path: '',

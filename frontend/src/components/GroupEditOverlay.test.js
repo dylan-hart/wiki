@@ -403,6 +403,112 @@ describe('GroupEditOverlay assignUser partial failure', () => {
  * `color`/`okLabel`, leaving a primary-blue OK on an irreversible unassign. Now matches the reference
  * treatment (`AdminIcons.vue`'s `confirmDeleteSet()`).
  */
+/**
+ * OpenProject #2555: `save()` used to always PUT the entire fetched group (`name`, all three
+ * redirect fields, `permissions`, `rules`) regardless of which section the admin was actually
+ * editing. Every pre-existing group's `permissions` column still carried legacy page-permission
+ * strings (`read:pages`/`read:assets`/`read:comments`) that the tightened `GlobalPermission#` schema
+ * rejects, so saving ANY change to such a group -- even a name edit on the Overview tab -- 400'd.
+ * `save()` now diffs against the last-fetched snapshot and PUTs only what actually changed.
+ */
+describe('GroupEditOverlay save(): diff-and-send (OpenProject #2555)', () => {
+  // -> Simulates a pre-existing group still carrying the legacy page-permission strings: resending
+  //    this array is exactly what used to 400 once `PUT /groups/:groupId`'s schema was tightened.
+  const STALE_PERMISSIONS = ['read:pages', 'read:assets', 'read:comments']
+
+  async function mountOverview(groupId) {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: groupId,
+          name: 'Legacy Group',
+          userCount: 0,
+          redirectOnLogin: '',
+          redirectOnFirstLogin: '',
+          redirectOnLogout: '',
+          permissions: STALE_PERMISSIONS,
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Default Rule',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+    })
+
+    const router = await createTestRouter(['/:section'], '/overview')
+
+    const { wrapper } = mountWithApp(GroupEditOverlay, {
+      router,
+      stores: {
+        admin: { overlayOpts: { id: groupId }, sites: [], locales: [] },
+        user: { permissions: ['manage:groups'] }
+      }
+    })
+
+    await flushPromises()
+
+    return wrapper
+  }
+
+  function findSaveButton(wrapper) {
+    return wrapper.findAll('button').find((b) => b.text().includes('common.actions.save'))
+  }
+
+  it('PUTs only the field the admin actually changed, not the stale legacy permissions along with it', async () => {
+    const wrapper = await mountOverview('legacy-group-1')
+
+    const nameInput = wrapper.find('[aria-label="admin.groups.name"]')
+    expect(nameInput.exists()).toBe(true)
+    await nameInput.setValue('Renamed Group')
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    const saveButton = findSaveButton(wrapper)
+    expect(saveButton).toBeTruthy()
+    await saveButton.trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.put).toHaveBeenCalledWith('groups/legacy-group-1', {
+      json: { name: 'Renamed Group' }
+    })
+  })
+
+  it('sends no PUT at all when nothing was changed', async () => {
+    const wrapper = await mountOverview('legacy-group-2')
+
+    const saveButton = findSaveButton(wrapper)
+    await saveButton.trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('a second save in the same session diffs against the just-saved state, not the original fetch', async () => {
+    const wrapper = await mountOverview('legacy-group-3')
+
+    const nameInput = wrapper.find('[aria-label="admin.groups.name"]')
+    await nameInput.setValue('First Rename')
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await findSaveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    // -> Saving again with no further edits must not resend `name` (already reflected in the
+    //    snapshot) or the untouched, stale `permissions`.
+    await findSaveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('GroupEditOverlay unassignUser confirmation', () => {
   it('opens a negative-coloured, delete-labelled confirmation', async () => {
     const wrapper = await mountWithGroup()
