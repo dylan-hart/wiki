@@ -59,7 +59,7 @@
           @input="onEditableInput(`title`, $event)"
           @blur="onEditableBlur(`title`, $event)"
           @keydown.enter.prevent="$event.target.blur()" />
-        <span v-else>{{ pageStore.title }}</span>
+        <span v-else>{{ displayedTitle }}</span>
       </h1>
       <div class="text-subtitle2 page-header-subtitle">
         <span
@@ -401,6 +401,7 @@ import { useDirection } from '@/composables/direction'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { usePageSaveFlow } from '@/composables/pageSaveFlow'
+import { usePathDisplay } from '@/composables/pathDisplay'
 import { useMinWidth } from '@/composables/screen'
 
 import { useCollabStore } from '@/stores/collab'
@@ -436,6 +437,27 @@ const direction = useDirection()
 const reviewMenu = computed(() =>
   directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'bottom right', 'top right')
 )
+
+// PATH DISPLAY
+
+const { isActive: pathDisplayActive, humanize } = usePathDisplay()
+
+/**
+ * The reading-mode heading text (Feature #2574/#2578) -- `pageStore.title` unchanged when the site's
+ * path-display setting is off, or the humanized last segment of `pageStore.path` when it's on. A
+ * deliberate override of whatever title the page was actually saved with, not a fallback for a page
+ * with no title -- see the parent Feature's own scope note. Only the reading-mode `v-else` span
+ * reads this; the `contenteditable` field beside it (shown while editing) still binds
+ * `pageStore.title` directly, since editing a page's real title must never be short-circuited by
+ * this display-only setting.
+ */
+const displayedTitle = computed(() => {
+  if (!pathDisplayActive.value) {
+    return pageStore.title
+  }
+  const segments = pageStore.path.split('/')
+  return humanize(segments[segments.length - 1])
+})
 
 // STORES
 

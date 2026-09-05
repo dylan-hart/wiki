@@ -135,6 +135,93 @@ describe('site store: applySiteInfo() blocksIndex', () => {
   })
 })
 
+/**
+ * Feature #2574/#2577: `pathDisplayCase` reaches `siteStore` from `applySiteInfo`, the same as
+ * `pdfExportAvailable`/`blocksIndex` above -- both `loadSite` and `bootstrap` hand it the same
+ * payload shape. `applySiteInfo` also kicks off `fetchAcronymMap()` on its own once the setting is
+ * on, with no separate call needed at any render site -- see the dedicated `fetchAcronymMap()`
+ * describe below for that half.
+ */
+describe('site store: applySiteInfo() pathDisplayCase', () => {
+  it('adopts pathDisplayCase from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ pathDisplayCase: 'title' }))
+
+    expect(store.pathDisplayCase).toBe('title')
+  })
+
+  it('defaults to "off" when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.pathDisplayCase).toBe('off')
+  })
+
+  it('fetches the acronym map when the setting is on', async () => {
+    const store = useSiteStore()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ uss: 'USS' })
+    })
+
+    store.applySiteInfo(siteInfoFixture({ id: 'site-1', pathDisplayCase: 'title' }))
+    await vi.waitFor(() => expect(store.acronymMapLoaded).toBe(true))
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/acronyms')
+    expect(store.acronymMap).toEqual({ uss: 'USS' })
+  })
+
+  it('never fetches the acronym map when the setting is off', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ pathDisplayCase: 'off' }))
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+})
+
+describe('site store: fetchAcronymMap()', () => {
+  it('populates acronymMap from the endpoint and marks it loaded', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ uss: 'USS', irv: 'IRV' })
+    })
+
+    await store.fetchAcronymMap()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/acronyms')
+    expect(store.acronymMap).toEqual({ uss: 'USS', irv: 'IRV' })
+    expect(store.acronymMapLoaded).toBe(true)
+  })
+
+  it('does not re-fetch once loaded, unless forceRefresh is passed', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    store.$patch({ acronymMap: { uss: 'USS' }, acronymMapLoaded: true })
+
+    await store.fetchAcronymMap()
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ irv: 'IRV' })
+    })
+    await store.fetchAcronymMap(true)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/acronyms')
+    expect(store.acronymMap).toEqual({ irv: 'IRV' })
+  })
+
+  it('swallows a failed request, leaving the map empty rather than throwing', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    API_CLIENT.get.mockImplementationOnce(() => {
+      throw new Error('network down')
+    })
+
+    await expect(store.fetchAcronymMap()).resolves.toBeUndefined()
+    expect(store.acronymMap).toEqual({})
+    expect(store.acronymMapLoaded).toBe(false)
+  })
+})
+
 describe('site store: features.comments default', () => {
   it('defaults to false, so PageComments has something real to gate on before the backend sends it', () => {
     const store = useSiteStore()

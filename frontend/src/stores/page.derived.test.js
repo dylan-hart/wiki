@@ -49,6 +49,26 @@ describe('page store: breadcrumbs', () => {
     ])
     expect(crumbs.every((c) => c.locale === 'fr')).toBe(true)
   })
+
+  /**
+   * Feature #2574/#2578: each crumb's `title` is the raw path segment, humanized per the site's
+   * `pathDisplayCase` setting -- a deliberate override, not a fallback, since a breadcrumb has
+   * nothing but the raw segment to work with in the first place (there is no separate "real title"
+   * being overridden here, unlike `PageHeader.vue`'s heading).
+   */
+  it('leaves each crumb title as the raw segment when the setting is off', () => {
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'getting-started/uss-enterprise', locale: 'en' })
+    expect(pageStore.breadcrumbs.map((c) => c.title)).toEqual(['getting-started', 'uss-enterprise'])
+  })
+
+  it('humanizes each crumb title per the site case style, honoring the acronym map', () => {
+    const siteStore = useSiteStore()
+    siteStore.$patch({ pathDisplayCase: 'title', acronymMap: { uss: 'USS' } })
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'getting-started/uss-enterprise', locale: 'en' })
+    expect(pageStore.breadcrumbs.map((c) => c.title)).toEqual(['Getting Started', 'USS Enterprise'])
+  })
 })
 
 describe('page store: editorExitPath', () => {

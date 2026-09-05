@@ -8,6 +8,7 @@ import { useEditorStore } from './editor'
 import { useUserStore } from './user'
 import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
 import { apiErrorBody, apiErrorMessage } from '@/helpers/apiError'
+import { usePathDisplay } from '@/composables/pathDisplay'
 
 /**
  * The icon a page starts with.
@@ -190,10 +191,13 @@ export const usePageStore = defineStore('page', {
   getters: {
     breadcrumbs: (state) => {
       const siteStore = useSiteStore()
+      const { humanize } = usePathDisplay()
       const segments = state.path.split('/')
       return segments.map((value, key) => ({
         id: key,
-        title: value,
+        // -> A deliberate override when the site's path-display setting is on, not just a fallback
+        //    for a segment with no real title of its own (Feature #2574) -- see `usePathDisplay()`.
+        title: humanize(value),
         icon: 'la:file-alt',
         locale: state.locale,
         path: localizedPagePath(
