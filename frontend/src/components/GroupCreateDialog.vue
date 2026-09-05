@@ -11,7 +11,6 @@
           <w-item-section>
             <w-input
               v-model="state.groupName"
-              outlined
               dense
               :rules="groupNameValidation"
               hide-bottom-space
@@ -31,7 +30,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

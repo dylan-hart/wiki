@@ -18,7 +18,6 @@
       <div class="flex-none flex items-center">
         <w-input
           class="denser me-2"
-          outlined
           v-model="state.search"
           dense
           :placeholder="t('admin.navigation.searchPlaceholder')"
@@ -29,7 +28,6 @@
         <w-select
           class="me-2"
           style="min-width: 180px"
-          outlined
           dense
           v-model="state.locale"
           :options="localeOptions"
@@ -120,7 +118,7 @@
         `AdminAuditLog.vue`'s retention card (OpenProject #2089/#2574).
       -->
       <div class="col-span-12">
-        <w-card class="rounded" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
+        <w-card class="rounded" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
           <w-card-section>
             <div class="text-subtitle1">{{ t('admin.navigation.pathDisplayTitle') }}</div>
             <div class="text-caption text-grey mb-2">
@@ -129,7 +127,6 @@
             <div class="flex items-center gap-3">
               <div style="width: 220px">
                 <w-select
-                  outlined
                   dense
                   v-model="state.pathDisplayCase"
                   :options="pathDisplayCaseOptions"

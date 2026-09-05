@@ -87,7 +87,6 @@
                 color="accent-dark"
                 icon="la:heart"
                 :label="t(`admin.contribute.title`)"
-                no-caps
                 href="https://js.wiki/donate"
                 target="_blank" />
             </w-item-section>

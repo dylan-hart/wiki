@@ -81,24 +81,6 @@ const props = defineProps({
     default: false
   },
   /**
-   * @deprecated Inert. Solid-with-no-shadow is the only solid there is now -- see the metrics
-   *   comment below.
-   */
-  unelevated: {
-    type: Boolean,
-    default: false
-  },
-  /** @deprecated Inert. Cardinal draws no ledge; see the metrics comment below. */
-  push: {
-    type: Boolean,
-    default: false
-  },
-  /** @deprecated Inert. Cardinal draws no gloss; see the metrics comment below. */
-  glossy: {
-    type: Boolean,
-    default: false
-  },
-  /**
    * Named size (`xs`..`xl`) or any CSS length. Drives the button's font-size, which every other
    * metric is expressed in `em` against -- so one value scales padding, min-height and icon alike.
    */
@@ -118,15 +100,6 @@ const props = defineProps({
   padding: {
     type: String,
     default: null
-  },
-  /**
-   * @deprecated Inert. A Cardinal button label is always cased as written, so there is no
-   *   upper-casing left to opt out of. Kept only until the call sites that still pass it are swept
-   *   (see the metrics comment below); it changes nothing.
-   */
-  noCaps: {
-    type: Boolean,
-    default: false
   },
   /** Swaps the content for a spinner and blocks clicks. */
   loading: {
@@ -234,10 +207,9 @@ const isSolid = computed(() => !props.flat && !props.outline)
   em-relative for the same reason -- one `size` value scales padding, height and icon together.
 
   No shadow and no gloss. Cardinal separates a control from its ground with a hairline, never with
-  elevation, which is why `unelevated`, `push` and `glossy` no longer render differently from the
-  default: the variant they each named is now the only one there is. The props stay for now because
-  ~200 call sites pass them and those files are being rewritten screen by screen anyway; retiring
-  them is a sweep to run once the screens have settled, not mid-re-skin.
+  elevation -- so `unelevated`, `push` and `glossy` are gone along with `noCaps`, each having named a
+  variant that is now the only one there is. A solid button IS unelevated; a label IS cased as
+  written.
 */
 const classes = computed(() => [
   props.size ? 'leading-[1.715em]' : 'text-[12.5px] leading-[1.715em]',

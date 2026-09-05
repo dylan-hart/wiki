@@ -16,7 +16,6 @@
         type="a" />
       <w-btn-group>
         <w-btn
-          push
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
@@ -28,7 +27,6 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
-          push
           color="white"
           text-color="grey-7"
           :label="t(`common.actions.cancel`)"
@@ -36,7 +34,6 @@
           icon="la:times"
           @click="close" />
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="t(`common.actions.apply`)"
@@ -76,7 +73,6 @@
                 min="10"
                 max="32"
                 style="width: 100px"
-                outlined
                 v-model="state.config.fontSize"
                 dense
                 :aria-label="t(`editor.settings.markdownFontSize`)" />

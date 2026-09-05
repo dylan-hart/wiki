@@ -16,7 +16,6 @@
       <div class="flex-none flex items-center">
         <w-input
           class="denser me-2"
-          outlined
           v-model="state.search"
           dense
           :placeholder="t('admin.users.searchUsers')"
@@ -48,7 +47,6 @@
           class="me-2"
           v-if="canManage"
           icon="la:user-cog"
-          unelevated
           color="secondary"
           :aria-label="t(`admin.users.defaults`)">
           <w-tooltip>{{ t(`admin.users.defaults`) }}</w-tooltip>
@@ -56,7 +54,6 @@
         </w-btn>
         <w-btn
           v-if="canManage"
-          unelevated
           icon="la:plus"
           :label="t(`admin.users.create`)"
           color="primary"
@@ -119,8 +116,7 @@
                   :to="`/_admin/users/` + props.row.id"
                   :icon="canManage ? `la:pen` : `la:eye`"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
-                  :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)"
-                  no-caps />
+                  :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)" />
                 <!--
                   Disabled rather than hidden for your own account: the row is yours and the action
                   exists, it is just not yours to take — deleting the account you are signed in as

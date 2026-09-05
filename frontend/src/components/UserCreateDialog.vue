@@ -12,7 +12,6 @@
             <w-input
               ref="iptName"
               v-model="state.userName"
-              outlined
               dense
               :rules="userNameValidation"
               hide-bottom-space
@@ -25,7 +24,6 @@
           <w-item-section>
             <w-input
               v-model="state.userEmail"
-              outlined
               dense
               type="email"
               :rules="userEmailValidation"
@@ -39,7 +37,6 @@
           <w-item-section>
             <w-input
               v-model="state.userPassword"
-              outlined
               dense
               :rules="userPasswordValidation"
               hide-bottom-space
@@ -63,7 +60,6 @@
           <w-item-section>
             <w-select
               v-model="state.userGroups"
-              outlined
               :options="state.groups"
               multiple
               map-options
@@ -127,7 +123,6 @@
           <w-item-section>
             <w-select
               v-model="state.userSendWelcomeEmailFromSiteId"
-              outlined
               :options="adminStore.sites"
               map-options
               emit-value
@@ -159,7 +154,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

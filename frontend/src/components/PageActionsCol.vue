@@ -74,7 +74,6 @@
                     ref="iptRenamePendingAsset"
                     v-model="renameDraft"
                     dense
-                    outlined
                     :label="t('pageActions.newFileName')"
                     :suffix="renameSuffix"
                     :rules="[renameBaseNameRule]"

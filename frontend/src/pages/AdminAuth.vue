@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -117,7 +116,6 @@
               <div class="p-2">
                 <w-input
                   v-model="state.strategyFilter"
-                  outlined
                   dense
                   clearable
                   hide-bottom-space
@@ -167,7 +165,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.strategy.displayName"
                 dense
                 hide-bottom-space
@@ -267,7 +264,6 @@
               </w-item-section>
               <w-item-section>
                 <w-select
-                  outlined
                   :options="state.groups"
                   v-model="state.strategy.autoEnrollGroups"
                   multiple
@@ -324,7 +320,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.strategy.allowedEmailRegex"
                   dense
                   hide-bottom-space
@@ -353,7 +348,6 @@
                     is what lets a domain that is not in the list yet be typed in.
                   -->
                   <w-select
-                    outlined
                     v-model="state.strategy.allowedEmailDomains"
                     :options="[]"
                     dense
@@ -409,7 +403,6 @@
               </w-item-section>
               <w-item-section>
                 <w-select
-                  outlined
                   :options="state.groups"
                   v-model="state.strategy.mappableGroups"
                   multiple
@@ -495,13 +488,7 @@
               <w-item-label v-if="state.strategy.isNew" caption>
                 {{ t('admin.auth.refAfterSave') }}
               </w-item-label>
-              <w-input
-                v-else
-                outlined
-                v-model="strRef.value"
-                dense
-                :aria-label="strRef.title"
-                readonly />
+              <w-input v-else v-model="strRef.value" dense :aria-label="strRef.title" readonly />
             </w-item-section>
           </w-item>
         </w-card>

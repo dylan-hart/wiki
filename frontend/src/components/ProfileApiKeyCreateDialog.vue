@@ -22,7 +22,6 @@
               <w-input
                 ref="iptName"
                 v-model="state.keyName"
-                outlined
                 dense
                 :rules="keyNameValidation"
                 hide-bottom-space
@@ -36,7 +35,6 @@
             <w-item-section>
               <w-select
                 v-model="state.keyExpiration"
-                outlined
                 :options="expirations"
                 map-options
                 option-value="value"
@@ -54,7 +52,6 @@
             <w-item-section>
               <w-select
                 v-model="state.keySiteId"
-                outlined
                 :options="siteOptions"
                 map-options
                 option-value="id"
@@ -136,7 +133,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

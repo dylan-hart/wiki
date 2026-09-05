@@ -12,7 +12,6 @@
         <w-input
           ref="iptSearch"
           v-model="state.search"
-          outlined
           dense
           :placeholder="t(`admin.users.searchUsers`)"
           :aria-label="t(`admin.users.searchUsers`)"
@@ -97,7 +96,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.select`)"
           color="primary"
           padding="xs md"

@@ -89,7 +89,6 @@
       <w-card-section>
         <w-btn
           class="w-full"
-          unelevated
           icon="mdi:playlist-edit"
           color="deep-orange-9"
           :label="t(`navEdit.editMenuItems`)"
@@ -106,7 +105,6 @@
         padding="xs md"
         @click="props.menuHideHandler" />
       <w-btn
-        unelevated
         :label="t(`common.actions.save`)"
         color="positive"
         padding="xs md"

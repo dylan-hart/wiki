@@ -15,7 +15,6 @@
             <w-input
               ref="iptTerm"
               v-model="state.term"
-              outlined
               dense
               required
               :rules="termValidation"
@@ -37,7 +36,6 @@
             <w-input
               v-model="state.definition"
               type="textarea"
-              outlined
               dense
               required
               rows="3"
@@ -55,7 +53,6 @@
               <w-chip
                 v-for="alias of state.aliases"
                 :key="alias.value"
-                square
                 dense
                 clickable
                 removable
@@ -72,7 +69,6 @@
             </div>
             <w-input
               v-model="state.aliasInput"
-              outlined
               dense
               hide-bottom-space
               :label="t(`admin.glossary.aliases`)"
@@ -99,7 +95,6 @@
           <w-item-section>
             <w-input
               v-model="state.path"
-              outlined
               dense
               hide-bottom-space
               :label="t(`admin.glossary.canonicalPage`)"
@@ -132,7 +127,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="isEdit ? t(`common.actions.save`) : t(`common.actions.create`)"
           color="primary"
           padding="xs md"

@@ -20,7 +20,6 @@
             <w-btn
               class="acrylic-btn"
               outline
-              no-caps
               icon="la:file"
               :label="t(`admin.blocks.uploadChooseFile`)"
               color="primary"
@@ -51,7 +50,6 @@
           @click="onDialogCancel" />
         <w-btn
           class="block-upload-submit"
-          unelevated
           :label="t(`admin.blocks.upload`)"
           color="primary"
           padding="xs md"

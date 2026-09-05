@@ -41,7 +41,7 @@ function setup(props = {}, options = {}) {
 }
 
 describe('fieldProps', () => {
-  it('declares the twelve props every field shares', () => {
+  it('declares the eleven props every field shares', () => {
     expect(Object.keys(fieldProps).sort()).toEqual([
       'ariaLabel',
       'autofocus',
@@ -51,7 +51,6 @@ describe('fieldProps', () => {
       'hint',
       'label',
       'lazyRules',
-      'outlined',
       'readonly',
       'required',
       'rules'

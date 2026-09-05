@@ -101,7 +101,6 @@
             <template #hint>{{ selectedEngine.description }}</template>
             <template #action>
               <w-btn
-                unelevated
                 icon="mdi:check"
                 :label="t(`common.actions.apply`)"
                 color="slate"

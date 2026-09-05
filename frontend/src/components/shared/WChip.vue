@@ -57,11 +57,6 @@ const props = defineProps({
     type: String,
     default: 'md'
   },
-  /** @deprecated Inert. Every Cardinal chip is square; see the `classes` comment below. */
-  square: {
-    type: Boolean,
-    default: false
-  },
   dense: {
     type: Boolean,
     default: false
@@ -92,7 +87,7 @@ const SIZES = { xs: '10px', sm: '12px', md: '14px', lg: '16px' }
 
 /*
   Square, always. Cardinal has no pill: a tag, a status mark and a selected value are all the same
-  rectangle, and `square` -- which used to be the opt-IN to sharp corners -- is now inert.
+  rectangle, which is why the `square` prop -- once the opt-IN to sharp corners -- is gone.
 
   An uncoloured chip is an OUTLINE (white with a hairline edge), not a grey fill. That is what makes
   the tag row in the design read as a row of small documents rather than a row of pills, and it is

@@ -28,7 +28,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`${labelPrefix}.revoke`)"
           color="negative"
           padding="xs md"

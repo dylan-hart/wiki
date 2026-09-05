@@ -12,7 +12,6 @@
             <w-input
               ref="iptTitle"
               v-model="state.title"
-              outlined
               dense
               :rules="titleValidation"
               hide-bottom-space
@@ -26,7 +25,6 @@
           <w-item-section>
             <w-input
               v-model="state.path"
-              outlined
               dense
               :rules="pathValidation"
               hide-bottom-space
@@ -48,7 +46,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.rename`)"
           color="primary"
           padding="xs md"

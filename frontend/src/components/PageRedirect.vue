@@ -15,7 +15,6 @@
       <w-btn
         class="mt-6"
         v-if="canEditPage"
-        unelevated
         icon="la:edit"
         color="primary"
         padding="xs lg"
@@ -31,7 +30,6 @@
       <div class="text-caption font-robotomono mt-3 opacity-50">{{ redirect.target }}</div>
       <w-btn
         class="mt-6"
-        unelevated
         icon="la:arrow-right"
         color="primary"
         padding="xs lg"
@@ -54,7 +52,6 @@
               the notice can go now, and one who lands here with scripting half-loaded has a link -->
       <w-btn
         class="mt-6"
-        unelevated
         icon="la:arrow-right"
         color="primary"
         padding="xs lg"

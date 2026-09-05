@@ -43,20 +43,16 @@
           class="acrylic-btn me-2"
           :label="t(`common.actions.discard`)"
           flat
-          no-caps
           color="grey"
           @click="discardChanges" />
         <w-btn
           class="acrylic-btn me-2"
-          unelevated
-          no-caps
           :label="t('admin.glossary.saveGlossary')"
           color="positive"
           :disabled="!isDirty"
           :loading="state.saving"
           @click="saveGlossary" />
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.glossary.newTerm`)"
           color="primary"
@@ -79,7 +75,6 @@
                 <strong>{{ term.term }}</strong>
                 <w-chip
                   v-if="term.isAcronym"
-                  square
                   dense
                   size="sm"
                   class="ms-2"
@@ -91,7 +86,6 @@
                 <w-chip
                   v-for="alias of term.aliases"
                   :key="alias.value"
-                  square
                   dense
                   :icon="alias.isAcronym ? 'mdi:alpha-a-box-outline' : null">
                   {{ alias.value }}
@@ -113,8 +107,7 @@
                 @click="editTerm(term)"
                 icon="la:pen"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
-                :label="t(`common.actions.edit`)"
-                no-caps />
+                :label="t(`common.actions.edit`)" />
               <w-btn
                 class="acrylic-btn"
                 flat

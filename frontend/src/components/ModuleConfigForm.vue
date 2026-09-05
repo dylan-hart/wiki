@@ -28,16 +28,12 @@
           <w-btn-toggle
             v-if="cfg.enum && cfg.enumDisplay === `buttons`"
             v-model="cfg.value"
-            push
-            glossy
-            no-caps
             toggle-color="primary"
             :aria-label="cfg.title"
             :options="cfg.enum"
             :disabled="cfg.readOnly" />
           <w-select
             v-else-if="cfg.enum"
-            outlined
             v-model="cfg.value"
             :options="cfg.enum"
             emit-value
@@ -48,7 +44,6 @@
             :disabled="cfg.readOnly" />
           <w-input
             v-else
-            outlined
             v-model="cfg.value"
             dense
             :type="inputTypeFor(cfg)"

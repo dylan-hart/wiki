@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -67,7 +66,6 @@
                   <div class="flex gap-2">
                     <w-btn
                       :label="t(`common.actions.upload`)"
-                      unelevated
                       icon="la:upload"
                       color="primary"
                       text-color="white"
@@ -126,7 +124,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.loginRedirect"
                 dense
                 :rules="[
@@ -146,7 +143,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.welcomeRedirect"
                 dense
                 :rules="[
@@ -167,7 +163,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.logoutRedirect"
                 dense
                 :rules="[
@@ -216,7 +211,7 @@
           </w-card-section>
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-info text-white rounded" flat>
+              <w-card class="bg-info text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:info-circle" size="lg" />

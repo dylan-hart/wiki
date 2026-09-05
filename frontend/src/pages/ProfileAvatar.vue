@@ -31,7 +31,6 @@
         <div class="mt-4">
           <w-btn
             icon="la:upload"
-            unelevated
             :label="t(`profile.uploadNewAvatar`)"
             color="primary"
             @click="uploadImage" />

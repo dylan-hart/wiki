@@ -38,7 +38,6 @@
       <w-card-actions class="card-actions">
         <w-space />
         <w-btn
-          unelevated
           :label="t('common.actions.close')"
           color="primary"
           padding="xs md"

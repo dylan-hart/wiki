@@ -17,7 +17,6 @@
             <w-input
               ref="iptName"
               v-model="state.name"
-              outlined
               dense
               :rules="nameValidation"
               hide-bottom-space
@@ -36,12 +35,7 @@
           color="grey"
           padding="xs md"
           @click="onDialogCancel" />
-        <w-btn
-          unelevated
-          :label="t(`common.actions.save`)"
-          color="primary"
-          padding="xs md"
-          @click="save" />
+        <w-btn :label="t(`common.actions.save`)" color="primary" padding="xs md" @click="save" />
       </w-card-actions>
     </w-card>
   </w-dialog>

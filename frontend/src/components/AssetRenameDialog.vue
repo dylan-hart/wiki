@@ -12,7 +12,6 @@
             <w-input
               ref="iptPath"
               v-model="state.path"
-              outlined
               dense
               :rules="nameValidation"
               hide-bottom-space
@@ -33,7 +32,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.rename`)"
           color="primary"
           padding="xs md"

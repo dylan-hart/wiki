@@ -34,13 +34,11 @@
               <w-btn
                 v-if="!item.resolved"
                 dense
-                no-caps
-                unelevated
                 color="primary"
                 :label="t('editor.classification.bumpOne')"
                 :loading="item.isLoading"
                 @click="bumpOne(item)" />
-              <w-chip v-else dense square color="positive" text-color="white">
+              <w-chip v-else dense color="positive" text-color="white">
                 {{ t('editor.classification.bumped') }}
               </w-chip>
             </w-item-section>
@@ -59,7 +57,6 @@
           @click="bumpAll" />
         <w-space />
         <w-btn
-          unelevated
           :label="t('common.actions.close')"
           color="primary"
           padding="xs md"

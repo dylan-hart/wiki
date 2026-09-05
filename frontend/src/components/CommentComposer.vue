@@ -11,7 +11,6 @@
       <w-input
         v-model="guestName"
         class="flex-1"
-        outlined
         dense
         :label="t(`common.comments.fieldName`)"
         :rules="nameRules"
@@ -20,7 +19,6 @@
       <w-input
         v-model="guestEmail"
         class="flex-1"
-        outlined
         dense
         type="email"
         :label="t(`common.comments.fieldEmail`)"
@@ -33,7 +31,6 @@
       ref="contentIpt"
       v-model="content"
       type="textarea"
-      outlined
       dense
       :rows="replyTo ? 2 : 3"
       :placeholder="t(`common.comments.newPlaceholder`)"
@@ -44,7 +41,6 @@
 
     <div class="comment-composer-actions flex flex-wrap items-center gap-3">
       <w-btn
-        unelevated
         dense
         color="primary"
         :loading="submitting"

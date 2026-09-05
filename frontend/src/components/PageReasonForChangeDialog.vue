@@ -22,7 +22,6 @@
             <w-input
               ref="iptReason"
               v-model="state.reason"
-              outlined
               dense
               :rules="reasonValidation"
               hide-bottom-space
@@ -41,7 +40,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.save`)"
           color="primary"
           padding="xs md"

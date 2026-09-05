@@ -31,7 +31,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"

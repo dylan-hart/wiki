@@ -12,7 +12,6 @@
             <w-input
               ref="iptPassword"
               v-model="state.password"
-              outlined
               dense
               type="password"
               autocomplete="current-password"
@@ -34,7 +33,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           icon="la:lock-open"
           :label="t(`common.page.unlock`)"
           color="primary"

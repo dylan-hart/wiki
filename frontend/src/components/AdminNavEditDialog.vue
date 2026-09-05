@@ -16,7 +16,6 @@
         </transition>
         <w-btn-group>
           <w-btn
-            push
             color="white"
             text-color="grey-7"
             :label="t(`common.actions.cancel`)"
@@ -24,7 +23,6 @@
             icon="la:times"
             @click="onDialogCancel" />
           <w-btn
-            push
             color="positive"
             text-color="white"
             :label="t(`common.actions.save`)"

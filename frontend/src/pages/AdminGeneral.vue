@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -59,7 +58,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.title"
                 dense
                 :rules="rulesTitle"
@@ -76,7 +74,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.description"
                 dense
                 :aria-label="t(`admin.general.siteDescription`)" />
@@ -91,7 +88,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.hostname"
                 dense
                 :rules="rulesHostname"
@@ -113,7 +109,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.company"
                 dense
                 :aria-label="t(`admin.general.companyName`)" />
@@ -128,7 +123,6 @@
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.contentLicense"
                 :options="contentLicenses"
                 option-value="value"
@@ -148,7 +142,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.footerExtra"
                 dense
                 :aria-label="t(`admin.general.footerExtra`)" />
@@ -255,9 +248,6 @@
             <w-item-section avatar>
               <w-btn-toggle
                 v-model="state.config.features.reasonForChange"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`admin.general.reasonForChange`)"
                 :options="reasonForChangeModes" />
@@ -321,7 +311,6 @@
                   <div class="flex gap-2">
                     <w-btn
                       :label="t(`common.actions.upload`)"
-                      unelevated
                       icon="la:upload"
                       color="primary"
                       text-color="white"
@@ -393,7 +382,6 @@
                   <div class="flex gap-2">
                     <w-btn
                       :label="t(`common.actions.upload`)"
-                      unelevated
                       icon="la:upload"
                       color="primary"
                       text-color="white"
@@ -469,7 +457,6 @@
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.uploads.conflictBehavior"
                 :options="uploadConflictBehaviors"
                 option-value="value"
@@ -495,7 +482,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.pageExtensions"
                 dense
                 :aria-label="t(`admin.general.pageExtensions`)" />
@@ -510,7 +496,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.allowedUrlSchemes"
                 dense
                 :aria-label="t(`admin.general.allowedUrlSchemes`)" />

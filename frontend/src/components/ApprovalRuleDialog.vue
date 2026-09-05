@@ -21,7 +21,6 @@
             <w-input
               ref="iptName"
               v-model="state.name"
-              outlined
               dense
               :rules="nameValidation"
               hide-bottom-space
@@ -35,7 +34,6 @@
           <w-item-section>
             <w-select
               v-model="state.match"
-              outlined
               dense
               :options="matchOptions"
               map-options
@@ -57,7 +55,6 @@
             -->
             <w-input
               v-model="state.path"
-              outlined
               dense
               :prefix="isTagMatch ? null : `/`"
               :suffix="state.match === `REGEX` ? `/` : null"
@@ -74,7 +71,6 @@
           <w-item-section>
             <w-select
               v-model="state.submitterGroups"
-              outlined
               dense
               :options="props.groups"
               multiple
@@ -95,7 +91,6 @@
           <w-item-section>
             <w-select
               v-model="state.reviewerGroups"
-              outlined
               dense
               :options="props.groups"
               multiple
@@ -116,7 +111,6 @@
           <w-item-section>
             <w-input
               v-model.number="state.minApprovals"
-              outlined
               dense
               type="number"
               min="1"
@@ -139,7 +133,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="isEdit ? t(`common.actions.save`) : t(`common.actions.create`)"
           color="primary"
           padding="xs md"

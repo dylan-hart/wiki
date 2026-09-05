@@ -14,7 +14,6 @@
       <w-input
         v-else
         v-model="recoveryCodeInput"
-        outlined
         autofocus
         class="mt-2"
         :label="t(`auth.tfa.recoveryCodeLabel`)"
@@ -23,16 +22,13 @@
         @keyup:enter="verifyTFA" />
       <w-btn
         class="w-full mt-4"
-        push
         color="primary"
         :label="t(`auth.tfa.verifyToken`)"
-        no-caps
         icon="la:sign-in-alt"
         @click="verifyTFA" />
       <w-btn
         class="w-full mt-2"
         flat
-        no-caps
         color="grey"
         :label="
           state.useRecoveryCode ? t('auth.tfa.useSecurityCode') : t('auth.tfa.useRecoveryCode')
@@ -58,10 +54,8 @@
         separator="" />
       <w-btn
         class="w-full mt-4"
-        push
         color="primary"
         :label="t(`auth.tfa.verifyToken`)"
-        no-caps
         icon="la:sign-in-alt"
         @click="finishSetupTFA" />
     </template>

@@ -38,7 +38,6 @@
         </w-btn>
         <w-btn
           class="me-2"
-          unelevated
           icon="la:power-off"
           :label="!state.enabled ? t(`common.actions.activate`) : t(`common.actions.deactivate`)"
           :color="!state.enabled ? `positive` : `negative`"
@@ -52,7 +51,6 @@
       <div class="col-span-12">
         <w-card
           class="rounded"
-          flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
@@ -68,7 +66,6 @@
         </w-card>
         <w-card
           class="rounded mt-4"
-          flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">

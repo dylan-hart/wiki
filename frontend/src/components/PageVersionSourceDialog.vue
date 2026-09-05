@@ -27,7 +27,6 @@
           :label="t(`common.actions.copy`)"
           @click="copy" />
         <w-btn
-          unelevated
           color="primary"
           padding="xs md"
           :label="t(`common.actions.close`)"

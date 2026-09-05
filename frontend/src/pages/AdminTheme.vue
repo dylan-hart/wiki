@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -113,9 +112,7 @@
                 <w-btn
                   class="me-2"
                   :key="`btnpick-` + cl"
-                  glossy
                   padding="xs md"
-                  no-caps
                   size="sm"
                   :style="`background-color: ` + state.config[`color` + startCase(cl)] + `;`"
                   text-color="white">
@@ -154,7 +151,6 @@
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.codeBlocksTheme"
                 :options="codeThemes"
                 emit-value
@@ -180,9 +176,6 @@
               <w-item-section class="flex-none">
                 <w-btn-toggle
                   v-model="state.config.contentWidth"
-                  push
-                  glossy
-                  no-caps
                   toggle-color="primary"
                   :aria-label="t(`admin.theme.contentWidth`)"
                   :options="widthOptions" />
@@ -199,9 +192,6 @@
             <w-item-section class="flex-none">
               <w-btn-toggle
                 v-model="state.config.sidebarPosition"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`admin.theme.sidebarPosition`)"
                 :options="rightLeftOptions" />
@@ -217,9 +207,6 @@
             <w-item-section class="flex-none">
               <w-btn-toggle
                 v-model="state.config.tocPosition"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`admin.theme.tocPosition`)"
                 :options="rightLeftOptions" />
@@ -267,7 +254,6 @@
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.baseFont"
                 :options="fonts"
                 emit-value
@@ -284,7 +270,6 @@
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.contentFont"
                 :options="fonts"
                 emit-value

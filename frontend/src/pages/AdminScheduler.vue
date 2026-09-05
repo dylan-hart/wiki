@@ -17,8 +17,6 @@
         <w-btn-toggle
           class="me-4"
           v-model="state.displayMode"
-          push
-          no-caps
           :disabled="state.loading > 0"
           :toggle-color="dark.isActive ? `white` : `black`"
           :toggle-text-color="dark.isActive ? `black` : `white`"
@@ -92,14 +90,14 @@
             </template>
             <template v-slot:body-cell-cron="props">
               <w-td :props="props">
-                <w-chip square size="md" color="blue" text-color="white">
+                <w-chip size="md" color="blue" text-color="white">
                   <span class="font-robotomono">{{ props.value }}</span>
                 </w-chip>
               </w-td>
             </template>
             <template v-slot:body-cell-type="props">
               <w-td :props="props">
-                <w-chip square size="md" dense color="deep-orange" text-color="white">
+                <w-chip size="md" dense color="deep-orange" text-color="white">
                   <small class="uppercase">{{ props.value }}</small>
                 </w-chip>
               </w-td>
@@ -309,7 +307,7 @@
                     class="shrink-0 transition-transform"
                     :class="props.row.groupExpanded ? '' : '-rotate-90'" />
                   <strong>{{ props.value }}</strong>
-                  <w-chip square dense size="xs" color="grey-8" text-color="white">
+                  <w-chip dense size="xs" color="grey-8" text-color="white">
                     {{
                       t(
                         'admin.scheduler.groupRuns',

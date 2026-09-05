@@ -111,7 +111,6 @@
         </w-btn>
         <w-btn-group>
           <w-btn
-            push
             color="white"
             text-color="text-secondary"
             :label="t(`common.actions.close`)"
@@ -174,7 +173,6 @@
                 :label="t(`common.actions.insert`)"
                 color="primary"
                 icon="la:plus"
-                push
                 padding="sm" />
             </template>
           </template>
@@ -206,7 +204,6 @@
               class="acrylic-btn ms-2"
               flat
               dense
-              no-caps
               color="negative"
               :aria-label="t(`common.actions.cancel`)"
               icon="la:square"
@@ -224,7 +221,6 @@
               class="me-2"
               flat
               dense
-              no-caps
               color="slate-soft"
               :aria-label="t(`common.sidebar.browse`)"
               icon="mdi:file-tree"
@@ -238,7 +234,6 @@
               class="me-2"
               flat
               dense
-              no-caps
               color="slate-soft"
               :aria-label="t(`fileman.viewOptions`)"
               icon="la:th-list">
@@ -317,7 +312,6 @@
               class="me-2"
               flat
               dense
-              no-caps
               color="slate-soft"
               :aria-label="t(`common.actions.refresh`)"
               icon="la:redo-alt"
@@ -331,7 +325,6 @@
               class="me-2"
               flat
               dense
-              no-caps
               color="slate-soft"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
@@ -347,7 +340,6 @@
             <w-btn
               flat
               dense
-              no-caps
               color="accent"
               :label="t(`common.actions.upload`)"
               :aria-label="t(`common.actions.upload`)"
@@ -364,7 +356,6 @@
               class="ms-2"
               flat
               dense
-              no-caps
               color="primary"
               :label="t(`common.actions.insert`)"
               :aria-label="t(`common.actions.insert`)"

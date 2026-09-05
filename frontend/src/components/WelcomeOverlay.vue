@@ -7,11 +7,9 @@
       <div class="welcome-subtitle">{{ t('welcome.subtitle') }}</div>
       <div class="welcome-actions">
         <w-btn
-          push
           color="primary"
           :label="t(`welcome.createHome`)"
           icon="la:plus"
-          no-caps
           @click="onCreateHomeClick">
           <!--
             -> With exactly one editor enabled there is nothing to pick, so the menu is skipped
@@ -59,11 +57,9 @@
         -->
         <w-btn
           v-if="userStore.can(`access:admin`)"
-          push
           color="primary"
           :label="t(`welcome.admin`)"
           icon="la:cog"
-          no-caps
           @click="loadAdmin" />
       </div>
     </div>

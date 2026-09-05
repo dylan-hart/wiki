@@ -200,8 +200,7 @@
           :color="scrollerAnchorX ? `sidebar-light` : `primary`"
           round
           size="md"
-          :aria-label="t(`common.actions.returnToTop`)"
-          :unelevated="Boolean(scrollerAnchorX)" />
+          :aria-label="t(`common.actions.returnToTop`)" />
       </w-page-scroller>
     </w-page-container>
     <main-overlay-dialog />

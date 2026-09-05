@@ -5,7 +5,6 @@
       <w-space />
       <w-input
         class="denser fill-outline me-2"
-        outlined
         v-model="state.usersFilter"
         :placeholder="t(`admin.groups.filterUsers`)"
         dense>
@@ -20,7 +19,6 @@
         @click="refreshUsers" />
       <w-btn
         class="me-1"
-        unelevated
         icon="la:user-plus"
         :label="t(`admin.groups.assignUser`)"
         color="primary"
@@ -98,8 +96,7 @@
                 :to="`/_admin/users/` + props.row.id"
                 icon="la:pen"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
-                :label="t(`common.actions.edit`)"
-                no-caps />
+                :label="t(`common.actions.edit`)" />
               <!-- Hidden for system users: the guest account's membership is fixed, and the API -->
               <!-- refuses to change it either way -->
               <w-btn

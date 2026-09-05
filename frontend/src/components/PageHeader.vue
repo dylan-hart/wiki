@@ -269,7 +269,6 @@
         -->
         <w-btn
           class="ms-4"
-          unelevated
           icon="la:edit"
           color="accent"
           :label="t(`common.actions.edit`)"
@@ -290,7 +289,6 @@
       <template v-else-if="!editorStore.isActive && pageStore.canSuggestEdits && !isRedirect">
         <w-btn
           class="ms-4"
-          unelevated
           icon="la:edit"
           color="accent"
           :label="
@@ -303,7 +301,6 @@
               ? t(`common.actions.continueSuggestion`)
               : t(`common.actions.suggestEdits`)
           "
-          no-caps
           @click="suggestEdits" />
       </template>
       <template v-if="editorStore.isActive || editorStore.hasPendingChanges">
@@ -318,44 +315,36 @@
           :aria-label="
             editorStore.hasPendingChanges ? t(`common.actions.discard`) : t(`common.actions.close`)
           "
-          no-caps
           @click="discardChanges" />
         <w-btn
           class="ms-2"
           v-if="isSuggesting"
-          unelevated
           icon="la:paper-plane"
           color="positive"
           :label="t(`common.actions.submitEdits`)"
           :aria-label="t(`common.actions.submitEdits`)"
           :disabled="!editorStore.hasPendingChanges"
-          no-caps
           @click="submitSuggestion" />
         <w-btn
           class="ms-2"
           v-else-if="editorStore.mode === `create`"
-          unelevated
           icon="la:check"
           color="positive"
           :label="t(`editor.createPage`)"
           :aria-label="t(`editor.createPage`)"
-          no-caps
           @click="createPage" />
         <w-btn-group class="ms-2" v-else>
           <w-btn
-            unelevated
             icon="la:check"
             color="positive"
             :label="t(`common.actions.saveChanges`)"
             :aria-label="t(`common.actions.saveChanges`)"
             :disabled="!editorStore.hasPendingChanges"
-            no-caps
             @click.exact="saveChanges(false)"
             @click.ctrl.exact="saveChanges(true)" />
           <template v-if="editorStore.isActive">
             <w-separator vertical />
             <w-btn
-              unelevated
               icon="la:check-double"
               color="positive"
               :aria-label="t(`common.actions.saveAndClose`)"

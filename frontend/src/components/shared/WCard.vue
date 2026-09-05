@@ -15,16 +15,11 @@
 /**
  * Surface container: a square white (or, in dark, panel-toned) box with a hairline edge. Pair with
  * `WCardSection` / `WCardActions` for its internal bands.
+ *
+ * There is no `flat` prop: Cardinal separates a card from its ground with a hairline and never with
+ * elevation, so there is no shadow for a caller to drop.
  */
 defineProps({
-  /**
-   * @deprecated Inert. Cardinal separates a card from its ground with a hairline, never with
-   *   elevation, so there is no shadow left to drop. Kept only until the call sites are swept.
-   */
-  flat: {
-    type: Boolean,
-    default: false
-  },
   /** Lays sections out in a row instead of stacked. */
   horizontal: {
     type: Boolean,

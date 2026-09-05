@@ -176,7 +176,6 @@
       <div class="mt-4">
         <w-btn
           icon="la:plus"
-          unelevated
           :label="t(`profile.passkeysAdd`)"
           color="primary"
           @click="setupPasskey" />

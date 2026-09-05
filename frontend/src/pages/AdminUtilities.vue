@@ -159,7 +159,6 @@
             </w-item-section>
             <w-item-section side>
               <w-select
-                outlined
                 :label="t(`admin.utilities.purgeHistoryTimeframe`)"
                 v-model="state.purgeHistoryTimeframe"
                 style="min-width: 175px"

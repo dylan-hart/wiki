@@ -45,7 +45,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.icons.addSet`)"
           color="primary"
@@ -74,7 +73,7 @@
               <w-item-section>
                 <w-item-label>
                   <strong>{{ set.name }}</strong>
-                  <w-chip class="ms-2" square dense size="sm" color="primary" text-color="white">{{
+                  <w-chip class="ms-2" dense size="sm" color="primary" text-color="white">{{
                     set.prefix
                   }}</w-chip>
                 </w-item-label>
@@ -90,7 +89,6 @@
                   :label="t(`admin.icons.reference`)"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
                   flat
-                  no-caps
                   padding="xs md"
                   :href="referenceUrl(set)"
                   target="_blank">
@@ -185,7 +183,6 @@
           <w-input
             class="mt-4"
             v-model="state.availableFilter"
-            outlined
             dense
             clearable
             :label="t(`admin.icons.filterSets`)"
@@ -221,7 +218,7 @@
               <w-item-section>
                 <w-item-label>
                   <strong>{{ set.name }}</strong>
-                  <w-chip class="ms-2" square dense size="sm" color="primary" text-color="white">{{
+                  <w-chip class="ms-2" dense size="sm" color="primary" text-color="white">{{
                     set.prefix
                   }}</w-chip>
                 </w-item-label>

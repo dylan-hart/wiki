@@ -302,7 +302,7 @@ describe('parser', () => {
     it('finds the shared prop objects the real tree declares', () => {
       const mixins = parsePropMixins()
       expect(mixins.get('fieldProps')?.has('label')).toBe(true)
-      expect(mixins.get('fieldProps')?.size).toBe(12)
+      expect(mixins.get('fieldProps')?.size).toBe(11)
     })
 
     it('extracts names from an array-form defineProps', () => {

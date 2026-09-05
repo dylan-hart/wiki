@@ -1,5 +1,5 @@
 <template>
-  <w-card class="icon-picker" flat style="width: 460px">
+  <w-card class="icon-picker" style="width: 460px">
     <!-- -> Inset from the card's edges: the strip is a segmented control with a track of its own, so
          it sits ON the card rather than spanning it edge to edge -->
     <w-tabs class="m-2" v-model="state.currentTab" no-caps inline-label>
@@ -17,7 +17,6 @@
             <w-input
               ref="iptSearch"
               v-model="state.query"
-              outlined
               dense
               clearable
               :label="t(`iconPicker.search`)"
@@ -30,7 +29,6 @@
             <w-select
               v-model="state.setFilter"
               :options="setOptions"
-              outlined
               dense
               options-dense
               emit-value
@@ -84,7 +82,6 @@
           ref="iptImage"
           class="mt-4"
           v-model="state.image"
-          outlined
           dense
           prefix="img:"
           :label="t(`iconPicker.imageUrl`)"
@@ -117,7 +114,6 @@
       <w-btn
         icon="la:check"
         :label="t(`common.actions.apply`)"
-        unelevated
         color="secondary"
         :disabled="!pendingValue"
         @click="applyAndClose" />

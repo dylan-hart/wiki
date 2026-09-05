@@ -46,7 +46,6 @@
             <w-input
               ref="iptName"
               v-model="state.hook.name"
-              outlined
               dense
               :rules="hookNameValidation"
               hide-bottom-space
@@ -59,7 +58,6 @@
           <w-item-section>
             <w-select
               v-model="state.hook.events"
-              outlined
               :options="events"
               multiple
               map-options
@@ -84,9 +82,7 @@
               </template>
               <template #option="{ opt }">
                 <span class="flex flex-nowrap items-center gap-2">
-                  <w-chip size="sm" color="positive" text-color="white" square>{{
-                    opt.type
-                  }}</w-chip>
+                  <w-chip size="sm" color="positive" text-color="white">{{ opt.type }}</w-chip>
                   <span class="min-w-0 flex-1">
                     <w-item-label>{{ opt.name }}</w-item-label>
                     <!-- Subscribing is allowed, but say plainly that nothing fires it yet -->
@@ -104,7 +100,6 @@
           <w-item-section>
             <w-select
               v-model="state.hook.siteId"
-              outlined
               dense
               :options="siteOptions"
               option-value="id"
@@ -125,7 +120,6 @@
             <w-input
               v-model="state.hook.url"
               class="mt-2"
-              outlined
               dense
               :rules="hookUrlValidation"
               hide-bottom-space
@@ -133,7 +127,7 @@
               :aria-label="t(`admin.webhooks.url`)"
               lazy-rules="ondemand">
               <template #prepend>
-                <w-chip color="positive" text-color="white" square size="sm">POST</w-chip>
+                <w-chip color="positive" text-color="white" size="sm">POST</w-chip>
               </template>
             </w-input>
           </w-item-section>
@@ -185,7 +179,6 @@
             <w-input
               v-model="state.hook.authHeader"
               class="mt-2"
-              outlined
               dense
               :aria-label="t(`admin.webhooks.authHeader`)" />
           </w-item-section>
@@ -212,7 +205,6 @@
           @click="onDialogCancel" />
         <w-btn
           v-if="props.hookId"
-          unelevated
           :label="t(`common.actions.save`)"
           color="primary"
           padding="xs md"
@@ -220,7 +212,6 @@
           @click="save" />
         <w-btn
           v-else
-          unelevated
           :label="t(`common.actions.create`)"
           color="primary"
           padding="xs md"

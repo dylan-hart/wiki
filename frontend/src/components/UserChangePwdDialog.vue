@@ -15,7 +15,6 @@
             <w-input
               ref="iptPassword"
               v-model="state.userPassword"
-              outlined
               dense
               :rules="userPasswordValidation"
               hide-bottom-space
@@ -63,7 +62,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.update`)"
           color="primary"
           padding="xs md"

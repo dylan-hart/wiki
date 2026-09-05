@@ -22,7 +22,6 @@
       </w-btn>
       <w-btn
         v-if="canManage"
-        unelevated
         color="primary"
         icon="la:plus"
         :label="t('admin.groups.newRule')"
@@ -53,7 +52,7 @@
               <w-separator class="ms-2 me-1" vertical />
               <input type="text" v-model="rule.name" placeholder="Rule Name" />
             </div>
-            <w-card class="admin-groups-rule-card mt-4" flat>
+            <w-card class="admin-groups-rule-card mt-4">
               <w-card-section
                 class="admin-groups-rule-card-permissions"
                 :class="getRuleModeClass(rule.mode)">
@@ -73,7 +72,7 @@
                   multiple
                   use-chips>
                   <template #selected-item="scope">
-                    <w-chip square dense :color="getRuleModeBgColor(rule.mode)" text-color="white">
+                    <w-chip dense :color="getRuleModeBgColor(rule.mode)" text-color="white">
                       <span class="text-caption">{{ scope.opt.title }}</span>
                     </w-chip>
                   </template>

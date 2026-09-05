@@ -9,7 +9,6 @@
       <w-space />
       <w-btn-group>
         <w-btn
-          push
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
@@ -21,7 +20,6 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
-          push
           color="white"
           text-color="grey-7"
           :label="t(`common.actions.close`)"
@@ -30,7 +28,6 @@
           @click="close" />
         <w-btn
           v-if="canManage"
-          push
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"
@@ -78,7 +75,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.user.name"
                       dense
                       :rules="[
@@ -97,7 +93,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.user.email"
                       dense
                       :aria-label="t(`admin.users.email`)" />
@@ -113,7 +108,6 @@
                     </w-item-section>
                     <w-item-section>
                       <w-input
-                        outlined
                         v-model="state.user.meta.location"
                         dense
                         :aria-label="t(`admin.users.location`)" />
@@ -128,7 +122,6 @@
                     </w-item-section>
                     <w-item-section>
                       <w-input
-                        outlined
                         v-model="state.user.meta.jobTitle"
                         dense
                         :aria-label="t(`admin.users.jobTitle`)" />
@@ -143,7 +136,6 @@
                     </w-item-section>
                     <w-item-section>
                       <w-input
-                        outlined
                         v-model="state.user.meta.pronouns"
                         dense
                         :aria-label="t(`admin.users.pronouns`)" />
@@ -161,7 +153,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-select
-                      outlined
                       v-model="state.user.prefs.timezone"
                       :options="timezones"
                       option-value="value"
@@ -182,7 +173,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-select
-                      outlined
                       v-model="state.user.prefs.dateFormat"
                       emit-value
                       map-options
@@ -208,9 +198,6 @@
                   <w-item-section class="flex-none">
                     <w-btn-toggle
                       v-model="state.user.prefs.timeFormat"
-                      push
-                      glossy
-                      no-caps
                       toggle-color="primary"
                       :aria-label="t(`admin.users.timeFormat`)"
                       :options="[
@@ -229,9 +216,6 @@
                   <w-item-section class="flex-none">
                     <w-btn-toggle
                       v-model="state.user.prefs.appearance"
-                      push
-                      glossy
-                      no-caps
                       toggle-color="primary"
                       :aria-label="t(`admin.users.appearance`)"
                       :options="[
@@ -251,9 +235,6 @@
                   <w-item-section class="flex-none">
                     <w-btn-toggle
                       v-model="state.user.prefs.cvd"
-                      push
-                      glossy
-                      no-caps
                       toggle-color="primary"
                       :aria-label="t(`profile.cvd`)"
                       :options="[
@@ -313,7 +294,6 @@
                 <w-card-header>{{ t('admin.users.notes') }}</w-card-header>
                 <w-card-section class="pt-0">
                   <w-input
-                    outlined
                     v-model="state.user.meta.notes"
                     type="textarea"
                     :aria-label="t(`admin.users.notes`)"
@@ -519,7 +499,6 @@
                   <blueprint-icon icon="join" />
                   <w-item-section>
                     <w-select
-                      outlined
                       :options="state.groups"
                       v-model="state.groupToAdd"
                       map-options
@@ -535,7 +514,6 @@
                   </w-item-section>
                   <w-item-section side>
                     <w-btn
-                      unelevated
                       icon="la:plus"
                       :label="t(`admin.users.assignGroup`)"
                       color="primary"

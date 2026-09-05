@@ -9,7 +9,6 @@
       <w-space />
       <w-btn-group>
         <w-btn
-          push
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
@@ -20,14 +19,12 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
-          push
           color="white"
           text-color="grey-7"
           :label="t(`common.actions.close`)"
           icon="la:times"
           @click="close" />
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"
@@ -91,7 +88,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.name"
                       dense
                       :rules="groupNameValidation"
@@ -111,7 +107,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.redirectOnLogin"
                       dense
                       :aria-label="t(`admin.groups.redirectOnLogin`)" />
@@ -128,7 +123,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.redirectOnFirstLogin"
                       dense
                       :aria-label="t(`admin.groups.redirectOnLogin`)" />
@@ -145,7 +139,6 @@
                   </w-item-section>
                   <w-item-section>
                     <w-input
-                      outlined
                       v-model="state.group.redirectOnLogout"
                       dense
                       :aria-label="t(`admin.groups.redirectOnLogout`)" />

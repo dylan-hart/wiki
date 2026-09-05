@@ -23,7 +23,6 @@
             <w-input
               ref="iptKey"
               type="textarea"
-              outlined
               :model-value="props.keyValue"
               readonly
               dense
@@ -43,7 +42,6 @@
           <w-item-section>
             <w-input
               type="textarea"
-              outlined
               :model-value="mcpInstallCommand"
               readonly
               dense
@@ -52,9 +50,6 @@
               :hint="t(`admin.api.mcpInstallCommandHint`)" />
             <w-btn-toggle
               v-model="mcpInstallScope"
-              push
-              glossy
-              no-caps
               toggle-color="primary"
               class="mt-2"
               :aria-label="t(`admin.api.mcpInstallScope`)"
@@ -85,7 +80,6 @@
           padding="xs md"
           @click="copyKey" />
         <w-btn
-          unelevated
           :label="t(`common.actions.close`)"
           color="primary"
           padding="xs md"

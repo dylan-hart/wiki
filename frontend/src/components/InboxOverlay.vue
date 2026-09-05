@@ -6,7 +6,6 @@
       <w-space />
       <w-btn-group>
         <w-btn
-          push
           color="white"
           text-color="text-secondary"
           :label="t('common.actions.close')"

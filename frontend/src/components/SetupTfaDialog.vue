@@ -63,7 +63,6 @@
             padding="xs md"
             @click="onDialogCancel" />
           <w-btn
-            unelevated
             :label="t(`auth.tfa.verifyToken`)"
             color="primary"
             padding="xs md"
@@ -85,7 +84,6 @@
         <w-card-actions class="card-actions">
           <w-space />
           <w-btn
-            unelevated
             :label="t(`common.actions.close`)"
             color="primary"
             padding="xs md"

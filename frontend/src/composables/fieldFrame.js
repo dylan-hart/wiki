@@ -24,8 +24,8 @@ import { computed, ref } from 'vue'
  *    slate under the pointer, chrome slate on focus, the accent fill on error). It is still drawn
  *    as an inset ring rather than a real border, so a field's box never changes size — which also
  *    means a caller's own `border-*` utility does not fight it.
- *  - `outlined` is now inert. Cardinal has no underlined field variant, so every field is the boxed
- *    one; the prop is kept only until its call sites are swept.
+ *  - There is no `outlined` prop. Cardinal has no underlined field variant, so every field is the
+ *    boxed one and there is nothing to opt into.
  */
 
 /**
@@ -57,14 +57,6 @@ export const fieldProps = {
   hint: {
     type: String,
     default: null
-  },
-  /**
-   * @deprecated Inert. Cardinal has no underlined field, so every field is the boxed one -- see the
-   *   file header. Kept only until the call sites that still pass it are swept.
-   */
-  outlined: {
-    type: Boolean,
-    default: false
   },
   dense: {
     type: Boolean,

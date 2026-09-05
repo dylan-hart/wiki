@@ -25,7 +25,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -39,7 +38,7 @@
         <w-card class="py-2">
           <w-item>
             <w-item-section>
-              <w-card class="bg-negative text-white rounded" flat>
+              <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
@@ -113,7 +112,6 @@
             <w-item-section avatar>
               <w-btn
                 :label="t(`common.actions.edit`)"
-                unelevated
                 icon="la:code"
                 color="primary"
                 text-color="white"

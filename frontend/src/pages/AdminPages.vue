@@ -27,16 +27,15 @@
     </div>
     <w-separator inset />
     <div class="p-4">
-      <w-card class="rounded mb-4" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
+      <w-card class="rounded mb-4" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
         <w-card-section class="flex flex-wrap gap-3 items-end">
           <div style="min-width: 220px">
             <div class="text-caption text-grey mb-1">{{ t('search.filterPath') }}</div>
-            <w-input outlined dense v-model="state.filters.path" />
+            <w-input dense v-model="state.filters.path" />
           </div>
           <div style="min-width: 220px">
             <div class="text-caption text-grey mb-1">{{ t('search.filterLocale') }}</div>
             <w-select
-              outlined
               dense
               options-dense
               emit-value
@@ -47,12 +46,11 @@
           </div>
           <div style="min-width: 180px">
             <div class="text-caption text-grey mb-1">{{ t('search.filterTags') }}</div>
-            <w-input outlined dense v-model="state.filters.tags" />
+            <w-input dense v-model="state.filters.tags" />
           </div>
           <div style="min-width: 180px">
             <div class="text-caption text-grey mb-1">{{ t('search.filterEditor') }}</div>
             <w-select
-              outlined
               dense
               options-dense
               emit-value
@@ -63,7 +61,6 @@
           <div style="min-width: 180px">
             <div class="text-caption text-grey mb-1">{{ t('search.filterPublishState') }}</div>
             <w-select
-              outlined
               dense
               options-dense
               emit-value
@@ -98,65 +95,49 @@
           <span class="text-caption text-grey">{{
             t('admin.pages.selectedCount', { count: state.selectedIds.length })
           }}</span>
-          <w-btn
-            flat
-            dense
-            no-caps
-            :label="t('admin.pages.clearSelection')"
-            @click="clearSelection" />
+          <w-btn flat dense :label="t('admin.pages.clearSelection')" @click="clearSelection" />
           <w-space />
           <w-btn
-            unelevated
-            no-caps
             color="negative"
             icon="la:trash"
-            :disable="state.bulkLoading"
+            :disabled="state.bulkLoading"
             :label="t('admin.pages.bulkDelete')"
             @click="confirmBulkDelete" />
           <w-btn
-            unelevated
-            no-caps
             color="secondary"
             icon="la:redo-alt"
-            :disable="state.bulkLoading"
+            :disabled="state.bulkLoading"
             :label="t('admin.pages.bulkRender')"
             @click="confirmBulkRender" />
           <w-btn
-            unelevated
-            no-caps
             color="primary"
             icon="la:hashtag"
-            :disable="state.bulkLoading"
+            :disabled="state.bulkLoading"
             :label="t('admin.pages.bulkRetag')"
             @click="state.retagOpen = !state.retagOpen" />
         </template>
       </div>
 
       <!-- RETAG PANEL -->
-      <w-card v-if="state.retagOpen" flat bordered class="mb-4 p-3">
+      <w-card v-if="state.retagOpen" class="mb-4 p-3">
         <div class="grid grid-cols-12 gap-2 items-end">
           <w-input
             class="col-span-12 sm:col-span-5"
-            outlined
             dense
             :label="t('admin.pages.retagAddLabel')"
             v-model="state.retagAdd" />
           <w-input
             class="col-span-12 sm:col-span-5"
-            outlined
             dense
             :label="t('admin.pages.retagRemoveLabel')"
             v-model="state.retagRemove" />
           <div class="col-span-12 sm:col-span-2 flex gap-2 justify-end">
             <w-btn
               flat
-              no-caps
-              :disable="state.bulkLoading"
+              :disabled="state.bulkLoading"
               :label="t('common.actions.cancel')"
               @click="state.retagOpen = false" />
             <w-btn
-              unelevated
-              no-caps
               color="primary"
               :loading="state.bulkLoading"
               :label="t('admin.pages.retagApply')"
@@ -165,7 +146,7 @@
         </div>
       </w-card>
 
-      <w-card v-if="state.rows.length < 1" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
+      <w-card v-if="state.rows.length < 1" :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
         <w-card-section class="items-center" horizontal>
           <w-card-section class="flex-none pe-0">
             <w-icon name="la:info-circle" size="sm" />
@@ -173,7 +154,7 @@
           <w-card-section class="text-caption">{{ t('admin.pages.none') }}</w-card-section>
         </w-card-section>
       </w-card>
-      <w-card v-else flat>
+      <w-card v-else>
         <w-table
           :rows="state.rows"
           :columns="headers"
@@ -218,7 +199,6 @@
                 <w-chip
                   v-for="tag of props.row.tags"
                   :key="`tag-` + tag"
-                  square
                   color="secondary"
                   text-color="white"
                   icon="la:hashtag"
@@ -239,7 +219,6 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                no-caps
                 icon="la:eye"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`common.actions.view`)"

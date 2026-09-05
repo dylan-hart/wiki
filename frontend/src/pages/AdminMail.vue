@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -59,7 +58,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.senderName"
                 dense
                 hide-bottom-space
@@ -75,7 +73,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.senderEmail"
                 dense
                 :aria-label="t(`admin.mail.senderEmail`)" />
@@ -90,7 +87,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.defaultBaseURL"
                 dense
                 :aria-label="t(`admin.mail.defaultBaseURL`)" />
@@ -110,7 +106,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.host"
                 dense
                 hide-bottom-space
@@ -125,11 +120,7 @@
               <w-item-label caption>{{ t(`admin.mail.smtpPortHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section style="flex: 0 0 120px">
-              <w-input
-                outlined
-                v-model="state.config.port"
-                dense
-                :aria-label="t(`admin.mail.smtpPort`)" />
+              <w-input v-model="state.config.port" dense :aria-label="t(`admin.mail.smtpPort`)" />
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
@@ -164,11 +155,7 @@
               <w-item-label caption>{{ t(`admin.mail.smtpUserHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
-              <w-input
-                outlined
-                v-model="state.config.user"
-                dense
-                :aria-label="t(`admin.mail.smtpUser`)" />
+              <w-input v-model="state.config.user" dense :aria-label="t(`admin.mail.smtpUser`)" />
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
@@ -179,11 +166,7 @@
               <w-item-label caption>{{ t(`admin.mail.smtpPwdHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
-              <w-input
-                outlined
-                v-model="state.config.pass"
-                dense
-                :aria-label="t(`admin.mail.smtpPwd`)" />
+              <w-input v-model="state.config.pass" dense :aria-label="t(`admin.mail.smtpPwd`)" />
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
@@ -195,7 +178,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.name"
                 dense
                 hide-bottom-space
@@ -210,7 +192,7 @@
           <w-card-header>{{ t('admin.mail.dkim') }}</w-card-header>
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-info text-white rounded" flat>
+              <w-card class="bg-info text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:info-circle" size="lg" />
@@ -242,7 +224,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.dkimDomainName"
                   dense
                   :aria-label="t(`admin.mail.dkimDomainName`)" />
@@ -257,7 +238,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.dkimKeySelector"
                   dense
                   :aria-label="t(`admin.mail.dkimKeySelector`)" />
@@ -272,7 +252,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.dkimPrivateKey"
                   dense
                   :aria-label="t(`admin.mail.dkimPrivateKey`)"
@@ -295,7 +274,6 @@
               <w-item-label caption>{{ t(`admin.mail.testRecipientHint`) }}</w-item-label>
               <w-input
                 class="mt-4"
-                outlined
                 v-model="state.testEmail"
                 dense
                 :aria-label="t(`admin.mail.testRecipient`)" />
@@ -303,7 +281,6 @@
           </w-item>
           <div class="flex justify-end pe-4 py-2">
             <w-btn
-              unelevated
               color="primary"
               icon="la:paper-plane"
               :label="t(`admin.mail.testSend`)"

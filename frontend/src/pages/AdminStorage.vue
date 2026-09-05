@@ -18,8 +18,6 @@
         <w-btn-toggle
           class="me-4"
           v-model="state.displayMode"
-          push
-          no-caps
           :toggle-color="dark.isActive ? `white` : `black`"
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
@@ -41,7 +39,6 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -178,7 +175,6 @@
                 </w-item-section>
                 <w-item-section side>
                   <w-input
-                    outlined
                     :label="t(`admin.storage.contentTypeLargeFilesThreshold`)"
                     v-model="state.target.contentTypes.largeThreshold"
                     style="min-width: 150px"
@@ -336,8 +332,6 @@
                 <w-item-section side>
                   <w-btn-toggle
                     v-model="state.target.sync.mode"
-                    push
-                    no-caps
                     toggle-color="primary"
                     :options="syncModeOptions"
                     :aria-label="t(`admin.storage.syncDirection`)"
@@ -362,7 +356,6 @@
                 </w-item-section>
                 <w-item-section side>
                   <w-input
-                    outlined
                     v-model="state.target.sync.scheduleOverride"
                     :placeholder="state.target.sync.schedule || ``"
                     style="min-width: 150px"
@@ -551,19 +544,19 @@
         <w-card class="rounded">
           <w-card-section class="flex items-center">
             <div class="text-caption me-2">{{ t('admin.storage.deliveryPathsLegend') }}</div>
-            <w-chip square dense color="blue-1" text-color="blue-8">
+            <w-chip dense color="blue-1" text-color="blue-8">
               <w-avatar icon="la:ellipsis-h" color="blue" text-color="white" />
               <span class="text-caption px-2">{{
                 t('admin.storage.deliveryPathsUserRequest')
               }}</span>
             </w-chip>
-            <w-chip square dense color="teal-1" text-color="teal-8">
+            <w-chip dense color="teal-1" text-color="teal-8">
               <w-avatar icon="la:ellipsis-h" color="positive" text-color="white" />
               <span class="text-caption px-2">{{
                 t('admin.storage.deliveryPathsPushToOrigin')
               }}</span>
             </w-chip>
-            <w-chip square dense color="red-1" text-color="red-8">
+            <w-chip dense color="red-1" text-color="red-8">
               <w-avatar icon="la:minus" color="negative" text-color="white" />
               <span class="text-caption px-2">{{ t('admin.storage.missingOrigin') }}</span>
             </w-chip>

@@ -190,7 +190,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.current.label"
                 dense
                 hide-bottom-space
@@ -206,9 +205,6 @@
             <w-item-section avatar>
               <w-btn-toggle
                 v-model="state.current.visibilityLimited"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
@@ -219,7 +215,6 @@
             <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
-              outlined
               v-model="state.current.visibilityGroups"
               :options="state.groups"
               option-value="id"
@@ -263,7 +258,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.current.label"
                 dense
                 hide-bottom-space
@@ -278,7 +272,7 @@
               <w-item-label caption>{{ t(`navEdit.iconHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section>
-              <w-input outlined v-model="state.current.icon" dense :aria-label="t(`navEdit.icon`)">
+              <w-input v-model="state.current.icon" dense :aria-label="t(`navEdit.icon`)">
                 <template #append>
                   <!--
                     A button, not a bare `w-icon`: for a bundled icon WIcon renders an <svg> whose
@@ -332,7 +326,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.current.target"
                   dense
                   hide-bottom-space
@@ -382,9 +375,6 @@
             <w-item-section avatar>
               <w-btn-toggle
                 v-model="state.current.visibilityLimited"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
@@ -395,7 +385,6 @@
             <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
-              outlined
               v-model="state.current.visibilityGroups"
               :options="state.groups"
               option-value="id"
@@ -461,9 +450,6 @@
             <w-item-section avatar>
               <w-btn-toggle
                 v-model="state.current.visibilityLimited"
-                push
-                glossy
-                no-caps
                 toggle-color="primary"
                 :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
@@ -474,7 +460,6 @@
             <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
             <w-select
               style="width: 100%; max-width: calc(50% - 34px)"
-              outlined
               v-model="state.current.visibilityGroups"
               :options="state.groups"
               option-value="id"

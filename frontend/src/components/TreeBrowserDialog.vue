@@ -69,7 +69,6 @@
               v-model="state.title"
               :label="t(`pageSaveDialog.pageTitle`)"
               dense
-              outlined
               @focus="state.currentFileId = null"
               @keyup:enter="save" />
           </w-item-section>
@@ -82,7 +81,6 @@
               :label="t(`pageSaveDialog.pathName`)"
               :rules="pathRules"
               dense
-              outlined
               @focus="onPathFocus"
               @keyup:enter="onPathEnter" />
           </w-item-section>
@@ -148,7 +146,6 @@
         <w-btn
           icon="la:check"
           :label="t(`common.actions.save`)"
-          unelevated
           color="primary"
           padding="xs md"
           :disabled="pathHasSlash"

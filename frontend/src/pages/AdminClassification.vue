@@ -27,7 +27,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.classification.new`)"
           color="primary"
@@ -69,7 +68,6 @@
                   :ref="(el) => (renameInput = el)"
                   v-model="state.editingName"
                   dense
-                  outlined
                   :aria-label="t('common.field.name')"
                   @keyup.enter="commitRename(level)"
                   @blur="commitRename(level)" />
@@ -130,11 +128,7 @@
                 <w-item-label>{{ row.name }}</w-item-label>
               </w-item-section>
               <w-item-section side>
-                <w-chip
-                  dense
-                  square
-                  :color="row.count > 0 ? `primary` : `grey-5`"
-                  text-color="white">
+                <w-chip dense :color="row.count > 0 ? `primary` : `grey-5`" text-color="white">
                   {{ row.count }}
                 </w-chip>
               </w-item-section>

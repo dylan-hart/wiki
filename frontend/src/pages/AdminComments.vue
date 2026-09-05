@@ -38,7 +38,6 @@
         </w-btn>
         <w-btn
           v-if="state.mode === `provider`"
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -112,7 +111,6 @@
           <template #action>
             <w-btn
               flat
-              no-caps
               :label="t('admin.comments.goToGeneral')"
               :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
           </template>
@@ -175,12 +173,10 @@
         <template #action>
           <w-btn
             flat
-            no-caps
             :label="t('admin.comments.goToGeneral')"
             :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
           <w-btn
             flat
-            no-caps
             :label="t('admin.comments.configureProvider')"
             @click="state.mode = `provider`" />
         </template>
@@ -189,7 +185,6 @@
         <div class="flex flex-wrap gap-2 mb-4">
           <w-input
             class="denser"
-            outlined
             v-model="state.searchPath"
             dense
             :placeholder="t('admin.comments.searchByPage')"
@@ -199,7 +194,6 @@
           </w-input>
           <w-input
             class="denser"
-            outlined
             v-model="state.searchAuthor"
             dense
             :placeholder="t('admin.comments.searchByAuthor')"

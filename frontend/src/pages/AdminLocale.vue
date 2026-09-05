@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -59,7 +58,6 @@
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.primary"
                 :options="state.locales"
                 option-value="code"

@@ -12,8 +12,6 @@
             :key="str.id"
             :label="str.activeStrategy.displayName"
             :icon="`img:` + str.activeStrategy.strategy.icon"
-            push
-            no-caps
             :color="
               str.id === state.selectedStrategyId
                 ? `primary`
@@ -31,7 +29,6 @@
         <w-input
           ref="loginEmailIpt"
           v-model="state.username"
-          outlined
           :label="
             t(`auth.fields.` + (selectedStrategy.activeStrategy?.strategy?.usernameType ?? `email`))
           "
@@ -48,7 +45,6 @@
         <w-input
           class="mt-2"
           v-model="state.password"
-          outlined
           :label="t(`auth.fields.password`)"
           :rules="loginPasswordValidation"
           lazy-rules="ondemand"
@@ -60,10 +56,8 @@
         <w-btn
           class="w-full mt-2"
           type="submit"
-          push
           color="primary"
           :label="t(`auth.actions.login`)"
-          no-caps
           icon="la:sign-in-alt" />
       </w-form>
       <!--
@@ -78,7 +72,6 @@
           flat
           color="primary"
           :label="t(`auth.passkeys.signin`)"
-          no-caps
           icon="la:key"
           @click="loginWithPasskey" />
       </template>
@@ -96,7 +89,6 @@
           flat
           color="primary"
           :label="t(`auth.actions.loginWith`, { provider: str.activeStrategy.displayName })"
-          no-caps
           :icon="`img:` + str.activeStrategy.strategy.icon"
           :href="authorizeUrl(str)"
           type="a" />
@@ -109,7 +101,6 @@
           flat
           color="primary"
           :label="t(`auth.switchToRegister.link`)"
-          no-caps
           icon="la:user-plus"
           @click="switchTo(`register`)" />
         <!-- -> Off where the strategy says so: a wiki that hands passwords out rather than letting
@@ -120,7 +111,6 @@
           flat
           color="primary"
           :label="t(`auth.forgotPasswordLink`)"
-          no-caps
           icon="la:life-ring"
           @click="switchTo(`forgot`)" />
       </template>
@@ -134,7 +124,6 @@
         <w-input
           ref="forgotEmailIpt"
           v-model="state.forgotEmail"
-          outlined
           :rules="userEmailValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -145,10 +134,8 @@
         <w-btn
           class="w-full mt-2"
           type="submit"
-          push
           color="primary"
           :label="t(`auth.sendResetPassword`)"
-          no-caps
           icon="la:life-ring" />
       </w-form>
       <w-separator class="my-4" />
@@ -157,7 +144,6 @@
         flat
         color="primary"
         :label="t(`auth.forgotPasswordCancel`)"
-        no-caps
         icon="la:arrow-circle-left"
         @click="switchTo(`login`)" />
     </template>
@@ -170,7 +156,6 @@
         <w-input
           ref="resetNewPwdIpt"
           v-model="state.newPassword"
-          outlined
           :label="t(`auth.fields.password`)"
           type="password"
           autocomplete="new-password"
@@ -188,7 +173,6 @@
         <w-input
           class="mt-2"
           v-model="state.newPasswordVerify"
-          outlined
           :label="t(`auth.fields.verifyPassword`)"
           type="password"
           autocomplete="new-password"
@@ -200,10 +184,8 @@
         <w-btn
           class="w-full mt-2"
           type="submit"
-          push
           color="primary"
           :label="t(`auth.resetPassword.proceed`)"
-          no-caps
           icon="la:sync-alt" />
       </w-form>
       <w-separator class="my-4" />
@@ -212,7 +194,6 @@
         flat
         color="primary"
         :label="t(`auth.switchToLogin.link`)"
-        no-caps
         icon="la:arrow-circle-left"
         @click="switchTo(`login`)" />
     </template>
@@ -235,7 +216,6 @@
           v-if="!state.continuationToken"
           ref="changePwdCurrentIpt"
           v-model="state.password"
-          outlined
           type="password"
           :rules="loginPasswordValidation"
           lazy-rules="ondemand"
@@ -248,7 +228,6 @@
           class="mt-2"
           ref="changePwdNewPwdIpt"
           v-model="state.newPassword"
-          outlined
           :label="t(`auth.changePwd.newPassword`)"
           type="password"
           autocomplete="new-password"
@@ -266,7 +245,6 @@
         <w-input
           class="mt-2"
           v-model="state.newPasswordVerify"
-          outlined
           :label="t(`auth.changePwd.newPasswordVerify`)"
           type="password"
           autocomplete="new-password"
@@ -278,10 +256,8 @@
         <w-btn
           class="w-full mt-2"
           type="submit"
-          push
           color="primary"
           :label="t(`auth.changePwd.proceed`)"
-          no-caps
           icon="la:sync-alt" />
       </w-form>
     </template>

@@ -73,7 +73,6 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                no-caps
                 icon="la:undo"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`history.recovery.recover`)"

@@ -33,7 +33,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="props.targetState ? t(`common.actions.activate`) : t(`common.actions.deactivate`)"
           :color="props.targetState ? `positive` : `negative`"
           padding="xs md"

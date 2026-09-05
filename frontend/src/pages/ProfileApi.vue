@@ -17,7 +17,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`profile.api.newKeyButton`)"
           color="primary"
@@ -30,7 +29,6 @@
       <div v-if="state.keys.length < 1 && state.loading < 1">
         <w-card
           class="rounded"
-          flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">

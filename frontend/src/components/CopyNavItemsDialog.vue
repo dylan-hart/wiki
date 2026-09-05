@@ -26,7 +26,6 @@
         </w-item-section>
         <w-item-section>
           <w-select
-            outlined
             dense
             hide-bottom-space
             v-model="state.sourceSiteId"
@@ -46,7 +45,6 @@
         </w-item-section>
         <w-item-section>
           <w-select
-            outlined
             dense
             hide-bottom-space
             :loading="state.isFetching"
@@ -74,7 +72,6 @@
         <w-btn
           icon="la:check"
           :label="t('common.actions.copy')"
-          unelevated
           color="primary"
           padding="xs md"
           :disabled="!canSubmit"

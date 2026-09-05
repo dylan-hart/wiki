@@ -30,7 +30,6 @@
       </w-btn>
       <w-btn-group>
         <w-btn
-          push
           color="white"
           text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
@@ -38,7 +37,6 @@
           icon="la:times"
           @click="close" />
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"

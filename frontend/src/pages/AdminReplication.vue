@@ -25,7 +25,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -42,7 +41,7 @@
         <w-card class="py-2 mb-4">
           <w-item>
             <w-item-section>
-              <w-card class="bg-negative text-white rounded" flat>
+              <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
@@ -68,7 +67,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.sourceUrl"
                 dense
                 hide-bottom-space
@@ -85,7 +83,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.bearerToken"
                 dense
                 hide-bottom-space
@@ -105,7 +102,6 @@
             </w-item-section>
             <w-item-section>
               <w-input
-                outlined
                 v-model="state.config.cronSchedule"
                 dense
                 :rules="rulesCronSchedule"

@@ -38,7 +38,6 @@
         </w-btn>
         <w-btn
           class="me-2"
-          unelevated
           icon="la:power-off"
           :label="!state.enabled ? t(`common.actions.activate`) : t(`common.actions.deactivate`)"
           :color="!state.enabled ? `positive` : `negative`"
@@ -52,7 +51,6 @@
       <div class="col-span-12">
         <w-card
           class="rounded"
-          flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
@@ -65,7 +63,7 @@
         </w-card>
       </div>
       <div class="col-span-12" v-if="state.summary.totalViews === 0">
-        <w-card class="rounded" flat>
+        <w-card class="rounded">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
               <w-icon name="la:chart-area" size="sm" />
@@ -78,7 +76,7 @@
       </div>
       <template v-else>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
               <div class="pageviews-stat-label">{{ t('admin.pageviews.totalViews') }}</div>
               <div class="pageviews-stat-figure">{{ state.summary.totalViews }}</div>
@@ -86,7 +84,7 @@
           </w-card>
         </div>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
               <div class="pageviews-stat-label">{{ t('admin.pageviews.last24h') }}</div>
               <div class="pageviews-stat-figure">{{ state.summary.last24h }}</div>
@@ -94,7 +92,7 @@
           </w-card>
         </div>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
               <div class="pageviews-stat-label">{{ t('admin.pageviews.last7d') }}</div>
               <div class="pageviews-stat-figure">{{ state.summary.last7d }}</div>
@@ -102,7 +100,7 @@
           </w-card>
         </div>
         <div class="col-span-6 sm:col-span-3">
-          <w-card class="rounded pageviews-stat" flat>
+          <w-card class="rounded pageviews-stat">
             <w-card-section>
               <div class="pageviews-stat-label">{{ t('admin.pageviews.distinctPages') }}</div>
               <div class="pageviews-stat-figure">{{ state.summary.distinctPages }}</div>

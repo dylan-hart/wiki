@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -53,7 +52,7 @@
           <w-card-header>{{ t('admin.security.title') }}</w-card-header>
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-negative text-white rounded" flat>
+              <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
@@ -152,7 +151,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 260px">
                 <w-input
-                  outlined
                   v-model="trustProxyAddresses"
                   dense
                   :placeholder="t(`admin.security.trustProxyAddressesPlaceholder`)"
@@ -172,7 +170,7 @@
             <w-separator class="my-2" inset />
             <w-item>
               <w-item-section>
-                <w-card class="bg-negative text-white rounded" flat>
+                <w-card class="bg-negative text-white rounded">
                   <w-card-section class="items-center" horizontal>
                     <w-card-section class="flex-none pe-0">
                       <w-icon name="la:exclamation-triangle" size="lg" />
@@ -221,7 +219,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 200px">
                 <w-select
-                  outlined
                   v-model="state.config.hstsDuration"
                   :options="hstsDurations"
                   option-value="value"
@@ -245,7 +242,7 @@
           -->
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-negative text-white rounded" flat>
+              <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
@@ -287,7 +284,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 200px">
                 <w-input
-                  outlined
                   v-model.number="state.config.authRateLimitMax"
                   dense
                   :suffix="t(`admin.security.rateLimitMaxSuffix`)"
@@ -303,7 +299,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 200px">
                 <w-input
-                  outlined
                   v-model="state.config.authRateLimitWindow"
                   dense
                   :placeholder="t(`admin.security.durationPlaceholder`)"
@@ -319,7 +314,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 200px">
                 <w-input
-                  outlined
                   v-model="state.config.authRateLimitBan"
                   dense
                   :placeholder="t(`admin.security.durationPlaceholder`)"
@@ -339,7 +333,7 @@
           -->
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-negative text-white rounded" flat>
+              <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:exclamation-triangle" size="lg" />
@@ -381,7 +375,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 200px">
                 <w-input
-                  outlined
                   v-model.number="state.config.apiRateLimitMax"
                   dense
                   :suffix="t(`admin.security.apiRateLimitMaxSuffix`)"
@@ -399,7 +392,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 200px">
                 <w-input
-                  outlined
                   v-model="state.config.apiRateLimitWindow"
                   dense
                   :placeholder="t(`admin.security.durationPlaceholder`)"
@@ -415,7 +407,6 @@
               </w-item-section>
               <w-item-section style="flex: 0 0 200px">
                 <w-input
-                  outlined
                   v-model="state.config.apiRateLimitBan"
                   dense
                   :placeholder="t(`admin.security.durationPlaceholder`)"
@@ -433,7 +424,7 @@
           <w-card-header>{{ t('admin.security.uploads') }}</w-card-header>
           <w-item class="pt-0">
             <w-item-section>
-              <w-card class="bg-info text-white rounded" flat>
+              <w-card class="bg-info text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
                     <w-icon name="la:info-circle" size="lg" />
@@ -453,7 +444,6 @@
             </w-item-section>
             <w-item-section style="flex: 0 0 200px">
               <w-input
-                outlined
                 v-model.number="state.humanUploadMaxFileSize"
                 dense
                 :aria-label="t(`admin.security.maxUploadSize`)" />
@@ -487,7 +477,6 @@
             </w-item-section>
             <w-item-section>
               <w-select
-                outlined
                 v-model="state.config.corsMode"
                 :options="corsModes"
                 option-value="value"
@@ -508,7 +497,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.corsConfig"
                   dense
                   type="textarea"
@@ -526,7 +514,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.corsConfig"
                   dense
                   :aria-label="t(`admin.security.corsRegex`)" />
@@ -562,7 +549,6 @@
               </w-item-section>
               <w-item-section>
                 <w-input
-                  outlined
                   v-model="state.config.cspDirectives"
                   dense
                   type="textarea"

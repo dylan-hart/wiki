@@ -35,7 +35,6 @@
           <w-btn
             flat
             dense
-            no-caps
             color="primary"
             :label="t(`admin.users.deleteReassignChoose`)"
             @click="chooseTargetUser" />
@@ -54,7 +53,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"

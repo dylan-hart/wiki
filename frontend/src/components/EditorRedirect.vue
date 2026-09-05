@@ -19,7 +19,6 @@
                 type it: both write to the store, and the header's watcher follows what is typed here.
               -->
               <w-input
-                outlined
                 dense
                 hide-bottom-space
                 :model-value="pageStore.title"
@@ -44,7 +43,6 @@
                 icon="la:folder-open"
                 color="primary"
                 padding="xs md"
-                no-caps
                 :label="t(`editor.redirect.choose`)"
                 @click="chooseTarget" />
             </w-item-section>

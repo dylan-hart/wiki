@@ -69,7 +69,6 @@
           <div class="text-body2 mt-1 opacity-60">{{ t('common.page.lockedHint') }}</div>
           <w-btn
             class="mt-6"
-            unelevated
             icon="la:lock-open"
             color="primary"
             padding="xs lg"
@@ -101,7 +100,6 @@
           <w-btn
             class="mt-6"
             v-if="canCreatePage"
-            unelevated
             icon="la:plus"
             color="primary"
             padding="xs lg"
@@ -128,7 +126,6 @@
             v-if="canViewDeletionHistory"
             flat
             dense
-            no-caps
             icon="la:history"
             color="grey-6"
             :label="t(`history.recovery.entryLink`)"
@@ -162,7 +159,6 @@
                     class="me-2 mb-2"
                     padding="sm md"
                     outline
-                    no-caps
                     color="primary"
                     v-for="rel of relationsLeft"
                     :key="`rel-id-` + rel.id"
@@ -181,7 +177,6 @@
                     <w-btn
                       color="primary"
                       flat
-                      no-caps
                       v-for="rel of relationsCenter"
                       :key="`rel-id-` + rel.id"
                       v-bind="relationLink(rel)">
@@ -195,7 +190,6 @@
                     class="ms-2 mb-2"
                     padding="sm md"
                     outline
-                    no-caps
                     color="primary"
                     v-for="rel of relationsRight"
                     :key="`rel-id-` + rel.id"
@@ -301,7 +295,6 @@
                 color="deep-orange-9"
                 flat
                 :label="state.tagEditMode ? t('common.actions.exitEdit') : t('common.actions.edit')"
-                no-caps
                 @click="state.tagEditMode = !state.tagEditMode" />
             </div>
             <page-tags class="mt-2" :edit="state.tagEditMode" />

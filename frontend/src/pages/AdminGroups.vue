@@ -16,7 +16,6 @@
       <div class="flex-none flex items-center">
         <w-input
           class="denser me-2"
-          outlined
           v-model="state.search"
           dense
           :placeholder="t('common.header.search')"
@@ -46,7 +45,6 @@
         </w-btn>
         <w-btn
           v-if="canManage"
-          unelevated
           icon="la:plus"
           :label="t(`admin.groups.create`)"
           color="primary"
@@ -96,8 +94,7 @@
                   :to="`/_admin/groups/` + props.row.id"
                   :icon="canManage ? `la:pen` : `la:eye`"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
-                  :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)"
-                  no-caps />
+                  :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)" />
                 <w-btn
                   class="acrylic-btn"
                   v-if="canManage"

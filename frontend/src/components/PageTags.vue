@@ -6,7 +6,6 @@
     -->
     <div class="flex flex-wrap items-center gap-1" v-if="pageStore.tags?.length > 0">
       <w-chip
-        square
         color="secondary"
         text-color="white"
         dense
@@ -28,7 +27,6 @@
     <w-select
       class="mt-4"
       v-if="props.edit"
-      outlined
       v-model="pageStore.tags"
       :options="state.tags"
       dense

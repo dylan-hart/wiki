@@ -153,8 +153,7 @@
             :label="$t(`common.actions.login`)"
             :aria-label="$t(`common.actions.login`)"
             to="/login"
-            padding="sm"
-            no-caps />
+            padding="sm" />
         </template>
       </w-toolbar>
     </div>

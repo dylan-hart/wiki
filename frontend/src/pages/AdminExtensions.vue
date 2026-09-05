@@ -88,7 +88,7 @@
                       </div>
                     </div>
                   </div>
-                  <w-btn-group v-else unelevated>
+                  <w-btn-group v-else>
                     <w-btn
                       icon="la:check"
                       size="sm"
@@ -103,19 +103,16 @@
                       :label="t(`admin.extensions.install`)"
                       color="blue-7"
                       v-if="ext.isCompatible && !ext.isInstalled && ext.isInstallable"
-                      @click="install(ext)"
-                      no-caps />
+                      @click="install(ext)" />
                     <w-btn
                       v-else-if="ext.isCompatible && ext.isInstalled && ext.isInstallable"
                       :label="t(`admin.extensions.reinstall`)"
                       color="blue-7"
-                      @click="install(ext)"
-                      no-caps />
+                      @click="install(ext)" />
                     <w-btn
                       v-else-if="ext.isCompatible && ext.isInstalled && !ext.isInstallable"
                       :label="t(`admin.extensions.installed`)"
-                      color="positive"
-                      no-caps />
+                      color="positive" />
                     <w-btn
                       v-else-if="ext.isCompatible"
                       :label="t(`admin.extensions.instructions`)"
@@ -123,8 +120,7 @@
                       color="indigo"
                       outline
                       :href="siteStore.docsBase + `/system/extensions#` + ext.key"
-                      target="_blank"
-                      no-caps>
+                      target="_blank">
                       <w-tooltip anchor="center left" self="center right">{{
                         t('admin.extensions.instructionsHint')
                       }}</w-tooltip>
@@ -133,8 +129,7 @@
                       v-else
                       color="negative"
                       outline
-                      :label="t(`admin.extensions.incompatible`)"
-                      no-caps>
+                      :label="t(`admin.extensions.incompatible`)">
                       <w-tooltip
                         v-if="ext.incompatibleReason"
                         anchor="center left"

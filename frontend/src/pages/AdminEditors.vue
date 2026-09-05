@@ -35,7 +35,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
           color="slate"
@@ -68,7 +67,6 @@
                     :label="t(`admin.editors.configuration`)"
                     :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
                     outline
-                    no-caps
                     padding="xs md"
                     @click="openConfig(editor.id)" />
                 </w-item-section>

@@ -53,14 +53,14 @@
           </template>
           <template v-slot:body-cell-cons="props">
             <w-td :props="props">
-              <w-chip icon="la:plug" square size="md" color="blue" text-color="white">
+              <w-chip icon="la:plug" size="md" color="blue" text-color="white">
                 <span class="font-robotomono">{{ props.value }}</span>
               </w-chip>
             </w-td>
           </template>
           <template v-slot:body-cell-subs="props">
             <w-td :props="props">
-              <w-chip icon="la:broadcast-tower" square size="md" color="green" text-color="white">
+              <w-chip icon="la:broadcast-tower" size="md" color="green" text-color="white">
                 <small class="uppercase">{{ props.value }}</small>
               </w-chip>
             </w-td>

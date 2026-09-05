@@ -19,7 +19,6 @@
           </w-item-section>
           <w-item-section>
             <w-select
-              outlined
               v-model="state.timezone"
               :options="timezones"
               option-value="value"
@@ -40,7 +39,6 @@
           </w-item-section>
           <w-item-section>
             <w-select
-              outlined
               v-model="state.dateFormat"
               emit-value
               map-options
@@ -59,9 +57,6 @@
           <w-item-section class="flex-none">
             <w-btn-toggle
               v-model="state.timeFormat"
-              push
-              glossy
-              no-caps
               toggle-color="primary"
               :aria-label="t(`admin.general.defaultTimeFormat`)"
               :options="timeFormats" />
@@ -77,12 +72,7 @@
           color="grey"
           padding="xs md"
           @click="menuRef.hide()" />
-        <w-btn
-          unelevated
-          :label="t(`common.actions.save`)"
-          color="primary"
-          padding="xs md"
-          @click="save" />
+        <w-btn :label="t(`common.actions.save`)" color="primary" padding="xs md" @click="save" />
       </w-card-actions>
       <w-inner-loading :showing="state.loading > 0" />
     </w-card>

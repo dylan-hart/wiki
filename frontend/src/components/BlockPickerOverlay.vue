@@ -4,9 +4,8 @@
       <w-icon name="img:/_assets/icons/fluent-rfid-tag.svg" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
-          push
           color="white"
           text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
@@ -14,7 +13,6 @@
           icon="la:times"
           @click="close" />
         <w-btn
-          push
           color="positive"
           text-color="white"
           :label="t(`editor.blockPicker.insert`)"

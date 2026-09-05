@@ -39,8 +39,8 @@ import { computed } from 'vue'
  * Cardinal draws it as a run of square hairline boxes sharing their edges, with the selected one
  * filled in the accent and the rest left as outline. The engraved treatment this replaces -- a
  * bevelled seam between segments, a letterpress text shadow, an optional raised ledge and gloss --
- * is gone with the rest of the app's relief; `push`, `glossy` and `noCaps` are inert props kept
- * only until their call sites are swept.
+ * is gone with the rest of the app's relief, and the `push`/`glossy`/`noCaps` props that selected
+ * those variants went with it.
  *
  * Every segment carries a border, the selected one included (in its own fill colour, where it
  * disappears), rather than only the unselected ones. Otherwise selecting a segment would take a
@@ -78,21 +78,6 @@ const props = defineProps({
   textColor: {
     type: String,
     default: null
-  },
-  /** @deprecated Inert. Cardinal draws no ledge -- see the file header. */
-  push: {
-    type: Boolean,
-    default: false
-  },
-  /** @deprecated Inert. Cardinal draws no gloss -- see the file header. */
-  glossy: {
-    type: Boolean,
-    default: false
-  },
-  /** @deprecated Inert. A Cardinal segment label is always cased as written. */
-  noCaps: {
-    type: Boolean,
-    default: false
   },
   disabled: {
     type: Boolean,

@@ -23,7 +23,6 @@
         <w-input
           v-model="state.confirmText"
           class="mt-4"
-          outlined
           dense
           :label="t(`admin.sites.deleteConfirmType`, { siteTitle: props.site.title })" />
       </w-card-section>
@@ -37,7 +36,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"

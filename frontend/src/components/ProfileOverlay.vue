@@ -11,7 +11,6 @@
       <w-space />
       <w-btn-group>
         <w-btn
-          push
           color="white"
           text-color="text-secondary"
           :label="t('common.actions.close')"
@@ -32,7 +31,6 @@
         v-if="isNavCollapsed"
         class="layout-profile-navbtn"
         flat
-        no-caps
         :icon="currentSection.icon"
         :label="currentSection.label"
         :aria-expanded="state.navOpen"

@@ -19,18 +19,14 @@
       -->
       <w-btn-group class="me-6">
         <w-btn
-          push
           dense
-          no-caps
           :label="t(`history.sideBySide`)"
           padding="0.285em sm"
           :color="state.inline ? `white` : `secondary`"
           :text-color="state.inline ? `black` : `white`"
           @click="state.inline = false" />
         <w-btn
-          push
           dense
-          no-caps
           :label="t(`history.inline`)"
           padding="0.285em sm"
           :color="state.inline ? `secondary` : `white`"
@@ -160,20 +156,14 @@
               <!-- Not `unelevated`: the push ledge is the point, and that prop would flatten it. -->
               <w-btn-group>
                 <w-btn
-                  push
-                  glossy
                   dense
-                  no-caps
                   :label="t(`history.versionLabelA`)"
                   padding="0.285em sm"
                   :color="version.id === state.aId ? `pink-6` : `dark-3`"
                   :aria-label="t(`history.pickA`)"
                   @click="pick(`a`, version.id)" />
                 <w-btn
-                  push
-                  glossy
                   dense
-                  no-caps
                   :label="t(`history.versionLabelB`)"
                   padding="0.285em sm"
                   :color="version.id === state.bId ? `pink-6` : `dark-3`"
@@ -202,7 +192,6 @@
             <w-btn
               outline
               dense
-              no-caps
               color="secondary"
               padding="0.4em md"
               :loading="state.loadingMore"
@@ -260,7 +249,6 @@
               <w-btn
                 outline
                 dense
-                no-caps
                 color="secondary"
                 :disabled="!sideA"
                 @click="downloadVersion(sideA)">
@@ -269,7 +257,6 @@
               <w-btn
                 outline
                 dense
-                no-caps
                 color="secondary"
                 :disabled="!sideB"
                 @click="downloadVersion(sideB)">

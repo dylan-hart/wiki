@@ -12,7 +12,6 @@
         <w-input
           v-if="mode === 'create'"
           ref="iptName"
-          outlined
           v-model="state.name"
           :label="t('admin.blocks.credentialName')"
           :hint="t('admin.blocks.credentialNameHint')"
@@ -20,7 +19,6 @@
         <w-input
           v-if="mode !== 'domains'"
           ref="iptSecret"
-          outlined
           v-model="state.secret"
           type="password"
           revealable
@@ -34,7 +32,6 @@
             <w-chip
               v-for="origin of state.allowedOrigins"
               :key="origin"
-              square
               dense
               removable
               @remove="removeOrigin(origin)">
@@ -43,7 +40,6 @@
           </div>
           <w-input
             ref="originInputRef"
-            outlined
             v-model="state.originInput"
             :label="t('admin.blocks.credentialAllowedDomains')"
             :hint="t('admin.blocks.credentialAllowedDomainsHint')"
@@ -72,7 +68,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="submitLabel"
           color="primary"
           padding="xs md"

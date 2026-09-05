@@ -25,7 +25,6 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          unelevated
           icon="la:plus"
           :label="t(`admin.approval.newRule`)"
           color="primary"
@@ -101,8 +100,7 @@
                   @click="editRule(rule)"
                   icon="la:pen"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
-                  :label="t(`common.actions.edit`)"
-                  no-caps />
+                  :label="t(`common.actions.edit`)" />
                 <w-btn
                   class="acrylic-btn"
                   flat

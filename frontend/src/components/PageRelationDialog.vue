@@ -14,9 +14,6 @@
         <div>
           <w-btn-toggle
             v-model="state.pos"
-            push
-            glossy
-            no-caps
             toggle-color="primary"
             :aria-label="t(`editor.pageRel.position`)"
             :options="[
@@ -30,13 +27,11 @@
         <div class="flex flex-col">
           <w-input
             ref="iptRelLabel"
-            outlined
             dense
             :label="t(`editor.pageRel.label`)"
             v-model="state.label" />
           <w-input
             v-if="state.pos !== `center`"
-            outlined
             dense
             :label="t(`editor.pageRel.caption`)"
             v-model="state.caption" />
@@ -75,7 +70,6 @@
           class="self-start"
           padding="sm md"
           outline
-          no-caps
           color="primary">
           <w-icon :name="state.icon" />
           <div class="flex flex-col text-left pl-4">
@@ -85,7 +79,7 @@
             <div class="text-caption">{{ state.caption }}</div>
           </div>
         </w-btn>
-        <w-btn class="w-full" v-else-if="state.pos === `center`" color="primary" flat no-caps>
+        <w-btn class="w-full" v-else-if="state.pos === `center`" color="primary" flat>
           <w-icon class="me-2" :name="state.icon" />
           <span>{{ state.label }}</span>
         </w-btn>
@@ -94,7 +88,6 @@
           class="self-start"
           padding="sm md"
           outline
-          no-caps
           color="primary">
           <div class="flex flex-col text-left pr-4">
             <div class="text-body2">
@@ -121,7 +114,6 @@
         :disabled="!canSubmit"
         icon="la:check"
         :label="t(`common.actions.save`)"
-        unelevated
         color="primary"
         padding="xs md"
         @click="saveAndClose" />
@@ -130,7 +122,6 @@
         :disabled="!canSubmit"
         icon="la:plus"
         :label="t(`common.actions.create`)"
-        unelevated
         color="primary"
         padding="xs md"
         @click="createAndClose" />

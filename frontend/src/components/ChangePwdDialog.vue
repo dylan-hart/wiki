@@ -15,7 +15,6 @@
             <w-input
               ref="currentPasswordIpt"
               v-model="state.currentPassword"
-              outlined
               dense
               type="password"
               autocomplete="current-password"
@@ -31,7 +30,6 @@
             <w-input
               ref="newPasswordIpt"
               v-model="state.newPassword"
-              outlined
               dense
               type="password"
               autocomplete="new-password"
@@ -58,7 +56,6 @@
           <w-item-section>
             <w-input
               v-model="state.verifyPassword"
-              outlined
               dense
               type="password"
               autocomplete="new-password"
@@ -79,7 +76,6 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          unelevated
           :label="t(`common.actions.update`)"
           color="primary"
           padding="xs md"

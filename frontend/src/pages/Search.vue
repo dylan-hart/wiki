@@ -26,7 +26,6 @@
           v-if="isFiltersCollapsed"
           class="layout-search-filterbtn"
           flat
-          no-caps
           :label="t(`search.filters`)"
           :aria-expanded="state.filtersOpen"
           @click="toggleFilters">
@@ -67,7 +66,6 @@
           <div class="section-header">{{ t('search.filters') }}</div>
           <div class="p-2">
             <w-input
-              outlined
               dense
               :placeholder="t(`search.filterPath`)"
               prefix="/"
@@ -78,7 +76,6 @@
             </w-input>
             <w-select
               class="mt-2"
-              outlined
               v-model="state.selectedTags"
               :options="tags"
               dense
@@ -95,7 +92,6 @@
             </w-select>
             <w-select
               class="mt-2"
-              outlined
               v-model="state.params.filterLocale"
               emit-value
               map-options
@@ -122,7 +118,6 @@
             </w-select>
             <w-select
               class="mt-2"
-              outlined
               v-model="state.params.filterEditor"
               emit-value
               map-options
@@ -133,7 +128,6 @@
             </w-select>
             <w-select
               class="mt-2"
-              outlined
               v-model="state.params.filterPublishState"
               emit-value
               map-options
@@ -201,7 +195,6 @@
                   <w-chip
                     v-for="tag of item.tags"
                     :key="`tag-` + tag"
-                    square
                     color="secondary"
                     text-color="white"
                     icon="la:hashtag"
@@ -215,7 +208,6 @@
           <div class="flex justify-center p-4" v-if="state.results.length < state.total">
             <w-btn
               flat
-              no-caps
               color="primary"
               :label="t('search.loadMore')"
               :loading="state.loading > 0"

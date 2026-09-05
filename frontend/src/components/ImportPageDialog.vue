@@ -13,7 +13,6 @@
             <w-btn
               outline
               color="primary"
-              no-caps
               icon="la:folder-open"
               :label="state.fileName || t(`common.actions.browse`)"
               @click="pickFile" />
@@ -26,7 +25,6 @@
           </div>
           <w-select
             v-model="state.format"
-            outlined
             dense
             :options="formatOptions"
             map-options
@@ -55,7 +53,6 @@
             @click="onDialogCancel" />
           <w-btn
             class="import-convert-btn"
-            unelevated
             color="primary"
             padding="xs md"
             :label="t(`pages.import.convert`)"
@@ -88,7 +85,6 @@
             @click="onDialogCancel" />
           <w-btn
             class="import-confirm-btn"
-            unelevated
             color="primary"
             padding="xs md"
             :label="t(`pages.import.useContent`)"

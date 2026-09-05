@@ -52,7 +52,6 @@
           @click="onDialogCancel" />
         <w-btn
           v-if="state.canUpgrade"
-          unelevated
           :label="t(`admin.system.upgrade`)"
           color="primary"
           padding="xs md"

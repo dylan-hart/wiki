@@ -3,7 +3,7 @@
     <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item v-if="!canEdit">
       <w-item-section>
-        <w-card class="bg-negative rounded text-white" flat>
+        <w-card class="bg-negative rounded text-white">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="shrink-0 pe-0">
               <w-icon name="la:ban" size="lg" />
@@ -25,7 +25,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.name"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.displayName`)"
@@ -40,12 +39,7 @@
         <w-item-label caption>{{ t(`profile.emailHint`) }}</w-item-label>
       </w-item-section>
       <w-item-section>
-        <w-input
-          v-model="state.config.email"
-          outlined
-          dense
-          :aria-label="t(`profile.email`)"
-          readonly />
+        <w-input v-model="state.config.email" dense :aria-label="t(`profile.email`)" readonly />
       </w-item-section>
     </w-item>
     <w-separator inset spaced="sm" />
@@ -58,7 +52,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.location"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.location`)"
@@ -75,7 +68,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.jobTitle"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.jobTitle`)"
@@ -92,7 +84,6 @@
       <w-item-section>
         <w-input
           v-model="state.config.pronouns"
-          outlined
           dense
           hide-bottom-space
           :aria-label="t(`profile.pronouns`)"
@@ -114,7 +105,6 @@
         -->
         <w-select
           v-model="state.config.timezone"
-          outlined
           :options="timezones"
           dense
           options-dense
@@ -133,7 +123,6 @@
       <w-item-section>
         <w-select
           v-model="state.config.dateFormat"
-          outlined
           emit-value
           map-options
           dense
@@ -153,9 +142,6 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.timeFormat"
-          push
-          glossy
-          no-caps
           toggle-color="primary"
           :options="timeFormats"
           :disabled="!canEdit"
@@ -172,9 +158,6 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.appearance"
-          push
-          glossy
-          no-caps
           toggle-color="primary"
           :options="appearances"
           :disabled="!canEdit"
@@ -191,9 +174,6 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.cvd"
-          push
-          glossy
-          no-caps
           toggle-color="primary"
           :options="cvdChoices"
           :disabled="!canEdit"
@@ -203,7 +183,6 @@
     <div v-if="canEdit" class="actions-bar mt-6">
       <w-btn
         icon="mdi:check"
-        unelevated
         :label="t(`common.actions.saveChanges`)"
         color="secondary"
         :disabled="state.loading > 0"
