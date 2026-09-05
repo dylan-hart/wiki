@@ -218,6 +218,7 @@ import {
   deriveMaxFolderDepth
 } from './graphFilters.js'
 import { paintGraph } from './graphDraw.js'
+import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
 import {
   attachZoom as attachGraphZoom,
   computeClusters as buildClusters,
@@ -740,22 +741,17 @@ const clusters = ref([])
   tuned past that starting point.
 */
 
-/** Sqrt scaling (OpenProject #1141), not linear: a node's drawn AREA should read as proportional to
- *  its contributor count, the standard convention for encoding a magnitude in a circle's size --
- *  linear radius scaling would make a 4x-more-contributed page look ~16x more prominent by area,
- *  overwhelming the rest of the graph. `MIN`/`MAX` are starting points for visual tuning, same
- *  caveat as the constants above -- `MIN` matches the pre-#1270 'uniform' mode's fixed radius so an
- *  untouched page's dot is no smaller than it used to be. */
-const MIN_CONTRIBUTOR_RADIUS = 5
-const MAX_CONTRIBUTOR_RADIUS = 22
-const CONTRIBUTOR_RADIUS_SCALE = 3
-
-/** Same sqrt-scaling reasoning as the contributor constants above, for 'visits' sizing (OpenProject
- *  #1140) -- same starting values too, so switching between the two sizing modes doesn't itself
- *  make the graph look dramatically different at a glance. */
-const MIN_PAGEVIEW_RADIUS = 5
-const MAX_PAGEVIEW_RADIUS = 22
-const PAGEVIEW_RADIUS_SCALE = 3
+/** The one shared radius floor/ceiling for BOTH sizing metrics ('edits' and 'visits') -- consolidated
+ *  from four separate (and, until OpenProject #2561, additively-capped) constants into this single
+ *  pair once `radiusFor()` switched to a true min/max lerp normalized against the current graph's own
+ *  observed range (`sqrtRangeOf()`/`lerpRadius()`, `graphNodeSize.js`) rather than an absolute
+ *  `MIN + sqrt(count) * SCALE` formula. `MIN_NODE_RADIUS` matches the pre-#1270 'uniform' mode's fixed
+ *  radius, same as before, so the smallest-ranked node in any graph is no smaller than that legacy
+ *  dot. `MAX_NODE_RADIUS` is `5x` the old `22` cap (OpenProject #2561) -- the lerp's own normalization
+ *  is what makes a ceiling this much larger workable at all: only the single highest-ranked node in
+ *  the currently-loaded graph ever actually draws at it, everything else scales down from there. */
+const MIN_NODE_RADIUS = 5
+const MAX_NODE_RADIUS = 110
 
 /** How many contributors count toward a node's 'edits'-mode size, per the currently-checked
  *  `contributorTypes` and the currently-selected `sizeCountMode`. `sizeCountMode === 'total'` reads
@@ -818,25 +814,54 @@ function tooltipKeyFor() {
   return sizeCountMode.value === 'total' ? 'graph.tooltip.visits' : 'graph.tooltip.uniqueVisitors'
 }
 
-/** A node's drawn radius: synthetic nodes are always the fixed `3`; a real node scales with
- *  `contributorCountFor()` when `sizeBy` is 'edits', or `pageviewCountFor()` when it's 'visits' --
- *  the only two values `sizeBy` can hold now that 'uniform' is gone (OpenProject #1270). */
+/** The currently active sizing metric's per-node counter -- `contributorCountFor()` for 'edits',
+ *  `pageviewCountFor()` for 'visits', the only two values `sizeBy` can hold now that 'uniform' is
+ *  gone (OpenProject #1270). Shared by `metricRange` and `radiusFor()` so the two always read the
+ *  exact same counter for the exact same node. */
+function metricCountFor(node) {
+  return sizeBy.value === 'edits' ? contributorCountFor(node) : pageviewCountFor(node)
+}
+
+/** The active metric's sqrt-space `[min, max]` across every REAL node in the currently-loaded graph
+ *  (OpenProject #2561) -- what `radiusFor()` normalizes its lerp against, so a node's drawn size
+ *  expresses its RANK within THIS graph, not a fixed absolute scale. A plain variable refreshed by
+ *  `refreshMetricRange()` below, deliberately NOT a Vue `computed`: node objects are kept out of
+ *  Vue's reactivity on purpose (OpenProject #1837 -- see the `markRaw()`/`shallowRef` doc comment
+ *  further up), so a `computed` reading a node's own `contributors`/`pageviews` field would never
+ *  invalidate on the one write path that changes it in place (editing a node's data directly, the
+ *  way `Graph.layout.test.js` does, or any future live-editing feature) -- only on `nodes.value`'s
+ *  own identity changing, or one of the sizing-control refs changing. */
+let currentMetricRange = { min: 0, max: 0 }
+
+/** Recomputes `currentMetricRange` from the CURRENT `nodes.value`/`sizeBy`/`sizeCountMode`/etc, in
+ *  place of Vue's own dependency tracking (see `currentMetricRange`'s doc comment for why). Every
+ *  call site matters: `applyFilters()` (initial load, and every filter/edge-mode change) runs this
+ *  before `startSimulation()` ever attaches `collide` for the first time; the sizing-controls watcher
+ *  runs it before RE-attaching `collide`, so that force's one-time-per-attachment radius snapshot
+ *  (see `collideRadiusFor()`'s own doc comment) is never taken against a stale range; and
+ *  `computeClusters()` runs it on every call so the drawn/hull geometry it derives is always fresh
+ *  too, however that call was reached. Cheap enough to call from all three: one O(n) pass over the
+ *  currently-visible node set, not a per-`radiusFor()`-call cost. */
+function refreshMetricRange() {
+  const counts = []
+  for (const node of nodes.value) {
+    if (!node.synthetic) {
+      counts.push(metricCountFor(node))
+    }
+  }
+  currentMetricRange = sqrtRangeOf(counts)
+}
+
+/** A node's drawn radius: synthetic nodes are always the fixed `3`; a real node is a min/max lerp
+ *  between `MIN_NODE_RADIUS` and `MAX_NODE_RADIUS`, interpolated in sqrt(count) space and normalized
+ *  against `currentMetricRange` -- the current graph's own observed range for the active metric
+ *  (OpenProject #2561). `lerpRadius()` (`graphNodeSize.js`) owns the interpolation itself, including
+ *  the degenerate zero-range case (every loaded node the same count) -- see its own doc comment. */
 function radiusFor(node) {
   if (node.synthetic) {
     return 3
   }
-  if (sizeBy.value === 'edits') {
-    const count = contributorCountFor(node)
-    return Math.min(
-      MAX_CONTRIBUTOR_RADIUS,
-      MIN_CONTRIBUTOR_RADIUS + Math.sqrt(count) * CONTRIBUTOR_RADIUS_SCALE
-    )
-  }
-  const count = pageviewCountFor(node)
-  return Math.min(
-    MAX_PAGEVIEW_RADIUS,
-    MIN_PAGEVIEW_RADIUS + Math.sqrt(count) * PAGEVIEW_RADIUS_SCALE
-  )
+  return lerpRadius(metricCountFor(node), currentMetricRange, MIN_NODE_RADIUS, MAX_NODE_RADIUS)
 }
 
 /** `d3-force`'s `forceCollide` caches a function radius per node at `initialize()` time (same
@@ -973,6 +998,7 @@ function recomputeClusters() {
  *  geometry; the page supplies the three answers only it has -- how a node is grouped, what colour
  *  that group is, and how large the node draws. */
 function computeClusters() {
+  refreshMetricRange()
   clusters.value = buildClusters(nodes.value, { groupKeyFor, colorForGroup, radiusFor })
 }
 
@@ -1057,6 +1083,11 @@ function applyFilters() {
   //    marked, so re-marking the reused ones costs nothing.
   nodes.value = [...visibleNodes, ...syntheticNodes].map((n) => markRaw(n))
   edges.value = syntheticEdges.map((e) => markRaw(e))
+  // -> Must run before `startSimulation()`'s first `forceCollide(collideRadiusFor)` attachment
+  //    (OpenProject #2561): that force snapshots every node's radius once, at attach time, so the
+  //    very first attachment needs a correct range already in place, not just whatever later
+  //    `recomputeClusters()`/`computeClusters()` call happens to run first.
+  refreshMetricRange()
 }
 
 watch(groupBy, () => {
@@ -1083,6 +1114,11 @@ watch(
  *  call needed: neither the visible node set nor any edge changes here, only how big each dot
  *  draws and how much room `collide` gives it. */
 watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
+  // -> Refresh BEFORE re-attaching `collide` (OpenProject #2561): the new attachment snapshots
+  //    every node's radius immediately, off whichever metric/count-mode just became active, so the
+  //    range has to already reflect that switch -- `relayout()`'s own `computeClusters()` refresh
+  //    below runs too late for this specific force-initialize moment.
+  refreshMetricRange()
   simulation?.force('collide', forceCollide(collideRadiusFor))
   simulation?.alpha(0.3).restart()
   relayout()

@@ -91,7 +91,9 @@ describe('Graph.vue layout, reactivity and repaint', () => {
 
     wrapper.vm.computeClusters()
 
-    expect(wrapper.vm.radiusFor(nodeA)).toBe(22) // -> pinned at MAX_CONTRIBUTOR_RADIUS
+    // -> A is now the top of the graph's own observed range (OpenProject #2561's min/max lerp is
+    //    normalized against the current graph, not an absolute count) -- pinned at MAX_NODE_RADIUS.
+    expect(wrapper.vm.radiusFor(nodeA)).toBe(110)
     const clusterA = wrapper.vm.clusters.find((c) => c.key === 'group-a')
     expect(clusterA.circle).toBeDefined()
     expect(clusterA.circle.r).toBeGreaterThan(wrapper.vm.radiusFor(nodeA))
@@ -131,8 +133,9 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     const cy = (nodeA.y + nodeB.y + nodeC.y) / 3
     const distToNodeA = Math.hypot(nodeA.x - cx, nodeA.y - cy)
     const maxHullDist = Math.max(...clusterC.hullPoints.map(([x, y]) => Math.hypot(x - cx, y - cy)))
-    // -> A flat 16px padding would fall short here since nodeA's radius (22) exceeds it -- this
-    //    only passes once the hull vertex at A is pushed out by A's own radius too.
+    // -> A flat 16px padding would fall short here since nodeA's radius (pinned at MAX_NODE_RADIUS,
+    //    110, as the graph's sole non-zero node) far exceeds it -- this only passes once the hull
+    //    vertex at A is pushed out by A's own radius too.
     expect(maxHullDist).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
   })
 

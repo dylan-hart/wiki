@@ -165,15 +165,21 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.pageviewCountFor(nodeA)).toBe(30)
   })
 
-  it('sizeCountMode toggle scales a node bigger in total mode than in unique mode', async () => {
+  it('sizeCountMode toggle can flip which node ranks bigger, since radiusFor lerps against the current graph’s own range (OpenProject #2561)', async () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    // -> B's total count outranks A's, while its unique count still trails A's -- so this is only
+    //    distinguishable from a same-node "total > unique" comparison (which no longer holds on its
+    //    own now that radiusFor is normalized against the graph's own range, not an absolute scale)
+    //    by checking which of the two nodes comes out on top under each mode.
+    nodeB.contributors = { editor: 2, mcp: 0, all: 2, total: { editor: 20, mcp: 0, all: 20 } }
 
-    const uniqueRadius = wrapper.vm.radiusFor(nodeA)
+    expect(wrapper.vm.radiusFor(nodeA)).toBeGreaterThan(wrapper.vm.radiusFor(nodeB))
+
     wrapper.vm.sizeCountMode = 'total'
-    const totalRadius = wrapper.vm.radiusFor(nodeA)
 
-    expect(totalRadius).toBeGreaterThan(uniqueRadius)
+    expect(wrapper.vm.radiusFor(nodeB)).toBeGreaterThan(wrapper.vm.radiusFor(nodeA))
   })
 
   it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #2292, #1287/#1288)', async () => {

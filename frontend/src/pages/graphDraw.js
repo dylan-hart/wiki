@@ -115,8 +115,9 @@ const LABEL_MAX_EFFECTIVE_FONT_PX = 24
 
 /** Breathing room between a node's edge and the start of its label, on top of the node's own
  *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
- *  smallest node (`MIN_CONTRIBUTOR_RADIUS`/`MIN_PAGEVIEW_RADIUS`, both `5`), but now scales with
- *  the node so a label never overlaps a larger node's fill (OpenProject #2297). */
+ *  smallest node (`MIN_NODE_RADIUS`, `5` -- one shared floor for both sizing metrics since
+ *  OpenProject #2561), but now scales with the node so a label never overlaps a larger node's fill
+ *  (OpenProject #2297). */
 export const LABEL_GAP = 3
 
 /** Label fill color, light/dark (OpenProject #2412) -- the light value is the original hardcoded
