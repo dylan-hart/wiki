@@ -170,22 +170,30 @@
   /* -> And the empty box of an item still to do, white whatever surface the content sits on */
   --content-tick-empty: #fff;
 
-  /* Admonition hues: the bar and the wash behind it, per severity */
-  --content-info: #1867c0;
-  --content-info-wash: rgba(24, 103, 192, 0.08);
-  --content-success: #0f7b53;
-  --content-success-wash: rgba(15, 123, 83, 0.08);
-  --content-warning: #a35a00;
-  --content-warning-wash: rgba(163, 90, 0, 0.09);
-  --content-danger: #c02636;
-  --content-danger-wash: rgba(192, 38, 54, 0.08);
   /*
-    A fifth hue, for `[!IMPORTANT]`: it sits between "worth knowing" and "watch out", which is exactly
-    the gap the other four leave. Purple because GitHub uses purple, and a reader who knows the marker
-    from there should recognise the colour here.
+    Admonition hues: the bar and the wash behind it, per severity, in the language's own status tones
+    (`css/_theme.scss`) rather than the generic Material-era set this carried -- a rendered page was
+    putting five hues on screen that appear nowhere else in the app.
+
+    Each is the TEXT tone of its status, not the fill: these colour the bar, the icon and the alert's
+    own title, and the prose under them stays at `--content-ink` either way.
   */
-  --content-important: #6f42c1;
-  --content-important-wash: rgba(111, 66, 193, 0.08);
+  --content-info: #38465f;
+  --content-info-wash: rgba(56, 70, 95, 0.07);
+  --content-success: #3f7a66;
+  --content-success-wash: rgba(63, 122, 102, 0.08);
+  --content-warning: #a8801f;
+  --content-warning-wash: rgba(168, 128, 31, 0.09);
+  --content-danger: #c14a52;
+  --content-danger-wash: rgba(193, 74, 82, 0.08);
+  /*
+    A fifth tone, for `[!IMPORTANT]`: it sits between "worth knowing" and "watch out", which is
+    exactly the gap the other four leave. Ink rather than a fifth hue -- Cardinal has no sixth colour
+    to spend here, and the strongest tone in the language reads as the most emphatic thing on the page
+    without inventing one.
+  */
+  --content-important: #1c2233;
+  --content-important-wash: rgba(28, 34, 51, 0.06);
 
   /*
     Code tokens, after GitHub's syntax themes.
@@ -291,16 +299,17 @@
     /* -> A white box would be a lit square on a dark page; the empty one is just its outline */
     --content-tick-empty: transparent;
 
-    --content-info: #6ab0ff;
-    --content-info-wash: rgba(106, 176, 255, 0.12);
-    --content-success: #4ecf9a;
-    --content-success-wash: rgba(78, 207, 154, 0.12);
-    --content-warning: #f3b661;
-    --content-warning-wash: rgba(243, 182, 97, 0.12);
-    --content-danger: #ff8b8b;
-    --content-danger-wash: rgba(255, 139, 139, 0.12);
-    --content-important: #c4a7ff;
-    --content-important-wash: rgba(196, 167, 255, 0.12);
+    /* -> The same five, lightened for ink: `$slate-light`, and the dark ramp's own status tones */
+    --content-info: #8ea6cf;
+    --content-info-wash: rgba(142, 166, 207, 0.12);
+    --content-success: #7fc4a8;
+    --content-success-wash: rgba(127, 196, 168, 0.12);
+    --content-warning: #e0b86a;
+    --content-warning-wash: rgba(224, 184, 106, 0.12);
+    --content-danger: #f08287;
+    --content-danger-wash: rgba(240, 130, 135, 0.12);
+    --content-important: #e6eaf2;
+    --content-important-wash: rgba(230, 234, 242, 0.08);
 
     --content-code-comment: #8b949e;
     --content-code-keyword: #ff7b72;
