@@ -23,6 +23,7 @@ const VERSION_ID = randomUUID()
 let app: FastifyInstance
 let listTermsCalls: any[]
 let getCachedTermsCalls: any[]
+let getAcronymMapCalls: any[]
 let createTermCalls: any[]
 let updateTermCalls: any[]
 let deleteTermCalls: any[]
@@ -62,6 +63,10 @@ before(async () => {
           getCachedTerms: async (siteId: string, actor: any) => {
             getCachedTermsCalls.push({ siteId, actor })
             return [{ term: 'API', definition: 'Application Programming Interface.', link: null }]
+          },
+          getAcronymMap: async (siteId: string) => {
+            getAcronymMapCalls.push(siteId)
+            return { uss: 'USS' }
           },
           createTerm: async (siteId: string, values: any) => {
             createTermCalls.push({ siteId, values })
@@ -116,6 +121,7 @@ after(() => closeTestApp(app))
 beforeEach(() => {
   listTermsCalls = []
   getCachedTermsCalls = []
+  getAcronymMapCalls = []
   createTermCalls = []
   updateTermCalls = []
   deleteTermCalls = []
@@ -163,6 +169,22 @@ test('GET /sites/:siteId/glossary/terms returns the resolved, cached list', asyn
   ])
 })
 
+test('GET /sites/:siteId/glossary/acronyms answers 404 for an unknown site', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${UNKNOWN_SITE_ID}/glossary/acronyms`
+  })
+  assert.equal(res.statusCode, 404)
+  assert.equal(getAcronymMapCalls.length, 0)
+})
+
+test('GET /sites/:siteId/glossary/acronyms returns the lowercase-key acronym map', async () => {
+  const res = await app.inject({ method: 'GET', url: `/sites/${SITE_1_ID}/glossary/acronyms` })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(getAcronymMapCalls, [SITE_1_ID])
+  assert.deepEqual(res.json(), { uss: 'USS' })
+})
+
 test('POST /sites/:siteId/glossary answers 404 for an unknown site', async () => {
   const res = await app.inject({
     method: 'POST',
@@ -173,14 +195,15 @@ test('POST /sites/:siteId/glossary answers 404 for an unknown site', async () =>
   assert.equal(createTermCalls.length, 0)
 })
 
-test('POST /sites/:siteId/glossary forwards term/definition/aliases/pageId to createTerm', async () => {
+test('POST /sites/:siteId/glossary forwards term/definition/aliases/isAcronym/pageId to createTerm', async () => {
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${SITE_1_ID}/glossary`,
     payload: {
       term: 'API',
       definition: 'Application Programming Interface.',
-      aliases: ['REST API'],
+      aliases: [{ value: 'REST API', isAcronym: true }],
+      isAcronym: true,
       pageId: TERM_ID
     }
   })
@@ -190,12 +213,13 @@ test('POST /sites/:siteId/glossary forwards term/definition/aliases/pageId to cr
   assert.deepEqual(createTermCalls[0].values, {
     term: 'API',
     definition: 'Application Programming Interface.',
-    aliases: ['REST API'],
+    aliases: [{ value: 'REST API', isAcronym: true }],
+    isAcronym: true,
     pageId: TERM_ID
   })
 })
 
-test('POST /sites/:siteId/glossary defaults aliases to an empty array when omitted', async () => {
+test('POST /sites/:siteId/glossary defaults aliases to an empty array when omitted, and leaves isAcronym undefined', async () => {
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${SITE_1_ID}/glossary`,
@@ -203,6 +227,10 @@ test('POST /sites/:siteId/glossary defaults aliases to an empty array when omitt
   })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(createTermCalls[0].values.aliases, [])
+  // -> Unlike `aliases`, the schema deliberately carries no `default` for `isAcronym` (see its own
+  //    schema comment) -- an omitted value stays `undefined` here; `models/glossary.ts#createTerm`'s
+  //    own `!!input.isAcronym` is what turns that into a stored `false`, not a JSON Schema default.
+  assert.equal(createTermCalls[0].values.isAcronym, undefined)
 })
 
 test('POST /sites/:siteId/glossary rejects a body missing term or definition', async () => {
@@ -226,6 +254,20 @@ test('PUT /sites/:siteId/glossary/:termId forwards only the fields given', async
   assert.equal(updateTermCalls[0].id, TERM_ID)
   assert.equal(updateTermCalls[0].values.definition, 'Updated definition.')
   assert.equal(updateTermCalls[0].values.term, undefined)
+  // -> OpenProject #2575: `isAcronym` carries no schema default (see its schema comment) precisely
+  //    so a partial update like this one -- touching only `definition` -- does not also silently
+  //    forward `isAcronym: false` and clear an existing acronym flag.
+  assert.equal(updateTermCalls[0].values.isAcronym, undefined)
+})
+
+test('PUT /sites/:siteId/glossary/:termId forwards an explicit isAcronym', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_1_ID}/glossary/${TERM_ID}`,
+    payload: { isAcronym: true }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateTermCalls[0].values.isAcronym, true)
 })
 
 test('PUT /sites/:siteId/glossary/:termId can explicitly clear pageId back to null', async () => {
@@ -286,10 +328,11 @@ test('POST /sites/:siteId/glossary/import forwards the body to importTerms', asy
   assert.equal(res.statusCode, 200)
   assert.equal(importTermsCalls.length, 1)
   assert.equal(importTermsCalls[0].siteId, SITE_1_ID)
-  // -> The body schema defaults each term's `aliases` to `[]` when omitted, same as the create route
+  // -> The body schema defaults each term's `aliases` to `[]` and `isAcronym` to `false` when
+  //    omitted, same as the create route
   assert.deepEqual(importTermsCalls[0].data, {
     ...payload,
-    terms: [{ ...payload.terms[0], aliases: [] }]
+    terms: [{ ...payload.terms[0], aliases: [], isAcronym: false }]
   })
 })
 

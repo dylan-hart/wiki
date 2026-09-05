@@ -149,7 +149,8 @@ const props = defineProps({
     type: String,
     required: true
   },
-  /** The admin screen's current working copy -- `{ term, definition, aliases, path }[]` -- what an
+  /** The admin screen's current working copy -- `{ term, definition, isAcronym, aliases, path }[]`,
+   *  `aliases` each `{ value, isAcronym }` (OpenProject #2575) -- what an
    *  expanded version's snapshot is diffed against. May include unsaved staged edits; this is NOT
    *  guaranteed to match the live, already-saved glossary. */
   currentTerms: {
@@ -197,6 +198,17 @@ async function load() {
   state.isLoading = false
 }
 
+/** A term's aliases (`{ value, isAcronym }[]`), reduced to a comparable, order-independent key --
+ *  sorted by `value` so two lists differing only in insertion order still compare equal, but a
+ *  different `isAcronym` flag on the same alias still counts as a change (OpenProject #2575). */
+function aliasesKey(aliases) {
+  return JSON.stringify(
+    [...(aliases ?? [])]
+      .map((a) => ({ value: a.value, isAcronym: !!a.isAcronym }))
+      .sort((a, b) => a.value.localeCompare(b.value))
+  )
+}
+
 function diffAgainstCurrent(versionTerms) {
   const currentByTerm = new Map(props.currentTerms.map((t2) => [t2.term.toLowerCase(), t2]))
   const versionByTerm = new Map(versionTerms.map((t2) => [t2.term.toLowerCase(), t2]))
@@ -209,9 +221,13 @@ function diffAgainstCurrent(versionTerms) {
       added.push(vt)
       continue
     }
-    const sameAliases =
-      JSON.stringify([...ct.aliases].sort()) === JSON.stringify([...vt.aliases].sort())
-    if (ct.definition !== vt.definition || !sameAliases || ct.path !== vt.path) {
+    const sameAliases = aliasesKey(ct.aliases) === aliasesKey(vt.aliases)
+    if (
+      ct.definition !== vt.definition ||
+      !sameAliases ||
+      ct.path !== vt.path ||
+      !!ct.isAcronym !== !!vt.isAcronym
+    ) {
       changed.push({ term: vt.term })
     }
   }

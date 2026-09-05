@@ -8,6 +8,12 @@ import { groups as groupsTable } from '../db/schema.ts'
 import { glossary } from './glossary.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
+import type { GlossaryAlias } from './glossary.ts'
+
+/** Terser test fixture for a `GlossaryAlias` -- most tests below don't care about `isAcronym`. */
+function alias(value: string, isAcronym = false): GlossaryAlias {
+  return { value, isAcronym }
+}
 
 /**
  * OpenProject #2038: `invalidateCache()`'s cluster-broadcast half and `subscribeToEvents()`'s
@@ -387,10 +393,10 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       const created = await glossaryModel.createTerm(fixtures.siteId, {
         term: 'Hot Strip Mill',
         definition: 'A rolling mill.',
-        aliases: ['  HSM  ', 'Hot Mill', 'hsm', 'Hot Strip Mill']
+        aliases: [alias('  HSM  '), alias('Hot Mill'), alias('hsm'), alias('Hot Strip Mill')]
       })
 
-      assert.deepEqual(created.aliases, ['HSM', 'Hot Mill'])
+      assert.deepEqual(created.aliases, [alias('HSM'), alias('Hot Mill')])
     })
 
     test('createTerm() rejects an alias that collides with another term', async () => {
@@ -404,7 +410,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
           await glossaryModel.createTerm(fixtures.siteId, {
             term: 'Uses Standalone As Alias',
             definition: 'A rolling mill.',
-            aliases: ['Standalone']
+            aliases: [alias('Standalone')]
           })
         } catch (err: any) {
           assert.equal(err.statusCode, 409)
@@ -417,7 +423,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       await glossaryModel.createTerm(fixtures.siteId, {
         term: 'First Mill',
         definition: 'First.',
-        aliases: ['Mill Alias A']
+        aliases: [alias('Mill Alias A')]
       })
 
       await assert.rejects(
@@ -425,7 +431,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
           glossaryModel.createTerm(fixtures.siteId, {
             term: 'Second Mill',
             definition: 'Second.',
-            aliases: ['mill alias a']
+            aliases: [alias('mill alias a')]
           }),
         /already exists/
       )
@@ -439,7 +445,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       })
 
       await assert.rejects(
-        () => glossaryModel.updateTerm(fixtures.siteId, created.id, { aliases: ['taken'] }),
+        () => glossaryModel.updateTerm(fixtures.siteId, created.id, { aliases: [alias('taken')] }),
         /already exists/
       )
     })
@@ -448,21 +454,21 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       const created = await glossaryModel.createTerm(fixtures.siteId, {
         term: 'Stable',
         definition: 'Has aliases.',
-        aliases: ['Alias One']
+        aliases: [alias('Alias One')]
       })
 
       const updated = await glossaryModel.updateTerm(fixtures.siteId, created.id, {
         definition: 'Updated.'
       })
 
-      assert.deepEqual(updated.aliases, ['Alias One'])
+      assert.deepEqual(updated.aliases, [alias('Alias One')])
     })
 
     test('updateTerm() drops an alias that a term rename now collides with', async () => {
       const created = await glossaryModel.createTerm(fixtures.siteId, {
         term: 'Rename Collides Mill',
         definition: 'A rolling mill.',
-        aliases: ['RCM']
+        aliases: [alias('RCM')]
       })
 
       const updated = await glossaryModel.updateTerm(fixtures.siteId, created.id, {
@@ -476,11 +482,77 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       await glossaryModel.createTerm(fixtures.siteId, {
         term: 'Aliased',
         definition: 'Has aliases.',
-        aliases: ['AL']
+        aliases: [alias('AL')]
       })
 
       const cached = await glossaryModel.getCachedTerms(fixtures.siteId, actor)
-      assert.deepEqual(cached.find((t) => t.term === 'Aliased')?.aliases, ['AL'])
+      assert.deepEqual(cached.find((t) => t.term === 'Aliased')?.aliases, [alias('AL')])
+    })
+  })
+
+  describe('acronyms (OpenProject #2575)', () => {
+    test('createTerm() persists a term-level isAcronym flag, defaulting to false', async () => {
+      const plain = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AcroPlainTerm',
+        definition: 'Not an acronym.'
+      })
+      assert.equal(plain.isAcronym, false)
+
+      const acronymTerm = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AcroUSS',
+        definition: 'United States Ship.',
+        isAcronym: true
+      })
+      assert.equal(acronymTerm.isAcronym, true)
+    })
+
+    test('createTerm() persists per-alias isAcronym flags, distinct from an ordinary alias', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AcroExpandedForm',
+        definition: 'A software interface.',
+        aliases: [alias('AcroAPI', true), alias('AcroInterface')]
+      })
+
+      assert.deepEqual(created.aliases, [alias('AcroAPI', true), alias('AcroInterface', false)])
+    })
+
+    test('updateTerm() flips a term’s isAcronym flag and records it as changed', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AcroToggleAcronym',
+        definition: 'Starts plain.'
+      })
+
+      const updated = await glossaryModel.updateTerm(fixtures.siteId, created.id, {
+        isAcronym: true
+      })
+
+      assert.equal(updated.isAcronym, true)
+    })
+
+    test('getAcronymMap() maps every acronym term/alias, lowercase key to canonical casing', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AcroMapUSS',
+        definition: 'United States Ship.',
+        isAcronym: true
+      })
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AcroMapExpandedForm',
+        definition: 'A software interface.',
+        aliases: [alias('AcroMapAPI', true), alias('AcroMapInterface')]
+      })
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AcroMapPlainOnly',
+        definition: 'No acronyms here at all.',
+        aliases: [alias('AcroMapPlainAlias')]
+      })
+
+      const map = await glossaryModel.getAcronymMap(fixtures.siteId)
+
+      assert.equal(map.acromapuss, 'AcroMapUSS')
+      assert.equal(map.acromapapi, 'AcroMapAPI')
+      assert.equal('acromapinterface' in map, false)
+      assert.equal('acromapplainonly' in map, false)
+      assert.equal('acromapplainalias' in map, false)
     })
   })
 
@@ -494,7 +566,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       await glossaryModel.createTerm(fixtures.siteId, {
         term: 'ExportedLinked',
         definition: 'Has a page.',
-        aliases: ['EL'],
+        aliases: [alias('EL')],
         pageId: page.id
       })
       await glossaryModel.createTerm(fixtures.siteId, {
@@ -504,12 +576,13 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
 
       const exported = await glossaryModel.exportTerms(fixtures.siteId)
 
-      assert.equal(exported.formatVersion, 1)
+      assert.equal(exported.formatVersion, 2)
       const linked = exported.terms.find((t) => t.term === 'ExportedLinked')
       assert.deepEqual(linked, {
         term: 'ExportedLinked',
         definition: 'Has a page.',
-        aliases: ['EL'],
+        aliases: [alias('EL')],
+        isAcronym: false,
         path: 'docs/export-linked'
       })
       const unlinked = exported.terms.find((t) => t.term === 'ExportedUnlinked')
@@ -523,10 +596,16 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       })
 
       const imported = await glossaryModel.importTerms(fixtures.siteId, {
-        formatVersion: 1,
+        formatVersion: 2,
         terms: [
-          { term: 'Imported One', definition: 'First.', aliases: ['IO'], path: null },
-          { term: 'Imported Two', definition: 'Second.', aliases: [], path: null }
+          {
+            term: 'Imported One',
+            definition: 'First.',
+            aliases: [alias('IO')],
+            isAcronym: false,
+            path: null
+          },
+          { term: 'Imported Two', definition: 'Second.', aliases: [], isAcronym: false, path: null }
         ]
       })
 
@@ -543,9 +622,15 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       )
 
       const imported = await glossaryModel.importTerms(fixtures.siteId, {
-        formatVersion: 1,
+        formatVersion: 2,
         terms: [
-          { term: 'ImportLinked', definition: 'Resolves.', aliases: [], path: 'docs/import-target' }
+          {
+            term: 'ImportLinked',
+            definition: 'Resolves.',
+            aliases: [],
+            isAcronym: false,
+            path: 'docs/import-target'
+          }
         ]
       })
 
@@ -561,12 +646,13 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       await assert.rejects(
         () =>
           glossaryModel.importTerms(fixtures.siteId, {
-            formatVersion: 1,
+            formatVersion: 2,
             terms: [
               {
                 term: 'BadPath',
                 definition: 'Points nowhere.',
                 aliases: [],
+                isAcronym: false,
                 path: 'docs/does-not-exist-anywhere'
               }
             ]
@@ -589,8 +675,16 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       await assert.rejects(
         () =>
           glossaryModel.importTerms(fixtures.siteId, {
-            formatVersion: 1,
-            terms: [{ term: 'RootPath', definition: 'Points at "/".', aliases: [], path: '/' }]
+            formatVersion: 2,
+            terms: [
+              {
+                term: 'RootPath',
+                definition: 'Points at "/".',
+                aliases: [],
+                isAcronym: false,
+                path: '/'
+              }
+            ]
           }),
         /does not resolve/
       )
@@ -600,10 +694,22 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       await assert.rejects(
         () =>
           glossaryModel.importTerms(fixtures.siteId, {
-            formatVersion: 1,
+            formatVersion: 2,
             terms: [
-              { term: 'Dup A', definition: 'First.', aliases: ['Shared'], path: null },
-              { term: 'Dup B', definition: 'Second.', aliases: ['shared'], path: null }
+              {
+                term: 'Dup A',
+                definition: 'First.',
+                aliases: [alias('Shared')],
+                isAcronym: false,
+                path: null
+              },
+              {
+                term: 'Dup B',
+                definition: 'Second.',
+                aliases: [alias('shared')],
+                isAcronym: false,
+                path: null
+              }
             ]
           }),
         /both resolve/
@@ -620,8 +726,16 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
 
     test('export -> import round-trips a glossary unchanged', async () => {
       await glossaryModel.importTerms(fixtures.siteId, {
-        formatVersion: 1,
-        terms: [{ term: 'RoundTrip', definition: 'Stable.', aliases: ['RT'], path: null }]
+        formatVersion: 2,
+        terms: [
+          {
+            term: 'RoundTrip',
+            definition: 'Stable.',
+            aliases: [alias('RT')],
+            isAcronym: false,
+            path: null
+          }
+        ]
       })
 
       const exported = await glossaryModel.exportTerms(fixtures.siteId)
@@ -648,7 +762,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       const { terms, version } = await glossaryModel.saveVersion(
         fixtures.siteId,
         [
-          { term: 'Saved One', definition: 'First.', aliases: ['S1'] },
+          { term: 'Saved One', definition: 'First.', aliases: [alias('S1')] },
           { term: 'Saved Two', definition: 'Second.' }
         ],
         glossaryActor
@@ -748,13 +862,19 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     test('getVersion() returns the full snapshot', async () => {
       const { version } = await glossaryModel.saveVersion(
         fixtures.siteId,
-        [{ term: 'GetVersionTerm', definition: 'Snapshot me.', aliases: ['GVT'] }],
+        [{ term: 'GetVersionTerm', definition: 'Snapshot me.', aliases: [alias('GVT')] }],
         glossaryActor
       )
 
       const fetched = await glossaryModel.getVersion(fixtures.siteId, version.id)
       assert.deepEqual(fetched?.snapshot.terms, [
-        { term: 'GetVersionTerm', definition: 'Snapshot me.', aliases: ['GVT'], path: null }
+        {
+          term: 'GetVersionTerm',
+          definition: 'Snapshot me.',
+          aliases: [alias('GVT')],
+          isAcronym: false,
+          path: null
+        }
       ])
     })
 
@@ -979,7 +1099,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       const created = await glossaryModel.createTerm(fixtures.siteId, {
         term: 'Audit Hot Strip Mill',
         definition: 'A rolling mill.',
-        aliases: ['Audit HSM']
+        aliases: [alias('Audit HSM')]
       })
 
       await glossaryModel.updateTerm(

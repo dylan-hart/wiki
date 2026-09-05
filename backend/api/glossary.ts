@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify'
-import type { GlossaryExport, GlossaryExportTermInput } from '../models/glossary.ts'
+import type { GlossaryAlias, GlossaryExport, GlossaryExportTermInput } from '../models/glossary.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 interface GlossaryTermBody {
   term?: string
   definition?: string
-  aliases?: string[]
+  aliases?: GlossaryAlias[]
+  isAcronym?: boolean
   pageId?: string | null
 }
 
@@ -99,6 +100,35 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * LIST GLOSSARY ACRONYMS
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/glossary/acronyms',
+    {
+      /*
+        No route-level permissions, same reasoning as `.../glossary/terms` just above: an acronym's
+        canonical casing carries no page-access sensitivity of its own (OpenProject #2575), and this
+        is what the frontend's path-segment humanizer consults to render e.g. "uss" as "USS" on any
+        page/nav/breadcrumb display, not only inside the admin area.
+      */
+      schema: {
+        summary: 'The site’s acronym lookup, for the path-segment humanizer',
+        description:
+          'A lowercase-surface-form → canonical-display-casing map, built from every glossary term/alias marked as an acronym. Cached the same way, and invalidated on the same schedule, as `GET .../glossary/terms`.',
+        tags: ['Glossary'],
+        params: { $ref: 'SiteIdParams#' },
+        response: {
+          200: { $ref: 'GlossaryAcronymMap#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.glossary.getAcronymMap(req.params.siteId)
+    }
+  )
+
+  /**
    * CREATE GLOSSARY TERM
    */
   app.post<{ Params: { siteId: string }; Body: GlossaryTermBody }>(
@@ -134,6 +164,7 @@ async function routes(app: FastifyInstance) {
           term: req.body.term!,
           definition: req.body.definition!,
           aliases: req.body.aliases,
+          isAcronym: req.body.isAcronym,
           pageId: req.body.pageId
         },
         actorFromRequest(req)
@@ -181,6 +212,7 @@ async function routes(app: FastifyInstance) {
           term: req.body.term,
           definition: req.body.definition,
           aliases: req.body.aliases,
+          isAcronym: req.body.isAcronym,
           pageId: req.body.pageId
         },
         actorFromRequest(req)

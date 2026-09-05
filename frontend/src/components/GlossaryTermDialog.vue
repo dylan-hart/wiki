@@ -24,6 +24,12 @@
               :hint="t(`admin.glossary.termHint`)"
               lazy-rules="ondemand" />
           </w-item-section>
+          <w-item-section side>
+            <w-checkbox v-model="state.isAcronym" dense :label="t('admin.glossary.isAcronym')" />
+            <div class="text-caption text-grey" style="max-width: 140px">
+              {{ t('admin.glossary.isAcronymHint') }}
+            </div>
+          </w-item-section>
         </w-item>
         <w-item>
           <blueprint-icon icon="quote-left" />
@@ -48,12 +54,20 @@
             <div class="flex flex-wrap gap-1 mb-2" v-if="state.aliases.length > 0">
               <w-chip
                 v-for="alias of state.aliases"
-                :key="alias"
+                :key="alias.value"
                 square
                 dense
+                clickable
                 removable
-                @remove="removeAlias(alias)">
-                {{ alias }}
+                :icon="alias.isAcronym ? 'mdi:alpha-a-box-outline' : null"
+                :aria-label="
+                  alias.isAcronym
+                    ? t('admin.glossary.aliasIsAcronym', { alias: alias.value })
+                    : t('admin.glossary.aliasIsNotAcronym', { alias: alias.value })
+                "
+                @click="toggleAliasAcronym(alias)"
+                @remove="removeAlias(alias.value)">
+                {{ alias.value }}
               </w-chip>
             </div>
             <w-input
@@ -65,6 +79,10 @@
               :hint="t(`admin.glossary.aliasesHint`)"
               @keyup:enter="addAlias">
               <template #append>
+                <w-checkbox
+                  v-model="state.aliasIsAcronym"
+                  dense
+                  :label="t('admin.glossary.isAcronym')" />
                 <w-btn
                   flat
                   round
@@ -156,7 +174,8 @@ const props = defineProps({
     type: String,
     required: true
   },
-  /** The staged entry being edited (`{ term, definition, aliases, path }`), or null to create one. */
+  /** The staged entry being edited (`{ term, definition, isAcronym, aliases, path }`, `aliases`
+   *  each `{ value, isAcronym }` -- OpenProject #2575), or null to create one. */
   term: {
     type: Object,
     default: null
@@ -182,8 +201,14 @@ const { t } = useI18n()
 const state = reactive({
   term: props.term?.term ?? '',
   definition: props.term?.definition ?? '',
-  aliases: [...(props.term?.aliases ?? [])],
+  /** Marks the term itself as an acronym (OpenProject #2575), distinct from an ordinary term --
+   *  its stored casing is a canonical DISPLAY casing consulted by the path-segment humanizer. */
+  isAcronym: props.term?.isAcronym ?? false,
+  /** `{ value, isAcronym }[]` -- see `state.isAcronym`'s own comment for what `isAcronym` means. */
+  aliases: (props.term?.aliases ?? []).map((a) => ({ ...a })),
   aliasInput: '',
+  /** Whether the NEXT alias added via `addAlias()` is marked an acronym. */
+  aliasIsAcronym: false,
   path: props.term?.path ?? '',
   /** 'empty' | 'checking' | 'valid' | 'invalid' -- the live path lookup's current state. */
   pathStatus: 'empty',
@@ -237,15 +262,20 @@ function addAlias() {
   if (
     !value ||
     lower === state.term.trim().toLowerCase() ||
-    state.aliases.some((a) => a.toLowerCase() === lower)
+    state.aliases.some((a) => a.value.toLowerCase() === lower)
   ) {
     return
   }
-  state.aliases.push(value)
+  state.aliases.push({ value, isAcronym: state.aliasIsAcronym })
 }
 
-function removeAlias(alias) {
-  state.aliases = state.aliases.filter((a) => a !== alias)
+function removeAlias(value) {
+  state.aliases = state.aliases.filter((a) => a.value !== value)
+}
+
+/** Flips one existing alias's `isAcronym` flag -- clicking its chip (OpenProject #2575). */
+function toggleAliasAcronym(alias) {
+  alias.isAcronym = !alias.isAcronym
 }
 
 /** Debounced (see the WATCHERS block): resolves `state.path` against this site's primary locale. */
@@ -277,6 +307,7 @@ async function save() {
   onDialogOK({
     term: state.term.trim(),
     definition: state.definition.trim(),
+    isAcronym: state.isAcronym,
     aliases: state.aliases,
     path: state.path.trim() || null
   })
