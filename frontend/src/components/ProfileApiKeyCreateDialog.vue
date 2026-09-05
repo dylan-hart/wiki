@@ -17,7 +17,7 @@
       <w-form ref="createKeyForm" class="py-2" @submit="create">
         <div class="grid grid-cols-1 gap-x-4 md:grid-cols-2">
           <w-item class="md:col-span-2">
-            <blueprint-icon icon="grand-master-key" />
+            <blueprint-icon icon="tabler:key" />
             <w-item-section>
               <w-input
                 ref="iptName"
@@ -31,7 +31,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="schedule" />
+            <blueprint-icon icon="tabler:calendar-time" />
             <w-item-section>
               <w-select
                 v-model="state.keyExpiration"
@@ -48,7 +48,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="home" />
+            <blueprint-icon icon="tabler:home" />
             <w-item-section>
               <w-select
                 v-model="state.keySiteId"
@@ -66,7 +66,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="lock" />
+            <blueprint-icon icon="tabler:lock" />
             <w-item-section>
               <!--
                 Left empty, the token carries the full extent of the creator's own current permissions --
@@ -81,7 +81,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="secure" />
+            <blueprint-icon icon="tabler:shield-check" />
             <w-item-section>
               <!--
                 OpenProject #1205: a checkbox grid replacing the earlier #1055 single-select "ceiling" --

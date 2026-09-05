@@ -48,7 +48,7 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.locale.settings') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="translation" />
+            <blueprint-icon icon="tabler:language" />
             <w-item-section>
               <w-item-label>{{ t(`admin.locale.primary`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.locale.primaryHint`) }}</w-item-label>
@@ -67,7 +67,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="close-pane" />
+            <blueprint-icon icon="tabler:layout-sidebar-right-collapse" />
             <w-item-section>
               <w-item-label>{{ t(`admin.locale.forcePrefix`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.locale.forcePrefixHint`) }}</w-item-label>
@@ -80,7 +80,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="geography" />
+            <blueprint-icon icon="tabler:map" />
             <w-item-section>
               <w-item-label>{{ t(`admin.locale.showMenu`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.locale.showMenuHint`) }}</w-item-label>

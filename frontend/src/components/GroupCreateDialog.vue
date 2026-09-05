@@ -7,7 +7,7 @@
       </w-card-section>
       <w-form ref="createGroupForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="team" />
+          <blueprint-icon icon="tabler:users" />
           <w-item-section>
             <w-input
               v-model="state.groupName"

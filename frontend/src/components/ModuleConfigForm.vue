@@ -3,7 +3,7 @@
     <template v-if="ifCheck(cfg.if)">
       <w-separator class="my-2" inset v-if="idx > 0" />
       <w-item v-if="cfg.type === `boolean`" :tag="cfg.readOnly ? `div` : `label`">
-        <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
+        <blueprint-icon :icon="cfg.icon" />
         <w-item-section>
           <w-item-label>{{ cfg.title }}</w-item-label>
           <w-item-label :class="cfg.readOnly ? `text-orange` : ``" caption>{{
@@ -15,7 +15,7 @@
         </w-item-section>
       </w-item>
       <w-item v-else>
-        <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
+        <blueprint-icon :icon="cfg.icon" />
         <w-item-section>
           <w-item-label>{{ cfg.title }}</w-item-label>
           <w-item-label :class="cfg.readOnly ? `text-orange` : ``" caption>{{

@@ -60,7 +60,7 @@
             </template>
           </w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="light-on" />
+            <blueprint-icon icon="tabler:bulb" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.darkMode`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.darkModeHint`) }}</w-item-label>
@@ -75,7 +75,7 @@
           <template v-for="cl of colorKeys" :key="cl">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="fill-color" />
+              <blueprint-icon icon="tabler:color-swatch" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.theme.` + cl + `Color`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.theme.` + cl + `ColorHint`) }}</w-item-label>
@@ -141,7 +141,7 @@
             </template>
           </w-card-header>
           <w-item>
-            <blueprint-icon icon="code" />
+            <blueprint-icon icon="tabler:code" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.codeBlocksAppearance`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.codeBlocksAppearanceHint`) }}</w-item-label>
@@ -165,7 +165,7 @@
           <w-card-header>{{ t('admin.theme.layout') }}</w-card-header>
           <template v-if="flagStore.experimental">
             <w-item>
-              <blueprint-icon icon="width" />
+              <blueprint-icon icon="tabler:arrows-horizontal" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.theme.contentWidth`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.theme.contentWidthHint`) }}</w-item-label>
@@ -181,7 +181,7 @@
             <w-separator class="my-2" inset />
           </template>
           <w-item>
-            <blueprint-icon icon="right-navigation-toolbar" />
+            <blueprint-icon icon="tabler:layout-sidebar-right" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.sidebarPosition`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.sidebarPositionHint`) }}</w-item-label>
@@ -196,7 +196,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="index" />
+            <blueprint-icon icon="tabler:list" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.tocPosition`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.tocPositionHint`) }}</w-item-label>
@@ -211,7 +211,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="print" />
+            <blueprint-icon icon="tabler:printer" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.showPrintBtn`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.showPrintBtnHint`) }}</w-item-label>
@@ -244,7 +244,7 @@
             </template>
           </w-card-header>
           <w-item>
-            <blueprint-icon icon="fonts-app" />
+            <blueprint-icon icon="tabler:typography" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.baseFont`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.baseFontHint`) }}</w-item-label>
@@ -260,7 +260,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="fonts-app" />
+            <blueprint-icon icon="tabler:typography" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.contentFont`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.contentFontHint`) }}</w-item-label>
@@ -282,7 +282,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.theme.codeInjection') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="css" />
+            <blueprint-icon icon="tabler:brand-css3" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.cssOverride`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.cssOverrideHint`) }}</w-item-label>
@@ -298,7 +298,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="html" />
+            <blueprint-icon icon="tabler:brand-html5" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.headHtmlInjection`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.headHtmlInjectionHint`) }}</w-item-label>
@@ -314,7 +314,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="html" />
+            <blueprint-icon icon="tabler:brand-html5" />
             <w-item-section>
               <w-item-label>{{ t(`admin.theme.bodyHtmlInjection`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.theme.bodyHtmlInjectionHint`) }}</w-item-label>
@@ -447,9 +447,12 @@ const colorKeys = ['primary', 'secondary', 'accent', 'header', 'sidebar']
  * The two page backgrounds `colorPrimary`'s own contrast is checked against below -- `body.body--dark`
  * swaps the page surface to `--color-dark-3` (see `css/tailwind.css`), so which one applies depends on
  * the config being edited, not the admin's own current appearance.
+ *
+ * `#1b1f2a` is Cardinal's `--color-dark-3`; it was still the pre-re-skin `#1e232a` until this was
+ * noticed measuring a real warning against the wrong ground.
  */
 const PAGE_BG_LIGHT = '#ffffff'
-const PAGE_BG_DARK = '#1e232a'
+const PAGE_BG_DARK = '#1b1f2a'
 
 /**
  * The site header and sidebar both draw their nav text in Cardinal's ink (`HeaderNav.vue`,

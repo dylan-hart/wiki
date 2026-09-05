@@ -48,7 +48,7 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.general.siteInfo') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="home" />
+            <blueprint-icon icon="tabler:home" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.siteTitle`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.siteTitleHint`) }}</w-item-label>
@@ -64,7 +64,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="select-all" />
+            <blueprint-icon icon="tabler:file-description" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.siteDescription`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.siteDescriptionHint`) }}</w-item-label>
@@ -78,7 +78,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="dns" />
+            <blueprint-icon icon="tabler:world-www" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.siteHostname`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.siteHostnameHint`) }}</w-item-label>
@@ -99,7 +99,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.general.footerCopyright') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="building" />
+            <blueprint-icon icon="tabler:building" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.companyName`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.companyNameHint`) }}</w-item-label>
@@ -113,7 +113,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="copyright" />
+            <blueprint-icon icon="tabler:copyright" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.contentLicense`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.contentLicenseHint`) }}</w-item-label>
@@ -132,7 +132,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="subtitles" />
+            <blueprint-icon icon="tabler:align-left" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.footerExtra`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.footerExtraHint`) }}</w-item-label>
@@ -151,7 +151,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.general.features') }}</w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="tree-structure" />
+            <blueprint-icon icon="tabler:sitemap" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.allowBrowse`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.allowBrowseHint`) }}</w-item-label>
@@ -165,7 +165,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="user-typing-using-typewriter" />
+            <blueprint-icon icon="tabler:writing" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.allowCollaborativeEditing`) }}</w-item-label>
               <w-item-label caption>
@@ -181,7 +181,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="discussion-forum" />
+            <blueprint-icon icon="tabler:messages" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.allowComments`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.allowCommentsHint`) }}</w-item-label>
@@ -195,7 +195,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="administrator-male" />
+            <blueprint-icon icon="tabler:user-shield" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.allowProfile`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.allowProfileHint`) }}</w-item-label>
@@ -209,7 +209,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="team" />
+            <blueprint-icon icon="tabler:users" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.showOtherGroups`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.showOtherGroupsHint`) }}</w-item-label>
@@ -223,7 +223,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="search" />
+            <blueprint-icon icon="tabler:search" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.allowSearch`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.allowSearchHint`) }}</w-item-label>
@@ -237,7 +237,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="confusion" />
+            <blueprint-icon icon="tabler:help-circle" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.reasonForChange`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.reasonForChangeHint`) }}</w-item-label>
@@ -257,7 +257,7 @@
         <w-card class="pb-2 mt-4" v-if="state.config.defaults">
           <w-card-header>{{ t('admin.general.defaults') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="depth" />
+            <blueprint-icon icon="tabler:stack-3" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.defaultTocDepth`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.defaultTocDepthHint`) }}</w-item-label>
@@ -295,7 +295,7 @@
           <w-item>
             <blueprint-icon
               class="self-start"
-              icon="butterfly"
+              icon="tabler:photo"
               :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
@@ -350,7 +350,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="information" />
+            <blueprint-icon icon="tabler:info-circle" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.displaySiteTitle`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.displaySiteTitleHint`) }}</w-item-label>
@@ -366,7 +366,7 @@
           <w-item>
             <blueprint-icon
               class="self-start"
-              icon="starfish"
+              icon="tabler:browser"
               :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
@@ -426,7 +426,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.general.discovery') }}</w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="cellular-network" />
+            <blueprint-icon icon="tabler:antenna-bars-5" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.discoverable`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.discoverableHint`) }}</w-item-label>
@@ -445,7 +445,7 @@
         <w-card class="pb-2 mt-4" v-if="state.config.uploads">
           <w-card-header>{{ t('admin.general.uploads') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="merge-files" />
+            <blueprint-icon icon="tabler:arrow-merge" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.uploadConflictBehavior`) }}</w-item-label>
               <w-item-label caption>{{
@@ -472,7 +472,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.general.urlHandling') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="sort-by-follow-up-date" />
+            <blueprint-icon icon="tabler:sort-descending" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.pageExtensions`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.pageExtensionsHint`) }}</w-item-label>
@@ -486,7 +486,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="link" />
+            <blueprint-icon icon="tabler:link" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.allowedUrlSchemes`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.allowedUrlSchemesHint`) }}</w-item-label>
@@ -505,7 +505,7 @@
         <w-card class="pb-2 mt-4" v-if="state.config.robots">
           <w-card-header>SEO</w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="bot" />
+            <blueprint-icon icon="tabler:robot" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.searchAllowIndexing`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.searchAllowIndexingHint`) }}</w-item-label>
@@ -519,7 +519,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="polyline" />
+            <blueprint-icon icon="tabler:vector" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.searchAllowFollow`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.searchAllowFollowHint`) }}</w-item-label>
@@ -533,7 +533,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="genealogy" />
+            <blueprint-icon icon="tabler:binary-tree" />
             <w-item-section>
               <w-item-label>{{ t(`admin.general.sitemap`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.general.sitemapHint`) }}</w-item-label>

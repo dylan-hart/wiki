@@ -68,7 +68,7 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.users.profile') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="contact" />
+                  <blueprint-icon icon="tabler:address-book" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.name`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.nameHint`) }}</w-item-label>
@@ -86,7 +86,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="envelope" />
+                  <blueprint-icon icon="tabler:mail" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.email`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.emailHint`) }}</w-item-label>
@@ -101,7 +101,7 @@
                 <template v-if="state.user.meta">
                   <w-separator class="my-2" inset />
                   <w-item>
-                    <blueprint-icon icon="address" />
+                    <blueprint-icon icon="tabler:map-pin" />
                     <w-item-section>
                       <w-item-label>{{ t(`admin.users.location`) }}</w-item-label>
                       <w-item-label caption>{{ t(`admin.users.locationHint`) }}</w-item-label>
@@ -115,7 +115,7 @@
                   </w-item>
                   <w-separator class="my-2" inset />
                   <w-item>
-                    <blueprint-icon icon="new-job" />
+                    <blueprint-icon icon="tabler:briefcase" />
                     <w-item-section>
                       <w-item-label>{{ t(`admin.users.jobTitle`) }}</w-item-label>
                       <w-item-label caption>{{ t(`admin.users.jobTitleHint`) }}</w-item-label>
@@ -129,7 +129,7 @@
                   </w-item>
                   <w-separator class="my-2" inset />
                   <w-item>
-                    <blueprint-icon icon="gender" />
+                    <blueprint-icon icon="tabler:gender-bigender" />
                     <w-item-section>
                       <w-item-label>{{ t(`admin.users.pronouns`) }}</w-item-label>
                       <w-item-label caption>{{ t(`admin.users.pronounsHint`) }}</w-item-label>
@@ -146,7 +146,7 @@
               <w-card class="shadow-1 pb-2 mt-4" v-if="state.user.meta">
                 <w-card-header>{{ t('admin.users.preferences') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="timezone" />
+                  <blueprint-icon icon="tabler:clock-hour-4" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.timezone`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.timezoneHint`) }}</w-item-label>
@@ -166,7 +166,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="calendar" />
+                  <blueprint-icon icon="tabler:calendar" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.dateFormat`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.dateFormatHint`) }}</w-item-label>
@@ -190,7 +190,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="clock" />
+                  <blueprint-icon icon="tabler:clock" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.timeFormat`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.timeFormatHint`) }}</w-item-label>
@@ -208,7 +208,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="light-on" />
+                  <blueprint-icon icon="tabler:bulb" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.appearance`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.darkModeHint`) }}</w-item-label>
@@ -227,7 +227,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="visualy-impaired" />
+                  <blueprint-icon icon="tabler:eye-off" />
                   <w-item-section>
                     <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
                     <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
@@ -251,7 +251,7 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.users.info') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="person" :hue-rotate="-45" />
+                  <blueprint-icon icon="tabler:user" />
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.id`) }}</w-item-label>
                     <w-item-label
@@ -261,7 +261,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="calendar-plus" :hue-rotate="-45" />
+                  <blueprint-icon icon="tabler:calendar-plus" />
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.createdOn`) }}</w-item-label>
                     <w-item-label>
@@ -271,7 +271,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="summertime" :hue-rotate="-45" />
+                  <blueprint-icon icon="tabler:sun" />
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.lastUpdated`) }}</w-item-label>
                     <w-item-label>
@@ -281,7 +281,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="enter" :hue-rotate="-45" />
+                  <blueprint-icon icon="tabler:arrow-bar-to-right" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.lastLoginAt`) }}</w-item-label>
                     <w-item-label>
@@ -312,7 +312,7 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.users.passAuth') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="password" :hue-rotate="45" />
+                  <blueprint-icon icon="tabler:password" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.changePassword`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.changePasswordHint`) }}</w-item-label>
@@ -340,7 +340,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item tag="label">
-                  <blueprint-icon icon="password-reset" />
+                  <blueprint-icon icon="tabler:lock-cog" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.mustChangePwd`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.mustChangePwdHint`) }}</w-item-label>
@@ -353,7 +353,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item tag="label">
-                  <blueprint-icon icon="key" />
+                  <blueprint-icon icon="tabler:key" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.pwdAuthRestrict`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.pwdAuthRestrictHint`) }}</w-item-label>
@@ -368,7 +368,7 @@
               <w-card class="shadow-1 pb-2 mt-4">
                 <w-card-header>{{ t('admin.users.tfa') }}</w-card-header>
                 <w-item tag="label">
-                  <blueprint-icon icon="key" />
+                  <blueprint-icon icon="tabler:key" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.tfaRequired`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.tfaRequiredHint`) }}</w-item-label>
@@ -381,7 +381,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="password" :hue-rotate="45" />
+                  <blueprint-icon icon="tabler:password" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.tfaInvalidate`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.tfaInvalidateHint`) }}</w-item-label>
@@ -452,7 +452,7 @@
                 <template v-for="(prv, idx) in linkedAuthProviders" :key="prv.authId">
                   <w-separator class="my-2" inset v-if="idx > 0" />
                   <w-item>
-                    <blueprint-icon :icon="prv.strategyIcon" :hue-rotate="-45" />
+                    <blueprint-icon :icon="prv.strategyIcon" />
                     <w-item-section>
                       <w-item-label>{{ prv.authName }}</w-item-label>
                       <w-item-label caption>{{ prv.config.key }}</w-item-label>
@@ -473,7 +473,7 @@
                 <template v-for="(grp, idx) of state.user.groups" :key="grp.id">
                   <w-separator class="my-2" inset v-if="idx > 0" />
                   <w-item>
-                    <blueprint-icon icon="team" :hue-rotate="-45" />
+                    <blueprint-icon icon="tabler:users" />
                     <w-item-section
                       ><w-item-label>{{ grp.name }}</w-item-label></w-item-section
                     >
@@ -496,7 +496,7 @@
               </w-card>
               <w-card class="shadow-1 py-2 mt-4">
                 <w-item>
-                  <blueprint-icon icon="join" />
+                  <blueprint-icon icon="tabler:arrows-join" />
                   <w-item-section>
                     <w-select
                       :options="state.groups"
@@ -582,7 +582,7 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.users.operations') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="apply" :hue-rotate="45" />
+                  <blueprint-icon icon="tabler:check" />
                   <w-item-section>
                     <w-item-label>{{
                       state.user.isVerified ? t(`admin.users.unverify`) : t(`admin.users.verify`)
@@ -613,7 +613,7 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
-                  <blueprint-icon icon="unfriend" :hue-rotate="45" />
+                  <blueprint-icon icon="tabler:user-minus" />
                   <w-item-section>
                     <w-item-label>{{
                       state.user.isActive ? t(`admin.users.ban`) : t(`admin.users.unban`)
@@ -641,7 +641,7 @@
               </w-card>
               <w-card class="shadow-1 py-2 mt-4">
                 <w-item>
-                  <blueprint-icon icon="denied" :hue-rotate="140" />
+                  <blueprint-icon icon="tabler:ban" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.delete`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.deleteHint`) }}</w-item-label>

@@ -12,7 +12,7 @@
       -->
       <w-form ref="createSiteForm" class="py-2">
         <w-item>
-          <blueprint-icon icon="home" />
+          <blueprint-icon icon="tabler:home" />
           <w-item-section>
             <w-input
               v-model="state.siteName"
@@ -25,7 +25,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="dns" />
+          <blueprint-icon icon="tabler:world-www" />
           <w-item-section>
             <w-input
               v-model="state.siteHostname"

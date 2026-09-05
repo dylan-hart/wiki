@@ -50,7 +50,7 @@
           <w-item>
             <blueprint-icon
               class="self-start"
-              icon="full-image"
+              icon="tabler:photo"
               :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
@@ -86,7 +86,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="close-pane" />
+            <blueprint-icon icon="tabler:layout-sidebar-right-collapse" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.bypassScreen`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.bypassScreenHint`) }}</w-item-label>
@@ -100,7 +100,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="no-access" />
+            <blueprint-icon icon="tabler:lock-off" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.bypassUnauthorized`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.bypassUnauthorizedHint`) }}</w-item-label>
@@ -114,7 +114,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="double-right" />
+            <blueprint-icon icon="tabler:chevrons-right" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.loginRedirect`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.loginRedirectHint`) }}</w-item-label>
@@ -133,7 +133,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="chevron-right" />
+            <blueprint-icon icon="tabler:chevron-right" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.welcomeRedirect`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.welcomeRedirectHint`) }}</w-item-label>
@@ -153,7 +153,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="exit" />
+            <blueprint-icon icon="tabler:logout" />
             <w-item-section>
               <w-item-label>{{ t(`admin.login.logoutRedirect`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.login.logoutRedirectHint`) }}</w-item-label>

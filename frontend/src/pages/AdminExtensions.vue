@@ -41,7 +41,7 @@
         <w-card>
           <w-list separator>
             <w-item v-for="ext of state.extensions" :key="`ext-` + ext.key">
-              <blueprint-icon icon="module" />
+              <blueprint-icon icon="tabler:puzzle" />
               <w-item-section>
                 <w-item-label class="flex items-center gap-2">
                   {{ ext.title }}

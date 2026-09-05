@@ -12,7 +12,7 @@
       -->
       <w-form ref="newFolderForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="folder" />
+          <blueprint-icon icon="tabler:folder" />
           <w-item-section>
             <w-input
               ref="iptTitle"
@@ -26,7 +26,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="file-submodule" />
+          <blueprint-icon icon="tabler:file-symlink" />
           <w-item-section>
             <w-input
               v-model="state.path"

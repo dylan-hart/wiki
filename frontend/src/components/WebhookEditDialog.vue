@@ -41,7 +41,7 @@
       <!-- FORM -->
       <w-form ref="editWebhookForm" class="py-2">
         <w-item>
-          <blueprint-icon icon="info-popup" />
+          <blueprint-icon icon="tabler:info-circle" />
           <w-item-section>
             <w-input
               ref="iptName"
@@ -54,7 +54,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="lightning-bolt" />
+          <blueprint-icon icon="tabler:bolt" />
           <w-item-section>
             <w-select
               v-model="state.hook.events"
@@ -96,7 +96,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="web-design" />
+          <blueprint-icon icon="tabler:layout" />
           <w-item-section>
             <w-select
               v-model="state.hook.siteId"
@@ -113,7 +113,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="unknown-status" class="self-start" />
+          <blueprint-icon icon="tabler:help-circle" class="self-start" />
           <w-item-section>
             <w-item-label>{{ t(`admin.webhooks.url`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.webhooks.urlHint`) }}</w-item-label>
@@ -133,7 +133,7 @@
           </w-item-section>
         </w-item>
         <w-item clickable @click="state.hook.includeMetadata = !state.hook.includeMetadata">
-          <blueprint-icon icon="rescan-document" />
+          <blueprint-icon icon="tabler:file-search" />
           <w-item-section>
             <w-item-label>{{ t(`admin.webhooks.includeMetadata`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.webhooks.includeMetadataHint`) }}</w-item-label>
@@ -146,7 +146,7 @@
           </w-item-section>
         </w-item>
         <w-item clickable @click="state.hook.includeContent = !state.hook.includeContent">
-          <blueprint-icon icon="select-all" />
+          <blueprint-icon icon="tabler:file-description" />
           <w-item-section>
             <w-item-label>{{ t(`admin.webhooks.includeContent`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.webhooks.includeContentHint`) }}</w-item-label>
@@ -159,7 +159,7 @@
           </w-item-section>
         </w-item>
         <w-item clickable @click="state.hook.acceptUntrusted = !state.hook.acceptUntrusted">
-          <blueprint-icon icon="security-ssl" />
+          <blueprint-icon icon="tabler:certificate" />
           <w-item-section>
             <w-item-label>{{ t(`admin.webhooks.acceptUntrusted`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.webhooks.acceptUntrustedHint`) }}</w-item-label>
@@ -172,7 +172,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="fingerprint-scan" class="self-start" />
+          <blueprint-icon icon="tabler:fingerprint" class="self-start" />
           <w-item-section>
             <w-item-label>{{ t(`admin.webhooks.authHeader`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.webhooks.authHeaderHint`) }}</w-item-label>

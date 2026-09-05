@@ -8,7 +8,7 @@
           <!-- Title -->
           <!-- ----------------------- -->
           <w-item>
-            <blueprint-icon icon="new-document" />
+            <blueprint-icon icon="tabler:file-plus" />
             <w-item-section>
               <w-item-label>{{ t('editor.redirect.pageTitle') }}</w-item-label>
               <w-item-label caption>{{ t('editor.redirect.pageTitleHint') }}</w-item-label>
@@ -31,7 +31,7 @@
           <!-- Target -->
           <!-- ----------------------- -->
           <w-item>
-            <blueprint-icon icon="advance" />
+            <blueprint-icon icon="tabler:player-track-next" />
             <w-item-section>
               <w-item-label>{{ t('editor.redirect.target') }}</w-item-label>
               <w-item-label caption>{{ t('editor.redirect.targetHint') }}</w-item-label>
@@ -70,7 +70,7 @@
           <!-- Interstitial -->
           <!-- ----------------------- -->
           <w-item>
-            <blueprint-icon icon="timer" />
+            <blueprint-icon icon="tabler:clock-play" />
             <w-item-section>
               <w-item-label>{{ t('editor.redirect.showInterstitial') }}</w-item-label>
               <w-item-label caption>{{ t('editor.redirect.showInterstitialHint') }}</w-item-label>

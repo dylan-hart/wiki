@@ -49,7 +49,7 @@
             </w-item-section>
           </w-item>
           <w-item tag="label">
-            <blueprint-icon icon="flag-filled" />
+            <blueprint-icon icon="tabler:flag" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.experimental.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.experimental.hint`) }}</w-item-label>
@@ -62,7 +62,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="flag-filled" />
+            <blueprint-icon icon="tabler:flag" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.authDebug.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.authDebug.hint`) }}</w-item-label>
@@ -75,7 +75,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="flag-filled" />
+            <blueprint-icon icon="tabler:flag" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.sqlLog.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.sqlLog.hint`) }}</w-item-label>
@@ -96,7 +96,7 @@
         </w-card>
         <w-card class="py-2 mt-4">
           <w-item>
-            <blueprint-icon icon="administrative-tools" />
+            <blueprint-icon icon="tabler:tool" />
             <w-item-section>
               <w-item-label>{{ t(`admin.flags.advanced.label`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.flags.advanced.hint`) }}</w-item-label>

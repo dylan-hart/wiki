@@ -16,7 +16,7 @@
           the icon to the top instead put it 6px above the control it belongs to.
         -->
         <w-item>
-          <blueprint-icon icon="rename" />
+          <blueprint-icon icon="tabler:cursor-text" />
           <w-item-section>
             <w-input
               ref="iptName"
@@ -30,7 +30,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="filtration" />
+          <blueprint-icon icon="tabler:filter" />
           <w-item-section>
             <w-select
               v-model="state.match"
@@ -67,7 +67,7 @@
         </w-item>
         <w-separator class="my-2" inset />
         <w-item>
-          <blueprint-icon icon="pen" />
+          <blueprint-icon icon="tabler:pencil" />
           <w-item-section>
             <w-select
               v-model="state.submitterGroups"
@@ -87,7 +87,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="validation" />
+          <blueprint-icon icon="tabler:checkbox" />
           <w-item-section>
             <w-select
               v-model="state.reviewerGroups"
@@ -107,7 +107,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="user-groups" />
+          <blueprint-icon icon="tabler:users-group" />
           <w-item-section>
             <w-input
               v-model.number="state.minApprovals"

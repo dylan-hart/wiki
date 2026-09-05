@@ -64,7 +64,7 @@
             </w-item-section>
           </w-item>
           <w-item tag="label">
-            <blueprint-icon icon="maximize-window" />
+            <blueprint-icon icon="tabler:maximize" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.disallowIframe`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.disallowIframeHint`) }}</w-item-label>
@@ -78,7 +78,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="do-not-touch" />
+            <blueprint-icon icon="tabler:hand-off" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.enforceSameOriginReferrerPolicy`) }}</w-item-label>
               <w-item-label caption>{{
@@ -94,7 +94,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="curly-arrow" />
+            <blueprint-icon icon="tabler:arrow-back-up" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.disallowOpenRedirect`) }}</w-item-label>
               <w-item-label caption>{{
@@ -110,7 +110,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="download-from-cloud" />
+            <blueprint-icon icon="tabler:cloud-download" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.forceAssetDownload`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.forceAssetDownloadHint`) }}</w-item-label>
@@ -124,7 +124,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="door-sensor-alarmed" />
+            <blueprint-icon icon="tabler:door" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.trustProxy`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.trustProxyHint`) }}</w-item-label>
@@ -139,7 +139,7 @@
           <template v-if="trustProxyEnabled">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="address" />
+              <blueprint-icon icon="tabler:map-pin" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.trustProxyAddresses`) }}</w-item-label>
                 <w-item-label caption>{{
@@ -194,7 +194,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.security.hsts') }}</w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="hips" />
+            <blueprint-icon icon="tabler:lock-square-rounded" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.enforceHsts`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.enforceHstsHint`) }}</w-item-label>
@@ -209,7 +209,7 @@
           <template v-if="state.config.enforceHsts">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="timer" />
+              <blueprint-icon icon="tabler:clock-play" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.hstsDuration`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.hstsDurationHint`) }}</w-item-label>
@@ -259,7 +259,7 @@
             </w-item-section>
           </w-item>
           <w-item tag="label">
-            <blueprint-icon icon="filtration" />
+            <blueprint-icon icon="tabler:filter" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.rateLimitEnabled`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.rateLimitEnabledHint`) }}</w-item-label>
@@ -274,7 +274,7 @@
           <template v-if="state.config.authRateLimitEnabled">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="pin-pad" />
+              <blueprint-icon icon="tabler:grid-dots" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.rateLimitMax`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.rateLimitMaxHint`) }}</w-item-label>
@@ -289,7 +289,7 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="timer" />
+              <blueprint-icon icon="tabler:clock-play" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.rateLimitWindow`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.rateLimitWindowHint`) }}</w-item-label>
@@ -304,7 +304,7 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="denied" />
+              <blueprint-icon icon="tabler:ban" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.rateLimitBan`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.rateLimitBanHint`) }}</w-item-label>
@@ -350,7 +350,7 @@
             </w-item-section>
           </w-item>
           <w-item tag="label">
-            <blueprint-icon icon="filtration" />
+            <blueprint-icon icon="tabler:filter" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.apiRateLimitEnabled`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.apiRateLimitEnabledHint`) }}</w-item-label>
@@ -365,7 +365,7 @@
           <template v-if="state.config.apiRateLimitEnabled">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="pin-pad" />
+              <blueprint-icon icon="tabler:grid-dots" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.apiRateLimitMax`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.apiRateLimitMaxHint`) }}</w-item-label>
@@ -380,7 +380,7 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="timer" />
+              <blueprint-icon icon="tabler:clock-play" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.apiRateLimitWindow`) }}</w-item-label>
                 <w-item-label caption>{{
@@ -397,7 +397,7 @@
             </w-item>
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="denied" />
+              <blueprint-icon icon="tabler:ban" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.apiRateLimitBan`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.apiRateLimitBanHint`) }}</w-item-label>
@@ -434,7 +434,7 @@
             </w-item-section>
           </w-item>
           <w-item>
-            <blueprint-icon icon="upload-to-the-cloud" />
+            <blueprint-icon icon="tabler:cloud-upload" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.maxUploadSize`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.maxUploadSizeHint`) }}</w-item-label>
@@ -448,7 +448,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="scan-stock" />
+            <blueprint-icon icon="tabler:scan" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.scanSVG`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.scanSVGHint`) }}</w-item-label>
@@ -467,7 +467,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.security.cors') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="firewall" />
+            <blueprint-icon icon="tabler:wall" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.corsMode`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.corsModeHint`) }}</w-item-label>
@@ -487,7 +487,7 @@
           <template v-if="state.config.corsMode === `HOSTNAMES`">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="todo-list" key="corsHostnames" />
+              <blueprint-icon icon="tabler:list-check" key="corsHostnames" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.corsHostnames`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.corsHostnamesHint`) }}</w-item-label>
@@ -504,7 +504,7 @@
           <template v-else-if="state.config.corsMode === `REGEX`">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="validation" key="corsRegex" />
+              <blueprint-icon icon="tabler:checkbox" key="corsRegex" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.corsRegex`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.corsRegexHint`) }}</w-item-label>
@@ -524,7 +524,7 @@
         <w-card class="pb-2 mt-4">
           <w-card-header>{{ t('admin.security.csp') }}</w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="data-protection" />
+            <blueprint-icon icon="tabler:shield-check" />
             <w-item-section>
               <w-item-label>{{ t(`admin.security.enforceCsp`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.security.enforceCspHint`) }}</w-item-label>
@@ -539,7 +539,7 @@
           <template v-if="state.config.enforceCsp">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon icon="code-file" key="cspDirectives" />
+              <blueprint-icon icon="tabler:file-code" key="cspDirectives" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.security.cspDirectives`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.security.cspDirectivesHint`) }}</w-item-label>

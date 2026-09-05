@@ -17,7 +17,7 @@
       </w-item-section>
     </w-item>
     <w-item>
-      <blueprint-icon icon="contact" />
+      <blueprint-icon icon="tabler:address-book" />
       <w-item-section>
         <w-item-label>{{ t(`profile.displayName`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.displayNameHint`) }}</w-item-label>
@@ -33,7 +33,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="envelope" />
+      <blueprint-icon icon="tabler:mail" />
       <w-item-section>
         <w-item-label>{{ t(`profile.email`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.emailHint`) }}</w-item-label>
@@ -44,7 +44,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="address" />
+      <blueprint-icon icon="tabler:map-pin" />
       <w-item-section>
         <w-item-label>{{ t(`profile.location`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.locationHint`) }}</w-item-label>
@@ -60,7 +60,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="new-job" />
+      <blueprint-icon icon="tabler:briefcase" />
       <w-item-section>
         <w-item-label>{{ t(`profile.jobTitle`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.jobTitleHint`) }}</w-item-label>
@@ -76,7 +76,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="gender" />
+      <blueprint-icon icon="tabler:gender-bigender" />
       <w-item-section>
         <w-item-label>{{ t(`profile.pronouns`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.pronounsHint`) }}</w-item-label>
@@ -92,7 +92,7 @@
     </w-item>
     <h2 class="w-section-header mt-6">{{ t('profile.preferences') }}</h2>
     <w-item>
-      <blueprint-icon icon="timezone" />
+      <blueprint-icon icon="tabler:clock-hour-4" />
       <w-item-section>
         <w-item-label>{{ t(`profile.timezone`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.timezoneHint`) }}</w-item-label>
@@ -115,7 +115,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="calendar" />
+      <blueprint-icon icon="tabler:calendar" />
       <w-item-section>
         <w-item-label>{{ t(`profile.dateFormat`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.dateFormatHint`) }}</w-item-label>
@@ -134,7 +134,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="clock" />
+      <blueprint-icon icon="tabler:clock" />
       <w-item-section>
         <w-item-label>{{ t(`profile.timeFormat`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.timeFormatHint`) }}</w-item-label>
@@ -150,7 +150,7 @@
     </w-item>
     <w-separator inset spaced="sm" />
     <w-item>
-      <blueprint-icon icon="light-on" />
+      <blueprint-icon icon="tabler:bulb" />
       <w-item-section>
         <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
@@ -166,7 +166,7 @@
     </w-item>
     <h2 class="w-section-header mt-6">{{ t('profile.accessibility') }}</h2>
     <w-item>
-      <blueprint-icon icon="visualy-impaired" />
+      <blueprint-icon icon="tabler:eye-off" />
       <w-item-section>
         <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>

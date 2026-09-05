@@ -50,7 +50,7 @@
             <div class="text-subtitle1">{{ t('admin.editors.markdown.general') }}</div>
           </w-card-section>
           <w-item tag="label">
-            <blueprint-icon icon="html" />
+            <blueprint-icon icon="tabler:brand-html5" />
             <w-item-section>
               <w-item-label>{{ t(`admin.editors.markdown.allowHTML`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.editors.markdown.allowHTMLHint`) }}</w-item-label>
@@ -63,7 +63,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="link" />
+            <blueprint-icon icon="tabler:link" />
             <w-item-section>
               <w-item-label>{{ t(`admin.editors.markdown.linkify`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.editors.markdown.linkifyHint`) }}</w-item-label>
@@ -76,7 +76,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="enter-key" />
+            <blueprint-icon icon="tabler:corner-down-left" />
             <w-item-section>
               <w-item-label>{{ t(`admin.editors.markdown.lineBreaks`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.editors.markdown.lineBreaksHint`) }}</w-item-label>
@@ -89,7 +89,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="width" />
+            <blueprint-icon icon="tabler:arrows-horizontal" />
             <w-item-section>
               <w-item-label>{{ t(`admin.editors.markdown.tabWidth`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.editors.markdown.tabWidthHint`) }}</w-item-label>
@@ -110,7 +110,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="data-sheet" />
+            <blueprint-icon icon="tabler:table" />
             <w-item-section>
               <w-item-label>{{ t(`admin.editors.markdown.multimdTable`) }}</w-item-label>
               <w-item-label caption>{{
@@ -125,7 +125,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="asterisk" />
+            <blueprint-icon icon="tabler:asterisk" />
             <w-item-section>
               <w-item-label>{{ t(`admin.editors.markdown.typographer`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.editors.markdown.typographerHint`) }}</w-item-label>
@@ -139,7 +139,7 @@
           <template v-if="state.config.typographer">
             <w-separator class="my-2" inset />
             <w-item tag="label">
-              <blueprint-icon icon="quote-left" />
+              <blueprint-icon icon="tabler:quote" />
               <w-item-section>
                 <w-item-label>{{ t(`admin.editors.markdown.quotes`) }}</w-item-label>
                 <w-item-label caption>{{ t(`admin.editors.markdown.quotesHint`) }}</w-item-label>
@@ -159,7 +159,7 @@
           </template>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="underline" />
+            <blueprint-icon icon="tabler:underline" />
             <w-item-section>
               <w-item-label>{{ t(`admin.editors.markdown.underline`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.editors.markdown.underlineHint`) }}</w-item-label>

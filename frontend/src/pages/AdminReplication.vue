@@ -57,7 +57,7 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.replication.title') }}</w-card-header>
           <w-item>
-            <blueprint-icon icon="link" />
+            <blueprint-icon icon="tabler:link" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.sourceUrl`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.replication.sourceUrlHint`) }}</w-item-label>
@@ -73,7 +73,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="key" />
+            <blueprint-icon icon="tabler:key" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.bearerToken`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.replication.bearerTokenHint`) }}</w-item-label>
@@ -90,7 +90,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="schedule" />
+            <blueprint-icon icon="tabler:calendar-time" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.cronSchedule`) }}</w-item-label>
               <w-item-label caption>{{
@@ -109,7 +109,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item tag="label">
-            <blueprint-icon icon="access" />
+            <blueprint-icon icon="tabler:shield-lock" />
             <w-item-section>
               <w-item-label>{{ t(`admin.replication.enabled`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.replication.enabledHint`) }}</w-item-label>

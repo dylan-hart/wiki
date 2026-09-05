@@ -32,7 +32,7 @@ describe('AdminLogin — Sharp availability indicator', () => {
 
     const bgIcon = wrapper
       .findAllComponents(BlueprintIcon)
-      .find((c) => c.props('icon') === 'full-image')
+      .find((c) => c.props('icon') === 'tabler:photo')
 
     expect(bgIcon.props('indicator')).toBe(null)
     expect(wrapper.find('.w-badge').exists()).toBe(false)
@@ -45,7 +45,7 @@ describe('AdminLogin — Sharp availability indicator', () => {
 
     const bgIcon = wrapper
       .findAllComponents(BlueprintIcon)
-      .find((c) => c.props('icon') === 'full-image')
+      .find((c) => c.props('icon') === 'tabler:photo')
 
     expect(bgIcon.props('indicator')).toBe('')
     expect(wrapper.find('.w-badge').exists()).toBe(true)

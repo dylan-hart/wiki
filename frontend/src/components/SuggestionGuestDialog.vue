@@ -18,7 +18,7 @@
           letting both sections centre in the row is what lines the icon up with the field.
         -->
         <w-item>
-          <blueprint-icon icon="contact" />
+          <blueprint-icon icon="tabler:address-book" />
           <w-item-section>
             <w-input
               ref="iptName"
@@ -32,7 +32,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="envelope" />
+          <blueprint-icon icon="tabler:mail" />
           <w-item-section>
             <w-input
               v-model="state.email"

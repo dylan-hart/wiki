@@ -14,7 +14,7 @@
       -->
       <w-form ref="createKeyForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="grand-master-key" />
+          <blueprint-icon icon="tabler:key" />
           <w-item-section>
             <w-input
               ref="iptName"
@@ -28,7 +28,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="schedule" />
+          <blueprint-icon icon="tabler:calendar-time" />
           <w-item-section>
             <!--
               Single-select: a key has one lifetime. It was declared `multiple` against a string
@@ -49,7 +49,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="home" />
+          <blueprint-icon icon="tabler:home" />
           <w-item-section>
             <!--
               Single-select, same reasoning as expiration above: a key is pinned to one site or none.
@@ -72,7 +72,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="access" />
+          <blueprint-icon icon="tabler:shield-lock" />
           <w-item-section>
             <w-select
               v-model="state.keyGroups"
@@ -111,7 +111,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="lock" />
+          <blueprint-icon icon="tabler:lock" />
           <w-item-section>
             <!--
               Left empty, a key carries the full union of its groups' permissions -- exactly what
@@ -129,7 +129,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="secure" />
+          <blueprint-icon icon="tabler:shield-check" />
           <w-item-section>
             <!--
               OpenProject #1205: a checkbox grid replacing the earlier #1055 single-select "ceiling" --

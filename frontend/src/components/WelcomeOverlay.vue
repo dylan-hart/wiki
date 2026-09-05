@@ -27,7 +27,7 @@
                 clickable
                 @click="createHomePage(`wysiwyg`)"
                 v-if="enabledEditors.includes(`wysiwyg`)">
-                <blueprint-icon icon="google-presentation" />
+                <blueprint-icon icon="tabler:presentation" />
                 <w-item-section class="pe-2">{{ t('welcome.usingVisualEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
@@ -35,7 +35,7 @@
                 clickable
                 @click="createHomePage(`markdown`)"
                 v-if="enabledEditors.includes(`markdown`)">
-                <blueprint-icon icon="markdown" />
+                <blueprint-icon icon="tabler:markdown" />
                 <w-item-section class="pe-2">{{ t('welcome.usingMarkdownEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
@@ -43,7 +43,7 @@
                 clickable
                 @click="createHomePage(`asciidoc`)"
                 v-if="enabledEditors.includes(`asciidoc`)">
-                <blueprint-icon icon="asciidoc" />
+                <blueprint-icon icon="tabler:file-text" />
                 <w-item-section class="pe-2">{{ t('welcome.usingAsciidocEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>

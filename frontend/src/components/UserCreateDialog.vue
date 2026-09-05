@@ -7,7 +7,7 @@
       </w-card-section>
       <w-form ref="createUserForm" class="py-2" @submit="create">
         <w-item>
-          <blueprint-icon icon="person" />
+          <blueprint-icon icon="tabler:user" />
           <w-item-section>
             <w-input
               ref="iptName"
@@ -20,7 +20,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="email" />
+          <blueprint-icon icon="tabler:mail" />
           <w-item-section>
             <w-input
               v-model="state.userEmail"
@@ -33,7 +33,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="password" />
+          <blueprint-icon icon="tabler:password" />
           <w-item-section>
             <w-input
               v-model="state.userPassword"
@@ -56,7 +56,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="team" />
+          <blueprint-icon icon="tabler:users" />
           <w-item-section>
             <w-select
               v-model="state.userGroups"
@@ -94,7 +94,7 @@
           </w-item-section>
         </w-item>
         <w-item clickable @click="state.userMustChangePassword = !state.userMustChangePassword">
-          <blueprint-icon icon="password-reset" />
+          <blueprint-icon icon="tabler:lock-cog" />
           <w-item-section>
             <w-item-label>{{ t(`admin.users.mustChangePwd`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.mustChangePwdHint`) }}</w-item-label>
@@ -107,7 +107,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="email-open" />
+          <blueprint-icon icon="tabler:mail-opened" />
           <w-item-section>
             <w-item-label>{{ t(`admin.users.sendWelcomeEmail`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.sendWelcomeEmailHint`) }}</w-item-label>
@@ -119,7 +119,7 @@
           </w-item-section>
         </w-item>
         <w-item v-if="state.userSendWelcomeEmail">
-          <blueprint-icon icon="web-design" />
+          <blueprint-icon icon="tabler:layout" />
           <w-item-section>
             <w-select
               v-model="state.userSendWelcomeEmailFromSiteId"

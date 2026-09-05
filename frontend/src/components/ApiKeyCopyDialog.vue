@@ -18,7 +18,7 @@
       </w-card-section>
       <w-form class="py-2">
         <w-item>
-          <blueprint-icon icon="binary-file" class="self-start" />
+          <blueprint-icon icon="tabler:file-code" class="self-start" />
           <w-item-section>
             <w-input
               ref="iptKey"
@@ -38,7 +38,7 @@
           is not exclusive to the personal-token flow that write tools actually require.
         -->
         <w-item>
-          <blueprint-icon icon="run-command" class="self-start" />
+          <blueprint-icon icon="tabler:terminal-2" class="self-start" />
           <w-item-section>
             <w-input
               type="textarea"

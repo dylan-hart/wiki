@@ -10,7 +10,7 @@
       </w-card-section>
       <w-form ref="changeUserPwdForm" class="py-2" @submit="save">
         <w-item>
-          <blueprint-icon icon="lock" />
+          <blueprint-icon icon="tabler:lock" />
           <w-item-section>
             <w-input
               ref="currentPasswordIpt"
@@ -25,7 +25,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="password" />
+          <blueprint-icon icon="tabler:password" />
           <w-item-section>
             <w-input
               ref="newPasswordIpt"
@@ -52,7 +52,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="good-pincode" />
+          <blueprint-icon icon="tabler:lock-check" />
           <w-item-section>
             <w-input
               v-model="state.verifyPassword"

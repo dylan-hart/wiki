@@ -51,7 +51,7 @@
         <w-card>
           <w-list separator>
             <w-item v-for="rule of state.rules" :key="rule.id">
-              <blueprint-icon icon="rules" />
+              <blueprint-icon icon="tabler:checklist" />
               <!--
                 A disabled rule keeps everything it says but covers nothing, so it is dimmed rather
                 than hidden or moved: it is still part of the configuration being read.

@@ -10,7 +10,7 @@
       </w-card-section>
       <w-form ref="termForm" class="py-2" @submit="save">
         <w-item>
-          <blueprint-icon icon="rename" />
+          <blueprint-icon icon="tabler:cursor-text" />
           <w-item-section>
             <w-input
               ref="iptTerm"
@@ -31,7 +31,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="quote-left" />
+          <blueprint-icon icon="tabler:quote" />
           <w-item-section>
             <w-input
               v-model="state.definition"
@@ -47,7 +47,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="matches" />
+          <blueprint-icon icon="tabler:flame" />
           <w-item-section>
             <div class="flex flex-wrap gap-1 mb-2" v-if="state.aliases.length > 0">
               <w-chip
@@ -91,7 +91,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="link" />
+          <blueprint-icon icon="tabler:link" />
           <w-item-section>
             <w-input
               v-model="state.path"

@@ -130,7 +130,7 @@
           <template v-if="selectedEngine.key === DB_ENGINE_KEY">
             <w-separator class="my-2" inset />
             <w-item>
-              <blueprint-icon class="self-start" icon="search" />
+              <blueprint-icon class="self-start" icon="tabler:search" />
               <w-item-section>
                 <w-item-label>{{ t('admin.search.dictOverrides') }}</w-item-label>
                 <util-code-editor

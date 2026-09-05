@@ -7,7 +7,7 @@
       </w-card-section>
       <w-form ref="renameFolderForm" class="py-2" @submit="rename">
         <w-item>
-          <blueprint-icon icon="folder" />
+          <blueprint-icon icon="tabler:folder" />
           <w-item-section>
             <w-input
               ref="iptTitle"
@@ -21,7 +21,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="file-submodule" class="self-start" />
+          <blueprint-icon icon="tabler:file-symlink" class="self-start" />
           <w-item-section>
             <w-input
               v-model="state.path"

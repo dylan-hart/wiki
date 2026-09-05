@@ -399,7 +399,7 @@
                 <template v-for="(act, idx) in state.target.actions" :key="act.handler">
                   <w-separator class="my-2" inset v-if="idx > 0" />
                   <w-item>
-                    <blueprint-icon class="self-start" :icon="act.icon" :hue-rotate="45" />
+                    <blueprint-icon class="self-start" :icon="act.icon" />
                     <w-item-section>
                       <w-item-label>{{ act.label }}</w-item-label>
                       <w-item-label caption>{{ act.hint }}</w-item-label>

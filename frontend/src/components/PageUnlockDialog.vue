@@ -7,7 +7,7 @@
       </w-card-section>
       <w-form ref="unlockForm" class="py-2" @submit="unlock">
         <w-item>
-          <blueprint-icon icon="key" />
+          <blueprint-icon icon="tabler:key" />
           <w-item-section>
             <w-input
               ref="iptPassword"

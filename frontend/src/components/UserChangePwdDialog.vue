@@ -10,7 +10,7 @@
       </w-card-section>
       <w-form ref="changeUserPwdForm" class="py-2" @submit="save">
         <w-item>
-          <blueprint-icon icon="password" />
+          <blueprint-icon icon="tabler:password" />
           <w-item-section>
             <w-input
               ref="iptPassword"
@@ -39,7 +39,7 @@
           handler and cancelling itself out.
         -->
         <w-item clickable @click="state.userMustChangePassword = !state.userMustChangePassword">
-          <blueprint-icon icon="password-reset" />
+          <blueprint-icon icon="tabler:lock-cog" />
           <w-item-section>
             <w-item-label>{{ t(`admin.users.mustChangePwd`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.mustChangePwdHint`) }}</w-item-label>

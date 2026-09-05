@@ -7,7 +7,7 @@
       </w-card-section>
       <w-form ref="renameAssetForm" class="py-2" @submit="rename">
         <w-item>
-          <blueprint-icon icon="image" class="self-start" />
+          <blueprint-icon icon="tabler:photo" class="self-start" />
           <w-item-section>
             <w-input
               ref="iptPath"

@@ -47,7 +47,7 @@
       <w-page class="p-4" style="max-width: 1200px; margin: 0 auto">
         <w-card class="shadow-1 py-2">
           <w-item tag="label">
-            <blueprint-icon icon="enter-key" />
+            <blueprint-icon icon="tabler:corner-down-left" />
             <w-item-section>
               <w-item-label>{{ t(`editor.settings.markdownPreviewShown`) }}</w-item-label>
               <w-item-label caption>{{
@@ -62,7 +62,7 @@
           </w-item>
           <w-separator class="my-2" inset />
           <w-item>
-            <blueprint-icon icon="width" />
+            <blueprint-icon icon="tabler:arrows-horizontal" />
             <w-item-section>
               <w-item-label>{{ t(`editor.settings.markdownFontSize`) }}</w-item-label>
               <w-item-label caption>{{ t(`editor.settings.markdownFontSizeHint`) }}</w-item-label>

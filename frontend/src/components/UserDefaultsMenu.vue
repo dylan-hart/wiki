@@ -12,7 +12,7 @@
       </w-card-section>
       <w-list padding>
         <w-item>
-          <blueprint-icon icon="timezone" />
+          <blueprint-icon icon="tabler:clock-hour-4" />
           <w-item-section>
             <w-item-label>{{ t(`admin.general.defaultTimezone`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.general.defaultTimezoneHint`) }}</w-item-label>
@@ -32,7 +32,7 @@
         </w-item>
         <w-separator class="my-2" inset />
         <w-item>
-          <blueprint-icon icon="calendar" />
+          <blueprint-icon icon="tabler:calendar" />
           <w-item-section>
             <w-item-label>{{ t(`admin.general.defaultDateFormat`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.general.defaultDateFormatHint`) }}</w-item-label>
@@ -49,7 +49,7 @@
         </w-item>
         <w-separator class="my-2" inset />
         <w-item>
-          <blueprint-icon icon="clock" />
+          <blueprint-icon icon="tabler:clock" />
           <w-item-section>
             <w-item-label>{{ t(`admin.general.defaultTimeFormat`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.general.defaultTimeFormatHint`) }}</w-item-label>

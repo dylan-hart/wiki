@@ -71,7 +71,7 @@
         <w-card class="pb-2">
           <w-card-header>{{ t('admin.analytics.info') }}</w-card-header>
           <w-item tag="label">
-            <blueprint-icon icon="shutdown" />
+            <blueprint-icon icon="tabler:power" />
             <w-item-section>
               <w-item-label>{{ t(`admin.analytics.enabled`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.analytics.enabledHint`) }}</w-item-label>

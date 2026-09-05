@@ -62,7 +62,7 @@
       <div class="page-save-dialog-path font-robotomono">{{ currentFolderPath }}</div>
       <w-list class="py-2">
         <w-item>
-          <blueprint-icon icon="new-document" />
+          <blueprint-icon icon="tabler:file-plus" />
           <w-item-section>
             <w-input
               ref="iptTitle"
@@ -74,7 +74,7 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="file-submodule" />
+          <blueprint-icon icon="tabler:file-symlink" />
           <w-item-section>
             <w-input
               v-model="state.path"

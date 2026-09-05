@@ -66,7 +66,7 @@
       <w-card v-else>
         <w-list separator>
           <w-item v-for="term of state.terms" :key="term._key">
-            <blueprint-icon icon="quote-left" />
+            <blueprint-icon icon="tabler:quote" />
             <w-item-section>
               <w-item-label>
                 <strong>{{ term.term }}</strong>
