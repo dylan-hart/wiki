@@ -71,8 +71,9 @@ export function startSimulation(
   visually so the hull clearly contains the dots without ballooning past neighboring clusters. It's
   a floor added on top of each node's own `radiusFor()` (OpenProject #2296), not the whole gap any
   more -- see `padHull()` and `computeClusters()`'s circle case below, both of which used to pad by
-  this constant alone and let a large node (up to `MAX_CONTRIBUTOR_RADIUS`/`MAX_PAGEVIEW_RADIUS`,
-  22) poke through its own group tint.
+  this constant alone and let a large node (up to `MAX_NODE_RADIUS`, `110` as of OpenProject #2561's
+  min/max lerp rework -- one shared ceiling for both sizing metrics, was `22`) poke through its own
+  group tint.
 */
 const HULL_PADDING = 16
 /** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
