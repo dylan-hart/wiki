@@ -191,6 +191,16 @@
                 :aria-label="t(`admin.auth.enabled`)" />
             </w-item-section>
           </w-item>
+          <w-item v-if="noVisibleSitesWarning">
+            <w-item-section>
+              <w-banner
+                :class="
+                  dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`
+                ">
+                {{ t('admin.auth.noVisibleSitesWarning') }}
+              </w-banner>
+            </w-item-section>
+          </w-item>
           <w-separator class="my-2" inset />
           <!-- Exactly one registration control per module, matching what it actually does: a
                form-based module (Local, LDAP) registers visitors itself, a redirect-based provider
@@ -220,10 +230,14 @@
                 :aria-label="t(`admin.auth.autoProvision`)" />
             </w-item-section>
           </w-item>
-          <!-- Only meaningful for a redirect-based provider: linking by email is what
-               findOrCreateProviderUser() does for a returning identity, a path a form-based
-               strategy's own login() never takes. -->
-          <template v-if="!state.strategy.strategy.useForm">
+          <!-- Meaningful for a redirect-based provider always, and for a form-based module too when
+               it declares itself `provisionable`: linking by email is what findOrCreateProviderUser()
+               does for a returning identity, a path a redirect-based provider always takes and LDAP
+               reaches too (its authenticate() throws ProvisionableLoginError on a successful bind --
+               see models/login.ts's dispatch). Local never takes this path -- it resolves directly
+               against its own stored password -- so it stays excluded. -->
+          <template
+            v-if="!state.strategy.strategy.useForm || state.strategy.strategy.provisionable">
             <w-separator class="my-2" inset />
             <w-item tag="label">
               <blueprint-icon icon="link" />
@@ -587,6 +601,9 @@ const { state, load, refresh } = useAdminSettings({
     groups: [],
     strategies: [],
     activeStrategies: [],
+    // -> Strategy id -> number of sites currently showing it on their login screen (a missing key
+    //    reads as zero) -- what `noVisibleSitesWarning` below reads (OpenProject #2557).
+    visibleSiteCounts: {},
     selectedStrategy: '',
     // -> Text typed into the "Add Strategy" menu's filter field; reset each time the menu reopens
     strategyFilter: '',
@@ -600,7 +617,8 @@ const { state, load, refresh } = useAdminSettings({
       return await Promise.all([
         API_CLIENT.get('authentication/modules').json(),
         API_CLIENT.get('authentication/strategies').json(),
-        API_CLIENT.get('groups').json()
+        API_CLIENT.get('groups').json(),
+        API_CLIENT.get('authentication/strategies/visible-site-counts').json()
       ])
     } finally {
       // -> Whether or not the request came back: the group picker must not be left spinning on a
@@ -608,7 +626,7 @@ const { state, load, refresh } = useAdminSettings({
       state.loadingGroups = false
     }
   },
-  onLoaded: ([modules, strategies, groups]) => {
+  onLoaded: ([modules, strategies, groups, visibleSiteCounts]) => {
     state.strategies = modules ?? []
     state.activeStrategies = (strategies ?? []).map((str) => {
       const mod = state.strategies.find((m) => m.key === str.module) ?? {
@@ -623,6 +641,9 @@ const { state, load, refresh } = useAdminSettings({
     })
     // -> Guests cannot be enrolled into, being the group of users who never logged in
     state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
+    state.visibleSiteCounts = Object.fromEntries(
+      (visibleSiteCounts ?? []).map((c) => [c.id, c.visibleSiteCount])
+    )
   }
 })
 
@@ -664,6 +685,21 @@ const revocableMappableGroupNames = computed(() => {
     .filter((id) => !autoEnrolled.has(id))
     .map((id) => state.groups.find((g) => g.id === id)?.name)
     .filter(Boolean)
+})
+/**
+ * Whether the selected strategy is enabled but shown by no site's login screen -- covers a strategy
+ * whose visibility was switched off on every site well after it was created, not only one that never
+ * got a creation-time default (WP #2556 only seeds new strategies going forward). Never true for a
+ * strategy this screen has not saved yet (`isNew`): no site can reference an id that does not exist
+ * on the server, so the absence of any count for it would otherwise always read as a false positive
+ * (OpenProject #2557).
+ */
+const noVisibleSitesWarning = computed(() => {
+  const str = state.strategy
+  if (!str?.id || str.isNew || !str.isEnabled) {
+    return false
+  }
+  return (state.visibleSiteCounts[str.id] ?? 0) < 1
 })
 const strategyRefs = computed(() => {
   if (!state.selectedStrategy) {

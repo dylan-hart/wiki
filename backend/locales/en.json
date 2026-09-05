@@ -242,6 +242,7 @@
   "admin.auth.noConfigOption": "This strategy has no configuration options you can modify.",
   "admin.auth.noModulesMatchFilter": "No installed module matches your filter.",
   "admin.auth.noModulesToAdd": "No other authentication module is installed on this server.",
+  "admin.auth.noVisibleSitesWarning": "This strategy is enabled, but no site currently shows it on its login screen. Turn it on for at least one site under that site's Login settings.",
   "admin.auth.refAfterSave": "Available once this strategy has been saved — it carries the ID the server assigns.",
   "admin.auth.refreshSuccess": "List of strategies has been refreshed.",
   "admin.auth.saveFailed": "Failed to save {strategy}.",

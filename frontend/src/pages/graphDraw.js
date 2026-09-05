@@ -29,6 +29,18 @@ const HIGHLIGHT_RING_COLOR = '#ffd600'
 const HIGHLIGHT_RING_WIDTH = 2
 const HIGHLIGHT_RING_GAP = 2
 
+/** Ring drawn permanently around the synthetic folder-hierarchy root node (`node.root`, OpenProject
+ *  #2563) -- unlike the highlight ring above, this one does not depend on an active keyword search:
+ *  the root is a fixed structural landmark in the graph (folder-hierarchy edge mode fans everything
+ *  out from it), so it needs to read distinctly at all times, not only while it happens to match a
+ *  search. A different hue from `HIGHLIGHT_RING_COLOR` keeps the two rings from reading as the same
+ *  signal on the rare node where both apply at once. Like `HIGHLIGHT_RING_COLOR` and
+ *  `SYNTHETIC_NODE_COLOR`, a single value reads clearly enough on both the light and dark canvas
+ *  surface that it needs no light/dark pair of its own. */
+const ROOT_RING_COLOR = '#ff4081'
+const ROOT_RING_WIDTH = 2
+const ROOT_RING_GAP = 3
+
 /** Opacity for a real node/label that does NOT match the active keyword search, while one is active
  *  -- dimmed, not hidden. OpenProject #2480 is explicitly the non-filtering half of Feature #2414:
  *  every node stays drawn (and clickable), just visually de-emphasized relative to a match. */
@@ -74,7 +86,13 @@ export function drawClusterHulls(ctx, clusters) {
 /** `highlightedIds` (OpenProject #2480) is an optional `Set` of composite node ids -- omitted, `null`
  *  or empty, every node draws exactly as before. Non-empty: a matching node gets a highlight ring on
  *  top of its normal fill; every other node dims (see `DIMMED_ALPHA`) rather than being skipped, so
- *  the "non-filtering" requirement holds at the paint layer too, not just in what `nodes` contains. */
+ *  the "non-filtering" requirement holds at the paint layer too, not just in what `nodes` contains.
+ *
+ *  `node.root` (OpenProject #2563) gets its own ring, drawn independently of `highlightedIds` --
+ *  the folder-hierarchy root is a permanent landmark, not a search-result state, so it strokes every
+ *  time this function draws it (dimmed the same as any other non-matching node while a keyword
+ *  search is active, same as the rest of `node`'s own draw). A root node that also happens to match
+ *  the active keyword search draws both rings, one just outside the other. */
 export function drawNodes(ctx, nodes, radiusFor, highlightedIds) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
   for (const node of nodes) {
@@ -88,6 +106,13 @@ export function drawNodes(ctx, nodes, radiusFor, highlightedIds) {
     ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
     ctx.fillStyle = node.color ?? '#888'
     ctx.fill()
+    if (node.root) {
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, radius + ROOT_RING_GAP, 0, Math.PI * 2)
+      ctx.lineWidth = ROOT_RING_WIDTH
+      ctx.strokeStyle = ROOT_RING_COLOR
+      ctx.stroke()
+    }
     if (isMatch) {
       ctx.beginPath()
       ctx.arc(node.x, node.y, radius + HIGHLIGHT_RING_GAP, 0, Math.PI * 2)
@@ -115,8 +140,9 @@ const LABEL_MAX_EFFECTIVE_FONT_PX = 24
 
 /** Breathing room between a node's edge and the start of its label, on top of the node's own
  *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
- *  smallest node (`MIN_CONTRIBUTOR_RADIUS`/`MIN_PAGEVIEW_RADIUS`, both `5`), but now scales with
- *  the node so a label never overlaps a larger node's fill (OpenProject #2297). */
+ *  smallest node (`MIN_NODE_RADIUS`, `5` -- one shared floor for both sizing metrics since
+ *  OpenProject #2561), but now scales with the node so a label never overlaps a larger node's fill
+ *  (OpenProject #2297). */
 export const LABEL_GAP = 3
 
 /** Label fill color, light/dark (OpenProject #2412) -- the light value is the original hardcoded

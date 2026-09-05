@@ -236,7 +236,13 @@ export function buildPathHierarchyEdges(nodes, cache = new Map()) {
         path,
         locale,
         title: path === '' ? '(root)' : path.split('/').at(-1),
-        synthetic: true
+        synthetic: true,
+        // -> Marks the one synthetic node per locale that is the climb's terminus (OpenProject
+        //    #2563), so `graphDraw.js#drawNodes` can give it a distinct, always-visible ring
+        //    without re-deriving "is this the root" from `path === ''` at the draw layer. Every
+        //    other synthetic folder node has no `root` key at all (not `root: false`), so this
+        //    stays invisible to `toEqual` fixtures asserting the non-root shape.
+        ...(path === '' ? { root: true } : {})
       }))
     )
   }

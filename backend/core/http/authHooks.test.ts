@@ -69,14 +69,34 @@ describe('permissionPreHandler', () => {
     assert.deepEqual(res, { doneCalls: 0, unauthorized: 1, forbidden: 0 })
   })
 
-  test('an authenticated session holding no permissions is unauthorized', () => {
+  /*
+    OpenProject #2555's own fallout: a Users-group-only account genuinely holds an empty GLOBAL
+    `permissions` list once page access lives entirely in rule `roles` rather than being (wrongly)
+    duplicated onto this column too -- caught live by `e2e/tests/permissions.spec.js`, which
+    expects visiting a globally-gated admin route to answer 403 Forbidden (the `/_error/
+    unauthorized` screen) and instead got bounced to `/login` by the frontend's session-expiry
+    interceptor reacting to a 401. An authenticated identity holding zero (or the wrong)
+    permissions is forbidden, not unauthenticated -- only the absence of any verified identity at
+    all (no key, no authenticated session) is.
+  */
+  test('an authenticated session holding no permissions is forbidden, not unauthorized', () => {
     const res = run(
       fakeRequest({
         permissions: ['manage:users'],
         session: { authenticated: true, permissions: [] }
       })
     )
-    assert.deepEqual(res, { doneCalls: 0, unauthorized: 1, forbidden: 0 })
+    assert.deepEqual(res, { doneCalls: 0, unauthorized: 0, forbidden: 1 })
+  })
+
+  test('an authenticated session with no permissions array at all is forbidden, not unauthorized', () => {
+    const res = run(
+      fakeRequest({
+        permissions: ['manage:users'],
+        session: { authenticated: true }
+      })
+    )
+    assert.deepEqual(res, { doneCalls: 0, unauthorized: 0, forbidden: 1 })
   })
 
   test('a session that is not authenticated is unauthorized even when it carries permissions', () => {
@@ -188,7 +208,10 @@ describe('permissionPreHandler', () => {
       assert.deepEqual(res, { doneCalls: 0, unauthorized: 0, forbidden: 1 })
     })
 
-    test('a key carrying no permissions at all is unauthorized', () => {
+    // -> Same distinction as the session case above: a verified key with an empty permissions
+    //    array is a real, valid identity (e.g. issued for a group with only page-rule access) that
+    //    simply doesn't hold what this route asks for -- forbidden, not unauthorized.
+    test('a key carrying no permissions at all is forbidden, not unauthorized', () => {
       const res = run(
         fakeRequest({
           permissions: ['manage:sites'],
@@ -196,7 +219,7 @@ describe('permissionPreHandler', () => {
           session: null
         })
       )
-      assert.deepEqual(res, { doneCalls: 0, unauthorized: 1, forbidden: 0 })
+      assert.deepEqual(res, { doneCalls: 0, unauthorized: 0, forbidden: 1 })
     })
 
     test('the key is preferred over an authenticated session that would have passed', () => {

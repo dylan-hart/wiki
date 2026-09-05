@@ -3,7 +3,7 @@
     <div class="auth-content">
       <div class="auth-logo"><img :src="`/_site/current/logo`" :alt="siteStore.title" /></div>
       <h2 class="auth-site-title" v-if="siteStore.logoText">{{ siteStore.title }}</h2>
-      <p class="text-grey-7">{{ t('auth.loginToContinue') }}</p>
+      <p class="text-grey-7 dark:text-white">{{ t('auth.loginToContinue') }}</p>
       <auth-login-panel />
     </div>
     <div class="auth-bg" aria-hidden="true"><img :src="`/_site/current/loginBg`" alt="" /></div>
@@ -37,10 +37,12 @@ useMeta(() => ({
 <style lang="scss">
 .auth {
   background-color: #fff;
+  color: $grey-9;
   display: flex;
 
   @at-root .body--dark & {
     background-color: $dark-6;
+    color: $blue-grey-1;
   }
 
   &-content {

@@ -99,6 +99,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'boolean',
         description: 'Whether logging in through it means submitting a username and password.'
       },
+      provisionable: {
+        type: 'boolean',
+        description:
+          "Only meaningful when `useForm` is true: whether this module's authenticate() can throw ProvisionableLoginError and dispatch through the same find-or-create-by-email path a redirect-based provider uses. True for LDAP, absent for Local -- gates whether the admin UI shows this form-based module's trustEmailForLinking toggle."
+      },
       usernameType: {
         type: 'string'
       },
@@ -224,6 +229,28 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
               }
             }
           }
+        }
+      }
+    }
+  })
+
+  /**
+   * AUTH VISIBLE SITE COUNTS - How many sites currently show each configured strategy on their login
+   * screen (OpenProject #2557) -- a strategy id absent from the list has a count of zero.
+   */
+  app.addSchema({
+    $id: 'AuthVisibleSiteCounts',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          format: 'uuid'
+        },
+        visibleSiteCount: {
+          type: 'integer',
+          description: 'Number of sites whose login screen currently shows this strategy.'
         }
       }
     }

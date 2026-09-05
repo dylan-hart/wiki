@@ -215,6 +215,135 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
       /ERR_REGISTRATION_DISABLED/
     )
   })
+
+  /**
+   * WP #2560: relinking a migrated fallback account via `trustEmailForLinking` clears the orphaned
+   * local-strategy auth entry `createProviderFallbackUserConverter()` (Feature #2547's other sibling
+   * Task) originally wrote for it -- but only when that entry actually carries the migration
+   * marker. `localAuthId` is seeded to the DB's real local strategy id (rather than the
+   * `describe`-level placeholder) so `patchStrategyAuth`'s write lands on the same key this test
+   * reads back.
+   */
+  describe('clearing the stale local auth entry on relink', () => {
+    const localStrategyId = 'local-strategy-relink-test'
+
+    before(() => {
+      WIKI.data.systemIds = { localAuthId: localStrategyId } as any
+    })
+
+    after(() => {
+      WIKI.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
+    })
+
+    test('clears mustChangePwd and the marker when the local entry is a migrated fallback', async () => {
+      const strategy = baseStrategy({ id: 'relink-strategy-marked', trustEmailForLinking: true })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'fallback-marked@example.com',
+          name: 'Fallback Marked',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: {
+            [localStrategyId]: {
+              password: 'unreachable-random-hash',
+              mustChangePwd: true,
+              migratedFallbackProvider: 'ldap'
+            }
+          }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'relink-provider-id-1',
+        email: 'fallback-marked@example.com',
+        name: 'Fallback Marked'
+      })
+
+      const [row] = await fixtures.db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, created!.id))
+      const localAuth = (row!.auth as Record<string, any>)[localStrategyId]
+      assert.equal(localAuth.mustChangePwd, false)
+      assert.equal('migratedFallbackProvider' in localAuth, false)
+      // -> The password itself is untouched -- only the flag/marker are cleared.
+      assert.equal(localAuth.password, 'unreachable-random-hash')
+    })
+
+    test('leaves an unmarked local entry alone, even with mustChangePwd true (e.g. an admin-forced reset)', async () => {
+      const strategy = baseStrategy({ id: 'relink-strategy-unmarked', trustEmailForLinking: true })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'admin-forced-reset@example.com',
+          name: 'Admin Forced Reset',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: {
+            [localStrategyId]: {
+              password: 'a-real-known-hash',
+              mustChangePwd: true
+            }
+          }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'relink-provider-id-2',
+        email: 'admin-forced-reset@example.com',
+        name: 'Admin Forced Reset'
+      })
+
+      const [row] = await fixtures.db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, created!.id))
+      const localAuth = (row!.auth as Record<string, any>)[localStrategyId]
+      // -> Still true: an admin-forced reset must not be silently cancelled by an SSO relink.
+      assert.equal(localAuth.mustChangePwd, true)
+      assert.equal(localAuth.password, 'a-real-known-hash')
+    })
+
+    test('does not touch the local entry on an ordinary already-linked login', async () => {
+      const strategy = baseStrategy({ id: 'relink-strategy-already-linked' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'already-linked@example.com',
+          name: 'Already Linked',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: {
+            [strategy.id]: { id: 'relink-provider-id-3', email: 'already-linked@example.com' },
+            [localStrategyId]: {
+              password: 'unreachable-random-hash',
+              mustChangePwd: true,
+              migratedFallbackProvider: 'ldap'
+            }
+          }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'relink-provider-id-3',
+        email: 'already-linked@example.com',
+        name: 'Already Linked'
+      })
+
+      const [row] = await fixtures.db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, created!.id))
+      const localAuth = (row!.auth as Record<string, any>)[localStrategyId]
+      // -> Not the relink moment (this strategy was already linked), so the marker/flag survive.
+      assert.equal(localAuth.mustChangePwd, true)
+      assert.equal(localAuth.migratedFallbackProvider, 'ldap')
+    })
+  })
 })
 
 /**

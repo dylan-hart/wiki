@@ -254,6 +254,12 @@ class Login {
       throw new Error('ERR_LOGIN_FAILED')
     }
 
+    // -> Set only when this specific call is the moment a previously-unlinked account gets linked
+    //    to `strategy` via `trustEmailForLinking` -- the "successfully relinks via SSO" event
+    //    `clearMigratedFallbackLocalAuth()` below exists for. Never true for an account that was
+    //    already linked, a brand-new account, or a plain re-write of an existing link.
+    let justRelinkedViaTrustedEmail = false
+
     if (user) {
       const auth = (user.auth ?? {}) as Record<string, any>
       const linkedId = auth[strategy.id]?.id
@@ -264,6 +270,7 @@ class Login {
           )
           throw new Error('ERR_ACCOUNT_NOT_LINKED')
         }
+        justRelinkedViaTrustedEmail = true
       } else if (linkedId !== profile.id) {
         WIKI.models.flags.authDebug(
           `Provider login for <${email}> refused: profile id does not match the account link stored for strategy ${strategy.id}`
@@ -314,6 +321,11 @@ class Login {
       }
     )
 
+    // -> Only right after the relink above actually took hold, never on an ordinary login.
+    if (justRelinkedViaTrustedEmail) {
+      await this.clearMigratedFallbackLocalAuth(user)
+    }
+
     // -> Every login, not only the one that created the account: a group added or removed at the
     //    provider since the last login has to show up here too.
     if (strategy.config?.mapGroups && profile.groups) {
@@ -321,6 +333,49 @@ class Login {
     }
 
     return user
+  }
+
+  /**
+   * Once a migrated fallback account relinks to its real identity provider (the
+   * `trustEmailForLinking` branch in `findOrCreateProviderUser()` above), the orphaned
+   * local-strategy auth entry `createProviderFallbackUserConverter()` originally wrote for it (a
+   * random, unknowable password plus `mustChangePwd: true`) has nothing left to protect and
+   * nothing left to prompt for -- the account signs in through the provider now. Left alone it
+   * keeps showing up everywhere `mustChangePwd` is read as "needs a password reset" (the forced
+   * change-password screen on the rare local login attempt, any admin-facing "needs attention"
+   * list, ...).
+   *
+   * Gated on `auth[localStrategyId].migratedFallbackProvider` -- the marker
+   * `createProviderFallbackUserConverter()` writes on every account it creates (Feature #2547's
+   * sibling Task) -- rather than on `mustChangePwd` alone: an admin-forced password reset on a
+   * genuine local account is also stored as `mustChangePwd: true`, and that same account could
+   * separately link a `trustEmailForLinking` strategy of its own one day. Clearing on
+   * `mustChangePwd` alone would let a login through SSO silently cancel a reset an administrator
+   * deliberately imposed. Without the marker present -- an account created before that field
+   * existed, or the sibling Task not yet landed in a given build -- this is correctly a no-op:
+   * there is no other way to tell the two cases apart, so refusing to guess is the safe default.
+   *
+   * Clears the marker at the same time as `mustChangePwd`, so the account also stops looking like
+   * a pending fallback to anything reading the marker for its own purposes (the report surface
+   * planned as this Feature's third Task).
+   */
+  private async clearMigratedFallbackLocalAuth(user: { id: string; auth: unknown }): Promise<void> {
+    const localStrategyId = WIKI.data.systemIds.localAuthId
+    const localAuth = ((user.auth ?? {}) as Record<string, any>)[localStrategyId]
+    if (!localAuth?.migratedFallbackProvider) {
+      return
+    }
+
+    await WIKI.models.userCredentials.patchStrategyAuth(
+      user.id,
+      localStrategyId,
+      () => ({ mustChangePwd: false, migratedFallbackProvider: undefined }),
+      { mirrorInto: user }
+    )
+
+    WIKI.models.flags.authDebug(
+      `Cleared the stale migrated-fallback local auth entry for user ${user.id} after it relinked via a trusted-email provider`
+    )
   }
 
   /** @throws `ERR_EMAIL_NOT_ALLOWED` when the strategy has a pattern and the address does not match it. */

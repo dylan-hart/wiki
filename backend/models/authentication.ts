@@ -35,6 +35,15 @@ export interface AuthModule {
   website?: string
   isAvailable: boolean
   useForm: boolean
+  /**
+   * Only meaningful when `useForm` is true: whether this module's own `authenticate()` can throw
+   * `ProvisionableLoginError` and so dispatch through the same find-or-create-by-email path a
+   * redirect-based provider uses (see `models/login.ts`'s catch of it, and `ProvisionableLoginError`
+   * below). LDAP declares this; Local does not — it resolves directly against its own stored
+   * password hash and never produces a provisionable external profile. This is what the admin UI
+   * gates the `trustEmailForLinking` toggle on for a form-based module.
+   */
+  provisionable?: boolean
   usernameType: string
   props: Record<string, ModuleProp>
   refs?: Record<string, { title?: string; hint?: string; icon?: string; value: string }>
@@ -324,6 +333,33 @@ class Authentication {
   }
 
   /**
+   * How many sites currently show each configured strategy on their login screen — i.e. carry
+   * `isVisible: true` for it in that site's `config.authStrategies` (the same shape, and the same
+   * `siteStr.isVisible ?? false` fallback, `api/auth/site.ts`'s public strategy listing already reads).
+   * Read-only: it never writes a default `isVisible` into a site the way Task #2556's
+   * strategy-creation-time seeding does, so it also covers a strategy that predates that default —
+   * one whose visibility was switched off on every site well after it was created.
+   *
+   * A strategy id no site currently marks visible — including one no site has ever referenced at all —
+   * is simply absent from the returned map, which a caller reads as a zero count.
+   */
+  async getVisibleSiteCounts(): Promise<Record<string, number>> {
+    const counts: Record<string, number> = {}
+    for (const site of await WIKI.models.sites.getAllSites()) {
+      const configured = ((site.config as Record<string, any>)?.authStrategies ?? []) as Array<{
+        id: string
+        isVisible?: boolean
+      }>
+      for (const entry of configured) {
+        if (entry.isVisible) {
+          counts[entry.id] = (counts[entry.id] ?? 0) + 1
+        }
+      }
+    }
+    return counts
+  }
+
+  /**
    * Merge incoming config values onto the ones already stored, keeping only what the module declares
    * — see `helpers/moduleRegistry.ts#mergeModuleConfig`.
    */
@@ -445,8 +481,31 @@ class Authentication {
       })
       .returning({ id: authenticationTable.id })
 
+    const newId = result[0].id
+
+    // -> A newly configured strategy should already be offered on every existing site: left absent,
+    //    a site's per-strategy entry falls back to `isVisible: false` (`api/auth/site.ts`), which would
+    //    mean the strategy shows up nowhere until an admin separately visits every site's Login
+    //    settings and turns it on. Mirrors how a fresh site itself seeds `local` as visible
+    //    (`createSite()`, above) -- the same "read the full array, append, write the whole array
+    //    back" shape `deleteStrategy()` below already uses, since `updateSite()` replaces an array
+    //    wholesale rather than merging it index-wise.
+    for (const site of await WIKI.models.sites.getAllSites()) {
+      const configured = ((site.config as Record<string, any>)?.authStrategies ?? []) as Array<{
+        id: string
+        order?: number
+        isVisible?: boolean
+      }>
+      const nextOrder = configured.reduce((max, s) => Math.max(max, s.order ?? 0), -1) + 1
+      await WIKI.models.sites.updateSite(site.id, {
+        config: {
+          authStrategies: [...configured, { id: newId, order: nextOrder, isVisible: true }]
+        }
+      })
+    }
+
     await this.activateStrategies()
-    return result[0].id
+    return newId
   }
 
   /**

@@ -1,8 +1,9 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
+import { eq } from 'drizzle-orm'
 import { authentication } from './authentication.ts'
-import { groups as groupsTable } from '../db/schema.ts'
+import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
 /**
@@ -44,6 +45,30 @@ describe('authentication module definitions: refs guidance', () => {
     const mod = authentication.getModule('ldap')
     assert.ok(mod, 'ldap module definition should load from disk')
     assert.ok(!mod!.refs, 'ldap should not declare a refs block')
+  })
+})
+
+/**
+ * OpenProject #2548: `provisionable` is what the admin UI gates the `trustEmailForLinking` toggle on
+ * for a `useForm` module (`AdminAuth.vue`). LDAP's `authenticate()` always throws
+ * `ProvisionableLoginError` on a successful bind (`modules/authentication/ldap/authentication.ts`),
+ * dispatching through the same find-or-create-by-email path a redirect-based provider uses — so it
+ * must declare the flag. Local's `authenticate()` resolves directly against its own stored password
+ * hash and never produces a provisionable external profile, so it must not.
+ */
+describe('authentication module definitions: provisionable', () => {
+  test('LDAP declares provisionable: true', async () => {
+    await authentication.refreshStrategiesFromDisk()
+    const mod = authentication.getModule('ldap')
+    assert.ok(mod, 'ldap module definition should load from disk')
+    assert.equal(mod!.provisionable, true)
+  })
+
+  test('Local does not declare provisionable', async () => {
+    await authentication.refreshStrategiesFromDisk()
+    const mod = authentication.getModule('local')
+    assert.ok(mod, 'local module definition should load from disk')
+    assert.ok(!mod!.provisionable, 'local should not declare provisionable')
   })
 })
 
@@ -397,3 +422,143 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2556: a newly created strategy is invisible on every site until an admin visits that
+ * site's Login settings and turns it on -- because an absent per-site entry falls back to
+ * `isVisible: false` (`api/auth/site.ts`). `createStrategy()` now upserts `isVisible: true` into every
+ * existing site's `config.authStrategies` at creation time, mirroring how a fresh site already seeds
+ * `local` as visible (`models/sites.ts#createSite`).
+ */
+describe(
+  'authentication.createStrategy: seeds isVisible: true on every existing site (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtureSiteId: string
+
+    before(async () => {
+      const fixtures = await setupTestDb()
+      fixtureSiteId = fixtures.siteId
+      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      await authentication.refreshStrategiesFromDisk()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('appends the new strategy as visible to a site with no authStrategies configured yet', async () => {
+      const id = await authentication.createStrategy({ module: 'local' })
+
+      const site = await WIKI.models.sites.getSiteById({ id: fixtureSiteId })
+      const entry = (site!.config as any).authStrategies.find((s: any) => s.id === id)
+      assert.ok(entry, 'the new strategy should have an entry in the site config')
+      assert.equal(entry.isVisible, true)
+    })
+
+    test('appends without disturbing an existing entry, and both sites gain the new strategy', async () => {
+      const secondSite = await WIKI.models.sites.createSite('second-strategy-site.localhost')
+
+      const id = await authentication.createStrategy({ module: 'local' })
+
+      const firstSite = await WIKI.models.sites.getSiteById({ id: fixtureSiteId })
+      const firstEntries = (firstSite!.config as any).authStrategies as Array<{
+        id: string
+        order: number
+        isVisible: boolean
+      }>
+      // -> The seed's own local strategy entry (from the earlier createSite default, or the previous
+      //    test's strategy) must still be present and untouched alongside the new one.
+      assert.ok(
+        firstEntries.some((s) => s.id !== id),
+        'a pre-existing entry should survive untouched'
+      )
+      const firstNewEntry = firstEntries.find((s) => s.id === id)
+      assert.ok(firstNewEntry)
+      assert.equal(firstNewEntry!.isVisible, true)
+
+      const reloadedSecondSite = await WIKI.models.sites.getSiteById({ id: secondSite.id })
+      const secondEntries = (reloadedSecondSite!.config as any).authStrategies as Array<{
+        id: string
+        isVisible: boolean
+      }>
+      const secondNewEntry = secondEntries.find((s) => s.id === id)
+      assert.ok(secondNewEntry, 'the second site should also have gained the new strategy')
+      assert.equal(secondNewEntry!.isVisible, true)
+    })
+  }
+)
+
+/**
+ * OpenProject #2557: `AdminAuth.vue` warns when an enabled strategy is not shown on any site's login
+ * screen. `getVisibleSiteCounts()` is the read behind that warning -- DB-backed because the point
+ * under test is a real tally across more than one site's stored `config.authStrategies`, not merely
+ * what a stub was called with.
+ */
+describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: Awaited<ReturnType<typeof setupTestDb>>
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+    await authentication.refreshStrategiesFromDisk()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('a strategy no site references at all is absent from the map', async () => {
+    const id = await authentication.createStrategy({ module: 'local' })
+    // -> createStrategy itself seeds a visible entry for the new strategy into every existing site
+    //    (OpenProject #2556), so the fixture site already references `id` at this point -- wipe that
+    //    seed to exercise the genuinely-unreferenced-anywhere case this test is actually about.
+    await WIKI.models.sites.updateSite(fixtures.siteId, { config: { authStrategies: [] } })
+    const counts = await authentication.getVisibleSiteCounts()
+    assert.equal(counts[id], undefined)
+  })
+
+  test('counts only entries marked isVisible, across every site, and ignores an unreferenced id', async () => {
+    const visibleEverywhereId = await authentication.createStrategy({ module: 'local' })
+    const invisibleEverywhereId = await authentication.createStrategy({ module: 'local' })
+    const visibleOnOneOfTwoId = await authentication.createStrategy({ module: 'local' })
+
+    // -> The fixture's own seeded site: visible for two of the three, and carries an isVisible:
+    //    false entry for the third -- the exact fallback shape `api/auth/site.ts` reads.
+    await WIKI.models.sites.updateSite(fixtures.siteId, {
+      config: {
+        authStrategies: [
+          { id: visibleEverywhereId, order: 0, isVisible: true },
+          { id: invisibleEverywhereId, order: 1, isVisible: false },
+          { id: visibleOnOneOfTwoId, order: 2, isVisible: true }
+        ]
+      }
+    })
+
+    // -> A second site: visible for the first strategy again (count should reach 2), invisible for
+    //    the third (count should stay 1), and never references the second at all.
+    const [secondSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'second-site.localhost',
+        isEnabled: true,
+        config: {
+          authStrategies: [
+            { id: visibleEverywhereId, order: 0, isVisible: true },
+            { id: visibleOnOneOfTwoId, order: 1, isVisible: false }
+          ]
+        }
+      })
+      .returning({ id: sitesTable.id })
+
+    const counts = await authentication.getVisibleSiteCounts()
+
+    assert.equal(counts[visibleEverywhereId], 2)
+    assert.equal(counts[invisibleEverywhereId], undefined)
+    assert.equal(counts[visibleOnOneOfTwoId], 1)
+
+    // -> Cleanup so this test's second site does not bleed into the next test's own counts within
+    //    the same suite (one shared schema across the whole describe, not one per test).
+    await fixtures.db.delete(sitesTable).where(eq(sitesTable.id, secondSite!.id))
+  })
+})

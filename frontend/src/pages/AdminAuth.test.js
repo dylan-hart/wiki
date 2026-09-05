@@ -578,6 +578,227 @@ describe('AdminAuth allowed-email-domains field', () => {
   })
 })
 
+/**
+ * OpenProject #2557: warn on the selected strategy's detail panel when it is enabled but shown by no
+ * site's login screen -- covers a strategy created before Task #2556 started defaulting
+ * `isVisible: true` into every existing site, just as much as one switched off everywhere afterward.
+ */
+describe('AdminAuth no-visible-sites warning', () => {
+  const LOCAL_MODULE = {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  }
+  const WARNING_MESSAGES = {
+    admin: {
+      auth: {
+        ...MESSAGES.admin.auth,
+        noVisibleSitesWarning: 'Not shown on any site login screen.'
+      }
+    }
+  }
+
+  async function mountWithStrategy({ isEnabled, isNew = false, visibleSiteCounts = [] }) {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled,
+          isNew,
+          config: {}
+        }
+      ],
+      groups: [],
+      'authentication/strategies/visible-site-counts': visibleSiteCounts
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: WARNING_MESSAGES
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('shows the warning for an enabled strategy with a zero visible-site count', async () => {
+    const wrapper = await mountWithStrategy({ isEnabled: true, visibleSiteCounts: [] })
+
+    expect(wrapper.text()).toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('shows the warning for an enabled strategy explicitly counted at zero', async () => {
+    const wrapper = await mountWithStrategy({
+      isEnabled: true,
+      visibleSiteCounts: [{ id: 's-local', visibleSiteCount: 0 }]
+    })
+
+    expect(wrapper.text()).toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('says nothing once at least one site shows the strategy', async () => {
+    const wrapper = await mountWithStrategy({
+      isEnabled: true,
+      visibleSiteCounts: [{ id: 's-local', visibleSiteCount: 1 }]
+    })
+
+    expect(wrapper.text()).not.toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('says nothing for a disabled strategy, regardless of its visible-site count', async () => {
+    const wrapper = await mountWithStrategy({ isEnabled: false, visibleSiteCounts: [] })
+
+    expect(wrapper.text()).not.toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('says nothing for a brand-new, not-yet-saved strategy even though it has no site referencing it', async () => {
+    const wrapper = await mountWithStrategy({ isEnabled: true, isNew: true, visibleSiteCounts: [] })
+
+    expect(wrapper.text()).not.toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2548: the `trustEmailForLinking` toggle used to be gated on a blanket `!useForm`
+ * check, hiding it for every form-based module including LDAP -- even though LDAP's `authenticate()`
+ * always throws `ProvisionableLoginError` on a successful bind and dispatches through the very same
+ * find-or-create-by-email path a redirect-based provider uses (`models/login.ts`). The fix gates on
+ * the module's own `provisionable` flag instead, OR'd with the existing `!useForm` check, so a
+ * redirect-based provider keeps showing it unconditionally, LDAP (which declares `provisionable:
+ * true`) gains it, and Local (which does not declare it) stays hidden.
+ */
+describe('AdminAuth trust-email-for-linking toggle', () => {
+  const TRUST_MESSAGES = {
+    admin: {
+      auth: {
+        ...MESSAGES.admin.auth,
+        trustEmailForLinking: 'Trust Email For Linking',
+        trustEmailForLinkingHint: 'Link to an existing account by email.'
+      }
+    }
+  }
+  const LOCAL_MODULE = {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  }
+  const LDAP_MODULE = {
+    key: 'ldap',
+    title: 'LDAP / AD',
+    icon: 'ultraviolet-ldap.svg',
+    description: 'LDAP.',
+    useForm: true,
+    provisionable: true
+  }
+  const OIDC_MODULE = {
+    key: 'oidc',
+    title: 'Generic OIDC',
+    icon: 'ultraviolet-oidc.svg',
+    description: 'Generic OIDC.',
+    useForm: false
+  }
+
+  function trustToggleNode(wrapper) {
+    return wrapper.find('[aria-label="Trust Email For Linking"]')
+  }
+
+  it('renders for an LDAP strategy, a form-based module declaring provisionable: true', async () => {
+    stubApi({
+      'authentication/modules': [LDAP_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-ldap',
+          module: 'ldap',
+          displayName: 'Directory login',
+          isEnabled: true,
+          isNew: false,
+          trustEmailForLinking: false,
+          config: {}
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: TRUST_MESSAGES
+    })
+    await flushPromises()
+
+    expect(trustToggleNode(wrapper).exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('stays hidden for a Local strategy, a form-based module not declaring provisionable', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          trustEmailForLinking: false,
+          config: {}
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: TRUST_MESSAGES
+    })
+    await flushPromises()
+
+    expect(trustToggleNode(wrapper).exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('still renders unconditionally for a redirect-based (non-useForm) strategy', async () => {
+    stubApi({
+      'authentication/modules': [OIDC_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-oidc',
+          module: 'oidc',
+          displayName: 'OIDC login',
+          isEnabled: true,
+          isNew: false,
+          trustEmailForLinking: false,
+          config: {}
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: TRUST_MESSAGES
+    })
+    await flushPromises()
+
+    expect(trustToggleNode(wrapper).exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminAuth configured-strategy list', () => {
   it("renders each active strategy's icon from its resolved module, keyed by module key", async () => {
     const activeStrategies = [
