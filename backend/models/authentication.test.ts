@@ -49,6 +49,30 @@ describe('authentication module definitions: refs guidance', () => {
 })
 
 /**
+ * OpenProject #2548: `provisionable` is what the admin UI gates the `trustEmailForLinking` toggle on
+ * for a `useForm` module (`AdminAuth.vue`). LDAP's `authenticate()` always throws
+ * `ProvisionableLoginError` on a successful bind (`modules/authentication/ldap/authentication.ts`),
+ * dispatching through the same find-or-create-by-email path a redirect-based provider uses — so it
+ * must declare the flag. Local's `authenticate()` resolves directly against its own stored password
+ * hash and never produces a provisionable external profile, so it must not.
+ */
+describe('authentication module definitions: provisionable', () => {
+  test('LDAP declares provisionable: true', async () => {
+    await authentication.refreshStrategiesFromDisk()
+    const mod = authentication.getModule('ldap')
+    assert.ok(mod, 'ldap module definition should load from disk')
+    assert.equal(mod!.provisionable, true)
+  })
+
+  test('Local does not declare provisionable', async () => {
+    await authentication.refreshStrategiesFromDisk()
+    const mod = authentication.getModule('local')
+    assert.ok(mod, 'local module definition should load from disk')
+    assert.ok(!mod!.provisionable, 'local should not declare provisionable')
+  })
+})
+
+/**
  * A failed scan must still leave `WIKI.data.authentication` an array.
  *
  * `base.yml` declares no `authentication` key, so this field only ever exists because

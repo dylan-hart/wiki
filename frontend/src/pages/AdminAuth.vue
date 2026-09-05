@@ -230,10 +230,14 @@
                 :aria-label="t(`admin.auth.autoProvision`)" />
             </w-item-section>
           </w-item>
-          <!-- Only meaningful for a redirect-based provider: linking by email is what
-               findOrCreateProviderUser() does for a returning identity, a path a form-based
-               strategy's own login() never takes. -->
-          <template v-if="!state.strategy.strategy.useForm">
+          <!-- Meaningful for a redirect-based provider always, and for a form-based module too when
+               it declares itself `provisionable`: linking by email is what findOrCreateProviderUser()
+               does for a returning identity, a path a redirect-based provider always takes and LDAP
+               reaches too (its authenticate() throws ProvisionableLoginError on a successful bind --
+               see models/login.ts's dispatch). Local never takes this path -- it resolves directly
+               against its own stored password -- so it stays excluded. -->
+          <template
+            v-if="!state.strategy.strategy.useForm || state.strategy.strategy.provisionable">
             <w-separator class="my-2" inset />
             <w-item tag="label">
               <blueprint-icon icon="link" />
