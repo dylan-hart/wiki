@@ -153,20 +153,20 @@ describe('HeaderNav inbox badge destination (OpenProject #2024)', () => {
 })
 
 /**
- * OpenProject #2074: "Create New Page" used to draw `la:plus-circle` while every equivalent
- * create-affordance elsewhere (Index.vue, WelcomeOverlay.vue, AdminSites.vue, ...) draws `la:plus`
- * for the same kind of action -- settled on `la:plus` everywhere, so this button must not regress
- * back to the other glyph.
+ * OpenProject #2074: "Create New Page" used to draw a ringed plus while every equivalent
+ * create-affordance elsewhere (Index.vue, WelcomeOverlay.vue, AdminSites.vue, ...) drew a bare one.
+ * The add action is settled on `tabler:plus`, so this button must not drift back to a ringed
+ * variant -- `tabler:circle-plus` is the one sitting closest to it in the set.
  */
 describe('HeaderNav "Create New Page" icon (OpenProject #2074)', () => {
-  it('uses the settled la:plus add glyph, not la:plus-circle', async () => {
+  it('uses the settled tabler:plus add glyph, not tabler:circle-plus', async () => {
     const { wrapper, userStore } = await mountHeaderNav()
     userStore.permissions = ['write:pages']
     await wrapper.vm.$nextTick()
 
     const createButton = wrapper.find('[aria-label="common.header.createNewPage"]')
     expect(createButton.exists()).toBe(true)
-    expect(createButton.find('[data-icon="la:plus"]').exists()).toBe(true)
-    expect(wrapper.find('[data-icon="la:plus-circle"]').exists()).toBe(false)
+    expect(createButton.find('[data-icon="tabler:plus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="tabler:circle-plus"]').exists()).toBe(false)
   })
 })

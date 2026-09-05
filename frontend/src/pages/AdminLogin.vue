@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-login">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:login" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:login" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.login.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.login.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,7 +25,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -32,7 +34,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save"
@@ -63,14 +65,14 @@
                   <div class="flex gap-2">
                     <w-btn
                       :label="t(`common.actions.upload`)"
-                      icon="la:upload"
+                      icon="tabler:upload"
                       color="primary"
                       text-color="white"
                       @click="uploadBg" />
                     <w-btn
                       :label="t(`common.actions.clear`)"
                       outline
-                      icon="la:times"
+                      icon="tabler:x"
                       color="primary"
                       :disabled="!state.hasBg"
                       @click="clearBg" />
@@ -187,7 +189,7 @@
               <template #item="{ element }">
                 <w-item>
                   <w-item-section side>
-                    <w-icon class="handle" name="mdi:drag-horizontal" />
+                    <w-icon class="handle" name="tabler:grip-horizontal" />
                   </w-item-section>
                   <w-item-section side>
                     <w-icon :name="`img:` + element.activeStrategy.strategy.icon" />
@@ -211,7 +213,7 @@
               <w-card class="bg-info text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
-                    <w-icon name="la:info-circle" size="lg" />
+                    <w-icon name="tabler:info-circle" size="lg" />
                   </w-card-section>
                   <w-card-section class="text-caption">{{
                     t('admin.login.providersVisbleWarning')
@@ -241,6 +243,7 @@ import { useSiteStore } from '@/stores/site'
 import { isSharpAvailable } from '@/helpers/siteImages'
 
 import { Sortable } from 'sortablejs-vue3'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // ACCESS
 // -> Task #684: gates this page behind `site:login` (or `manage:sites`), redirecting away from a
@@ -365,13 +368,10 @@ onMounted(async () => {
   width: 100%;
   height: 140px;
   object-fit: cover;
-  border-radius: 5px;
 }
 
 .admin-login-providers {
   .w-item {
-    border-radius: 5px;
-
     @at-root .body--light & {
       background-color: $grey-2;
     }

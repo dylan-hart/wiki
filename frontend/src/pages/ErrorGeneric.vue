@@ -10,13 +10,13 @@
           v-if="error.showHomeBtn"
           color="primary"
           :label="t('common.error.goHome')"
-          icon="la:home"
+          icon="tabler:home"
           to="/" />
         <w-btn
           v-if="error.showLoginBtn"
           color="primary"
           :label="t('common.error.loginAs')"
-          icon="la:sign-in-alt"
+          icon="tabler:login"
           to="/login" />
       </div>
     </div>

@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-flags">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:flag" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:flag" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.flags.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.flags.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -22,7 +24,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save"
@@ -38,7 +40,7 @@
               <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
-                    <w-icon name="la:exclamation-triangle" size="lg" />
+                    <w-icon name="tabler:alert-triangle" size="lg" />
                   </w-card-section>
                   <w-card-section>
                     <span>{{ t('admin.flags.warn.label') }}</span>
@@ -87,7 +89,7 @@
           <w-separator class="my-2" inset />
           <w-item>
             <w-item-section avatar>
-              <w-icon name="la:info-circle" color="grey" />
+              <w-icon name="tabler:info-circle" color="grey" />
             </w-item-section>
             <w-item-section>
               <w-item-label caption>{{ t(`admin.flags.serverLogNotice`) }}</w-item-label>
@@ -109,7 +111,7 @@
             <w-item-section avatar>
               <w-btn
                 :label="t(`common.actions.edit`)"
-                icon="la:code"
+                icon="tabler:code"
                 color="primary"
                 text-color="white"
                 disabled />
@@ -135,6 +137,7 @@ import { useMeta } from '@/composables/meta'
 import { useFlagsStore } from '@/stores/flags'
 
 import { omit } from 'es-toolkit/object'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // STORES
 

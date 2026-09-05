@@ -27,7 +27,10 @@ describe('flags store: load()', () => {
     const store = useFlagsStore()
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(null) })
 
-    await expect(store.load()).rejects.toThrow('Could not fetch system flags.')
+    // -> The KEY, not the English behind it: `boot/i18n.js` boots with no messages loaded, so a
+    //    store translating outside the app resolves to the key -- which is what a reader would see
+    //    on any screen drawn before the locale has landed, and is what this path must not crash on.
+    await expect(store.load()).rejects.toThrow('admin.flags.loadFailed')
     expect(store.loaded).toBe(false)
   })
 

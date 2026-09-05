@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-comments">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:message" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:message" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.comments.subtitle') }}
@@ -14,7 +16,7 @@
         <w-spinner class="me-4" v-show="state.loading > 0" color="accent" size="sm" />
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -25,9 +27,9 @@
         <w-btn
           class="me-2 acrylic-btn"
           v-if="state.mode === `moderation`"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :aria-label="t(`common.actions.refresh`)"
           @click="loadComments()"
           :loading="state.loading > 0">
@@ -35,7 +37,7 @@
         </w-btn>
         <w-btn
           v-if="state.mode === `provider`"
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save()"
@@ -68,12 +70,12 @@
               <w-item-section side>
                 <w-icon
                   v-if="!prov.isAvailable || !prov.isSelectable"
-                  name="mdi:minus-box-outline"
+                  name="tabler:square-minus"
                   color="grey" />
                 <w-icon
                   v-else-if="state.selectedModule === prov.module"
-                  name="mdi:checkbox-marked-circle-outline" />
-                <w-icon v-else name="mdi:checkbox-blank-circle-outline" color="grey" />
+                  name="tabler:circle-check" />
+                <w-icon v-else name="tabler:circle" color="grey" />
               </w-item-section>
               <w-item-section>
                 <w-item-label :class="!prov.isAvailable || !prov.isSelectable ? `text-grey` : ``">{{
@@ -187,7 +189,9 @@
             :placeholder="t('admin.comments.searchByPage')"
             :aria-label="t('admin.comments.searchByPage')"
             :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
-            <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
+            <template #prepend
+              ><w-icon class="opacity-50" name="tabler:search" size="20px"
+            /></template>
           </w-input>
           <w-input
             class="denser"
@@ -196,7 +200,9 @@
             :placeholder="t('admin.comments.searchByAuthor')"
             :aria-label="t('admin.comments.searchByAuthor')"
             :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
-            <template #prepend><w-icon class="opacity-50" name="la:user" size="20px" /></template>
+            <template #prepend
+              ><w-icon class="opacity-50" name="tabler:user" size="20px"
+            /></template>
           </w-input>
         </div>
         <w-card>
@@ -229,7 +235,7 @@
                 <w-btn
                   class="acrylic-btn"
                   flat
-                  icon="la:trash"
+                  icon="tabler:trash"
                   color="negative"
                   :aria-label="t('admin.comments.delete')"
                   @click="confirmDelete(props.row)" />
@@ -269,6 +275,7 @@ import { humanizeDate } from '@/helpers/datetime'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

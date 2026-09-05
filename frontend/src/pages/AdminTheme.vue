@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-theme">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:layout-navbar" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:layout-navbar" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.theme.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.theme.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,7 +25,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -32,7 +34,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save"
@@ -51,7 +53,7 @@
             <template #action>
               <w-btn
                 class="acrylic-btn"
-                icon="la:redo-alt"
+                icon="tabler:refresh"
                 :label="t(`admin.theme.resetDefaults`)"
                 flat
                 size="sm"
@@ -99,7 +101,7 @@
               </w-item-section>
               <w-item-section v-if="contrastWarning(cl)" side>
                 <span tabindex="0" class="inline-flex">
-                  <w-icon name="la:exclamation-triangle" color="negative" size="sm" />
+                  <w-icon name="tabler:alert-triangle" color="negative" size="sm" />
                   <w-tooltip>{{
                     t(`admin.theme.contrastWarning`, { ratio: contrastWarningRatio(cl) })
                   }}</w-tooltip>
@@ -113,7 +115,7 @@
                   size="sm"
                   :style="`background-color: ` + state.config[`color` + startCase(cl)] + `;`"
                   text-color="white">
-                  <w-icon class="me-2" name="la:fill" size="xs" />
+                  <w-icon class="me-2" name="tabler:paint" size="xs" />
                   <span>Pick...</span>
                   <w-menu
                     ><w-color-picker v-model="state.config[`color` + startCase(cl)]"
@@ -132,7 +134,7 @@
             <template #action>
               <w-btn
                 class="acrylic-btn"
-                icon="la:redo-alt"
+                icon="tabler:refresh"
                 :label="t(`admin.theme.resetDefaults`)"
                 flat
                 size="sm"
@@ -235,7 +237,7 @@
             <template #action>
               <w-btn
                 class="acrylic-btn"
-                icon="la:redo-alt"
+                icon="tabler:refresh"
                 :label="t(`admin.theme.resetDefaults`)"
                 flat
                 size="sm"
@@ -349,6 +351,7 @@ import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/a
 
 import { startCase } from 'es-toolkit/string'
 import UtilCodeEditor from '../components/UtilCodeEditor.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // ACCESS
 // -> Task #684: gates this page behind `site:theme` (or `manage:sites` / the older instance-wide
@@ -761,7 +764,7 @@ function contrastPairFor(cl) {
   /*
     The chrome and the brand fills are measured against DIFFERENT foregrounds, and were not always:
     Cardinal's header and sidebar draw their contents in ink (`CHROME_TEXT_COLOR`), while a solid
-    button, chip or toast in `secondary`/`accent` still carries a white label -- so pairing all four
+    button, chip or toast in `slate`/`accent` still carries a white label -- so pairing all four
     against one colour, as this used to, would now pass a chrome tone that is unreadable and fail a
     fill that is fine.
   */

@@ -42,7 +42,7 @@ function sendCacheable(
  *
  * Implements the part of the Iconify API protocol the frontend uses, so that `iconify-icon` and any
  * other Iconify client can be pointed at this wiki instead of a third-party host: content references
- * `mdi:account-edit`, the browser asks this route for it, and nothing about which icons a reader looks
+ * `tabler:user-edit`, the browser asks this route for it, and nothing about which icons a reader looks
  * at leaves the instance.
  *
  * Public on purpose — icons are page furniture, and a reader who can see a page can see its icons.

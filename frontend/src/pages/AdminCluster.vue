@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-terminal">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:binary-tree" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:binary-tree" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.cluster.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.cluster.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none flex">
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -33,7 +35,7 @@
           flat
           :loading="state.loading > 0">
           <template v-slot:body-cell-icon="props">
-            <w-td :props="props"><w-icon name="la:server" color="positive" size="sm" /></w-td>
+            <w-td :props="props"><w-icon name="tabler:server" color="positive" size="sm" /></w-td>
           </template>
           <template v-slot:body-cell-id="props">
             <w-td :props="props">
@@ -50,14 +52,14 @@
           </template>
           <template v-slot:body-cell-cons="props">
             <w-td :props="props">
-              <w-chip icon="la:plug" size="md" color="blue" text-color="white">
+              <w-chip icon="tabler:plug" size="md" color="blue" text-color="white">
                 <span class="font-robotomono">{{ props.value }}</span>
               </w-chip>
             </w-td>
           </template>
           <template v-slot:body-cell-subs="props">
             <w-td :props="props">
-              <w-chip icon="la:broadcast-tower" size="md" color="green" text-color="white">
+              <w-chip icon="tabler:broadcast" size="md" color="green" text-color="white">
                 <small class="uppercase">{{ props.value }}</small>
               </w-chip>
             </w-td>
@@ -96,6 +98,7 @@ import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate, relativeDate } from '@/helpers/datetime'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // I18N
 

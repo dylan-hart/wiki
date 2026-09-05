@@ -35,8 +35,8 @@
           ? { backgroundColor: `var(--color-${color})`, borderColor: `var(--color-${color})` }
           : undefined
       ">
-      <w-icon v-if="indeterminate" name="mdi:minus" :size="dense ? '0.75em' : '0.85em'" />
-      <w-icon v-else-if="isOn" name="mdi:check" :size="dense ? '0.75em' : '0.85em'" />
+      <w-icon v-if="indeterminate" name="tabler:minus" :size="dense ? '0.75em' : '0.85em'" />
+      <w-icon v-else-if="isOn" name="tabler:check" :size="dense ? '0.75em' : '0.85em'" />
     </span>
     <span v-if="label" class="pt-px text-caption">{{ label }}</span>
   </button>

@@ -9,7 +9,7 @@
       <w-spinner class="me-1" color="primary" v-if="state.isLoading" />
       <w-icon
         v-if="isActive"
-        name="la:angle-right"
+        name="tabler:chevron-right"
         :color="dark.isActive ? `yellow-9` : `brown-4`" />
       <!-- RIGHT-CLICK MENU -->
       <w-menu

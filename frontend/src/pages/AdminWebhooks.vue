@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-webhooks">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:bolt" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:bolt" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.webhooks.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.webhooks.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,16 +25,16 @@
         </w-btn>
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.webhooks.new`)"
           color="primary"
           @click="createHook" />
@@ -46,7 +48,7 @@
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
-              <w-icon name="la:info-circle" size="sm" />
+              <w-icon name="tabler:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">{{ t('admin.webhooks.none') }}</w-card-section>
           </w-card-section>
@@ -56,7 +58,7 @@
         <w-card>
           <w-list separator>
             <w-item v-for="hook of state.hooks" :key="hook.id">
-              <w-item-section side><w-icon name="la:bolt" color="primary" /></w-item-section>
+              <w-item-section side><w-icon name="tabler:bolt" color="primary" /></w-item-section>
               <w-item-section>
                 <w-item-label>{{ hook.name }}</w-item-label>
                 <w-item-label caption>{{ hook.url }}</w-item-label>
@@ -80,7 +82,7 @@
                   }}</w-tooltip>
                 </template>
                 <template v-else-if="hook.state === `error`">
-                  <w-icon class="me-2" color="negative" size="xs" name="la:exclamation-triangle" />
+                  <w-icon class="me-2" color="negative" size="xs" name="tabler:alert-triangle" />
                   <div class="text-caption text-negative">{{ t('admin.webhooks.stateError') }}</div>
                   <w-tooltip anchor="center left" self="center right">{{
                     t('admin.webhooks.stateErrorHint')
@@ -92,7 +94,7 @@
                 <w-btn
                   class="acrylic-btn me-2"
                   color="grey"
-                  icon="la:paper-plane"
+                  icon="tabler:send"
                   flat
                   :loading="state.testingHookId === hook.id"
                   :aria-label="t(`admin.webhooks.testSend`)"
@@ -102,7 +104,7 @@
                 <w-btn
                   class="acrylic-btn me-2"
                   color="grey"
-                  icon="la:history"
+                  icon="tabler:history"
                   flat
                   :aria-label="t(`admin.webhooks.history`)"
                   @click="viewHistory(hook)">
@@ -111,14 +113,14 @@
                 <w-btn
                   class="acrylic-btn me-2"
                   color="indigo"
-                  icon="la:pen"
+                  icon="tabler:pencil"
                   :label="t('common.actions.edit')"
                   flat
                   @click="editHook(hook.id)" />
                 <w-btn
                   class="acrylic-btn"
                   color="red"
-                  icon="la:trash"
+                  icon="tabler:trash"
                   flat
                   :aria-label="t(`common.actions.delete`)"
                   @click="deleteHook(hook)" />
@@ -147,6 +149,7 @@ import { useSiteStore } from '@/stores/site'
 
 import WebhookEditDialog from '@/components/WebhookEditDialog.vue'
 import WebhookHistoryDialog from '@/components/WebhookHistoryDialog.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

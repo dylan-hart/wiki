@@ -88,7 +88,7 @@
       @click="isRevealed = !isRevealed">
       <!-- -> A size of its own rather than the control's 1em: at the field's 14px the eye came out
               smaller than the text it sits beside, which is not much of a target to aim at -->
-      <w-icon :name="isRevealed ? 'mdi:eye-off' : 'mdi:eye'" size="xs" />
+      <w-icon :name="isRevealed ? 'tabler:eye-off' : 'tabler:eye'" size="xs" />
     </button>
 
     <button
@@ -97,7 +97,7 @@
       class="w-unstyled shrink-0 cursor-pointer opacity-60 hover:opacity-100"
       :aria-label="resolvedClearLabel"
       @click="clear">
-      <w-icon name="mdi:close" />
+      <w-icon name="tabler:x" />
     </button>
 
     <slot name="append" />

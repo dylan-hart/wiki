@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-classification">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:stack-2" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:stack-2" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">
           {{ t('admin.classification.title') }}
         </h1>
@@ -15,16 +17,16 @@
       <div class="flex-none">
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :loading="state.isLoading"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.classification.new`)"
           color="primary"
           :loading="state.isLoading"
@@ -44,7 +46,7 @@
                     flat
                     round
                     size="sm"
-                    icon="la:arrow-up"
+                    icon="tabler:arrow-up"
                     :disabled="idx === 0"
                     :aria-label="t(`admin.classification.moveUp`)"
                     @click="move(idx, -1)" />
@@ -53,7 +55,7 @@
                     flat
                     round
                     size="sm"
-                    icon="la:arrow-down"
+                    icon="tabler:arrow-down"
                     :disabled="idx === state.levels.length - 1"
                     :aria-label="t(`admin.classification.moveDown`)"
                     @click="move(idx, 1)" />
@@ -83,14 +85,14 @@
                 <w-btn
                   class="acrylic-btn me-2"
                   color="indigo"
-                  icon="la:pen"
+                  icon="tabler:pencil"
                   flat
                   :aria-label="t(`common.actions.rename`)"
                   @click="startRename(level)" />
                 <w-btn
                   class="acrylic-btn"
                   color="red"
-                  icon="la:trash"
+                  icon="tabler:trash"
                   flat
                   :disabled="state.levels.length <= 1"
                   :aria-label="t(`common.actions.delete`)"
@@ -146,6 +148,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { confirm, dialog } from '@/composables/dialog'
 import { apiErrorMessage } from '@/helpers/apiError'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

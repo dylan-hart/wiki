@@ -36,7 +36,6 @@
     background-color: rgba(0, 0, 0, 0.75);
     width: 64px;
     height: 64px;
-    border-radius: 5px;
     position: relative;
 
     &:before {

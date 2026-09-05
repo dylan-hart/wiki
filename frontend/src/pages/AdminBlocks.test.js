@@ -129,7 +129,7 @@ describe('AdminBlocks', () => {
 
     const applyButton = wrapper
       .findAllComponents(WBtn)
-      .find((btn) => btn.props('icon') === 'mdi:check')
+      .find((btn) => btn.props('icon') === 'tabler:check')
     await applyButton.trigger('click')
     await flushPromises()
 
@@ -390,7 +390,7 @@ describe('AdminBlocks save()', () => {
 
     const applyButton = wrapper
       .findAllComponents(WBtn)
-      .find((btn) => btn.props('icon') === 'mdi:check')
+      .find((btn) => btn.props('icon') === 'tabler:check')
     expect(applyButton).toBeTruthy()
 
     await applyButton.trigger('click')

@@ -361,7 +361,7 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
   it('outlines the EXIT button, in the accent -- the one control in the bar that leaves', async () => {
     const wrapper = await mountToolbar()
 
-    const exitBtn = findButtonByIcon(wrapper, 'la:times-circle')
+    const exitBtn = findButtonByIcon(wrapper, 'tabler:circle-x')
 
     expect(exitBtn).toBeDefined()
     expect(exitBtn.classes()).not.toContain('header-nav-btn')
@@ -372,7 +372,7 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
   it('outlines the locale switcher too, in the chrome tone', async () => {
     const wrapper = await mountToolbar()
 
-    const localeBtn = findButtonByIcon(wrapper, 'la:language')
+    const localeBtn = findButtonByIcon(wrapper, 'tabler:language')
 
     expect(localeBtn).toBeDefined()
     expect(localeBtn.classes()).not.toContain('header-nav-btn')

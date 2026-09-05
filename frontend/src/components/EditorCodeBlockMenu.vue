@@ -19,7 +19,7 @@
           :label="t(`editor.codeBlock.filter`)"
           :aria-label="t(`editor.codeBlock.filter`)"
           @keyup:enter="chooseFirst">
-          <template #prepend><w-icon name="la:search" /></template>
+          <template #prepend><w-icon name="tabler:search" /></template>
         </w-input>
       </div>
       <w-separator />

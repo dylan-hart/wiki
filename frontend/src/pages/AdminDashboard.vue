@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-dashboard">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:layout-dashboard" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:layout-dashboard" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.dashboard.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none flex">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,7 +25,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -33,8 +35,13 @@
         </w-btn>
       </div>
     </div>
-    <div class="grid grid-cols-12 px-4 gap-2">
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+    <!--
+      An auto-fit track of 230px cards, which is what the design draws: a 12-column split
+      stretched each card to a quarter of the window, so on a wide screen eight counters sat in
+      eight very wide boxes with a number floating in the middle of each.
+    -->
+    <div class="admin-dashboard-grid">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:browser" />
@@ -48,7 +55,7 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:plus"
+              icon="tabler:plus"
               :label="t(`common.actions.new`)"
               :disabled="!userStore.can(`manage:sites`)"
               @click="newSite" />
@@ -56,14 +63,14 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:sitemap"
+              icon="tabler:sitemap"
               :label="t(`common.actions.manage`)"
               :disabled="!userStore.can(`manage:sites`)"
               to="/_admin/sites" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:users" />
@@ -77,7 +84,7 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:plus"
+              icon="tabler:plus"
               :label="t(`common.actions.new`)"
               :disabled="!userStore.can(`manage:groups`)"
               @click="newGroup" />
@@ -85,14 +92,14 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:users"
+              icon="tabler:users"
               :label="t(`common.actions.manage`)"
               :disabled="!groupsAreVisible"
               to="/_admin/groups" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:user" />
@@ -106,7 +113,7 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:user-plus"
+              icon="tabler:user-plus"
               :label="t(`common.actions.new`)"
               :disabled="!userStore.can(`manage:users`)"
               @click="newUser" />
@@ -114,14 +121,14 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:user-friends"
+              icon="tabler:users"
               :label="t(`common.actions.manage`)"
               :disabled="!usersAreVisible"
               to="/_admin/users" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:folder" />
@@ -135,13 +142,13 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:sitemap"
+              icon="tabler:sitemap"
               :label="t(`common.actions.view`)"
               :to="`/_admin/` + adminStore.currentSiteId + `/pages`" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:eye" />
@@ -158,13 +165,13 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:chart-area"
+              icon="tabler:chart-area"
               :label="t(`admin.analytics.title`)"
               :to="`/_admin/` + adminStore.currentSiteId + `/analytics`" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon :name="versionCard.icon" :color="versionCard.color" />
@@ -176,7 +183,7 @@
                   >({{ versionCard.version
                   }}<w-icon
                     v-if="versionCard.latestVersion"
-                    name="mdi:arrow-right"
+                    name="tabler:arrow-right"
                     class="mx-1 align-middle" />{{ versionCard.latestVersion }})</i
                 ></small
               >
@@ -187,7 +194,7 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:sync-alt"
+              icon="tabler:refresh"
               :label="t(`admin.system.checkForUpdates`)"
               :disabled="!userStore.can(`manage:system`)"
               @click="checkForUpdates" />
@@ -195,14 +202,14 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:info-circle"
+              icon="tabler:info-circle"
               :label="t(`admin.system.title`)"
               :disabled="!userStore.can(`manage:system`)"
               to="/_admin/system" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:robot" />
@@ -216,14 +223,14 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:tasks"
+              icon="tabler:list-check"
               :label="t(`admin.scheduler.title`)"
               :disabled="!userStore.can(`manage:system`)"
               to="/_admin/scheduler" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:binary-tree" />
@@ -237,14 +244,14 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:server"
+              icon="tabler:server"
               :label="t(`common.actions.view`)"
               :disabled="!userStore.can(`manage:system`)"
               to="/_admin/cluster" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+      <div>
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <w-icon name="tabler:bolt" />
@@ -258,20 +265,25 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:bolt"
+              icon="tabler:bolt"
               :label="t(`common.actions.manage`)"
               :disabled="!userStore.can(`manage:system`)"
               to="/_admin/webhooks" />
           </w-card-actions>
         </w-card>
       </div>
-      <div class="col-span-12 lg:col-span-6">
+      <div class="admin-dashboard-logins">
         <w-card>
-          <w-card-section class="admin-dashboard-panel">
+          <!--
+            A banded section marker, the same one every framed list in the language opens with -- the
+            tinted strip, the mono overline and a hairline under it. It used to be a plain white row
+            with an icon and a bold label, which read as a first list item rather than as the panel's
+            own head.
+          -->
+          <div class="admin-dashboard-panel">
             <w-icon name="tabler:key" />
-            <strong>{{ t('admin.dashboard.lastLogins') }}</strong>
-          </w-card-section>
-          <w-separator />
+            <span>{{ t('admin.dashboard.lastLogins') }}</span>
+          </div>
           <w-list separator>
             <!--
               Rows link only where the user list is reachable, the same condition the Users card puts on
@@ -284,7 +296,7 @@
               :clickable="usersAreVisible"
               :to="usersAreVisible ? `/_admin/users/` + lastLogin.id : null">
               <w-item-section side>
-                <w-icon name="la:user" :color="actionColor" />
+                <w-icon name="tabler:user" :color="actionColor" />
               </w-item-section>
               <w-item-section>
                 <w-item-label>{{ lastLogin.name }}</w-item-label>
@@ -330,6 +342,7 @@ import CheckUpdateDialog from '@/components/CheckUpdateDialog.vue'
 import SiteCreateDialog from '@/components/SiteCreateDialog.vue'
 import UserCreateDialog from '@/components/UserCreateDialog.vue'
 import GroupCreateDialog from '@/components/GroupCreateDialog.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // STORES
 
@@ -488,28 +501,59 @@ function checkForUpdates() {
 <style lang="scss">
 .admin-dashboard {
   /*
-    Header of a card that holds a list rather than a figure: the same wording weight as `-card` above,
-    at the smaller icon a title line can carry -- 64px is sized for a card whose whole content is one
-    number.
+    The design's own track: as many 230px cards as fit, each taking its share of the remainder. See
+    the template for what a 12-column split did instead. The inset is the body's, not the page's --
+    the header band above it is full-bleed and pads itself, and the two line up at 24px.
   */
+  &-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+    padding: 20px 24px 40px;
+  }
+
+  /*
+    The recent-logins panel is a READING panel, not a counter: it holds four lines of names and times,
+    and the design caps it at 640px so those lines stay a readable measure instead of stretching to
+    whatever the window happens to be. It also spans the grid, so it starts on a row of its own.
+  */
+  &-logins {
+    grid-column: 1 / -1;
+    max-width: 640px;
+    margin-top: 12px;
+  }
+
+  /* -> The banded head of that panel; see the template for why it is a band and not a row */
   &-panel {
     display: flex;
     align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-hairline);
+    background-color: var(--color-tint);
+    color: var(--color-slate);
+
+    @at-root .body--dark & {
+      border-bottom-color: var(--color-hairline-dark);
+      background-color: var(--color-dark-2);
+      color: var(--color-slate-light);
+    }
 
     /*
       `.w-icon`, not `img`: these were raster `<img>` assets and are inline SVG now, so the size has
       to be stated as a font-size (which is what WIcon sizes from) rather than a width.
     */
     > .w-icon {
-      font-size: 26px;
-      margin-inline-end: 12px;
-      color: var(--color-slate-soft);
+      font-size: 20px;
       flex: none;
     }
 
-    strong {
-      font-size: 1.1rem;
-      font-weight: 300;
+    > span {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
     }
   }
 
@@ -579,11 +623,26 @@ function checkForUpdates() {
     }
   }
 
+  /*
+    A counter card's footer: a flat tinted strip ruled off from the figure above it, its actions
+    pushed to the trailing edge and separated by a hairline. The gradient it used to carry was a
+    bevel, which is the one thing Cardinal never draws -- and it left the strip reading as a shadow
+    under the card rather than as part of it.
+  */
   .w-card-actions {
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.03));
+    padding: 0;
+    border-top: 1px solid var(--color-hairline);
+    background-color: var(--color-paper);
 
     @at-root .body--dark & {
-      background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.2));
+      border-top-color: var(--color-hairline-dark);
+      background-color: var(--color-dark-4);
+    }
+
+    .w-btn {
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 500;
     }
   }
 }

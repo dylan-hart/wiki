@@ -41,8 +41,8 @@ async function mountWithTags(tags) {
 /**
  * OpenProject #987, #1120, #1218: the browse-by-tags entry point, moved here from `HeaderNav.vue`
  * (`HeaderNav.test.js` asserts it no longer renders one of its own) so it can dock flush against the
- * search field's right edge, matching the 2.5.x reference layout -- `la:tags` rather than the
- * previous `la:hashtag`, which read as a `#` operator glyph rather than a tag shape.
+ * search field's right edge, matching the 2.5.x reference layout -- `tabler:tags` rather than the
+ * previous `tabler:hash`, which read as a `#` operator glyph rather than a tag shape.
  */
 describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => {
   it('renders a link to /_tags docked against the field, unconditionally', async () => {
@@ -53,11 +53,11 @@ describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => 
     expect(tagsLink.attributes('href')).toBe('/_tags')
   })
 
-  it('uses the la:tags icon, not la:hashtag', async () => {
+  it('uses the tabler:tags icon, not tabler:hash', async () => {
     const wrapper = await mountWithTags([])
 
     expect(wrapper.find('.header-search-tags-btn [data-icon]').attributes('data-icon')).toBe(
-      'la:tags'
+      'tabler:tags'
     )
   })
 

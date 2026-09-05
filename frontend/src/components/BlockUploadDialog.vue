@@ -20,7 +20,7 @@
             <w-btn
               class="acrylic-btn"
               outline
-              icon="la:file"
+              icon="tabler:file"
               :label="t(`admin.blocks.uploadChooseFile`)"
               color="primary"
               @click="pickFile" />

@@ -188,7 +188,7 @@ describe('HeaderSearch preview results panel', () => {
       json: () =>
         Promise.resolve({
           results: [
-            { path: 'foo/bar', title: 'Foo Bar', icon: 'mdi:file', highlight: 'a <b>match</b>' }
+            { path: 'foo/bar', title: 'Foo Bar', icon: 'tabler:file', highlight: 'a <b>match</b>' }
           ],
           totalHits: 12
         })
@@ -215,7 +215,7 @@ describe('HeaderSearch preview results panel', () => {
     await vi.advanceTimersByTimeAsync(400)
 
     expect(wrapper.find('.searchpanel-results .w-item [data-icon]').attributes('data-icon')).toBe(
-      'mdi:file-document-outline'
+      'tabler:file-text'
     )
   })
 

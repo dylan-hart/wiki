@@ -47,7 +47,7 @@ describe('FooterNav — hasSiteFooter edge cases', () => {
     expect(wrapper.text()).not.toContain('All Rights Reserved')
     expect(wrapper.text()).not.toContain('©')
     // The second, always-on line still renders normally.
-    expect(wrapper.text()).toContain('Wiki.js')
+    expect(wrapper.text()).toContain('Cardinal.js')
   })
 
   it('renders a very long company name in full, without truncation, guarded by CSS overflow-wrap', async () => {

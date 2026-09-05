@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-storage">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:database" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:database" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.storage.subtitle') }}
@@ -27,7 +29,7 @@
         <w-separator class="me-4" vertical />
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -36,7 +38,7 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save()"
@@ -411,7 +413,7 @@
                       <w-btn
                         class="acrylic-btn"
                         flat
-                        icon="la:arrow-circle-right"
+                        icon="tabler:circle-arrow-right"
                         color="primary"
                         @click="executeAction(act)"
                         :label="t(`common.actions.proceed`)"
@@ -542,19 +544,19 @@
           <w-card-section class="flex items-center">
             <div class="text-caption me-2">{{ t('admin.storage.deliveryPathsLegend') }}</div>
             <w-chip dense color="blue-1" text-color="blue-8">
-              <w-avatar icon="la:ellipsis-h" color="blue" text-color="white" />
+              <w-avatar icon="tabler:dots" color="blue" text-color="white" />
               <span class="text-caption px-2">{{
                 t('admin.storage.deliveryPathsUserRequest')
               }}</span>
             </w-chip>
             <w-chip dense color="teal-1" text-color="teal-8">
-              <w-avatar icon="la:ellipsis-h" color="positive" text-color="white" />
+              <w-avatar icon="tabler:dots" color="positive" text-color="white" />
               <span class="text-caption px-2">{{
                 t('admin.storage.deliveryPathsPushToOrigin')
               }}</span>
             </w-chip>
             <w-chip dense color="red-1" text-color="red-8">
-              <w-avatar icon="la:minus" color="negative" text-color="white" />
+              <w-avatar icon="tabler:minus" color="negative" text-color="white" />
               <span class="text-caption px-2">{{ t('admin.storage.missingOrigin') }}</span>
             </w-chip>
           </w-card-section>
@@ -616,6 +618,7 @@ import { humanizeIsoDuration, relativeDate } from '@/helpers/datetime'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import { generateGraph as buildDeliveryGraph } from '@/helpers/storageDeliveryGraph'
 import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storageSync'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 
@@ -1064,7 +1067,6 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .admin-storage-logo {
-  border-radius: 5px;
 }
 </style>
 

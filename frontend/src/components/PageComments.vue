@@ -53,7 +53,7 @@
                 class="page-comments-actions ml-auto flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <w-btn
                   class="page-comments-edit-toggle"
-                  icon="mdi:pencil"
+                  icon="tabler:pencil"
                   flat
                   round
                   dense
@@ -62,7 +62,7 @@
                   @click="startEdit(entry.comment)" />
                 <w-btn
                   class="page-comments-delete-toggle"
-                  icon="la:trash"
+                  icon="tabler:trash"
                   flat
                   round
                   dense

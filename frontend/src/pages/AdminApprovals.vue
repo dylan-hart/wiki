@@ -1,10 +1,12 @@
 <template>
   <w-page>
     <div class="flex flex-wrap items-center p-4">
-      <div class="flex-none">
-        <w-icon name="tabler:checkbox" size="64px" class="admin-icon animated fadeInLeft" />
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:checkbox" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.approval.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.approval.subtitle') }}
@@ -13,16 +15,16 @@
       <div class="flex flex-none">
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.approval.newRule`)"
           color="primary"
           @click="createRule" />
@@ -95,13 +97,13 @@
                   class="acrylic-btn me-2"
                   flat
                   @click="editRule(rule)"
-                  icon="la:pen"
+                  icon="tabler:pencil"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
                   :label="t(`common.actions.edit`)" />
                 <w-btn
                   class="acrylic-btn"
                   flat
-                  icon="la:trash"
+                  icon="tabler:trash"
                   color="negative"
                   @click="deleteRule(rule)"
                   :aria-label="t(`common.actions.delete`)" />
@@ -129,6 +131,7 @@ import { useAdminStore } from '@/stores/admin'
 
 import ApprovalRuleDialog from '@/components/ApprovalRuleDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

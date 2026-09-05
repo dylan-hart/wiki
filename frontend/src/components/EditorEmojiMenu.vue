@@ -36,7 +36,7 @@
           :label="t(`editor.emoji.search`)"
           :aria-label="t(`editor.emoji.search`)"
           @keyup:enter="chooseFirst">
-          <template #prepend><w-icon name="la:search" /></template>
+          <template #prepend><w-icon name="tabler:search" /></template>
         </w-input>
       </div>
       <w-separator />
@@ -144,18 +144,18 @@ const RECENT_MAX = 27
 
 /** The tab strip, in the order the sections appear. Recents first, then Unicode's own order. */
 const GROUP_TABS = {
-  smileys_emotion: { icon: 'mdi:emoticon-outline', label: 'editor.emoji.smileysEmotion' },
-  people_body: { icon: 'mdi:hand-wave-outline', label: 'editor.emoji.peopleBody' },
-  animals_nature: { icon: 'mdi:dog', label: 'editor.emoji.animalsNature' },
-  food_drink: { icon: 'mdi:food-apple-outline', label: 'editor.emoji.foodDrink' },
-  travel_places: { icon: 'mdi:car', label: 'editor.emoji.travelPlaces' },
-  activities: { icon: 'mdi:basketball', label: 'editor.emoji.activities' },
-  objects: { icon: 'mdi:lightbulb-outline', label: 'editor.emoji.objects' },
-  symbols: { icon: 'mdi:percent-outline', label: 'editor.emoji.symbols' },
-  flags: { icon: 'mdi:flag-outline', label: 'editor.emoji.flags' }
+  smileys_emotion: { icon: 'tabler:mood-smile', label: 'editor.emoji.smileysEmotion' },
+  people_body: { icon: 'tabler:hand-move', label: 'editor.emoji.peopleBody' },
+  animals_nature: { icon: 'tabler:dog', label: 'editor.emoji.animalsNature' },
+  food_drink: { icon: 'tabler:apple', label: 'editor.emoji.foodDrink' },
+  travel_places: { icon: 'tabler:car', label: 'editor.emoji.travelPlaces' },
+  activities: { icon: 'tabler:ball-basketball', label: 'editor.emoji.activities' },
+  objects: { icon: 'tabler:bulb', label: 'editor.emoji.objects' },
+  symbols: { icon: 'tabler:percentage', label: 'editor.emoji.symbols' },
+  flags: { icon: 'tabler:flag', label: 'editor.emoji.flags' }
 }
 
-const RECENT_TAB = { icon: 'mdi:clock-outline', label: 'editor.emoji.frequentlyUsed' }
+const RECENT_TAB = { icon: 'tabler:clock', label: 'editor.emoji.frequentlyUsed' }
 
 // REFS
 
@@ -191,7 +191,7 @@ const tabs = computed(() => [
     : []),
   ...EMOJI_GROUPS.map((group) => ({
     key: group.slug,
-    icon: GROUP_TABS[group.slug]?.icon ?? 'mdi:emoticon-outline',
+    icon: GROUP_TABS[group.slug]?.icon ?? 'tabler:mood-smile',
     // -> The generated English name is the fallback, for a group the dataset adds later
     label: GROUP_TABS[group.slug] ? t(GROUP_TABS[group.slug].label) : group.name
   }))
@@ -381,7 +381,6 @@ function chooseFirst() {
   aspect-ratio: 1;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
   /* -> The emoji itself, at a size worth aiming at; the system font is the point here */
   font-size: 20px;
   line-height: 1;

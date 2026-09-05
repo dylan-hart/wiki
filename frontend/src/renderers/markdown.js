@@ -84,7 +84,7 @@ function isExternalHref(href, siteOrigin) {
 }
 
 /**
- * An `<iconify-icon>` written the way a Vue component is, `<iconify-icon icon="mdi:home" />`.
+ * An `<iconify-icon>` written the way a Vue component is, `<iconify-icon icon="tabler:home" />`.
  *
  * The lookahead rather than a `\b`: a hyphen ends a word, so a boundary alone also matches the start
  * of `<iconify-icon-something />` and would close it with the wrong tag.

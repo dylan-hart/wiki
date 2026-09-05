@@ -13,7 +13,7 @@
             <w-btn
               outline
               color="primary"
-              icon="la:folder-open"
+              icon="tabler:folder-open"
               :label="state.fileName || t(`common.actions.browse`)"
               @click="pickFile" />
             <input
@@ -70,7 +70,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:arrow-left"
+            icon="tabler:arrow-left"
             color="grey-5"
             padding="xs md"
             :label="t(`pages.import.back`)"

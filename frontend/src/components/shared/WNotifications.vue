@@ -35,7 +35,7 @@
             :aria-label="t('common.actions.close')"
             class="w-unstyled shrink-0 cursor-pointer p-1 leading-none opacity-70 transition-opacity hover:opacity-100"
             @click="dismiss(n.id)">
-            <w-icon name="mdi:close" size="xs" />
+            <w-icon name="tabler:x" size="xs" />
           </button>
           <!--
             Keyed on the count so a repeat replaces the element: a CSS animation does not restart

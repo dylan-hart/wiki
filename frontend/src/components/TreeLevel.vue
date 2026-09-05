@@ -27,7 +27,7 @@
         </w-menu>
         <w-icon
           v-if="!selection"
-          name="la:angle-right"
+          name="tabler:chevron-right"
           :color="dark.isActive ? `purple-4` : `purple`" />
       </div>
     </li>

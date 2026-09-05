@@ -3,8 +3,12 @@
     <!-- -> Inset from the card's edges: the strip is a segmented control with a track of its own, so
          it sits ON the card rather than spanning it edge to edge -->
     <w-tabs class="m-2" v-model="state.currentTab" no-caps inline-label>
-      <w-tab name="icon" icon="la:icons" :label="t(`iconPicker.icons`)" />
-      <w-tab v-if="!props.noImage" name="image" icon="la:image" :label="t(`iconPicker.image`)" />
+      <w-tab name="icon" icon="tabler:icons" :label="t(`iconPicker.icons`)" />
+      <w-tab
+        v-if="!props.noImage"
+        name="image"
+        icon="tabler:photo"
+        :label="t(`iconPicker.image`)" />
     </w-tabs>
     <w-separator />
     <w-tab-panels v-model="state.currentTab">
@@ -22,7 +26,7 @@
               :label="t(`iconPicker.search`)"
               :aria-label="t(`iconPicker.search`)"
               @update:model-value="queueSearch">
-              <template #prepend><w-icon name="la:search" /></template>
+              <template #prepend><w-icon name="tabler:search" /></template>
             </w-input>
           </div>
           <div class="flex-none">
@@ -106,15 +110,15 @@
     <w-card-actions>
       <w-space />
       <w-btn
-        icon="la:times"
+        icon="tabler:x"
         :label="t(`common.actions.discard`)"
         outline
         color="grey-7"
         @click="closePopup()" />
       <w-btn
-        icon="la:check"
+        icon="tabler:check"
         :label="t(`common.actions.apply`)"
-        color="secondary"
+        color="slate"
         :disabled="!pendingValue"
         @click="applyAndClose" />
     </w-card-actions>
@@ -149,7 +153,7 @@ const props = defineProps({
    * Offer icons only, leaving out the tab that points at an image file.
    *
    * For the callers whose value is not a `WIcon` reference and has no `img:` form to fall back on --
-   * the markdown editor writes an `:mdi:home:` shortcode, which is an Iconify reference and nothing
+   * the markdown editor writes an `:tabler:home:` shortcode, which is an Iconify reference and nothing
    * else.
    */
   noImage: {
@@ -347,7 +351,6 @@ onMounted(async () => {
     position: relative;
     height: 220px;
     overflow-y: auto;
-    border-radius: 4px;
 
     @at-root .body--light & {
       background-color: #fff;

@@ -9,7 +9,7 @@
                 expose: see the note on `EditorMarkdown.vue`'s own `insertAssets` for why there is no
                 separate URL/clipboard source. -->
         <w-btn
-          icon="mdi:image-plus-outline"
+          icon="tabler:photo-plus"
           padding="sm sm"
           flat
           :aria-label="t('editor.markup.insertAssets')"

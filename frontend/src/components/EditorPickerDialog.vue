@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t('editor.picker.title')" @hide="onDialogHide">
     <w-card class="editor-picker" style="width: 460px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="la:edit" size="sm" class="me-2" />
+        <w-icon name="tabler:edit" size="sm" class="me-2" />
         <span>{{ t('editor.picker.title') }}</span>
       </w-card-section>
       <w-separator />
@@ -29,7 +29,7 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:times"
+          icon="tabler:x"
           :label="t(`common.actions.cancel`)"
           color="grey-7"
           padding="xs md"

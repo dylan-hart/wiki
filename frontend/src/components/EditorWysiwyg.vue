@@ -963,19 +963,18 @@ defineExpose({ editor, menuBar })
     }
 
     /*
-      -> `left`/the bottom-left square corner of `border-radius` stay physical on purpose (OpenProject
-         #1601's repo-wide pass): the label is a flag anchored to the caret's own left edge, its
-         bottom-left corner cut square to form the flag's point flush against the caret line. Moving
-         `left` to a logical offset without also flipping which `border-radius` corner is square would
-         separate the point from the line it is supposed to touch under RTL -- a coordinated redesign,
-         not a mechanical property swap. See `frontend/src/logicalSpacing.test.js`.
+      -> `left` stays physical on purpose (OpenProject #1601's repo-wide pass): the label is a flag
+         anchored to the caret's own left edge, and moving it to a logical offset without also moving
+         the caret line it points at would separate the two under RTL -- a coordinated redesign, not
+         a mechanical property swap. (The rounded corners that used to cut its point are gone with the
+         rest of the app's radii; the label is a square flag now.) See
+         `frontend/src/logicalSpacing.test.js`.
     */
     .collaboration-carets__label {
       position: absolute;
       top: -1.4em;
       left: -1px;
       padding: 0.1rem 0.3rem;
-      border-radius: 3px 3px 3px 0;
       font-size: 0.7rem;
       font-weight: 600;
       line-height: normal;

@@ -20,7 +20,7 @@
             >{{ selectedCount(group) }}/{{ group.scopes.length }}</span
           >
           <w-icon
-            name="mdi:chevron-down"
+            name="tabler:chevron-down"
             size="1em"
             class="api-key-scope-picker__arrow ml-auto"
             :class="isExpanded(group.verb) ? 'rotate-180' : ''" />

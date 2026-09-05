@@ -115,9 +115,15 @@ describe('_page-contents.scss logical properties (whole file)', () => {
     expect(scanned).not.toMatch(/text-align:\s*(?:left|right)\s*[;}]/)
   })
 
-  it('anchors the blockquote bar and its padding to the logical leading edge', () => {
+  it('anchors the blockquote gutter and its padding to the logical leading edge', () => {
+    // -> The quote is a framed box now, not a bare bar: the band down its leading edge is a
+    //    `::before` sized in `inset-inline-start`, precisely so it follows `dir` -- an inset
+    //    `box-shadow`, which is what a physical implementation would reach for, could not.
     expect(source).toMatch(
-      /blockquote\s*\{[^}]*padding-block:\s*0\.15em;\s*padding-inline-start:\s*1\.15em;\s*border-inline-start:\s*3px solid var\(--content-rule-strong\)/s
+      /blockquote\s*\{[^}]*padding-block:\s*0\.9em;\s*padding-inline:\s*3\.5em 1\.1em;/s
+    )
+    expect(source).toMatch(
+      /blockquote\s*\{[^}]*&::before\s*\{[^}]*inset-inline-start:\s*0;[^}]*border-inline-end:\s*1px solid var\(--content-rule\)/s
     )
   })
 

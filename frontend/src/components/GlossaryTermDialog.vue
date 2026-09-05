@@ -56,7 +56,7 @@
                 dense
                 clickable
                 removable
-                :icon="alias.isAcronym ? 'mdi:alpha-a-box-outline' : null"
+                :icon="alias.isAcronym ? 'tabler:square-letter-a' : null"
                 :aria-label="
                   alias.isAcronym
                     ? t('admin.glossary.aliasIsAcronym', { alias: alias.value })
@@ -83,7 +83,7 @@
                   flat
                   round
                   dense
-                  icon="la:plus"
+                  icon="tabler:plus"
                   :aria-label="t('common.actions.add')"
                   @click="addAlias" />
               </template>
@@ -104,12 +104,12 @@
                 <w-spinner v-if="state.pathStatus === 'checking'" size="16px" />
                 <w-icon
                   v-else-if="state.pathStatus === 'valid'"
-                  name="la:check-circle"
+                  name="tabler:circle-check"
                   size="xs"
                   color="positive" />
                 <w-icon
                   v-else-if="state.pathStatus === 'invalid'"
-                  name="la:exclamation-triangle"
+                  name="tabler:alert-triangle"
                   size="xs"
                   color="negative" />
               </template>

@@ -18,7 +18,7 @@
               dense
               removable
               @remove="toggleTag(tag)">
-              <w-icon class="me-1" name="la:hashtag" size="14px" />
+              <w-icon class="me-1" name="tabler:hash" size="14px" />
               <span class="text-caption">{{ tag }}</span>
             </w-chip>
           </div>
@@ -31,7 +31,7 @@
             flat
             dense
             round
-            :icon="state.managementMode ? 'la:times' : 'la:cog'"
+            :icon="state.managementMode ? 'tabler:x' : 'tabler:settings'"
             :aria-label="state.managementMode ? t('common.actions.exit') : t('tags.manageTags')"
             @click="toggleManagementMode" />
         </div>
@@ -53,34 +53,34 @@
                 flat
                 dense
                 round
-                icon="la:check"
+                icon="tabler:check"
                 :aria-label="t('common.actions.confirm')"
                 @click="confirmRename(entry)" />
               <w-btn
                 flat
                 dense
                 round
-                icon="la:times"
+                icon="tabler:x"
                 :aria-label="t('common.actions.cancel')"
                 @click="cancelRename" />
             </template>
             <template v-else>
               <span class="flex flex-1 items-center text-caption">
-                <w-icon class="me-1" name="la:hashtag" size="14px" />
+                <w-icon class="me-1" name="tabler:hash" size="14px" />
                 {{ entry.tag }} ({{ entry.usageCount }})
               </span>
               <w-btn
                 flat
                 dense
                 round
-                icon="la:edit"
+                icon="tabler:edit"
                 :aria-label="t('common.actions.rename')"
                 @click="startRename(entry)" />
               <w-btn
                 flat
                 dense
                 round
-                icon="la:trash"
+                icon="tabler:trash"
                 color="negative"
                 :aria-label="t('common.actions.delete')"
                 @click="deleteTag(entry)" />
@@ -96,12 +96,12 @@
           <w-chip
             v-for="entry of availableTags"
             :key="`available-${entry.tag}`"
-            color="secondary"
+            color="slate"
             text-color="white"
             dense
             clickable
             @click="toggleTag(entry.tag)">
-            <w-icon class="me-1" name="la:hashtag" size="14px" />
+            <w-icon class="me-1" name="tabler:hash" size="14px" />
             <span class="text-caption">{{ entry.tag }} ({{ entry.usageCount }})</span>
           </w-chip>
           <span
@@ -122,7 +122,7 @@
             :model-value="state.filterLocale"
             :options="localeOptions"
             @update:model-value="setLocale">
-            <template #prepend><w-icon name="la:language" size="xs" /></template>
+            <template #prepend><w-icon name="tabler:language" size="xs" /></template>
           </w-select>
         </div>
 
@@ -136,7 +136,7 @@
             :aria-label="t(`tags.orderBy`)"
             v-model="state.orderBy"
             :options="orderByOptions">
-            <template #prepend><w-icon name="la:sort-amount-down" size="xs" /></template>
+            <template #prepend><w-icon name="tabler:sort-descending" size="xs" /></template>
           </w-select>
         </div>
       </div>
@@ -162,7 +162,7 @@
             v-model="state.filterQuery"
             :placeholder="t(`tags.searchWithinResultsPlaceholder`)"
             :disabled="state.selectedTags.length < 1">
-            <template #prepend><w-icon name="la:search" size="xs" /></template>
+            <template #prepend><w-icon name="tabler:search" size="xs" /></template>
           </w-input>
         </div>
 
@@ -200,9 +200,9 @@
                 <w-chip
                   v-for="tag of item.tags"
                   :key="`${item.id}-${tag}`"
-                  color="secondary"
+                  color="slate"
                   text-color="white"
-                  icon="la:hashtag"
+                  icon="tabler:hash"
                   size="sm"
                   >{{ tag }}</w-chip
                 >

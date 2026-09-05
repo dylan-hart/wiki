@@ -16,12 +16,12 @@
             @dragover.prevent
             @dragleave.prevent="state.isDraggingOver = false"
             @drop.prevent="onDrop">
-            <w-icon name="la:cloud-upload-alt" size="40px" class="mb-2" />
+            <w-icon name="tabler:cloud-upload" size="40px" class="mb-2" />
             <div class="text-body2 mb-2">{{ t(`pages.importBatch.dropzoneLabel`) }}</div>
             <w-btn
               outline
               color="primary"
-              icon="la:folder-open"
+              icon="tabler:folder-open"
               :label="t(`common.actions.browse`)"
               @click="pickFiles" />
             <input
@@ -35,7 +35,7 @@
 
           <w-list v-if="state.files.length" padding class="mt-3">
             <w-item v-for="(file, idx) in state.files" :key="`${file.name}-${idx}`">
-              <w-icon name="la:file-alt" class="me-2" />
+              <w-icon name="tabler:file-text" class="me-2" />
               <w-item-section>{{ file.name }}</w-item-section>
               <w-select
                 v-model="state.formats[idx]"
@@ -55,7 +55,7 @@
                 flat
                 dense
                 round
-                icon="mdi:close"
+                icon="tabler:x"
                 :aria-label="t(`common.actions.remove`)"
                 @click="removeFile(idx)" />
             </w-item>
@@ -151,7 +151,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:arrow-left"
+            icon="tabler:arrow-left"
             color="grey-5"
             padding="xs md"
             :disabled="state.saving"
@@ -769,9 +769,9 @@ async function saveAll() {
 }
 
 function statusIcon(row) {
-  if (!row.ok || row.saveStatus === 'failed') return 'mdi:alert-circle'
-  if (row.saveStatus === 'saved') return 'mdi:check-circle'
-  return 'la:file-alt'
+  if (!row.ok || row.saveStatus === 'failed') return 'tabler:alert-circle'
+  if (row.saveStatus === 'saved') return 'tabler:circle-check'
+  return 'tabler:file-text'
 }
 
 function statusColor(row) {

@@ -277,7 +277,6 @@ onBeforeUnmount(() => {
     bottom: 2px;
     inset-inline-start: 0;
     width: 2px;
-    border-radius: 1px;
     background-color: var(--color-primary);
   }
 
@@ -286,7 +285,6 @@ onBeforeUnmount(() => {
     /* 9px of gutter, not a caret column: the rail is the only thing before a label, on its start side */
     padding-block: 3px;
     padding-inline: 9px 8px;
-    border-radius: 4px;
     color: inherit;
     font-size: inherit;
     font-weight: inherit;

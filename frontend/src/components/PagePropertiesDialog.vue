@@ -29,13 +29,13 @@
         flat
         rounded
         color="white"
-        icon="la:question-circle"
+        icon="tabler:help-circle"
         :aria-label="t(`common.actions.viewDocs`)"
         :href="siteStore.docsBase + `/guide/page-properties`"
         target="_blank"
         type="a" />
       <w-btn
-        icon="la:times"
+        icon="tabler:x"
         dense
         flat
         :aria-label="t(`common.actions.close`)"
@@ -68,7 +68,7 @@
                 flat
                 dense
                 round
-                icon="la:icons"
+                icon="tabler:icons"
                 color="primary"
                 :aria-label="t(`iconPicker.open`)">
                 <w-tooltip>{{ t('iconPicker.open') }}</w-tooltip>
@@ -137,7 +137,7 @@
             </w-item-section>
             <w-item-section side>
               <w-btn
-                icon="la:pen"
+                icon="tabler:pencil"
                 dense
                 flat
                 padding="none"
@@ -146,7 +146,7 @@
             </w-item-section>
             <w-item-section side>
               <w-btn
-                icon="la:times"
+                icon="tabler:x"
                 dense
                 flat
                 padding="none"
@@ -158,8 +158,8 @@
         <w-btn
           class="w-full"
           :label="t(`editor.props.relationAdd`)"
-          icon="la:plus"
-          color="secondary"
+          icon="tabler:plus"
+          color="slate"
           @click="newRelation">
           <w-tooltip>{{ t('editor.props.relationAddHint') }}</w-tooltip>
         </w-btn>
@@ -343,18 +343,18 @@ const state = reactive({
 })
 
 const quickaccess = computed(() => [
-  { key: 'refCardInfo', icon: 'la:info-circle', label: t('editor.props.info') },
-  { key: 'refCardPublishState', icon: 'la:power-off', label: t('editor.props.publishState') },
-  { key: 'refCardRelations', icon: 'la:link', label: t('editor.props.relations') },
-  { key: 'refCardSidebar', icon: 'la:ruler-vertical', label: t('editor.props.sidebar') },
-  { key: 'refCardSocial', icon: 'la:comments', label: t('editor.props.social') },
-  { key: 'refCardTags', icon: 'la:tags', label: t('editor.props.tags') },
+  { key: 'refCardInfo', icon: 'tabler:info-circle', label: t('editor.props.info') },
+  { key: 'refCardPublishState', icon: 'tabler:power', label: t('editor.props.publishState') },
+  { key: 'refCardRelations', icon: 'tabler:link', label: t('editor.props.relations') },
+  { key: 'refCardSidebar', icon: 'tabler:ruler-2', label: t('editor.props.sidebar') },
+  { key: 'refCardSocial', icon: 'tabler:messages', label: t('editor.props.social') },
+  { key: 'refCardTags', icon: 'tabler:tags', label: t('editor.props.tags') },
   {
     key: 'refCardClassification',
-    icon: 'la:layer-group',
+    icon: 'tabler:stack-2',
     label: t('editor.props.classification')
   },
-  { key: 'refCardVisibility', icon: 'la:eye', label: t('editor.props.visibility') }
+  { key: 'refCardVisibility', icon: 'tabler:eye', label: t('editor.props.visibility') }
 ])
 
 // REFS

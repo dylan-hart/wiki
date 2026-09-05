@@ -12,14 +12,14 @@ import { getSiteId, getSiteLocales, getCurrentPage } from '../shared/site.js'
  * The same one the app gives a new page (`DEFAULT_PAGE_ICON` in the page store), so that a listing
  * mixing pages made in the editor with pages made through the API still lines up down the left.
  */
-const DEFAULT_PAGE_ICON = 'mdi:file-document-outline'
+const DEFAULT_PAGE_ICON = 'tabler:file-text'
 
 /**
  * What to draw for a "book" page carrying no icon of its own — one with a page nested below its own
  * path, the BookStack-style chapter arrangement `hasChildren` signals (OpenProject #2462). An
  * "outline" glyph, matching `DEFAULT_PAGE_ICON`'s style.
  */
-const BOOK_PAGE_ICON = 'mdi:book-open-page-variant-outline'
+const BOOK_PAGE_ICON = 'tabler:book-2'
 
 /**
  * Block Index

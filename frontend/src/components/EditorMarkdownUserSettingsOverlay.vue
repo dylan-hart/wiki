@@ -10,7 +10,7 @@
         rounded
         color="white"
         :aria-label="t(`common.actions.refresh`)"
-        icon="la:question-circle"
+        icon="tabler:help-circle"
         :href="siteStore.docsBase + `/guide/editors/markdown`"
         target="_blank"
         type="a" />
@@ -19,7 +19,7 @@
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           @click="load"
           :loading="state.loading > 0">
           <w-tooltip anchor="center left" self="center right">{{
@@ -31,14 +31,14 @@
           text-color="grey-7"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
         <w-btn
           color="positive"
           text-color="white"
           :label="t(`common.actions.apply`)"
           :aria-label="t(`common.actions.apply`)"
-          icon="la:check"
+          icon="tabler:check"
           @click="save"
           :disabled="state.loading > 0" />
       </w-btn-group>

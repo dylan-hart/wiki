@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-terminal">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:robot" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:robot" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.scheduler.subtitle') }}
@@ -30,7 +32,7 @@
         <w-separator class="me-4" vertical />
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -56,7 +58,7 @@
                 horizontal
                 :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
                 <w-card-section class="flex-none pe-0">
-                  <w-icon name="la:info-circle" size="sm" />
+                  <w-icon name="tabler:info-circle" size="sm" />
                 </w-card-section>
                 <w-card-section class="text-caption">{{
                   t('admin.scheduler.scheduledNone')
@@ -74,7 +76,7 @@
                      Awesome, which is an outline set, and MDI's solid glyph sat noticeably heavier
                      beside them.
                 -->
-                <w-icon class="me-2" name="la:calendar" color="indigo" size="sm" />
+                <w-icon class="me-2" name="tabler:calendar" color="indigo" size="sm" />
               </w-td>
             </template>
             <template v-slot:body-cell-task="props">
@@ -124,7 +126,7 @@
                 <w-btn
                   class="acrylic-btn px-2"
                   flat
-                  icon="la:play"
+                  icon="tabler:player-play"
                   color="positive"
                   :aria-label="t(`admin.scheduler.runNow`)"
                   @click="runNow(props.row)">
@@ -151,7 +153,7 @@
                 horizontal
                 :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
                 <w-card-section class="flex-none pe-0">
-                  <w-icon name="la:info-circle" size="sm" />
+                  <w-icon name="tabler:info-circle" size="sm" />
                 </w-card-section>
                 <w-card-section class="text-caption">{{
                   t('admin.scheduler.upcomingNone')
@@ -159,7 +161,7 @@
               </w-card-section>
             </template>
             <template v-slot:body-cell-id="props">
-              <w-td :props="props"><w-icon name="la:clock" color="primary" size="sm" /></w-td>
+              <w-td :props="props"><w-icon name="tabler:clock" color="primary" size="sm" /></w-td>
             </template>
             <template v-slot:body-cell-task="props">
               <w-td :props="props">
@@ -190,11 +192,11 @@
             <template v-slot:body-cell-useworker="props">
               <w-td :props="props">
                 <template v-if="props.value">
-                  <w-icon name="la:microchip" color="brown" size="sm" />
+                  <w-icon name="tabler:cpu" color="brown" size="sm" />
                   <small class="ms-1 text-brown">Worker</small>
                 </template>
                 <template v-else>
-                  <w-icon name="la:leaf" color="teal" size="sm" />
+                  <w-icon name="tabler:leaf" color="teal" size="sm" />
                   <small class="ms-1 text-teal">In-Process</small>
                 </template>
               </w-td>
@@ -216,7 +218,7 @@
                 <w-btn
                   class="acrylic-btn px-2"
                   flat
-                  icon="la:window-close"
+                  icon="tabler:square-x"
                   color="negative"
                   @click="cancelJob(props.row.id)">
                   <w-tooltip labels anchor="center left" self="center right">{{
@@ -242,7 +244,7 @@
                 horizontal
                 :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
                 <w-card-section class="flex-none pe-0">
-                  <w-icon name="la:info-circle" size="sm" />
+                  <w-icon name="tabler:info-circle" size="sm" />
                 </w-card-section>
                 <w-card-section class="text-caption">{{
                   t('admin.scheduler.' + state.displayMode + 'None')
@@ -253,21 +255,21 @@
               <w-td :props="props">
                 <w-avatar
                   v-if="props.row.state === `completed`"
-                  icon="la:check"
+                  icon="tabler:check"
                   color="positive"
                   text-color="white"
                   size="sm"
                   rounded />
                 <w-avatar
                   v-else-if="props.row.state === `failed`"
-                  icon="la:times"
+                  icon="tabler:x"
                   color="negative"
                   text-color="white"
                   size="sm"
                   rounded />
                 <w-avatar
                   v-else-if="props.row.state === `interrupted`"
-                  icon="la:square-full"
+                  icon="tabler:square"
                   color="orange"
                   text-color="white"
                   size="sm"
@@ -299,7 +301,7 @@
                   "
                   @click="toggleGroup(props.row.groupTask)">
                   <w-icon
-                    name="mdi:chevron-down"
+                    name="tabler:chevron-down"
                     size="14px"
                     class="shrink-0 transition-transform"
                     :class="props.row.groupExpanded ? '' : '-rotate-90'" />
@@ -366,11 +368,11 @@
             <template v-slot:body-cell-useworker="props">
               <w-td :props="props">
                 <template v-if="props.value">
-                  <w-icon name="la:microchip" color="brown" size="sm" />
+                  <w-icon name="tabler:cpu" color="brown" size="sm" />
                   <small class="ms-1 text-brown">Worker</small>
                 </template>
                 <template v-else>
-                  <w-icon name="la:leaf" color="teal" size="sm" />
+                  <w-icon name="tabler:leaf" color="teal" size="sm" />
                   <small class="ms-1 text-teal">In-Process</small>
                 </template>
               </w-td>
@@ -407,7 +409,7 @@
                   class="acrylic-btn px-2"
                   v-if="props.row.state !== `active` && props.row.groupCount === 1"
                   flat
-                  icon="la:undo-alt"
+                  icon="tabler:arrow-back-up"
                   color="orange"
                   :aria-label="t(`admin.scheduler.retryJob`)"
                   @click="retryJob(props.row.id)"
@@ -445,6 +447,7 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDateWithSeconds, humanizeDuration, relativeDate } from '@/helpers/datetime'
 import { flattenJobHistoryRows } from '@/helpers/jobHistoryGrouping'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

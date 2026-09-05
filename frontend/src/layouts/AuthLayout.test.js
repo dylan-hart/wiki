@@ -43,10 +43,10 @@ describe('AuthLayout — site footer', () => {
     })
   })
 
-  it('still renders the generic "Powered by Wiki.js" line with no site branding configured', () => {
+  it('still renders the generic "powered by Cardinal.js" line with no site branding configured', () => {
     const wrapper = mountLayout()
 
     expect(wrapper.find('.site-footer').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Wiki.js')
+    expect(wrapper.text()).toContain('Cardinal.js')
   })
 })

@@ -47,7 +47,7 @@ describe('EditorMarkdown skips rendering while the preview pane is closed (OpenP
   async function closePreview(wrapper) {
     const hideButton = wrapper
       .findAllComponents(WBtn)
-      .find((candidate) => candidate.props('icon') === 'mdi:eye-off-outline')
+      .find((candidate) => candidate.props('icon') === 'tabler:eye-off')
     await hideButton.trigger('click')
   }
 
@@ -90,7 +90,7 @@ describe('EditorMarkdown skips rendering while the preview pane is closed (OpenP
 
     const showButton = wrapper
       .findAllComponents(WBtn)
-      .find((candidate) => candidate.props('icon') === 'mdi:view-split-vertical')
+      .find((candidate) => candidate.props('icon') === 'tabler:layout-columns')
     await showButton.trigger('click')
 
     expect(pageStore.render).toContain('EDITED')
@@ -154,14 +154,14 @@ describe('EditorMarkdown preview pane initial reveal (OpenProject #809 follow-up
     //    reset is what proves this fix cannot regress that already-verified behavior.
     const hideButton = wrapper
       .findAllComponents(WBtn)
-      .find((candidate) => candidate.props('icon') === 'mdi:eye-off-outline')
+      .find((candidate) => candidate.props('icon') === 'tabler:eye-off')
     await hideButton.trigger('click')
     expect(wrapper.find('.editor-markdown-preview').exists()).toBe(false)
     expect(wrapper.vm.previewEverRevealed).toBe(true)
 
     const showButton = wrapper
       .findAllComponents(WBtn)
-      .find((candidate) => candidate.props('icon') === 'mdi:view-split-vertical')
+      .find((candidate) => candidate.props('icon') === 'tabler:layout-columns')
     await showButton.trigger('click')
     expect(wrapper.find('.editor-markdown-preview').exists()).toBe(true)
     expect(wrapper.vm.previewEverRevealed).toBe(true)

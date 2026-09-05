@@ -8,7 +8,7 @@
         <!-- -> Straight to the File Manager, the same affordance `EditorMarkdown.vue` exposes: see the
                 note on its own `insertAssets` for why there is no separate URL/clipboard source. -->
         <w-btn
-          icon="mdi:image-plus-outline"
+          icon="tabler:photo-plus"
           padding="sm sm"
           flat
           :aria-label="t('editor.markup.insertAssets')"

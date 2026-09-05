@@ -605,7 +605,6 @@ html.theme-transition-suppress *::after {
 
     > b {
       background-color: rgba(253, 216, 53, 0.5);
-      border-radius: 3px;
     }
   }
 
@@ -742,7 +741,6 @@ html.theme-transition-suppress *::after {
     margin: 0 0.25rem;
     padding: 0;
     border: 2px solid rgba(0, 0, 0, 0.2);
-    border-radius: 6px;
     font-size: 1.25rem;
     text-align: center;
   }
@@ -798,4 +796,39 @@ html.theme-transition-suppress *::after {
   --breakpoint-md: 1024px;
   --breakpoint-lg: 1440px;
   --breakpoint-xl: 1920px;
+}
+
+/*
+  Cardinal draws square. Every framed thing in the language -- panels, cards, dialogs, fields,
+  buttons, chips, the avatar plates -- is a hairline rectangle, and a radius anywhere reads as a
+  different design (`ui-redesign/CLAUDE.md`: "hairline borders, blueprint corner marks", and every
+  screen in `ui-redesign/` draws zero radius).
+
+  Zeroed on the SCALE rather than chased through the markup: `rounded`, `rounded-lg` and friends are
+  written in 138 places across the app, and squaring them one by one leaves the next `rounded-md`
+  somebody writes drawing a corner nothing else has. `--radius-full` is deliberately left alone --
+  it is what makes a genuinely circular thing circular (a radio's dot, a spinner, a status light),
+  which is a shape rather than a corner treatment, and the design draws those round too.
+*/
+@theme static {
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+}
+
+/*
+  `rounded` with no suffix takes Tailwind's own literal 0.25rem rather than a `--radius-*` variable,
+  so the scale above cannot reach it -- and it is by far the most-written of them here. In
+  `@layer utilities` so anything more specific in a component still wins, exactly as the generated
+  utility would have.
+*/
+@layer utilities {
+  .rounded {
+    border-radius: 0;
+  }
 }

@@ -133,7 +133,7 @@ describe('PageActionsCol duplicate page (OpenProject #1787)', () => {
       title: 'Copy'
     })
     expect(notifyQueue).toHaveLength(1)
-    expect(notifyQueue[0]).toMatchObject({ type: 'negative', message: 'Failed to duplicate page.' })
+    expect(notifyQueue[0]).toMatchObject({ type: 'negative', message: 'fileman.duplicateFailed' })
   })
 
   it('does not notify when the duplicate succeeds', async () => {

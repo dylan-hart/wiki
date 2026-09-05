@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-api">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:plug-connected" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:plug-connected" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.api.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.api.subtitle') }}
@@ -28,7 +30,7 @@
              accessible name and there is no `aria-label` -->
         <w-btn
           class="acrylic-btn me-2 ms-4"
-          icon="la:book"
+          icon="tabler:book"
           flat
           color="grey"
           :label="t(`admin.api.docsButton`)"
@@ -36,9 +38,9 @@
           target="_blank" />
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="refresh">
@@ -46,14 +48,14 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:power-off"
+          icon="tabler:power"
           :label="!state.enabled ? t(`admin.api.enableButton`) : t(`admin.api.disableButton`)"
           :color="!state.enabled ? `positive` : `negative`"
           @click="globalSwitch"
           :loading="state.isToggleLoading"
           :disabled="state.loading > 0" />
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.api.newKeyButton`)"
           color="primary"
           @click="newKey"
@@ -74,7 +76,7 @@
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
-              <w-icon name="la:info-circle" size="sm" />
+              <w-icon name="tabler:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">
               <i18n-t tag="span" keypath="admin.api.personalTokenNote" scope="global">
@@ -97,7 +99,7 @@
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
-              <w-icon name="la:info-circle" size="sm" />
+              <w-icon name="tabler:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">{{ t('admin.api.none') }}</w-card-section>
           </w-card-section>
@@ -108,7 +110,7 @@
           <w-list separator>
             <w-item v-for="key of state.keys" :key="key.id">
               <w-item-section side>
-                <w-icon name="la:key" :color="isUsable(key) ? `positive` : `negative`" />
+                <w-icon name="tabler:key" :color="isUsable(key) ? `positive` : `negative`" />
               </w-item-section>
               <w-item-section>
                 <w-item-label>{{ key.name }}</w-item-label>
@@ -174,7 +176,7 @@
               -->
               <w-item-section v-if="keyState(key)" side>
                 <div class="flex items-center">
-                  <w-icon class="me-2" color="negative" size="xs" name="la:exclamation-triangle" />
+                  <w-icon class="me-2" color="negative" size="xs" name="tabler:alert-triangle" />
                   <div class="text-caption text-negative">
                     {{ t(`admin.api.${keyState(key)}`) }}
                   </div>
@@ -190,7 +192,7 @@
                 <w-btn
                   class="acrylic-btn"
                   :color="key.isRevoked ? `gray` : `red`"
-                  icon="la:ban"
+                  icon="tabler:ban"
                   flat
                   :aria-label="t(`admin.api.revoke`)"
                   @click="revoke(key)"
@@ -231,6 +233,7 @@ import {
   stateHint as keyStateHint
 } from '@/helpers/apiKeyState'
 import { humanizeDate } from '@/helpers/datetime'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

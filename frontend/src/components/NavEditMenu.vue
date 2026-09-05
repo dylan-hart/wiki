@@ -89,7 +89,7 @@
       <w-card-section>
         <w-btn
           class="w-full"
-          icon="mdi:playlist-edit"
+          icon="tabler:list-details"
           color="deep-orange-9"
           :label="t(`navEdit.editMenuItems`)"
           @click="startEditing" />

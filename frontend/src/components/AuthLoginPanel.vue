@@ -40,7 +40,7 @@
           lazy-rules="ondemand"
           hide-bottom-space
           :autocomplete="selectedStrategy.activeStrategy?.strategy?.usernameType ?? `email`">
-          <template #prepend><w-icon name="la:user" /></template>
+          <template #prepend><w-icon name="tabler:user" /></template>
         </w-input>
         <w-input
           class="mt-2"
@@ -51,14 +51,14 @@
           hide-bottom-space
           type="password"
           autocomplete="current-password">
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-btn
           class="w-full mt-2"
           type="submit"
           color="primary"
           :label="t(`auth.actions.login`)"
-          icon="la:sign-in-alt" />
+          icon="tabler:login" />
       </w-form>
       <!--
         Straight into the browser's passkey prompt: a passkey is a discoverable credential, so the
@@ -72,7 +72,7 @@
           flat
           color="primary"
           :label="t(`auth.passkeys.signin`)"
-          icon="la:key"
+          icon="tabler:key"
           @click="loginWithPasskey" />
       </template>
       <!--
@@ -101,7 +101,7 @@
           flat
           color="primary"
           :label="t(`auth.switchToRegister.link`)"
-          icon="la:user-plus"
+          icon="tabler:user-plus"
           @click="switchTo(`register`)" />
         <!-- -> Off where the strategy says so: a wiki that hands passwords out rather than letting
                 them be chosen has nothing for this to do -->
@@ -111,7 +111,7 @@
           flat
           color="primary"
           :label="t(`auth.forgotPasswordLink`)"
-          icon="la:life-ring"
+          icon="tabler:lifebuoy"
           @click="switchTo(`forgot`)" />
       </template>
     </template>
@@ -129,14 +129,14 @@
           hide-bottom-space
           :label="t(`auth.fields.email`)"
           autocomplete="email">
-          <template #prepend><w-icon name="la:envelope" /></template>
+          <template #prepend><w-icon name="tabler:mail" /></template>
         </w-input>
         <w-btn
           class="w-full mt-2"
           type="submit"
           color="primary"
           :label="t(`auth.sendResetPassword`)"
-          icon="la:life-ring" />
+          icon="tabler:lifebuoy" />
       </w-form>
       <w-separator class="my-4" />
       <w-btn
@@ -144,7 +144,7 @@
         flat
         color="primary"
         :label="t(`auth.forgotPasswordCancel`)"
-        icon="la:arrow-circle-left"
+        icon="tabler:circle-arrow-left"
         @click="switchTo(`login`)" />
     </template>
     <!-- ----------------------------------------------------- -->
@@ -168,7 +168,7 @@
               :color="passwordStrength.color"
               :label="passwordStrength.label" />
           </template>
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-input
           class="mt-2"
@@ -179,14 +179,14 @@
           :rules="userPasswordVerifyValidation"
           hide-bottom-space
           lazy-rules="ondemand">
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-btn
           class="w-full mt-2"
           type="submit"
           color="primary"
           :label="t(`auth.resetPassword.proceed`)"
-          icon="la:sync-alt" />
+          icon="tabler:refresh" />
       </w-form>
       <w-separator class="my-4" />
       <w-btn
@@ -194,7 +194,7 @@
         flat
         color="primary"
         :label="t(`auth.switchToLogin.link`)"
-        icon="la:arrow-circle-left"
+        icon="tabler:circle-arrow-left"
         @click="switchTo(`login`)" />
     </template>
     <!-- ----------------------------------------------------- -->
@@ -222,7 +222,7 @@
           hide-bottom-space
           :label="t(`auth.changePwd.currentPassword`)"
           autocomplete="password">
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-input
           class="mt-2"
@@ -240,7 +240,7 @@
               :color="passwordStrength.color"
               :label="passwordStrength.label" />
           </template>
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-input
           class="mt-2"
@@ -251,14 +251,14 @@
           :rules="userPasswordVerifyValidation"
           hide-bottom-space
           lazy-rules="ondemand">
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-btn
           class="w-full mt-2"
           type="submit"
           color="primary"
           :label="t(`auth.changePwd.proceed`)"
-          icon="la:sync-alt" />
+          icon="tabler:refresh" />
       </w-form>
     </template>
     <!-- ----------------------------------------------------- -->

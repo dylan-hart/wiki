@@ -28,7 +28,7 @@
           <w-chip
             v-if="state.targetUser"
             :label="state.targetUser.name"
-            icon="la:user"
+            icon="tabler:user"
             removable
             :remove-label="t('common.actions.clear')"
             @remove="state.targetUser = null" />

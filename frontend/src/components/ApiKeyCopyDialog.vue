@@ -66,7 +66,7 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:terminal"
+          icon="tabler:terminal-2"
           :label="t(`admin.api.copyMcpInstallCommand`)"
           color="primary"
           padding="xs md"
@@ -74,7 +74,7 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:copy"
+          icon="tabler:copy"
           :label="t(`common.actions.copy`)"
           color="primary"
           padding="xs md"

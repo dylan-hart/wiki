@@ -42,7 +42,7 @@
                 color="positive"
                 rounded
                 :title="t('profile.authTfaActive')">
-                <w-icon name="la:check" />
+                <w-icon name="tabler:check" />
                 <span>{{ t('profile.authTfaBadge') }}</span>
               </w-badge>
               <!--
@@ -53,7 +53,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:cog"
+                icon="tabler:settings"
                 color="primary"
                 :aria-label="t(`profile.authActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom right" self="top right">
@@ -70,7 +70,7 @@
                   <w-list dense padding style="min-width: 240px">
                     <w-item clickable @click="changePassword(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:key" class="text-blue-7" />
+                        <w-icon name="tabler:key" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authChangePassword') }}</w-item-section>
                     </w-item>
@@ -79,13 +79,13 @@
                       clickable
                       @click="disableTfa(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:fingerprint" class="text-blue-7" />
+                        <w-icon name="tabler:fingerprint" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authDisableTfa') }}</w-item-section>
                     </w-item>
                     <w-item v-else clickable @click="setupTfa(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:fingerprint" class="text-blue-7" />
+                        <w-icon name="tabler:fingerprint" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authSetTfa') }}</w-item-section>
                     </w-item>
@@ -94,7 +94,7 @@
                       clickable
                       @click="regenerateRecoveryCodes(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:key" class="text-blue-7" />
+                        <w-icon name="tabler:key" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.tfaRecoveryCodesRegenerate') }}</w-item-section>
                     </w-item>
@@ -105,7 +105,7 @@
                       :disabled="!auth.config.canDisablePasswordLogin"
                       @click="disablePasswordLogin(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:ban" class="text-negative" />
+                        <w-icon name="tabler:ban" class="text-negative" />
                       </w-item-section>
                       <w-item-section class="text-negative">
                         {{ t('profile.authDisablePasswordLogin') }}
@@ -113,7 +113,7 @@
                     </w-item>
                     <w-item v-else clickable @click="enablePasswordLogin(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:redo" class="text-blue-7" />
+                        <w-icon name="tabler:arrow-forward-up" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authEnablePasswordLogin') }}</w-item-section>
                     </w-item>
@@ -153,8 +153,8 @@
       <w-list v-if="state.passkeys?.length > 0" class="mt-6" bordered separator>
         <w-item v-for="pkey of state.passkeys" :key="pkey.id">
           <w-item-section avatar>
-            <w-avatar color="secondary" text-color="white" rounded>
-              <w-icon name="la:key" />
+            <w-avatar color="slate" text-color="white" rounded>
+              <w-icon name="tabler:key" />
             </w-avatar>
           </w-item-section>
           <w-item-section>
@@ -166,7 +166,7 @@
             <w-btn
               class="acrylic-btn"
               flat
-              icon="la:trash"
+              icon="tabler:trash"
               :aria-label="t(`common.actions.delete`)"
               color="negative"
               @click="deactivatePasskey(pkey)" />
@@ -175,7 +175,7 @@
       </w-list>
       <div class="mt-4">
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`profile.passkeysAdd`)"
           color="primary"
           @click="setupPasskey" />

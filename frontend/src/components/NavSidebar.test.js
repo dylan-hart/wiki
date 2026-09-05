@@ -145,11 +145,11 @@ describe('NavSidebar destination()', () => {
   ]
 
   const items = CASES.flatMap(({ label, target }, i) => [
-    { id: `${i}-off`, type: 'link', icon: 'mdi:link', label, target, openInNewWindow: false },
+    { id: `${i}-off`, type: 'link', icon: 'tabler:link', label, target, openInNewWindow: false },
     {
       id: `${i}-on`,
       type: 'link',
-      icon: 'mdi:link',
+      icon: 'tabler:link',
       label: `${label} (new tab)`,
       target,
       openInNewWindow: true
@@ -213,13 +213,13 @@ describe('NavSidebar isCurrent()/containsCurrent()', () => {
       {
         id: 'group',
         type: 'link',
-        icon: 'mdi:folder',
+        icon: 'tabler:folder',
         label: 'Group',
         children: [
           {
             id: 'child',
             type: 'link',
-            icon: 'mdi:link',
+            icon: 'tabler:link',
             label: 'Trailing slash child',
             target: '/foo/bar/'
           }
@@ -239,13 +239,13 @@ describe('NavSidebar isCurrent()/containsCurrent()', () => {
       {
         id: 'group',
         type: 'link',
-        icon: 'mdi:folder',
+        icon: 'tabler:folder',
         label: 'Group',
         children: [
           {
             id: 'child',
             type: 'link',
-            icon: 'mdi:link',
+            icon: 'tabler:link',
             label: 'Matching child',
             target: '/foo/bar/'
           }
@@ -276,13 +276,13 @@ describe('NavSidebar isCurrent()/containsCurrent()', () => {
       {
         id: 'group',
         type: 'link',
-        icon: 'mdi:folder',
+        icon: 'tabler:folder',
         label: 'Group',
         children: [
           {
             id: 'child',
             type: 'link',
-            icon: 'mdi:link',
+            icon: 'tabler:link',
             label: 'Real page',
             target: '/actual/page'
           }
@@ -324,25 +324,25 @@ describe('NavSidebar recursive nesting (OpenProject #814)', () => {
     {
       id: 'level-0',
       type: 'link',
-      icon: 'mdi:folder',
+      icon: 'tabler:folder',
       label: 'Level 0',
       children: [
         {
           id: 'level-1',
           type: 'link',
-          icon: 'mdi:folder',
+          icon: 'tabler:folder',
           label: 'Level 1',
           children: [
             {
               id: 'level-2',
               type: 'link',
-              icon: 'mdi:folder',
+              icon: 'tabler:folder',
               label: 'Level 2',
               children: [
                 {
                   id: 'level-3-leaf',
                   type: 'link',
-                  icon: 'mdi:file',
+                  icon: 'tabler:file',
                   label: 'Level 3 leaf',
                   target: '/deep/page'
                 }
@@ -381,21 +381,21 @@ describe('NavSidebar recursive nesting (OpenProject #814)', () => {
       {
         id: 'top',
         type: 'link',
-        icon: 'mdi:folder',
+        icon: 'tabler:folder',
         label: 'Top',
         // -> Not expandByDefault and not containing the current page: stays closed
         children: [
           {
             id: 'nested',
             type: 'link',
-            icon: 'mdi:folder',
+            icon: 'tabler:folder',
             label: 'Nested',
             expandByDefault: true,
             children: [
               {
                 id: 'nested-leaf',
                 type: 'link',
-                icon: 'mdi:file',
+                icon: 'tabler:file',
                 label: 'Nested leaf',
                 target: '/somewhere/else'
               }
@@ -431,26 +431,26 @@ describe('NavSidebar mixed folder/page side-tree (OpenProject #832)', () => {
     {
       id: 'parent-folder',
       type: 'link',
-      icon: 'mdi:folder',
+      icon: 'tabler:folder',
       label: 'Parent Folder',
       children: [
         {
           id: 'direct-page',
           type: 'link',
-          icon: 'mdi:file',
+          icon: 'tabler:file',
           label: 'Direct Page',
           target: '/parent-folder/direct-page'
         },
         {
           id: 'sub-folder',
           type: 'link',
-          icon: 'mdi:folder',
+          icon: 'tabler:folder',
           label: 'Sub Folder',
           children: [
             {
               id: 'nested-page',
               type: 'link',
-              icon: 'mdi:file',
+              icon: 'tabler:file',
               label: 'Nested Page',
               target: '/parent-folder/sub-folder/nested-page'
             }
@@ -498,7 +498,7 @@ describe('NavSidebarItem context menu', () => {
       {
         id: 'folder-1',
         type: 'link',
-        icon: 'mdi:folder',
+        icon: 'tabler:folder',
         label: 'Docs',
         path: 'docs',
         folderId: null,
@@ -507,7 +507,7 @@ describe('NavSidebarItem context menu', () => {
           {
             id: 'page-1',
             type: 'link',
-            icon: 'mdi:file',
+            icon: 'tabler:file',
             label: 'Setup',
             path: 'docs/setup',
             folderId: 'folder-1',
@@ -549,7 +549,13 @@ describe('NavSidebarItem context menu', () => {
 
   it('renders no PageNewMenu on a non-generated (static) item, even when the viewer can write pages', async () => {
     const staticItems = [
-      { id: 'static-1', type: 'link', icon: 'mdi:link', label: 'Static Link', target: '/somewhere' }
+      {
+        id: 'static-1',
+        type: 'link',
+        icon: 'tabler:link',
+        label: 'Static Link',
+        target: '/somewhere'
+      }
     ]
     const wrapper = await mountWithPermission(staticItems, true)
     expect(wrapper.findComponent(PageNewMenu).exists()).toBe(false)
@@ -629,7 +635,7 @@ describe('NavSidebarItem context menu', () => {
       {
         id: 'boundary-1',
         type: 'link',
-        icon: 'mdi:folder',
+        icon: 'tabler:folder',
         label: 'Boundary Folder',
         path: 'boundary',
         folderId: null,

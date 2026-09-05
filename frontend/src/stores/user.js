@@ -68,6 +68,9 @@ function toUserZone(date, timezone) {
   `formatTimePart()` call. `hourCycle` rather than `hour12: false`, which some locales render as
   24:00 where they mean 00:00.
 */
+/** The abbreviated weekday `formatRecent()` reads back, in the interface's own locale. */
+const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
+
 const timeFormats = {
   '12h': new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }),
   '24h': new Intl.DateTimeFormat(undefined, {
@@ -346,6 +349,30 @@ export const useUserStore = defineStore('user', {
           timeZoneName: zone ? 'short' : undefined
         })
       })
+    },
+    /**
+     * The RECENT form: a weekday and a time ("Tue 4:12 PM") for anything inside the last week, and
+     * the full date-and-time for anything older.
+     *
+     * What a reader wants from "last modified" on a page they are looking at is how fresh it is, and
+     * a weekday answers that at a glance where `2026-09-05 at 11:17 AM` has to be decoded against
+     * today's date first. Beyond a week the weekday stops being useful -- "Tue" could be any Tuesday
+     * -- so it falls back to `formatDateTime` rather than growing a second relative vocabulary.
+     *
+     * The weekday comes from `Intl` rather than a table, so it follows the interface locale.
+     */
+    formatRecent(t, date) {
+      if (!date) {
+        return ''
+      }
+      const zoned = toUserZone(date, this.timezone)
+      const days = Temporal.Now.zonedDateTimeISO(zoned.timeZoneId)
+        .startOfDay()
+        .since(zoned.startOfDay(), { largestUnit: 'day' }).days
+      if (days < 0 || days > 6) {
+        return this.formatDateTime(t, date)
+      }
+      return `${weekdayFormat.format(zoned.toPlainDateTime())} ${formatTimePart(zoned, this.timeFormat)}`
     },
     /**
      * Format the DATE alone, in this user's pattern and zone. For a line with no room for a time, or

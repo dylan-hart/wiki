@@ -78,16 +78,16 @@ function mountDialog({ pagePermissions = ['write:pages'] } = {}) {
 describe('PagePropertiesDialog', () => {
   /**
    * Regression coverage for OpenProject #1133 item 1: the Relations quick-access button used
-   * `la:sun`, a copy-paste mistake -- not `la:link` or any other relations-shaped icon.
+   * `tabler:sun`, a copy-paste mistake -- not `tabler:link` or any other relations-shaped icon.
    */
   it('does not use the sun icon for the Relations quick-access button', async () => {
     const { wrapper } = mountDialog()
     await flushPromises()
 
-    expect(wrapper.find('.floating-sidepanel-quickaccess [data-icon="la:sun"]').exists()).toBe(
+    expect(wrapper.find('.floating-sidepanel-quickaccess [data-icon="tabler:sun"]').exists()).toBe(
       false
     )
-    expect(wrapper.find('.floating-sidepanel-quickaccess [data-icon="la:link"]').exists()).toBe(
+    expect(wrapper.find('.floating-sidepanel-quickaccess [data-icon="tabler:link"]').exists()).toBe(
       true
     )
   })
@@ -108,7 +108,7 @@ describe('PagePropertiesDialog', () => {
       expect(btn.attributes('aria-label')).toBeTruthy()
     }
 
-    const closeBtn = wrapper.find('.w-toolbar [data-icon="la:times"]').element.closest('button')
+    const closeBtn = wrapper.find('.w-toolbar [data-icon="tabler:x"]').element.closest('button')
     expect(closeBtn.getAttribute('aria-label')).toBe('Close')
   })
 

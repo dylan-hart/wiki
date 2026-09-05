@@ -250,7 +250,6 @@ defineExpose({
 .util-code-editor {
   position: relative;
   overflow: hidden;
-  border-radius: 5px;
   /* -> Same resting and focus edge as the other form controls; see `.w-input-control` */
   border: 1px solid rgb(0 0 0 / 0.24);
   background-color: #fff;

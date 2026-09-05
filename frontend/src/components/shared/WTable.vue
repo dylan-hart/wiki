@@ -14,7 +14,7 @@
             {{ col.label }}
             <w-icon
               v-if="col.sortable"
-              name="la:arrow-up"
+              name="tabler:arrow-up"
               size="14px"
               class="align-middle transition-[opacity,transform]"
               :class="[
