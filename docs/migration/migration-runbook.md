@@ -196,19 +196,19 @@ reasons are defined; two are actually emitted by this branch's phases:
   `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 3). No storage target is
   updated for that module; the site's default per-module storage target (seeded at site-creation
   time) is simply left at its defaults.
-**Provider-fallback accounts need a password reset — and the report does not currently tell you
-which ones.** A 2.x user whose provider is anything other than `local` **and** not one of the five
-unsupported providers above (i.e. every user on `google`, `github`, `oidc`, `ldap`, `saml`, `cas`,
-`auth0`, `okta`, `gitlab`, `keycloak`, `microsoft`, `oauth2`, `discord`, `slack`, or `twitch`) is still
-imported — just not through a real provider link. Because automatic OAuth/LDAP/SAML re-linking isn't
-built yet, every such user is created as a **local-strategy account with a random, unusable password
-and `mustChangePwd` forced to `true`.** This is tracked internally as the importer runs
-(`UserImporter.providerFallbacks`), but neither `PhaseReport` nor the JSON report file
-currently surfaces it — there is no CLI flag or report field that lists which accounts need a
-password reset. After a live `users` phase, query the destination directly instead
-(`SELECT email FROM users WHERE (auth -> '<local-strategy-uuid>' ->> 'mustChangePwd')::boolean = true`,
-substituting this install's local strategy id) to get that list before communicating cutover
-instructions to affected users.
+**Provider-fallback accounts need a password reset.** A 2.x user whose provider is anything other
+than `local` **and** not one of the five unsupported providers above (i.e. every user on `google`,
+`github`, `oidc`, `ldap`, `saml`, `cas`, `auth0`, `okta`, `gitlab`, `keycloak`, `microsoft`, `oauth2`,
+`discord`, `slack`, or `twitch`) is still imported — just not through a real provider link. Because
+automatic OAuth/LDAP/SAML re-linking isn't built yet, every such user is created as a **local-strategy
+account with a random, unusable password and `mustChangePwd` forced to `true`**, with the source
+`providerKey` preserved on that same auth entry (`migratedFallbackProvider`) purely for admin
+visibility. This is tracked internally as the importer runs (`UserImporter.providerFallbacks`), and
+after a live `users` phase it is queryable directly: `GET /_api/users/fallback-accounts`
+(`read:users`/`manage:users`) lists every account still on `mustChangePwd` together with its original
+`providerKey`, oldest-created first — get that list before communicating cutover instructions to
+affected users. The account drops off this list on its own once it relinks via SSO
+(`models/login.ts#clearMigratedFallbackLocalAuth`).
 
 Do not proceed past this step until you've reviewed every `conflicts` and `unmappable` entry in the
 report and are comfortable with what each one means for your users.
