@@ -315,9 +315,26 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
     ])
   })
 
+  it('marks only the root ("") synthetic node with root: true (OpenProject #2563)', () => {
+    const { syntheticNodes } = buildPathHierarchyEdges([{ path: 'docs/child/page', locale: 'en' }])
+
+    const root = syntheticNodes.find((n) => n.path === '')
+    const nonRoots = syntheticNodes.filter((n) => n.path !== '')
+
+    expect(root.root).toBe(true)
+    // -> Every other synthetic folder node has no `root` key at all -- not `root: false` -- so a
+    //    plain `for...in`/`Object.keys` scan over a non-root node never even sees the key.
+    expect(nonRoots).toHaveLength(2)
+    for (const node of nonRoots) {
+      expect('root' in node).toBe(false)
+    }
+  })
+
   it('gives a root-level page a single edge straight to the synthetic root', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([{ path: 'about', locale: 'en' }])
-    expect(syntheticNodes).toEqual([{ path: '', locale: 'en', title: '(root)', synthetic: true }])
+    expect(syntheticNodes).toEqual([
+      { path: '', locale: 'en', title: '(root)', synthetic: true, root: true }
+    ])
     expect(edges).toEqual([{ source: 'en:', target: 'en:about', type: 'path' }])
   })
 
@@ -339,7 +356,9 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
       { path: 'docs', title: 'Docs Index', locale: 'en' },
       { path: 'docs/child', locale: 'en' }
     ])
-    expect(syntheticNodes).toEqual([{ path: '', locale: 'en', title: '(root)', synthetic: true }])
+    expect(syntheticNodes).toEqual([
+      { path: '', locale: 'en', title: '(root)', synthetic: true, root: true }
+    ])
     expect(edges).toHaveLength(2)
     expect(edges).toEqual(
       expect.arrayContaining([
@@ -394,9 +413,9 @@ describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632
     expect(syntheticNodes).toHaveLength(4)
     expect(syntheticNodes).toEqual(
       expect.arrayContaining([
-        { path: '', locale: 'en', title: '(root)', synthetic: true },
+        { path: '', locale: 'en', title: '(root)', synthetic: true, root: true },
         { path: 'docs', locale: 'en', title: 'docs', synthetic: true },
-        { path: '', locale: 'fr', title: '(root)', synthetic: true },
+        { path: '', locale: 'fr', title: '(root)', synthetic: true, root: true },
         { path: 'docs', locale: 'fr', title: 'docs', synthetic: true }
       ])
     )
@@ -424,8 +443,8 @@ describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632
 
     expect(syntheticNodes).toEqual(
       expect.arrayContaining([
-        { path: '', locale: 'en', title: '(root)', synthetic: true },
-        { path: '', locale: 'fr', title: '(root)', synthetic: true },
+        { path: '', locale: 'en', title: '(root)', synthetic: true, root: true },
+        { path: '', locale: 'fr', title: '(root)', synthetic: true, root: true },
         { path: 'docs', locale: 'fr', title: 'docs', synthetic: true }
       ])
     )

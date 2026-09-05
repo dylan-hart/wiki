@@ -133,6 +133,60 @@ describe('drawNodes (OpenProject #2480)', () => {
   })
 })
 
+describe('drawNodes: root node marker (OpenProject #2563)', () => {
+  it('strokes a distinct ring around a node.root node even with no highlightedIds at all', () => {
+    const ctx = makeCtx()
+    const nodes = [
+      { path: '', locale: 'en', synthetic: true, root: true, x: 1, y: 1 },
+      { path: 'docs', locale: 'en', synthetic: true, x: 2, y: 2 }
+    ]
+
+    drawNodes(ctx, nodes, radiusFor)
+
+    // -> Exactly one ring stroke -- the root node only, not the plain synthetic folder node.
+    expect(ctx.stroke).toHaveBeenCalledTimes(1)
+    expect(ctx.strokeStyle).toBe('#ff4081')
+  })
+
+  it('still strokes the root ring while a keyword search is active and the root is not the match, dimmed the same as its fill', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: '', locale: 'en', synthetic: true, root: true, x: 1, y: 1 }]
+
+    const fillAlphas = []
+    ctx.fill.mockImplementation(() => fillAlphas.push(ctx.globalAlpha))
+
+    drawNodes(ctx, nodes, radiusFor, new Set(['en:some-other-page']))
+
+    expect(fillAlphas[0]).toBeLessThan(1)
+    expect(ctx.stroke).toHaveBeenCalledTimes(1)
+    expect(ctx.strokeStyle).toBe('#ff4081')
+  })
+
+  it('draws both rings, root and highlight, when the root node also matches the active keyword search', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: '', locale: 'en', synthetic: true, root: true, x: 1, y: 1 }]
+
+    drawNodes(ctx, nodes, radiusFor, new Set(['en:']))
+
+    expect(ctx.stroke).toHaveBeenCalledTimes(2)
+    // -> Root ring strokes first (its own color), then the highlight ring overwrites strokeStyle
+    //    with its own -- the last stroke call's color is what a final read of strokeStyle sees.
+    expect(ctx.strokeStyle).toBe('#ffd600')
+  })
+
+  it('never rings a plain synthetic folder/tag-hub node that is not the root', () => {
+    const ctx = makeCtx()
+    const nodes = [
+      { path: 'docs', locale: 'en', synthetic: true, x: 1, y: 1 },
+      { path: '__tag__foo', synthetic: true, x: 2, y: 2 }
+    ]
+
+    drawNodes(ctx, nodes, radiusFor)
+
+    expect(ctx.stroke).not.toHaveBeenCalled()
+  })
+})
+
 describe('drawLabels', () => {
   const nodes = [{ x: 0, y: 0, title: 'Intro' }]
   // -> Above LABEL_VISIBILITY_ZOOM_THRESHOLD (0.75) so the label layer actually draws.
