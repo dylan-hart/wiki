@@ -195,7 +195,7 @@ export const useSiteStore = defineStore('site', {
       colorHeader: '#ffffff',
       colorSidebar: '#f0f2f7',
       codeBlocksTheme: '',
-      contentWidth: 'full',
+      contentWidth: 'centered',
       sidebarPosition: 'left',
       tocPosition: 'right',
       showPrintBtn: true,

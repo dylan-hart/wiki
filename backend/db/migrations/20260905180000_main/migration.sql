@@ -27,3 +27,11 @@ UPDATE "sites" SET config = jsonb_set(config, '{theme,baseFont}', '"barlow"')
   WHERE config #>> '{theme,baseFont}' = 'roboto';--> statement-breakpoint
 UPDATE "sites" SET config = jsonb_set(config, '{theme,contentFont}', '"barlow"')
   WHERE config #>> '{theme,contentFont}' = 'roboto';
+--> statement-breakpoint
+
+-- `contentWidth` has been a stored, editable setting with nothing in the frontend reading it, so
+-- every site holds the `full` it was seeded with and "Centered" in the theme settings did nothing.
+-- The design holds a page's text to a measure, so `centered` is the new default and a site still on
+-- the old one moves with it; a site that wants the full column back flips one setting.
+UPDATE "sites" SET config = jsonb_set(config, '{theme,contentWidth}', '"centered"')
+  WHERE config #>> '{theme,contentWidth}' = 'full';

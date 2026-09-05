@@ -141,7 +141,9 @@
         <w-scroll-area class="page-container-scrl" ref="pageScroller" v-else style="height: 100%">
           <!-- -> Half the padding on a phone, where 16px a side is 8% of the window spent on margin;
                   the stylesheet has `--content-bleed` to match -->
-          <div class="page-container-body p-2 sm:p-4">
+          <div
+            class="page-container-body"
+            :class="{ 'is-centered': siteStore.theme.contentWidth === `centered` }">
             <!--
               Delegated rather than bound per link: the anchors are written by `v-html`, so there is
               nothing here to put a handler on, and they are replaced wholesale on every render.
@@ -1296,6 +1298,21 @@ $toc-overlay-max: 749.98px;
       --content-bleed: 16px;
     }
   }
+}
+
+/*
+  A measure, when the site asks for one. `contentWidth` has been a stored, editable setting with
+  nothing reading it -- so "Centered" in the theme settings did nothing at all -- and 720px is the
+  measure the design draws (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: the article pads
+  32/28/44 and then holds its text to 720px inside that).
+
+  On the contents rather than on this box, so the padding above stays the column's and only the text
+  is bounded: a page of prose reads at a comfortable measure while the sheet it sits on still fills
+  the window.
+*/
+.page-container-body.is-centered > .page-contents {
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 /*

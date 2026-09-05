@@ -393,7 +393,7 @@ function defaultConfig() {
     colorHeader: '#ffffff',
     colorSidebar: '#f0f2f7',
     codeBlocksTheme: 'github-dark',
-    contentWidth: 'full',
+    contentWidth: 'centered',
     sidebarPosition: 'left',
     tocPosition: 'right',
     showPrintBtn: true,
