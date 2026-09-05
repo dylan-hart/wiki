@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-utilities">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:tool" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:tool" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.utilities.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.utilities.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -37,7 +39,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="disconnectWS"
                 :label="t(`common.actions.proceed`)" />
@@ -54,7 +56,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 :loading="state.isExporting"
                 :aria-label="t(`admin.utilities.export`)"
@@ -72,7 +74,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="flushCache"
                 :label="t(`common.actions.proceed`)" />
@@ -88,7 +90,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="pickImportFile"
                 :label="t(`common.actions.proceed`)" />
@@ -106,7 +108,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="invalidateApiCertificates"
                 :label="t(`common.actions.proceed`)" />
@@ -124,7 +126,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="invalidateSessionSecret"
                 :label="t(`common.actions.proceed`)" />
@@ -142,7 +144,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="rotatePageviewsHashKey"
                 :label="t(`common.actions.proceed`)" />
@@ -169,7 +171,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="purgeHistory"
                 :label="t(`common.actions.proceed`)" />
@@ -185,7 +187,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 @click="purgeRevokedKeys"
                 :label="t(`common.actions.proceed`)" />
@@ -201,7 +203,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:arrow-circle-right"
+                icon="tabler:circle-arrow-right"
                 color="primary"
                 :loading="state.isScanning"
                 :aria-label="t(`admin.utilities.scanPageProblems`)"
@@ -266,6 +268,7 @@ import { fileSave } from 'browser-fs-access'
 
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // STORES
 

@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`inbox.reviewDecline`)" @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
-        <w-icon name="la:times" size="sm" class="me-2" />
+        <w-icon name="tabler:x" size="sm" class="me-2" />
         <span>{{ t(`inbox.reviewDecline`) }}</span>
       </w-card-section>
       <!-- -> `pb-0`: the field below adds its own margin for the floating label, matching

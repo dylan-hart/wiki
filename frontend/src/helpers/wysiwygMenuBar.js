@@ -34,48 +34,48 @@ export function buildMenuBar(
   return [
     {
       key: 'bold',
-      icon: 'mdi:format-bold',
+      icon: 'tabler:bold',
       title: 'Bold',
       action: () => editor.value.chain().focus().toggleBold().run(),
       isActive: () => editor.value.isActive('bold')
     },
     {
       key: 'italic',
-      icon: 'mdi:format-italic',
+      icon: 'tabler:italic',
       title: 'Italic',
       action: () => editor.value.chain().focus().toggleItalic().run(),
       isActive: () => editor.value.isActive('italic')
     },
     {
       key: 'strikethrough',
-      icon: 'mdi:format-strikethrough',
+      icon: 'tabler:strikethrough',
       title: 'Strike',
       action: () => editor.value.chain().focus().toggleStrike().run(),
       isActive: () => editor.value.isActive('strike')
     },
     {
       key: 'code',
-      icon: 'mdi:code-tags',
+      icon: 'tabler:code',
       title: 'Code',
       action: () => editor.value.chain().focus().toggleCode().run(),
       isActive: () => editor.value.isActive('code')
     },
     {
       key: 'fontfamily',
-      icon: 'mdi:format-font',
+      icon: 'tabler:typography',
       title: 'Font Family',
       type: 'dropdown',
       isActive: () => Boolean(editor.value.getAttributes('textStyle').fontFamily),
       children: [
         {
           key: 'fontunset',
-          icon: 'mdi:format-font',
+          icon: 'tabler:typography',
           title: 'Sans-Serif',
           action: () => editor.value.chain().focus().unsetFontFamily().run()
         },
         {
           key: 'monospace',
-          icon: 'mdi:format-font',
+          icon: 'tabler:typography',
           title: 'Monospace',
           action: () => editor.value.chain().focus().setFontFamily('monospace').run()
         }
@@ -83,14 +83,14 @@ export function buildMenuBar(
     },
     {
       key: 'color',
-      icon: 'mdi:palette',
+      icon: 'tabler:palette',
       title: 'Text Color',
       type: 'dropdown',
       isActive: () => Boolean(editor.value.getAttributes('textStyle').color),
       children: [
         {
           key: 'color-blue',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Blue',
           color: 'blue',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.blue }),
@@ -98,7 +98,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-brown',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Brown',
           color: 'brown',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.brown }),
@@ -106,7 +106,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-green',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Green',
           color: 'green',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.green }),
@@ -114,7 +114,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-orange',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Orange',
           color: 'orange',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.orange }),
@@ -122,7 +122,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-pink',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Pink',
           color: 'pink',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.pink }),
@@ -130,7 +130,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-purple',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Purple',
           color: 'purple',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.purple }),
@@ -138,7 +138,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-red',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Red',
           color: 'red',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.red }),
@@ -146,7 +146,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-teal',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Teal',
           color: 'teal',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.teal }),
@@ -154,7 +154,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-yellow',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Yellow',
           color: 'yellow',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.yellow }),
@@ -165,7 +165,7 @@ export function buildMenuBar(
         },
         {
           key: 'color-remove',
-          icon: 'mdi:palette',
+          icon: 'tabler:palette',
           title: 'Default',
           color: 'grey',
           action: () => editor.value.chain().focus().unsetColor().run()
@@ -174,14 +174,14 @@ export function buildMenuBar(
     },
     {
       key: 'highlight',
-      icon: 'mdi:marker',
+      icon: 'tabler:highlight',
       title: 'Highlight',
       type: 'dropdown',
       isActive: () => editor.value.isActive('highlight'),
       children: [
         {
           key: 'highlight-yellow',
-          icon: 'mdi:marker',
+          icon: 'tabler:highlight',
           title: 'Yellow',
           color: 'yellow',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.yellow }),
@@ -190,7 +190,7 @@ export function buildMenuBar(
         },
         {
           key: 'highlight-blue',
-          icon: 'mdi:marker',
+          icon: 'tabler:highlight',
           title: 'Blue',
           color: 'blue',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.blue }),
@@ -199,7 +199,7 @@ export function buildMenuBar(
         },
         {
           key: 'highlight-pink',
-          icon: 'mdi:marker',
+          icon: 'tabler:highlight',
           title: 'Pink',
           color: 'pink',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.pink }),
@@ -208,7 +208,7 @@ export function buildMenuBar(
         },
         {
           key: 'highlight-green',
-          icon: 'mdi:marker',
+          icon: 'tabler:highlight',
           title: 'Green',
           color: 'green',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.green }),
@@ -217,7 +217,7 @@ export function buildMenuBar(
         },
         {
           key: 'highlight-orange',
-          icon: 'mdi:marker',
+          icon: 'tabler:highlight',
           title: 'Orange',
           color: 'orange',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.orange }),
@@ -229,7 +229,7 @@ export function buildMenuBar(
         },
         {
           key: 'highlight-remove',
-          icon: 'mdi:marker-cancel',
+          icon: 'tabler:highlight-off',
           title: 'Remove',
           color: 'grey',
           action: () => editor.value.chain().focus().unsetHighlight().run()
@@ -241,49 +241,49 @@ export function buildMenuBar(
     },
     {
       key: 'header',
-      icon: 'mdi:format-header-pound',
+      icon: 'tabler:heading',
       title: 'Header',
       type: 'dropdown',
       isActive: () => editor.value.isActive('heading'),
       children: [
         {
           key: 'h1',
-          icon: 'mdi:format-header-1',
+          icon: 'tabler:h-1',
           title: 'Header 1',
           action: () => editor.value.chain().focus().toggleHeading({ level: 1 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 1 })
         },
         {
           key: 'h2',
-          icon: 'mdi:format-header-2',
+          icon: 'tabler:h-2',
           title: 'Header 2',
           action: () => editor.value.chain().focus().toggleHeading({ level: 2 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 2 })
         },
         {
           key: 'h3',
-          icon: 'mdi:format-header-3',
+          icon: 'tabler:h-3',
           title: 'Header 3',
           action: () => editor.value.chain().focus().toggleHeading({ level: 3 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 3 })
         },
         {
           key: 'h4',
-          icon: 'mdi:format-header-4',
+          icon: 'tabler:h-4',
           title: 'Header 4',
           action: () => editor.value.chain().focus().toggleHeading({ level: 4 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 4 })
         },
         {
           key: 'h5',
-          icon: 'mdi:format-header-5',
+          icon: 'tabler:h-5',
           title: 'Header 5',
           action: () => editor.value.chain().focus().toggleHeading({ level: 5 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 5 })
         },
         {
           key: 'h6',
-          icon: 'mdi:format-header-6',
+          icon: 'tabler:h-6',
           title: 'Header 6',
           action: () => editor.value.chain().focus().toggleHeading({ level: 6 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 6 })
@@ -292,7 +292,7 @@ export function buildMenuBar(
     },
     {
       key: 'paragraph',
-      icon: 'mdi:format-paragraph',
+      icon: 'tabler:pilcrow',
       title: 'Paragraph',
       action: () => editor.value.chain().focus().setParagraph().run(),
       isActive: () => editor.value.isActive('paragraph')
@@ -306,28 +306,28 @@ export function buildMenuBar(
       children: [
         {
           key: 'align-left',
-          icon: 'mdi:format-align-left',
+          icon: 'tabler:align-left',
           title: 'Left Align',
           action: () => editor.value.chain().focus().setTextAlign('left').run(),
           isActive: () => editor.value.isActive({ textAlign: 'left' })
         },
         {
           key: 'align-center',
-          icon: 'mdi:format-align-center',
+          icon: 'tabler:align-center',
           title: 'Center Align',
           action: () => editor.value.chain().focus().setTextAlign('center').run(),
           isActive: () => editor.value.isActive({ textAlign: 'center' })
         },
         {
           key: 'align-right',
-          icon: 'mdi:format-align-right',
+          icon: 'tabler:align-right',
           title: 'Right Align',
           action: () => editor.value.chain().focus().setTextAlign('right').run(),
           isActive: () => editor.value.isActive({ textAlign: 'right' })
         },
         {
           key: 'align-justify',
-          icon: 'mdi:format-align-justify',
+          icon: 'tabler:align-justified',
           title: 'Justify Align',
           action: () => editor.value.chain().focus().setTextAlign('justify').run(),
           isActive: () => editor.value.isActive({ textAlign: 'justify' })
@@ -339,21 +339,21 @@ export function buildMenuBar(
     },
     {
       key: 'bulletlist',
-      icon: 'mdi:format-list-bulleted',
+      icon: 'tabler:list',
       title: 'Bullet List',
       action: () => editor.value.chain().focus().toggleBulletList().run(),
       isActive: () => editor.value.isActive('bulletList')
     },
     {
       key: 'orderedlist',
-      icon: 'mdi:format-list-numbered',
+      icon: 'tabler:list-numbers',
       title: 'Ordered List',
       action: () => editor.value.chain().focus().toggleOrderedList().run(),
       isActive: () => editor.value.isActive('orderedList')
     },
     {
       key: 'tasklist',
-      icon: 'mdi:format-list-checks',
+      icon: 'tabler:list-check',
       title: 'Task List',
       action: () => editor.value.chain().focus().toggleTaskList().run(),
       isActive: () => editor.value.isActive('taskList')
@@ -363,34 +363,34 @@ export function buildMenuBar(
     },
     {
       key: 'codeblock',
-      icon: 'mdi:code-json',
+      icon: 'tabler:json',
       title: 'Code Block',
       action: () => editor.value.chain().focus().toggleCodeBlock().run(),
       isActive: () => editor.value.isActive('codeBlock')
     },
     {
       key: 'blockquote',
-      icon: 'mdi:format-quote-open',
+      icon: 'tabler:blockquote',
       title: 'Blockquote',
       action: () => editor.value.chain().focus().toggleBlockquote().run(),
       isActive: () => editor.value.isActive('blockquote')
     },
     {
       key: 'rule',
-      icon: 'mdi:minus',
+      icon: 'tabler:minus',
       title: 'Horizontal Rule',
       action: () => editor.value.chain().focus().setHorizontalRule().run()
     },
     {
       key: 'link',
-      icon: 'mdi:link-variant',
+      icon: 'tabler:link',
       title: 'Link',
       action: () => insertLink(),
       isActive: () => editor.value.isActive('link')
     },
     {
       key: 'image',
-      icon: 'mdi:image-plus',
+      icon: 'tabler:photo-plus',
       title: 'Image',
       action: () => {
         openFileManager({ insertMode: true })
@@ -398,14 +398,14 @@ export function buildMenuBar(
     },
     {
       key: 'table',
-      icon: 'mdi:table',
+      icon: 'tabler:table',
       title: 'Table',
       type: 'dropdown',
       isActive: () => editor.value.isActive('table'),
       children: [
         {
           key: 'table-insert',
-          icon: 'mdi:table-large-plus',
+          icon: 'tabler:table-plus',
           title: 'Insert Table',
           action: () =>
             editor.value
@@ -419,21 +419,21 @@ export function buildMenuBar(
         },
         {
           key: 'table-addcolumnbefore',
-          icon: 'mdi:table-column-plus-before',
+          icon: 'tabler:column-insert-left',
           title: 'Add Column Before',
           action: () => editor.value.chain().focus().addColumnBefore().run(),
           disabled: () => !editor.value.can().addColumnBefore()
         },
         {
           key: 'table-addcolumnafter',
-          icon: 'mdi:table-column-plus-after',
+          icon: 'tabler:column-insert-right',
           title: 'Add Column After',
           action: () => editor.value.chain().focus().addColumnAfter().run(),
           disabled: () => !editor.value.can().addColumnAfter()
         },
         {
           key: 'table-deletecolumn',
-          icon: 'mdi:table-column-remove',
+          icon: 'tabler:column-remove',
           title: 'Remove Column',
           action: () => editor.value.chain().focus().deleteColumn().run(),
           disabled: () => !editor.value.can().deleteColumn()
@@ -443,21 +443,21 @@ export function buildMenuBar(
         },
         {
           key: 'table-addrowbefore',
-          icon: 'mdi:table-row-plus-before',
+          icon: 'tabler:row-insert-top',
           title: 'Add Row Before',
           action: () => editor.value.chain().focus().addRowBefore().run(),
           disabled: () => !editor.value.can().addRowBefore()
         },
         {
           key: 'table-addrowafter',
-          icon: 'mdi:table-row-plus-after',
+          icon: 'tabler:row-insert-bottom',
           title: 'Add Row After',
           action: () => editor.value.chain().focus().addRowAfter().run(),
           disabled: () => !editor.value.can().addRowAfter()
         },
         {
           key: 'table-deleterow',
-          icon: 'mdi:table-row-remove',
+          icon: 'tabler:row-remove',
           title: 'Remove Row',
           action: () => editor.value.chain().focus().deleteRow().run(),
           disabled: () => !editor.value.can().deleteRow()
@@ -467,14 +467,14 @@ export function buildMenuBar(
         },
         {
           key: 'table-merge',
-          icon: 'mdi:table-merge-cells',
+          icon: 'tabler:layout-board',
           title: 'Merge Cells',
           action: () => editor.value.chain().focus().mergeCells().run(),
           disabled: () => !editor.value.can().mergeCells()
         },
         {
           key: 'table-split',
-          icon: 'mdi:table-split-cell',
+          icon: 'tabler:layout-columns',
           title: 'Split Cell',
           action: () => editor.value.chain().focus().splitCell().run(),
           disabled: () => !editor.value.can().splitCell()
@@ -484,21 +484,21 @@ export function buildMenuBar(
         },
         {
           key: 'table-toggleHeaderColumn',
-          icon: 'mdi:table-column',
+          icon: 'tabler:table-column',
           title: 'Toggle Header Column',
           action: () => editor.value.chain().focus().toggleHeaderColumn().run(),
           disabled: () => !editor.value.can().toggleHeaderColumn()
         },
         {
           key: 'table-toggleHeaderRow',
-          icon: 'mdi:table-row',
+          icon: 'tabler:table-row',
           title: 'Toggle Header Row',
           action: () => editor.value.chain().focus().toggleHeaderRow().run(),
           disabled: () => !editor.value.can().toggleHeaderRow()
         },
         {
           key: 'table-toggleHeaderCell',
-          icon: 'mdi:crop-square',
+          icon: 'tabler:square',
           title: 'Toggle Header Cell',
           action: () => editor.value.chain().focus().toggleHeaderCell().run(),
           disabled: () => !editor.value.can().toggleHeaderCell()
@@ -508,14 +508,14 @@ export function buildMenuBar(
         },
         {
           key: 'table-fix',
-          icon: 'mdi:table-heart',
+          icon: 'tabler:table-heart',
           title: 'Fix Table',
           action: () => editor.value.chain().focus().fixTables().run(),
           disabled: () => !editor.value.can().fixTables()
         },
         {
           key: 'table-remove',
-          icon: 'mdi:table-large-remove',
+          icon: 'tabler:table-minus',
           title: 'Delete Table',
           action: () => editor.value.chain().focus().deleteTable().run(),
           disabled: () => !editor.value.can().deleteTable()
@@ -527,13 +527,13 @@ export function buildMenuBar(
     },
     {
       key: 'pagebreak',
-      icon: 'mdi:format-page-break',
+      icon: 'tabler:page-break',
       title: 'Hard Break',
       action: () => editor.value.chain().focus().setHardBreak().run()
     },
     {
       key: 'clearformat',
-      icon: 'mdi:format-clear',
+      icon: 'tabler:clear-formatting',
       title: 'Clear Format',
       action: () => editor.value.chain().focus().clearNodes().unsetAllMarks().run()
     },
@@ -542,14 +542,14 @@ export function buildMenuBar(
     },
     {
       key: 'undo',
-      icon: 'mdi:undo-variant',
+      icon: 'tabler:arrow-back-up',
       title: 'Undo',
       action: () => editor.value.chain().focus().undo().run(),
       disabled: () => !editor.value.can().undo()
     },
     {
       key: 'redo',
-      icon: 'mdi:redo-variant',
+      icon: 'tabler:arrow-forward-up',
       title: 'Redo',
       action: () => editor.value.chain().focus().redo().run(),
       disabled: () => !editor.value.can().redo()

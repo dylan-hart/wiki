@@ -288,7 +288,7 @@ function parseCssColor(value) {
 /*
   Picks the better-contrasting of white/black against a solid button's actual resolved background,
   instead of always defaulting to white -- several palette colors (the seeded accent `#FF9800`,
-  `warning`, `secondary`/`positive`'s teal, ...) fall well under WCAG AA (as low as 2.1:1) with white
+  `warning`, `slate`/`positive`'s teal, ...) fall well under WCAG AA (as low as 2.1:1) with white
   text. `props.color` is only ever a CSS custom-property NAME here (`primary`, `grey-7`, ...), not a
   color value: the property it resolves to is themeable per-site and swapped per CVD mode
   (`helpers/cssVars.js`), so the only place its actual value is knowable is the resolved DOM style --

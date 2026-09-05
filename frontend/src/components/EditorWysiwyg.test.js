@@ -223,7 +223,7 @@ describe('EditorWysiwyg', () => {
     siteStore.id = 'site-1'
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
-        Promise.resolve({ results: [{ path: 'help/faq', title: 'FAQ', icon: 'mdi:help' }] })
+        Promise.resolve({ results: [{ path: 'help/faq', title: 'FAQ', icon: 'tabler:help' }] })
     })
     const items = await suggestion.items({
       query: 'faq',
@@ -234,7 +234,7 @@ describe('EditorWysiwyg', () => {
       'sites/site-1/pages/search',
       expect.objectContaining({ searchParams: { query: 'faq', limit: 5 } })
     )
-    expect(items).toEqual([{ id: 'help/faq', label: 'FAQ', path: 'help/faq', icon: 'mdi:help' }])
+    expect(items).toEqual([{ id: 'help/faq', label: 'FAQ', path: 'help/faq', icon: 'tabler:help' }])
 
     wrapper.unmount()
   })

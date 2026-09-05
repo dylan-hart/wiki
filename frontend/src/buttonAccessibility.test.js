@@ -92,6 +92,17 @@ function hasNameAttr(attrs) {
   return /(^|\s):?(label|aria-label|title)\s*=/.test(attrs)
 }
 
+/*
+  A button hidden from assistive technology outright, which is how a purely decorative one is written
+  here: `AdminGeneral.vue`'s header preview draws the site's own logo-and-title button so an
+  administrator can see what their settings produce, and it is inert -- `aria-hidden` plus
+  `tabindex="-1"`, so it is neither reachable nor announced. A name is what such a button must NOT
+  have: naming it would put it back in the accessibility tree it was deliberately taken out of.
+*/
+function isHiddenFromAssistiveTech(attrs) {
+  return /(^|\s):?aria-hidden\s*=\s*"(true|`true`)"/.test(attrs)
+}
+
 function visibleText(inner) {
   const noComments = inner.replace(/<!--[\s\S]*?-->/g, '')
   return noComments
@@ -104,7 +115,8 @@ function visibleText(inner) {
  * Finds every `<w-btn>`/`<w-btn-toggle>` in one file's template with no accessible name: no
  * `label`/`aria-label`/`title` attribute, and no visible text in its own body once any nested
  * `<w-menu>` panel is stripped out. `<w-btn-group>` is a layout wrapper, not a button itself, so it
- * is excluded even though the tag prefix matches.
+ * is excluded even though the tag prefix matches, and so is anything carrying `aria-hidden="true"` --
+ * see `isHiddenFromAssistiveTech`.
  */
 function findUnnamedButtons(filePath) {
   const fullText = fs.readFileSync(filePath, 'utf8')
@@ -125,6 +137,7 @@ function findUnnamedButtons(filePath) {
   while ((match = tagRe.exec(text))) {
     const { tagName, attrs, endIndex, selfClosing } = parseTag(text, match.index)
     if (tagName === 'w-btn-group') continue
+    if (isHiddenFromAssistiveTech(attrs)) continue
     const named = hasNameAttr(attrs)
     let innerText = ''
     if (!selfClosing) {

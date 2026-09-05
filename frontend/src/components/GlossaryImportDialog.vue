@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card class="glossary-import-dialog" style="width: 760px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="la:file-import" size="sm" class="me-2" />
+        <w-icon name="tabler:file-import" size="sm" class="me-2" />
         <span>{{ t('admin.glossary.importTitle') }}</span>
       </w-card-section>
       <w-separator />
@@ -29,7 +29,7 @@
             outline
             dense
             color="primary"
-            icon="la:folder-open"
+            icon="tabler:folder-open"
             :label="t('common.actions.browse')"
             @click="pickFile" />
           <input

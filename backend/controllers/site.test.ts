@@ -173,7 +173,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       //    `replyWithFile` fallback branch has a real file to stream.
       await fs.mkdir(path.join(rootDir, 'assets', '_assets'), { recursive: true })
       await fs.writeFile(
-        path.join(rootDir, 'assets', '_assets', 'logo-wikijs.svg'),
+        path.join(rootDir, 'assets', '_assets', 'logo-cardinal.svg'),
         '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg>'
       )
 

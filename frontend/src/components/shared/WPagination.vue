@@ -10,7 +10,7 @@
       :disabled="modelValue <= 1"
       :aria-label="resolvedPrevLabel"
       @click="go(modelValue - 1)">
-      <w-icon name="mdi:chevron-left" />
+      <w-icon name="tabler:chevron-left" />
     </button>
 
     <template v-for="(page, idx) of pages" :key="idx">
@@ -36,7 +36,7 @@
       :disabled="modelValue >= max"
       :aria-label="resolvedNextLabel"
       @click="go(modelValue + 1)">
-      <w-icon name="mdi:chevron-right" />
+      <w-icon name="tabler:chevron-right" />
     </button>
   </nav>
 </template>

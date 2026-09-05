@@ -58,7 +58,7 @@ describe('WebhookHistoryDialog', () => {
 
     expect(document.body.textContent).toContain('page:create')
     expect(document.body.querySelector('.text-negative')).toBeNull()
-    const icon = document.body.querySelector('[data-icon="la:check-circle"]')
+    const icon = document.body.querySelector('[data-icon="tabler:circle-check"]')
     expect(icon).not.toBeNull()
     expect(icon.classList.contains('text-positive')).toBe(true)
   })
@@ -79,7 +79,7 @@ describe('WebhookHistoryDialog', () => {
 
     expect(document.body.textContent).toContain('page:edit')
     expect(document.body.textContent).toContain('The endpoint answered with HTTP 500.')
-    const icon = document.body.querySelector('[data-icon="la:exclamation-triangle"]')
+    const icon = document.body.querySelector('[data-icon="tabler:alert-triangle"]')
     expect(icon).not.toBeNull()
     expect(icon.classList.contains('text-negative')).toBe(true)
   })

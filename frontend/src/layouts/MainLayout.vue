@@ -24,7 +24,7 @@
         <w-btn
           class="py-4"
           flat
-          icon="la:angle-double-right"
+          icon="tabler:chevrons-right"
           color="slate"
           :aria-label="t('common.sidebar.expand')"
           @click="sidebarExpandOverride = true">
@@ -36,7 +36,7 @@
           v-if="siteStore.locales.showMenu"
           class="py-4"
           flat
-          icon="la:globe"
+          icon="tabler:world"
           color="slate"
           :aria-label="t('common.sidebar.switchLocale')">
           <locale-selector-menu anchor="top right" self="top left" />
@@ -48,7 +48,7 @@
           v-if="canBrowse"
           class="py-4"
           flat
-          icon="la:sitemap"
+          icon="tabler:sitemap"
           color="slate"
           :aria-label="t(`common.sidebar.browse`)">
           <nav-browse-menu anchor="top right" self="top left" />
@@ -61,7 +61,7 @@
           v-if="showEditNav"
           class="py-1"
           flat
-          icon="la:dharmachakra"
+          icon="tabler:steering-wheel"
           color="slate"
           :aria-label="t(`common.sidebar.editNav`)"
           size="sm">
@@ -83,7 +83,7 @@
             class="flex-1 px-2"
             flat
             dense
-            icon="la:angle-double-left"
+            icon="tabler:chevrons-left"
             :label="t('common.sidebar.collapse')"
             :aria-label="t('common.sidebar.collapse')"
             size="sm"
@@ -97,7 +97,7 @@
               class="flex-1 px-2"
               flat
               dense
-              icon="la:globe"
+              icon="tabler:world"
               :label="commonStore.locale"
               :aria-label="commonStore.locale"
               size="sm">
@@ -110,7 +110,7 @@
             class="flex-1 px-2"
             flat
             dense
-            icon="la:sitemap"
+            icon="tabler:sitemap"
             :label="t(`common.sidebar.browse`)"
             :aria-label="t(`common.sidebar.browse`)"
             size="sm">
@@ -120,7 +120,11 @@
         <nav-sidebar />
         <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one -->
         <w-bar v-if="showEditNav" class="sidebar-footerbtns" dense>
-          <w-btn class="flex-1" icon="la:dharmachakra" :label="t(`common.sidebar.editNav`)" flat>
+          <w-btn
+            class="flex-1"
+            icon="tabler:steering-wheel"
+            :label="t(`common.sidebar.editNav`)"
+            flat>
             <w-menu ref="navEditMenu" anchor="top left" self="bottom left" :offset="[0, 10]">
               <nav-edit-menu
                 :menu-hide-handler="navEditMenu.hide"
@@ -156,7 +160,7 @@
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">
         <w-btn
           class="corner-btn corner-btn--left"
-          icon="la:bars"
+          icon="tabler:menu-2"
           color="primary"
           round
           size="md"
@@ -196,7 +200,7 @@
         target=".page-container-scrl">
         <w-btn
           class="corner-btn corner-btn--right"
-          icon="la:arrow-up"
+          icon="tabler:arrow-up"
           :color="scrollerAnchorX ? `sidebar-light` : `primary`"
           round
           size="md"
@@ -539,7 +543,6 @@ function openSidebar() {
   inset-inline-start: 8px;
   z-index: 100;
   padding: 8px 16px;
-  border-radius: 4px;
   background-color: $primary;
   color: #fff;
   font-weight: 500;

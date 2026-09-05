@@ -46,20 +46,27 @@
 .page-contents {
   /* -- Palette ----------------------------------------------------------------- */
 
-  /* Ink at three strengths: body, secondary (quotes, captions), and incidental (gutters, markers) */
-  --content-ink: #26292e;
-  --content-ink-muted: #5b616b;
-  --content-ink-faint: #8a9099;
-
-  --content-link: var(--color-primary);
-  /* The page's own title, in the site's colour -- see the gradient rule under `h1` */
-  --content-h1: var(--color-primary);
   /*
-    The rule under it stays the brand colour itself in BOTH themes: the lightening the title's text
-    needs to stay legible would leave the rule washed out, and a 2px band has no legibility problem to
-    solve -- it only has to read as the site's colour.
+    Ink at three strengths: body, secondary (quotes, captions), and incidental (gutters, markers).
+    Cardinal's own text tiers, so a rendered page and the chrome around it are set in one palette.
   */
-  --content-h1-rule: var(--color-primary);
+  --content-ink: var(--color-text-body);
+  --content-ink-muted: var(--color-text-secondary);
+  --content-ink-faint: var(--color-text-caption);
+
+  /* A link takes the strong accent tone: `--color-accent` is under the floor on paper, see tailwind.css */
+  --content-link: var(--color-accent-strong);
+
+  /*
+    A heading is INK, and its rule a flat hairline.
+
+    Both used to be the site's brand colour, with the rule a gradient fading out to the right -- which
+    put the loudest colour on the page at the top of every section and made a heading compete with the
+    one accent Cardinal reserves for the live edge. The design draws headings in `--color-ink` under a
+    plain `--color-hairline`, and the hierarchy comes from the size and the display face instead.
+  */
+  --content-h1: var(--color-ink);
+  --content-h1-rule: var(--color-hairline);
 
   /*
     How far the rule under an h1 reaches back into the padding of whatever is holding the content, so
@@ -70,13 +77,13 @@
   --content-bleed: 1rem;
 
   /* Rules: the hairline between table cells and around panels, and a heavier one for a quote's bar */
-  --content-rule: rgba(0, 0, 0, 0.12);
-  --content-rule-strong: rgba(0, 0, 0, 0.26);
+  --content-rule: var(--color-hairline);
+  --content-rule-strong: var(--color-slate-faint);
   /*
     The grey under a section heading. Stronger than `--content-rule`, because it is only at full
     strength at its left end -- a hairline's weight would leave nothing visible once it starts fading.
   */
-  --content-h2-rule: rgba(0, 0, 0, 0.42);
+  --content-h2-rule: var(--color-hairline);
 
   /*
     Two surfaces. `code` is the panel behind a code block -- opaque, because the preview pane sits on
@@ -84,8 +91,15 @@
     span or a row header inside a table body, translucent so it works on either. The head of a table is
     no longer one of them; see `--content-table-head` below.
   */
-  --content-surface-code: #f4f6f8;
-  --content-surface-alt: rgba(0, 0, 0, 0.04);
+  /*
+    A code block is drawn on INK in both themes, as the design does it -- code is read on a dark ground
+    here the way it is in the editor -- with the accent down its leading edge. `alt` stays the tint,
+    which is what an inline code span and a table's row header sit on.
+  */
+  --content-surface-code: var(--color-ink);
+  --content-surface-alt: var(--color-tint);
+  /* -> The ground a framed thing in the content is drawn ON: a quote's box, a table's body */
+  --content-surface: var(--color-surface);
 
   /*
     The head of a table, drawn as a title bar: the graded near-black the app's own dialog headers use
@@ -224,21 +238,24 @@
   isolation: isolate;
 
   @at-root .body--dark & {
-    --content-ink: rgba(255, 255, 255, 0.87);
-    --content-ink-muted: rgba(255, 255, 255, 0.62);
-    --content-ink-faint: rgba(255, 255, 255, 0.42);
+    --content-ink: var(--color-text-dark);
+    --content-ink-muted: var(--color-text-secondary-dark);
+    --content-ink-faint: var(--color-text-caption-dark);
 
-    /* -> The mid-tone brand blue is too dim on a dark surface; see `--color-primary-light` */
-    --content-link: var(--color-primary-light);
-    --content-h1: var(--color-primary-light);
+    /* -> The accent lightens on ink; the mid tone is under the floor there (see tailwind.css) */
+    --content-link: var(--color-accent-dark);
+    /* -> A heading stays INK-side text rather than taking the accent, matching the light theme */
+    --content-h1: var(--color-text-dark);
+    --content-h1-rule: var(--color-hairline-dark);
 
-    --content-rule: rgba(255, 255, 255, 0.16);
-    --content-rule-strong: rgba(255, 255, 255, 0.32);
-    --content-h2-rule: rgba(255, 255, 255, 0.45);
+    --content-rule: var(--color-hairline-dark);
+    --content-rule-strong: var(--color-border-dark);
+    --content-h2-rule: var(--color-hairline-dark);
 
-    /* Matches the app's own `dark-4` panel, so code sits a step above the page rather than below it */
-    --content-surface-code: #161b22;
-    --content-surface-alt: rgba(255, 255, 255, 0.07);
+    /* -> Already ink in the light theme; a step below the page here so code still reads as a panel */
+    --content-surface-code: var(--color-dark-6);
+    --content-surface-alt: var(--color-dark-2);
+    --content-surface: var(--color-dark-3);
 
     /*
       The head keeps its colours -- see the light block -- but the shadow under the table cannot: a 5%
@@ -326,8 +343,14 @@
   h5,
   h6 {
     margin: 1.5em 0 0.6em;
+    /*
+      Barlow Condensed, at 600 -- headings are the one thing in a rendered page set in the display
+      face, which is what gives a Cardinal article its shape and lets a long heading stay on one line.
+    */
+    font-family: var(--font-display);
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 1.15;
+    letter-spacing: normal;
     /*
       Anchors are what the contents sidebar and every `#heading` link aim at, and the article scrolls
       in its own column inside a fixed shell -- so a heading brought into view needs to stop clear of
@@ -337,19 +360,20 @@
   }
 
   /*
-    A rule under the two top levels, which is what makes the sections of a long page findable. Both
-    fade out to the right; the title's is the site's colour and the section's a grey, and the title's
-    is the thicker of the two, so the two levels stay apart at a glance.
+    A rule under the two top levels, which is what makes the sections of a long page findable.
 
-    Drawn as a pseudo-element rather than a border, because a border can be neither a gradient nor
-    wider than its own box -- and the title's is both. Each level supplies its own weight and colour
-    through the two properties below, so the mechanism is stated once.
+    A FLAT hairline, the full width of the column. It used to be a gradient fading out to the right,
+    the title's in the site's colour and 2px thick -- decoration standing in for hierarchy. The design
+    rules both levels with the same `--color-hairline` the rest of the language is built from and
+    lets the type carry the hierarchy; what remains here is the mechanism, since a border cannot
+    reach past its own box the way the title's still does.
   */
   h1,
   h2 {
     position: relative;
-    /* -> Close under the text: the rule belongs to the heading, not to the space after it */
-    padding-bottom: 0.1em;
+    /* -> 8px under the text, as the design draws it: the rule belongs to the heading, not to the
+          space after it */
+    padding-bottom: 0.3em;
 
     &::after {
       content: '';
@@ -359,19 +383,19 @@
       /* -> Only a top-level title reaches past the text column; see the override below */
       inset-inline-start: 0;
       height: var(--content-heading-rule-weight);
-      background-image: linear-gradient(to right, var(--content-heading-rule-color), transparent);
+      background-color: var(--content-heading-rule-color);
     }
   }
 
   h1 {
-    --content-heading-rule-weight: 2px;
+    --content-heading-rule-weight: 1px;
     --content-heading-rule-color: var(--content-h1-rule);
 
     /* -> Less than the 1.5em its size would give it, which at 32px was a gap of over 50px */
     margin-top: 1.25em;
     color: var(--content-h1);
     font-size: 2em;
-    letter-spacing: -0.015em;
+    letter-spacing: normal;
 
     /*
       A step down on a phone, where 32px of display type is a fifth of the column's width and a long
@@ -393,7 +417,7 @@
     /* -> A shade under the shared 1.5em, so it stays clear of the h1 above it in the ramp */
     margin-top: 1.4em;
     font-size: 1.5em;
-    letter-spacing: -0.01em;
+    letter-spacing: normal;
 
     /*
       Down with the h1 on a phone, and by the same proportion, so the two top levels keep the distance
@@ -506,7 +530,6 @@
       top: 50%;
       inset-inline-end: calc(100% + 4px);
       padding: 0.125rem 0.5rem;
-      border-radius: 4px;
       background-color: rgb(0 0 0 / 0.85);
       color: #fff;
       font-size: 0.75rem;
@@ -563,7 +586,6 @@
 
   mark {
     padding: 0.05em 0.15em;
-    border-radius: 2px;
     background-color: var(--content-mark);
     color: inherit;
   }
@@ -611,7 +633,6 @@
     padding: 0.1em 0.4em;
     border: 1px solid var(--content-rule-strong);
     border-bottom-width: 2px;
-    border-radius: 4px;
     background-color: var(--content-surface-alt);
     color: var(--content-ink);
     font-family: var(--font-mono);
@@ -770,7 +791,6 @@
     margin: 0 0.5em 0 0;
     padding: 0;
     border: 1px solid var(--content-rule-strong);
-    border-radius: 3px;
     /* -> White rather than the surface behind it, so the box reads as empty and not as unfilled */
     background-color: var(--content-tick-empty);
     /* -> Disabled by the renderer, so it must not read as something to try to click */
@@ -827,7 +847,6 @@
 
     > li {
       margin-top: 4px;
-      border-radius: 4px;
       /*
         The bar down the leading edge, grey at rest and the link's colour under the pointer -- so what
         hovering does is colour something already there rather than add a bar and shunt the words
@@ -925,18 +944,65 @@
   // ---------------------------------------------------------------------------
 
   /*
-    A quote is a bar and a colour change, nothing more -- a box would compete with the code blocks and
-    admonitions that are meant to stand out.
+    A quote is a BOX in Cardinal: a hairline rectangle on the content surface with a tinted gutter
+    down its leading edge, and blueprint corner marks at all four corners -- the same treatment the
+    design gives every framed thing in the language (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`).
+    It replaces a bare 3px bar with dimmed text, which said "aside" but drew nothing.
+
+    The gutter is a `::before` band rather than an inset shadow: a blockquote's contents are whatever
+    the author wrote, so there is nowhere to put a real child element -- and a shadow's offsets are
+    physical, which would put the band on the wrong side of an RTL quote. An absolutely-positioned
+    pseudo-element takes `inset-inline-start`, so it follows the content's own direction like
+    everything else in this file. The matching `padding-inline` keeps the text clear of it.
   */
   blockquote {
+    position: relative;
     margin: 1.5em 0;
-    padding-block: 0.15em;
-    padding-inline-start: 1.15em;
-    border-inline-start: 3px solid var(--content-rule-strong);
+    padding-block: 0.9em;
+    padding-inline: 3.5em 1.1em;
+    border: 1px solid var(--content-rule);
+    background-color: var(--content-surface);
     color: var(--content-ink-muted);
+
+    /* -> The tinted gutter down the leading edge, and the hairline closing its inner side */
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      height: 100%;
+      inset-inline-start: 0;
+      width: 44px;
+      background-color: var(--content-surface-alt);
+      border-inline-end: 1px solid var(--content-rule);
+    }
 
     > :last-child {
       margin-bottom: 0;
+    }
+
+    /*
+      The corner marks: one box overhanging the quote by 5px on every side, with the eight short
+      strokes painted as background gradients rather than as borders -- four borders would draw four
+      full sides, and what the design draws is 7px of each corner and nothing between them. `::before`
+      is already the gutter, so this is the one pseudo-element left.
+    */
+    &::after {
+      content: '';
+      position: absolute;
+      inset: -5px;
+      pointer-events: none;
+      border: 1px solid transparent;
+      background:
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 7px 1px no-repeat,
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 1px 7px no-repeat,
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 0 / 7px 1px no-repeat,
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 0 / 1px 7px no-repeat,
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 100% / 7px 1px no-repeat,
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 100% / 1px 7px no-repeat,
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 7px 1px
+          no-repeat,
+        linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 1px 7px
+          no-repeat;
     }
   }
 
@@ -974,9 +1040,19 @@
       border-end-end-radius: 6px;
       color: var(--content-ink);
 
+      /*
+        An admonition is a different object: a coloured bar and an icon, not a framed quote -- so the
+        base gutter and the corner marks come off, and `::before` is reused for the icon.
+      */
+      &::after {
+        content: none;
+      }
+
       &::before {
         content: '';
         position: absolute;
+        /* -> Not the base gutter's band: no hairline of its own, and sized by the icon below */
+        border-inline-end: 0;
         /*
           Centred on the CAP BAND of the first line, not on the line box that holds it.
 
@@ -1046,7 +1122,7 @@
       }
     }
 
-    /* -> `mdi:message-alert`, the same speech bubble GitHub marks an important note with */
+    /* -> `tabler:message-exclamation`, the same speech bubble GitHub marks an important note with */
     &.is-important,
     &:has(> .is-important) {
       --alert-hue: var(--content-important);
@@ -1091,11 +1167,15 @@
   // CODE
   // ---------------------------------------------------------------------------
 
-  /* An inline span is a wash and a size step down -- 0.875em, so it sits on the text's own baseline */
+  /*
+    An inline span is a square tinted chip with a hairline edge, as the design draws it -- the same
+    box every other small framed thing in the language gets, rather than a soft rounded wash.
+  */
   code {
-    padding: 0.15em 0.4em;
-    border-radius: 4px;
+    padding: 1px 5px;
+    border: 1px solid var(--content-rule);
     background-color: var(--content-surface-alt);
+    color: var(--color-slate);
     font-family: var(--font-mono);
     font-size: 0.875em;
   }
@@ -1125,16 +1205,21 @@
     panel with no edge would dissolve into the page.
   */
   pre {
-    margin: 1.5em 0;
-    padding: 0.9rem 1.1rem;
-    border: 1px solid var(--content-rule);
-    border-radius: 8px;
+    margin: 1.25em 0;
+    padding: 1rem 1.125rem;
+    /*
+      Ink with the accent down its leading edge, in BOTH themes -- the design's own treatment, and the
+      one place a rendered page goes dark. It replaces a rounded, hairline-bordered tint: a code block
+      is the one thing on a page that is not prose, and the ground change is what says so.
+    */
+    border: 0;
+    border-inline-start: 2px solid var(--color-accent-fill);
     background-color: var(--content-surface-code);
-    color: var(--content-ink);
+    color: var(--color-text-dark);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
     /* -> Tracks the body's leading; code at 13px needs a little more of it, not much */
-    line-height: 1.55;
+    line-height: 1.75;
     /* -> Code does not wrap: a wrapped line is a different line, and indentation stops meaning anything */
     overflow-x: auto;
     tab-size: 2;
@@ -1146,11 +1231,11 @@
     */
     direction: ltr;
 
-    /* -> The panel is the block's own; the code inside it drops the inline span's wash and padding */
+    /* -> The panel is the block's own; the code inside it drops the inline span's chip entirely */
     > code {
       display: block;
       padding: 0;
-      border-radius: 0;
+      border: 0;
       background: none;
       color: inherit;
       font-size: inherit;
@@ -1192,7 +1277,6 @@
     padding: 0;
     /* -> Derived from the block's ink, so the edge shows on a panel of any colour */
     border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
-    border-radius: 5px;
     background-color: inherit;
     color: inherit;
     cursor: pointer;
@@ -1292,7 +1376,6 @@
     color: var(--content-danger);
     background-color: var(--content-danger-wash);
     border: 1px dashed var(--content-danger);
-    border-radius: 5px;
     padding: 0.1em 0.4em;
     white-space: pre-wrap;
   }
@@ -1398,19 +1481,17 @@
     still lay out as a table inside it through anonymous table boxes. `width: max-content` keeps the
     table its natural width up to the column's, so a narrow table does not stretch.
 
-    That block box is also what lets the table round its corners at all: `border-radius` is defined to
-    have no effect on a table with collapsed borders, but this is a block that HAPPENS to contain a
-    table, so the radius applies to it -- and the scrolling already makes it a clipping box, so the
-    head's fill and the last row are cut to the arc with nothing else to arrange.
+    The block box also gives the table a real perimeter to draw: a table with collapsed borders is not
+    a box the way an element is, and the scrolling already makes this one a clipping box, so the head's
+    fill and the last row stop at the frame with nothing else to arrange.
   */
   table {
     display: block;
     width: max-content;
     max-width: 100%;
     margin: 1.5em 0;
-    /* -> The perimeter, so the corners can be round; the cells draw only the grid inside it */
+    /* -> The perimeter; the cells draw only the grid inside it */
     border: 1px solid var(--content-rule);
-    border-radius: 8px;
     border-collapse: collapse;
     box-shadow: var(--content-table-shadow);
     font-size: 0.9375em;
@@ -1559,7 +1640,6 @@
   img {
     max-width: 100%;
     height: auto;
-    border-radius: 4px;
     /* -> An image is a block when it is the whole paragraph, and inline when it sits in a sentence */
     vertical-align: middle;
   }
@@ -1663,7 +1743,6 @@
     margin: 1.5em 0;
     padding: 0.75em 1.1em;
     border: 1px solid var(--content-rule);
-    border-radius: 8px;
     background-color: var(--content-surface-alt);
 
     > summary {
@@ -1731,7 +1810,6 @@
     /* Drawn outside the box so it cannot shift the text it highlights */
     box-shadow: 0 0 0 0.4em var(--content-mark);
     background-color: var(--content-mark);
-    border-radius: 2px;
   }
 
   .footnote-backref {

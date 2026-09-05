@@ -5,7 +5,7 @@
       <div class="layout-search-card">
         <w-btn
           class="layout-search-back"
-          icon="la:arrow-circle-left"
+          icon="tabler:circle-arrow-left"
           color="white"
           flat
           round
@@ -32,7 +32,7 @@
           <w-icon
             class="layout-search-filterchevron"
             :class="{ 'is-open': state.filtersOpen }"
-            name="mdi:chevron-down" />
+            name="tabler:chevron-down" />
         </w-btn>
         <div class="layout-search-sd" v-show="!isFiltersCollapsed || state.filtersOpen">
           <div class="section-header">{{ t('search.sortBy') }}</div>
@@ -55,8 +55,8 @@
                 <w-icon
                   :name="
                     state.params.orderByDirection === `desc`
-                      ? `mdi:transfer-down`
-                      : `mdi:transfer-up`
+                      ? `tabler:arrow-bar-down`
+                      : `tabler:arrow-bar-up`
                   "
                   size="sm"
                   color="primary" />
@@ -71,7 +71,7 @@
               prefix="/"
               v-model="state.params.filterPath">
               <template #prepend>
-                <w-icon name="la:caret-square-right" size="xs" />
+                <w-icon name="tabler:square-chevron-right" size="xs" />
               </template>
             </w-input>
             <w-select
@@ -88,7 +88,7 @@
               @update:model-value="(v) => syncTags(v)"
               :placeholder="state.selectedTags.length < 1 ? t(`search.filterTags`) : ``"
               :loading="state.loading > 0">
-              <template #prepend><w-icon name="la:hashtag" size="xs" /></template>
+              <template #prepend><w-icon name="tabler:hash" size="xs" /></template>
             </w-select>
             <w-select
               class="mt-2"
@@ -114,7 +114,7 @@
                   state.params.filterLocale.length
                 )
               ">
-              <template #prepend><w-icon name="la:language" size="xs" /></template>
+              <template #prepend><w-icon name="tabler:language" size="xs" /></template>
             </w-select>
             <w-select
               class="mt-2"
@@ -124,7 +124,7 @@
               dense
               :aria-label="t(`search.filterEditor`)"
               :options="editors">
-              <template #prepend><w-icon name="la:pen-nib" size="xs" /></template>
+              <template #prepend><w-icon name="tabler:ballpen" size="xs" /></template>
             </w-select>
             <w-select
               class="mt-2"
@@ -134,7 +134,7 @@
               dense
               :aria-label="t(`search.filterPublishState`)"
               :options="publishStates">
-              <template #prepend><w-icon name="la:traffic-light" size="xs" /></template>
+              <template #prepend><w-icon name="tabler:traffic-lights" size="xs" /></template>
             </w-select>
           </div>
         </div>
@@ -195,9 +195,9 @@
                   <w-chip
                     v-for="tag of item.tags"
                     :key="`tag-` + tag"
-                    color="secondary"
+                    color="slate"
                     text-color="white"
-                    icon="la:hashtag"
+                    icon="tabler:hash"
                     size="sm"
                     >{{ tag }}</w-chip
                   >
@@ -326,9 +326,9 @@ const isFiltersCollapsed = computed(() => !isAtLeast900.value)
 
 const orderByOptions = computed(() => {
   return [
-    { label: t('search.sortByRelevance'), value: 'relevancy', icon: 'la:stream' },
-    { label: t('search.sortByTitle'), value: 'title', icon: 'la:heading' },
-    { label: t('search.sortByLastUpdated'), value: 'updatedAt', icon: 'la:calendar' }
+    { label: t('search.sortByRelevance'), value: 'relevancy', icon: 'tabler:timeline' },
+    { label: t('search.sortByTitle'), value: 'title', icon: 'tabler:heading' },
+    { label: t('search.sortByLastUpdated'), value: 'updatedAt', icon: 'tabler:calendar' }
   ]
 })
 
@@ -584,7 +584,6 @@ $card-gutter-max: 1199.98px;
     max-width: 1400px;
     margin: 50px auto;
     box-shadow: $shadow-2;
-    border-radius: 7px;
     display: flex;
     align-items: stretch;
     /*
@@ -738,7 +737,6 @@ $card-gutter-max: 1199.98px;
     */
     &-filterbtn {
       justify-content: space-between;
-      border-radius: 7px 7px 0 0;
 
       @at-root .body--light & {
         background-color: $grey-1;

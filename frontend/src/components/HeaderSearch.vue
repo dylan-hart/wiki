@@ -28,7 +28,7 @@
             class="header-search-lead"
             color="primary"
             size="18px" />
-          <w-icon v-else class="header-search-lead" name="la:search" />
+          <w-icon v-else class="header-search-lead" name="tabler:search" />
 
           <input
             ref="searchField"
@@ -55,7 +55,7 @@
             :aria-label="t('common.actions.clear')"
             @mousedown.prevent
             @click="clearSearch">
-            <w-icon name="la:times" />
+            <w-icon name="tabler:x" />
           </button>
           <!--
             The shortcut hint doubles as the focus affordance, so it gives way to whatever the field
@@ -91,7 +91,7 @@
              instead for its other icon buttons (see `HeaderNav`), and this one simply isn't offered
              there below the breakpoint.
 
-          `la:tags` rather than the previous `la:hashtag`: a `#` glyph reads as an operator, not a
+          `tabler:tags` rather than the previous `tabler:hash`: a `#` glyph reads as an operator, not a
           tag, and doesn't match either the reference icon or every other tag control in the app
           (`PagePropertiesDialog.vue`, `Index.vue`).
         -->
@@ -100,7 +100,7 @@
           to="/_tags"
           class="header-search-tags-btn"
           :aria-label="t('common.header.browseTags')">
-          <w-icon name="la:tags" />
+          <w-icon name="tabler:tags" />
           <w-tooltip>{{ t('common.header.browseTags') }}</w-tooltip>
         </router-link>
       </div>
@@ -134,7 +134,7 @@
             flat
             round
             size="xs"
-            icon="la:link"
+            icon="tabler:link"
             :aria-label="t('common.header.searchCopyLink')"
             :title="t('common.header.searchCopyLink')"
             @mousedown.prevent
@@ -210,7 +210,7 @@
               :key="tag"
               color="grey-8"
               text-color="white"
-              icon="la:hashtag"
+              icon="tabler:hash"
               size="sm"
               clickable
               @click="addTag(tag)">

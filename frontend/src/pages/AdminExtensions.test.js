@@ -87,7 +87,7 @@ describe('AdminExtensions needsRestart badge', () => {
       }
     ])
 
-    const badgeIcon = wrapper.find('[data-icon="la:exclamation-triangle"]')
+    const badgeIcon = wrapper.find('[data-icon="tabler:alert-triangle"]')
     expect(badgeIcon.exists()).toBe(true)
     expect(wrapper.text()).toContain('needs the server restarted before it can be used')
   })
@@ -107,7 +107,7 @@ describe('AdminExtensions needsRestart badge', () => {
       }
     ])
 
-    expect(wrapper.find('[data-icon="la:exclamation-triangle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-icon="tabler:alert-triangle"]').exists()).toBe(false)
   })
 })
 

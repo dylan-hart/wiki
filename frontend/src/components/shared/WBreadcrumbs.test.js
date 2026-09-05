@@ -15,7 +15,7 @@ describe('WBreadcrumbs', () => {
   it('spaces an icon from its label with a logical (inline-end) margin, not a physical one', () => {
     const wrapper = mount(WBreadcrumbs, {
       props: {
-        items: [{ icon: 'mdi:home', label: 'Home', to: '/' }, { label: 'Docs' }]
+        items: [{ icon: 'tabler:home', label: 'Home', to: '/' }, { label: 'Docs' }]
       }
     })
 
@@ -27,7 +27,7 @@ describe('WBreadcrumbs', () => {
   it('adds no spacing class to an icon-only crumb, which has no label to space it from', () => {
     const wrapper = mount(WBreadcrumbs, {
       props: {
-        items: [{ icon: 'mdi:home', to: '/' }, { label: 'Docs' }]
+        items: [{ icon: 'tabler:home', to: '/' }, { label: 'Docs' }]
       }
     })
 

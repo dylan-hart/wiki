@@ -51,7 +51,7 @@
                 flat
                 round
                 dense
-                icon="la:plus"
+                icon="tabler:plus"
                 :aria-label="t('common.actions.add')"
                 @click="addOrigin" />
             </template>

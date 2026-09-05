@@ -45,7 +45,7 @@ describe('createPageMentionSuggestion', () => {
       json: () =>
         Promise.resolve({
           results: [
-            { path: 'help/faq', title: 'FAQ', icon: 'mdi:help' },
+            { path: 'help/faq', title: 'FAQ', icon: 'tabler:help' },
             { path: 'help/guide', title: 'Guide', icon: null }
           ]
         })
@@ -58,7 +58,7 @@ describe('createPageMentionSuggestion', () => {
       signal: undefined
     })
     expect(items).toEqual([
-      { id: 'help/faq', label: 'FAQ', path: 'help/faq', icon: 'mdi:help' },
+      { id: 'help/faq', label: 'FAQ', path: 'help/faq', icon: 'tabler:help' },
       { id: 'help/guide', label: 'Guide', path: 'help/guide', icon: null }
     ])
   })

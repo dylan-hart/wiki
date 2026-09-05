@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t('common.page.unlockTitle')" @hide="onDialogHide">
     <w-card style="width: 450px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="la:lock" size="sm" class="me-2" />
+        <w-icon name="tabler:lock" size="sm" class="me-2" />
         <span>{{ t('common.page.unlockTitle') }}</span>
       </w-card-section>
       <w-form ref="unlockForm" class="py-2" @submit="unlock">
@@ -33,7 +33,7 @@
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          icon="la:lock-open"
+          icon="tabler:lock-open"
           :label="t(`common.page.unlock`)"
           color="primary"
           padding="xs md"

@@ -43,7 +43,7 @@ import { resolveSize } from './metrics'
 /**
  * An icon reference, in any of the forms the wiki has to draw:
  *
- * - `<prefix>:<name>` — an Iconify reference, e.g. `mdi:account-edit`. Every reference written
+ * - `<prefix>:<name>` — an Iconify reference, e.g. `tabler:user-edit`. Every reference written
  *   literally in this app's own source is inlined at build time (see `scripts/generate-icons.mjs`)
  *   and drawn straight from `BUNDLED_ICONS`, so the interface never waits on the icon service and
  *   nothing an administrator does to icon sets can blank it. Anything else — an icon a USER picked,

@@ -30,6 +30,10 @@ describe('frontend/src source scan: misspelled unexpected-error literal', () => 
   it('never reintroduces the misspelled "An unexpected error occured" literal', () => {
     const offenders = []
     for (const file of listSourceFiles(srcDir, { ext: ['.vue', '.js'], skip: [self] })) {
+      // -> A test may quote the literal: that is how it pins the defect down, and
+      //    `helpers/apiError.test.js` genuinely passes it as a fallback to check what happens to one.
+      //    Only shipped source can reintroduce it.
+      if (file.endsWith('.test.js')) continue
       const content = readFileSync(file, 'utf-8')
       if (content.includes('An unexpected error occured')) {
         offenders.push(file)

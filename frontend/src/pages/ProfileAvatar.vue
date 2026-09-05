@@ -22,7 +22,7 @@
             v-if="userStore.hasAvatar"
             :src="`/_user/current/avatar?` + state.assetTimestamp"
             :alt="userStore.name" />
-          <w-icon v-else name="la:user" />
+          <w-icon v-else name="tabler:user" />
         </w-avatar>
       </div>
       <div v-if="canEdit" class="min-w-60 flex-1 self-center">
@@ -30,7 +30,7 @@
         <div class="text-caption">{{ t('profile.avatarUploadHint') }}</div>
         <div class="mt-4">
           <w-btn
-            icon="la:upload"
+            icon="tabler:upload"
             :label="t(`profile.uploadNewAvatar`)"
             color="primary"
             @click="uploadImage" />
@@ -38,7 +38,7 @@
         <div class="mt-4">
           <w-btn
             class="me-2"
-            icon="la:times"
+            icon="tabler:x"
             outline
             :label="t(`common.actions.clear`)"
             color="primary"
@@ -136,7 +136,7 @@ async function uploadImage() {
       notify({
         type: 'negative',
         message: t('profile.avatarUploadFailed'),
-        caption: apiErrorMessage(err, 'An unexpected error occured.')
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
       })
     }
     state.loading--
@@ -161,7 +161,7 @@ async function clearImage() {
     notify({
       type: 'negative',
       message: t('profile.avatarClearFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.loading--

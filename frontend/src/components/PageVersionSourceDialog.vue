@@ -21,7 +21,7 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:copy"
+          icon="tabler:copy"
           color="grey-5"
           padding="xs md"
           :label="t(`common.actions.copy`)"

@@ -40,7 +40,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:folder-open"
+                icon="tabler:folder-open"
                 color="primary"
                 padding="xs md"
                 :label="t(`editor.redirect.choose`)"
@@ -57,7 +57,7 @@
             <div class="text-body2 font-robotomono editor-redirect-target" v-if="state.target">
               <w-icon
                 class="me-2"
-                :name="state.kind === `url` ? `la:globe` : `la:file-alt`"
+                :name="state.kind === `url` ? `tabler:world` : `tabler:file-text`"
                 size="sm" />
               {{ state.target }}
             </div>
@@ -91,7 +91,7 @@
         <div
           class="editor-redirect-summary"
           :class="isFollowable(state) ? `is-ready` : `is-incomplete`">
-          <w-icon :name="isFollowable(state) ? `la:info-circle` : `la:exclamation-triangle`" />
+          <w-icon :name="isFollowable(state) ? `tabler:info-circle` : `tabler:alert-triangle`" />
           <div class="ps-3">
             <template v-if="!isFollowable(state)">
               {{ t('editor.redirect.summaryIncomplete') }}
@@ -254,7 +254,6 @@ function chooseTarget() {
     align-items: flex-start;
     margin-top: 16px;
     padding: 12px 16px;
-    border-radius: 4px;
     font-size: 0.8rem;
     line-height: 1.4;
 

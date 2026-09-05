@@ -32,7 +32,7 @@
         v-if="props.hookId && state.hook.state === `error`"
         class="bg-negative text-white">
         <div class="flex flex-nowrap items-center">
-          <w-icon color="white" size="xs" name="la:exclamation-triangle" class="me-2" />
+          <w-icon color="white" size="xs" name="tabler:alert-triangle" class="me-2" />
           <div class="text-caption">{{ t('admin.webhooks.stateErrorExplain') }}</div>
         </div>
         <div class="text-caption text-red-2 ps-6 ms-1">{{ state.hook.lastErrorMessage }}</div>
@@ -188,7 +188,7 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:paper-plane"
+          icon="tabler:send"
           :label="t(`admin.webhooks.testSend`)"
           color="grey"
           padding="xs md"

@@ -1245,7 +1245,6 @@ onBeforeUnmount(() => {
   gap: 8px;
   width: 220px;
   padding: 12px;
-  border-radius: 4px;
   backdrop-filter: blur(4px);
 
   @at-root .body--light & {
@@ -1266,7 +1265,6 @@ onBeforeUnmount(() => {
   z-index: 1;
   max-width: calc(100% - 64px);
   padding: 8px 16px;
-  border-radius: 4px;
   font-size: 12px;
   text-align: center;
   backdrop-filter: blur(4px);
@@ -1287,7 +1285,6 @@ onBeforeUnmount(() => {
   flex: none;
   gap: 4px;
   padding: 8px 12px;
-  border-radius: 4px;
   backdrop-filter: blur(4px);
   max-height: 240px;
   overflow-y: auto;
@@ -1340,7 +1337,6 @@ onBeforeUnmount(() => {
   z-index: 1;
   pointer-events: none;
   padding: 2px 8px;
-  border-radius: 4px;
   background: rgba(0, 0, 0, 0.75);
   color: #fff;
   font-size: 12px;

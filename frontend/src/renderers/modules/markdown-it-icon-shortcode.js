@@ -1,5 +1,5 @@
 /**
- * An icon written the way an emoji is: `:mdi:arrow-vertical-lock:`.
+ * An icon written the way an emoji is: `:tabler:arrows-vertical:`.
  *
  * The inner colon is what tells the two apart, and it is a reliable tell in both directions: an
  * Iconify reference is always `prefix:name` and an emoji shortcode never holds a colon. So the two
@@ -38,7 +38,7 @@ function iconShortcode(state, silent) {
 
 export default (md) => {
   /*
-    Icons written as shortcodes, `:mdi:home:`.
+    Icons written as shortcodes, `:tabler:home:`.
 
     Registered ahead of every other inline rule so that the whole reference is claimed in one go.
     Nothing else wants it -- MDC's inline component syntax, the only other rule that would take a

@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-search">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:list-search" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:list-search" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.search.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.search.subtitle') }}
@@ -14,7 +16,7 @@
         <w-btn
           class="me-2 acrylic-btn"
           flat
-          icon="mdi:database-refresh"
+          icon="tabler:database-cog"
           :label="t(`admin.searchRebuildIndex`)"
           color="purple"
           @click="rebuild"
@@ -22,7 +24,7 @@
         <w-separator class="me-2" vertical />
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -32,7 +34,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -81,7 +83,7 @@
                 <w-item-label caption>{{ eng.description }}</w-item-label>
               </w-item-section>
               <w-item-section side v-if="eng.isSelected">
-                <w-icon name="mdi:check-circle" size="sm" color="positive" />
+                <w-icon name="tabler:circle-check" size="sm" color="positive" />
               </w-item-section>
             </w-item>
           </w-list>
@@ -98,7 +100,7 @@
             <template #hint>{{ selectedEngine.description }}</template>
             <template #action>
               <w-btn
-                icon="mdi:check"
+                icon="tabler:check"
                 :label="t(`common.actions.apply`)"
                 color="slate"
                 @click="save()"
@@ -170,6 +172,7 @@ import UtilCodeEditor from '@/components/UtilCodeEditor.vue'
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // CONSTANTS
 

@@ -36,7 +36,7 @@ export class BlockTabElement extends HTMLElement {
         name: 'icon',
         type: 'string',
         label: 'Icon',
-        hint: 'Iconify reference drawn to the left of the label, e.g. mdi:language-python.'
+        hint: 'Iconify reference drawn to the left of the label, e.g. tabler:brand-python.'
       }
     ]
   }

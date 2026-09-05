@@ -44,7 +44,7 @@ const SERVER_ITEMS = [
     id: 'parent-1',
     type: 'link',
     label: 'Parent',
-    icon: 'mdi:text-box-outline',
+    icon: 'tabler:file-text',
     target: '/parent',
     openInNewWindow: false,
     expandByDefault: true,
@@ -54,7 +54,7 @@ const SERVER_ITEMS = [
         id: 'child-1',
         type: 'link',
         label: 'Child',
-        icon: 'mdi:text-box-outline',
+        icon: 'tabler:file-text',
         target: '/parent/child',
         openInNewWindow: false,
         visibilityGroups: ['group-1']
@@ -119,7 +119,7 @@ describe('NavItemEditor', () => {
         id: 'parent-1',
         type: 'link',
         label: 'Parent',
-        icon: 'mdi:text-box-outline',
+        icon: 'tabler:file-text',
         target: '/parent',
         openInNewWindow: false,
         expandByDefault: true,
@@ -129,7 +129,7 @@ describe('NavItemEditor', () => {
             id: 'child-1',
             type: 'link',
             label: 'Child',
-            icon: 'mdi:text-box-outline',
+            icon: 'tabler:file-text',
             target: '/parent/child',
             openInNewWindow: false,
             visibilityGroups: ['group-1']
@@ -443,16 +443,17 @@ describe('NavItemEditor', () => {
 })
 
 /**
- * OpenProject #2074: the "Add" button used to draw `la:plus-circle` while every other create/add
- * affordance in the app draws `la:plus` for the same kind of action -- settled on `la:plus`
- * everywhere, so this button must not regress back to the other glyph.
+ * OpenProject #2074: the "Add" button used to draw a ringed plus while every other create/add
+ * affordance in the app drew a bare one. The add action is settled on `tabler:plus`, so this button
+ * must not drift back to a ringed variant -- `tabler:circle-plus` is the one sitting closest to it
+ * in the set.
  */
 describe('NavItemEditor "Add" icon (OpenProject #2074)', () => {
-  it('uses the settled la:plus add glyph, not la:plus-circle', async () => {
+  it('uses the settled tabler:plus add glyph, not tabler:circle-plus', async () => {
     const wrapper = mountEditor()
     await flushPromises()
 
-    expect(wrapper.find('[data-icon="la:plus"]').exists()).toBe(true)
-    expect(wrapper.find('[data-icon="la:plus-circle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-icon="tabler:plus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="tabler:circle-plus"]').exists()).toBe(false)
   })
 })

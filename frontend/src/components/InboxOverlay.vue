@@ -1,7 +1,7 @@
 <template>
   <w-layout class="inbox-overlay" container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="mdi:inbox-full" left size="md" />
+      <w-icon name="tabler:inbox" left size="md" />
       <span>{{ t('inbox.title') }}</span>
       <w-space />
       <w-btn-group>
@@ -10,7 +10,7 @@
           text-color="text-secondary"
           :label="t('common.actions.close')"
           :aria-label="t('common.actions.close')"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
       </w-btn-group>
     </w-header>
@@ -94,12 +94,12 @@ const sidenav = computed(() => [
   {
     key: 'watching',
     label: t('inbox.inbox'),
-    icon: 'mdi:inbox-full'
+    icon: 'tabler:inbox'
   },
   {
     key: 'review',
     label: t('inbox.pendingReview'),
-    icon: 'la:clipboard-check'
+    icon: 'tabler:clipboard-check'
   }
 ])
 

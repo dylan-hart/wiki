@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-auth">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:lock-open" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:lock-open" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.auth.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.auth.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,7 +25,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -32,7 +34,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save"
@@ -86,7 +88,7 @@
         <w-btn
           class="mt-2 w-full"
           color="primary"
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.auth.addStrategy`)">
           <!--
             No `auto-close`: with a filter field in the content, that would dismiss the menu the
@@ -118,7 +120,7 @@
                   hide-bottom-space
                   :label="t(`admin.auth.filterModules`)"
                   :aria-label="t(`admin.auth.filterModules`)">
-                  <template #prepend><w-icon name="la:search" /></template>
+                  <template #prepend><w-icon name="tabler:search" /></template>
                 </w-input>
               </div>
               <w-separator />
@@ -518,7 +520,7 @@
           <w-space />
           <w-btn
             class="acrylic-btn"
-            icon="la:trash"
+            icon="tabler:trash"
             flat
             color="negative"
             :disabled="isBuiltInLocal"
@@ -549,6 +551,7 @@ import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

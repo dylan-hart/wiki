@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-system">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:cpu" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:cpu" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.system.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.system.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,7 +25,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -34,7 +36,7 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="mdi:clipboard-text-outline"
+          icon="tabler:clipboard-text"
           :label="t('admin.system.copyInfo')"
           color="primary"
           :disabled="state.loading > 0"
@@ -319,6 +321,7 @@ import { copyToClipboard } from '@/helpers/clipboard'
 import { useSiteStore } from '@/stores/site'
 
 import CheckUpdateDialog from '../components/CheckUpdateDialog.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 
@@ -413,7 +416,7 @@ Total RAM: ${state.info.ramTotal}`
     notify({
       type: 'positive',
       message: t('admin.system.copySuccess'),
-      icon: 'la:clipboard'
+      icon: 'tabler:clipboard'
     })
   } catch (err) {
     notify({
@@ -436,7 +439,6 @@ Total RAM: ${state.info.ramTotal}`
     background-color: #f8f8f8;
     color: #333;
     padding: 8px 12px;
-    border-radius: 4px;
     font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
 
     @at-root .body--dark & {

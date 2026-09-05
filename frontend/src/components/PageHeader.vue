@@ -21,6 +21,13 @@
       <div
         class="page-header-icon flex flex-none items-center justify-center border border-hairline bg-paper dark:border-hairline-dark dark:bg-dark-4"
         :style="plateStyle">
+        <!--
+          The blueprint corner marks. Four 7px right-angles standing just outside the plate's own
+          corners -- the mark the design puts on every framed thing that is being POINTED AT rather
+          than merely bounded (the empty state, a callout, the primary button). Decorative, so it is
+          one `aria-hidden` element drawn with four background gradients rather than four nodes.
+        -->
+        <i class="page-header-icon__marks" aria-hidden="true" />
         <w-btn
           v-if="isEditing"
           padding="none"
@@ -73,7 +80,7 @@
           @keydown.enter.prevent="$event.target.blur()" />
         <span v-else>{{ displayedTitle }}</span>
       </h1>
-      <div class="text-subtitle2 page-header-subtitle">
+      <div class="page-header-subtitle">
         <span
           v-if="isEditing"
           ref="descriptionEl"
@@ -115,10 +122,10 @@
           page is watched, an outline in grey while it is not. Same orange as Edit, because both are
           this reader's own hold on the page rather than decoration.
 
-          `mdi` rather than the `la` this row otherwise uses, because Line Awesome has no filled bell
-          to switch TO: its bell and its bell-solid carry an identical body in Iconify, so that pair
-          drew one drawing in two colours. (Names left unquoted on purpose — the icon bundler scans
-          this file for quoted references and would keep bundling an icon nothing draws.)
+          Tabler draws both halves of that pair -- `tabler:bell-filled` and `tabler:bell` -- so the two
+          states really are two drawings rather than one drawing in two colours. (Names left unquoted
+          on purpose: the icon bundler scans this file for quoted references and would keep bundling
+          an icon nothing draws.)
 
           Not offered on a redirection: a watch is an offer to be told when a page's content changes,
           and nobody is reading this one — they are passing through it.
@@ -129,7 +136,7 @@
           v-if="userStore.authenticated && !isRedirect"
           flat
           dense
-          :icon="pageStore.isWatching ? `mdi:bell` : `mdi:bell-outline`"
+          :icon="pageStore.isWatching ? `tabler:bell-filled` : `tabler:bell`"
           :color="pageStore.isWatching ? `accent` : `slate-soft`"
           :aria-label="pageStore.isWatching ? t(`common.page.unwatch`) : t(`common.page.watch`)"
           :aria-pressed="pageStore.isWatching"
@@ -143,7 +150,7 @@
           v-if="siteStore.theme.showPrintBtn"
           flat
           dense
-          icon="la:print"
+          icon="tabler:printer"
           color="slate-soft"
           :aria-label="t('common.actions.print')"
           @click="printPage">
@@ -154,9 +161,10 @@
           and the reviewer's own permissions — with the page itself — so nothing here has to know how
           that is decided, or ask about it.
 
-          An empty queue is grey and an empty tray, sitting with Print as one more thing available
-          rather than one more thing to do; something waiting fills the tray and turns it orange, the
-          colour this row uses for what belongs to the reader. The count is on the badge either way.
+          One tray either way, told apart by colour and by the badge rather than by a second glyph:
+          empty, it is grey and sits with Print as one more thing available; with something waiting it
+          turns accent, the colour this row uses for what belongs to the reader, and carries the count.
+          That is how the design draws it -- a single inbox with a count pinned to it.
 
           A redirection takes no suggestions -- see the button below -- so there is never a queue on
           one to review.
@@ -173,7 +181,7 @@
             slot, so anything written inside it is dropped — and an HTML badge could not live inside an
             SVG in any case. It floats against the button, which is the positioned box here.
           -->
-          <w-icon :name="pendingCount > 0 ? `mdi:inbox-full` : `la:inbox`" />
+          <w-icon name="tabler:inbox" />
           <w-badge v-if="pendingCount > 0" color="accent" text-color="white" floating>
             <strong>{{ pendingCount }}</strong>
           </w-badge>
@@ -208,7 +216,7 @@
                 clickable
                 @click="reviewSubmission(submission)">
                 <w-item-section class="items-center" avatar>
-                  <w-icon class="text-slate-soft" name="la:file-alt" size="sm" />
+                  <w-icon class="text-slate-soft" name="tabler:file-text" size="sm" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>
@@ -237,7 +245,7 @@
           class="collab-disconnected me-2 flex items-center gap-1 text-warning"
           role="status"
           aria-live="polite">
-          <w-icon name="mdi:wifi-off" size="18px" />
+          <w-icon name="tabler:wifi-off" size="18px" />
           <span class="text-caption">{{ t('editor.collab.disconnected') }}</span>
         </div>
         <!--
@@ -247,7 +255,7 @@
         <collab-presence class="me-2" />
         <w-btn
           class="ms-4"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           flat
           color="slate-soft"
           :href="siteStore.docsBase + `/guide/editors/${editorStore.editor}`"
@@ -269,7 +277,7 @@
         -->
         <w-btn
           class="ms-4"
-          icon="la:edit"
+          icon="tabler:edit"
           color="accent"
           :label="t(`common.actions.edit`)"
           :aria-label="t(`common.actions.edit`)"
@@ -289,7 +297,7 @@
       <template v-else-if="!editorStore.isActive && pageStore.canSuggestEdits && !isRedirect">
         <w-btn
           class="ms-4"
-          icon="la:edit"
+          icon="tabler:edit"
           color="accent"
           :label="
             pageStore.hasOpenSuggestion
@@ -307,7 +315,7 @@
         <w-btn
           class="ms-2"
           outline
-          icon="la:times"
+          icon="tabler:x"
           color="accent"
           :label="
             editorStore.hasPendingChanges ? t(`common.actions.discard`) : t(`common.actions.close`)
@@ -319,7 +327,7 @@
         <w-btn
           class="ms-2"
           v-if="isSuggesting"
-          icon="la:paper-plane"
+          icon="tabler:send"
           color="positive"
           :label="t(`common.actions.submitEdits`)"
           :aria-label="t(`common.actions.submitEdits`)"
@@ -328,14 +336,14 @@
         <w-btn
           class="ms-2"
           v-else-if="editorStore.mode === `create`"
-          icon="la:check"
+          icon="tabler:check"
           color="positive"
           :label="t(`editor.createPage`)"
           :aria-label="t(`editor.createPage`)"
           @click="createPage" />
         <w-btn-group class="ms-2" v-else>
           <w-btn
-            icon="la:check"
+            icon="tabler:check"
             color="positive"
             :label="t(`common.actions.saveChanges`)"
             :aria-label="t(`common.actions.saveChanges`)"
@@ -345,7 +353,7 @@
           <template v-if="editorStore.isActive">
             <w-separator vertical />
             <w-btn
-              icon="la:check-double"
+              icon="tabler:checks"
               color="positive"
               :aria-label="t(`common.actions.saveAndClose`)"
               :disabled="!editorStore.hasPendingChanges"
@@ -931,6 +939,30 @@ async function toggleWatch() {
 }
 
 /*
+  The corner marks: one absolutely-positioned box inset past the plate, with each of its four corners
+  painted by a pair of 7px background gradients. A pseudo-element would give two corners at most, and
+  four real nodes would put decoration in the accessibility tree.
+*/
+.page-header-icon {
+  position: relative;
+}
+
+.page-header-icon__marks {
+  position: absolute;
+  inset: -5px;
+  pointer-events: none;
+  background:
+    linear-gradient($slate-soft, $slate-soft) 0 0 / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 0 0 / 1px 7px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 0 / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 0 / 1px 7px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 0 100% / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 0 100% / 1px 7px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 100% / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 100% / 1px 7px no-repeat;
+}
+
+/*
   The two headings, while they are also the fields.
 
   No border and no focus ring: at rest each one has to read exactly as it does when the page is being
@@ -944,7 +976,6 @@ async function toggleWatch() {
   display: inline-block;
   padding: 0 4px;
   margin: 0 -4px;
-  border-radius: 4px;
   outline: none;
   cursor: text;
   transition: background-color 0.15s var(--ease-standard);

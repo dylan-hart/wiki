@@ -17,7 +17,7 @@ import { usePathDisplay } from '@/composables/pathDisplay'
  * than on the custom tab. Kept to a set seeded on every instance (`mdi`), so that it resolves without
  * an administrator having added anything.
  */
-export const DEFAULT_PAGE_ICON = 'mdi:file-document-outline'
+export const DEFAULT_PAGE_ICON = 'tabler:file-text'
 
 /**
  * A page response, shaped for `$patch`.
@@ -198,7 +198,7 @@ export const usePageStore = defineStore('page', {
         // -> A deliberate override when the site's path-display setting is on, not just a fallback
         //    for a segment with no real title of its own (Feature #2574) -- see `usePathDisplay()`.
         title: humanize(value),
-        icon: 'la:file-alt',
+        icon: 'tabler:file-text',
         locale: state.locale,
         path: localizedPagePath(
           segments.slice(0, key + 1).join('/'),
@@ -724,7 +724,7 @@ export const usePageStore = defineStore('page', {
           }
         }).json()
       } catch (err) {
-        throw new Error(apiErrorMessage(err, 'An unexpected error occured.'))
+        throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
       }
       // -> Following the page only makes sense when it is the one being viewed. Moved from the file
       //    manager, it is some other page, and the reader is still on theirs.
@@ -754,7 +754,7 @@ export const usePageStore = defineStore('page', {
           json: { title }
         }).json()
       } catch (err) {
-        throw new Error(apiErrorMessage(err, 'An unexpected error occured.'))
+        throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
       }
 
       // Update page store
@@ -958,7 +958,9 @@ export const usePageStore = defineStore('page', {
           just above (`ERR_CREATED_PAGE_NOT_FOUND`, `ERR_PAGE_NOT_FOUND`) and a `contentFlusher`
           failure both already carry the message a caller should show, and pass through unchanged.
         */
-        throw err.response ? new Error(apiErrorMessage(err, 'An unexpected error occured.')) : err
+        throw err.response
+          ? new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
+          : err
       }
     },
     async cancelPageEdit() {

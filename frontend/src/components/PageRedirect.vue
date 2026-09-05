@@ -4,7 +4,7 @@
     <!-- Nowhere to go -->
     <!-- ----------------------- -->
     <template v-if="problem">
-      <w-icon class="page-placeholder-icon" name="la:exclamation-triangle" />
+      <w-icon class="page-placeholder-icon" name="tabler:alert-triangle" />
       <div class="text-h6">{{ t(`common.redirect.${problem}`) }}</div>
       <div class="text-body2 mt-1 opacity-60" v-if="canEditPage">
         {{ t('common.redirect.brokenHint') }}
@@ -15,7 +15,7 @@
       <w-btn
         class="mt-6"
         v-if="canEditPage"
-        icon="la:edit"
+        icon="tabler:edit"
         color="primary"
         padding="xs lg"
         :label="t(`common.actions.edit`)"
@@ -25,12 +25,12 @@
     <!-- Held, so the page can be worked on -->
     <!-- ----------------------- -->
     <template v-else-if="!following">
-      <w-icon class="page-placeholder-icon" name="la:directions" />
+      <w-icon class="page-placeholder-icon" name="tabler:directions" />
       <div class="text-h6">{{ t('common.redirect.held') }}</div>
       <div class="text-caption font-robotomono mt-3 opacity-50">{{ redirect.target }}</div>
       <w-btn
         class="mt-6"
-        icon="la:arrow-right"
+        icon="tabler:arrow-right"
         color="primary"
         padding="xs lg"
         :label="t(`common.redirect.follow`)"
@@ -40,7 +40,7 @@
     <!-- On the way -->
     <!-- ----------------------- -->
     <template v-else>
-      <w-icon class="page-placeholder-icon" name="la:directions" />
+      <w-icon class="page-placeholder-icon" name="tabler:directions" />
       <!--
         `aria-live`, because nothing here is clicked: a reader on a screen reader is told where they
         are being taken at the moment the page announces it, not when they get around to reading it.
@@ -52,7 +52,7 @@
               the notice can go now, and one who lands here with scripting half-loaded has a link -->
       <w-btn
         class="mt-6"
-        icon="la:arrow-right"
+        icon="tabler:arrow-right"
         color="primary"
         padding="xs lg"
         :label="t(`common.redirect.goNow`)"

@@ -21,8 +21,16 @@ import { listSourceFiles } from '../test/sourceFiles.js'
  * controls `.w-icon`'s em-based box) rather than trying to out-specificity WIcon's scoped rule from
  * outside. This is a source-level regression test in the same style as `imgAlt.test.js` -- a plain
  * template scan across every admin page rather than mounting each of the 37 pages individually, since
- * what is being pinned down is a textual property of the markup (every `<w-icon class="admin-icon">`
- * carries `size="64px"`), not rendered behaviour that differs page to page.
+ * what is being pinned down is a textual property of the markup, not rendered behaviour that differs
+ * page to page.
+ *
+ * The size the scan pins has since changed with the shape around it: the icon no longer IS the 64px
+ * plate, it sits inside one (`.admin-page-icon`, declared in `AdminLayout.vue`, with the four
+ * blueprint corner marks overhanging it), and the design draws a 34px glyph in that 64px box. The
+ * defect the original gate pins down is unchanged -- an `.admin-icon` with no `size` still collapses
+ * to a 1em box -- so the scan still runs, against the size the design now asks for, and additionally
+ * pins the plate the glyph has to be inside, since a header icon that escaped it would draw a naked
+ * 34px glyph where every other page draws a framed one.
  */
 const SRC_DIR = dirname(fileURLToPath(import.meta.url))
 const PAGES_DIR = join(SRC_DIR, 'pages')
@@ -41,7 +49,7 @@ function isAdminHeaderIcon(tag) {
   return /class="[^"]*\badmin-icon\b[^"]*"/.test(tag)
 }
 
-describe('every admin page header <w-icon class="admin-icon"> passes size="64px"', () => {
+describe('every admin page header <w-icon class="admin-icon"> is a sized glyph in a plate', () => {
   const adminPageFiles = listSourceFiles(PAGES_DIR, { ext: ['.vue'] }).filter((f) =>
     /Admin[^/]*\.vue$/.test(f)
   )
@@ -59,10 +67,12 @@ describe('every admin page header <w-icon class="admin-icon"> passes size="64px"
 
     if (headerIconTags.length === 0) continue
 
-    it(`${relPath}: header <w-icon class="admin-icon"> carries size="64px"`, () => {
+    it(`${relPath}: header <w-icon class="admin-icon"> carries size="34px", inside a plate`, () => {
       for (const tag of headerIconTags) {
-        expect(tag).toMatch(/\bsize="64px"/)
+        expect(tag).toMatch(/\bsize="34px"/)
       }
+      expect(source).toContain('<div class="admin-page-icon flex-none animated fadeInLeft">')
+      expect(source).toContain('<i class="admin-page-icon__marks" aria-hidden="true" />')
     })
   }
 })

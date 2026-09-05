@@ -10,7 +10,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     properties: {
       prefix: {
         type: 'string',
-        description: 'Iconify prefix, i.e. the part before the colon in `mdi:account-edit`.'
+        description: 'Iconify prefix, i.e. the part before the colon in `tabler:user-edit`.'
       },
       name: {
         type: 'string'

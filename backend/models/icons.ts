@@ -51,6 +51,12 @@ export interface ResolvedIcons {
  * Icon sets seeded on a fresh instance, so that the picker is usable before an administrator has
  * added anything. The names are the upstream ones and get overwritten by the first metadata refresh.
  *
+ * Tabler leads the list because it is the set the interface itself is drawn in -- every icon in
+ * `frontend/src/assets/icons.generated.js` is a Tabler one -- so an icon a user picks for a page or a
+ * navigation item sits in the same hand as the chrome around it unless they deliberately reach past
+ * it. The rest stay seeded: what a user picks for their own content is their choice, not the
+ * interface's.
+ *
  * Font Awesome Free (OpenProject #1212) is its three Iconify collections, not the single `fa`
  * prefix: `fa6-solid`/`fa6-regular`/`fa6-brands` are the current (v6) free-tier sets upstream splits
  * style into, distinct from `fa` (the old v4 icon-font mapping) and from a paid Pro tier this instance
@@ -59,6 +65,7 @@ export interface ResolvedIcons {
  * from Iconify's own metadata (`AdminIcons.vue`'s `setCaption`/`availableCaption`).
  */
 export const DEFAULT_SETS: { prefix: string; name: string }[] = [
+  { prefix: 'tabler', name: 'Tabler Icons' },
   { prefix: 'mdi', name: 'Material Design Icons' },
   { prefix: 'la', name: 'Line Awesome' },
   { prefix: 'fa6-solid', name: 'Font Awesome 6 Solid' },
@@ -111,7 +118,7 @@ function isSafeIconBody(body: string): boolean {
 /**
  * Icons model
  *
- * Icons are addressed the way Iconify addresses them — `<prefix>:<name>`, e.g. `mdi:account-edit` —
+ * Icons are addressed the way Iconify addresses them — `<prefix>:<name>`, e.g. `tabler:user-edit` —
  * and that reference is all content ever stores. Resolving one to markup goes through four tiers:
  *
  * 1. **memory**, per instance, for the icons a page is actually made of

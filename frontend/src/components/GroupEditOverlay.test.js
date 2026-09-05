@@ -664,7 +664,7 @@ describe('GroupEditOverlay import rules confirmation', () => {
     //    located by the `data-icon` WIcon.vue stamps onto the rendered SVG instead.
     const importButton = wrapper
       .findAll('button')
-      .find((b) => b.find('[data-icon="la:file-import"]').exists())
+      .find((b) => b.find('[data-icon="tabler:file-import"]').exists())
     expect(importButton).toBeTruthy()
     await importButton.trigger('click')
     await flushPromises()

@@ -82,7 +82,7 @@ describe('ProfileGroups: other groups section', () => {
     expect(wrapper.text()).toContain('Reviewers')
 
     // -> Subdued per the project's opacity-60 convention (AdminApprovals.vue's disabled-rule rows),
-    //    and a grey avatar rather than the member list's secondary color (AdminGroups.vue's
+    //    and a grey avatar rather than the member list's chrome-tone one (AdminGroups.vue's
     //    muted-state convention) -- never hidden, since it is still informational content.
     const dimmed = wrapper.findAll('.opacity-60')
     expect(dimmed.length).toBeGreaterThan(0)
@@ -95,7 +95,7 @@ describe('ProfileGroups: other groups section', () => {
 
     const memberAvatar = wrapper
       .findAll('.w-avatar')
-      .find((el) => el.attributes('style')?.includes('--color-secondary'))
+      .find((el) => el.attributes('style')?.includes('--color-slate'))
     expect(memberAvatar).toBeTruthy()
   })
 })

@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-replication">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:refresh" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:refresh" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.replication.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.replication.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -22,7 +24,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save"
@@ -41,7 +43,7 @@
               <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
-                    <w-icon name="la:exclamation-triangle" size="lg" />
+                    <w-icon name="tabler:alert-triangle" size="lg" />
                   </w-card-section>
                   <w-card-section class="text-caption">{{
                     t('admin.replication.warning')
@@ -136,6 +138,7 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // STORES
 

@@ -38,7 +38,7 @@
               <w-icon
                 v-if="!element.generated"
                 class="handle"
-                name="mdi:drag-horizontal"
+                name="tabler:grip-horizontal"
                 size="sm" />
             </w-item-section>
           </div>
@@ -59,7 +59,7 @@
               <w-icon
                 v-if="!element.generated"
                 class="handle"
-                name="mdi:drag-horizontal"
+                name="tabler:grip-horizontal"
                 size="sm" />
             </w-item-section>
           </w-item>
@@ -76,7 +76,7 @@
               <w-icon
                 v-if="!element.generated"
                 class="handle"
-                name="mdi:drag-horizontal"
+                name="tabler:grip-horizontal"
                 size="sm" />
             </w-item-section>
           </div>
@@ -90,23 +90,23 @@
           color="positive"
           :label="t(`common.actions.add`)"
           :aria-label="t(`common.actions.add`)"
-          icon="la:plus">
+          icon="tabler:plus">
           <w-menu fit :offset="[0, 10]" auto-close>
             <w-list separator>
               <w-item clickable @click="addItem(`header`)">
-                <w-item-section side><w-icon name="la:heading" /></w-item-section>
+                <w-item-section side><w-icon name="tabler:heading" /></w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t('navEdit.header') }}</w-item-label>
                 </w-item-section>
               </w-item>
               <w-item clickable @click="addItem(`link`)">
-                <w-item-section side><w-icon name="la:link" /></w-item-section>
+                <w-item-section side><w-icon name="tabler:link" /></w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t('navEdit.link') }}</w-item-label>
                 </w-item-section>
               </w-item>
               <w-item clickable @click="addItem(`separator`)">
-                <w-item-section side><w-icon name="la:minus" /></w-item-section>
+                <w-item-section side><w-icon name="tabler:minus" /></w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t('navEdit.separator') }}</w-item-label>
                 </w-item-section>
@@ -119,7 +119,7 @@
           flat
           color="grey"
           :aria-label="t(`common.actions.add`)"
-          icon="la:ellipsis-v"
+          icon="tabler:dots-vertical"
           padding="xs sm">
           <w-menu :offset="[0, 10]" anchor="bottom right" self="top right" auto-close>
             <w-list separator>
@@ -128,7 +128,7 @@
                 @click="clearItems"
                 :disabled="!state.items.some((item) => !item.generated)">
                 <w-item-section side>
-                  <w-icon name="la:trash" color="negative" />
+                  <w-icon name="tabler:trash" color="negative" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t('navEdit.clearItems') }}</w-item-label>
@@ -140,7 +140,7 @@
               -->
               <w-item clickable @click="openCopyDialog" v-if="canCopyFrom">
                 <w-item-section side>
-                  <w-icon name="mdi:import" />
+                  <w-icon name="tabler:file-import" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t('navEdit.copyFrom') }}</w-item-label>
@@ -157,7 +157,7 @@
       <template v-if="state.items.length < 1">
         <w-card>
           <w-card-section>
-            <w-icon class="me-2" name="la:arrow-left" size="xs" />
+            <w-icon class="me-2" name="tabler:arrow-left" size="xs" />
             <span>{{ t('navEdit.emptyMenuText') }}</span>
           </w-card-section>
         </w-card>
@@ -165,7 +165,7 @@
       <template v-else-if="!state.selected">
         <w-card>
           <w-card-section>
-            <w-icon class="me-2" name="la:arrow-left" size="xs" />
+            <w-icon class="me-2" name="tabler:arrow-left" size="xs" />
             <span>{{ t('navEdit.noSelection') }}</span>
           </w-card-section>
         </w-card>
@@ -231,7 +231,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash"
+            icon="tabler:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -284,7 +284,7 @@
                     flat
                     dense
                     round
-                    icon="la:icons"
+                    icon="tabler:icons"
                     color="primary"
                     :aria-label="t(`iconPicker.open`)">
                     <w-tooltip>{{ t('iconPicker.open') }}</w-tooltip>
@@ -341,7 +341,7 @@
                       flat
                       dense
                       round
-                      icon="la:folder-open"
+                      icon="tabler:folder-open"
                       color="primary"
                       :aria-label="t(`common.actions.browse`)"
                       @click="browseTarget">
@@ -403,7 +403,7 @@
               v-if="state.current.isNested"
               flat
               :label="t(`navEdit.unnestItem`)"
-              icon="mdi:format-indent-decrease"
+              icon="tabler:indent-decrease"
               color="teal"
               padding="xs md"
               @click="state.current.isNested = false" />
@@ -412,7 +412,7 @@
               v-else
               flat
               :label="t(`navEdit.nestItem`)"
-              icon="mdi:format-indent-increase"
+              icon="tabler:indent-increase"
               color="teal"
               padding="xs md"
               @click="state.current.isNested = true" />
@@ -422,7 +422,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash"
+            icon="tabler:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -476,7 +476,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash"
+            icon="tabler:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -605,7 +605,7 @@ const state = reactive({
  * that the sidebar draws it through `w-icon` like every other item. Kept to `mdi`, a set seeded on
  * every instance.
  */
-const DEFAULT_LINK_ICON = 'mdi:text-box-outline'
+const DEFAULT_LINK_ICON = 'tabler:file-text'
 
 const visibilityOptions = [
   { value: false, label: t('navEdit.visibilityAll') },

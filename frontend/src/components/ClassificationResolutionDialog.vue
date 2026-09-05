@@ -13,7 +13,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 500px; max-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="la:exclamation-triangle" size="sm" class="me-2" />
+        <w-icon name="tabler:alert-triangle" size="sm" class="me-2" />
         <span>{{ t('editor.classification.conflictsTitle') }}</span>
       </w-card-section>
       <w-card-section class="pb-0">

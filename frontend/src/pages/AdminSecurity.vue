@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-mail">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:shield" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:shield" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.security.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.security.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,7 +25,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -32,7 +34,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save"
@@ -52,7 +54,7 @@
               <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
-                    <w-icon name="la:exclamation-triangle" size="lg" />
+                    <w-icon name="tabler:alert-triangle" size="lg" />
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <div>{{ t('admin.security.warn') }}</div>
@@ -170,7 +172,7 @@
                 <w-card class="bg-negative text-white rounded">
                   <w-card-section class="items-center" horizontal>
                     <w-card-section class="flex-none pe-0">
-                      <w-icon name="la:exclamation-triangle" size="lg" />
+                      <w-icon name="tabler:alert-triangle" size="lg" />
                     </w-card-section>
                     <w-card-section class="text-caption">
                       <div>{{ t('admin.security.insecureCookieRiskWarn') }}</div>
@@ -242,7 +244,7 @@
               <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
-                    <w-icon name="la:exclamation-triangle" size="lg" />
+                    <w-icon name="tabler:alert-triangle" size="lg" />
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
@@ -333,7 +335,7 @@
               <w-card class="bg-negative text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
-                    <w-icon name="la:exclamation-triangle" size="lg" />
+                    <w-icon name="tabler:alert-triangle" size="lg" />
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
@@ -424,7 +426,7 @@
               <w-card class="bg-info text-white rounded">
                 <w-card-section class="items-center" horizontal>
                   <w-card-section class="flex-none pe-0">
-                    <w-icon name="la:info-circle" size="lg" />
+                    <w-icon name="tabler:info-circle" size="lg" />
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <div>{{ t('admin.security.uploadsInfo') }}</div>
@@ -571,6 +573,7 @@ import { useSiteStore } from '@/stores/site'
 
 import { humanizeDate } from '@/helpers/datetime'
 import { formatFileSize, parseFileSize } from '@/helpers/fileSize'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // STORES
 

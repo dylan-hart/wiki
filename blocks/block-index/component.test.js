@@ -171,20 +171,22 @@ describe('block-index', () => {
     await mountBlock('block-index', { props: { showIcons: true }, settle: 2 })
 
     const requestedUrls = fetchMock.mock.calls.map(([url]) => url)
-    expect(requestedUrls).toContain('/_icons/mdi/book-open-page-variant-outline.svg')
-    expect(requestedUrls).toContain('/_icons/mdi/file-document-outline.svg')
+    expect(requestedUrls).toContain('/_icons/tabler/book-2.svg')
+    expect(requestedUrls).toContain('/_icons/tabler/file-text.svg')
   })
 
   it("does not let hasChildren override a page's own chosen icon (OpenProject #2462)", async () => {
     const fetchMock = stubFetch({
-      pages: [stubPage({ path: 'docs/guide', title: 'Guide', icon: 'mdi:star', hasChildren: true })]
+      pages: [
+        stubPage({ path: 'docs/guide', title: 'Guide', icon: 'tabler:star', hasChildren: true })
+      ]
     })
 
     await mountBlock('block-index', { props: { showIcons: true }, settle: 2 })
 
     const requestedUrls = fetchMock.mock.calls.map(([url]) => url)
-    expect(requestedUrls).toContain('/_icons/mdi/star.svg')
-    expect(requestedUrls).not.toContain('/_icons/mdi/book-open-page-variant-outline.svg')
+    expect(requestedUrls).toContain('/_icons/tabler/star.svg')
+    expect(requestedUrls).not.toContain('/_icons/tabler/book-2.svg')
   })
 
   it("navigates through WIKI_ROUTER instead of a full page load on a row's click", async () => {

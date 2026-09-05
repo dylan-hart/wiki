@@ -24,7 +24,7 @@
         class="w-full mt-4"
         color="primary"
         :label="t(`auth.tfa.verifyToken`)"
-        icon="la:sign-in-alt"
+        icon="tabler:login"
         @click="verifyTFA" />
       <w-btn
         class="w-full mt-2"
@@ -56,7 +56,7 @@
         class="w-full mt-4"
         color="primary"
         :label="t(`auth.tfa.verifyToken`)"
-        icon="la:sign-in-alt"
+        icon="tabler:login"
         @click="finishSetupTFA" />
     </template>
   </div>

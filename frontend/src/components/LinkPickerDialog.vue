@@ -5,14 +5,14 @@
     @hide="onDialogHide">
     <w-card class="link-picker" style="width: 860px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="la:link" size="sm" class="me-2" />
+        <w-icon name="tabler:link" size="sm" class="me-2" />
         <span>{{ props.title ?? t('linkPicker.title') }}</span>
       </w-card-section>
       <!-- -> Inset from the card's edges, as in the icon picker: the strip is a segmented control with
               a track of its own, so it sits ON the card rather than spanning it edge to edge -->
       <w-tabs class="m-2" v-model="state.currentTab" no-caps inline-label>
-        <w-tab name="page" icon="la:file-alt" :label="t(`linkPicker.page`)" />
-        <w-tab name="url" icon="la:globe" :label="t(`linkPicker.url`)" />
+        <w-tab name="page" icon="tabler:file-text" :label="t(`linkPicker.page`)" />
+        <w-tab name="url" icon="tabler:world" :label="t(`linkPicker.url`)" />
       </w-tabs>
       <w-separator />
       <w-tab-panels v-model="state.currentTab">
@@ -89,7 +89,7 @@
               both tabs can be half-filled and only one of them is the answer -->
       <w-card-section class="flex flex-nowrap items-center py-2">
         <w-icon
-          :name="state.currentTab === `page` ? `la:file-alt` : `la:globe`"
+          :name="state.currentTab === `page` ? `tabler:file-text` : `tabler:world`"
           size="sm"
           color="primary" />
         <div class="min-w-0 flex-1 ps-3">
@@ -103,13 +103,13 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:times"
+          icon="tabler:x"
           :label="t(`common.actions.cancel`)"
           color="grey-7"
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          icon="la:check"
+          icon="tabler:check"
           :label="props.okLabel ?? t(`common.actions.insert`)"
           color="primary"
           padding="xs md"
@@ -421,7 +421,6 @@ onMounted(async () => {
 
     > .w-item {
       padding: 4px 6px;
-      border-radius: 4px;
 
       &.active {
         background-color: var(--color-primary);

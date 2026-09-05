@@ -82,7 +82,7 @@
     <w-spinner v-if="loading" size="1em" class="shrink-0" />
     <w-icon
       v-else-if="!readonly && !hideDropdownIcon"
-      name="mdi:menu-down"
+      name="tabler:chevron-down"
       size="1.2em"
       class="shrink-0 transition-transform"
       :class="isOpen ? 'rotate-180' : ''" />
@@ -124,7 +124,7 @@
             nothing is drawn, so labels line up whatever is selected.
           -->
           <span v-if="multiple" class="flex w-5 shrink-0 justify-center">
-            <w-icon v-if="isSelected(opt.value)" name="mdi:check" size="20px" />
+            <w-icon v-if="isSelected(opt.value)" name="tabler:check" size="20px" />
           </span>
           <span class="min-w-0 flex-1">
             <!--

@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-pages">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon class="admin-icon animated fadeInLeft" name="tabler:folder" size="64px" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon class="admin-icon" name="tabler:folder" size="34px" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.pages.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.pages.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none flex">
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -97,19 +99,19 @@
           <w-space />
           <w-btn
             color="negative"
-            icon="la:trash"
+            icon="tabler:trash"
             :disabled="state.bulkLoading"
             :label="t('admin.pages.bulkDelete')"
             @click="confirmBulkDelete" />
           <w-btn
-            color="secondary"
-            icon="la:redo-alt"
+            color="slate"
+            icon="tabler:refresh"
             :disabled="state.bulkLoading"
             :label="t('admin.pages.bulkRender')"
             @click="confirmBulkRender" />
           <w-btn
             color="primary"
-            icon="la:hashtag"
+            icon="tabler:hash"
             :disabled="state.bulkLoading"
             :label="t('admin.pages.bulkRetag')"
             @click="state.retagOpen = !state.retagOpen" />
@@ -147,7 +149,7 @@
       <w-card v-if="state.rows.length < 1" :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
         <w-card-section class="items-center" horizontal>
           <w-card-section class="flex-none pe-0">
-            <w-icon name="la:info-circle" size="sm" />
+            <w-icon name="tabler:info-circle" size="sm" />
           </w-card-section>
           <w-card-section class="text-caption">{{ t('admin.pages.none') }}</w-card-section>
         </w-card-section>
@@ -197,9 +199,9 @@
                 <w-chip
                   v-for="tag of props.row.tags"
                   :key="`tag-` + tag"
-                  color="secondary"
+                  color="slate"
                   text-color="white"
-                  icon="la:hashtag"
+                  icon="tabler:hash"
                   size="sm"
                   >{{ tag }}</w-chip
                 >
@@ -217,7 +219,7 @@
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:eye"
+                icon="tabler:eye"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`common.actions.view`)"
                 :to="pageLink(props.row)" />
@@ -260,6 +262,7 @@ import { useUserStore } from '@/stores/user'
 import { relativeDate } from '@/helpers/datetime'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { localizedPagePath } from '@/helpers/pagePaths'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 /**
  * OpenProject #1880: a real, server-paged inventory of a site's pages -- the substitute

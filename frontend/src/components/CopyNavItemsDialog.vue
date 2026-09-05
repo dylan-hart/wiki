@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t('navEdit.copyFrom')" @hide="onDialogHide">
     <w-card style="width: 480px; max-width: 90vw">
       <w-card-section class="card-header">
-        <w-icon name="mdi:import" size="sm" class="me-2" />
+        <w-icon name="tabler:file-import" size="sm" class="me-2" />
         <span>{{ t('navEdit.copyFrom') }}</span>
       </w-card-section>
       <w-card-section class="text-body2 text-grey-8">
@@ -64,13 +64,13 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:times"
+          icon="tabler:x"
           :label="t('common.actions.cancel')"
           color="grey-7"
           padding="xs md"
           @click="onDialogCancel" />
         <w-btn
-          icon="la:check"
+          icon="tabler:check"
           :label="t('common.actions.copy')"
           color="primary"
           padding="xs md"

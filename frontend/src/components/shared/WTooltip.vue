@@ -27,7 +27,7 @@ import { useAnchoredFloat } from '@/composables/anchoredFloat'
 /**
  * Hover/focus tooltip, written as the last child of whatever it describes:
  *
- *   <w-btn icon="mdi:cog">
+ *   <w-btn icon="tabler:settings">
  *     <w-tooltip>Settings</w-tooltip>
  *   </w-btn>
  *

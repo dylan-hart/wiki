@@ -5,7 +5,7 @@
         <!-- ------------------------------------------------------- -->
         <!-- SIDE TOOLBAR -->
         <!-- ------------------------------------------------------- -->
-        <w-btn icon="mdi:link-variant-plus" padding="sm sm" flat @click="insertLink">
+        <w-btn icon="tabler:link-plus" padding="sm sm" flat @click="insertLink">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertLink')
           }}</w-tooltip>
@@ -13,12 +13,12 @@
         <!-- -> Straight to the File Manager. The menu this replaces offered two other sources: a remote
                 URL, which was never implemented, and the clipboard — see `getAssetFromClipboard`, which
                 now has no caller. -->
-        <w-btn icon="mdi:image-plus-outline" padding="sm sm" flat @click="insertAssets">
+        <w-btn icon="tabler:photo-plus" padding="sm sm" flat @click="insertAssets">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="mdi:code-json" padding="sm sm" flat>
+        <w-btn icon="tabler:json" padding="sm sm" flat>
           <editor-code-block-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -27,27 +27,27 @@
             t('editor.markup.insertCodeBlock')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="mdi:table-large-plus" padding="sm sm" flat @click="insertTable">
+        <w-btn icon="tabler:table-plus" padding="sm sm" flat @click="insertTable">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTable')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="mdi:tab-plus" padding="sm sm" flat @click="insertTabset">
+        <w-btn icon="tabler:browser-plus" padding="sm sm" flat @click="insertTabset">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTabset')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="mdi:toy-brick-plus" padding="sm sm" flat @click="insertBlock">
+        <w-btn icon="tabler:puzzle" padding="sm sm" flat @click="insertBlock">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertBlock')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="mdi:book-plus" padding="sm sm" flat @click="insertFootnote">
+        <w-btn icon="tabler:book-upload" padding="sm sm" flat @click="insertFootnote">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertFootnote')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="mdi:emoticon-plus-outline" padding="sm sm" flat>
+        <w-btn icon="tabler:mood-plus" padding="sm sm" flat>
           <editor-emoji-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -56,9 +56,9 @@
             t('editor.markup.insertEmoji')
           }}</w-tooltip>
         </w-btn>
-        <!-- -> Icons only: what goes in is a `:mdi:home:` shortcode, and the picker's other tab hands
+        <!-- -> Icons only: what goes in is a `:tabler:home:` shortcode, and the picker's other tab hands
                 back an `img:` URL, which is not something that syntax can say -->
-        <w-btn icon="mdi:seed-plus-outline" padding="sm sm" flat>
+        <w-btn icon="tabler:seeding" padding="sm sm" flat>
           <w-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -69,7 +69,7 @@
             t('editor.markup.insertIcon')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="mdi:line-scan" padding="sm sm" flat @click="insertHorizontalBar">
+        <w-btn icon="tabler:scan" padding="sm sm" flat @click="insertHorizontalBar">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertHorizontalBar')
           }}</w-tooltip>
@@ -82,22 +82,18 @@
         <!-- TOP TOOLBAR -->
         <!-- ------------------------------------------------------- -->
         <div class="editor-markdown-toolbar">
-          <w-btn icon="mdi:format-bold" padding="xs sm" flat @click="toggleMarkup({ start: `**` })">
+          <w-btn icon="tabler:bold" padding="xs sm" flat @click="toggleMarkup({ start: `**` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.bold')
             }}</w-tooltip>
           </w-btn>
-          <w-btn
-            icon="mdi:format-italic"
-            padding="xs sm"
-            flat
-            @click="toggleMarkup({ start: `*` })">
+          <w-btn icon="tabler:italic" padding="xs sm" flat @click="toggleMarkup({ start: `*` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.italic')
             }}</w-tooltip>
           </w-btn>
           <w-btn
-            icon="mdi:format-strikethrough"
+            icon="tabler:strikethrough"
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `~~` })">
@@ -105,7 +101,7 @@
               t('editor.markup.strikethrough')
             }}</w-tooltip>
           </w-btn>
-          <w-btn icon="mdi:format-header-pound" padding="xs sm" flat>
+          <w-btn icon="tabler:heading" padding="xs sm" flat>
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.header')
             }}</w-tooltip>
@@ -122,17 +118,13 @@
               </w-list>
             </w-menu>
           </w-btn>
-          <w-btn
-            icon="mdi:format-subscript"
-            padding="xs sm"
-            flat
-            @click="toggleMarkup({ start: `~` })">
+          <w-btn icon="tabler:subscript" padding="xs sm" flat @click="toggleMarkup({ start: `~` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.subscript')
             }}</w-tooltip>
           </w-btn>
           <w-btn
-            icon="mdi:format-superscript"
+            icon="tabler:superscript"
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `^` })">
@@ -140,14 +132,14 @@
               t('editor.markup.superscript')
             }}</w-tooltip>
           </w-btn>
-          <w-btn icon="mdi:format-quote-close" padding="xs sm" flat>
+          <w-btn icon="tabler:quote" padding="xs sm" flat>
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.blockquoteAdmonitions')
             }}</w-tooltip>
             <w-menu auto-close>
               <w-list separator>
                 <w-item clickable @click="insertBeforeEachLine({ content: `> ` })">
-                  <w-item-section side><w-icon name="mdi:format-quote-close" /></w-item-section>
+                  <w-item-section side><w-icon name="tabler:quote" /></w-item-section>
                   <w-item-section>{{ t('editor.markup.blockquote') }}</w-item-section>
                 </w-item>
                 <w-item
@@ -163,7 +155,7 @@
                       Nothing above may spell a class out either: the scanner reads comments too, and
                       would generate whatever this explanation quoted.
                     -->
-                    <w-icon name="mdi:information-box" color="blue" />
+                    <w-icon name="tabler:square-rounded-letter-i" color="blue" />
                   </w-item-section>
                   <w-item-section>{{ t('editor.markup.admonitionInfo') }}</w-item-section>
                 </w-item>
@@ -171,7 +163,7 @@
                   clickable
                   @click="insertBeforeEachLine({ content: `> `, before: `> [!TIP]` })">
                   <w-item-section side>
-                    <w-icon name="mdi:check-circle" color="positive" />
+                    <w-icon name="tabler:circle-check" color="positive" />
                   </w-item-section>
                   <w-item-section>{{ t('editor.markup.admonitionSuccess') }}</w-item-section>
                 </w-item>
@@ -180,7 +172,7 @@
                   clickable
                   @click="insertBeforeEachLine({ content: `> `, before: `> [!IMPORTANT]` })">
                   <w-item-section side>
-                    <w-icon name="mdi:message-alert" color="purple" />
+                    <w-icon name="tabler:message-exclamation" color="purple" />
                   </w-item-section>
                   <w-item-section>{{ t('editor.markup.admonitionImportant') }}</w-item-section>
                 </w-item>
@@ -188,7 +180,7 @@
                   clickable
                   @click="insertBeforeEachLine({ content: `> `, before: `> [!WARNING]` })">
                   <w-item-section side>
-                    <w-icon name="mdi:alert-box" color="orange" />
+                    <w-icon name="tabler:alert-square" color="orange" />
                   </w-item-section>
                   <w-item-section>{{ t('editor.markup.admonitionWarning') }}</w-item-section>
                 </w-item>
@@ -196,7 +188,7 @@
                   clickable
                   @click="insertBeforeEachLine({ content: `> `, before: `> [!CAUTION]` })">
                   <w-item-section side>
-                    <w-icon name="mdi:close-box" color="negative" />
+                    <w-icon name="tabler:square-x" color="negative" />
                   </w-item-section>
                   <w-item-section>{{ t('editor.markup.admonitionDanger') }}</w-item-section>
                 </w-item>
@@ -204,7 +196,7 @@
             </w-menu>
           </w-btn>
           <w-btn
-            icon="mdi:format-list-bulleted"
+            icon="tabler:list"
             padding="xs sm"
             flat
             @click="insertBeforeEachLine({ content: `- ` })">
@@ -213,7 +205,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
-            icon="mdi:format-list-numbered"
+            icon="tabler:list-numbers"
             padding="xs sm"
             flat
             @click="insertBeforeEachLine({ content: `1. ` })">
@@ -221,30 +213,30 @@
               t('editor.markup.orderedList')
             }}</w-tooltip>
           </w-btn>
-          <w-btn icon="mdi:format-list-checks" padding="xs sm" flat>
+          <w-btn icon="tabler:list-check" padding="xs sm" flat>
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.taskList')
             }}</w-tooltip>
             <w-menu auto-close>
               <w-list separator>
                 <w-item clickable @click="insertBeforeEachLine({ content: `- [ ] ` })">
-                  <w-item-section side><w-icon name="mdi:checkbox-blank-outline" /></w-item-section>
+                  <w-item-section side><w-icon name="tabler:square" /></w-item-section>
                   <w-item-section>{{ t('editor.markup.taskListUnchecked') }}</w-item-section>
                 </w-item>
                 <w-item clickable @click="insertBeforeEachLine({ content: `- [x] ` })">
-                  <w-item-section side><w-icon name="mdi:checkbox-outline" /></w-item-section>
+                  <w-item-section side><w-icon name="tabler:checkbox" /></w-item-section>
                   <w-item-section>{{ t('editor.markup.taskListChecked') }}</w-item-section>
                 </w-item>
               </w-list>
             </w-menu>
           </w-btn>
-          <w-btn icon="mdi:code-tags" padding="xs sm" flat @click="toggleMarkup({ start: '`' })">
+          <w-btn icon="tabler:code" padding="xs sm" flat @click="toggleMarkup({ start: '`' })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.inlineCode')
             }}</w-tooltip>
           </w-btn>
           <w-btn
-            icon="mdi:keyboard-variant"
+            icon="tabler:keyboard"
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `<kbd>`, end: `</kbd>` })">
@@ -256,7 +248,7 @@
           <template v-if="!state.previewShown">
             <w-space />
             <w-btn
-              icon="mdi:view-split-vertical"
+              icon="tabler:layout-columns"
               padding="xs sm"
               flat
               @click="state.previewShown = true">
@@ -300,7 +292,7 @@
             >
             <w-separator class="ms-4 me-2" vertical inset />
             <w-btn
-              icon="mdi:arrow-vertical-lock"
+              icon="tabler:arrows-vertical"
               padding="xs sm"
               flat
               @click="state.previewScrollSync = !state.previewScrollSync"
@@ -309,11 +301,7 @@
                 t('editor.toggleScrollSync')
               }}</w-tooltip>
             </w-btn>
-            <w-btn
-              icon="mdi:eye-off-outline"
-              padding="xs sm"
-              flat
-              @click="state.previewShown = false">
+            <w-btn icon="tabler:eye-off" padding="xs sm" flat @click="state.previewShown = false">
               <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
               }}</w-tooltip>
@@ -500,16 +488,16 @@ const previewEverRevealed = ref(false)
 const disabledBlockTags = ref(new Set())
 
 /*
-  Listed rather than built as `mdi:format-header-${lvl}`: a concatenated icon name is invisible to
+  Listed rather than built as `tabler:h-${lvl}`: a concatenated icon name is invisible to
   the build-time icon scan, so it would ship as six blank squares.
 */
 const HEADER_ICONS = [
-  'mdi:format-header-1',
-  'mdi:format-header-2',
-  'mdi:format-header-3',
-  'mdi:format-header-4',
-  'mdi:format-header-5',
-  'mdi:format-header-6'
+  'tabler:h-1',
+  'tabler:h-2',
+  'tabler:h-3',
+  'tabler:h-4',
+  'tabler:h-5',
+  'tabler:h-6'
 ]
 
 /*
@@ -680,7 +668,7 @@ function insertEmoji(shortcode) {
 }
 
 /**
- * The picked icon, as the shortcode that draws it — `mdi:home` in, `:mdi:home:` out.
+ * The picked icon, as the shortcode that draws it — `tabler:home` in, `:tabler:home:` out.
  *
  * The same delimiters an emoji uses, and the same insertion: the two are one syntax as far as the
  * source is concerned, told apart by the colon inside the reference. See `renderers/markdown.js`.
@@ -1757,7 +1745,6 @@ onBeforeUnmount(() => {
       inset-block: 0;
       inset-inline-start: 3px;
       width: 3px;
-      border-radius: 2px;
       background-color: $primary;
       opacity: 0;
       transition: opacity 0.15s ease;
@@ -1876,7 +1863,6 @@ onBeforeUnmount(() => {
         margin: 1rem 0;
         padding: 0.75rem 1rem;
         border-inline-start: 4px solid var(--content-danger);
-        border-radius: 3px;
         background-color: var(--content-danger-wash);
         color: var(--content-ink-muted);
       }
@@ -1889,7 +1875,7 @@ onBeforeUnmount(() => {
         font-size: 0.85rem;
         font-weight: 600;
 
-        /* -> `mdi:alert`, drawn as a mask so it takes the colour above rather than one of its own */
+        /* -> `tabler:alert-triangle`, drawn as a mask so it takes the colour above rather than one of its own */
         &::before {
           content: '';
           flex: 0 0 auto;
@@ -1911,7 +1897,6 @@ onBeforeUnmount(() => {
         padding: 5px 12px;
         font-size: 14px;
         font-weight: 500;
-        border-radius: 5px 0 0 0;
         font-style: italic;
         &::after {
           display: none;

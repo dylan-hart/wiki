@@ -101,7 +101,7 @@
         </w-item>
       </w-list>
       <w-card-actions class="card-actions px-4">
-        <w-btn class="acrylic-btn" icon="la:ellipsis-h" color="blue-grey" padding="xs sm" flat>
+        <w-btn class="acrylic-btn" icon="tabler:dots" color="blue-grey" padding="xs sm" flat>
           <w-tooltip labels anchor="center right" self="center left">{{
             t(`pageSaveDialog.displayOptions`)
           }}</w-tooltip>
@@ -111,7 +111,7 @@
                 <w-item clickable @click="state.displayMode = `path`">
                   <w-item-section side>
                     <w-icon
-                      :name="state.displayMode === `path` ? `la:check-circle` : `la:circle`"
+                      :name="state.displayMode === `path` ? `tabler:circle-check` : `tabler:circle`"
                       :color="state.displayMode === `path` ? `positive` : `grey`"
                       size="xs" />
                   </w-item-section>
@@ -122,7 +122,9 @@
                 <w-item clickable @click="state.displayMode = `title`">
                   <w-item-section side>
                     <w-icon
-                      :name="state.displayMode === `title` ? `la:check-circle` : `la:circle`"
+                      :name="
+                        state.displayMode === `title` ? `tabler:circle-check` : `tabler:circle`
+                      "
                       :color="state.displayMode === `title` ? `positive` : `grey`"
                       size="xs" />
                   </w-item-section>
@@ -137,14 +139,14 @@
         <w-space />
         <w-btn
           class="acrylic-btn"
-          icon="la:times"
+          icon="tabler:x"
           :label="t(`common.actions.cancel`)"
           color="grey-7"
           padding="xs md"
           flat
           @click="onDialogCancel" />
         <w-btn
-          icon="la:check"
+          icon="tabler:check"
           :label="t(`common.actions.save`)"
           color="primary"
           padding="xs md"
@@ -638,7 +640,6 @@ onMounted(async () => {
 
     > .w-item {
       padding: 4px 6px;
-      border-radius: 4px;
 
       &.active {
         background-color: var(--color-primary);

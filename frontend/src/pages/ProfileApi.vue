@@ -8,16 +8,16 @@
       <div class="flex-none">
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="refresh">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`profile.api.newKeyButton`)"
           color="primary"
           @click="newKey"
@@ -32,7 +32,7 @@
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
-              <w-icon name="la:info-circle" size="sm" />
+              <w-icon name="tabler:info-circle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">{{ t('profile.api.none') }}</w-card-section>
           </w-card-section>
@@ -42,7 +42,7 @@
         <w-list separator>
           <w-item v-for="key of state.keys" :key="key.id">
             <w-item-section side>
-              <w-icon name="la:key" :color="isUsable(key) ? `positive` : `negative`" />
+              <w-icon name="tabler:key" :color="isUsable(key) ? `positive` : `negative`" />
             </w-item-section>
             <w-item-section>
               <w-item-label>{{ key.name }}</w-item-label>
@@ -81,7 +81,7 @@
             </w-item-section>
             <w-item-section v-if="keyState(key)" side>
               <div class="flex items-center">
-                <w-icon class="me-2" color="negative" size="xs" name="la:exclamation-triangle" />
+                <w-icon class="me-2" color="negative" size="xs" name="tabler:alert-triangle" />
                 <div class="text-caption text-negative">
                   {{ t(`profile.api.${keyState(key)}`) }}
                 </div>
@@ -95,7 +95,7 @@
               <w-btn
                 class="acrylic-btn"
                 :color="key.isRevoked ? `gray` : `red`"
-                icon="la:ban"
+                icon="tabler:ban"
                 flat
                 :aria-label="t(`profile.api.revoke`)"
                 @click="revoke(key)"

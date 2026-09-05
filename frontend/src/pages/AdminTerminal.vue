@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-terminal">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:terminal-2" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:terminal-2" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.terminal.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.terminal.subtitle') }}
@@ -22,7 +24,7 @@
           class="acrylic-btn me-2"
           v-if="!state.connected || state.connecting"
           flat
-          icon="la:link"
+          icon="tabler:link"
           :label="t(`admin.terminal.connect`)"
           color="positive"
           @click="connect"
@@ -32,14 +34,14 @@
           class="acrylic-btn me-2"
           v-else
           flat
-          icon="la:unlink"
+          icon="tabler:unlink"
           :label="t(`admin.terminal.disconnect`)"
           color="negative"
           @click="disconnect" />
         <w-btn
           class="acrylic-btn me-4"
           flat
-          icon="la:ban"
+          icon="tabler:ban"
           :label="t(`admin.terminal.clear`)"
           color="primary"
           @click="clearTerminal" />
@@ -61,6 +63,7 @@ import { useMeta } from '@/composables/meta'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // I18N
 
@@ -210,7 +213,6 @@ onBeforeUnmount(() => {
     height: calc(100vh - 260px);
     min-height: 240px;
     background-color: #000;
-    border-radius: 5px;
     overflow: hidden;
     padding: 10px;
   }

@@ -175,7 +175,7 @@ describe('EditorMarkdown drag-to-hide restores the pre-drag width (OpenProject #
     // had set before this second drag started.
     const showButton = wrapper
       .findAllComponents(WBtn)
-      .find((candidate) => candidate.props('icon') === 'mdi:view-split-vertical')
+      .find((candidate) => candidate.props('icon') === 'tabler:layout-columns')
     await showButton.trigger('click')
 
     expect(previewFlexWidth(wrapper.find('.editor-markdown-preview'))).toBe(450)

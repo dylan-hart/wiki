@@ -580,7 +580,7 @@ EVENT_BUS.on('logout', ({ redirect } = {}) => {
   router.push(target)
   notify({
     type: 'positive',
-    icon: 'mdi:logout',
+    icon: 'tabler:logout',
     message: i18n.t('auth.logoutSuccess')
   })
 })
