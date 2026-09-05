@@ -33,10 +33,6 @@ export const GRAPH_MESSAGES = {
   'graph.controls.groupByFolder': 'Folder',
   'graph.controls.groupByTag': 'Tag',
   'graph.controls.groupByClassification': 'Classification',
-  'graph.controls.connectByLabel': 'Connect by',
-  'graph.controls.connectByPaths': 'Paths',
-  'graph.controls.connectByTags': 'Tags',
-  'graph.controls.connectByClassification': 'Classification',
   'graph.controls.sizeByLabel': 'Size by',
   'graph.controls.sizeByEdits': 'Edits',
   'graph.controls.sizeByVisits': 'Visits',
@@ -137,13 +133,12 @@ export const FIXTURE_GRAPH = {
   edges: [{ source: 'en:a', target: 'en:b', type: 'link' }]
 }
 
-/** OpenProject #1686's fallback-list tests need a real-to-real edge to assert against -- under
- *  every current `edgeMode` two nodes are only ever DIRECTLY connected when one's path is
- *  literally the other's parent path (every other case is mediated by a synthetic folder/tag/
- *  classification hub, per `graphFilters.js#buildPathHierarchyEdges` reusing a real page as its
- *  own folder node rather than synthesizing a duplicate). `docs` is deliberately real (not just
- *  `docs/child`), so `buildPathHierarchyEdges` wires `docs -> docs/child` directly instead of
- *  through a synthetic `docs` marker. */
+/** OpenProject #1686's fallback-list tests need a real-to-real edge to assert against -- two nodes
+ *  are only ever DIRECTLY connected when one's path is literally the other's parent path (every
+ *  other case is mediated by a synthetic folder node, per `graphFilters.js#buildPathHierarchyEdges`
+ *  reusing a real page as its own folder node rather than synthesizing a duplicate). `docs` is
+ *  deliberately real (not just `docs/child`), so `buildPathHierarchyEdges` wires
+ *  `docs -> docs/child` directly instead of through a synthetic `docs` marker. */
 export const NESTED_FIXTURE_GRAPH = {
   nodes: [
     { path: 'docs', locale: 'en', title: 'Docs', icon: null, tags: [], folder: '' },

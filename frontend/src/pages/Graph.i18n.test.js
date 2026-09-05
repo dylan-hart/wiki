@@ -15,8 +15,6 @@ describe('Graph.vue i18n and accessible naming', () => {
         'graph.controls.groupByFolder': 'xx-folder',
         'graph.controls.groupByTag': 'xx-tag',
         'graph.controls.groupByClassification': 'xx-classification',
-        'graph.controls.connectByLabel': 'xx-connectBy',
-        'graph.controls.connectByPaths': 'xx-paths',
         'graph.controls.sizeByLabel': 'xx-sizeBy',
         'graph.controls.sizeByEdits': 'xx-edits',
         'graph.controls.countLabel': 'xx-count',
@@ -37,8 +35,6 @@ describe('Graph.vue i18n and accessible naming', () => {
       'xx-folder',
       'xx-tag',
       'xx-classification',
-      'xx-connectBy',
-      'xx-paths',
       'xx-sizeBy',
       'xx-edits',
       'xx-count',
@@ -52,12 +48,11 @@ describe('Graph.vue i18n and accessible naming', () => {
     }
     // -> None of the pre-#1690 English literals leak through -- proves these render via `t()`
     //    resolving the overridden messages above, not a string baked into the template.
-    for (const literal of ['Group by', 'Connect by', 'Size by', 'Count edits by']) {
+    for (const literal of ['Group by', 'Size by', 'Count edits by']) {
       expect(text).not.toContain(literal)
     }
 
     expect(wrapper.find('[aria-label="xx-groupBy"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="xx-connectBy"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="xx-sizeBy"]').exists()).toBe(true)
     // -> The 'Count' toggle's aria-label is its own key ('Unique or total'), distinct from its
     //    visible caption ('Count') -- both must resolve through `t()` independently.
