@@ -46,7 +46,7 @@ test('uploads an asset through the file manager, inserts it into a page, and ser
   //    File Manager overlay in insert mode. It carries no `aria-label` of its own -- only a
   //    hover tooltip -- so it is matched on the icon `WIcon` stamps onto the rendered SVG
   //    (`data-icon`), which is stable regardless of locale or tooltip text.
-  await page.locator('button:has(svg[data-icon="mdi:image-plus-outline"])').click()
+  await page.locator('button:has(svg[data-icon="tabler:photo-plus"])').click()
 
   const fileManager = page.getByRole('dialog').filter({ hasText: 'File Manager' })
   await expect(fileManager).toBeVisible()
