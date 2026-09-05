@@ -976,6 +976,7 @@ function startSimulation() {
     {
       groupKeyFor,
       collideRadiusFor,
+      radiusFor,
       onTick: () => {
         relayout()
         repaint()
