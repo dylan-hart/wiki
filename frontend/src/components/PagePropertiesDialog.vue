@@ -522,8 +522,8 @@ onMounted(async () => {
     out -- it used to cancel 16px against a 16px pad while giving 16px back at the top, which left
     the band sitting a couple of pixels off the fields under it in every section.
 
-    The band also rules off ABOVE itself, so two sections running together read as two bands rather
-    than as one long strip -- which is how the design draws every section after the first.
+    The band's own top rule is the shared `.w-section-header`'s; all this does is give back the
+    section's inset around it.
 
     The tinted `alt-card` sections keep their stripe: the heading is inside the section, so the wash
     is drawn over whichever surface that section has.
@@ -534,14 +534,9 @@ onMounted(async () => {
 
   .w-section-header {
     margin: -14px -16px 14px;
-    border-block-start: 1px solid $hairline;
   }
 
-  .body--dark & .w-section-header {
-    border-block-start-color: $hairline-dark;
-  }
-
-  /* -> Nothing above the first one to rule off from */
+  /* -> Nothing above the panel's first band to rule off from; it is not its parent's `:first-child` */
   .w-scroll-area .w-card-section:first-child .w-section-header {
     border-block-start: 0;
   }

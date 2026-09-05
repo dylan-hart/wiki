@@ -9,7 +9,7 @@
       urgent of the two.
     -->
     <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
-    <div class="p-4">
+    <div class="px-5 py-4">
       <div class="text-body2">{{ t('inbox.notificationsInfo') }}</div>
       <w-banner
         v-if="state.notifications.length < 1"
@@ -58,7 +58,7 @@
     </div>
 
     <div class="w-section-header">{{ t('inbox.watching') }}</div>
-    <div class="p-4">
+    <div class="px-5 py-4">
       <div class="text-body2">{{ t('inbox.watchingInfo') }}</div>
       <!--
         The empty state carries the instruction with it: this screen is reached from the sidebar, quite

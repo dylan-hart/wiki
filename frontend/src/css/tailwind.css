@@ -698,7 +698,12 @@ html.theme-transition-suppress *::after {
     margin-block-end: 12px;
     padding: 6px 16px;
     background-color: var(--color-tint);
-    border-block-end: 1px solid var(--color-hairline);
+    /*
+      Ruled on BOTH edges, as the design draws it -- a band with a rule only under it reads as the top
+      of the block below rather than as a marker between two blocks, which is what it is. The one that
+      opens a panel has nothing above it to rule off from, and drops the top rule below.
+    */
+    border-block: 1px solid var(--color-hairline);
     color: var(--color-slate);
     font-family: var(--font-mono);
     font-size: 10px;
@@ -707,9 +712,13 @@ html.theme-transition-suppress *::after {
     text-transform: uppercase;
   }
 
+  .w-section-header:first-child {
+    border-block-start: 0;
+  }
+
   body.body--dark .w-section-header {
     background-color: var(--color-dark-2);
-    border-block-end-color: var(--color-hairline-dark);
+    border-block-color: var(--color-hairline-dark);
     color: var(--color-slate-light);
   }
 

@@ -55,17 +55,23 @@ export function useMonacoDiff(containerRef, { isInline }) {
       base: 'vs-dark',
       inherit: true,
       rules: [],
+      /* -> See `EditorMarkdown.vue`'s copy of this theme for why these are the ramp's own tones */
       colors: {
-        'editor.background': '#070a0d',
-        'editor.lineHighlightBackground': '#0d1117',
-        'editorLineNumber.foreground': '#546e7a',
-        'editorGutter.background': '#0d1117'
+        'editor.background': '#14171f',
+        'editor.foreground': '#c3cee2',
+        'editor.lineHighlightBackground': '#171b24',
+        'editorLineNumber.foreground': '#3f4a63',
+        'editorGutter.background': '#171b24'
       }
     })
 
     diffEditor = monaco.editor.createDiffEditor(containerRef.value, {
       automaticLayout: true,
-      fontSize: 14,
+      // -> The design's own diff metrics: 12.5px Roboto Mono on a 1.85 line, which is what makes a
+      //    side-by-side diff of prose fit two readable columns in half an overlay each
+      fontSize: 12.5,
+      lineHeight: 23,
+      fontFamily: "'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace",
       // -> Side by side by default: this exists to compare the two, and an inline diff of prose reads
       //    as a jumble of half-lines. The header offers the other way for anyone who prefers it.
       renderSideBySide: !isInline(),

@@ -339,7 +339,10 @@ $nav-shrink-max: 1199.98px;
   }
 
   .w-list .w-item {
-    font-weight: 400;
+    /* -> Every rail row is set at 500, the current one included -- the design distinguishes them by
+       the plate, the bar and the colour, not by weight */
+    font-weight: 500;
+    font-size: 13.5px;
     color: $slate;
     border-inline-start: 2px solid transparent;
 
@@ -351,8 +354,8 @@ $nav-shrink-max: 1199.98px;
     &.is-active {
       background-color: $surface;
       border-inline-start-color: $accent-fill;
-      color: $ink;
-      font-weight: 500;
+      /* -> The label takes the accent too, not just the bar and the glyph, as the design draws it */
+      color: $accent-text;
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
       .w-icon,
