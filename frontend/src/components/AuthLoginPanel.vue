@@ -775,7 +775,7 @@ onMounted(async () => {
       loginEmailIpt.value?.focus()
     })
   }
-  await fetchStrategies()
+  await fetchStrategies(shouldShowAllStrategies())
   reportRedirectLoginError()
   reportVerifiedSuccess()
 })
@@ -845,5 +845,21 @@ function detectResetToken() {
   }
   state.resetToken = decodeURIComponent(match[1])
   switchTo('reset')
+}
+
+/**
+ * The `admin.login.providersVisbleWarning` escape hatch: `?all=1` (or bare `?all`, or `?all=true`)
+ * temporarily shows every configured strategy, including ones an admin has not yet marked Visible
+ * on the site's Login settings -- useful to log in as local admin while hiding that provider from
+ * normal users. Left in the address bar afterwards (unlike `error`/`verified` above) since it is
+ * meant to survive a reload while debugging.
+ */
+function shouldShowAllStrategies() {
+  const params = new URLSearchParams(window.location.search)
+  if (!params.has('all')) {
+    return false
+  }
+  const value = params.get('all')
+  return value === '' || value === '1' || value === 'true'
 }
 </script>

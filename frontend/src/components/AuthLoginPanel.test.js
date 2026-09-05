@@ -319,6 +319,60 @@ describe('AuthLoginPanel verified landing', () => {
 })
 
 /**
+ * The `?all=1` escape hatch (`admin.login.providersVisbleWarning`, OpenProject #2551): fetches every
+ * configured strategy -- including one an admin has configured but not yet marked Visible -- rather
+ * than only the visible ones `fetchStrategies()` defaults to.
+ */
+describe('AuthLoginPanel show-all-strategies escape hatch', () => {
+  it('defaults to visibleOnly when no `all` param is present', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    mountAuthLoginPanel()
+    await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/auth/strategies', {
+      searchParams: { visibleOnly: true }
+    })
+  })
+
+  it('passes visibleOnly: false for ?all=1', async () => {
+    window.history.replaceState(null, '', '/login?all=1')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    mountAuthLoginPanel()
+    await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/auth/strategies', {
+      searchParams: { visibleOnly: false }
+    })
+  })
+
+  it('also accepts a bare ?all with no value', async () => {
+    window.history.replaceState(null, '', '/login?all')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    mountAuthLoginPanel()
+    await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/auth/strategies', {
+      searchParams: { visibleOnly: false }
+    })
+  })
+
+  it('ignores an unrelated query param', async () => {
+    window.history.replaceState(null, '', '/login?foo=bar')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    mountAuthLoginPanel()
+    await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/auth/strategies', {
+      searchParams: { visibleOnly: true }
+    })
+  })
+})
+
+/**
  * `forgotPassword()` used to be a stub (`// TODO: Implement forgot password`). The route it now calls
  * (`POST sites/:siteId/auth/forgotPassword`) always answers the same generic 200 whatever it did behind
  * the scenes -- see the route's own doc comment in `backend/api/auth/site.ts` -- so this only
