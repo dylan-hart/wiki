@@ -4,7 +4,7 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom } from 'd3-zoom'
 
 import { nodeId } from './graphFilters.js'
-import { clusterForce } from './graphForces.js'
+import { clusterForce, parentFanForce } from './graphForces.js'
 
 /**
  * `Graph.vue`'s layout half: the d3-force simulation, the group hulls drawn around its result, and
@@ -38,6 +38,15 @@ import { clusterForce } from './graphForces.js'
   replaced (which cached their target at force-initialize time -- the root cause of #1158's frozen-
   origin bug), this force recomputes group centroids from the *current* tick's `x`/`y` every time
   d3-force calls it, so a `groupBy` change needs no re-attachment to take effect on the next tick.
+
+  The `parentFan` force (`graphForces.js#parentFanForce`, OpenProject #2581) is the same kind of
+  always-on, small-weight custom force -- layered on top of everything above, replacing none of it.
+  It nudges each non-root node toward a target angle around its own tree parent (derived from the
+  node's own `path`/`locale`, not from `edges`), which is what turns the one-sided arc the parent
+  Feature (#2579) describes into children wrapping fully around their parent. Attached once here for
+  the same reason `cluster` is: it recomputes its own parent/sibling structure from the current node
+  set every time d3-force re-initializes it (i.e. every `simulation.nodes(...)` call), so a filter or
+  `edgeMode` change needs no re-attachment either.
 */
 export function startSimulation(
   nodes,
@@ -63,6 +72,7 @@ export function startSimulation(
     .force('collide', forceCollide(collideRadiusFor))
     .force('center', forceCenter(width / 2, height / 2))
     .force('cluster', clusterForce(groupKeyFor, 0.05))
+    .force('parentFan', parentFanForce(0.05))
     .on('tick', onTick)
 }
 
