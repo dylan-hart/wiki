@@ -33,8 +33,20 @@ beforeEach(() => {
 })
 
 const EXPORT_TERMS = [
-  { term: 'API', definition: 'Application Programming Interface.', aliases: [], path: null },
-  { term: 'REST', definition: 'Representational State Transfer.', aliases: ['R'], path: 'dev/api' }
+  {
+    term: 'API',
+    definition: 'Application Programming Interface.',
+    isAcronym: true,
+    aliases: [],
+    path: null
+  },
+  {
+    term: 'REST',
+    definition: 'Representational State Transfer.',
+    isAcronym: false,
+    aliases: [{ value: 'R', isAcronym: true }],
+    path: 'dev/api'
+  }
 ]
 
 function mountAdminGlossary(terms = EXPORT_TERMS) {
@@ -182,6 +194,7 @@ describe('AdminGlossary: saveGlossary()', () => {
     wrapper.vm.state.terms.push({
       term: 'New',
       definition: 'A new term.',
+      isAcronym: false,
       aliases: [],
       path: null,
       _key: 'local-only'
@@ -205,16 +218,24 @@ describe('AdminGlossary: saveGlossary()', () => {
             {
               term: 'API',
               definition: 'Application Programming Interface.',
+              isAcronym: true,
               aliases: [],
               path: null
             },
             {
               term: 'REST',
               definition: 'Representational State Transfer.',
-              aliases: ['R'],
+              isAcronym: false,
+              aliases: [{ value: 'R', isAcronym: true }],
               path: 'dev/api'
             },
-            { term: 'New', definition: 'A new term.', aliases: [], path: null }
+            {
+              term: 'New',
+              definition: 'A new term.',
+              isAcronym: false,
+              aliases: [],
+              path: null
+            }
           ]
         }
       })
@@ -334,13 +355,15 @@ describe('AdminGlossary: version history', () => {
             {
               term: 'API',
               definition: 'Application Programming Interface.',
+              isAcronym: true,
               aliases: [],
               path: null
             },
             {
               term: 'REST',
               definition: 'Representational State Transfer.',
-              aliases: ['R'],
+              isAcronym: false,
+              aliases: [{ value: 'R', isAcronym: true }],
               path: 'dev/api'
             }
           ]

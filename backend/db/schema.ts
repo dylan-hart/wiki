@@ -445,6 +445,14 @@ export const groups = pgTable('groups', {
 })
 
 // GLOSSARY TERMS -----------------------
+/** One alias entry as stored in `glossaryTerms.aliases` (OpenProject #2575) -- `value` is the
+ *  alternate surface form, cased as the admin typed it; `isAcronym` distinguishes an acronym alias
+ *  (whose stored casing, e.g. "USS", is its canonical DISPLAY casing) from an ordinary one. */
+export interface GlossaryAliasRow {
+  value: string
+  isAcronym: boolean
+}
+
 export const glossaryTerms = pgTable(
   'glossaryTerms',
   {
@@ -452,14 +460,17 @@ export const glossaryTerms = pgTable(
     term: varchar({ length: 255 }).notNull(),
     definition: text().notNull(),
     // -> Alternate surface forms (acronyms, alternate names) that resolve to this same term's
-    //    `definition`/`pageId` -- no per-alias override (OpenProject #1110). Uniqueness across this
-    //    column combined with `term`, and across rows, is enforced at the application level in
-    //    `models/glossary.ts` -- a plain index cannot express "unique across an array column + a
-    //    scalar column, combined, across every row".
-    aliases: text()
-      .array()
-      .notNull()
-      .default(sql`ARRAY[]::text[]`),
+    //    `definition`/`pageId`. Each carries its own `isAcronym` flag (OpenProject #2575) --
+    //    distinguishing an acronym alias, whose casing is a canonical DISPLAY casing consulted by the
+    //    path-segment humanizer, from an ordinary one, which carries no such override. Uniqueness
+    //    across this column combined with `term`, and across rows, is enforced at the application
+    //    level in `models/glossary.ts` -- a plain index cannot express "unique across a jsonb array
+    //    column + a scalar column, combined, across every row".
+    aliases: jsonb().$type<GlossaryAliasRow[]>().notNull().default([]),
+    // -> Marks the TERM ITSELF (as opposed to one of its aliases above) as an acronym -- e.g. a term
+    //    whose canonical name already IS the acronym ("USS"), with no separate alias needed. Same
+    //    canonical-display-casing meaning as an alias's own `isAcronym` (OpenProject #2575).
+    isAcronym: boolean().notNull().default(false),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()

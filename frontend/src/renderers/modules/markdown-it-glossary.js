@@ -8,10 +8,11 @@
  * into an inline token's `children` as `glossary_open` / `text` / `glossary_close`, working from the
  * end of the array so replacing one match does not invalidate the indices of the ones still to come.
  *
- * `terms` come in as `{ term, definition, aliases, link }[]` — already resolved (see
+ * `terms` come in as `{ term, definition, aliases, isAcronym, link }[]` — already resolved (see
  * `backend/models/glossary.ts#getCachedTerms`), so this plugin does no page lookups of its own. Every
- * alias is just another surface form matched the same way `term` is, resolving to the SAME entry (same
- * `definition`/`link`) -- there is no per-alias override (OpenProject #1110).
+ * alias (`{ value, isAcronym }`, OpenProject #2575) is just another surface form matched the same way
+ * `term` is, resolving to the SAME entry (same `definition`/`link`) -- `isAcronym` only affects how the
+ * path-segment humanizer casts a path segment, not how this plugin matches within page content.
  */
 export default function glossaryPlugin(md, options = {}) {
   const terms = (options.terms ?? []).filter((entry) => entry?.term?.trim())
@@ -38,7 +39,10 @@ export default function glossaryPlugin(md, options = {}) {
   //    to win, and regex alternation tries its branches in the order they are written -- see the
   //    acceptance note in the OpenProject spec.
   const surfaceForms = terms.flatMap((entry) =>
-    [entry.term, ...(entry.aliases ?? [])].map((literal) => ({ literal, entry }))
+    [entry.term, ...(entry.aliases ?? []).map((alias) => alias.value)].map((literal) => ({
+      literal,
+      entry
+    }))
   )
   const sortedForms = surfaceForms.sort((a, b) => b.literal.length - a.literal.length)
   const byLowerForm = new Map(

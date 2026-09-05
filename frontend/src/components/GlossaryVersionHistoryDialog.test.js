@@ -144,6 +144,78 @@ describe('GlossaryVersionHistoryDialog: diff', () => {
 
     expect(wrapper.vm.state.diff).toEqual({ added: [], removed: [], changed: [] })
   })
+
+  it('reports a change when only isAcronym differs, aliases and definition unchanged (OpenProject #2575)', async () => {
+    const wrapper = mountDialog([
+      { term: 'API', definition: 'Application Programming Interface.', aliases: [], path: null }
+    ])
+    await flushPromises()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'v1',
+          termCount: 1,
+          snapshot: {
+            formatVersion: 2,
+            terms: [
+              {
+                term: 'API',
+                definition: 'Application Programming Interface.',
+                isAcronym: true,
+                aliases: [],
+                path: null
+              }
+            ]
+          }
+        })
+    })
+
+    await wrapper.vm.toggleExpanded(VERSIONS[1])
+
+    expect(wrapper.vm.state.diff.changed.map((t) => t.term)).toEqual(['API'])
+  })
+
+  it('reports no change when an alias reorders but keeps the same values and isAcronym flags', async () => {
+    const wrapper = mountDialog([
+      {
+        term: 'API',
+        definition: 'Application Programming Interface.',
+        aliases: [
+          { value: 'REST API', isAcronym: false },
+          { value: 'A.P.I.', isAcronym: true }
+        ],
+        path: null
+      }
+    ])
+    await flushPromises()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'v1',
+          termCount: 1,
+          snapshot: {
+            formatVersion: 2,
+            terms: [
+              {
+                term: 'API',
+                definition: 'Application Programming Interface.',
+                aliases: [
+                  { value: 'A.P.I.', isAcronym: true },
+                  { value: 'REST API', isAcronym: false }
+                ],
+                path: null
+              }
+            ]
+          }
+        })
+    })
+
+    await wrapper.vm.toggleExpanded(VERSIONS[1])
+
+    expect(wrapper.vm.state.diff.changed).toEqual([])
+  })
 })
 
 describe('GlossaryVersionHistoryDialog: restore', () => {
