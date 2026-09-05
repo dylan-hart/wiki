@@ -5,10 +5,10 @@
         <w-toolbar style="height: 64px">
           <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
             <w-avatar size="34px" square>
-              <img src="/_assets/logo-wikijs.svg" alt="" />
+              <img src="/_assets/logo-cardinal.svg" alt="" />
             </w-avatar>
           </w-btn>
-          <w-toolbar-title class="admin-wordmark">Wiki.js</w-toolbar-title>
+          <w-toolbar-title class="admin-wordmark">Cardinal</w-toolbar-title>
         </w-toolbar>
         <w-toolbar class="max-md:hidden justify-center" style="height: 64px">
           <div class="admin-area-label">{{ t('admin.adminArea') }}</div>
@@ -27,11 +27,16 @@
           <w-btn
             class="ms-2"
             outline
-            icon="la:times-circle"
+            icon="tabler:circle-x"
             :label="t(`common.actions.exit`)"
             color="accent"
             to="/" />
-          <w-btn class="ms-2" outline icon="la:language" :label="commonStore.locale" color="slate">
+          <w-btn
+            class="ms-2"
+            outline
+            icon="tabler:language"
+            :label="commonStore.locale.toUpperCase()"
+            color="slate">
             <!--
               Down from the button's trailing edge, like `PageHeader.vue`'s review-queue menu: `WMenu`
               places itself in raw viewport pixels and knows nothing about `direction`
@@ -57,7 +62,7 @@
                   <w-item-section side>
                     <w-avatar
                       rounded
-                      :color="lang.code === commonStore.locale ? `secondary` : `primary`"
+                      :color="lang.code === commonStore.locale ? `accent` : `slate`"
                       text-color="white"
                       size="sm">
                       <div class="text-caption uppercase">
@@ -82,12 +87,19 @@
         <w-list class="admin-nav-list pb-6" padding dense dark>
           <w-item class="mb-2">
             <w-item-section>
+              <!--
+                The edge is the accent FILL and the label the lightened accent, which is the pair the
+                design draws on the ink sidebar: `#e4676b` reads as a border on `#1c2233` where
+                `#f08287` (a text tone) is too pale to bound a box, and `#f08287` reads as a label
+                where the fill tone does not clear contrast.
+              -->
               <w-btn
+                class="admin-contribute-btn"
                 outline
                 color="accent-dark"
-                icon="la:heart"
+                icon="tabler:heart"
                 :label="t(`admin.contribute.title`)"
-                href="https://js.wiki/donate"
+                href="https://github.com/dylan-hart/wiki"
                 target="_blank" />
             </w-item-section>
           </w-item>
@@ -312,7 +324,7 @@
             </w-item>
             <w-item to="/_admin/classification" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="la:layer-group" />
+                <w-icon name="tabler:stack-2" />
               </w-item-section>
               <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
             </w-item>
@@ -464,7 +476,7 @@
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">
         <w-btn
           class="corner-btn corner-btn--left"
-          icon="la:bars"
+          icon="tabler:menu-2"
           color="primary"
           round
           size="md"
@@ -802,6 +814,11 @@ onMounted(async () => {
   text-transform: uppercase;
 }
 
+/* -> See the button's own comment: the accent fill bounds the box, the lightened accent labels it */
+.admin-contribute-btn {
+  border-color: $accent-fill !important;
+}
+
 /* -> "Admin area", in Cardinal's chrome overline */
 .admin-area-label {
   font-family: var(--font-mono);
@@ -821,28 +838,90 @@ onMounted(async () => {
   height: 100%;
 }
 /*
-  The 64px icon beside an admin page's title. `font-size`, not `height`: these were raster `<img>`
-  assets and are `WIcon`'s inline SVG now, which sizes from the font size. Drawn in the chrome tone
-  and set in a square hairline plate -- the same masthead treatment `PageHeader.vue` gives a page's
-  own icon, so an admin screen opens the way a content screen does.
+  Every admin page opens on the same band: a white plate ruled off from the page below it, holding the
+  page's icon, its overline, its title and whatever actions it offers. Same shape as a content page's
+  masthead (`PageHeader.vue`), at the design's own metrics.
 */
-.admin-icon {
-  flex: none;
+.admin-page-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid $hairline;
+  background-color: $surface;
+}
+
+.body--dark .admin-page-header {
+  border-bottom-color: $hairline-dark;
+  background-color: $dark-3;
+}
+
+/*
+  The plate the icon sits in -- a square hairline box with the four blueprint corner marks overhanging
+  it, exactly as `PageHeader.vue` sets a page's own icon. The glyph is 34px inside a 64px box rather
+  than filling it: the marks are what the eye reads as the frame, and a glyph run to the edges leaves
+  them nothing to overhang.
+*/
+.admin-page-icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 64px;
   height: 64px;
-  font-size: 34px;
-  color: $slate-soft;
   border: 1px solid $hairline;
   background-color: $paper;
 }
 
-.body--dark .admin-icon {
-  color: $slate-light;
+.body--dark .admin-page-icon {
   border-color: $hairline-dark;
   background-color: $dark-4;
+}
+
+/*
+  The corner marks: one box overhanging the plate by 5px on each side, with the eight short strokes
+  painted as background gradients -- four borders would draw four full sides, and the design draws 7px
+  of each corner and nothing between them.
+*/
+.admin-page-icon__marks {
+  position: absolute;
+  inset: -5px;
+  pointer-events: none;
+  background:
+    linear-gradient($slate-soft, $slate-soft) 0 0 / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 0 0 / 1px 7px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 0 / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 0 / 1px 7px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 0 100% / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 0 100% / 1px 7px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 100% / 7px 1px no-repeat,
+    linear-gradient($slate-soft, $slate-soft) 100% 100% / 1px 7px no-repeat;
+}
+
+/* -> The glyph itself, in the chrome tone */
+.admin-icon {
+  flex: none;
+  color: $slate-soft;
+}
+
+.body--dark .admin-icon {
+  color: $slate-light;
+}
+
+/*
+  The overline above the title -- see `components/AdminPageEyebrow.vue` for where its text comes from.
+  The one accent-coloured thing in the band, because it is what says which part of the admin area the
+  reader is standing in; the title beneath it is ink, like every other page title in the app.
+*/
+.admin-page-eyebrow {
+  padding-bottom: 8px;
+  color: $accent-text;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.body--dark .admin-page-eyebrow {
+  color: $accent-dark;
 }
 
 /*
@@ -858,8 +937,26 @@ onMounted(async () => {
     background-color: $dark-5;
   }
 
+  /*
+    Nav rows are 13px Barlow at the ordinary weight, in the muted tone the design gives an index on
+    ink -- the current row picks up the weight and the white below. Stated here rather than left to
+    WItem's own defaults, which sized these rows off the app's body scale and drew them a step larger
+    than the sidebar they sit in.
+  */
   .admin-nav-list {
     color: $slate-pale;
+    font-size: 13px;
+
+    .w-item {
+      min-height: 0;
+      padding-block: 7px;
+    }
+
+    .w-icon,
+    iconify-icon {
+      font-size: 16px;
+      color: $slate-nav-icon;
+    }
   }
 
   /*
@@ -970,6 +1067,7 @@ onMounted(async () => {
 }
 
 .admin-page-subtitle {
+  margin-top: 4px;
   font-size: 14.5px;
   line-height: 1.45;
   letter-spacing: normal;

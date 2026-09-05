@@ -20,8 +20,8 @@
         <w-separator dark v-if="idx < quickaccess.length - 1" />
       </template>
     </div>
-    <w-toolbar class="bg-primary text-white flex">
-      <div class="text-subtitle2">{{ t('editor.props.pageProperties') }}</div>
+    <w-toolbar class="card-header card-header--slate flex">
+      <div>{{ t('editor.props.pageProperties') }}</div>
       <w-space />
       <w-btn
         class="me-2"
@@ -29,13 +29,13 @@
         flat
         rounded
         color="white"
-        icon="la:question-circle"
+        icon="tabler:help-circle"
         :aria-label="t(`common.actions.viewDocs`)"
         :href="siteStore.docsBase + `/guide/page-properties`"
         target="_blank"
         type="a" />
       <w-btn
-        icon="la:times"
+        icon="tabler:x"
         dense
         flat
         :aria-label="t(`common.actions.close`)"
@@ -48,13 +48,19 @@
           <w-input
             ref="iptTitle"
             v-model="pageStore.title"
-            :label="t(`editor.props.title`)"
+            :placeholder="t(`editor.props.title`)"
+            :aria-label="t(`editor.props.title`)"
             dense />
           <w-input
             v-model="pageStore.description"
-            :label="t(`editor.props.shortDescription`)"
+            :placeholder="t(`editor.props.shortDescription`)"
+            :aria-label="t(`editor.props.shortDescription`)"
             dense />
-          <w-input v-model="pageStore.icon" :label="t(`editor.props.icon`)" dense>
+          <w-input
+            v-model="pageStore.icon"
+            :placeholder="t(`editor.props.icon`)"
+            :aria-label="t(`editor.props.icon`)"
+            dense>
             <template #prepend>
               <w-icon :name="pageStore.icon" size="20px" color="primary" />
             </template>
@@ -68,7 +74,7 @@
                 flat
                 dense
                 round
-                icon="la:icons"
+                icon="tabler:icons"
                 color="primary"
                 :aria-label="t(`iconPicker.open`)">
                 <w-tooltip>{{ t('iconPicker.open') }}</w-tooltip>
@@ -82,7 +88,8 @@
           <w-input
             v-if="pageStore.path !== `home`"
             v-model="pageStore.alias"
-            :label="t(`editor.props.alias`)"
+            :placeholder="t(`editor.props.alias`)"
+            :aria-label="t(`editor.props.alias`)"
             dense
             prefix="/a/" />
         </w-form>
@@ -137,7 +144,7 @@
             </w-item-section>
             <w-item-section side>
               <w-btn
-                icon="la:pen"
+                icon="tabler:pencil"
                 dense
                 flat
                 padding="none"
@@ -146,7 +153,7 @@
             </w-item-section>
             <w-item-section side>
               <w-btn
-                icon="la:times"
+                icon="tabler:x"
                 dense
                 flat
                 padding="none"
@@ -158,8 +165,8 @@
         <w-btn
           class="w-full"
           :label="t(`editor.props.relationAdd`)"
-          icon="la:plus"
-          color="secondary"
+          icon="tabler:plus"
+          color="slate"
           @click="newRelation">
           <w-tooltip>{{ t('editor.props.relationAddHint') }}</w-tooltip>
         </w-btn>
@@ -238,7 +245,8 @@
           :options="adminStore.classificationLevels"
           option-value="id"
           option-label="name"
-          :label="t('editor.props.classification')" />
+          :placeholder="t('editor.props.classification')"
+          :aria-label="t('editor.props.classification')" />
         <div class="text-caption mt-1">
           <em>{{ t('editor.props.classificationHint') }}</em>
         </div>
@@ -280,7 +288,8 @@
               type="password"
               revealable
               autocomplete="off"
-              :label="t(`editor.props.password`)"
+              :placeholder="t(`editor.props.password`)"
+              :aria-label="t(`editor.props.password`)"
               :hint="
                 pageStore.hasPassword
                   ? t(`editor.props.passwordKeepHint`)
@@ -343,18 +352,18 @@ const state = reactive({
 })
 
 const quickaccess = computed(() => [
-  { key: 'refCardInfo', icon: 'la:info-circle', label: t('editor.props.info') },
-  { key: 'refCardPublishState', icon: 'la:power-off', label: t('editor.props.publishState') },
-  { key: 'refCardRelations', icon: 'la:link', label: t('editor.props.relations') },
-  { key: 'refCardSidebar', icon: 'la:ruler-vertical', label: t('editor.props.sidebar') },
-  { key: 'refCardSocial', icon: 'la:comments', label: t('editor.props.social') },
-  { key: 'refCardTags', icon: 'la:tags', label: t('editor.props.tags') },
+  { key: 'refCardInfo', icon: 'tabler:info-circle', label: t('editor.props.info') },
+  { key: 'refCardPublishState', icon: 'tabler:power', label: t('editor.props.publishState') },
+  { key: 'refCardRelations', icon: 'tabler:link', label: t('editor.props.relations') },
+  { key: 'refCardSidebar', icon: 'tabler:ruler-2', label: t('editor.props.sidebar') },
+  { key: 'refCardSocial', icon: 'tabler:messages', label: t('editor.props.social') },
+  { key: 'refCardTags', icon: 'tabler:tags', label: t('editor.props.tags') },
   {
     key: 'refCardClassification',
-    icon: 'la:layer-group',
+    icon: 'tabler:stack-2',
     label: t('editor.props.classification')
   },
-  { key: 'refCardVisibility', icon: 'la:eye', label: t('editor.props.visibility') }
+  { key: 'refCardVisibility', icon: 'tabler:eye', label: t('editor.props.visibility') }
 ])
 
 // REFS
@@ -507,20 +516,29 @@ onMounted(async () => {
   }
 
   /*
-    The section headings, in the treatment the profile pages use.
+    The design's own section rhythm: a full-bleed 34px band, then 14px/16px of content under it
+    (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`). `WCardSection` pads itself `p-4`, so
+    the sections here take the design's inset instead and the band cancels exactly that inset back
+    out -- it used to cancel 16px against a 16px pad while giving 16px back at the top, which left
+    the band sitting a couple of pixels off the fields under it in every section.
 
-    `.w-section-header` carries its own 16px inset and expects to sit in a column that has none --
-    inside a `w-card-section` it would be indented twice, and its wash would stop short of the panel
-    on both sides. So the section's padding is cancelled around it: the band then spans the panel and
-    its text lines up with the fields beneath it, exactly as on a profile page. The top padding is
-    given back so the heading sits where the section's own padding had it.
+    The band's own top rule is the shared `.w-section-header`'s; all this does is give back the
+    section's inset around it.
 
     The tinted `alt-card` sections keep their stripe: the heading is inside the section, so the wash
     is drawn over whichever surface that section has.
   */
+  .w-card-section {
+    padding: 14px 16px;
+  }
+
   .w-section-header {
-    margin: -16px -16px 10px;
-    padding-top: 16px;
+    margin: -14px -16px 14px;
+  }
+
+  /* -> Nothing above the panel's first band to rule off from; it is not its parent's `:first-child` */
+  .w-scroll-area .w-card-section:first-child .w-section-header {
+    border-block-start: 0;
   }
 }
 </style>

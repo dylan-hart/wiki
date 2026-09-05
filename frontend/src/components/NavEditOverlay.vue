@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:layout-sidebar" left size="md" />
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
       <!--
@@ -23,7 +23,7 @@
         rounded
         color="white"
         :aria-label="t(`common.actions.viewDocs`)"
-        icon="la:question-circle"
+        icon="tabler:help-circle"
         :href="siteStore.docsBase + `/guide/navigation`"
         target="_blank">
         <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
@@ -34,14 +34,14 @@
           text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
         <w-btn
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"
           :aria-label="t(`common.actions.save`)"
-          icon="la:check"
+          icon="tabler:check"
           :disabled="isBusy || menuMode === 'auto'"
           @click="save" />
       </w-btn-group>

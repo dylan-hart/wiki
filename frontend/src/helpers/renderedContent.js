@@ -19,8 +19,8 @@ import { notify } from '@/composables/notify'
  */
 
 /** Drawn from the same inlined set the interface uses; see `scripts/generate-icons.mjs`. */
-const ICON_COPY = 'la:copy'
-const ICON_DONE = 'mdi:check'
+const ICON_COPY = 'tabler:copy'
+const ICON_DONE = 'tabler:check'
 
 /** How long a control reports success before offering itself again. */
 const COPIED_FOR_MS = 1600

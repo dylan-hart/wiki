@@ -51,7 +51,7 @@ describe('WBtn', () => {
     // WBtn itself derives no accessible name from `icon` -- an icon-only caller must supply one,
     // either an `aria-label` (as here) or a `<w-tooltip labels>` naming it from the slot.
     const wrapper = mount(WBtn, {
-      props: { icon: 'mdi:cog' },
+      props: { icon: 'tabler:settings' },
       attrs: { 'aria-label': 'Settings' }
     })
 

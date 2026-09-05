@@ -11,7 +11,7 @@
           hide-bottom-space
           :label="t(`auth.fields.name`)"
           autocomplete="name">
-          <template #prepend><w-icon name="la:user-circle" /></template>
+          <template #prepend><w-icon name="tabler:user-circle" /></template>
         </w-input>
         <w-input
           class="mt-2"
@@ -22,7 +22,7 @@
           hide-bottom-space
           :label="t(`auth.fields.email`)"
           autocomplete="email">
-          <template #prepend><w-icon name="la:envelope" /></template>
+          <template #prepend><w-icon name="tabler:mail" /></template>
         </w-input>
         <w-input
           class="mt-2"
@@ -39,7 +39,7 @@
               :color="passwordStrength.color"
               :label="passwordStrength.label" />
           </template>
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-input
           class="mt-2"
@@ -50,14 +50,14 @@
           :rules="passwordVerifyValidation"
           hide-bottom-space
           lazy-rules="ondemand">
-          <template #prepend><w-icon name="la:key" /></template>
+          <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-btn
           class="w-full mt-2"
           type="submit"
           color="primary"
           :label="t(`auth.actions.register`)"
-          icon="la:user-plus" />
+          icon="tabler:user-plus" />
       </w-form>
       <w-separator class="my-4" />
       <w-btn
@@ -65,7 +65,7 @@
         flat
         color="primary"
         :label="t(`auth.switchToLogin.link`)"
-        icon="la:arrow-circle-left"
+        icon="tabler:circle-arrow-left"
         @click="emit(`back-to-login`)" />
     </template>
     <!-- ----------------------------------------------------- -->
@@ -73,7 +73,7 @@
     <!-- ----------------------------------------------------- -->
     <template v-else-if="props.screen === `registerCheckEmail`">
       <div class="flex flex-col items-center text-center">
-        <w-icon name="la:envelope-open-text" size="48px" color="primary" class="mb-4" />
+        <w-icon name="tabler:mail-opened" size="48px" color="primary" class="mb-4" />
         <p>{{ t('auth.registerCheckEmail') }}</p>
       </div>
       <w-separator class="my-4" />
@@ -82,7 +82,7 @@
         flat
         color="primary"
         :label="t(`auth.switchToLogin.link`)"
-        icon="la:arrow-circle-left"
+        icon="tabler:circle-arrow-left"
         @click="emit(`back-to-login`)" />
     </template>
   </div>

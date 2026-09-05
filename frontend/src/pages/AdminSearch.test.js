@@ -148,7 +148,7 @@ describe('AdminSearch engine picker', () => {
 
     const refreshBtn = wrapper
       .findAll('button')
-      .find((b) => b.find('[data-icon="la:redo-alt"]').exists())
+      .find((b) => b.find('[data-icon="tabler:refresh"]').exists())
     await refreshBtn.trigger('click')
     await flushPromises()
 
@@ -274,7 +274,7 @@ describe('AdminSearch engine picker', () => {
 
       const applyBtn = wrapper
         .findAll('button')
-        .find((b) => b.find('[data-icon="mdi:check"]').exists())
+        .find((b) => b.find('[data-icon="tabler:check"]').exists())
       await applyBtn.trigger('click')
       await flushPromises()
 
@@ -336,7 +336,7 @@ describe('AdminSearch engine picker', () => {
 
       const applyBtn = wrapper
         .findAll('button')
-        .find((b) => b.find('[data-icon="mdi:check"]').exists())
+        .find((b) => b.find('[data-icon="tabler:check"]').exists())
       await applyBtn.trigger('click')
       await flushPromises()
 
@@ -361,7 +361,7 @@ describe('AdminSearch engine picker', () => {
 
       const applyBtn = wrapper
         .findAll('button')
-        .find((b) => b.find('[data-icon="mdi:check"]').exists())
+        .find((b) => b.find('[data-icon="tabler:check"]').exists())
       await applyBtn.trigger('click')
       await flushPromises()
 
@@ -377,7 +377,7 @@ describe('AdminSearch engine picker', () => {
    */
   describe('dictionary override editor (task #574)', () => {
     function applyBtnOf(wrapper) {
-      return wrapper.findAll('button').find((b) => b.find('[data-icon="mdi:check"]').exists())
+      return wrapper.findAll('button').find((b) => b.find('[data-icon="tabler:check"]').exists())
     }
 
     it('renders the editor only when the db engine is selected', async () => {

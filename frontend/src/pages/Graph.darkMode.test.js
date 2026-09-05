@@ -155,7 +155,12 @@ describe('Graph.vue legend/filter panel dark-mode text color (OpenProject #2497)
   it.each([['.graph-view-filters'], ['.graph-view-control-caption'], ['.graph-view-legend-label']])(
     '%s declares a color under both .body--light and .body--dark',
     (selector) => {
-      const body = ruleBodyFor(selector)
+      let body = ruleBodyFor(selector)
+      // -> A rule may take its surface from the shared `graph-panel` mixin rather than declaring one
+      //    itself; the colours are still there, one level down, so follow the include.
+      if (body.includes('@include graph-panel;')) {
+        body += ruleBodyFor('@mixin graph-panel')
+      }
 
       const lightMatch = body.match(/@at-root\s+\.body--light\s+&\s*\{([^}]*)\}/)
       expect(lightMatch, `expected a .body--light block in ${selector}`).not.toBeNull()

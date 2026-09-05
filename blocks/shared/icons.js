@@ -3,7 +3,7 @@ import { html } from 'lit'
 /**
  * Icons, for blocks.
  *
- * A block draws an icon from the same reference the rest of the app uses — `mdi:account-edit` — and
+ * A block draws an icon from the same reference the rest of the app uses — `tabler:user-edit` — and
  * gets it from this instance's own `/_icons`, which serves the part of the Iconify API protocol the
  * frontend speaks. Nothing here reaches Iconify itself: the server is what decides whether an icon
  * can be had, and an instance that is offline still answers for every icon it has been asked for
@@ -32,7 +32,7 @@ const iconCache = new Map()
  * for free, and `''` is never written to `iconCache` for a reference that was never a fetch to begin
  * with.
  *
- * @param {string} reference An Iconify reference, e.g. `mdi:home`.
+ * @param {string} reference An Iconify reference, e.g. `tabler:home`.
  * @returns {Promise<string>} The SVG markup, or an empty string.
  */
 export async function fetchIcon(reference) {

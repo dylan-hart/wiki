@@ -24,7 +24,7 @@
       </slot>
       <w-item-section side>
         <w-icon
-          name="mdi:chevron-down"
+          name="tabler:chevron-down"
           class="w-expansion-item__arrow"
           :class="isOpen ? 'rotate-180' : ''" />
       </w-item-section>

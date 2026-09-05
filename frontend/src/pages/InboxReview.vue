@@ -25,8 +25,8 @@
             clickable
             @click="openSubmission(submission)">
             <w-item-section avatar>
-              <w-avatar color="secondary" text-color="white" rounded>
-                <w-icon name="la:file-alt" />
+              <w-avatar color="slate" text-color="white" rounded>
+                <w-icon name="tabler:file-text" />
               </w-avatar>
             </w-item-section>
             <w-item-section>
@@ -56,10 +56,7 @@
                   Only shown once a rule actually asks for more than one sign-off -- the ordinary
                   single-approver case reads exactly as it always has, with no count anywhere.
                 -->
-                <w-badge
-                  v-if="submission.approvals?.approvalsRequired > 1"
-                  color="secondary"
-                  rounded>
+                <w-badge v-if="submission.approvals?.approvalsRequired > 1" color="slate" rounded>
                   {{
                     t('inbox.reviewApprovalProgress', {
                       count: submission.approvals.approvalsCount,
@@ -67,7 +64,7 @@
                     })
                   }}
                 </w-badge>
-                <w-icon name="la:angle-right" color="grey" />
+                <w-icon name="tabler:chevron-right" color="grey" />
               </div>
             </w-item-section>
           </w-item>
@@ -85,7 +82,7 @@
           flat
           dense
           round
-          icon="la:arrow-left"
+          icon="tabler:arrow-left"
           color="grey"
           :aria-label="t(`inbox.reviewBack`)"
           @click="closeSubmission">
@@ -107,7 +104,7 @@
             </template>
           </div>
         </div>
-        <w-badge v-if="state.selected.approvals?.approvalsRequired > 1" color="secondary" rounded>
+        <w-badge v-if="state.selected.approvals?.approvalsRequired > 1" color="slate" rounded>
           {{
             t('inbox.reviewApprovalProgress', {
               count: state.selected.approvals.approvalsCount,
@@ -118,7 +115,7 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:external-link-alt"
+          icon="tabler:external-link"
           color="grey"
           :label="t(`inbox.reviewViewPage`)"
           :href="`/` + state.selected.page.path"
@@ -126,12 +123,12 @@
         <w-btn
           class="acrylic-btn"
           flat
-          icon="la:times"
+          icon="tabler:x"
           color="negative"
           :label="t(`inbox.reviewDecline`)"
           @click="rejectSubmission" />
         <w-btn
-          icon="la:check"
+          icon="tabler:check"
           color="positive"
           :label="t(`inbox.reviewApprove`)"
           @click="approveSubmission" />

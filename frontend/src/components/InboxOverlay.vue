@@ -1,7 +1,7 @@
 <template>
   <w-layout class="inbox-overlay" container>
-    <w-header class="card-header px-4 py-2">
-      <w-icon name="mdi:inbox-full" left size="md" />
+    <w-header class="card-header">
+      <w-icon name="tabler:inbox" left size="md" />
       <span>{{ t('inbox.title') }}</span>
       <w-space />
       <w-btn-group>
@@ -10,7 +10,7 @@
           text-color="text-secondary"
           :label="t('common.actions.close')"
           :aria-label="t('common.actions.close')"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
       </w-btn-group>
     </w-header>
@@ -94,12 +94,12 @@ const sidenav = computed(() => [
   {
     key: 'watching',
     label: t('inbox.inbox'),
-    icon: 'mdi:inbox-full'
+    icon: 'tabler:inbox'
   },
   {
     key: 'review',
     label: t('inbox.pendingReview'),
-    icon: 'la:clipboard-check'
+    icon: 'tabler:clipboard-check'
   }
 ])
 
@@ -149,7 +149,10 @@ function close() {
   }
 
   .w-list .w-item {
-    font-weight: 400;
+    /* -> Every rail row is set at 500, the current one included -- the design distinguishes them by
+       the plate, the bar and the colour, not by weight */
+    font-weight: 500;
+    font-size: 13.5px;
     color: $slate;
     border-inline-start: 2px solid transparent;
 
@@ -166,8 +169,7 @@ function close() {
     &.is-active {
       background-color: $surface;
       border-inline-start-color: $accent-fill;
-      color: $ink;
-      font-weight: 500;
+      color: $accent-text;
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
       .w-icon,

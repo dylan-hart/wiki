@@ -21,7 +21,7 @@
       <w-btn
         class="aspect-square"
         flat
-        icon="la:pen-nib"
+        icon="tabler:pencil"
         :color="editorStore.isActive ? `white` : `accent-fill`"
         :disabled="isRedirect"
         :aria-label="t('pageActions.pageProperties')"
@@ -39,7 +39,7 @@
         :text-color="hasPendingAssets ? `white` : `accent-wash`"
         :aria-label="t('pageActions.pendingAssetUploads')">
         <!-- Outside the icon for the same reason as the review badge above -->
-        <w-icon name="mdi:image-sync-outline" />
+        <w-icon name="tabler:photo-cog" />
         <w-badge
           class="page-actions-pending-badge"
           v-if="hasPendingAssets"
@@ -68,7 +68,7 @@
             }}</w-card-section>
             <w-list v-else separator>
               <w-item v-for="item of editorStore.pendingAssets" :key="item.id">
-                <w-item-section side><w-icon name="la:file-image" /></w-item-section>
+                <w-item-section side><w-icon name="tabler:file-type-jpg" /></w-item-section>
                 <w-item-section v-if="editingAssetId === item.id">
                   <w-input
                     ref="iptRenamePendingAsset"
@@ -89,7 +89,7 @@
                         class="acrylic-btn"
                         color="positive"
                         round
-                        icon="la:check"
+                        icon="tabler:check"
                         size="xs"
                         flat
                         :aria-label="t('pageActions.confirmRename')"
@@ -99,7 +99,7 @@
                         class="acrylic-btn"
                         color="grey"
                         round
-                        icon="la:times"
+                        icon="tabler:x"
                         size="xs"
                         flat
                         :aria-label="t('pageActions.cancelRename')"
@@ -111,7 +111,7 @@
                         class="acrylic-btn"
                         color="grey"
                         round
-                        icon="la:edit"
+                        icon="tabler:edit"
                         size="xs"
                         flat
                         :aria-label="t('pageActions.renamePendingAsset')"
@@ -120,7 +120,7 @@
                         class="acrylic-btn"
                         color="negative"
                         round
-                        icon="la:times"
+                        icon="tabler:x"
                         size="xs"
                         flat
                         :aria-label="t('pageActions.removePendingAsset')"
@@ -153,7 +153,7 @@
         class="h-12"
         v-if="userStore.can(`read:history`)"
         flat
-        icon="la:history"
+        icon="tabler:history"
         :color="editorStore.isActive ? `white` : `slate-soft`"
         :aria-label="t('pageActions.pageHistory')"
         @click="viewPageHistory">
@@ -170,7 +170,7 @@
       <w-btn
         class="h-12"
         flat
-        icon="la:file-export"
+        icon="tabler:file-export"
         :loading="exportingPdf"
         :color="editorStore.isActive ? `white` : `slate-soft`"
         :aria-label="t('pageActions.exportPage')">
@@ -181,7 +181,7 @@
           <w-list padding style="min-width: 180px">
             <w-item clickable @click="exportPage(`markdown`)">
               <w-item-section class="items-center" avatar>
-                <w-icon class="text-deep-orange-9" name="la:markdown" size="sm" />
+                <w-icon class="text-deep-orange-9" name="tabler:markdown" size="sm" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ t('pages.export.markdown') }}</w-item-label></w-item-section
@@ -189,7 +189,7 @@
             </w-item>
             <w-item clickable @click="exportPage(`html`)">
               <w-item-section class="items-center" avatar>
-                <w-icon class="text-deep-orange-9" name="mdi:language-html5" size="sm" />
+                <w-icon class="text-deep-orange-9" name="tabler:brand-html5" size="sm" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ t('pages.export.html') }}</w-item-label></w-item-section
@@ -198,7 +198,7 @@
             <!-- -> Gated on the availability signal task 500 added: no button that just 503s -->
             <w-item clickable v-if="siteStore.pdfExportAvailable" @click="exportPage(`pdf`)">
               <w-item-section class="items-center" avatar>
-                <w-icon class="text-deep-orange-9" name="la:file-pdf" size="sm" />
+                <w-icon class="text-deep-orange-9" name="tabler:file-type-pdf" size="sm" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ t('pages.export.pdf') }}</w-item-label></w-item-section
@@ -213,7 +213,7 @@
       <w-btn
         class="h-12"
         flat
-        icon="la:ellipsis-h"
+        icon="tabler:dots"
         :color="editorStore.isActive ? `white` : `slate-soft`"
         :aria-label="t('common.header.pageActions')">
         <w-tooltip anchor="center left" self="center right">{{
@@ -230,7 +230,7 @@
                     rejects any editor but markdown -->
             <w-item clickable v-if="canRerenderPage" @click="rerenderPage">
               <w-item-section class="items-center" avatar>
-                <w-icon class="text-slate-soft" name="la:magic" size="sm" />
+                <w-icon class="text-slate-soft" name="tabler:wand" size="sm" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ t('common.page.rerender') }}</w-item-label></w-item-section
@@ -238,7 +238,7 @@
             </w-item>
             <w-item clickable @click="toggleBacklinks">
               <w-item-section class="items-center" avatar>
-                <w-icon class="text-slate-soft" name="la:sun" size="sm" />
+                <w-icon class="text-slate-soft" name="tabler:sun" size="sm" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ t('common.page.viewBacklinks') }}</w-item-label></w-item-section
@@ -260,7 +260,7 @@
               <w-separator v-if="canDuplicate || canRenameMove || canDelete" class="my-1" />
               <w-item clickable v-if="canDuplicate" @click="duplicatePage">
                 <w-item-section class="items-center" avatar>
-                  <w-icon class="text-slate-soft" name="la:copy" size="sm" />
+                  <w-icon class="text-slate-soft" name="tabler:copy" size="sm" />
                 </w-item-section>
                 <w-item-section
                   ><w-item-label>{{ t('common.page.duplicate') }}</w-item-label></w-item-section
@@ -268,7 +268,7 @@
               </w-item>
               <w-item clickable v-if="canRenameMove" @click="renamePage">
                 <w-item-section class="items-center" avatar>
-                  <w-icon class="text-slate-soft" name="la:share" size="sm" />
+                  <w-icon class="text-slate-soft" name="tabler:share" size="sm" />
                 </w-item-section>
                 <w-item-section
                   ><w-item-label>{{ t('common.page.renameMove') }}</w-item-label></w-item-section
@@ -276,7 +276,7 @@
               </w-item>
               <w-item clickable v-if="canDelete" @click="deletePage">
                 <w-item-section class="items-center" avatar>
-                  <w-icon class="text-accent" name="la:trash" size="sm" />
+                  <w-icon class="text-accent" name="tabler:trash" size="sm" />
                 </w-item-section>
                 <w-item-section
                   ><w-item-label class="text-accent">{{
@@ -563,8 +563,8 @@ function duplicatePage() {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to duplicate page.',
-        caption: apiErrorMessage(err, 'An unexpected error occured.')
+        message: t('fileman.duplicateFailed'),
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
       })
     }
   })

@@ -47,10 +47,10 @@ const PRESETS = {
     (#d9a441 under white is 2.5:1, under `--color-ink` 7.0:1). `info` is the chrome slate, which is
     also what the design's fourth, action-carrying toast is drawn in.
   */
-  positive: { icon: 'mdi:check-circle', classes: 'bg-positive text-white' },
-  negative: { icon: 'mdi:alert', classes: 'bg-negative text-white' },
-  warning: { icon: 'mdi:exclamation', classes: 'bg-warning text-ink' },
-  info: { icon: 'mdi:information', classes: 'bg-info text-white' }
+  positive: { icon: 'tabler:circle-check', classes: 'bg-positive text-white' },
+  negative: { icon: 'tabler:alert-triangle', classes: 'bg-negative text-white' },
+  warning: { icon: 'tabler:exclamation-mark', classes: 'bg-warning text-ink' },
+  info: { icon: 'tabler:info-circle', classes: 'bg-info text-white' }
 }
 
 const DEFAULT_TIMEOUT = 5000

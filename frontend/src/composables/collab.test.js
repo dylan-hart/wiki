@@ -421,7 +421,7 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
           content: 'the restored content',
           title: 'Restored Title',
           description: 'Restored description',
-          icon: 'mdi:restore'
+          icon: 'tabler:restore'
         })
     })
 
@@ -433,7 +433,7 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     expect(seenYtext.toString()).toBe('the restored content')
     expect(usePageStore().title).toBe('Restored Title')
     expect(usePageStore().description).toBe('Restored description')
-    expect(usePageStore().icon).toBe('mdi:restore')
+    expect(usePageStore().icon).toBe('tabler:restore')
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'positive' })
   })
 

@@ -122,7 +122,6 @@ defineExpose({ onKeyDown })
 .editor-mention-list {
   min-width: 220px;
   max-width: 320px;
-  border-radius: 6px;
   box-shadow:
     0 2px 4px rgba(0, 0, 0, 0.1),
     0 8px 24px rgba(0, 0, 0, 0.15);

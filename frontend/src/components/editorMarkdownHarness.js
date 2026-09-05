@@ -202,7 +202,7 @@ export async function mountEditorMarkdown(EditorMarkdown, initialContent = '') {
 export async function clickInsertFootnote(wrapper) {
   const button = wrapper
     .findAllComponents(WBtn)
-    .find((candidate) => candidate.props('icon') === 'mdi:book-plus')
+    .find((candidate) => candidate.props('icon') === 'tabler:book-upload')
   await button.trigger('click')
 }
 

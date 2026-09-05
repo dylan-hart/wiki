@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-navigation">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:sitemap" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:sitemap" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">
           {{ t('admin.navigation.title') }}
         </h1>
@@ -20,7 +22,9 @@
           :placeholder="t('admin.navigation.searchPlaceholder')"
           :aria-label="t('admin.navigation.searchPlaceholder')"
           :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
-          <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
+          <template #prepend
+            ><w-icon class="opacity-50" name="tabler:search" size="20px"
+          /></template>
         </w-input>
         <w-select
           class="me-2"
@@ -35,14 +39,14 @@
           :aria-label="t(`admin.navigation.localeFilterLabel`)" />
         <w-btn
           class="acrylic-btn me-2"
-          icon="mdi:playlist-edit"
+          icon="tabler:list-details"
           flat
           color="deep-orange-9"
           :label="t(`admin.navigation.editDefaultMenu`)"
           @click="openDefaultMenu" />
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           flat
           color="grey"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -52,9 +56,9 @@
         </w-btn>
         <w-btn
           class="acrylic-btn"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :aria-label="t(`common.actions.refresh`)"
           @click="load"
           :loading="state.loading > 0">
@@ -80,7 +84,7 @@
                   <w-icon
                     v-if="props.row.type !== `asset`"
                     class="ms-2 opacity-50 flex-none"
-                    name="la:external-link-alt"
+                    name="tabler:external-link"
                     size="14px" />
                 </div>
               </w-td>
@@ -165,6 +169,7 @@ import { useSiteStore } from '@/stores/site'
 import fileTypes from '@/helpers/fileTypes'
 import { apiErrorMessage } from '@/helpers/apiError'
 import AdminNavEditDialog from '@/components/AdminNavEditDialog.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 /**
  * The site-wide half of navigation editing. This screen answers "where, across the whole site, has

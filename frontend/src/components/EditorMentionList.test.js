@@ -38,8 +38,8 @@ describe('EditorMentionList', () => {
     const command = vi.fn()
     const wrapper = mountList({
       items: [
-        { id: 'help/faq', label: 'FAQ', path: 'help/faq', icon: 'mdi:help' },
-        { id: 'help/guide', label: 'Guide', path: 'help/guide', icon: 'mdi:book' }
+        { id: 'help/faq', label: 'FAQ', path: 'help/faq', icon: 'tabler:help' },
+        { id: 'help/guide', label: 'Guide', path: 'help/guide', icon: 'tabler:book' }
       ],
       query: 'help',
       loading: false,
@@ -56,7 +56,7 @@ describe('EditorMentionList', () => {
       id: 'help/guide',
       label: 'Guide',
       path: 'help/guide',
-      icon: 'mdi:book'
+      icon: 'tabler:book'
     })
   })
 

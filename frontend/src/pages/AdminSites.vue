@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-locale">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:browser" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:browser" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.sites.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.sites.subtitle') }}
@@ -13,14 +15,18 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.refresh`)"
           @click="refresh">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
-        <w-btn icon="la:plus" :label="t(`admin.sites.new`)" color="primary" @click="createSite" />
+        <w-btn
+          icon="tabler:plus"
+          :label="t(`admin.sites.new`)"
+          color="primary"
+          @click="createSite" />
       </div>
     </div>
     <w-separator inset />
@@ -30,7 +36,7 @@
           <w-list separator>
             <w-item v-for="site of adminStore.sites" :key="site.id">
               <w-item-section side>
-                <w-icon name="la:chalkboard" color="primary" />
+                <w-icon name="tabler:presentation" color="primary" />
               </w-item-section>
               <w-item-section
                 ><strong>{{ site.title }}</strong></w-item-section
@@ -49,11 +55,11 @@
                       color="blue-7"
                       text-color="white"
                       size="sm">
-                      <w-avatar icon="la:angle-right" color="blue-5" text-color="white" />
+                      <w-avatar icon="tabler:chevron-right" color="blue-5" text-color="white" />
                       <span>{{ site.hostname }}</span>
                     </w-chip>
                     <w-chip class="mx-0" v-else color="indigo-7" text-color="white" size="sm">
-                      <w-avatar icon="la:asterisk" color="indigo-5" text-color="white" />
+                      <w-avatar icon="tabler:asterisk" color="indigo-5" text-color="white" />
                       <span>catch-all</span>
                     </w-chip>
                   </a>
@@ -77,7 +83,7 @@
                   flat
                   :href="siteUrl(site)"
                   target="_blank"
-                  icon="la:external-link-alt"
+                  icon="tabler:external-link"
                   color="grey"
                   :aria-label="t(`admin.sites.openSite`, { hostname: site.hostname })">
                   <w-tooltip>{{
@@ -88,13 +94,13 @@
                   class="acrylic-btn me-2"
                   flat
                   @click="editSite(site)"
-                  icon="la:pen"
+                  icon="tabler:pencil"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
                   :label="t(`common.actions.edit`)" />
                 <w-btn
                   class="acrylic-btn"
                   flat
-                  icon="la:trash"
+                  icon="tabler:trash"
                   color="negative"
                   @click="deleteSite(site)"
                   :aria-label="t(`common.actions.delete`)" />
@@ -121,6 +127,7 @@ import { useAdminStore } from '../stores/admin'
 import SiteActivateDialog from '../components/SiteActivateDialog.vue'
 import SiteCreateDialog from '../components/SiteCreateDialog.vue'
 import SiteDeleteDialog from '../components/SiteDeleteDialog.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

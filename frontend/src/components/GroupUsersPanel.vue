@@ -8,18 +8,18 @@
         v-model="state.usersFilter"
         :placeholder="t(`admin.groups.filterUsers`)"
         dense>
-        <template #prepend><w-icon name="la:search" /></template>
+        <template #prepend><w-icon name="tabler:search" /></template>
       </w-input>
       <w-btn
         class="me-2 acrylic-btn"
-        icon="la:redo-alt"
+        icon="tabler:refresh"
         flat
-        color="secondary"
+        color="slate"
         :aria-label="t(`common.actions.refresh`)"
         @click="refreshUsers" />
       <w-btn
         class="me-1"
-        icon="la:user-plus"
+        icon="tabler:user-plus"
         :label="t(`admin.groups.assignUser`)"
         color="primary"
         v-if="canManage"
@@ -53,14 +53,14 @@
             }}</w-banner>
           </template>
           <template #body-cell-id="props">
-            <w-td :props="props"><w-icon name="la:user" color="primary" size="sm" /></w-td>
+            <w-td :props="props"><w-icon name="tabler:user" color="primary" size="sm" /></w-td>
           </template>
           <template #body-cell-name="props">
             <w-td :props="props">
               <div class="flex items-center">
                 <strong>{{ props.value }}</strong>
-                <w-icon class="ms-2" v-if="props.row.isSystem" name="la:lock" color="pink" />
-                <w-icon class="ms-2" v-if="!props.row.isActive" name="la:ban" color="pink" />
+                <w-icon class="ms-2" v-if="props.row.isSystem" name="tabler:lock" color="pink" />
+                <w-icon class="ms-2" v-if="!props.row.isActive" name="tabler:ban" color="pink" />
               </div>
             </w-td>
           </template>
@@ -94,7 +94,7 @@
                 v-if="!props.row.isSystem"
                 flat
                 :to="`/_admin/users/` + props.row.id"
-                icon="la:pen"
+                icon="tabler:pencil"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`common.actions.edit`)" />
               <!-- Hidden for system users: the guest account's membership is fixed, and the API -->
@@ -103,7 +103,7 @@
                 class="acrylic-btn"
                 v-if="!props.row.isSystem && canManage"
                 flat
-                icon="la:user-minus"
+                icon="tabler:user-minus"
                 color="accent"
                 :aria-label="t(`admin.groups.unassignUser`)"
                 @click="unassignUser(props.row)">

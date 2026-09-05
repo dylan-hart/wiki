@@ -4,7 +4,7 @@
     flat
     round
     dense
-    icon="la:ellipsis-v"
+    icon="tabler:dots-vertical"
     :aria-label="t('common.header.moreActions')">
     <w-menu ref="menu" class="translucent-menu" anchor="bottom right" self="top right">
       <!--
@@ -26,7 +26,7 @@
               <w-avatar v-if="userStore.hasAvatar" size="32px">
                 <img :src="`/_user/current/avatar`" :alt="userStore.name" />
               </w-avatar>
-              <w-icon v-else name="la:user-circle" />
+              <w-icon v-else name="tabler:user-circle" />
             </w-item-section>
             <w-item-section>
               <w-item-label>{{ userStore.name }}</w-item-label>
@@ -46,11 +46,11 @@
         -->
         <w-item v-if="userStore.can(`write:pages`)" clickable>
           <w-item-section avatar>
-            <w-icon name="la:plus" class="text-blue-4" />
+            <w-icon name="tabler:plus" class="text-blue-4" />
           </w-item-section>
           <w-item-section>{{ t('common.header.createNewPage') }}</w-item-section>
           <w-item-section side>
-            <w-icon name="la:angle-right" />
+            <w-icon name="tabler:chevron-right" />
           </w-item-section>
           <page-new-menu hide-asset-btn @new-page="close" />
         </w-item>
@@ -62,25 +62,25 @@
         -->
         <w-item v-if="canUseFileManager" clickable @click="openFileManager">
           <w-item-section avatar>
-            <w-icon name="la:folder-open" class="text-positive" />
+            <w-icon name="tabler:folder-open" class="text-positive" />
           </w-item-section>
           <w-item-section>{{ t('fileman.title') }}</w-item-section>
         </w-item>
         <!--
           OpenProject #2024/#2531: kept in step with the wide-viewport button's own destination and
-          glyph (`HeaderNav.vue`) -- the Inbox overlay's Watching tab, `la:bell` -- rather than the old
-          `/_inbox` redirect into the now-deleted Messages stub and its unrelated `mdi:inbox-full`
+          glyph (`HeaderNav.vue`) -- the Inbox overlay's Watching tab, `tabler:bell` -- rather than the old
+          `/_inbox` redirect into the now-deleted Messages stub and its unrelated `tabler:inbox`
           icon.
         -->
         <w-item v-if="userStore.authenticated" clickable @click="openInbox">
           <w-item-section avatar>
-            <w-icon name="la:bell" class="text-amber" />
+            <w-icon name="tabler:bell" class="text-amber" />
           </w-item-section>
           <w-item-section>{{ t('inbox.title') }}</w-item-section>
         </w-item>
         <w-item v-if="userStore.can(`access:admin`)" clickable to="/_admin" @click="close">
           <w-item-section avatar>
-            <w-icon name="la:tools" class="text-pink" />
+            <w-icon name="tabler:tool" class="text-pink" />
           </w-item-section>
           <w-item-section>{{ t('common.header.admin') }}</w-item-section>
         </w-item>
@@ -96,13 +96,13 @@
         <template v-if="userStore.authenticated">
           <w-item clickable @click="openProfile">
             <w-item-section avatar>
-              <w-icon name="la:user-alt" class="text-primary" />
+              <w-icon name="tabler:user" class="text-primary" />
             </w-item-section>
             <w-item-section>{{ t('common.header.profile') }}</w-item-section>
           </w-item>
           <w-item clickable @click="logout">
             <w-item-section avatar>
-              <w-icon name="la:sign-out-alt" class="text-red" />
+              <w-icon name="tabler:logout" class="text-red" />
             </w-item-section>
             <w-item-section>{{ t('common.header.logout') }}</w-item-section>
           </w-item>
@@ -111,7 +111,7 @@
                 find it in here -->
         <w-item v-else clickable to="/login" @click="close">
           <w-item-section avatar>
-            <w-icon name="la:sign-in-alt" class="text-primary" />
+            <w-icon name="tabler:login" class="text-primary" />
           </w-item-section>
           <w-item-section>{{ t('common.actions.login') }}</w-item-section>
         </w-item>

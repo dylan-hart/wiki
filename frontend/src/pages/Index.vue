@@ -20,13 +20,13 @@
     -->
     <!-- -> `py-1` on a phone: with the date gone the bar holds one line of small type, and 8px above and
             below it made a strip nearly as tall as the crumbs themselves -->
-    <div class="page-breadcrumbs py-1 px-4 sm:py-2 flex flex-wrap" v-if="!pageStore.notFound">
+    <div class="page-breadcrumbs px-4 flex flex-wrap items-center" v-if="!pageStore.notFound">
       <div class="min-w-0 flex-1">
         <w-breadcrumbs
           :items="breadcrumbs"
           :active-color="dark.isActive ? `grey-5` : `grey-7`"
           separator-color="grey">
-          <template #separator><w-icon name="la:angle-right" /></template>
+          <template #separator><w-icon name="tabler:chevron-right" /></template>
         </w-breadcrumbs>
       </div>
       <!--
@@ -42,13 +42,13 @@
       -->
       <div class="flex-none items-center justify-end hidden sm:flex" v-if="!isUnsavedNewPage">
         <template v-if="pageStore.publishState === 'draft'">
-          <div class="text-caption text-accent">
-            <strong>{{ t(`common.page.unpublished`) }}</strong>
+          <div class="page-breadcrumbs-modified text-accent">
+            {{ t(`common.page.unpublished`) }}
           </div>
           <w-separator class="mx-2" vertical />
         </template>
-        <div class="text-caption text-grey-6">
-          {{ t(`common.page.lastModifiedOn`) }} <strong>{{ lastModified }}</strong>
+        <div class="page-breadcrumbs-modified">
+          {{ t(`common.page.lastModified`) }} {{ lastModified }}
         </div>
       </div>
     </div>
@@ -64,12 +64,12 @@
           body at all, so this is the whole of what arrived for a protected page.
         -->
         <div v-else-if="pageStore.isLocked" class="page-placeholder">
-          <w-icon class="page-placeholder-icon" name="la:lock" />
+          <w-icon class="page-placeholder-icon" name="tabler:lock" />
           <div class="text-h6">{{ t('common.page.locked') }}</div>
           <div class="text-body2 mt-1 opacity-60">{{ t('common.page.lockedHint') }}</div>
           <w-btn
             class="mt-6"
-            icon="la:lock-open"
+            icon="tabler:lock-open"
             color="primary"
             padding="xs lg"
             :label="t(`common.page.unlock`)"
@@ -82,7 +82,7 @@
           creates it -- at this path, so that the link they followed leads somewhere afterwards.
         -->
         <div v-else-if="pageStore.notFound" class="page-placeholder">
-          <w-icon class="page-placeholder-icon" name="la:file-alt" />
+          <w-icon class="page-placeholder-icon" name="tabler:file-text" />
           <!-- -> "...yet" is an invitation, so it is for whoever can take it up; to a reader who
                cannot write here the page simply does not exist -->
           <div class="text-h6">
@@ -100,7 +100,7 @@
           <w-btn
             class="mt-6"
             v-if="canCreatePage"
-            icon="la:plus"
+            icon="tabler:plus"
             color="primary"
             padding="xs lg"
             :label="t(`common.newpage.create`)"
@@ -110,7 +110,7 @@
             class="mt-6"
             v-else
             outline
-            icon="la:arrow-left"
+            icon="tabler:arrow-left"
             color="primary"
             padding="xs lg"
             :label="t(`common.newpage.goback`)"
@@ -126,7 +126,7 @@
             v-if="canViewDeletionHistory"
             flat
             dense
-            icon="la:history"
+            icon="tabler:history"
             color="grey-6"
             :label="t(`history.recovery.entryLink`)"
             :to="`/_admin/` + siteStore.id + `/pages/deleted`" />
@@ -141,7 +141,9 @@
         <w-scroll-area class="page-container-scrl" ref="pageScroller" v-else style="height: 100%">
           <!-- -> Half the padding on a phone, where 16px a side is 8% of the window spent on margin;
                   the stylesheet has `--content-bleed` to match -->
-          <div class="page-container-body p-2 sm:p-4">
+          <div
+            class="page-container-body"
+            :class="{ 'is-centered': siteStore.theme.contentWidth === `centered` }">
             <!--
               Delegated rather than bound per link: the anchors are written by `v-html`, so there is
               nothing here to put a handler on, and they are replaced wholesale on every render.
@@ -247,32 +249,24 @@
         @click="onSidebarClick">
         <template v-if="showToc">
           <!-- TOC -->
-          <div class="p-4 flex items-center">
-            <w-icon class="me-2" name="la:stream" color="grey" />
-            <!-- -> Its own string, not `common.page.toc`: this heading labels a column beside the
-                 article and reads better short, where "Table of Contents" is the full name of the
-                 thing and belongs where there is room for it -->
-            <div class="text-caption text-grey-7">{{ t('common.page.contents') }}</div>
-          </div>
-          <div class="px-4 pb-2">
-            <page-toc
-              :nodes="pageStore.toc"
-              :min-depth="pageStore.tocDepth.min"
-              :max-depth="pageStore.tocDepth.max"
-              v-model:selected="state.tocSelected" />
-          </div>
+          <!-- -> Its own string, not `common.page.toc`: this heading labels a column beside the
+               article and reads better short, where "Table of Contents" is the full name of the
+               thing and belongs where there is room for it -->
+          <div class="page-sidebar-heading">{{ t('common.page.contents') }}</div>
+          <page-toc
+            :nodes="pageStore.toc"
+            :min-depth="pageStore.tocDepth.min"
+            :max-depth="pageStore.tocDepth.max"
+            v-model:selected="state.tocSelected" />
         </template>
         <!-- Tags -->
         <template v-if="showTags">
           <w-separator v-if="showToc" />
           <div
-            class="p-4"
             @mouseover="state.showTagsEditBtn = true"
             @mouseleave="state.showTagsEditBtn = false">
             <div class="flex items-center">
-              <w-icon class="me-2" name="la:tags" color="grey" />
-              <div class="text-caption text-grey-7">{{ t('common.page.tags') }}</div>
-              <w-space />
+              <div class="page-sidebar-heading flex-1">{{ t('common.page.tags') }}</div>
               <!--
                 Rendered for whoever may save the page, and hidden with `visibility` rather than
                 removed as the pointer comes and goes: `display: none` took the row's height with it,
@@ -291,13 +285,13 @@
                 :class="{ 'is-hidden': !state.tagEditMode && !state.showTagsEditBtn }"
                 size="sm"
                 padding="none xs"
-                :icon="state.tagEditMode ? `la:check` : `la:pen`"
+                :icon="state.tagEditMode ? `tabler:check` : `tabler:pencil`"
                 color="deep-orange-9"
                 flat
                 :label="state.tagEditMode ? t('common.actions.exitEdit') : t('common.actions.edit')"
                 @click="state.tagEditMode = !state.tagEditMode" />
             </div>
-            <page-tags class="mt-2" :edit="state.tagEditMode" />
+            <page-tags :edit="state.tagEditMode" />
           </div>
         </template>
       </div>
@@ -322,7 +316,7 @@
       <div v-if="showTocPanelBtn" class="fixed bottom-0 right-0 z-30">
         <w-btn
           class="corner-btn corner-btn--right"
-          icon="mdi:file-tree"
+          icon="tabler:binary-tree"
           color="primary"
           round
           size="md"
@@ -353,7 +347,7 @@
           dense
           round
           size="sm"
-          icon="la:arrow-up"
+          icon="tabler:arrow-up"
           :disabled="highlightMatches.length === 0"
           :aria-label="t('common.renderedContent.highlightPrevious')"
           @click="goToPreviousHighlightMatch" />
@@ -362,7 +356,7 @@
           dense
           round
           size="sm"
-          icon="la:arrow-down"
+          icon="tabler:arrow-down"
           :disabled="highlightMatches.length === 0"
           :aria-label="t('common.renderedContent.highlightNext')"
           @click="goToNextHighlightMatch" />
@@ -371,7 +365,7 @@
           dense
           round
           size="sm"
-          icon="la:times"
+          icon="tabler:x"
           :aria-label="t('common.renderedContent.highlightDismiss')"
           @click="dismissHighlight" />
       </div>
@@ -643,7 +637,7 @@ const isUnsavedNewPage = computed(() => editorStore.isActive && editorStore.mode
 
 const lastModified = computed(() => {
   return pageStore.updatedAt
-    ? userStore.formatDateTime(t, pageStore.updatedAt)
+    ? userStore.formatRecent(t, pageStore.updatedAt)
     : t('common.notAvailable')
 })
 
@@ -654,7 +648,7 @@ const lastModified = computed(() => {
 const breadcrumbs = computed(() => [
   {
     key: 'home',
-    icon: 'la:home',
+    icon: 'tabler:home',
     to: '/',
     ariaLabel: t(`common.header.home`),
     tooltip: t(`common.header.home`)
@@ -1126,6 +1120,12 @@ $toc-overlay-max: 749.98px;
   point of the trail is that it gives way to the page beneath it.
 */
 .page-breadcrumbs {
+  /*
+    A fixed 34px band, as the design draws it (`padding: 6px 16px` around one line of 11.5px mono).
+    It used to be sized by its own contents through a `py-1`/`sm:py-2` pair, so the bar's height moved
+    with whatever the trail happened to hold -- a crumb with an icon made it taller than one without.
+  */
+  min-height: 34px;
   font-family: var(--font-mono);
   font-size: 11.5px;
 
@@ -1154,7 +1154,24 @@ $toc-overlay-max: 749.98px;
     on the screen -- what is wanted is a bar that gives way to the page under it, not one nobody can read.
   */
   @media (max-width: $breakpoint-xs-max) {
+    min-height: 30px;
     font-size: 10.5px;
+  }
+}
+
+/*
+  The "last modified" note at the trailing end of the trail, and the draft mark beside it. The bar is
+  already mono at 11.5px; this only holds the tone, so the note reads as part of the address rather
+  than as a second voice.
+*/
+.page-breadcrumbs-modified {
+  white-space: nowrap;
+
+  @at-root .body--light & {
+    color: $text-caption;
+  }
+  @at-root .body--dark & {
+    color: $text-caption-dark;
   }
 }
 
@@ -1163,8 +1180,14 @@ $toc-overlay-max: 749.98px;
   from the article -- the two-stop gradient and the white top edge it used to carry were the same
   bevel the trail above it had, and they are gone for the same reason.
 */
+/*
+  The masthead. The design gives it `padding: 16px 16px 16px 0` around a 64px icon plate, which comes
+  out at 96px and grows with a wrapped title -- so it is stated as a MINIMUM here rather than a fixed
+  height, where a fixed 95px cropped the bottom padding off a two-line title.
+*/
 .page-header {
-  height: 95px;
+  min-height: 96px;
+  padding-block: 16px;
 
   /*
     Sized by its contents on a phone instead, which comes out around 70px: the 95px is pitched for a 64px
@@ -1176,7 +1199,8 @@ $toc-overlay-max: 749.98px;
     a page with no description gets a bar shorter still.
   */
   @media (max-width: $breakpoint-xs-max) {
-    height: auto;
+    min-height: 0;
+    padding-block: 10px;
   }
 
   @at-root .body--light & {
@@ -1209,7 +1233,14 @@ $toc-overlay-max: 749.98px;
     }
   }
 
+  /*
+    The description under the title: Barlow at 400, not the 500 `text-subtitle2` was giving it. At the
+    weight the title carries it read as a second heading rather than as the sentence explaining the
+    first one.
+  */
   &-subtitle {
+    margin-top: 6px;
+    font-weight: 400;
     font-size: 14.5px;
     line-height: 1.45;
     letter-spacing: normal;
@@ -1234,27 +1265,54 @@ $toc-overlay-max: 749.98px;
   display: flex;
   flex-direction: column;
 }
+/*
+  The article's own whitespace. `32px 28px 44px` is the design's measurement, and the extra at the
+  foot is what stops the last paragraph sitting on the footer. It replaces a `p-2 sm:p-4` pair
+  (8px/16px), which left a rendered page very nearly flush to the column's edges.
+*/
 .page-container-body {
   flex: 1 0 auto;
+  padding: 32px 28px 44px;
+
+  @media (max-width: $breakpoint-xs-max) {
+    padding: 20px 16px 32px;
+  }
 
   /*
-    The other half of the padding change in the template above.
+    The other half of the padding above.
 
-    `--content-bleed` is how far the rule under an h1 reaches BACK through the padding of whatever holds
-    the content, so that it starts at the sidebar rather than at the text -- so it is a statement about
-    this surface's padding, and left at 1rem against 0.5rem of it the rule overhung the column by 8px.
-    `_page-contents.scss` declares the property expecting exactly this: a surface that pads differently
-    overrides the one property rather than the rule.
+    `--content-bleed` is how far the rule under an h1 reaches BACK through this surface's padding, so
+    that it starts at the column's edge rather than at the text -- so it is a statement about this
+    surface's padding and has to move with it. 28px here, 16px on a phone.
 
-    On the `.page-contents` element rather than here, because that is where the default is declared and a
-    custom property set on the parent would simply be shadowed by it. The editor's preview pane carries
-    the class itself and still pads 1rem, so it keeps the default.
+    On the `.page-contents` element rather than here, because that is where the default is declared and
+    a custom property set on the parent would simply be shadowed by it. The editor's preview pane
+    carries the class itself and pads differently, so it keeps the default.
   */
+  .page-contents {
+    --content-bleed: 28px;
+  }
+
   @media (max-width: $breakpoint-xs-max) {
     .page-contents {
-      --content-bleed: 0.5rem;
+      --content-bleed: 16px;
     }
   }
+}
+
+/*
+  A measure, when the site asks for one. `contentWidth` has been a stored, editable setting with
+  nothing reading it -- so "Centered" in the theme settings did nothing at all -- and 720px is the
+  measure the design draws (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: the article pads
+  32/28/44 and then holds its text to 720px inside that).
+
+  On the contents rather than on this box, so the padding above stays the column's and only the text
+  is bounded: a page of prose reads at a comfortable measure while the sheet it sits on still fills
+  the window.
+*/
+.page-container-body.is-centered > .page-contents {
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 /*
@@ -1294,6 +1352,14 @@ $toc-overlay-max: 749.98px;
 
 .page-sidebar {
   flex: 0 0 300px;
+
+  /*
+    The rail's own inset, as the design draws it (`padding: 28px 20px`), rather than a `p-4` on each
+    section in the markup. Putting it on the column is what gives the rules between the sections their
+    margins for free: a `w-separator` is a child of this box, so it spans the content width and stops
+    20px short of both edges instead of running edge to edge across the rail.
+  */
+  padding: 28px 20px;
 
   /*
     Narrower once the window is: 300px is pitched for a wide desktop, where it is a tenth of the width, and
@@ -1368,6 +1434,8 @@ $toc-overlay-max: 749.98px;
   // it completely. Only the border colour is carried across.
   .w-separator {
     --w-hairline-color: #{$hairline};
+    /* -> 22px of air on each side, as the design draws them */
+    margin-block: 22px;
   }
   @at-root .body--dark & .w-separator {
     --w-hairline-color: #{$hairline-dark};
@@ -1382,6 +1450,26 @@ $toc-overlay-max: 749.98px;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgb(102 102 102 / 0.5) transparent;
+}
+
+/*
+  A rail section's heading -- the same mono, uppercase, letter-spaced label the design uses for every
+  section marker in the language (`.w-section-header` is the banded version of the same voice). No icon
+  beside it: the rail holds four short lists, and a glyph per heading was four pictures competing with
+  the one thing in the column that is a picture (the tags' own `#` marks).
+*/
+.page-sidebar-heading {
+  padding-block-end: 12px;
+  color: $text-caption;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.body--dark .page-sidebar-heading {
+  color: $text-caption-dark;
 }
 
 /*

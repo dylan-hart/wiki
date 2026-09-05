@@ -1,6 +1,6 @@
 <template>
   <w-layout class="table-editor" container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="img:/_assets/icons/color-data-grid.svg" left size="md" />
       <span>{{ t(`editor.tableEditor.title`) }}</span>
       <w-space />
@@ -10,7 +10,7 @@
           text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
         <!-- -> "Update" when the overlay was opened over a table that is already in the page: the
                 button says what pressing it does, and what it does is replace that one -->
@@ -19,7 +19,7 @@
           text-color="white"
           :label="state.replace ? t('common.actions.update') : t('common.actions.insert')"
           :aria-label="state.replace ? t('common.actions.update') : t('common.actions.insert')"
-          icon="la:check"
+          icon="tabler:check"
           @click="insert" />
       </w-btn-group>
     </w-header>
@@ -40,13 +40,13 @@
           <!-- -> `push`, like the overlay's own header buttons and the Styling menu at the far end of
                   this strip: solid, with the ledge that collapses under the press -->
           <w-btn
-            icon="la:plus"
+            icon="tabler:plus"
             color="primary"
             padding="xs sm"
             :label="t(`editor.tableEditor.addRow`)"
             @click="addRow" />
           <w-btn
-            icon="la:plus"
+            icon="tabler:plus"
             color="primary"
             padding="xs sm"
             :label="t(`editor.tableEditor.addColumn`)"
@@ -84,11 +84,11 @@
           -->
           <w-separator vertical />
           <w-btn
-            icon="mdi:palette"
-            color="secondary"
+            icon="tabler:palette"
+            color="slate"
             padding="xs sm"
             :label="t(`editor.tableEditor.styling`)">
-            <w-icon name="mdi:menu-down" />
+            <w-icon name="tabler:chevron-down" />
             <w-menu anchor="bottom left" self="top left" :offset="[0, 4]">
               <div class="flex flex-col gap-3 p-4">
                 <w-checkbox
@@ -137,7 +137,7 @@
                       padding="none xs"
                       size="sm"
                       color="negative"
-                      icon="la:times"
+                      icon="tabler:x"
                       :disabled="state.align.length < 2"
                       :aria-label="t(`editor.tableEditor.removeColumn`)"
                       @click="removeColumn(colIndex)">
@@ -185,7 +185,7 @@
                     padding="none xs"
                     size="sm"
                     color="negative"
-                    icon="la:times"
+                    icon="tabler:x"
                     :disabled="bodyRows.length < 2"
                     :aria-label="t(`editor.tableEditor.removeRow`)"
                     @click="removeRow(rowIndex + rowOffset)">
@@ -266,9 +266,9 @@ const siteStore = useSiteStore()
 const { t } = useI18n()
 
 const ALIGN_ICONS = {
-  left: 'mdi:format-align-left',
-  center: 'mdi:format-align-center',
-  right: 'mdi:format-align-right'
+  left: 'tabler:align-left',
+  center: 'tabler:align-center',
+  right: 'tabler:align-right'
 }
 
 /*

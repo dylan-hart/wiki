@@ -6,7 +6,7 @@
         <w-card class="bg-negative rounded text-white">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="shrink-0 pe-0">
-              <w-icon name="la:ban" size="lg" />
+              <w-icon name="tabler:ban" size="lg" />
             </w-card-section>
             <w-card-section>
               <span>{{ t('profile.editDisabledTitle') }}</span>
@@ -182,9 +182,9 @@
     </w-item>
     <div v-if="canEdit" class="actions-bar mt-6">
       <w-btn
-        icon="mdi:check"
+        icon="tabler:check"
         :label="t(`common.actions.saveChanges`)"
-        color="secondary"
+        color="slate"
         :disabled="state.loading > 0"
         @click="save" />
     </div>
@@ -347,7 +347,7 @@ async function save() {
     notify({
       type: 'negative',
       message: t('profile.saveFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   loading.hide()

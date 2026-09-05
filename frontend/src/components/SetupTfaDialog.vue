@@ -36,7 +36,7 @@
               class="acrylic-btn"
               flat
               dense
-              icon="la:copy"
+              icon="tabler:copy"
               :aria-label="t(`common.actions.copy`)"
               color="primary"
               @click="copySecret" />
@@ -182,7 +182,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: localizeError(apiErrorMessage(err, 'An unexpected error occured.'), t)
+      message: localizeError(apiErrorMessage(err, t('common.error.unexpected')), t)
     })
     onDialogCancel()
   }

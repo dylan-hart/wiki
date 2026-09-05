@@ -11,7 +11,7 @@
       <w-btn
         class="acrylic-btn"
         flat
-        icon="la:copy"
+        icon="tabler:copy"
         :label="t(`common.actions.copy`)"
         color="primary"
         padding="xs md"
@@ -19,7 +19,7 @@
       <w-btn
         class="acrylic-btn"
         flat
-        icon="la:download"
+        icon="tabler:download"
         :label="t(`common.actions.download`)"
         color="primary"
         padding="xs md"

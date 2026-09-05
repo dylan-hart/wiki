@@ -13,8 +13,8 @@ import type { FastifyInstance } from 'fastify'
  * the images are addressed by, which are the asset kinds themselves.
  */
 const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
-  logo: 'assets/_assets/logo-wikijs.svg',
-  favicon: 'assets/_assets/logo-wikijs.svg',
+  logo: 'assets/_assets/logo-cardinal.svg',
+  favicon: 'assets/_assets/logo-cardinal.svg',
   loginBg: 'assets/_assets/bg/login.jpg'
 }
 

@@ -63,7 +63,9 @@ async function activateTestLocales(page, testLocales) {
     return res.ok
   })
   if (!flushed) {
-    throw new Error('POST /_api/system/cache/flush failed -- the locale toggles below would be stale')
+    throw new Error(
+      'POST /_api/system/cache/flush failed -- the locale toggles below would be stale'
+    )
   }
 
   await page.goto('/_admin/sites')

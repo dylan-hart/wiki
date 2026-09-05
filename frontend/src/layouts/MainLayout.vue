@@ -24,7 +24,7 @@
         <w-btn
           class="py-4"
           flat
-          icon="la:angle-double-right"
+          icon="tabler:chevrons-right"
           color="slate"
           :aria-label="t('common.sidebar.expand')"
           @click="sidebarExpandOverride = true">
@@ -36,7 +36,7 @@
           v-if="siteStore.locales.showMenu"
           class="py-4"
           flat
-          icon="la:globe"
+          icon="tabler:world"
           color="slate"
           :aria-label="t('common.sidebar.switchLocale')">
           <locale-selector-menu anchor="top right" self="top left" />
@@ -48,7 +48,7 @@
           v-if="canBrowse"
           class="py-4"
           flat
-          icon="la:sitemap"
+          icon="tabler:sitemap"
           color="slate"
           :aria-label="t(`common.sidebar.browse`)">
           <nav-browse-menu anchor="top right" self="top left" />
@@ -61,7 +61,7 @@
           v-if="showEditNav"
           class="py-1"
           flat
-          icon="la:dharmachakra"
+          icon="tabler:steering-wheel"
           color="slate"
           :aria-label="t(`common.sidebar.editNav`)"
           size="sm">
@@ -83,7 +83,7 @@
             class="flex-1 px-2"
             flat
             dense
-            icon="la:angle-double-left"
+            icon="tabler:chevrons-left"
             :label="t('common.sidebar.collapse')"
             :aria-label="t('common.sidebar.collapse')"
             size="sm"
@@ -97,7 +97,7 @@
               class="flex-1 px-2"
               flat
               dense
-              icon="la:globe"
+              icon="tabler:world"
               :label="commonStore.locale"
               :aria-label="commonStore.locale"
               size="sm">
@@ -110,7 +110,7 @@
             class="flex-1 px-2"
             flat
             dense
-            icon="la:sitemap"
+            icon="tabler:sitemap"
             :label="t(`common.sidebar.browse`)"
             :aria-label="t(`common.sidebar.browse`)"
             size="sm">
@@ -120,7 +120,11 @@
         <nav-sidebar />
         <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one -->
         <w-bar v-if="showEditNav" class="sidebar-footerbtns" dense>
-          <w-btn class="flex-1" icon="la:dharmachakra" :label="t(`common.sidebar.editNav`)" flat>
+          <w-btn
+            class="flex-1"
+            icon="tabler:steering-wheel"
+            :label="t(`common.sidebar.editNav`)"
+            flat>
             <w-menu ref="navEditMenu" anchor="top left" self="bottom left" :offset="[0, 10]">
               <nav-edit-menu
                 :menu-hide-handler="navEditMenu.hide"
@@ -156,7 +160,7 @@
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">
         <w-btn
           class="corner-btn corner-btn--left"
-          icon="la:bars"
+          icon="tabler:menu-2"
           color="primary"
           round
           size="md"
@@ -196,7 +200,7 @@
         target=".page-container-scrl">
         <w-btn
           class="corner-btn corner-btn--right"
-          icon="la:arrow-up"
+          icon="tabler:arrow-up"
           :color="scrollerAnchorX ? `sidebar-light` : `primary`"
           round
           size="md"
@@ -539,7 +543,6 @@ function openSidebar() {
   inset-inline-start: 8px;
   z-index: 100;
   padding: 8px 16px;
-  border-radius: 4px;
   background-color: $primary;
   color: #fff;
   font-weight: 500;
@@ -647,22 +650,35 @@ body.body--dark {
     }
 
     /*
-      A flat panel with a hairline edge, and enough shadow to say it is over the page rather than in
-      it. The gradient this replaces -- a 10px dark strip along the top, then a step to grey and a
-      fade -- was drawing a title bar the overlays no longer have.
+      A flat panel under a solid ink edge, with enough shadow to say it is over the page rather than
+      in it. The edge is the design's own (`ui-redesign/Cardinal Wiki - Inbox 3x.dc.html`): 10px of
+      ink across the top, above the overlay's own dark title bar, which is what makes an overlay read
+      as a thing laid over the wiki rather than a region of it. What it replaces was a GRADIENT
+      standing in for a title bar -- a dark strip fading to grey -- and the two are not the same
+      drawing.
     */
     > .w-dialog-panel {
-      box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
+      border-top: 10px solid $dark-5;
 
       @at-root .body--light & {
-        background-color: $paper;
-        border: 1px solid $hairline;
+        background-color: $surface;
       }
       @at-root .body--dark & {
         background-color: $dark-5;
-        border: 1px solid $hairline-dark;
+        border-top-color: $dark-6;
       }
     }
+  }
+
+  /*
+    The half-viewport entries (Profile, Inbox) take a floor but no ceiling -- see
+    `MainOverlayDialog.vue`'s `HALF_SIZE`. `min-width` is `min(560px, 100%)` rather than a flat
+    560px so the panel still fits a phone, where 100% is the smaller of the two.
+  */
+  &.is-half-sized > .w-dialog-viewport > .w-dialog-panel {
+    min-width: min(560px, 100%);
+    min-height: 420px;
   }
 }
 

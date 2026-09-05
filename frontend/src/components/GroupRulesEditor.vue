@@ -7,7 +7,7 @@
         class="acrylic-btn me-2"
         flat
         color="indigo"
-        icon="la:file-export"
+        icon="tabler:file-export"
         @click="exportRules">
         <w-tooltip labels>{{ t('admin.groups.exportRules') }}</w-tooltip>
       </w-btn>
@@ -15,7 +15,7 @@
         class="acrylic-btn me-2"
         flat
         color="indigo"
-        icon="la:file-import"
+        icon="tabler:file-import"
         v-if="canManage"
         @click="importRules">
         <w-tooltip labels>{{ t('admin.groups.importRules') }}</w-tooltip>
@@ -23,7 +23,7 @@
       <w-btn
         v-if="canManage"
         color="primary"
-        icon="la:plus"
+        icon="tabler:plus"
         :label="t('admin.groups.newRule')"
         @click="newRule" />
     </w-toolbar>
@@ -94,7 +94,7 @@
                 <w-btn
                   class="acrylic-btn ms-4"
                   flat
-                  icon="la:trash"
+                  icon="tabler:trash"
                   color="negative"
                   padding="sm sm"
                   size="md"
@@ -447,10 +447,10 @@ function getRuleModeClass(mode) {
 function getRuleModeIcon(mode) {
   return (
     {
-      DENY: 'la:ban',
-      ALLOW: 'la:check',
-      FORCEALLOW: 'la:check-double'
-    }[mode] || 'la:frog'
+      DENY: 'tabler:ban',
+      ALLOW: 'tabler:check',
+      FORCEALLOW: 'tabler:checks'
+    }[mode] || 'tabler:fish'
   )
 }
 

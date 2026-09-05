@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:user" left size="md" />
       <div>
         <span>{{ t(`admin.users.edit`) }}</span>
@@ -12,7 +12,7 @@
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           @click="fetchUser"
           :loading="state.loading > 0">
           <w-tooltip anchor="center left" self="center right">{{
@@ -24,7 +24,7 @@
           text-color="grey-7"
           :label="t(`common.actions.close`)"
           :aria-label="t(`common.actions.close`)"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
         <w-btn
           v-if="canManage"
@@ -32,7 +32,7 @@
           text-color="white"
           :label="t(`common.actions.save`)"
           :aria-label="t(`common.actions.save`)"
-          icon="la:check"
+          icon="tabler:check"
           @click="save()"
           :disabled="state.loading > 0" />
       </w-btn-group>
@@ -331,7 +331,7 @@
                     <w-btn
                       class="acrylic-btn"
                       flat
-                      icon="la:arrow-circle-right"
+                      icon="tabler:circle-arrow-right"
                       color="primary"
                       v-if="canManage"
                       @click="changePassword"
@@ -395,7 +395,7 @@
                     <w-btn
                       class="acrylic-btn"
                       flat
-                      icon="la:arrow-circle-right"
+                      icon="tabler:circle-arrow-right"
                       color="primary"
                       v-if="canManage"
                       @click="invalidateTFA"
@@ -414,8 +414,8 @@
                   <w-list v-else bordered separator>
                     <w-item v-for="pkey of state.passkeys" :key="pkey.id">
                       <w-item-section avatar>
-                        <w-avatar color="secondary" text-color="white" rounded>
-                          <w-icon name="la:key" />
+                        <w-avatar color="slate" text-color="white" rounded>
+                          <w-icon name="tabler:key" />
                         </w-avatar>
                       </w-item-section>
                       <w-item-section>
@@ -429,7 +429,7 @@
                         <w-btn
                           class="acrylic-btn"
                           flat
-                          icon="la:trash"
+                          icon="tabler:trash"
                           :aria-label="t(`common.actions.delete`)"
                           color="negative"
                           v-if="canManage"
@@ -481,7 +481,7 @@
                       <w-btn
                         class="acrylic-btn"
                         flat
-                        icon="la:times"
+                        icon="tabler:x"
                         color="accent"
                         v-if="canManage"
                         @click="unassignGroup(grp.id)"
@@ -514,7 +514,7 @@
                   </w-item-section>
                   <w-item-section side>
                     <w-btn
-                      icon="la:plus"
+                      icon="tabler:plus"
                       :label="t(`admin.users.assignGroup`)"
                       color="primary"
                       v-if="canManage"
@@ -551,7 +551,7 @@
                   {{ t('admin.users.metadata') }}
                   <template #action>
                     <w-badge v-if="state.metadataInvalidJSON" color="negative">
-                      <w-icon class="me-1" name="la:exclamation-triangle" size="20px" />
+                      <w-icon class="me-1" name="tabler:alert-triangle" size="20px" />
                       <span>{{ t('admin.users.invalidJSON') }}</span>
                     </w-badge>
                     <w-badge
@@ -604,7 +604,7 @@
                     <w-btn
                       class="acrylic-btn"
                       flat
-                      icon="la:arrow-circle-right"
+                      icon="tabler:circle-arrow-right"
                       color="primary"
                       v-if="canManage"
                       @click="toggleVerified"
@@ -631,7 +631,7 @@
                     <w-btn
                       class="acrylic-btn"
                       flat
-                      icon="la:arrow-circle-right"
+                      icon="tabler:circle-arrow-right"
                       color="primary"
                       v-if="canManage"
                       @click="toggleBan"
@@ -650,7 +650,7 @@
                     <w-btn
                       class="acrylic-btn"
                       flat
-                      icon="la:arrow-circle-right"
+                      icon="tabler:circle-arrow-right"
                       color="negative"
                       v-if="canManage"
                       @click="deleteUser"
@@ -727,12 +727,12 @@ const state = reactive({
 })
 
 const sections = [
-  { key: 'overview', text: t('admin.users.overview'), icon: 'la:user' },
-  { key: 'activity', text: t('admin.users.activity'), icon: 'la:chart-area', disabled: true },
-  { key: 'auth', text: t('admin.users.auth'), icon: 'la:key' },
-  { key: 'groups', text: t('admin.users.groups'), icon: 'la:users' },
-  { key: 'metadata', text: t('admin.users.metadata'), icon: 'la:clipboard-list' },
-  { key: 'operations', text: t('admin.users.operations'), icon: 'la:tools' }
+  { key: 'overview', text: t('admin.users.overview'), icon: 'tabler:user' },
+  { key: 'activity', text: t('admin.users.activity'), icon: 'tabler:chart-area', disabled: true },
+  { key: 'auth', text: t('admin.users.auth'), icon: 'tabler:key' },
+  { key: 'groups', text: t('admin.users.groups'), icon: 'tabler:users' },
+  { key: 'metadata', text: t('admin.users.metadata'), icon: 'tabler:clipboard-list' },
+  { key: 'operations', text: t('admin.users.operations'), icon: 'tabler:tool' }
 ]
 
 const timezones = Intl.supportedValuesOf('timeZone')

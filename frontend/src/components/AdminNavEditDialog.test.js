@@ -20,7 +20,14 @@ const MESSAGES = {
 }
 
 const SERVER_ITEMS = [
-  { id: 'link-1', type: 'link', label: 'Home', icon: 'mdi:home', target: '/', visibilityGroups: [] }
+  {
+    id: 'link-1',
+    type: 'link',
+    label: 'Home',
+    icon: 'tabler:home',
+    target: '/',
+    visibilityGroups: []
+  }
 ]
 
 /**
@@ -83,7 +90,7 @@ describe('AdminNavEditDialog', () => {
             id: 'link-1',
             type: 'link',
             label: 'Home',
-            icon: 'mdi:home',
+            icon: 'tabler:home',
             target: '/',
             openInNewWindow: undefined,
             visibilityGroups: [],

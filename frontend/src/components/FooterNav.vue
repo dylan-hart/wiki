@@ -1,9 +1,13 @@
 <template>
   <div class="site-footer">
+    <!--
+      The colophon reads as one line of separated parts -- `© 2026 Cardinal wiki · CC BY-SA 4.0 ·
+      powered by Cardinal.js` -- which is what the design draws. The separator is a real character
+      between spans rather than a border or a gap, so it wraps with them on a narrow screen.
+    -->
     <div class="site-footer-line">
       <i18n-t
         v-if="hasSiteFooter"
-        class="me-1"
         :keypath="isCopyright ? `common.footerCopyright` : `common.footerLicense`"
         tag="span"
         scope="global">
@@ -17,14 +21,13 @@
           <span>{{ t(`common.license.` + siteStore.contentLicense) }}</span>
         </template>
       </i18n-t>
+      <span v-if="hasSiteFooter" class="site-footer-sep" aria-hidden="true">·</span>
       <i18n-t
         :keypath="props.generic ? `common.footerGeneric` : `common.footerPoweredBy`"
         tag="span"
         scope="global">
         <template #link>
-          <a href="https://js.wiki" target="_blank" rel="noopener noreferrer"
-            ><strong>Wiki.js</strong></a
-          >
+          <a :href="PROJECT_URL" target="_blank" rel="noopener noreferrer">Cardinal.js</a>
         </template>
       </i18n-t>
     </div>
@@ -37,6 +40,12 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+/**
+ * Where "powered by Cardinal.js" points. The repository, which is this project's own home -- the
+ * fork is not Wiki.js and no longer links to js.wiki.
+ */
+const PROJECT_URL = 'https://github.com/dylan-hart/wiki'
 
 import { useSiteStore } from '@/stores/site'
 
@@ -114,9 +123,19 @@ const isCopyright = computed(() => {
   overflow-wrap: anywhere;
 }
 
+/* -> The one coloured thing in the bar, which is what the design makes it */
 .site-footer-line a {
   text-decoration: none;
-  color: inherit;
+  color: var(--color-accent-strong);
+}
+
+:global(body.body--dark) .site-footer-line a {
+  color: var(--color-accent-dark);
+}
+
+.site-footer-sep {
+  margin: 0 0.4em;
+  opacity: 0.6;
 }
 
 .site-footer-line a:hover,

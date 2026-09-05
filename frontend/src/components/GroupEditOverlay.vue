@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:users" left size="md" />
       <div>
         <span>{{ t(`admin.groups.edit`) }}</span>
@@ -12,7 +12,7 @@
           color="grey-6"
           text-color="white"
           :aria-label="t(`common.actions.refresh`)"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           @click="refresh">
           <w-tooltip anchor="center left" self="center right">{{
             t(`common.actions.refresh`)
@@ -22,13 +22,13 @@
           color="white"
           text-color="grey-7"
           :label="t(`common.actions.close`)"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
         <w-btn
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"
-          icon="la:check"
+          icon="tabler:check"
           :loading="state.isLoading"
           v-if="canManage"
           @click="save" />
@@ -205,7 +205,7 @@
                 <template v-for="(perm, idx) of permissions" :key="perm.permission">
                   <w-item tag="label">
                     <w-item-section class="items-center" style="flex: 0 0 40px">
-                      <w-icon name="la:snowflake" color="primary" size="sm" />
+                      <w-icon name="tabler:snowflake" color="primary" size="sm" />
                     </w-item-section>
                     <w-item-section>
                       <w-item-label>{{ perm.permission }}</w-item-label>
@@ -301,18 +301,18 @@ const EDITABLE_FIELDS = [
 ]
 
 const sections = [
-  { key: 'overview', text: t('admin.groups.overview'), icon: 'la:users' },
-  { key: 'rules', text: t('admin.groups.rules'), icon: 'la:file-invoice', rulesTotal: true },
+  { key: 'overview', text: t('admin.groups.overview'), icon: 'tabler:users' },
+  { key: 'rules', text: t('admin.groups.rules'), icon: 'tabler:file-invoice', rulesTotal: true },
   {
     key: 'permissions',
     text: t('admin.groups.permissions'),
-    icon: 'la:list-alt',
+    icon: 'tabler:list-details',
     excludeGuests: true
   },
   {
     key: 'users',
     text: t('admin.groups.users'),
-    icon: 'la:user',
+    icon: 'tabler:user',
     usersTotal: true,
     excludeGuests: true
   }

@@ -17,20 +17,28 @@ import { usePathDisplay } from '@/composables/pathDisplay'
  * than on the custom tab. Kept to a set seeded on every instance (`mdi`), so that it resolves without
  * an administrator having added anything.
  */
-export const DEFAULT_PAGE_ICON = 'mdi:file-document-outline'
+export const DEFAULT_PAGE_ICON = 'tabler:file-text'
 
 /**
  * A page response, shaped for `$patch`.
  *
  * Three actions apply a page the server just handed back -- `pageLoad`, `pageUnlock` and the tail of
- * `pageSave` -- and each has to do the same three things to it first: keep only the relation fields
- * this store models, keep only the two `tocDepth` bounds, and clear the password fields, which the
- * API never returns (OpenProject #2232) and which must therefore not be left holding the previous
- * page's -- or the just-saved -- typed value.
+ * `pageSave` -- and each has to do the same four things to it first: keep only the relation fields
+ * this store models, keep only the two `tocDepth` bounds, clear the password fields, which the API
+ * never returns (OpenProject #2232) and which must therefore not be left holding the previous page's
+ * -- or the just-saved -- typed value, and give a page that has never had an icon picked for it the
+ * default one.
+ *
+ * That last is what puts a glyph in the masthead's plate at all: `pages.icon` is nullable and a page
+ * created before the picker existed (or through the API, or by the importer) carries an empty string,
+ * which `WIcon` renders as nothing -- so the plate drew an empty box with corner marks around it. The
+ * initial state below has always been `DEFAULT_PAGE_ICON`; this is the same answer for the loaded
+ * page, rather than only for the store before one arrives.
  */
 function pagePatch(pageData) {
   return {
     ...pageData,
+    icon: pageData.icon || DEFAULT_PAGE_ICON,
     relations: (pageData.relations ?? []).map((r) =>
       pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
     ),
@@ -198,7 +206,7 @@ export const usePageStore = defineStore('page', {
         // -> A deliberate override when the site's path-display setting is on, not just a fallback
         //    for a segment with no real title of its own (Feature #2574) -- see `usePathDisplay()`.
         title: humanize(value),
-        icon: 'la:file-alt',
+        icon: 'tabler:file-text',
         locale: state.locale,
         path: localizedPagePath(
           segments.slice(0, key + 1).join('/'),
@@ -724,7 +732,7 @@ export const usePageStore = defineStore('page', {
           }
         }).json()
       } catch (err) {
-        throw new Error(apiErrorMessage(err, 'An unexpected error occured.'))
+        throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
       }
       // -> Following the page only makes sense when it is the one being viewed. Moved from the file
       //    manager, it is some other page, and the reader is still on theirs.
@@ -754,7 +762,7 @@ export const usePageStore = defineStore('page', {
           json: { title }
         }).json()
       } catch (err) {
-        throw new Error(apiErrorMessage(err, 'An unexpected error occured.'))
+        throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
       }
 
       // Update page store
@@ -958,7 +966,9 @@ export const usePageStore = defineStore('page', {
           just above (`ERR_CREATED_PAGE_NOT_FOUND`, `ERR_PAGE_NOT_FOUND`) and a `contentFlusher`
           failure both already carry the message a caller should show, and pass through unchanged.
         */
-        throw err.response ? new Error(apiErrorMessage(err, 'An unexpected error occured.')) : err
+        throw err.response
+          ? new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
+          : err
       }
     },
     async cancelPageEdit() {

@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-general">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:world" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:world" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.general.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.general.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex-none">
         <w-btn
           class="me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -23,7 +25,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :loading="state.loading > 0"
@@ -32,7 +34,7 @@
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="mdi:check"
+          icon="tabler:check"
           :label="t(`common.actions.apply`)"
           color="slate"
           @click="save"
@@ -308,14 +310,14 @@
                   <div class="flex gap-2">
                     <w-btn
                       :label="t(`common.actions.upload`)"
-                      icon="la:upload"
+                      icon="tabler:upload"
                       color="primary"
                       text-color="white"
                       @click="uploadLogo" />
                     <w-btn
                       :label="t(`common.actions.clear`)"
                       outline
-                      icon="la:times"
+                      icon="tabler:x"
                       color="primary"
                       :disabled="!state.hasLogo"
                       @click="clearLogo" />
@@ -379,14 +381,14 @@
                   <div class="flex gap-2">
                     <w-btn
                       :label="t(`common.actions.upload`)"
-                      icon="la:upload"
+                      icon="tabler:upload"
                       color="primary"
                       text-color="white"
                       @click="uploadFavicon" />
                     <w-btn
                       :label="t(`common.actions.clear`)"
                       outline
-                      icon="la:times"
+                      icon="tabler:x"
                       color="primary"
                       :disabled="!state.hasFavicon"
                       @click="clearFavicon" />
@@ -405,13 +407,13 @@
                   <div class="text-caption ms-2">{{ state.config.title }}</div>
                 </div>
                 <div>
-                  <w-icon name="la:otter" size="24px" color="grey" />
+                  <w-icon name="tabler:paw" size="24px" color="grey" />
                   <div class="text-caption ms-2">
                     {{ t('admin.general.faviconPreviewSample1') }}
                   </div>
                 </div>
                 <div>
-                  <w-icon name="la:mountain" size="24px" color="grey" />
+                  <w-icon name="tabler:mountain" size="24px" color="grey" />
                   <div class="text-caption ms-2">
                     {{ t('admin.general.faviconPreviewSample2') }}
                   </div>
@@ -567,6 +569,7 @@ import { useSiteStore } from '@/stores/site'
 import { isSharpAvailable } from '@/helpers/siteImages'
 import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // STORES
 
@@ -836,7 +839,6 @@ onMounted(async () => {
 .admin-general {
   &-favicontabs {
     overflow: hidden;
-    border-radius: 5px;
     display: flex;
     padding: 5px 5px 0 12px;
 
@@ -857,7 +859,6 @@ onMounted(async () => {
       &:first-child {
         border: 1px solid #fff;
         border-bottom: none;
-        border-radius: 7px 7px 0 0;
         box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.2);
 
         @at-root .body--light & {

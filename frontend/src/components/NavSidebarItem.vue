@@ -10,7 +10,7 @@
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
-      <w-item-section side><w-icon :name="item.icon" color="slate-faint" /></w-item-section>
+      <w-item-section side><w-icon :name="iconFor(item)" color="slate-faint" /></w-item-section>
       <w-item-section class="text-wordbreak-all">{{ displayLabel(item) }}</w-item-section>
       <!-- -> Create inside this folder: right-click anywhere on its own header row -->
       <page-new-menu
@@ -29,7 +29,7 @@
     </w-list>
   </w-expansion-item>
   <w-item v-else v-bind="destination(item)">
-    <w-item-section side><w-icon :name="item.icon" color="slate-faint" /></w-item-section>
+    <w-item-section side><w-icon :name="iconFor(item)" color="slate-faint" /></w-item-section>
     <w-item-section class="text-wordbreak-all">{{ displayLabel(item) }}</w-item-section>
     <!-- -> Create as a sibling, in the folder this page lives in: right-click anywhere on its row -->
     <page-new-menu
@@ -64,6 +64,21 @@ const props = defineProps({
     required: true
   }
 })
+
+/**
+ * What glyph a row draws. A nav item's own `icon` when it has one, and otherwise the same pair the
+ * design gives the tree: a folder for a row with children under it, a page for a leaf.
+ *
+ * The fallback is what makes an AUTO-generated menu look like the design at all -- a generated item
+ * carries no icon of its own, so every row drew an empty 15px gap where the tree's own shape should
+ * be readable at a glance.
+ */
+function iconFor(item) {
+  if (item.icon) {
+    return item.icon
+  }
+  return item.children?.length > 0 ? 'tabler:folder' : 'tabler:file-text'
+}
 
 const { destination, containsCurrent } = useNavSidebarDestination()
 const { canUploadAsset, openFolderDialog } = useNavCreateMenu()

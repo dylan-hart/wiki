@@ -24,7 +24,7 @@
               :disabled="state.isLoading"
               :aria-label="t(`common.browse.upOneLevel`)"
               @click="goUp">
-              <w-icon name="la:arrow-up" size="xs" />
+              <w-icon name="tabler:arrow-up" size="xs" />
               <w-tooltip>{{ t('common.browse.upOneLevel') }}</w-tooltip>
             </w-btn>
           </div>
@@ -60,7 +60,10 @@
                 class="browse-menu-target"
                 :to="itemPath(item)"
                 @click="menu?.hide()">
-                <w-icon :name="item.icon || `la:file-alt`" size="xs" class="shrink-0 opacity-70" />
+                <w-icon
+                  :name="item.icon || `tabler:file-text`"
+                  size="xs"
+                  class="shrink-0 opacity-70" />
                 <span class="truncate">{{ item.title }}</span>
               </router-link>
               <!-- -> The File Manager's folder, so a folder looks the same wherever the wiki draws
@@ -70,7 +73,7 @@
                 <w-icon name="tabler:folder" size="xs" class="shrink-0" />
                 <span class="truncate">{{ item.title }}</span>
                 <w-space />
-                <w-icon name="la:angle-right" size="xs" class="shrink-0 opacity-40" />
+                <w-icon name="tabler:chevron-right" size="xs" class="shrink-0 opacity-40" />
               </button>
               <button
                 v-if="item.isPage && item.isFolder"
@@ -79,7 +82,7 @@
                 :aria-label="t(`common.browse.openFolder`, { title: item.title })"
                 @click="descend(item)">
                 <w-tooltip>{{ t('common.browse.openFolder', { title: item.title }) }}</w-tooltip>
-                <w-icon name="la:angle-right" size="xs" class="opacity-70" />
+                <w-icon name="tabler:chevron-right" size="xs" class="opacity-70" />
               </button>
             </div>
             <div v-if="level.items.length < 1" class="browse-menu-note">

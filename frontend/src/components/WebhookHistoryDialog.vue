@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`admin.webhooks.history`)" @hide="onDialogHide">
     <w-card class="relative" style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="la:history" size="sm" class="me-2" />
+        <w-icon name="tabler:history" size="sm" class="me-2" />
         <span>{{ t(`admin.webhooks.history`) }}</span>
       </w-card-section>
       <w-card-section class="text-caption text-grey pt-0">
@@ -12,7 +12,7 @@
 
       <w-card-section style="max-height: 60vh; overflow-y: auto">
         <div v-if="!state.isLoading && state.deliveries.length < 1" class="text-center py-6">
-          <w-icon name="la:info-circle" size="sm" class="me-1" />
+          <w-icon name="tabler:info-circle" size="sm" class="me-1" />
           <span class="text-caption">{{ t('admin.webhooks.historyNone') }}</span>
         </div>
         <w-list v-else separator>
@@ -20,17 +20,17 @@
             <w-item-section side>
               <w-icon
                 v-if="delivery.state === `completed`"
-                name="la:check-circle"
+                name="tabler:circle-check"
                 color="positive"
                 size="sm" />
               <w-icon
                 v-else-if="delivery.state === `failed`"
-                name="la:exclamation-triangle"
+                name="tabler:alert-triangle"
                 color="negative"
                 size="sm" />
               <w-icon
                 v-else-if="delivery.state === `interrupted`"
-                name="la:square-full"
+                name="tabler:square"
                 color="orange"
                 size="sm" />
               <w-spinner v-else color="indigo" size="xs" />

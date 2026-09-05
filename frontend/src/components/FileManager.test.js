@@ -730,16 +730,17 @@ describe('FileManager page detail dates (OpenProject #1755)', () => {
 })
 
 /**
- * OpenProject #2074: the toolbar's "New" button used to draw `la:plus-circle` while every other
- * create/add affordance in the app draws `la:plus` for the same kind of action -- settled on
- * `la:plus` everywhere, so this button must not regress back to the other glyph.
+ * OpenProject #2074: the toolbar's "New" button used to draw a ringed plus while every other
+ * create/add affordance in the app drew a bare one. The add action is settled on `tabler:plus`, so
+ * this button must not drift back to a ringed variant -- `tabler:circle-plus` is the one sitting
+ * closest to it in the set.
  */
 describe('FileManager toolbar "New" icon (OpenProject #2074)', () => {
-  it('uses the settled la:plus add glyph, not la:plus-circle', async () => {
+  it('uses the settled tabler:plus add glyph, not tabler:circle-plus', async () => {
     const { wrapper } = await mountFileManager()
 
-    expect(wrapper.find('[data-icon="la:plus"]').exists()).toBe(true)
-    expect(wrapper.find('[data-icon="la:plus-circle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-icon="tabler:plus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="tabler:circle-plus"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

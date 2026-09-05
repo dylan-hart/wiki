@@ -44,7 +44,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       icon: {
         type: 'string',
-        description: 'An Iconify reference, e.g. `la:arrow-left`.'
+        description: 'An Iconify reference, e.g. `tabler:arrow-left`.'
       },
       target: {
         type: 'string',

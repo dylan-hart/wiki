@@ -5,21 +5,21 @@
     @hide="onDialogHide">
     <w-card class="relative" style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="la:history" size="sm" class="me-2" />
+        <w-icon name="tabler:history" size="sm" class="me-2" />
         <span>{{ t('admin.glossary.versionHistory') }}</span>
       </w-card-section>
       <w-separator />
 
       <w-card-section style="max-height: 60vh; overflow-y: auto">
         <div v-if="!state.isLoading && state.versions.length < 1" class="text-center py-6">
-          <w-icon name="la:info-circle" size="sm" class="me-1" />
+          <w-icon name="tabler:info-circle" size="sm" class="me-1" />
           <span class="text-caption">{{ t('admin.glossary.versionHistoryNone') }}</span>
         </div>
         <w-list v-else separator>
           <template v-for="version of state.versions" :key="version.id">
             <w-item clickable @click="toggleExpanded(version)">
               <w-item-section side>
-                <w-icon name="la:box" size="sm" color="grey" />
+                <w-icon name="tabler:box" size="sm" color="grey" />
               </w-item-section>
               <w-item-section>
                 <w-item-label>{{
@@ -38,7 +38,7 @@
                   dense
                   round
                   color="grey"
-                  icon="la:download"
+                  icon="tabler:download"
                   :loading="state.downloadingId === version.id"
                   :aria-label="t('common.actions.download')"
                   @click.stop="download(version)">
@@ -49,7 +49,7 @@
                   dense
                   round
                   color="primary"
-                  icon="la:history"
+                  icon="tabler:history"
                   :loading="state.restoringId === version.id"
                   :aria-label="t('common.actions.restore')"
                   @click.stop="restore(version)">

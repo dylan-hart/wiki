@@ -1,7 +1,7 @@
 <template>
   <w-layout class="page-history" container>
-    <w-header class="card-header px-4 py-2">
-      <w-icon name="la:history" left size="md" />
+    <w-header class="card-header">
+      <w-icon name="tabler:history" left size="md" />
       <span>{{ t('history.title') }}</span>
       <!--
         Centred on the header itself rather than on the space left between the two groups of
@@ -17,24 +17,37 @@
         How the two versions are laid against each other. Up here rather than over the diff, so the
         compare bar below can stay exactly two halves lining up with the editor's own two panes.
       -->
+      <!--
+        The selected half is filled in the accent and the other left as an outline, which is how the
+        design draws every segmented control (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`'s
+        publish-state row). It used to be white-on-slate either way, so the pair read as two chrome
+        buttons rather than as one control with a state.
+
+        `accent`, not `accent-fill`: this carries a white label, and `#e4676b` under white text is
+        2.9:1 -- the fill tone is for a surface with no text on it or with ink over it (see
+        `css/tailwind.css`'s own note, and `helpers/accessibility.test.js`, which pins each token
+        against the foreground it is actually drawn under).
+      -->
       <w-btn-group class="me-6">
         <w-btn
           dense
           :label="t(`history.sideBySide`)"
           padding="0.285em sm"
-          :color="state.inline ? `white` : `secondary`"
-          :text-color="state.inline ? `black` : `white`"
+          :color="state.inline ? `transparent` : `accent`"
+          :text-color="state.inline ? `slate` : `white`"
+          :outline="state.inline"
           @click="state.inline = false" />
         <w-btn
           dense
           :label="t(`history.inline`)"
           padding="0.285em sm"
-          :color="state.inline ? `secondary` : `white`"
-          :text-color="state.inline ? `white` : `black`"
+          :color="state.inline ? `accent` : `transparent`"
+          :text-color="state.inline ? `white` : `slate`"
+          :outline="!state.inline"
           @click="state.inline = true" />
       </w-btn-group>
       <w-btn
-        icon="la:times"
+        icon="tabler:x"
         color="accent-fill"
         dense
         flat
@@ -97,7 +110,7 @@
                 flat
                 dense
                 round
-                icon="la:ellipsis-h"
+                icon="tabler:dots"
                 color="slate-pale"
                 :aria-label="t(`history.versionActions`)">
                 <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
@@ -108,26 +121,26 @@
                   <w-list dense padding style="min-width: 260px">
                     <w-item clickable @click="pick(`a`, version.id)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="mdi:letter-a-box" class="text-blue-7" />
+                        <w-icon name="tabler:square-letter-a" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="pick(`b`, version.id)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="mdi:letter-b-box" class="text-blue-7" />
+                        <w-icon name="tabler:square-letter-b" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsTarget') }}</w-item-section>
                     </w-item>
                     <w-separator class="my-1" />
                     <w-item clickable @click="viewSource(version)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:code" class="text-blue-7" />
+                        <w-icon name="tabler:code" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.viewSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="downloadVersion(version)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="la:download" class="text-blue-7" />
+                        <w-icon name="tabler:download" class="text-blue-7" />
                       </w-item-section>
                       <w-item-section>{{ t('history.downloadVersion') }}</w-item-section>
                     </w-item>
@@ -139,13 +152,13 @@
                       -->
                       <w-item clickable @click="restoreVersion(version)">
                         <w-item-section avatar class="!min-w-0 !pe-2">
-                          <w-icon name="la:undo" class="text-negative" />
+                          <w-icon name="tabler:arrow-back-up" class="text-negative" />
                         </w-item-section>
                         <w-item-section>{{ t('history.restore') }}</w-item-section>
                       </w-item>
                       <w-item clickable @click="branchFrom(version)">
                         <w-item-section avatar class="!min-w-0 !pe-2">
-                          <w-icon name="la:code-branch" class="text-blue-7" />
+                          <w-icon name="tabler:git-branch" class="text-blue-7" />
                         </w-item-section>
                         <w-item-section>{{ t('history.branchOff') }}</w-item-section>
                       </w-item>
@@ -153,20 +166,29 @@
                   </w-list>
                 </w-menu>
               </w-btn>
-              <!-- Not `unelevated`: the push ledge is the point, and that prop would flatten it. -->
-              <w-btn-group>
+              <!--
+                The pair of cursors, as the design draws them: two square mono plates, the one
+                holding this letter in the accent and the other in the chrome tone
+                (`ui-redesign/Cardinal Wiki - History 3x.dc.html`). `pink-6` was a ramp colour
+                standing in for the accent and `dark-3` a panel tone standing in for slate; neither
+                is a colour this language has a use for on a control. Both carry a white letter, so
+                both take a tone that clears contrast under one -- see the mode toggle above.
+              -->
+              <w-btn-group class="page-history-pick-group">
                 <w-btn
                   dense
                   :label="t(`history.versionLabelA`)"
                   padding="0.285em sm"
-                  :color="version.id === state.aId ? `pink-6` : `dark-3`"
+                  :color="version.id === state.aId ? `accent` : `slate`"
+                  text-color="white"
                   :aria-label="t(`history.pickA`)"
                   @click="pick(`a`, version.id)" />
                 <w-btn
                   dense
                   :label="t(`history.versionLabelB`)"
                   padding="0.285em sm"
-                  :color="version.id === state.bId ? `pink-6` : `dark-3`"
+                  :color="version.id === state.bId ? `accent` : `slate`"
+                  text-color="white"
                   :aria-label="t(`history.pickB`)"
                   @click="pick(`b`, version.id)" />
               </w-btn-group>
@@ -192,7 +214,7 @@
             <w-btn
               outline
               dense
-              color="secondary"
+              color="slate"
               padding="0.4em md"
               :loading="state.loadingMore"
               @click="loadMore">
@@ -220,7 +242,7 @@
               </div>
               <!-- A literal class, not `color`: that prop builds one at runtime, which Tailwind
                    never emits. `ml-auto` puts it on the seam between the two panes. -->
-              <w-icon class="text-grey-6 ml-auto" name="la:arrow-right" />
+              <w-icon class="text-grey-6 ml-auto" name="tabler:arrow-right" />
             </div>
             <div class="page-history-side">
               <span class="page-history-letter">B</span>
@@ -243,23 +265,13 @@
             comparison needs somewhere to keep living while it is hidden.
           -->
           <div class="page-history-toolarge" v-if="state.diffTooLarge">
-            <w-icon name="la:exclamation-triangle" size="md" />
+            <w-icon name="tabler:alert-triangle" size="md" />
             <div class="page-history-toolarge-text">{{ t('history.diffTooLarge') }}</div>
             <div class="page-history-toolarge-actions">
-              <w-btn
-                outline
-                dense
-                color="secondary"
-                :disabled="!sideA"
-                @click="downloadVersion(sideA)">
+              <w-btn outline dense color="slate" :disabled="!sideA" @click="downloadVersion(sideA)">
                 {{ t('history.downloadVersionLetter', { letter: 'A' }) }}
               </w-btn>
-              <w-btn
-                outline
-                dense
-                color="secondary"
-                :disabled="!sideB"
-                @click="downloadVersion(sideB)">
+              <w-btn outline dense color="slate" :disabled="!sideB" @click="downloadVersion(sideB)">
                 {{ t('history.downloadVersionLetter', { letter: 'B' }) }}
               </w-btn>
             </div>
@@ -370,12 +382,12 @@ const state = reactive({
  * Tailwind.
  */
 const ACTION_STYLES = {
-  created: { icon: 'la:plus', dot: 'bg-positive' },
-  updated: { icon: 'la:pen', dot: 'bg-blue-7' },
-  moved: { icon: 'la:share', dot: 'bg-warning' },
-  deleted: { icon: 'la:trash', dot: 'bg-negative' }
+  created: { icon: 'tabler:plus', dot: 'bg-positive' },
+  updated: { icon: 'tabler:pencil', dot: 'bg-blue-7' },
+  moved: { icon: 'tabler:share', dot: 'bg-warning' },
+  deleted: { icon: 'tabler:trash', dot: 'bg-negative' }
 }
-const ACTION_FALLBACK = { icon: 'la:circle', dot: 'bg-grey-7' }
+const ACTION_FALLBACK = { icon: 'tabler:circle', dot: 'bg-grey-7' }
 
 // REFS
 
@@ -866,7 +878,8 @@ $timeline-turn: 16px;
   &-main {
     display: flex;
     flex-direction: column;
-    background-color: $dark-3;
+    /* -> Ink, a step BELOW the timeline rail beside it: the diff is the recessed half of the pair */
+    background-color: $dark-5;
     color: $text-dark;
     /* -> The grid cell already has a height; this claims it so the diff can fill what is left */
     height: 100%;
@@ -1012,17 +1025,24 @@ $timeline-turn: 16px;
     padding: 0 1rem;
   }
 
+  /* -> The accent under a white letter, and the mono the design sets both cursors in */
   &-letter {
     flex: 0 0 24px;
     height: 24px;
-    border-radius: 4px;
     background-color: $primary;
-    color: $text-dark;
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-family: var(--font-mono);
     font-weight: 600;
-    font-size: 0.75rem;
+    font-size: 12px;
+  }
+
+  &-pick-group .w-btn {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 11px;
   }
 
   &-same {

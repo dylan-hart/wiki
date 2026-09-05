@@ -15,7 +15,7 @@
         <w-item-section side>
           <w-avatar
             rounded
-            :color="lang.code === pageStore.locale ? `secondary` : `primary`"
+            :color="lang.code === pageStore.locale ? `accent` : `slate`"
             text-color="white"
             size="sm">
             <div class="text-caption uppercase">
@@ -36,7 +36,7 @@
         -->
         <w-item-section side v-if="translationBadgeText(lang.code)">
           <w-badge color="warning" text-color="black" rounded>
-            <w-icon name="la:exclamation-triangle" size="12px" />
+            <w-icon name="tabler:alert-triangle" size="12px" />
             <w-tooltip anchor="center left" self="center right">{{
               translationBadgeText(lang.code)
             }}</w-tooltip>

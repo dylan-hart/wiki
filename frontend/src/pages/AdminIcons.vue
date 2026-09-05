@@ -1,13 +1,12 @@
 <template>
   <w-page class="admin-icons">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon
-          name="tabler:star"
-          size="64px"
-          class="admin-icon admin-icons-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:star" size="34px" class="admin-icon admin-icons-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.icons.subtitle') }}
@@ -17,7 +16,7 @@
         <w-btn
           class="acrylic-btn me-2"
           flat
-          icon="la:broom"
+          icon="tabler:wash-machine"
           color="purple"
           :label="t(`admin.icons.purgeCache`)"
           @click="purgeCache">
@@ -26,7 +25,7 @@
         <w-separator class="me-2" vertical />
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           flat
           color="grey"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -36,16 +35,16 @@
         </w-btn>
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           flat
-          color="secondary"
+          color="slate"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.icons.addSet`)"
           color="primary"
           @click="openAddSet" />
@@ -85,7 +84,7 @@
               <w-item-section side>
                 <w-btn
                   class="acrylic-btn"
-                  icon="la:external-link-square-alt"
+                  icon="tabler:external-link"
                   :label="t(`admin.icons.reference`)"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
                   flat
@@ -107,7 +106,7 @@
               <w-item-section side>
                 <w-btn
                   class="acrylic-btn"
-                  icon="la:trash"
+                  icon="tabler:trash"
                   flat
                   color="negative"
                   :aria-label="t(`common.actions.delete`)"
@@ -171,7 +170,7 @@
           <div class="text-h6">{{ t('admin.icons.addSet') }}</div>
           <w-space />
           <w-btn
-            icon="la:times"
+            icon="tabler:x"
             flat
             round
             dense
@@ -187,7 +186,7 @@
             clearable
             :label="t(`admin.icons.filterSets`)"
             :aria-label="t(`admin.icons.filterSets`)">
-            <template #prepend><w-icon name="la:search" /></template>
+            <template #prepend><w-icon name="tabler:search" /></template>
           </w-input>
         </w-card-section>
         <w-separator />
@@ -231,10 +230,10 @@
                   size="sm"
                   color="positive"
                   text-color="white"
-                  icon="la:check"
+                  icon="tabler:check"
                   >{{ t('admin.icons.added') }}</w-chip
                 >
-                <w-icon v-else name="la:plus" color="primary" size="sm" />
+                <w-icon v-else name="tabler:plus" color="primary" size="sm" />
               </w-item-section>
             </w-item>
           </w-list>
@@ -256,6 +255,7 @@ import { confirm } from '@/composables/dialog'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { formatFileSize } from '@/helpers/fileSize'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 

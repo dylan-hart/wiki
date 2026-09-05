@@ -10,7 +10,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 550px; max-width: 700px">
       <w-card-section class="card-header">
-        <w-icon name="la:list" size="sm" class="me-2" />
+        <w-icon name="tabler:list" size="sm" class="me-2" />
         <span>{{ t('admin.classification.reportTitle', { level: props.levelName }) }}</span>
       </w-card-section>
       <w-card-section>

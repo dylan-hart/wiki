@@ -104,7 +104,7 @@ async function create() {
     notify({
       type: 'negative',
       message: err.data
-        ? t(`admin.groups.${err.data.error}`, apiErrorMessage(err, 'An unexpected error occured.'))
+        ? t(`admin.groups.${err.data.error}`, apiErrorMessage(err, t('common.error.unexpected')))
         : err.message
     })
   }

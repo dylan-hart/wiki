@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header px-4 py-2">
+    <w-header class="card-header">
       <w-icon name="tabler:square-plus" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
       <w-space />
@@ -10,14 +10,14 @@
           text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
         <w-btn
           color="positive"
           text-color="white"
           :label="t(`editor.blockPicker.insert`)"
           :aria-label="t(`editor.blockPicker.insert`)"
-          icon="la:check"
+          icon="tabler:check"
           :disabled="!canInsert"
           @click="insert" />
       </w-btn-group>
@@ -266,7 +266,6 @@ onMounted(async () => {
     align-items: flex-start;
     gap: 12px;
     padding: 12px;
-    border-radius: 6px;
     background-color: #fff;
     color: inherit;
     text-align: start;
@@ -312,7 +311,6 @@ onMounted(async () => {
 
   &-output {
     padding: 10px;
-    border-radius: 4px;
     font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
     font-size: 12px;
     line-height: 1.5;

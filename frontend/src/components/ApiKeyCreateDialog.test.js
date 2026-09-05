@@ -215,42 +215,54 @@ describe('ApiKeyCreateDialog layout', () => {
  * than the ~310px half-row the profile dialog's field shares with Permission Scopes -- confirming
  * this width was never broken, and stays that way.
  */
-describe('ApiKeyCreateDialog classification grid — real layout', { skip: !hasChromium() }, () => {
-  let browser
+/*
+    Launching a real Chromium is not a 5-second operation when the rest of the suite is running
+    beside it: `vitest` runs matched files across eight workers, and this describe's `before` pays
+    for a browser launch, a page and a stylesheet build while seven other files are transforming.
+    The 5s default timed this out intermittently -- a scheduling fact about the whole run, not
+    anything about the layout being measured, which passes in well under a second once the browser
+    is up.
+  */
+describe(
+  'ApiKeyCreateDialog classification grid — real layout',
+  { skip: !hasChromium(), timeout: 30000 },
+  () => {
+    let browser
 
-  beforeAll(async () => {
-    browser = await chromium.launch()
-  })
-
-  afterAll(async () => {
-    await browser?.close()
-  })
-
-  it('lays out all 3 default classification levels on one row at the real ~618px admin-form width', async () => {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'classification-levels') {
-        return {
-          json: () =>
-            Promise.resolve([
-              { id: 'level-public', name: 'Public', sortOrder: 0 },
-              { id: 'level-internal', name: 'Internal', sortOrder: 1 },
-              { id: 'level-restricted', name: 'Restricted', sortOrder: 2 }
-            ])
-        }
-      }
-      return { json: () => Promise.resolve([]) }
+    beforeAll(async () => {
+      browser = await chromium.launch()
     })
-    mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
 
-    const html = new DOMWrapper(document.body).find('.classification-grid').html()
-    const items = await measureClassificationGrid({ browser, html, containerWidth: 618 })
+    afterAll(async () => {
+      await browser?.close()
+    })
 
-    expect(items).toHaveLength(3)
-    const rows = new Set(items.map((item) => Math.round(item.y)))
-    expect(rows.size).toBe(1)
-  }, 20000) // -> real chromium layout via realGridLayout.js; the default 5s timeout is tight under full-suite parallelism
-})
+    it('lays out all 3 default classification levels on one row at the real ~618px admin-form width', async () => {
+      globalThis.API_CLIENT.get.mockImplementation((resource) => {
+        if (resource === 'classification-levels') {
+          return {
+            json: () =>
+              Promise.resolve([
+                { id: 'level-public', name: 'Public', sortOrder: 0 },
+                { id: 'level-internal', name: 'Internal', sortOrder: 1 },
+                { id: 'level-restricted', name: 'Restricted', sortOrder: 2 }
+              ])
+          }
+        }
+        return { json: () => Promise.resolve([]) }
+      })
+      mountDialog()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const html = new DOMWrapper(document.body).find('.classification-grid').html()
+      const items = await measureClassificationGrid({ browser, html, containerWidth: 618 })
+
+      expect(items).toHaveLength(3)
+      const rows = new Set(items.map((item) => Math.round(item.y)))
+      expect(rows.size).toBe(1)
+    }, 20000) // -> real chromium layout via realGridLayout.js; the default 5s timeout is tight under full-suite parallelism
+  }
+)
 
 /**
  * OpenProject #1272: the verb-grouped tri-state scope tree (`ApiKeyScopePicker.vue`) that replaced

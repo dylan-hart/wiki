@@ -23,7 +23,7 @@
       class="w-unstyled shrink-0 cursor-pointer opacity-70 hover:opacity-100"
       :aria-label="resolvedRemoveLabel"
       @click.stop="$emit('remove')">
-      <w-icon name="mdi:close" />
+      <w-icon name="tabler:x" />
     </button>
   </div>
 </template>

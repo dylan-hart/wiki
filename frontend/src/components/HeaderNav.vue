@@ -40,7 +40,7 @@
           flat
           round
           dense
-          :icon="searchRowIsOpen ? `la:times` : `la:search`"
+          :icon="searchRowIsOpen ? `tabler:x` : `tabler:search`"
           color="slate-soft"
           :aria-label="searchRowIsOpen ? t(`common.actions.close`) : t(`common.header.search`)"
           :aria-expanded="searchRowIsOpen"
@@ -55,7 +55,7 @@
             v-if="userStore.can(`write:pages`)"
             class="header-nav-btn"
             flat
-            icon="la:plus"
+            icon="tabler:plus"
             color="slate-soft"
             :aria-label="t('common.header.createNewPage')">
             <w-tooltip>{{ t('common.header.createNewPage') }}</w-tooltip>
@@ -72,7 +72,7 @@
             v-if="userStore.can(`write:assets`) || userStore.can(`write:pages`)"
             class="header-nav-btn"
             flat
-            icon="la:folder-open"
+            icon="tabler:folder"
             color="slate-soft"
             :aria-label="t('fileman.title')"
             @click="openFileManager">
@@ -82,7 +82,7 @@
             v-if="siteStore.features.browse"
             class="header-nav-btn"
             flat
-            icon="mdi:graph-outline"
+            icon="tabler:hierarchy"
             color="slate-soft"
             to="/_graph"
             :aria-label="t(`common.header.graph`)">
@@ -101,15 +101,15 @@
             OpenProject #2024: this badge counts unread page-watch notifications
             (`unreadNotifications` below), so it has to open onto the tab that actually lists them --
             the Inbox overlay's Watching tab (OpenProject #2531 converted `/_inbox/*` from routes to a
-            `MainOverlayDialog` entry). `la:bell` matches the icon `InboxOverlay`'s sidenav uses for
+            `MainOverlayDialog` entry). `tabler:bell` matches the icon `InboxOverlay`'s sidenav uses for
             that tab, so the glyph agrees with the destination instead of pointing at the unrelated
-            `mdi:inbox-full` glyph.
+            `tabler:inbox` glyph.
           -->
           <w-btn
             v-if="userStore.authenticated"
             class="header-nav-btn"
             flat
-            icon="la:bell"
+            icon="tabler:bell"
             color="slate-soft"
             :aria-label="t(`inbox.title`)"
             @click="openInbox">
@@ -134,7 +134,7 @@
             v-if="userStore.can(`access:admin`)"
             class="header-nav-btn"
             flat
-            icon="la:tools"
+            icon="tabler:tool"
             color="slate-soft"
             to="/_admin"
             :aria-label="t(`common.header.admin`)">
@@ -148,7 +148,7 @@
             class="ms-4"
             flat
             rounded
-            icon="la:sign-in-alt"
+            icon="tabler:login"
             color="slate"
             :label="$t(`common.actions.login`)"
             :aria-label="$t(`common.actions.login`)"

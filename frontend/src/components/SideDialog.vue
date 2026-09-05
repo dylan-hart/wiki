@@ -156,7 +156,6 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     width: 40px;
     display: flex;
     flex-direction: column;
-    border-radius: 4px;
     background-color: rgba(0, 0, 0, 0.75);
     backdrop-filter: blur(5px);
     color: #fff;

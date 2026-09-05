@@ -23,7 +23,6 @@ body::-webkit-scrollbar-track {
 }
 body::-webkit-scrollbar-thumb {
   background-color: var(--thumbBG);
-  border-radius: 6px;
   border: 1px solid var(--scrollbarBG);
 }
 
@@ -176,10 +175,10 @@ body.body--dark {
 // circular hit area `round` gives every other icon button reads wrong here.
 //
 // The caller drops `round` (and the now-inert `dense`, since both of its effects are overridden
-// below anyway) and keeps just `flat`. Squared off to 40x40 with a 6px gap between them, which is
-// the design's own spacing: the full-height 64x64 squares this replaces made sense against a solid
-// dark bar, where each button's hover fill needed to read as a segment OF the bar -- on Cardinal's
-// white plate they read as five tall panels stamped into it instead.
+// below anyway) and keeps just `flat`. Squared off to a true 64x64 -- the header's own full height,
+// matching `min-height` with an explicit `width` -- and FLUSH against each other, with no margin
+// between them, so the group reads as one band of the bar rather than a row of separate targets. A
+// hover therefore lights the full height of the header, which is what the band is for.
 //
 // `min-height` and `padding` need `!important` because WBtn sets them as inline styles (a
 // JS-computed `style` binding beats any class regardless of layer); see `EditorMarkdown.vue`'s own
@@ -187,11 +186,11 @@ body.body--dark {
 // strictly need it (WBtn sets neither), but carry it anyway for consistency with the rest of this
 // rule.
 .w-btn.header-nav-btn {
-  min-height: 40px !important;
-  width: 40px !important;
+  min-height: 64px !important;
+  width: 64px !important;
   padding: 0 !important;
   border-radius: 0 !important;
-  margin-inline-start: 6px !important;
+  margin-inline-start: 0 !important;
 }
 
 // Unlayered (this file is plain CSS, not a Tailwind layer), so the hover fill beats the
@@ -223,6 +222,14 @@ body.body--dark {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   border-bottom: 1px solid theme.$hairline-dark;
+}
+
+// The same band in the chrome tone, for a side panel: the design draws the page-properties panel's
+// head in slate rather than in the near-black the overlays use, so a panel docked beside the page
+// reads as part of the app's chrome rather than as something laid over it.
+.card-header--slate {
+  background-color: theme.$slate;
+  border-bottom-color: theme.$slate;
 }
 
 // The same band in the accent, for a dialog whose whole subject is a refusal or a destructive act.

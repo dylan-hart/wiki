@@ -103,7 +103,7 @@
       <w-space />
       <w-btn
         class="acrylic-btn"
-        icon="la:times"
+        icon="tabler:x"
         :label="t(`common.actions.discard`)"
         color="grey-7"
         padding="xs md"
@@ -112,7 +112,7 @@
       <w-btn
         v-if="isEditMode"
         :disabled="!canSubmit"
-        icon="la:check"
+        icon="tabler:check"
         :label="t(`common.actions.save`)"
         color="primary"
         padding="xs md"
@@ -120,7 +120,7 @@
       <w-btn
         v-else
         :disabled="!canSubmit"
-        icon="la:plus"
+        icon="tabler:plus"
         :label="t(`common.actions.create`)"
         color="primary"
         padding="xs md"
@@ -168,7 +168,7 @@ const state = reactive({
   pos: 'left',
   label: '',
   caption: '',
-  icon: 'la:arrow-left',
+  icon: 'tabler:arrow-left',
   target: ''
 })
 
@@ -188,15 +188,15 @@ watch(
   (newValue) => {
     switch (newValue) {
       case 'left': {
-        state.icon = 'la:arrow-left'
+        state.icon = 'tabler:arrow-left'
         break
       }
       case 'center': {
-        state.icon = 'la:book'
+        state.icon = 'tabler:book'
         break
       }
       case 'right': {
-        state.icon = 'la:arrow-right'
+        state.icon = 'tabler:arrow-right'
         break
       }
     }

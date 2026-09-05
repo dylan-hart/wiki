@@ -9,7 +9,7 @@
         flat
         dense
         round
-        icon="mdi:chevron-left"
+        icon="tabler:chevron-left"
         :aria-label="resolvedPreviousMonthLabel"
         @click="shiftMonth(-1)" />
       <div class="text-body2 font-medium">{{ monthLabel }}</div>
@@ -17,7 +17,7 @@
         flat
         dense
         round
-        icon="mdi:chevron-right"
+        icon="tabler:chevron-right"
         :aria-label="resolvedNextMonthLabel"
         @click="shiftMonth(1)" />
     </div>

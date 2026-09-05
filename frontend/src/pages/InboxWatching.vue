@@ -9,7 +9,7 @@
       urgent of the two.
     -->
     <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
-    <div class="p-4">
+    <div class="px-5 py-4">
       <div class="text-body2">{{ t('inbox.notificationsInfo') }}</div>
       <w-banner
         v-if="state.notifications.length < 1"
@@ -25,7 +25,7 @@
           @click="openNotification(notification)">
           <w-item-section avatar>
             <w-avatar color="primary" text-color="white" rounded>
-              <w-icon name="la:bell" />
+              <w-icon name="tabler:bell" />
             </w-avatar>
           </w-item-section>
           <w-item-section>
@@ -45,7 +45,7 @@
               class="acrylic-btn"
               flat
               dense
-              icon="mdi:check"
+              icon="tabler:check"
               color="grey"
               :aria-label="t(`inbox.notificationsMarkRead`)"
               :disabled="state.markingRead === notification.id"
@@ -58,7 +58,7 @@
     </div>
 
     <div class="w-section-header">{{ t('inbox.watching') }}</div>
-    <div class="p-4">
+    <div class="px-5 py-4">
       <div class="text-body2">{{ t('inbox.watchingInfo') }}</div>
       <!--
         The empty state carries the instruction with it: this screen is reached from the sidebar, quite
@@ -78,7 +78,7 @@
               The page's own icon, which is what it is recognised by everywhere else. It is a reference
               a USER picked, so it resolves through `/_icons` rather than the bundled set — see WIcon.
             -->
-            <w-avatar color="secondary" text-color="white" rounded>
+            <w-avatar color="slate" text-color="white" rounded>
               <w-icon :name="page.icon || DEFAULT_PAGE_ICON" />
             </w-avatar>
           </w-item-section>
@@ -108,7 +108,7 @@
                 class="acrylic-btn"
                 flat
                 dense
-                icon="mdi:tune-variant"
+                icon="tabler:adjustments"
                 color="grey"
                 :aria-label="t('inbox.watchingPreferences')"
                 @click.stop>
@@ -167,7 +167,7 @@
                 class="acrylic-btn"
                 flat
                 dense
-                icon="mdi:bell-off-outline"
+                icon="tabler:bell-off"
                 color="grey"
                 :aria-label="t(`inbox.watchingUnwatch`)"
                 :disabled="state.unwatching === page.pageId"

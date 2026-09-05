@@ -1,10 +1,12 @@
 <template>
   <w-page>
     <div class="flex flex-wrap items-center p-4">
-      <div class="flex-none">
-        <w-icon name="tabler:list-search" size="64px" class="admin-icon animated fadeInLeft" />
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:list-search" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.glossary.subtitle') }}
@@ -13,7 +15,7 @@
       <div class="flex flex-none flex-wrap items-center">
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:history"
+          icon="tabler:history"
           flat
           color="indigo"
           @click="openVersionHistory">
@@ -21,7 +23,7 @@
         </w-btn>
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:file-export"
+          icon="tabler:file-export"
           flat
           color="indigo"
           @click="exportGlossary">
@@ -29,7 +31,7 @@
         </w-btn>
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:file-import"
+          icon="tabler:file-import"
           flat
           color="indigo"
           @click="openImportDialog">
@@ -50,7 +52,7 @@
           :loading="state.saving"
           @click="saveGlossary" />
         <w-btn
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.glossary.newTerm`)"
           color="primary"
           @click="createTerm" />
@@ -75,7 +77,7 @@
                   dense
                   size="sm"
                   class="ms-2"
-                  icon="mdi:alpha-a-box-outline">
+                  icon="tabler:square-letter-a">
                   {{ t('admin.glossary.isAcronym') }}
                 </w-chip>
               </w-item-label>
@@ -84,12 +86,12 @@
                   v-for="alias of term.aliases"
                   :key="alias.value"
                   dense
-                  :icon="alias.isAcronym ? 'mdi:alpha-a-box-outline' : null">
+                  :icon="alias.isAcronym ? 'tabler:square-letter-a' : null">
                   {{ alias.value }}
                 </w-chip>
               </div>
               <w-item-label v-if="term.path" caption>
-                <w-icon name="la:link" size="12px" class="me-1" />
+                <w-icon name="tabler:link" size="12px" class="me-1" />
                 /{{ term.path }}
               </w-item-label>
             </w-item-section>
@@ -102,13 +104,13 @@
                 class="acrylic-btn me-2"
                 flat
                 @click="editTerm(term)"
-                icon="la:pen"
+                icon="tabler:pencil"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`common.actions.edit`)" />
               <w-btn
                 class="acrylic-btn"
                 flat
-                icon="la:trash"
+                icon="tabler:trash"
                 color="negative"
                 @click="deleteTerm(term)"
                 :aria-label="t(`common.actions.delete`)" />
@@ -138,6 +140,7 @@ import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
 import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 /*
   No `useSiteAdminAccess()` here: that composable exists for the nine surfaces

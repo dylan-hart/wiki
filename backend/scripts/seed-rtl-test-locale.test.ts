@@ -95,7 +95,11 @@ describe('RTL_TEST_LOCALE', () => {
         //    test simulates), reading `.textInfo` directly throws before this override's caller
         //    ever sees a result. `textDirection()` on a genuine, unpatched `RealLocale` instance
         //    resolves correctly regardless of which shape that real object actually has.
-        return { direction: textDirection(new RealLocale(this.toString())) }
+        //    The cast is what `Intl.Locale['getTextInfo']` demands: it declares `direction` as the
+        //    `'ltr' | 'rtl'` union, and `textDirection()` answers a plain string.
+        return {
+          direction: textDirection(new RealLocale(this.toString())) as 'ltr' | 'rtl'
+        }
       }
     }
     ;(Intl as any).Locale = GetTextInfoOnlyLocale

@@ -109,7 +109,7 @@ describe('AdminTheme — WCAG AA contrast warning', () => {
       colorSidebar: '#f0f2f7'
     })
 
-    const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
+    const warningIcons = wrapper.findAll('[data-icon="tabler:alert-triangle"]')
     expect(warningIcons.length).toBe(0)
   })
 
@@ -122,7 +122,7 @@ describe('AdminTheme — WCAG AA contrast warning', () => {
       colorSidebar: '#f0f2f7'
     })
 
-    const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
+    const warningIcons = wrapper.findAll('[data-icon="tabler:alert-triangle"]')
     expect(warningIcons.length).toBeGreaterThan(0)
   })
 })
@@ -143,7 +143,7 @@ describe('AdminTheme — WCAG AA contrast warning checks secondary and accent (t
     })
 
     // -> Only secondary and accent fail here -- primary/header/sidebar are all the passing defaults.
-    const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
+    const warningIcons = wrapper.findAll('[data-icon="tabler:alert-triangle"]')
     expect(warningIcons.length).toBe(2)
 
     const expectedSecondaryRatio = `${contrastRatio('#ffffff', '#02c39a').toFixed(1)}:1`

@@ -6,7 +6,7 @@
       <w-list class="sidebar-nav-list" dense>
         <template v-for="item of siteStore.nav.items" :key="item.id">
           <w-item-label
-            class="sidebar-nav-header text-caption text-wordbreak-all"
+            class="sidebar-nav-header text-wordbreak-all"
             v-if="item.type === `header`"
             header
             >{{ item.label }}</w-item-label
@@ -105,6 +105,28 @@ watch(
   -- it belongs to this sidebar -- so it is stated here and cross-referenced there.
 */
 $sidebar-overlay-max: 1199.98px;
+
+/*
+  A section heading between groups of nav items -- the language's own chrome overline, the same voice
+  the metadata rail's headings and the admin sidebar's section labels use
+  (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html` sets "DOCUMENTATION" above the tree exactly this
+  way). It used to take `text-caption`, which is the app's small BODY size, so a heading read as one
+  more nav row set slightly smaller than the rest.
+*/
+.sidebar-nav-header {
+  padding: 0 18px 10px;
+  color: $text-caption;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.body--dark .sidebar-nav-header {
+  color: $text-caption-dark;
+}
 
 .sidebar-nav {
   border-top: 1px solid $hairline;

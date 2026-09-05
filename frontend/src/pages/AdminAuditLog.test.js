@@ -162,7 +162,7 @@ describe('AdminAuditLog', () => {
     await flush(wrapper)
 
     // The page header carries only view-docs/refresh actions -- no Apply/Save button lives there.
-    const header = wrapper.find('.flex.flex-wrap.p-4.items-center')
+    const header = wrapper.find('.admin-page-header')
     expect(header.text()).not.toContain('Save')
 
     // The retention setting commits from its own in-card button instead.

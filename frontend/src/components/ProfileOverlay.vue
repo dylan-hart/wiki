@@ -5,8 +5,8 @@
       `.card-header` band, an icon plus title on the left, and a single white/grey-7 push button on
       the right.
     -->
-    <w-header class="layout-profile-hdr card-header px-4 py-2">
-      <w-icon name="la:user-circle" left size="md" />
+    <w-header class="layout-profile-hdr card-header">
+      <w-icon name="tabler:user-circle" left size="md" />
       <span>{{ t('profile.title') }}</span>
       <w-space />
       <w-btn-group>
@@ -15,7 +15,7 @@
           text-color="text-secondary"
           :label="t('common.actions.close')"
           :aria-label="t('common.actions.close')"
-          icon="la:times"
+          icon="tabler:x"
           @click="close" />
       </w-btn-group>
     </w-header>
@@ -38,7 +38,7 @@
         <w-icon
           class="layout-profile-navchevron"
           :class="{ 'is-open': state.navOpen }"
-          name="mdi:chevron-down" />
+          name="tabler:chevron-down" />
       </w-btn>
       <div class="layout-profile-sd" v-show="!isNavCollapsed || state.navOpen">
         <w-list>
@@ -64,7 +64,7 @@
                     @new-page close-on-navigate. -->
             <w-item clickable :to="`/_user/` + userStore.id" @click="close">
               <w-item-section side>
-                <w-icon name="la:id-card" />
+                <w-icon name="tabler:id" />
               </w-item-section>
               <w-item-section>
                 <w-item-label>{{ t('profile.viewPublicProfile') }}</w-item-label>
@@ -74,7 +74,7 @@
           <w-separator inset spaced="sm" />
           <w-item clickable @click="onLogoutClick">
             <w-item-section side>
-              <w-icon name="la:sign-out-alt" color="negative" />
+              <w-icon name="tabler:logout" color="negative" />
             </w-item-section>
             <w-item-section>
               <w-item-label class="text-negative">{{ t('common.header.logout') }}</w-item-label>
@@ -158,43 +158,43 @@ const sidenav = computed(() => [
     //    entry by the same name read as a link back to the thing you are already in. It is the
     //    reader's own identity -- name, address, location, job title -- which is what it now says.
     label: t('profile.identity'),
-    icon: 'la:user-circle'
+    icon: 'tabler:user-circle'
   },
   {
     key: 'avatar',
     label: t('profile.avatar'),
-    icon: 'la:otter'
+    icon: 'tabler:paw'
   },
   {
     key: 'auth',
     label: t('profile.auth'),
-    icon: 'la:key'
+    icon: 'tabler:key'
   },
   {
     key: 'groups',
     label: t('profile.groups'),
-    icon: 'la:users'
+    icon: 'tabler:users'
   },
   {
     key: 'api',
     label: t('profile.api.title'),
-    icon: 'la:key'
+    icon: 'tabler:key'
   },
   {
     key: 'notifications',
     label: t('profile.notifications'),
-    icon: 'la:bell'
+    icon: 'tabler:bell'
   },
   // {
   //   key: 'pages',
   //   label: 'My Pages',
-  //   icon: 'la:file-alt',
+  //   icon: 'tabler:file-text',
   //   disabled: true
   // },
   {
     key: 'activity',
     label: t('profile.activity'),
-    icon: 'la:history',
+    icon: 'tabler:history',
     disabled: true
   }
 ])
@@ -339,7 +339,10 @@ $nav-shrink-max: 1199.98px;
   }
 
   .w-list .w-item {
-    font-weight: 400;
+    /* -> Every rail row is set at 500, the current one included -- the design distinguishes them by
+       the plate, the bar and the colour, not by weight */
+    font-weight: 500;
+    font-size: 13.5px;
     color: $slate;
     border-inline-start: 2px solid transparent;
 
@@ -351,8 +354,8 @@ $nav-shrink-max: 1199.98px;
     &.is-active {
       background-color: $surface;
       border-inline-start-color: $accent-fill;
-      color: $ink;
-      font-weight: 500;
+      /* -> The label takes the accent too, not just the bar and the glyph, as the design draws it */
+      color: $accent-text;
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
       .w-icon,

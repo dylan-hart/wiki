@@ -5,9 +5,9 @@ import WIcon from './WIcon.vue'
 
 describe('WIcon', () => {
   it('renders a bundled Iconify reference as an inline svg', () => {
-    // -> `mdi:home` is inlined into icons.generated.js by `scripts/generate-icons.mjs` because it is
+    // -> `tabler:home` is inlined into icons.generated.js by `scripts/generate-icons.mjs` because it is
     //    written literally elsewhere in this app's own source (e.g. nav/menu defaults).
-    const wrapper = mount(WIcon, { props: { name: 'mdi:home' } })
+    const wrapper = mount(WIcon, { props: { name: 'tabler:home' } })
 
     expect(wrapper.find('svg.w-icon').exists()).toBe(true)
     expect(wrapper.find('iconify-icon').exists()).toBe(false)

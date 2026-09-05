@@ -34,7 +34,6 @@
 }
 .w-scroll-area::-webkit-scrollbar-thumb {
   background-color: rgb(102 102 102 / 0.5);
-  border-radius: 5px;
 }
 .w-scroll-area::-webkit-scrollbar-thumb:hover {
   background-color: rgb(102 102 102 / 0.8);

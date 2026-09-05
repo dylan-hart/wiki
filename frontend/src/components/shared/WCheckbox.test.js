@@ -10,7 +10,7 @@ describe('WCheckbox', () => {
     expect(wrapper.attributes('aria-checked')).toBe('true')
     expect(wrapper.find('.w-checkbox__box--on').exists()).toBe(true)
     // -> The check glyph itself, resolved through `w-icon` registered globally in test/setup.js
-    expect(wrapper.find('[data-icon="mdi:check"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="tabler:check"]').exists()).toBe(true)
   })
 
   it('emits the flipped boolean on click when bound to a boolean model', async () => {
@@ -41,8 +41,8 @@ describe('WCheckbox', () => {
 
     expect(wrapper.attributes('aria-checked')).toBe('mixed')
     expect(wrapper.find('.w-checkbox__box--on').exists()).toBe(true)
-    expect(wrapper.find('[data-icon="mdi:minus"]').exists()).toBe(true)
-    expect(wrapper.find('[data-icon="mdi:check"]').exists()).toBe(false)
+    expect(wrapper.find('[data-icon="tabler:minus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="tabler:check"]').exists()).toBe(false)
   })
 
   it('reports the click as a plain boolean flip while indeterminate, leaving the parent to decide', async () => {
@@ -80,6 +80,6 @@ describe('WCheckbox', () => {
       props: { modelValue: true, ariaLabel: 'Enabled', dense: true }
     })
 
-    expect(wrapper.find('[data-icon="mdi:check"]').attributes('style')).toContain('0.75em')
+    expect(wrapper.find('[data-icon="tabler:check"]').attributes('style')).toContain('0.75em')
   })
 })

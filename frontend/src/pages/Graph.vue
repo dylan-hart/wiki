@@ -59,9 +59,14 @@
         }}
       </template>
     </div>
+    <!--
+      What is NOT on screen, said plainly rather than left for the reader to notice: the graph caps
+      how many nodes it draws, and the filters below act on that cap, not on the site. Drawn as the
+      design draws it -- a plain plate on the canvas with the accent as its edge, the one thing on
+      this screen that is a warning (`ui-redesign/Cardinal Wiki - Graph 3x.dc.html`).
+    -->
     <div v-if="graphTruncated" class="graph-view-truncation-notice">
-      Showing {{ allNodes.length }} of {{ totalNodes }} pages. Filters and search apply only to the
-      pages shown here, not the full site.
+      {{ t('graph.truncationNotice', { shown: allNodes.length, total: totalNodes }) }}
     </div>
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
@@ -105,18 +110,30 @@
           :options="pageviewClientTypeOptions" />
       </div>
     </div>
+    <!--
+      Each filter is an overline over its control, in the same mono the panel opposite uses for its
+      own group captions -- the design labels every control on this screen that way. They were
+      `WInput`/`WSelect` floating labels, which set them in body size and left the two panels
+      speaking in two voices about the same kind of thing.
+    -->
     <div class="graph-view-filters">
-      <w-input v-model="keywordQuery" clearable dense :label="t('graph.filters.keyword')" />
-      <w-select
-        v-model="activeFilters.tags"
-        multiple
-        use-chips
-        dense
-        options-dense
-        :options="tagOptions"
-        :label="t('graph.filters.tags')" />
-      <div class="flex flex-col gap-1">
-        <span class="text-caption opacity-70">{{ t('graph.filters.folderDepth') }}</span>
+      <div class="flex flex-col gap-[5px]">
+        <span class="graph-view-control-caption">{{ t('graph.filters.keyword') }}</span>
+        <w-input v-model="keywordQuery" clearable dense :aria-label="t('graph.filters.keyword')" />
+      </div>
+      <div class="flex flex-col gap-[5px]">
+        <span class="graph-view-control-caption">{{ t('graph.filters.tags') }}</span>
+        <w-select
+          v-model="activeFilters.tags"
+          multiple
+          use-chips
+          dense
+          options-dense
+          :options="tagOptions"
+          :aria-label="t('graph.filters.tags')" />
+      </div>
+      <div class="flex flex-col gap-[5px]">
+        <span class="graph-view-control-caption">{{ t('graph.filters.folderDepth') }}</span>
         <div class="flex items-center gap-3">
           <w-range
             v-model="folderDepthSlider"
@@ -126,7 +143,8 @@
             :max="actualMaxFolderDepth"
             :aria-label="t('graph.filters.folderDepth')"
             class="min-w-0 flex-1" />
-          <div style="width: 64px">
+          <!-- -> 56px, the width the design gives the readout beside this slider -->
+          <div style="width: 56px">
             <w-input
               v-model.number="folderDepthSlider"
               dense
@@ -138,13 +156,15 @@
           </div>
         </div>
       </div>
-      <w-select
-        v-if="showLocaleFilter"
-        v-model="activeFilters.locale"
-        dense
-        options-dense
-        :options="localeOptions"
-        :label="t('graph.filters.locale')" />
+      <div class="flex flex-col gap-[5px]" v-if="showLocaleFilter">
+        <span class="graph-view-control-caption">{{ t('graph.filters.locale') }}</span>
+        <w-select
+          v-model="activeFilters.locale"
+          dense
+          options-dense
+          :options="localeOptions"
+          :aria-label="t('graph.filters.locale')" />
+      </div>
       <w-btn
         v-if="
           activeFilters.tags.length ||
@@ -1198,14 +1218,38 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
-.graph-view-right-rail {
+/*
+  The two panels over the canvas are PANELS: an opaque surface with a hairline edge, as the design
+  draws them (`ui-redesign/Cardinal Wiki - Graph 3x.dc.html`). They used to be translucent washes with
+  a backdrop blur, which is frosted glass -- a material this language does not have, and one that put
+  the graph's own edges behind every control on it.
+*/
+@mixin graph-panel {
   position: absolute;
   top: 16px;
-  right: 16px;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  padding: 14px;
+
+  @at-root .body--light & {
+    background-color: $surface;
+    border: 1px solid $hairline;
+    color: $text-body;
+  }
+  @at-root .body--dark & {
+    background-color: $dark-3;
+    border: 1px solid $hairline-dark;
+    color: $text-dark;
+  }
+}
+
+.graph-view-right-rail {
+  @include graph-panel;
+  right: 16px;
+  gap: 14px;
+  align-items: flex-end;
+  width: 236px;
   max-height: calc(100% - 32px);
 }
 
@@ -1213,49 +1257,39 @@ onBeforeUnmount(() => {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  width: 100%;
 }
 
 .graph-view-control-group {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 5px;
+  width: 100%;
 }
 
+/* -> The language's own control overline: mono, small, letter-spaced, in the caption tier */
 .graph-view-control-caption {
-  font-size: 11px;
-  opacity: 0.7;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 
   @at-root .body--light & {
-    color: rgba(0, 0, 0, 0.8);
+    color: $text-caption;
   }
   @at-root .body--dark & {
-    color: #fff;
+    color: $text-caption-dark;
   }
 }
 
 .graph-view-filters {
-  position: absolute;
-  top: 16px;
+  @include graph-panel;
   left: 16px;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 220px;
-  padding: 12px;
-  border-radius: 4px;
-  backdrop-filter: blur(4px);
-
-  @at-root .body--light & {
-    background: rgba(255, 255, 255, 0.85);
-    color: rgba(0, 0, 0, 0.8);
-  }
-  @at-root .body--dark & {
-    background: rgba(0, 0, 0, 0.55);
-    color: #fff;
-  }
+  gap: 12px;
+  width: 268px;
 }
 
 .graph-view-truncation-notice {
@@ -1264,39 +1298,41 @@ onBeforeUnmount(() => {
   left: 50%;
   transform: translateX(-50%);
   z-index: 1;
-  max-width: calc(100% - 64px);
-  padding: 8px 16px;
-  border-radius: 4px;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 6px 12px;
   font-size: 12px;
   text-align: center;
-  backdrop-filter: blur(4px);
 
   @at-root .body--light & {
-    background: rgba(255, 244, 224, 0.9);
-    color: rgba(0, 0, 0, 0.8);
+    background-color: $surface;
+    border: 1px solid $accent-fill;
+    color: $slate;
   }
   @at-root .body--dark & {
-    background: rgba(90, 60, 0, 0.55);
-    color: #fff;
+    background-color: $dark-3;
+    border: 1px solid $accent-dark;
+    color: $text-secondary-dark;
   }
 }
 
+/* -> Inside the rail panel already, so a tint and a hairline are all this needs to read as its own block */
 .graph-view-legend {
   display: flex;
   flex-direction: column;
   flex: none;
   gap: 4px;
-  padding: 8px 12px;
-  border-radius: 4px;
-  backdrop-filter: blur(4px);
+  width: 100%;
+  padding: 8px 10px;
   max-height: 240px;
   overflow-y: auto;
 
   @at-root .body--light & {
-    background: rgba(0, 0, 0, 0.05);
+    background-color: $tint;
+    border: 1px solid $hairline;
   }
   @at-root .body--dark & {
-    background: rgba(255, 255, 255, 0.08);
+    background-color: $dark-2;
+    border: 1px solid $hairline-dark;
   }
 }
 
@@ -1335,13 +1371,13 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
+/* -> Solid ink rather than a black wash: the design's own tooltip plate */
 .graph-view-tooltip {
   position: absolute;
   z-index: 1;
   pointer-events: none;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.75);
+  padding: 5px 9px;
+  background-color: $ink;
   color: #fff;
   font-size: 12px;
   white-space: nowrap;

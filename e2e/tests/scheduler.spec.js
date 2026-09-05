@@ -146,8 +146,8 @@ test.describe('admin scheduler', () => {
     //    (see `WTooltip.vue`), so the button's computed accessible name is empty. A real
     //    accessibility gap this test surfaced live; recorded as follow-up scope rather than fixed
     //    here (out of scope for a verification-only task) -- see AdminScheduler.vue's Upcoming
-    //    tab, the `body-cell-cancel` template's `<w-btn icon="la:window-close">`.
-    await workerRow.locator('button:has([data-icon="la:window-close"])').click()
+    //    tab, the `body-cell-cancel` template's `<w-btn icon="tabler:square-x">`.
+    await workerRow.locator('button:has([data-icon="tabler:square-x"])').click()
     await expect(page.locator('.w-notification').last()).toContainText(
       'Job cancelled successfully.'
     )
@@ -181,7 +181,7 @@ test.describe('admin scheduler', () => {
     await withDb((db) => deleteJob(db, raceJobId))
 
     // -> See the sibling test above for why this is selected by icon rather than accessible name.
-    await raceRow.locator('button:has([data-icon="la:window-close"])').click()
+    await raceRow.locator('button:has([data-icon="tabler:square-x"])').click()
 
     const toast = page.locator('.w-notification').last()
     await expect(toast).toContainText('Failed to cancel the job.')

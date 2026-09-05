@@ -66,12 +66,12 @@ async function mountIndex() {
   const router = await createTestRouter(['/'])
 
   // -> Real English messages for the couple of keys these tests assert the rendered text of
-  //    (`common.page.unpublished`, `common.page.lastModifiedOn`); every other `t()` call in the
+  //    (`common.page.unpublished`, `common.page.lastModified`); every other `t()` call in the
   //    component renders as its bare key, same as before this list existed, which none of these
   //    tests reads.
   const i18n = createTestI18n({
     common: {
-      page: { unpublished: 'Unpublished', lastModifiedOn: 'Last modified on' }
+      page: { unpublished: 'Unpublished', lastModified: 'Last modified' }
     }
   })
 
@@ -184,7 +184,7 @@ describe('Index.vue: breadcrumb bar during editing (OpenProject #813)', () => {
     editorStore.mode = 'edit'
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.text()).toContain('Last modified on')
+    expect(wrapper.text()).toContain('Last modified')
   })
 
   it('hides "Last modified" but keeps the trail for a page that has never been saved', async () => {

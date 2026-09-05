@@ -18,7 +18,7 @@
           clearable
           hide-bottom-space>
           <template #prepend>
-            <w-icon name="la:search" />
+            <w-icon name="tabler:search" />
           </template>
         </w-input>
       </w-card-section>
@@ -49,7 +49,7 @@
                   width="32"
                   height="32" />
               </w-avatar>
-              <w-avatar v-else size="md" color="primary" text-color="white" icon="la:user" />
+              <w-avatar v-else size="md" color="primary" text-color="white" icon="tabler:user" />
             </w-item-section>
             <w-item-section>
               <w-item-label>{{ usr.name }}</w-item-label>
@@ -58,15 +58,15 @@
             <w-item-section side>
               <div class="flex flex-nowrap items-center">
                 <span v-if="usr.isSystem" class="ms-2 inline-flex">
-                  <w-icon name="la:lock" color="pink" />
+                  <w-icon name="tabler:lock" color="pink" />
                   <w-tooltip>{{ t('admin.users.systemUser') }}</w-tooltip>
                 </span>
                 <span v-if="!usr.isActive" class="ms-2 inline-flex">
-                  <w-icon name="la:ban" color="pink" />
+                  <w-icon name="tabler:ban" color="pink" />
                   <w-tooltip>{{ t('admin.users.inactive') }}</w-tooltip>
                 </span>
                 <span v-if="!usr.isVerified" class="ms-2 inline-flex">
-                  <w-icon name="la:envelope" color="orange" />
+                  <w-icon name="tabler:mail" color="orange" />
                   <w-tooltip>{{ t('admin.users.unverified') }}</w-tooltip>
                 </span>
               </div>

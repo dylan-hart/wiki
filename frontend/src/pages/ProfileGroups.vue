@@ -11,7 +11,7 @@
         </w-item>
         <w-item v-for="grp of state.groups" :key="grp.id">
           <w-item-section avatar>
-            <w-avatar color="secondary" text-color="white" icon="la:users" rounded />
+            <w-avatar color="slate" text-color="white" icon="tabler:users" rounded />
           </w-item-section>
           <w-item-section>
             <strong>{{ grp.name }}</strong>
@@ -32,7 +32,7 @@
         <w-list class="mt-2" bordered separator>
           <w-item v-for="grp of state.otherGroups" :key="grp.id">
             <w-item-section avatar class="opacity-60">
-              <w-avatar color="grey" text-color="white" icon="la:users" rounded />
+              <w-avatar color="grey" text-color="white" icon="tabler:users" rounded />
             </w-item-section>
             <w-item-section class="opacity-60">
               <strong>{{ grp.name }}</strong>

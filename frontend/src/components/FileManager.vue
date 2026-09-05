@@ -43,7 +43,7 @@
                   @click="selectLocale(lang.code)">
                   <w-item-section side>
                     <w-icon
-                      :name="lang.code === state.locale ? `la:check-circle` : `la:circle`"
+                      :name="lang.code === state.locale ? `tabler:circle-check` : `tabler:circle`"
                       :color="lang.code === state.locale ? `positive` : `grey`"
                       size="xs" />
                   </w-item-section>
@@ -66,7 +66,7 @@
           which is what a search field in this app looks like.
         -->
         <div class="fileman-search" :class="{ 'is-focused': state.searchIsFocused }">
-          <w-icon class="fileman-search-lead" name="la:search" />
+          <w-icon class="fileman-search-lead" name="tabler:search" />
           <input
             ref="searchField"
             v-model="state.search"
@@ -83,7 +83,7 @@
             class="fileman-search-clear"
             :aria-label="t(`common.actions.clear`)"
             @click="state.search = ``">
-            <w-icon name="la:times" />
+            <w-icon name="tabler:x" />
           </button>
         </div>
       </w-toolbar>
@@ -103,7 +103,7 @@
           rounded
           color="white"
           :aria-label="t(`common.actions.viewDocs`)"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           :href="siteStore.docsBase + `/guide/file-manager`"
           target="_blank">
           <!-- -> `WTooltip` already defaults to below-the-trigger, which is where a header wants it -->
@@ -115,7 +115,7 @@
             text-color="text-secondary"
             :label="t(`common.actions.close`)"
             :aria-label="t(`common.actions.close`)"
-            icon="la:times"
+            icon="tabler:x"
             @click="close" />
         </w-btn-group>
       </w-toolbar>
@@ -172,7 +172,7 @@
                 @click="insertItem()"
                 :label="t(`common.actions.insert`)"
                 color="primary"
-                icon="la:plus"
+                icon="tabler:plus"
                 padding="sm" />
             </template>
           </template>
@@ -206,7 +206,7 @@
               dense
               color="negative"
               :aria-label="t(`common.actions.cancel`)"
-              icon="la:square"
+              icon="tabler:square"
               @click="uploadCancel"
               v-if="state.uploadPercentage < 100" />
           </template>
@@ -223,7 +223,7 @@
               dense
               color="slate-soft"
               :aria-label="t(`common.sidebar.browse`)"
-              icon="mdi:file-tree"
+              icon="tabler:binary-tree"
               @click="state.treeOpen = true">
               <w-tooltip anchor="bottom middle" self="top middle">{{
                 t(`common.sidebar.browse`)
@@ -236,7 +236,7 @@
               dense
               color="slate-soft"
               :aria-label="t(`fileman.viewOptions`)"
-              icon="la:th-list">
+              icon="tabler:layout-list">
               <w-tooltip anchor="bottom middle" self="top middle">{{
                 t(`fileman.viewOptions`)
               }}</w-tooltip>
@@ -249,11 +249,11 @@
                     <w-separator class="my-2" />
                     <w-item clickable>
                       <w-item-section side>
-                        <w-icon name="la:list" color="slate-soft" size="xs" />
+                        <w-icon name="tabler:list" color="slate-soft" size="xs" />
                       </w-item-section>
                       <w-item-section class="pe-2">{{ t('fileman.browseUsing') }}</w-item-section>
                       <w-item-section side>
-                        <w-icon name="la:angle-right" color="slate-soft" size="xs" />
+                        <w-icon name="tabler:chevron-right" color="slate-soft" size="xs" />
                       </w-item-section>
                       <w-menu anchor="top end" self="top start">
                         <w-list class="p-2" dense>
@@ -261,7 +261,9 @@
                             <w-item-section side>
                               <w-icon
                                 :name="
-                                  state.displayMode === `path` ? `la:check-circle` : `la:circle`
+                                  state.displayMode === `path`
+                                    ? `tabler:circle-check`
+                                    : `tabler:circle`
                                 "
                                 :color="state.displayMode === `path` ? `positive` : `grey`"
                                 size="xs" />
@@ -274,7 +276,9 @@
                             <w-item-section side>
                               <w-icon
                                 :name="
-                                  state.displayMode === `title` ? `la:check-circle` : `la:circle`
+                                  state.displayMode === `title`
+                                    ? `tabler:circle-check`
+                                    : `tabler:circle`
                                 "
                                 :color="state.displayMode === `title` ? `positive` : `grey`"
                                 size="xs" />
@@ -289,7 +293,7 @@
                     <w-item clickable @click="state.isCompact = !state.isCompact">
                       <w-item-section side>
                         <w-icon
-                          :name="state.isCompact ? `la:check-square` : `la:stop`"
+                          :name="state.isCompact ? `tabler:checkbox` : `tabler:player-stop`"
                           :color="state.isCompact ? `positive` : `grey`"
                           size="xs" />
                       </w-item-section>
@@ -298,7 +302,7 @@
                     <w-item clickable @click="state.shouldShowFolders = !state.shouldShowFolders">
                       <w-item-section side>
                         <w-icon
-                          :name="state.shouldShowFolders ? `la:check-square` : `la:stop`"
+                          :name="state.shouldShowFolders ? `tabler:checkbox` : `tabler:player-stop`"
                           :color="state.shouldShowFolders ? `positive` : `slate-pale`"
                           size="xs" />
                       </w-item-section>
@@ -314,7 +318,7 @@
               dense
               color="slate-soft"
               :aria-label="t(`common.actions.refresh`)"
-              icon="la:redo-alt"
+              icon="tabler:refresh"
               @click="reloadFolder(state.currentFolderId)">
               <w-tooltip anchor="bottom middle" self="top middle">{{
                 t(`common.actions.refresh`)
@@ -328,7 +332,7 @@
               color="slate-soft"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
-              icon="la:plus">
+              icon="tabler:plus">
               <new-menu
                 :hide-asset-btn="true"
                 :show-new-folder="true"
@@ -343,7 +347,7 @@
               color="accent"
               :label="t(`common.actions.upload`)"
               :aria-label="t(`common.actions.upload`)"
-              icon="la:cloud-upload-alt"
+              icon="tabler:cloud-upload"
               @click="uploadFile" />
             <!--
               Insert lives in the details pane, which is a 350px column with no overlay form -- so below
@@ -359,7 +363,7 @@
               color="primary"
               :label="t(`common.actions.insert`)"
               :aria-label="t(`common.actions.insert`)"
-              icon="la:plus"
+              icon="tabler:plus"
               @click="insertItem()" />
           </template>
         </w-toolbar>
@@ -385,7 +389,7 @@
               event this element caused by existing.
             -->
             <div class="fileman-dropoverlay" v-if="state.isDraggingOver">
-              <w-icon name="la:cloud-upload-alt" size="64px" />
+              <w-icon name="tabler:cloud-upload" size="64px" />
               <span>{{ t('fileman.dropToUpload') }}</span>
             </div>
             <w-scroll-area style="height: 100%">
@@ -425,13 +429,13 @@
                           v-if="insertMode && item.type !== `folder`"
                           @click="insertItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:plus" color="primary" />
+                            <w-icon name="tabler:plus" color="primary" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.insert`) }}</w-item-section>
                         </w-item>
                         <w-item clickable v-if="item.type === `page`" @click="editItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:edit" color="warning-fill" />
+                            <w-icon name="tabler:edit" color="warning-fill" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.edit`) }}</w-item-section>
                         </w-item>
@@ -448,31 +452,31 @@
                           "
                           @click="rerenderPage(item)">
                           <w-item-section side>
-                            <w-icon name="la:magic" color="warning-fill" />
+                            <w-icon name="tabler:wand" color="warning-fill" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.rerender`) }}</w-item-section>
                         </w-item>
                         <w-item clickable v-if="item.type !== `folder`" @click="openItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:eye" color="primary" />
+                            <w-icon name="tabler:eye" color="primary" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.view`) }}</w-item-section>
                         </w-item>
                         <w-item clickable v-if="item.type !== `folder`" @click="copyItemURL(item)">
                           <w-item-section side>
-                            <w-icon name="la:clipboard" color="primary" />
+                            <w-icon name="tabler:clipboard" color="primary" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.copyURL`) }}</w-item-section>
                         </w-item>
                         <w-item clickable v-if="item.type === `asset`" @click="downloadItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:download" color="primary" />
+                            <w-icon name="tabler:download" color="primary" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.download`) }}</w-item-section>
                         </w-item>
                         <w-item clickable v-if="item.type === `page`" @click="duplicateItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:copy" color="slate-soft" />
+                            <w-icon name="tabler:copy" color="slate-soft" />
                           </w-item-section>
                           <w-item-section>{{ t('fileman.duplicateItem') }}</w-item-section>
                         </w-item>
@@ -483,21 +487,21 @@
                         -->
                         <w-item clickable v-if="item.type === `page`" @click="renameMovePage(item)">
                           <w-item-section side>
-                            <w-icon name="la:share" color="slate-soft" />
+                            <w-icon name="tabler:share" color="slate-soft" />
                           </w-item-section>
                           <w-item-section>{{ t('fileman.renameMovePage') }}</w-item-section>
                         </w-item>
                         <template v-else>
                           <w-item clickable @click="renameItem(item)">
                             <w-item-section side>
-                              <w-icon name="la:redo" color="slate-soft" />
+                              <w-icon name="tabler:arrow-forward-up" color="slate-soft" />
                             </w-item-section>
                             <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
                           </w-item>
                         </template>
                         <w-item clickable @click="delItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:trash" color="negative" />
+                            <w-icon name="tabler:trash" color="negative" />
                           </w-item-section>
                           <w-item-section class="text-negative">{{
                             t(`common.actions.delete`)
@@ -1309,7 +1313,6 @@ $fileman-hdr-wrap-max: 899.98px;
     beats its hover utility. Specificity alone would not do it: both selectors are one class.
   */
   &-locale {
-    border-radius: 7px;
   }
 
   /*
@@ -1616,7 +1619,6 @@ $fileman-hdr-wrap-max: 899.98px;
     width: 100%;
     flex: 1;
     height: 12px;
-    border-radius: 3px;
 
     @at-root .body--light & {
       background-color: $blue-grey-2;
@@ -1628,7 +1630,6 @@ $fileman-hdr-wrap-max: 899.98px;
     > div {
       height: 12px;
       background-color: $positive;
-      border-radius: 3px 0 0 3px;
       background-image: linear-gradient(
         -45deg,
         rgba(255, 255, 255, 0.3) 25%,

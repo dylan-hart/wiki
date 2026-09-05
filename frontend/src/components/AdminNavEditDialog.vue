@@ -7,7 +7,7 @@
     :aria-label="title || t(`navEdit.editMenuItems`)"
     @hide="onDialogHide">
     <w-layout container>
-      <w-header class="card-header px-4 py-2">
+      <w-header class="card-header">
         <w-icon name="tabler:layout-sidebar" left size="md" />
         <span>{{ title || t(`navEdit.editMenuItems`) }}</span>
         <w-space />
@@ -20,14 +20,14 @@
             text-color="grey-7"
             :label="t(`common.actions.cancel`)"
             :aria-label="t(`common.actions.cancel`)"
-            icon="la:times"
+            icon="tabler:x"
             @click="onDialogCancel" />
           <w-btn
             color="positive"
             text-color="white"
             :label="t(`common.actions.save`)"
             :aria-label="t(`common.actions.save`)"
-            icon="la:check"
+            icon="tabler:check"
             :disabled="isBusy"
             @click="save" />
         </w-btn-group>

@@ -1,10 +1,12 @@
 <template>
   <w-page class="admin-groups">
-    <div class="flex flex-wrap p-4 items-center">
-      <div class="flex-none">
-        <w-icon name="tabler:user" size="64px" class="admin-icon animated fadeInLeft" />
+    <div class="admin-page-header flex flex-wrap items-center">
+      <div class="admin-page-icon flex-none animated fadeInLeft">
+        <w-icon name="tabler:user" size="34px" class="admin-icon" />
+        <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
+        <admin-page-eyebrow />
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.users.title') }}</h1>
         <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.users.subtitle') }}
@@ -18,11 +20,13 @@
           :placeholder="t('admin.users.searchUsers')"
           :aria-label="t('admin.users.searchUsers')"
           :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
-          <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
+          <template #prepend
+            ><w-icon class="opacity-50" name="tabler:search" size="20px"
+          /></template>
         </w-input>
         <w-btn
           class="acrylic-btn me-2"
-          icon="la:question-circle"
+          icon="tabler:help-circle"
           flat
           color="grey"
           :aria-label="t(`common.actions.viewDocs`)"
@@ -32,7 +36,7 @@
         </w-btn>
         <w-btn
           class="me-2"
-          icon="la:redo-alt"
+          icon="tabler:refresh"
           outline
           color="slate-soft"
           :aria-label="t(`common.actions.refresh`)"
@@ -43,15 +47,15 @@
         <w-btn
           class="me-2"
           v-if="canManage"
-          icon="la:user-cog"
-          color="secondary"
+          icon="tabler:user-cog"
+          color="slate"
           :aria-label="t(`admin.users.defaults`)">
           <w-tooltip>{{ t(`admin.users.defaults`) }}</w-tooltip>
           <user-defaults-menu />
         </w-btn>
         <w-btn
           v-if="canManage"
-          icon="la:plus"
+          icon="tabler:plus"
           :label="t(`admin.users.create`)"
           color="primary"
           @click="createUser"
@@ -70,14 +74,14 @@
             hide-header
             :loading="state.loading > 0">
             <template #body-cell-id="props">
-              <w-td :props="props"><w-icon name="la:user" color="primary" size="sm" /></w-td>
+              <w-td :props="props"><w-icon name="tabler:user" color="primary" size="sm" /></w-td>
             </template>
             <template #body-cell-name="props">
               <w-td :props="props">
                 <div class="flex items-center">
                   <strong>{{ props.value }}</strong>
-                  <w-icon class="ms-2" v-if="props.row.isSystem" name="la:lock" color="pink" />
-                  <w-icon class="ms-2" v-if="!props.row.isActive" name="la:ban" color="pink" />
+                  <w-icon class="ms-2" v-if="props.row.isSystem" name="tabler:lock" color="pink" />
+                  <w-icon class="ms-2" v-if="!props.row.isActive" name="tabler:ban" color="pink" />
                 </div>
               </w-td>
             </template>
@@ -111,7 +115,7 @@
                   v-if="!props.row.isSystem"
                   flat
                   :to="`/_admin/users/` + props.row.id"
-                  :icon="canManage ? `la:pen` : `la:eye`"
+                  :icon="canManage ? `tabler:pencil` : `tabler:eye`"
                   :color="dark.isActive ? `indigo-4` : `indigo`"
                   :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)" />
                 <!--
@@ -123,7 +127,7 @@
                   class="acrylic-btn"
                   v-if="!props.row.isSystem && canManage"
                   flat
-                  icon="la:trash"
+                  icon="tabler:trash"
                   color="negative"
                   :disabled="props.row.id === userStore.id"
                   :aria-label="t(`admin.users.delete`)"
@@ -173,6 +177,7 @@ import { debounce } from 'es-toolkit/function'
 import UserCreateDialog from '../components/UserCreateDialog.vue'
 import UserDeleteDialog from '../components/UserDeleteDialog.vue'
 import UserDefaultsMenu from '@/components/UserDefaultsMenu.vue'
+import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // COMPOSABLES
 
