@@ -16,6 +16,11 @@ import {
 //    four entries (and `updateLocales`'s original, since-changed cron) long after `JOB_SCHEDULE_SEED`
 //    had grown to sixteen.
 import { JOB_SCHEDULE_SEED } from '../../backend/models/jobs.ts'
+// -> Reused, not re-implemented: the "history cap" test below needs to know how many `<tr>`s
+//    `AdminScheduler.vue` actually renders for a given job list, and that is exactly what this
+//    grouping (OpenProject #2337) already computes. It has no framework imports of its own (plain
+//    functions only), so it resolves here the same way the `backend/` import above does.
+import { flattenJobHistoryRows } from '../../frontend/src/helpers/jobHistoryGrouping.js'
 
 /**
  * End-to-end verification of AdminScheduler.vue's tabs against a real backend/database -- Schedule
@@ -376,11 +381,25 @@ test.describe('admin scheduler', () => {
     await page.getByRole('radio', { name: 'Completed' }).click()
     await page.getByRole('button', { name: 'Refresh' }).click()
 
-    // -> `HISTORY_LIMIT` (100) caps what the tab requests regardless of how many actually match.
-    await expect(page.locator('table tbody tr')).toHaveCount(100)
+    // -> `HISTORY_LIMIT` (100) caps what the tab REQUESTS regardless of how many actually match, but
+    //    it does not pin the rendered `<tr>` count at exactly 100: a task that completed more than
+    //    once within that top-100 window collapses into a single summary row (OpenProject #2337's
+    //    grouping, task 2373's own note on the Upcoming test above). The bulk-seeded rows above are
+    //    all uniquely named and can't collide with each other, but a live `storageSyncTick` cron
+    //    (`* * * * *`, ticking for the whole e2e run's one shared `webServer`) deposits its own
+    //    `completed` rows under the SAME task name throughout -- and once it has ticked more than
+    //    once before this test runs, its rows group into one row too, taking the rendered count
+    //    below 100 even though the API cap held. Deriving the expected row count from the same
+    //    grouping logic `AdminScheduler.vue` renders through -- fed the same capped response it
+    //    fetches -- is what keeps this assertion honest about that instead of pinning a bare `100`.
+    const rawJobs = await page.request
+      .get('/_api/scheduler/jobs?states=completed&limit=100')
+      .then((r) => r.json())
+    const expectedRowCount = flattenJobHistoryRows(rawJobs.jobs, new Set()).length
+    await expect(page.locator('table tbody tr')).toHaveCount(expectedRowCount)
 
-    // -> The exact total is not asserted: a live `storageSyncTick` cron (`* * * * *`) deposits its
-    // own `completed` rows for the whole duration of the run (see `backend/models/jobs.ts`), so the
+    // -> The exact total is not asserted: the same live `storageSyncTick` cron deposits its own
+    // `completed` rows for the whole duration of the run (see `backend/models/jobs.ts`), so the
     // real total can grow between the `before.total` read above and this assertion. Match the shape
     // and assert the captured number is at least what was seeded, which still proves the caption
     // renders, that the cap is 100 and that the seeded rows are counted -- without pinning a number
