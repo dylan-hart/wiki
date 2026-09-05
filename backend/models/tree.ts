@@ -204,8 +204,10 @@ export const MAX_DEPTH = 10
 /** Ceiling on how many entries one browse level returns. */
 const MAX_BROWSE = 500
 
-/** How many `name-1`, `name-2`… variants an upload will try before giving up on the name. */
-const MAX_NAME_ATTEMPTS = 100
+/** How many `name-1`, `name-2`… variants an upload will try before giving up on the name. Exported
+ * so `migration/importers/page-import.ts`'s own numeric-suffix dedupe retries against the same cap
+ * rather than a duplicate magic number — see that module's doc comment. */
+export const MAX_NAME_ATTEMPTS = 100
 
 /**
  * Whether a folder holds a page a reader may open, at any depth below it — as an `EXISTS` correlated
