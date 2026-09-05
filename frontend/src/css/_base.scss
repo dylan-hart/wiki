@@ -194,16 +194,6 @@ body.body--dark {
   margin-inline-start: 6px !important;
 }
 
-// The admin toolbar's EXIT and locale-switcher buttons (`AdminLayout.vue`, task 822) carry a text
-// label beside their icon, unlike the site header's five icon-only buttons the base rule above was
-// sized for -- a fixed 40px width would clip the label. This modifier keeps everything else the
-// base rule gives them (the 40px band, squared corners, the hover fill, the gap) but lets width and
-// padding size to content instead of forcing a square.
-.w-btn.header-nav-btn.header-nav-btn--auto-width {
-  width: auto !important;
-  padding: 0 16px !important;
-}
-
 // Unlayered (this file is plain CSS, not a Tailwind layer), so the hover fill beats the
 // `hover:bg-current/10` utility WBtn carries for its flat variant without an `!important` of its own
 // -- see `.w-btn.acrylic-btn` above for the same trick. Gated on `(hover: hover)` so a touch tap

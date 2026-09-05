@@ -8,18 +8,18 @@
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.comments.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
         <w-spinner class="me-4" v-show="state.loading > 0" color="accent" size="sm" />
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/comments`"
           target="_blank">
@@ -41,7 +41,7 @@
           unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save()"
           :disabled="!selectedProvider || !selectedProvider.isSelectable"
           :loading="state.loading > 0" />

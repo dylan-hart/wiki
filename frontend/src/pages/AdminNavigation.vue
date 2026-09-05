@@ -8,10 +8,10 @@
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="admin-page-title animated fadeInLeft">
           {{ t('admin.navigation.title') }}
         </h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.navigation.subtitle') }}
         </div>
       </div>
@@ -92,14 +92,8 @@
             </template>
             <template v-slot:body-cell-locale="props">
               <w-td :props="props" class="cursor-pointer" @click="openEntry(props.row)">
-                <w-chip
-                  class="text-caption"
-                  square
-                  dense
-                  :color="dark.isActive ? `dark-6` : `grey-2`"
-                  :text-color="dark.isActive ? `white` : `grey-8`"
-                  >{{ props.value }}</w-chip
-                >
+                <!-- -> Uncoloured: Cardinal draws a plain chip as a hairline outline, see AdminGroups -->
+                <w-chip class="text-caption" dense>{{ props.value }}</w-chip>
               </w-td>
             </template>
             <template v-slot:body-cell-mode="props">

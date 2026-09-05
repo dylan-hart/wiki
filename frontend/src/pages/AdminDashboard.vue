@@ -8,27 +8,27 @@
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.dashboard.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">
@@ -345,11 +345,15 @@ const userStore = useUserStore()
 const dark = useDark()
 
 /*
-  WBtn emits its colour as an inline style, so no `dark:` class can reach it -- the theme has to be
-  read here. `primary` is a mid-tone picked to read on white; on the dark card it needs the lightened
-  mix, the same one the section headings use.
+  A card's footer actions take the CHROME tone, not the accent: the figure above them is already the
+  accent, and Cardinal allows one live edge per surface -- two would leave the card with nothing to
+  look at first. Which is also why they are flat rather than filled.
+
+  WBtn emits its colour as an inline style, so no `dark:` class can reach it and the theme has to be
+  read here: `slate` is a mid-tone picked to read on white, and on the dark card it needs the
+  lightened one.
 */
-const actionColor = computed(() => (dark.isActive ? 'primary-light' : 'primary'))
+const actionColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
 
 /*
   Manage only opens the list, which `read:*` is enough for -- the same rule the nav entries in
@@ -513,26 +517,38 @@ function checkForUpdates() {
     }
 
     strong {
-      font-size: 1.1rem;
+      font-size: 16px;
       font-weight: 300;
       display: block;
-      line-height: 1.2rem;
+      line-height: 1.2;
+      color: var(--color-slate);
       padding-inline-start: 2px;
+
+      @at-root .body--dark & {
+        color: var(--color-text-secondary-dark);
+      }
     }
 
+    /*
+      The figure itself: Barlow Condensed at the size a counter card is built around, in the accent.
+      This is the one place the accent is used as a NUMBER rather than as an action -- the card's
+      whole content is that figure, so it is what the reader's eye is meant to land on.
+    */
     span {
-      font-size: 2rem;
-      line-height: 2rem;
-      font-weight: 500;
-      color: var(--q-secondary);
+      font-family: var(--font-display);
+      font-size: 30px;
+      line-height: 1.1;
+      font-weight: 700;
+      color: var(--color-accent);
       display: block;
     }
 
     small {
-      font-size: 1.4rem;
-      line-height: 2rem;
-      font-weight: 400;
-      color: var(--q-secondary);
+      font-family: var(--font-display);
+      font-size: 22px;
+      line-height: 1.2;
+      font-weight: 700;
+      color: var(--color-accent);
       display: block;
 
       i {

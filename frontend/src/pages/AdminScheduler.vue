@@ -8,8 +8,8 @@
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.scheduler.subtitle') }}
         </div>
       </div>
@@ -34,10 +34,10 @@
           ]" />
         <w-separator class="me-4" vertical />
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
           @click="load">

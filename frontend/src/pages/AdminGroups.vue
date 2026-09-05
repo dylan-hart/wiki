@@ -8,8 +8,8 @@
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.groups.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.groups.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.groups.subtitle') }}
         </div>
       </div>
@@ -35,10 +35,10 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:redo-alt"
-          flat
-          color="secondary"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.refresh`)"
           @click="load"
           :loading="state.loading > 0">
@@ -78,14 +78,14 @@
             </template>
             <template v-slot:body-cell-usercount="props">
               <w-td :props="props">
-                <w-chip
-                  class="text-caption"
-                  square
-                  :color="dark.isActive ? `dark-6` : `grey-2`"
-                  :text-color="dark.isActive ? `white` : `grey-8`"
-                  dense
-                  >{{ t('admin.groups.usersCount', { count: props.value }) }}</w-chip
-                >
+                <!--
+                  An uncoloured chip: Cardinal draws one as a hairline outline on the surface, which
+                  is what a count belongs in. Colouring it (a near-black fill in dark, a grey one in
+                  light) made a tally look like a status.
+                -->
+                <w-chip class="text-caption" dense>{{
+                  t('admin.groups.usersCount', { count: props.value })
+                }}</w-chip>
               </w-td>
             </template>
             <template v-slot:body-cell-edit="props">

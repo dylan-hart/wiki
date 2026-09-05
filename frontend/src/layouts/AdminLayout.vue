@@ -1,6 +1,6 @@
 <template>
   <w-layout class="admin">
-    <w-header class="bg-black text-white">
+    <w-header class="admin-header">
       <div class="flex flex-nowrap">
         <w-toolbar style="height: 64px">
           <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
@@ -8,30 +8,30 @@
               <img src="/_assets/logo-wikijs.svg" alt="" />
             </w-avatar>
           </w-btn>
-          <w-toolbar-title class="text-h6">Wiki.js</w-toolbar-title>
+          <w-toolbar-title class="admin-wordmark">Wiki.js</w-toolbar-title>
         </w-toolbar>
         <w-toolbar class="max-md:hidden justify-center" style="height: 64px">
-          <div class="text-overline uppercase text-grey">{{ t('admin.adminArea') }}</div>
-          <w-badge class="ms-2" label="beta" color="pink" outline />
+          <div class="admin-area-label">{{ t('admin.adminArea') }}</div>
+          <w-badge class="ms-2" label="beta" color="accent" outline />
         </w-toolbar>
         <w-toolbar style="height: 64px">
           <w-space />
           <transition name="syncing">
             <w-spinner v-show="commonStore.routerLoading" color="accent" size="20px" />
           </transition>
+          <!--
+            Outlined rather than flat-on-a-black-bar: the admin header is a white plate now, so these
+            two need an edge of their own to read as controls. Exit keeps the accent -- it is the one
+            thing in the bar that leaves.
+          -->
           <w-btn
-            class="header-nav-btn header-nav-btn--auto-width"
-            flat
+            class="ms-2"
+            outline
             icon="la:times-circle"
             :label="t(`common.actions.exit`)"
-            color="pink"
+            color="accent"
             to="/" />
-          <w-btn
-            class="header-nav-btn header-nav-btn--auto-width"
-            flat
-            icon="la:language"
-            :label="commonStore.locale"
-            color="grey-4">
+          <w-btn class="ms-2" outline icon="la:language" :label="commonStore.locale" color="slate">
             <!--
               Down from the button's trailing edge, like `PageHeader.vue`'s review-queue menu: `WMenu`
               places itself in raw viewport pixels and knows nothing about `direction`
@@ -79,13 +79,12 @@
     </w-header>
     <w-drawer class="admin-sidebar" v-model="leftDrawerOpen" bordered>
       <w-scroll-area class="admin-nav">
-        <w-list class="text-white pb-6" padding dense dark>
+        <w-list class="admin-nav-list pb-6" padding dense dark>
           <w-item class="mb-2">
             <w-item-section>
               <w-btn
-                class="acrylic-btn"
-                flat
-                color="pink"
+                outline
+                color="accent-dark"
                 icon="la:heart"
                 :label="t(`admin.contribute.title`)"
                 no-caps
@@ -93,7 +92,7 @@
                 target="_blank" />
             </w-item-section>
           </w-item>
-          <w-item to="/_admin/dashboard" active-class="bg-primary text-white">
+          <w-item to="/_admin/dashboard" active-class="admin-nav-active">
             <w-item-section avatar>
               <w-icon name="img:/_assets/icons/fluent-apps-tab.svg" />
             </w-item-section>
@@ -101,7 +100,7 @@
           </w-item>
           <w-item
             to="/_admin/sites"
-            active-class="bg-primary text-white"
+            active-class="admin-nav-active"
             v-if="userStore.can(`manage:sites`)">
             <w-item-section avatar>
               <w-icon name="img:/_assets/icons/fluent-change-theme.svg" />
@@ -115,9 +114,7 @@
             </w-item-section>
           </w-item>
           <template v-if="siteSectionShown">
-            <w-item-label class="mt-2 text-caption text-blue-grey-4" header>{{
-              t('admin.nav.site')
-            }}</w-item-label>
+            <w-item-label class="admin-nav-section" header>{{ t('admin.nav.site') }}</w-item-label>
             <w-item class="mb-2">
               <w-item-section>
                 <w-select
@@ -136,7 +133,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/general`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeGeneral">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-web.svg" />
@@ -145,7 +142,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/approvals`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeApprovals">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-inspection.svg" />
@@ -154,7 +151,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/analytics`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bar-chart.svg" />
@@ -163,7 +160,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/comments`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-comments.svg" />
@@ -172,7 +169,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/blocks`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeBlocks">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-plugin.svg" />
@@ -181,7 +178,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/editors`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeEditors">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-cashbook.svg" />
@@ -190,7 +187,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/glossary`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="userStore.can(`manage:glossary`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" />
@@ -199,7 +196,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/locale`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeLocale">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-language.svg" />
@@ -208,7 +205,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/login`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeLogin">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bunch-of-keys.svg" />
@@ -217,7 +214,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/navigation`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeNavigation">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-tree-structure.svg" />
@@ -226,7 +223,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/pages`"
-              active-class="bg-primary text-white">
+              active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" />
               </w-item-section>
@@ -234,7 +231,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/pages/deleted`"
-              active-class="bg-primary text-white">
+              active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" />
               </w-item-section>
@@ -242,7 +239,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/storage`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeStorage">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-ssd.svg" />
@@ -251,7 +248,7 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/theme`"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="maySeeTheme">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-paint-roller.svg" />
@@ -260,22 +257,17 @@
             </w-item>
           </template>
           <template v-if="usersSectionShown">
-            <w-item-label class="mt-2 text-caption text-blue-grey-4" header>{{
-              t('admin.nav.users')
-            }}</w-item-label>
+            <w-item-label class="admin-nav-section" header>{{ t('admin.nav.users') }}</w-item-label>
             <w-item
               to="/_admin/auth"
-              active-class="bg-primary text-white"
+              active-class="admin-nav-active"
               v-if="userStore.can(`manage:system`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-security-lock.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.auth.title') }}</w-item-section>
             </w-item>
-            <w-item
-              to="/_admin/groups"
-              active-class="bg-primary text-white"
-              v-if="groupsAreVisible">
+            <w-item to="/_admin/groups" active-class="admin-nav-active" v-if="groupsAreVisible">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-people.svg" />
               </w-item-section>
@@ -287,7 +279,7 @@
                   :class="countBadgeClass(adminStore.info.groupsTotal)" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/users" active-class="bg-primary text-white" v-if="usersAreVisible">
+            <w-item to="/_admin/users" active-class="admin-nav-active" v-if="usersAreVisible">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-account.svg" />
               </w-item-section>
@@ -301,10 +293,10 @@
             </w-item>
           </template>
           <template v-if="userStore.can(`manage:system`)">
-            <w-item-label class="mt-2 text-caption text-blue-grey-4" header>{{
+            <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.system')
             }}</w-item-label>
-            <w-item to="/_admin/api" active-class="bg-primary text-white">
+            <w-item to="/_admin/api" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-rest-api.svg" />
               </w-item-section>
@@ -313,31 +305,31 @@
                 <status-light :color="adminStore.info.isApiEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/audit" active-class="bg-primary text-white">
+            <w-item to="/_admin/audit" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-event-log.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.audit.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/classification" active-class="bg-primary text-white">
+            <w-item to="/_admin/classification" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="la:layer-group" />
               </w-item-section>
               <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/extensions" active-class="bg-primary text-white">
+            <w-item to="/_admin/extensions" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-module.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.extensions.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/icons" active-class="bg-primary text-white">
+            <w-item to="/_admin/icons" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-spring.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.icons.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/cluster" active-class="bg-primary text-white">
+            <w-item to="/_admin/cluster" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-network.svg" />
               </w-item-section>
@@ -349,7 +341,7 @@
                   :class="countBadgeClass(adminStore.info.clusterTotal)" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/mail" active-class="bg-primary text-white">
+            <w-item to="/_admin/mail" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-message-settings.svg" />
               </w-item-section>
@@ -360,7 +352,7 @@
                   :pulse="!adminStore.info.isMailConfigured" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/metrics" active-class="bg-primary text-white">
+            <w-item to="/_admin/metrics" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-graph.svg" />
               </w-item-section>
@@ -369,7 +361,7 @@
                 <status-light :color="adminStore.info.isMetricsEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/pageviews" active-class="bg-primary text-white">
+            <w-item to="/_admin/pageviews" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-live.svg" />
               </w-item-section>
@@ -379,7 +371,7 @@
                   :color="adminStore.info.isPageviewsEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/replication" active-class="bg-primary text-white">
+            <w-item to="/_admin/replication" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/ultraviolet-synchronize.svg" />
               </w-item-section>
@@ -389,7 +381,7 @@
                   :color="adminStore.info.isReplicationEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/scheduler" active-class="bg-primary text-white">
+            <w-item to="/_admin/scheduler" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bot.svg" />
               </w-item-section>
@@ -400,19 +392,19 @@
                   :pulse="!adminStore.info.isSchedulerHealthy" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/search" active-class="bg-primary text-white">
+            <w-item to="/_admin/search" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.search.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/security" active-class="bg-primary text-white">
+            <w-item to="/_admin/security" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-protect.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.security.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/system" active-class="bg-primary text-white">
+            <w-item to="/_admin/system" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-processor.svg" />
               </w-item-section>
@@ -421,19 +413,19 @@
                 <status-light :color="adminStore.isVersionLatest ? `positive` : `warning`" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/terminal" active-class="bg-primary text-white">
+            <w-item to="/_admin/terminal" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-linux-terminal.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.terminal.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/utilities" active-class="bg-primary text-white">
+            <w-item to="/_admin/utilities" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-swiss-army-knife.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.utilities.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/webhooks" active-class="bg-primary text-white">
+            <w-item to="/_admin/webhooks" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-lightning-bolt.svg" />
               </w-item-section>
@@ -445,7 +437,7 @@
                   :class="countBadgeClass(adminStore.info.webhooksTotal)" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/flags" active-class="bg-primary text-white">
+            <w-item to="/_admin/flags" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-windsock.svg" />
               </w-item-section>
@@ -784,24 +776,97 @@ onMounted(async () => {
 <style lang="scss">
 @use 'sass:color';
 
+/*
+  The admin header: a white plate ruled off from the page, matching the site header. The black bar
+  it replaces was the one place in the app that carried its own colour rather than the site's, and
+  on Cardinal there is nothing left for it to contrast against.
+*/
+.admin-header {
+  background-color: $surface;
+  color: $ink;
+  border-bottom: 1px solid $hairline;
+}
+
+.body--dark .admin-header {
+  background-color: $dark-3;
+  color: $text-dark;
+  border-bottom-color: $hairline-dark;
+}
+
+/* -> The wordmark, set exactly as the site header sets its own */
+.admin-wordmark {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* -> "Admin area", in Cardinal's chrome overline */
+.admin-area-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: $text-caption;
+  white-space: nowrap;
+}
+
+.body--dark .admin-area-label {
+  color: $text-caption-dark;
+}
+
 .admin-nav {
   height: 100%;
 }
 .admin-icon {
   height: 64px;
 }
+
+/*
+  The admin sidebar is drawn on INK in both themes -- it is the one column in the app that always is,
+  and the design keeps it that way: a white header plate over a dark index, which is what tells you
+  at a glance that you are behind the scenes rather than in the wiki.
+*/
 .admin-sidebar {
-  @at-root .body--light & {
-    background-color: $dark-4;
-  }
+  background-color: $ink;
+  border-inline-end: 1px solid $hairline-dark;
+
   @at-root .body--dark & {
     background-color: $dark-5;
   }
 
-  // -> Nav rows are a 24px icon and its label, so the avatar column's 56px track centres the icon
+  .admin-nav-list {
+    color: $slate-pale;
+  }
+
+  /*
+    The current page: the raised tone with a 2px accent bar down its leading edge and its icon in the
+    lightened accent -- the same "you are here" mark the site sidebar, the overlays' rails and the
+    file list all use. It replaces a solid `bg-primary` fill, which on a red accent made the whole row
+    shout louder than the page it points at.
+
+    A border rather than a background stripe, so it takes its 2px out of the row's own inline padding
+    -- which is why the padding is given back below.
+  */
+  .admin-nav-active {
+    background-color: $dark-2;
+    border-inline-start: 2px solid $accent-fill;
+    color: #fff;
+    font-weight: 500;
+
+    .w-icon,
+    iconify-icon {
+      color: $accent-dark;
+    }
+  }
+
+  /* -> Nav rows are a 24px icon and its label, so the avatar column's 56px track centres the icon
   //    and leaves the pair reading as two columns rather than one item. Sizing the column to the
   //    icon leaves the section's own 16px as the whole gap. Needs the extra `.w-list` to outrank
-  //    WItemSection's scoped rule, which matches on specificity alone.
+  //    WItemSection's scoped rule, which matches on specificity alone. */
   .w-list .w-item-section--avatar {
     min-width: auto;
   }
@@ -828,38 +893,82 @@ onMounted(async () => {
   }
 
   /*
-    `$negative` / `$positive` rather than the `--color-*` custom properties, because these have to
-    match the status lights beside them exactly and StatusLight styles itself from the SCSS
+    `$negative-fill` / `$positive-fill` rather than the `--color-*` custom properties, because these
+    have to match the status lights beside them exactly and StatusLight styles itself from the SCSS
     variables -- the custom properties resolve through `--q-*`, which is rewritten at runtime for
-    per-site theming and would drift away from the lights on any site that sets its own colours.
+    per-site theming and would drift away from the lights on any site that sets its own colours. The
+    FILL tone of each, for the same reason StatusLight uses it: nothing is drawn over these bars.
   */
   // -> 5px is StatusLight's own width, so the stripe on a badge and the light on the row below it
   //    are the same bar of colour rather than two thicknesses of it
   .count-badge {
-    border-inline-end: 5px solid $negative;
+    border-inline-end: 5px solid $negative-fill;
 
     &--filled {
-      border-inline-end-color: $positive;
+      border-inline-end-color: $positive-fill;
     }
   }
 
-  // -> The section headings between nav groups; the double shadow is the divider above them
+  /* -> The section headings between nav groups, in Cardinal's chrome overline, with one hairline
+  //    above them rather than the two-tone bevel the double box-shadow drew */
+  .admin-nav-section,
   .w-item-label--header {
-    box-shadow:
-      0 -1px 0 0 rgba(255, 255, 255, 0.15),
-      0 -2px 0 0 color.adjust($dark-6, $lightness: -1%);
-    padding-top: 16px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid $hairline-dark;
+    color: $text-caption-dark;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
   }
 }
+
+/*
+  Every admin page's own title row, shared by all 37 of them rather than restated per page.
+
+  Cardinal sets a page title in Barlow Condensed at 34/700 in INK -- the display face, at the size
+  the masthead uses, and not in the brand colour: `text-h5 text-primary` made every admin screen open
+  with a 24px red heading, which is the accent doing a heading's job. The accent is reserved for the
+  live edge, and a page title is not one.
+
+  Unscoped, in the admin layout's own stylesheet, because these classes are written in 37 page
+  components and one declaration is what keeps them in step.
+*/
+.admin-page-title {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: normal;
+  color: $ink;
+}
+
+.body--dark .admin-page-title {
+  color: $text-dark;
+}
+
+.admin-page-subtitle {
+  font-size: 14.5px;
+  line-height: 1.45;
+  letter-spacing: normal;
+  color: $text-secondary;
+}
+
+.body--dark .admin-page-subtitle {
+  color: $text-secondary-dark;
+}
+
 // -> No `.w-card` rule here: WCard already paints its own surface with these exact colours, and an
 //    unlayered rule in an SFC stylesheet outranks every Tailwind utility however specific, so this
 //    restatement did nothing except stop the admin pages tinting a card with `bg-negative` / `bg-info`
 .admin-container {
   @at-root .body--light & {
-    background-color: $grey-1;
+    background-color: $paper;
   }
   @at-root .body--dark & {
-    background-color: $dark-4;
+    background-color: $dark-5;
   }
 }
 
@@ -882,16 +991,18 @@ onMounted(async () => {
       padding: 0;
     }
 
-    // -> The radius is WDialog's, and the panel clips to it there; this only adds the depth and the
-    //    title-bar strip an overlay wants on top of it
+    // -> A flat panel with a hairline edge, matching `.main-overlay`'s; see MainLayout for why the
+    //    gradient title strip both of them used to draw is gone
     > .w-dialog-panel {
-      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
 
       @at-root .body--light & {
-        background-image: linear-gradient(to bottom, $dark-5 10px, $grey-3 11px, $grey-4);
+        background-color: $paper;
+        border: 1px solid $hairline;
       }
       @at-root .body--dark & {
-        background-image: linear-gradient(to bottom, $dark-4 10px, $dark-4 11px, $dark-3);
+        background-color: $dark-5;
+        border: 1px solid $hairline-dark;
       }
     }
   }

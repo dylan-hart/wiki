@@ -8,8 +8,8 @@
           class="admin-icon admin-icons-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.icons.subtitle') }}
         </div>
       </div>

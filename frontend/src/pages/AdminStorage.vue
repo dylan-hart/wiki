@@ -8,8 +8,8 @@
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
-        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
-        <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
+        <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
+        <div class="admin-page-subtitle animated fadeInLeft wait-p2s">
           {{ t('admin.storage.subtitle') }}
         </div>
       </div>
@@ -31,10 +31,10 @@
           ]" />
         <w-separator class="me-4" vertical />
         <w-btn
-          class="me-2 acrylic-btn"
+          class="me-2"
           icon="la:question-circle"
-          flat
-          color="grey"
+          outline
+          color="slate-soft"
           :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/storage`"
           target="_blank">
@@ -44,7 +44,7 @@
           unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
-          color="secondary"
+          color="slate"
           @click="save()"
           :loading="state.loading > 0" />
       </div>
