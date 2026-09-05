@@ -206,6 +206,56 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  /**
+   * FALLBACK ACCOUNTS REPORT
+   *
+   * Every migrated provider-fallback account still on `mustChangePwd`, with its original 2.x
+   * `providerKey` — replaces the raw SQL query `docs/migration/migration-runbook.md`'s Step 3 used
+   * to send an administrator to run by hand.
+   */
+  app.get(
+    '/fallback-accounts',
+    {
+      config: {
+        permissions: ['read:users', 'manage:users']
+      },
+      schema: {
+        summary: 'List migrated provider-fallback accounts pending a password reset',
+        description:
+          'Every account the migration importer created through the local strategy in place of a provider it could not link (`migratedFallbackProvider`) that has not yet relinked via SSO (`mustChangePwd` still `true`). Oldest-created first.',
+        tags: ['Users'],
+        response: {
+          200: {
+            description: 'The pending fallback accounts',
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                name: { type: 'string' },
+                email: { type: 'string' },
+                providerKey: {
+                  type: 'string',
+                  description: 'The original 2.x providerKey this account was migrated from.'
+                },
+                createdAt: {
+                  type: 'string',
+                  format: 'date-time',
+                  description: 'RFC 3339 Date Time'
+                }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      return WIKI.models.users.getFallbackAccounts()
+    }
+  )
+
   app.get(
     '/whoami',
     {

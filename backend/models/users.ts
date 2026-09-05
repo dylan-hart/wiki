@@ -49,6 +49,21 @@ export interface RecentLogin {
   lastLoginAt: Date | null
 }
 
+/**
+ * A migrated provider-fallback account still waiting on its password reset — all
+ * `getFallbackAccounts()` discloses. `providerKey` is the original 2.x `providerKey` verbatim
+ * (`'google'`, `'ldap'`, a legacy CAS key, …), preserved by
+ * `migration/importers/users-groups.ts#createProviderFallbackUserConverter` purely for this kind of
+ * admin visibility — see that function's doc comment.
+ */
+export interface FallbackAccount {
+  id: string
+  name: string
+  email: string
+  providerKey: string
+  createdAt: Date
+}
+
 /** The subset of user fields that may be modified. `isSystem` is deliberately absent. */
 export interface UserPatch {
   name?: string
@@ -261,6 +276,46 @@ class Users {
       .where(and(isNotNull(usersTable.lastLoginAt), eq(usersTable.isSystem, false)))
       .orderBy(desc(usersTable.lastLoginAt))
       .limit(limit)
+  }
+
+  /**
+   * Fetch every migrated provider-fallback account that has not yet relinked via SSO — the report
+   * `docs/migration/migration-runbook.md`'s Step 3 used to send an administrator to run by hand
+   * directly against Postgres.
+   *
+   * Gated on the SAME two conditions `models/login.ts#clearMigratedFallbackLocalAuth` clears
+   * together: the local-strategy auth entry's `mustChangePwd` AND `migratedFallbackProvider` both
+   * present. `mustChangePwd` alone would also catch a genuine local account an administrator forced
+   * a password reset on; `migratedFallbackProvider` alone cannot occur without `mustChangePwd` (only
+   * `createProviderFallbackUserConverter` ever writes it, always alongside `mustChangePwd: true`),
+   * but requiring both keeps this query's intent legible on its own without relying on that
+   * invariant holding forever.
+   *
+   * Reads `auth` by its JSONB path directly rather than through `describeLinkedProviders()`
+   * (`getUserDetail()`'s helper): that reshapes the CURRENT session's provider list for a single
+   * user, and has no "which users" filter to give it — this is the reverse question, asked across
+   * every account at once.
+   *
+   * @returns Every pending fallback account, oldest-created first (the accounts that have been
+   *   waiting on a reset the longest surface first)
+   */
+  async getFallbackAccounts(): Promise<FallbackAccount[]> {
+    const localStrategyId = WIKI.data.systemIds.localAuthId
+    const providerKeyExpr = sql<string>`(${usersTable.auth} -> ${localStrategyId} ->> 'migratedFallbackProvider')`
+
+    return WIKI.db
+      .select({
+        id: usersTable.id,
+        name: usersTable.name,
+        email: usersTable.email,
+        createdAt: usersTable.createdAt,
+        providerKey: providerKeyExpr
+      })
+      .from(usersTable)
+      .where(
+        sql`(${usersTable.auth} -> ${localStrategyId} ->> 'mustChangePwd')::boolean = true AND ${providerKeyExpr} IS NOT NULL`
+      )
+      .orderBy(usersTable.createdAt)
   }
 
   /**
