@@ -578,6 +578,99 @@ describe('AdminAuth allowed-email-domains field', () => {
   })
 })
 
+/**
+ * OpenProject #2557: warn on the selected strategy's detail panel when it is enabled but shown by no
+ * site's login screen -- covers a strategy created before Task #2556 started defaulting
+ * `isVisible: true` into every existing site, just as much as one switched off everywhere afterward.
+ */
+describe('AdminAuth no-visible-sites warning', () => {
+  const LOCAL_MODULE = {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  }
+  const WARNING_MESSAGES = {
+    admin: {
+      auth: {
+        ...MESSAGES.admin.auth,
+        noVisibleSitesWarning: 'Not shown on any site login screen.'
+      }
+    }
+  }
+
+  async function mountWithStrategy({ isEnabled, isNew = false, visibleSiteCounts = [] }) {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled,
+          isNew,
+          config: {}
+        }
+      ],
+      groups: [],
+      'authentication/strategies/visible-site-counts': visibleSiteCounts
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: WARNING_MESSAGES
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('shows the warning for an enabled strategy with a zero visible-site count', async () => {
+    const wrapper = await mountWithStrategy({ isEnabled: true, visibleSiteCounts: [] })
+
+    expect(wrapper.text()).toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('shows the warning for an enabled strategy explicitly counted at zero', async () => {
+    const wrapper = await mountWithStrategy({
+      isEnabled: true,
+      visibleSiteCounts: [{ id: 's-local', visibleSiteCount: 0 }]
+    })
+
+    expect(wrapper.text()).toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('says nothing once at least one site shows the strategy', async () => {
+    const wrapper = await mountWithStrategy({
+      isEnabled: true,
+      visibleSiteCounts: [{ id: 's-local', visibleSiteCount: 1 }]
+    })
+
+    expect(wrapper.text()).not.toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('says nothing for a disabled strategy, regardless of its visible-site count', async () => {
+    const wrapper = await mountWithStrategy({ isEnabled: false, visibleSiteCounts: [] })
+
+    expect(wrapper.text()).not.toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+
+  it('says nothing for a brand-new, not-yet-saved strategy even though it has no site referencing it', async () => {
+    const wrapper = await mountWithStrategy({ isEnabled: true, isNew: true, visibleSiteCounts: [] })
+
+    expect(wrapper.text()).not.toContain('Not shown on any site login screen.')
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminAuth configured-strategy list', () => {
   it("renders each active strategy's icon from its resolved module, keyed by module key", async () => {
     const activeStrategies = [

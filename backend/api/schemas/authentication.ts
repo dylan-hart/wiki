@@ -230,6 +230,28 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * AUTH VISIBLE SITE COUNTS - How many sites currently show each configured strategy on their login
+   * screen (OpenProject #2557) -- a strategy id absent from the list has a count of zero.
+   */
+  app.addSchema({
+    $id: 'AuthVisibleSiteCounts',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          format: 'uuid'
+        },
+        visibleSiteCount: {
+          type: 'integer',
+          description: 'Number of sites whose login screen currently shows this strategy.'
+        }
+      }
+    }
+  })
+
+  /**
    * AUTH STRATEGY INPUT - Used both ways: to create a strategy, and as a partial update
    */
   app.addSchema({

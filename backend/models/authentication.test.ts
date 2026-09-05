@@ -1,8 +1,9 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
+import { eq } from 'drizzle-orm'
 import { authentication } from './authentication.ts'
-import { groups as groupsTable } from '../db/schema.ts'
+import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
 /**
@@ -397,3 +398,73 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2557: `AdminAuth.vue` warns when an enabled strategy is not shown on any site's login
+ * screen. `getVisibleSiteCounts()` is the read behind that warning -- DB-backed because the point
+ * under test is a real tally across more than one site's stored `config.authStrategies`, not merely
+ * what a stub was called with.
+ */
+describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: Awaited<ReturnType<typeof setupTestDb>>
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+    await authentication.refreshStrategiesFromDisk()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('a strategy no site references at all is absent from the map', async () => {
+    const id = await authentication.createStrategy({ module: 'local' })
+    const counts = await authentication.getVisibleSiteCounts()
+    assert.equal(counts[id], undefined)
+  })
+
+  test('counts only entries marked isVisible, across every site, and ignores an unreferenced id', async () => {
+    const visibleEverywhereId = await authentication.createStrategy({ module: 'local' })
+    const invisibleEverywhereId = await authentication.createStrategy({ module: 'local' })
+    const visibleOnOneOfTwoId = await authentication.createStrategy({ module: 'local' })
+
+    // -> The fixture's own seeded site: visible for two of the three, and carries an isVisible:
+    //    false entry for the third -- the exact fallback shape `api/auth/site.ts` reads.
+    await WIKI.models.sites.updateSite(fixtures.siteId, {
+      config: {
+        authStrategies: [
+          { id: visibleEverywhereId, order: 0, isVisible: true },
+          { id: invisibleEverywhereId, order: 1, isVisible: false },
+          { id: visibleOnOneOfTwoId, order: 2, isVisible: true }
+        ]
+      }
+    })
+
+    // -> A second site: visible for the first strategy again (count should reach 2), invisible for
+    //    the third (count should stay 1), and never references the second at all.
+    const [secondSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'second-site.localhost',
+        isEnabled: true,
+        config: {
+          authStrategies: [
+            { id: visibleEverywhereId, order: 0, isVisible: true },
+            { id: visibleOnOneOfTwoId, order: 1, isVisible: false }
+          ]
+        }
+      })
+      .returning({ id: sitesTable.id })
+
+    const counts = await authentication.getVisibleSiteCounts()
+
+    assert.equal(counts[visibleEverywhereId], 2)
+    assert.equal(counts[invisibleEverywhereId], undefined)
+    assert.equal(counts[visibleOnOneOfTwoId], 1)
+
+    // -> Cleanup so this test's second site does not bleed into the next test's own counts within
+    //    the same suite (one shared schema across the whole describe, not one per test).
+    await fixtures.db.delete(sitesTable).where(eq(sitesTable.id, secondSite!.id))
+  })
+})

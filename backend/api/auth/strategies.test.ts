@@ -202,6 +202,84 @@ describe('GET /authentication/synced-groups (none of the four allowed permission
 })
 
 /**
+ * OpenProject #2557: `AdminAuth.vue` warns when an enabled strategy is shown by no site's login
+ * screen. Unlike `/authentication/synced-groups` above, this one carries `manage:system` like the
+ * rest of this file -- it is fetched alongside the masked strategy list the admin screen already
+ * requires that permission for, and names strategy ids with no display-facing secret of their own.
+ */
+describe('GET /authentication/strategies/visible-site-counts', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    wikiHandle = installTestWiki({
+      models: {
+        authentication: {
+          getVisibleSiteCounts: async () => ({ 'strategy-1': 2, 'strategy-2': 0 })
+        }
+      }
+    })
+
+    app = await buildTestApp({
+      routes: authenticationRoutes,
+      permissions: true,
+      session: { authenticated: true, permissions: ['manage:system'], groups: [] }
+    })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  test("turns the model's id -> count map into an array of {id, visibleSiteCount}", async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/authentication/strategies/visible-site-counts'
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), [
+      { id: 'strategy-1', visibleSiteCount: 2 },
+      { id: 'strategy-2', visibleSiteCount: 0 }
+    ])
+  })
+})
+
+describe('GET /authentication/strategies/visible-site-counts (no manage:system)', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    wikiHandle = installTestWiki({
+      models: {
+        authentication: {
+          getVisibleSiteCounts: async () => {
+            throw new Error('should not be called')
+          }
+        }
+      }
+    })
+
+    app = await buildTestApp({
+      routes: authenticationRoutes,
+      permissions: true,
+      session: { authenticated: true, permissions: ['read:pages'], groups: [] }
+    })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  test('is refused 403', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/authentication/strategies/visible-site-counts'
+    })
+    assert.equal(res.statusCode, 403)
+  })
+})
+
+/**
  * OpenProject #2469: `allowedEmailDomains` is a per-strategy config field (a friendlier alternative
  * to `allowedEmailRegex`), wired through the same create/update routes as every other strategy
  * field. DB-backed against the real route + model, same pattern as the `auth.strategyUpdated`

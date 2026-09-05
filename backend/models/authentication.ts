@@ -324,6 +324,33 @@ class Authentication {
   }
 
   /**
+   * How many sites currently show each configured strategy on their login screen — i.e. carry
+   * `isVisible: true` for it in that site's `config.authStrategies` (the same shape, and the same
+   * `siteStr.isVisible ?? false` fallback, `api/auth/site.ts`'s public strategy listing already reads).
+   * Read-only: it never writes a default `isVisible` into a site the way Task #2556's
+   * strategy-creation-time seeding does, so it also covers a strategy that predates that default —
+   * one whose visibility was switched off on every site well after it was created.
+   *
+   * A strategy id no site currently marks visible — including one no site has ever referenced at all —
+   * is simply absent from the returned map, which a caller reads as a zero count.
+   */
+  async getVisibleSiteCounts(): Promise<Record<string, number>> {
+    const counts: Record<string, number> = {}
+    for (const site of await WIKI.models.sites.getAllSites()) {
+      const configured = ((site.config as Record<string, any>)?.authStrategies ?? []) as Array<{
+        id: string
+        isVisible?: boolean
+      }>
+      for (const entry of configured) {
+        if (entry.isVisible) {
+          counts[entry.id] = (counts[entry.id] ?? 0) + 1
+        }
+      }
+    }
+    return counts
+  }
+
+  /**
    * Merge incoming config values onto the ones already stored, keeping only what the module declares
    * — see `helpers/moduleRegistry.ts#mergeModuleConfig`.
    */
