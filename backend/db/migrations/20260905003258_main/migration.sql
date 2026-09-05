@@ -77,6 +77,7 @@ CREATE TABLE "authentication" (
 	"selfRegistration" boolean DEFAULT false NOT NULL,
 	"autoProvision" boolean DEFAULT false NOT NULL,
 	"allowedEmailRegex" varchar(255) DEFAULT '' NOT NULL,
+	"allowedEmailDomains" text[] DEFAULT ARRAY[]::text[] NOT NULL,
 	"autoEnrollGroups" uuid[] DEFAULT '{}'::uuid[],
 	"trustEmailForLinking" boolean DEFAULT false NOT NULL,
 	"mappableGroups" uuid[] DEFAULT '{}'::uuid[]
@@ -174,6 +175,13 @@ CREATE TABLE "contentSyncState" (
 	"lastError" text,
 	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
 	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "eventSubscriptions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"userId" uuid NOT NULL,
+	"event" varchar(64) NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "glossaryTerms" (
@@ -317,6 +325,15 @@ CREATE TABLE "navigation" (
 	"mode" "treeNavigationSource" DEFAULT 'static'::"treeNavigationSource" NOT NULL,
 	"locale" varchar(255),
 	"siteId" uuid NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "pageDrafts" (
+	"pageId" uuid PRIMARY KEY,
+	"siteId" uuid NOT NULL,
+	"state" bytea NOT NULL,
+	"authorId" uuid,
+	"authorName" varchar(255),
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "pageEditSubmissionApprovals" (
@@ -583,6 +600,8 @@ CREATE INDEX "comments_authorId_idx" ON "comments" ("authorId");--> statement-br
 CREATE INDEX "comments_replyTo_idx" ON "comments" ("replyTo");--> statement-breakpoint
 CREATE UNIQUE INDEX "contentSyncState_target_content_idx" ON "contentSyncState" ("targetId","contentType","contentId");--> statement-breakpoint
 CREATE INDEX "contentSyncState_content_idx" ON "contentSyncState" ("contentType","contentId");--> statement-breakpoint
+CREATE INDEX "eventSubscriptions_event_idx" ON "eventSubscriptions" ("event");--> statement-breakpoint
+CREATE UNIQUE INDEX "eventSubscriptions_user_event_idx" ON "eventSubscriptions" ("userId","event");--> statement-breakpoint
 CREATE UNIQUE INDEX "glossaryTerms_composite_idx" ON "glossaryTerms" ("siteId",lower("term"));--> statement-breakpoint
 CREATE INDEX "glossaryVersions_siteId_createdAt_idx" ON "glossaryVersions" ("siteId","createdAt");--> statement-breakpoint
 CREATE INDEX "hooks_siteId_idx" ON "hooks" ("siteId");--> statement-breakpoint
@@ -592,6 +611,7 @@ CREATE UNIQUE INDEX "jobSchedule_task_idx" ON "jobSchedule" ("task");--> stateme
 CREATE INDEX "jobs_waitUntil_createdAt_idx" ON "jobs" ("waitUntil","createdAt");--> statement-breakpoint
 CREATE INDEX "locales_language_idx" ON "locales" ("language");--> statement-breakpoint
 CREATE UNIQUE INDEX "navigation_siteId_locale_idx" ON "navigation" ("siteId","locale");--> statement-breakpoint
+CREATE INDEX "pageDrafts_updatedAt_idx" ON "pageDrafts" ("updatedAt");--> statement-breakpoint
 CREATE UNIQUE INDEX "pageEditSubmissionApprovals_submission_reviewer_idx" ON "pageEditSubmissionApprovals" ("submissionId","reviewerId");--> statement-breakpoint
 CREATE INDEX "pageEditSubmissions_pageId_idx" ON "pageEditSubmissions" ("pageId");--> statement-breakpoint
 CREATE INDEX "pageEditSubmissions_siteId_idx" ON "pageEditSubmissions" ("siteId");--> statement-breakpoint
@@ -659,6 +679,7 @@ ALTER TABLE "comments" ADD CONSTRAINT "comments_siteId_sites_id_fkey" FOREIGN KE
 ALTER TABLE "comments" ADD CONSTRAINT "comments_authorId_users_id_fkey" FOREIGN KEY ("authorId") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "comments" ADD CONSTRAINT "comments_replyTo_comments_id_fkey" FOREIGN KEY ("replyTo") REFERENCES "comments"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "contentSyncState" ADD CONSTRAINT "contentSyncState_targetId_storage_id_fkey" FOREIGN KEY ("targetId") REFERENCES "storage"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "eventSubscriptions" ADD CONSTRAINT "eventSubscriptions_userId_users_id_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "glossaryTerms" ADD CONSTRAINT "glossaryTerms_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
 ALTER TABLE "glossaryTerms" ADD CONSTRAINT "glossaryTerms_pageId_pages_id_fkey" FOREIGN KEY ("pageId") REFERENCES "pages"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "glossaryVersions" ADD CONSTRAINT "glossaryVersions_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
@@ -666,6 +687,9 @@ ALTER TABLE "glossaryVersions" ADD CONSTRAINT "glossaryVersions_actorId_users_id
 ALTER TABLE "hooks" ADD CONSTRAINT "hooks_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "icons" ADD CONSTRAINT "icons_prefix_iconSets_prefix_fkey" FOREIGN KEY ("prefix") REFERENCES "iconSets"("prefix");--> statement-breakpoint
 ALTER TABLE "navigation" ADD CONSTRAINT "navigation_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
+ALTER TABLE "pageDrafts" ADD CONSTRAINT "pageDrafts_pageId_pages_id_fkey" FOREIGN KEY ("pageId") REFERENCES "pages"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "pageDrafts" ADD CONSTRAINT "pageDrafts_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id");--> statement-breakpoint
+ALTER TABLE "pageDrafts" ADD CONSTRAINT "pageDrafts_authorId_users_id_fkey" FOREIGN KEY ("authorId") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "pageEditSubmissionApprovals" ADD CONSTRAINT "pageEditSubmissionApprovals_dRAFOzuOik4S_fkey" FOREIGN KEY ("submissionId") REFERENCES "pageEditSubmissions"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageEditSubmissionApprovals" ADD CONSTRAINT "pageEditSubmissionApprovals_reviewerId_users_id_fkey" FOREIGN KEY ("reviewerId") REFERENCES "users"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "pageEditSubmissions" ADD CONSTRAINT "pageEditSubmissions_resolvedBy_users_id_fkey" FOREIGN KEY ("resolvedBy") REFERENCES "users"("id") ON DELETE SET NULL;--> statement-breakpoint

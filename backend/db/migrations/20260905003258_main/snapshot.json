@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "52e12b7d-cb68-44b9-8ab4-0e5e36757cf1",
+  "id": "3ede426d-eeb4-4902-af01-93cee1ed3e4e",
   "prevIds": [
-    "dfbabc6c-1a2c-4887-91e0-360c1aed2218"
+    "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
@@ -188,6 +188,12 @@
     {
       "isRlsEnabled": false,
       "name": "contentSyncState",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "eventSubscriptions",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1118,6 +1124,19 @@
       "table": "authentication"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "ARRAY[]",
+      "generated": null,
+      "identity": null,
+      "name": "allowedEmailDomains",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "authentication"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": false,
@@ -2026,6 +2045,58 @@
       "entityType": "columns",
       "schema": "public",
       "table": "contentSyncState"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "eventSubscriptions"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "userId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "eventSubscriptions"
+    },
+    {
+      "type": "varchar(64)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "event",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "eventSubscriptions"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "createdAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "eventSubscriptions"
     },
     {
       "type": "uuid",
@@ -3440,6 +3511,32 @@
       "generated": null,
       "identity": null,
       "name": "state",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageDrafts"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "authorId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageDrafts"
+    },
+    {
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "authorName",
       "entityType": "columns",
       "schema": "public",
       "table": "pageDrafts"
@@ -6368,6 +6465,55 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "event",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "eventSubscriptions_event_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "eventSubscriptions"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "userId",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "event",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "eventSubscriptions_user_event_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "eventSubscriptions"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "siteId",
           "isExpression": false,
           "asc": true,
@@ -8123,6 +8269,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "userId"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "eventSubscriptions_userId_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "eventSubscriptions"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "siteId"
       ],
       "schemaTo": "public",
@@ -8269,6 +8432,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "pageDrafts_siteId_sites_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "pageDrafts"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "authorId"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "pageDrafts_authorId_users_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "pageDrafts"
@@ -9022,6 +9202,16 @@
       "name": "contentSyncState_pkey",
       "schema": "public",
       "table": "contentSyncState",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "eventSubscriptions_pkey",
+      "schema": "public",
+      "table": "eventSubscriptions",
       "entityType": "pks"
     },
     {

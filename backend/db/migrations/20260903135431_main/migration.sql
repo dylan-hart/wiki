@@ -1,1 +1,0 @@
-ALTER TABLE "authentication" ADD COLUMN "allowedEmailDomains" text[] DEFAULT ARRAY[]::text[] NOT NULL;
