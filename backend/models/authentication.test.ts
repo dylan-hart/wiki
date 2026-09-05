@@ -397,3 +397,69 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2556: a newly created strategy is invisible on every site until an admin visits that
+ * site's Login settings and turns it on -- because an absent per-site entry falls back to
+ * `isVisible: false` (`api/auth/site.ts`). `createStrategy()` now upserts `isVisible: true` into every
+ * existing site's `config.authStrategies` at creation time, mirroring how a fresh site already seeds
+ * `local` as visible (`models/sites.ts#createSite`).
+ */
+describe(
+  'authentication.createStrategy: seeds isVisible: true on every existing site (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtureSiteId: string
+
+    before(async () => {
+      const fixtures = await setupTestDb()
+      fixtureSiteId = fixtures.siteId
+      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      await authentication.refreshStrategiesFromDisk()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('appends the new strategy as visible to a site with no authStrategies configured yet', async () => {
+      const id = await authentication.createStrategy({ module: 'local' })
+
+      const site = await WIKI.models.sites.getSiteById({ id: fixtureSiteId })
+      const entry = (site!.config as any).authStrategies.find((s: any) => s.id === id)
+      assert.ok(entry, 'the new strategy should have an entry in the site config')
+      assert.equal(entry.isVisible, true)
+    })
+
+    test('appends without disturbing an existing entry, and both sites gain the new strategy', async () => {
+      const secondSite = await WIKI.models.sites.createSite('second-strategy-site.localhost')
+
+      const id = await authentication.createStrategy({ module: 'local' })
+
+      const firstSite = await WIKI.models.sites.getSiteById({ id: fixtureSiteId })
+      const firstEntries = (firstSite!.config as any).authStrategies as Array<{
+        id: string
+        order: number
+        isVisible: boolean
+      }>
+      // -> The seed's own local strategy entry (from the earlier createSite default, or the previous
+      //    test's strategy) must still be present and untouched alongside the new one.
+      assert.ok(
+        firstEntries.some((s) => s.id !== id),
+        'a pre-existing entry should survive untouched'
+      )
+      const firstNewEntry = firstEntries.find((s) => s.id === id)
+      assert.ok(firstNewEntry)
+      assert.equal(firstNewEntry!.isVisible, true)
+
+      const reloadedSecondSite = await WIKI.models.sites.getSiteById({ id: secondSite.id })
+      const secondEntries = (reloadedSecondSite!.config as any).authStrategies as Array<{
+        id: string
+        isVisible: boolean
+      }>
+      const secondNewEntry = secondEntries.find((s) => s.id === id)
+      assert.ok(secondNewEntry, 'the second site should also have gained the new strategy')
+      assert.equal(secondNewEntry!.isVisible, true)
+    })
+  }
+)
