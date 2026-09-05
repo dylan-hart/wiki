@@ -314,6 +314,22 @@ describe('createProviderFallbackUserConverter', () => {
     assert.match(outcome.providerFallback!.reason, /no 3\.0-native implementation/)
   })
 
+  test('preserves the original providerKey as visibility-only metadata on the local auth entry (Task 2558)', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 11,
+      email: 'saml.user@example.com',
+      name: 'SAML User',
+      providerKey: 'saml'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal(authEntry.migratedFallbackProvider, 'saml')
+  })
+
   test('creates a 3.0-implemented provider (e.g. ldap) account through the local strategy, with an implemented-but-unresolvable reason', async () => {
     const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
 
@@ -1111,6 +1127,20 @@ describe('createLocalUserConverter', () => {
     if (outcome.status !== 'created') return
     const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
     assert.equal(authEntry.password, '$2a$12$fakehash')
+  })
+
+  test('never writes migratedFallbackProvider — a genuine local-provider source user has no foreign providerKey to record (Task 2558)', async () => {
+    const outcome = await convert({
+      email: 'a@b.com',
+      name: 'A',
+      password: '$2a$12$fakehash',
+      providerKey: 'local'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal('migratedFallbackProvider' in authEntry, false)
   })
 
   test('flags a local user with no password hash to carry over, rather than minting one', async () => {

@@ -400,6 +400,17 @@ export interface ProviderFallbackConverterOptions {
  * `ProviderFallbackFlag` entry (source email, source provider, reason) on the outcome, which
  * `createUserImporter()` collects onto `UserImporter.providerFallbacks`.
  *
+ * The local-strategy auth entry this converter writes also carries `migratedFallbackProvider`: the
+ * original 2.x `providerKey` verbatim (`'google'`, `'ldap'`, a legacy CAS key, …), stored purely for
+ * admin visibility — it is NOT used to auto-resolve a strategy (3.0 keys `auth` by strategy-instance
+ * UUID, and a fresh install's same-module strategy, if configured at all, cannot be assumed to share
+ * the source's client id/secret; see the module doc comment above `needsProviderFallback()`). It
+ * exists so an admin reviewing a fallback account later knows which provider the user needs
+ * relinking to, and so a cleanup path can tell "this local auth entry is an orphaned migration
+ * fallback" apart from a genuine local account that happens to have `mustChangePwd: true` for some
+ * other reason. `createLocalUserConverter()` below never writes this field — a real `local`-provider
+ * source user has no foreign `providerKey` to record.
+ *
  * A `local` source user is NOT this converter's job — it returns `flagged` (not `skipped`: the record
  * is real and needs handling, just not by this converter) rather than being silently passed through,
  * so a caller relying solely on this converter still sees every record accounted for.
@@ -443,7 +454,10 @@ export function createProviderFallbackUserConverter(
           restrictLogin: false,
           tfaIsActive: false,
           tfaRequired: false,
-          tfaSecret: ''
+          tfaSecret: '',
+          // -> Admin-visibility metadata only, not a resolvable strategy reference — see this
+          //    function's doc comment above.
+          migratedFallbackProvider: providerKey
         }
       },
       isSystem: false,
