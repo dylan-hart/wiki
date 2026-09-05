@@ -236,6 +236,73 @@ describe(
 )
 
 /**
+ * OpenProject #2555: `PUT /:groupId`'s body schema was tightened (commit `a3a6c799`) to validate
+ * `permissions` items against the closed `GlobalPermission#` enum, but every pre-existing group --
+ * and, until `models/groups.ts` was fixed alongside this test, every FRESH group too -- had
+ * `PAGE_PERMISSIONS` strings (`read:pages`/`read:assets`/`read:comments`) seeded into that column.
+ * The existing "single overridden field" PUT tests above never caught this because they never send
+ * back a full, real group's fetched `permissions` array -- exactly what `GroupEditOverlay.vue`'s
+ * `save()` used to always do. This is that missing full round trip: seed a group through the real
+ * `createGroup()` path, fetch it through the real `GET /:groupId` route, then PUT the exact fetched
+ * body back unchanged and confirm it no longer 400s.
+ */
+describe(
+  'PUT /:groupId — full round-trip of a real seeded group (regression for OpenProject #2555)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let app: FastifyInstance
+    let groupsModel: typeof import('../models/groups.ts').groups
+
+    before(async () => {
+      await setupTestDb()
+      ;({ groups: groupsModel } = await import('../models/groups.ts'))
+      // -> Not the guests group -- `clampGuestPatch` only clamps roles for that one group, and this
+      //    test is about the seeded `permissions` column surviving a full round trip, not the clamp.
+      ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: 'not-this-group' }
+      // -> `PUT /:groupId` reads `WIKI.config.auth.rootAdminGroupId` unconditionally once `patch
+      //    .permissions` is present (even an empty array survives the `if (patch.permissions ...)`
+      //    truthiness check below, since `[]` is truthy) -- `setupTestDb()`'s minimal WIKI leaves
+      //    `config` as `{}`, so this must be set for the round trip below to reach that far rather
+      //    than crashing on `undefined.rootAdminGroupId`.
+      ;(globalThis as any).WIKI.config.auth = { rootAdminGroupId: 'not-this-group-either' }
+
+      app = await buildTestApp({ routes: groupsRoutes, ajv: true })
+    })
+
+    after(async () => {
+      await closeTestApp(app)
+      await teardownTestDb()
+    })
+
+    test('saving a freshly-created group exactly as fetched does not 400', async () => {
+      const groupId = await groupsModel.createGroup('OpenProject 2555 Round Trip Group')
+
+      const getRes = await app.inject({ method: 'GET', url: `/${groupId}` })
+      assert.equal(getRes.statusCode, 200)
+      const fetched = getRes.json()
+
+      // -> Exactly what a fetch-then-resubmit-everything client would send: the whole group as it
+      //    came back, nothing narrowed to only the fields that changed.
+      const putRes = await app.inject({
+        method: 'PUT',
+        url: `/${groupId}`,
+        payload: {
+          name: fetched.name,
+          redirectOnLogin: fetched.redirectOnLogin ?? '',
+          redirectOnFirstLogin: fetched.redirectOnFirstLogin ?? '',
+          redirectOnLogout: fetched.redirectOnLogout ?? '',
+          permissions: fetched.permissions,
+          rules: fetched.rules
+        }
+      })
+
+      assert.equal(putRes.statusCode, 200)
+      assert.equal(putRes.json().ok, true)
+    })
+  }
+)
+
+/**
  * Task 472: verifies `manage:navigation`'s presence on `GET /groups` (line ~58) is exactly as broad as
  * the comment above it claims -- enough to let the navigation editor's group picker name groups by id
  * and name, but NOT enough to read a group's full permissions/rules (`GET /groups/:groupId`, which
