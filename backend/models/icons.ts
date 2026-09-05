@@ -878,12 +878,19 @@ class Icons {
    *
    * Deliberately network-free: the wiki has to install without outbound access, so only the prefix and
    * a name go in, and the metadata is filled in by the first refresh.
+   *
+   * `onConflictDoNothing` because a set here may already be in the table by the time this runs, and a
+   * duplicate prefix must not take first-run seeding down with it: migrations run BEFORE
+   * `initDbValues()`, and `20260905190000_main` seeds `tabler` -- the set the interface itself is
+   * drawn in -- so that an instance created before Tabler existed is offered it too. On a fresh
+   * database that migration and this seed both run, in that order, and both name `tabler`.
    */
   async init(): Promise<void> {
     WIKI.logger.info('Inserting default icon sets...')
     await WIKI.db
       .insert(iconSetsTable)
       .values(DEFAULT_SETS.map((set) => ({ ...set, isEnabled: true })))
+      .onConflictDoNothing()
   }
 }
 

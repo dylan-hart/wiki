@@ -497,8 +497,22 @@ describe(
           .where(eq(jobHistoryTable.id, job!.id))
         assert.match(interrupted!.lastErrorMessage ?? '', /No instance reported on this job/)
 
-        // Attempt 2 (the retry): reclaimed via the SAME jobHistory row — this exercises the ON
-        // CONFLICT DO UPDATE path — and this time the task actually runs to completion.
+        /*
+          Attempt 2 (the retry): reclaimed via the SAME jobHistory row — this exercises the ON
+          CONFLICT DO UPDATE path — and this time the task actually runs to completion.
+
+          `waitUntil` is stamped into the past first rather than left as `reapStaleJobs()` wrote it.
+          That value is Node's `new Date()`, while `processJob()` claims on `"waitUntil" <= NOW()` and
+          postgres's `NOW()` is the CLAIMING TRANSACTION'S START — so a requeued row can be a
+          millisecond or two in that transaction's future and simply not be claimed. In a running
+          instance the next poll picks it up and nothing is lost; here it left the row `interrupted`
+          and failed the assertion below, intermittently and only under load. A definite past instant
+          is what a later poll would see, which is the state this test is actually about.
+        */
+        await fixtures.db
+          .update(jobsTable)
+          .set({ waitUntil: pastDate(1) })
+          .where(eq(jobsTable.id, job!.id))
         await scheduler.processJob()
 
         const [after1] = await fixtures.db
