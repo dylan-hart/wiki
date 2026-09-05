@@ -686,16 +686,17 @@ html.theme-transition-suppress *::after {
     radial wash with two soft rules trailing off beneath it, which was elevation by another name and
     read as decoration rather than as structure.
 
-    Full-bleed inside its container: the negative inline margin is what lets the band run edge to
-    edge in a card that pads its own contents, without every caller having to know to un-pad it.
-    `.w-card` and the side panels all use a 16px inset, which is what the value matches.
+    Full-bleed by NOT having a margin of its own: it runs edge to edge inside whatever box holds it,
+    which for the two commonest cases -- a `WCard` (no padding of its own) and an overlay's content
+    column -- is exactly right. A negative inline margin was tried and is wrong: it assumes every
+    caller pads by the same 16px, and where one does not (the profile overlay's section column) the
+    band slides out under the rail beside it and loses its first character.
   */
   .w-section-header {
     display: flex;
     align-items: center;
     min-height: 34px;
     margin-block-end: 12px;
-    margin-inline: -16px;
     padding: 6px 16px;
     background-color: var(--color-tint);
     border-block-end: 1px solid var(--color-hairline);

@@ -3335,6 +3335,7 @@
   "profile.groupsInfo": "You're currently part of the following groups:",
   "profile.groupsLoadingFailed": "Failed to load groups.",
   "profile.groupsNone": "You're not part of any group.",
+  "profile.identity": "Identity",
   "profile.infoLoadingFailed": "Failed to load your profile.",
   "profile.jobTitle": "Job Title",
   "profile.jobTitleHint": "Your position in your organization; shown on your profile page.",

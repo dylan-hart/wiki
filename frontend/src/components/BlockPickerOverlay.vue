@@ -8,7 +8,7 @@
         <w-btn
           push
           color="white"
-          text-color="grey-7"
+          text-color="text-secondary"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
           icon="la:times"
