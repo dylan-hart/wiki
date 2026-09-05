@@ -48,10 +48,18 @@ export function permissionPreHandler(
     const permissions = req.apiKey
       ? req.apiKey.permissions
       : req.session?.authenticated
-        ? req.session.permissions
+        ? (req.session.permissions ?? [])
         : null
-    // Unauthenticated / No Permissions
-    if (!permissions || permissions.length < 1) {
+    // -> Unauthenticated: no verified key and no authenticated session at all. Distinct from an
+    //    authenticated identity that simply holds NO global permissions (OpenProject #2555's own
+    //    fallout, caught by `e2e/tests/permissions.spec.js`): a Users-group-only account is real and
+    //    genuinely holds an empty global `permissions` list once page access lives entirely in rule
+    //    `roles` rather than being (wrongly) duplicated onto this column -- visiting a
+    //    globally-gated route with that identity must answer 403 Forbidden, not 401 Unauthorized.
+    //    A 401 here trips the frontend's session-expiry interceptor (`boot/api.js`), which patches
+    //    the store back to guest and bounces the reader to `/login` instead of the `/_error/
+    //    unauthorized` screen an authenticated-but-not-permitted visit is supposed to reach.
+    if (!permissions) {
       reply.unauthorized()
       return
     }
