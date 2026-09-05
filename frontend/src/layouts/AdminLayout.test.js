@@ -9,6 +9,7 @@ import AdminLayout from './AdminLayout.vue'
 import { useUserStore } from '@/stores/user'
 import { useDirection } from '@/composables/direction'
 import WMenu from '@/components/shared/WMenu.vue'
+import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
@@ -448,6 +449,29 @@ describe('AdminLayout admin-overlay accessible-name map', () => {
     const source = readFileSync(join(import.meta.dirname, 'AdminLayout.vue'), 'utf-8')
 
     expect(topLevelKeys(source, 'ADMIN_OVERLAY_TITLES')).toEqual(topLevelKeys(source, 'overlays'))
+  })
+})
+
+/**
+ * Regression coverage for OpenProject #2564: `AdminApi.vue`'s personal-token note opens the shared
+ * "Profile" overlay via `siteStore.openOverlay('Profile', { section: 'api' })`, but that overlay is
+ * only ever rendered by `<MainOverlayDialog>` -- which, unlike `MainLayout.vue`
+ * (`frontend/src/layouts/MainLayout.vue:207`), `AdminLayout.vue` never mounted. The click set
+ * `siteStore.overlay`/`overlayOpts` with nothing in the admin view able to render it: a dead click.
+ * This does not overlap `AdminLayout`'s own separate `adminStore.overlay`-driven `<w-dialog>`
+ * (EditorMarkdownConfig/GroupEditOverlay/UserEditOverlay) -- a distinct store field and mechanism.
+ */
+describe('AdminLayout MainOverlayDialog mount (OpenProject #2564)', () => {
+  it('mounts MainOverlayDialog, so a siteStore.openOverlay() call from an admin page has something to render into', async () => {
+    const router = await createTestRouter(['/_admin/:siteid?/:rest*'], '/_admin/site-1/dashboard')
+
+    const { wrapper } = mountWithApp(AdminLayout, {
+      router,
+      stores: { user: { permissions: ['manage:system'] } }
+    })
+    await flushPromises()
+
+    expect(wrapper.findComponent(MainOverlayDialog).exists()).toBe(true)
   })
 })
 
