@@ -140,25 +140,44 @@ export async function openMarkdownEditor(page, { path, title, origin = '', local
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} body
- * @param {{ paste?: boolean, previewWaitText?: string }} [options] `paste` inserts the whole string
+ * @param {{ paste?: boolean, previewWaitText?: string }} [options] `paste` pastes the whole string
  *   at once instead of typing it. `previewWaitText` is what to wait for in the rendered preview,
  *   defaulting to `body` itself.
  */
 export async function typeBody(page, body, { paste = false, previewWaitText = body } = {}) {
   if (paste) {
-    // -> `page.keyboard.type()` sends one real keydown/keyup per character, which is exactly what
-    //    Monaco's per-character auto-closing-bracket/quote logic (its markdown language config
-    //    pairs `{}`, `[]`, `()`, quotes and backticks) watches for. MDC block syntax
-    //    (`::block-x{prop="value"}`) and fenced code blocks are built entirely out of those
-    //    characters, and a naive per-character replay of a body that nests them (an attribute list,
-    //    a run of three backticks) risks a doubled or swallowed character the editor's own
-    //    type-over-the-auto-close heuristic doesn't cleanly cancel out. `keyboard.insertText()`
-    //    instead fires one native `input` event carrying the whole string; Monaco's auto-closing
-    //    special-casing only triggers for a single-character `type` event, so a bulk insert is
-    //    applied literally, the same path a real paste takes. Opt-in, not the default: every
-    //    existing caller keeps typing for real, since that is what an author actually does and
-    //    plain prose has no brackets/backticks for the auto-closing logic to ever misfire on.
-    await page.keyboard.insertText(body)
+    /*
+      `page.keyboard.type()` sends one real keydown/keyup per character, which is exactly what
+      Monaco's per-character auto-closing-bracket/quote logic (its markdown language config pairs
+      `{}`, `[]`, `()`, quotes and backticks) watches for. MDC block syntax
+      (`::block-x{prop="value"}`) and fenced code blocks are built entirely out of those characters,
+      and a naive per-character replay of a body that nests them (an attribute list, a run of three
+      backticks) risks a doubled or swallowed character the editor's own type-over-the-auto-close
+      heuristic doesn't cleanly cancel out.
+
+      A REAL clipboard paste is required, not `page.keyboard.insertText()` -- that was tried first
+      and does NOT take "the same path a real paste takes" as an earlier version of this comment
+      claimed. `insertText` fires a raw DOM `input` event that Monaco's `TextAreaInput` processes
+      through its ordinary typed-input/auto-indent pipeline (`autoIndent: 'full'`, the app's
+      untouched default), not its dedicated clipboard-paste handling. For a multi-line body whose
+      content includes an indented line inside a fenced code block (a YAML block under
+      `block-infobox` in `csp.spec.js`, say), that pipeline's per-newline indent computation
+      mis-fires partway through and re-indents every following line by the same amount, cascading to
+      the end of the document -- confirmed with a standalone repro against the pinned `monaco-editor`
+      build (OpenProject #2588). Once a later `::block-x{...}` line sits at 4+ spaces of leading
+      whitespace, CommonMark/MDC parses it as an indented code block instead of a block opener, so
+      the custom element never renders -- which is exactly what made `block-spoiler` (and everything
+      typed after it) vanish from `csp.spec.js`, while `markdown-it-mdc` itself, given the identical
+      string directly, was already confirmed innocent (OpenProject #2372). A genuine clipboard paste
+      does not go through that mis-firing pipeline at all: confirmed the exact same body round-trips
+      unchanged through a real `navigator.clipboard.writeText()` + paste keystroke, at the same
+      `autoIndent: 'full'` default. Opt-in, not the default: every existing caller keeps typing for
+      real, since that is what an author actually does and plain prose has no brackets/backticks/
+      indentation for either code path to ever misfire on.
+    */
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.evaluate((text) => navigator.clipboard.writeText(text), body)
+    await page.keyboard.press('ControlOrMeta+V')
   } else {
     await page.keyboard.type(body)
   }
