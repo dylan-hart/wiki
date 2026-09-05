@@ -163,7 +163,14 @@ async function makeOrigin(): Promise<{ originPath: string; seedPath: string }> {
 
   const seedPath = await makeTempDir('wiki-git-sync-seed-')
   const seed = simpleGit(seedPath)
-  await seed.init()
+  // -> OpenProject #2586: this suite always pushes/pulls a branch literally named `main` — a
+  //    bare `init()` instead defers to the git binary's own compiled-in default (still `master`
+  //    absent an `init.defaultBranch` override), which is not guaranteed to match across
+  //    machines/CI images. Naming it explicitly here is what makes every later
+  //    `push('origin', 'main')` / `pull('origin', 'main')` in this file environment-independent,
+  //    the same way `repo.ts#ensureBranch` already pins an unborn HEAD rather than trusting the
+  //    ambient default.
+  await seed.init(false, ['--initial-branch=main'])
   await seed.addConfig('user.name', 'Seed')
   await seed.addConfig('user.email', 'seed@example.com')
   await fs.writeFile(path.join(seedPath, '.keep'), '')
@@ -186,6 +193,42 @@ async function makePeer(
   await peer.addConfig('user.email', 'peer@example.com')
   return { peerPath, peer }
 }
+
+describe('git storage: sync test fixtures', () => {
+  test(
+    "makeOrigin's seed repo ends up on `main` even when the git binary's own default init " +
+      'branch is something else (OpenProject #2586 — CI failed here because the suite assumed ' +
+      '`main` while relying on an unspecified ambient default)',
+    async () => {
+      const originPath = await makeTempDir('wiki-git-sync-origin-')
+      await simpleGit(originPath).init(true)
+
+      const seedPath = await makeTempDir('wiki-git-sync-seed-')
+      // -> Hijack the ambient default init branch away from `main`, for this repo's own git
+      //    invocations only (via env-injected config, not a file anything else could read) — this
+      //    is what a CI runner's git looks like from this suite's point of view if its compiled-in
+      //    default (or lack of an `init.defaultBranch` override) ever differs from this machine's.
+      const seed = simpleGit(seedPath, { unsafe: { allowUnsafeConfigEnvCount: true } }).env({
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'init.defaultBranch',
+        GIT_CONFIG_VALUE_0: 'trunk'
+      })
+      await seed.init(false, ['--initial-branch=main'])
+      await seed.addConfig('user.name', 'Seed')
+      await seed.addConfig('user.email', 'seed@example.com')
+      await fs.writeFile(path.join(seedPath, '.keep'), '')
+      await seed.add('.keep')
+      await seed.commit('initial')
+      await seed.addRemote('origin', originPath)
+      // -> The assertion that actually matters: this must not reject with "src refspec main does
+      //    not match any" the way it would without the explicit `--initial-branch` flag.
+      await seed.push('origin', 'main')
+
+      const branch = (await seed.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
+      assert.equal(branch, 'main')
+    }
+  )
+})
 
 describe('git storage: parseRenamedPaths', () => {
   test('a plain, unrenamed path matches neither half of the pattern', () => {
