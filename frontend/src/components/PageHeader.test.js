@@ -75,6 +75,30 @@ describe('PageHeader heading semantics', () => {
   })
 })
 
+/**
+ * Feature #2574/#2578: the reading-mode heading is a deliberate override of `pageStore.title` when
+ * the site's path-display setting is on -- not a fallback for a page with no title, which is why
+ * the humanized segment wins even though `title` below is set to something else entirely.
+ */
+describe('PageHeader path-display heading (Feature #2574)', () => {
+  it('renders pageStore.title unchanged when the setting is off', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({ path: 'uss-enterprise', title: 'Server Title' })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('h1.page-header-title').text()).toBe('Server Title')
+  })
+
+  it('overrides the title with the humanized last path segment when the setting is on', async () => {
+    const wrapper = await mountHeader()
+    useSiteStore().$patch({ pathDisplayCase: 'title', acronymMap: { uss: 'USS' } })
+    usePageStore().$patch({ path: 'guides/uss-enterprise', title: 'Server Title' })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('h1.page-header-title').text()).toBe('USS Enterprise')
+  })
+})
+
 describe('PageHeader RTL-safe spacing', () => {
   it('spaces the page icon from the title with a logical (inline-start) padding, not a physical one', async () => {
     const wrapper = await mountHeader()

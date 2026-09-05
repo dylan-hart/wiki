@@ -10,6 +10,7 @@ import {
   type NavigationMode,
   type NavigationSourceMode
 } from '../models/navigation.ts'
+import { pathDisplayCaseStyles, type PathDisplayCaseStyle } from '../models/sites.ts'
 
 /*
   Seeing and editing a menu whole — rather than only the parts meant for the reader — is gated by
@@ -288,6 +289,67 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
       return WIKI.models.navigation.siteRoots(req.params.siteId)
+    }
+  )
+
+  /**
+   * SET THE SITE'S PATH DISPLAY CASE STYLE
+   */
+  app.put<{ Params: { siteId: string }; Body: { caseStyle: PathDisplayCaseStyle } }>(
+    '/sites/:siteId/navigation/pathDisplay',
+    {
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET above -- see
+        `models/groups.ts#checkSiteAdminAccess`. Deliberately a dedicated route rather than a key on
+        the general `PUT /:siteId` (`api/sites.ts`) -- that route's bypass is `manage:sites`-first,
+        while every `site:navigation` surface in this file (including this one) falls back to the
+        global `manage:navigation` permission alone, per `frontend/src/composables/
+        siteAdminAccess.js`'s `GLOBAL_FALLBACKS`. Folding this into `SITE_FIELD_PERMISSIONS` instead
+        would silently refuse a `manage:navigation`-only caller who holds no site-scoped
+        `site:navigation` rule.
+      */
+      schema: {
+        summary: "Set a site's path display case style",
+        description:
+          "The case style (Feature #2574) applied at render time to path-derived labels across the site (breadcrumbs, sidebar/tree navigation, auto-nav, a page's own displayed name) -- stored on the site's own config, alongside `theme`/`locales`, and readable back off `GET /sites/:siteIdOrHostname` (or `GET /_api/bootstrap`) as `pathDisplayCase`. `off` shows the raw lowercase stored path segment unchanged; every other value humanizes it.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
+        tags: ['Navigation'],
+        params: { $ref: 'SiteIdParams#' },
+        body: {
+          type: 'object',
+          required: ['caseStyle'],
+          properties: {
+            caseStyle: {
+              type: 'string',
+              enum: [...pathDisplayCaseStyles]
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Path display setting updated successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
+        return reply.forbidden()
+      }
+      await WIKI.models.sites.updateSite(req.params.siteId, {
+        config: { pathDisplayCase: req.body.caseStyle }
+      })
+      return {
+        ok: true,
+        message: 'Path display setting updated successfully.'
+      }
     }
   )
 

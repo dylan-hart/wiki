@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { drawLabels } from './graphDraw.js'
+import { drawLabels, LABEL_MAX_EFFECTIVE_FONT_PX } from './graphDraw.js'
 import { mountGraph } from './graphFixtures.js'
 
 /*
@@ -210,7 +210,7 @@ describe('Graph.vue node sizing and the control rail', () => {
     const [atMaxZoomPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
     // -> At max zoom, the drawn font is scaled down so `fontPx * k` stops growing past the cap.
     expect(Number(atMaxZoomPx)).toBeLessThan(10)
-    expect(Number(atMaxZoomPx) * 8).toBeLessThanOrEqual(24)
+    expect(Number(atMaxZoomPx) * 8).toBeLessThanOrEqual(LABEL_MAX_EFFECTIVE_FONT_PX)
   })
 
   it('paintGraph feeds the live zoom scale into drawLabels, not a fixed 1', async () => {
@@ -232,6 +232,6 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
     const [drawnFontPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
     expect(Number(drawnFontPx)).toBeLessThan(10)
-    expect(Number(drawnFontPx) * 4).toBeLessThanOrEqual(24)
+    expect(Number(drawnFontPx) * 4).toBeLessThanOrEqual(LABEL_MAX_EFFECTIVE_FONT_PX)
   })
 })

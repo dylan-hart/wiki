@@ -135,15 +135,22 @@ const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.75
 /** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
  *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
  *  `LABEL_BASE_FONT_PX * k` uncapped, reaching 80px at the max zoom (`k = 8`, see `attachZoom()`'s
- *  `scaleExtent`). `24` reads as roughly what a label already looks like comfortably zoomed in. */
-const LABEL_MAX_EFFECTIVE_FONT_PX = 24
+ *  `scaleExtent`). Raised from `24` to `32` (OpenProject #2562): a node's own drawn radius can now
+ *  reach `110` (vs. the old `22`, OpenProject #2561), and at the old `24`px cap a label next to one
+ *  of those large nodes read small relative to the circle it's labeling once zoomed in close enough
+ *  to matter -- `32` keeps the label legibly proportionate at the new max node size. Exported (like
+ *  `LABEL_GAP` below) so a test can assert against the live constant rather than a duplicated
+ *  literal. */
+export const LABEL_MAX_EFFECTIVE_FONT_PX = 32
 
 /** Breathing room between a node's edge and the start of its label, on top of the node's own
  *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
  *  smallest node (`MIN_NODE_RADIUS`, `5` -- one shared floor for both sizing metrics since
  *  OpenProject #2561), but now scales with the node so a label never overlaps a larger node's fill
- *  (OpenProject #2297). */
-export const LABEL_GAP = 3
+ *  (OpenProject #2297). Raised from `3` to `6` (OpenProject #2562): the per-node radius term already
+ *  does almost all the scaling work, but the flat top-up itself reads a little thin now that the
+ *  radius it sits beside can be `5x` as large as before. */
+export const LABEL_GAP = 6
 
 /** Label fill color, light/dark (OpenProject #2412) -- the light value is the original hardcoded
  *  `#333`. The dark value is a near-white rather than a plain invert, matching this app's dark-mode

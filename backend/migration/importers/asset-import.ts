@@ -1,4 +1,5 @@
 import { resolveActorId } from '../id-map.ts'
+import { normalizeMigratedPath } from '../path-normalization.ts'
 import type { UserIdMap } from '../id-map.ts'
 import type { SourceAssetFile } from '../connector.ts'
 
@@ -71,7 +72,10 @@ export interface AssetImportSuccess {
 
 /**
  * Splits one `SourceAssetFile` into a folder path (`undefined` for a root-level asset) and the bare
- * file name.
+ * file name. `folderPath` is returned raw — a 2.x path free to use characters 3.0's `rePathName`
+ * disallows (underscores, spaces, punctuation, unicode, …) — and is not normalized here; that is
+ * `importAsset`'s job, immediately before it reaches `deps.treeModel.getFolder()`, the same
+ * `path-normalization.ts#normalizeMigratedPath` folding a 2.x page path goes through.
  *
  * Adapted from the design brief's sketch (which derived both halves by splitting `relativePath` on its
  * last `/`): the real `SourceAssetFile` (`connector.ts`) already carries the bare name separately as
@@ -105,10 +109,14 @@ async function bufferStream(stream: SourceAssetFile['stream']): Promise<Buffer> 
 
 /** Imports one 2.x asset file through `models/assets.ts#upload()` — the same path a live upload takes
  * (tree row + assets row + thumbnail generation), per the design spec's "lean on the existing upload
- * path rather than hand-rolling a second writer" decision. Resolves the file's folder path via
+ * path rather than hand-rolling a second writer" decision. A nested asset's raw `folderPath` is folded
+ * through `path-normalization.ts#normalizeMigratedPath()` first — the same lowercasing and
+ * disallowed-character-to-hyphen folding a 2.x page path goes through — before being resolved via
  * `deps.treeModel.getFolder({ createIfMissing: true })`, which already auto-creates any missing
- * ancestor folder (`models/tree.ts`), so this module never creates a folder row itself — only called
- * for a nested asset; a root-level asset passes `folderId: undefined` straight through, matching
+ * ancestor folder (`models/tree.ts`), so this module never creates a folder row itself; a path that
+ * still can't fold to a valid 3.0 folder name (e.g. every character in a segment is disallowed) is
+ * reported as the same `'folder-error'` failure a `getFolder()` rejection produces, not a distinct
+ * failure kind. A root-level asset passes `folderId: undefined` straight through, matching
  * `models/assets.ts#upload()`'s own "the site root when absent" contract.
  *
  * Asset `createdAt`/`updatedAt` cannot be preserved — `upload()` has no parameter for it (unlike
@@ -164,20 +172,31 @@ export async function importAsset(
     )
   }
 
-  let folder: { id: string } | null
-  try {
-    folder = folderPath
-      ? await deps.treeModel.getFolder({
-          path: folderPath,
-          locale: options.locale,
-          siteId: options.siteId,
-          createIfMissing: true
-        })
-      : null
-  } catch (err: any) {
-    return {
-      result: 'failure',
-      failure: { relativePath, reason: 'folder-error', message: err.message }
+  let folder: { id: string } | null = null
+  if (folderPath) {
+    const normalizedFolder = normalizeMigratedPath(folderPath)
+    if ('reason' in normalizedFolder) {
+      return {
+        result: 'failure',
+        failure: {
+          relativePath,
+          reason: 'folder-error',
+          message: `asset folder path "${folderPath}" could not be placed in the tree: ${normalizedFolder.message}`
+        }
+      }
+    }
+    try {
+      folder = await deps.treeModel.getFolder({
+        path: normalizedFolder.path,
+        locale: options.locale,
+        siteId: options.siteId,
+        createIfMissing: true
+      })
+    } catch (err: any) {
+      return {
+        result: 'failure',
+        failure: { relativePath, reason: 'folder-error', message: err.message }
+      }
     }
   }
 

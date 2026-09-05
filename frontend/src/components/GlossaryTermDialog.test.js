@@ -46,6 +46,7 @@ describe('GlossaryTermDialog - create', () => {
     expect(wrapper.emitted().ok[0][0]).toEqual({
       term: 'API',
       definition: 'Application Programming Interface',
+      isAcronym: false,
       aliases: [],
       path: null
     })
@@ -82,7 +83,8 @@ describe('GlossaryTermDialog - edit', () => {
   const EXISTING_TERM = {
     term: 'API',
     definition: 'Application Programming Interface',
-    aliases: ['A.P.I.'],
+    isAcronym: true,
+    aliases: [{ value: 'A.P.I.', isAcronym: false }],
     path: 'dev/api'
   }
 
@@ -94,7 +96,8 @@ describe('GlossaryTermDialog - edit', () => {
 
     expect(wrapper.vm.state.term).toBe('API')
     expect(wrapper.vm.state.definition).toBe('Application Programming Interface')
-    expect(wrapper.vm.state.aliases).toEqual(['A.P.I.'])
+    expect(wrapper.vm.state.isAcronym).toBe(true)
+    expect(wrapper.vm.state.aliases).toEqual([{ value: 'A.P.I.', isAcronym: false }])
     expect(wrapper.vm.state.path).toBe('dev/api')
   })
 
@@ -111,7 +114,8 @@ describe('GlossaryTermDialog - edit', () => {
     expect(wrapper.emitted().ok[0][0]).toEqual({
       term: 'API',
       definition: 'Updated definition.',
-      aliases: ['A.P.I.'],
+      isAcronym: true,
+      aliases: [{ value: 'A.P.I.', isAcronym: false }],
       path: 'dev/api'
     })
   })
@@ -153,20 +157,20 @@ describe('GlossaryTermDialog - aliases (OpenProject #1110)', () => {
 
     wrapper.vm.addAlias()
 
-    expect(wrapper.vm.state.aliases).toEqual(['HSM'])
+    expect(wrapper.vm.state.aliases).toEqual([{ value: 'HSM', isAcronym: false }])
     expect(wrapper.vm.state.aliasInput).toBe('')
   })
 
   it('ignores an empty or case-insensitively duplicate alias', () => {
     const wrapper = mountDialog()
-    wrapper.vm.state.aliases = ['HSM']
+    wrapper.vm.state.aliases = [{ value: 'HSM', isAcronym: false }]
 
     wrapper.vm.state.aliasInput = '   '
     wrapper.vm.addAlias()
     wrapper.vm.state.aliasInput = 'hsm'
     wrapper.vm.addAlias()
 
-    expect(wrapper.vm.state.aliases).toEqual(['HSM'])
+    expect(wrapper.vm.state.aliases).toEqual([{ value: 'HSM', isAcronym: false }])
   })
 
   it('ignores an alias that only differs from the term by case (OpenProject #1110)', () => {
@@ -181,11 +185,46 @@ describe('GlossaryTermDialog - aliases (OpenProject #1110)', () => {
 
   it('removes an alias chip', () => {
     const wrapper = mountDialog()
-    wrapper.vm.state.aliases = ['HSM', 'Hot Mill']
+    wrapper.vm.state.aliases = [
+      { value: 'HSM', isAcronym: false },
+      { value: 'Hot Mill', isAcronym: false }
+    ]
 
     wrapper.vm.removeAlias('HSM')
 
-    expect(wrapper.vm.state.aliases).toEqual(['Hot Mill'])
+    expect(wrapper.vm.state.aliases).toEqual([{ value: 'Hot Mill', isAcronym: false }])
+  })
+})
+
+describe('GlossaryTermDialog - acronyms (OpenProject #2575)', () => {
+  it('adds an alias as an acronym when the acronym toggle is checked', () => {
+    const wrapper = mountDialog()
+    wrapper.vm.state.aliasIsAcronym = true
+    wrapper.vm.state.aliasInput = 'USS'
+
+    wrapper.vm.addAlias()
+
+    expect(wrapper.vm.state.aliases).toEqual([{ value: 'USS', isAcronym: true }])
+  })
+
+  it('defaults isAcronym to false for a new term', () => {
+    const wrapper = mountDialog()
+
+    expect(wrapper.vm.state.isAcronym).toBe(false)
+  })
+
+  it('toggleAliasAcronym() flips one alias’s flag without touching the others', () => {
+    const wrapper = mountDialog()
+    const uss = { value: 'USS', isAcronym: false }
+    const api = { value: 'API', isAcronym: true }
+    wrapper.vm.state.aliases = [uss, api]
+
+    wrapper.vm.toggleAliasAcronym(uss)
+
+    expect(wrapper.vm.state.aliases).toEqual([
+      { value: 'USS', isAcronym: true },
+      { value: 'API', isAcronym: true }
+    ])
   })
 })
 

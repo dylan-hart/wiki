@@ -98,10 +98,9 @@ describe('Graph.vue rendering (OpenProject #891)', () => {
     expect(realNodes[0]).not.toBe(realNodes[1])
   })
 
-  it('paths mode (the default edgeMode) adds synthetic folder/root nodes to the visible set', async () => {
+  it('adds synthetic folder/root nodes to the visible set (the graph is always a path hierarchy, OpenProject #2580)', async () => {
     const wrapper = await mountGraph()
 
-    expect(wrapper.vm.edgeMode).toBe('paths')
     expect(wrapper.vm.nodes.length).toBeGreaterThan(FIXTURE_GRAPH.nodes.length)
     expect(wrapper.vm.nodes.some((node) => node.synthetic === true)).toBe(true)
   })
@@ -119,7 +118,7 @@ describe('Graph.vue rendering (OpenProject #891)', () => {
     }
     const frIntro = { ...enIntro, locale: 'fr', title: 'Intro (FR)' }
 
-    // -> The default 'paths' edgeMode and the default (null) locale filter are what actually
+    // -> The path-hierarchy edge builder and the default (null) locale filter are what actually
     //    exercised the pre-fix bug in production -- both translations visible together, chained
     //    into the path-hierarchy simulation by `startSimulation()`'s `forceLink().id()` accessor.
     const wrapper = await mountGraph({ graph: { nodes: [enIntro, frIntro], edges: [] } })
@@ -138,24 +137,6 @@ describe('Graph.vue rendering (OpenProject #891)', () => {
       .filter((link) => link.target.path === 'intro')
     expect(introLinks).toHaveLength(2)
     expect(introLinks[0].target).not.toBe(introLinks[1].target)
-  })
-
-  it('switching edgeMode does not throw', async () => {
-    const wrapper = await mountGraph()
-
-    wrapper.vm.edgeMode = 'tags'
-    await flushPromises()
-
-    expect(wrapper.find('canvas').exists()).toBe(true)
-  })
-
-  it('switching edgeMode to classification (OpenProject #1217) does not throw', async () => {
-    const wrapper = await mountGraph()
-
-    wrapper.vm.edgeMode = 'classification'
-    await flushPromises()
-
-    expect(wrapper.find('canvas').exists()).toBe(true)
   })
 
   it('switching groupBy to classification (OpenProject #1217) does not throw', async () => {

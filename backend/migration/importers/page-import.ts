@@ -3,6 +3,7 @@ import type { PathAssignmentOptions, TreePathAssignment } from '../path-normaliz
 import type { StagedPage } from '../content-staging.ts'
 import type { PageHistoryImportResult } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../../models/pages.ts'
+import { MAX_NAME_ATTEMPTS } from '../../models/tree.ts'
 
 /**
  * Page content import via `createPage()`
@@ -38,9 +39,23 @@ import type { Page, PageActor, PageInput } from '../../models/pages.ts'
  * That single-pass shape constrains sibling-collision semantics: by the time a later page is
  * discovered to collide with an earlier one, the earlier page has already been created, so there is no
  * "fail both sides" available. `createPageImporter()` therefore tracks each
- * `(locale, parentPath, fileName)` it has already claimed in a `Map` as it goes, and a later page that
- * lands on an already-claimed location fails alone (`'sibling-collision'`), while the earlier,
- * already-created page is kept. First-in-the-stream wins.
+ * `(locale, parentPath, fileName)` it has already claimed in a `Map` as it goes; a later page that
+ * lands on an already-claimed location does NOT fail immediately — `resolveStreamedFileName()` retries
+ * with a numeric suffix appended to the normalized `fileName` (`name-1`, `name-2`, …), re-checking both
+ * `claimedLocations` and `deps.existingEntry()` for each candidate, the same dedupe
+ * `models/tree.ts#resolveName`'s `onConflict: 'suffix'` branch already applies for assets — including
+ * its `MAX_NAME_ATTEMPTS` cap, imported from there rather than duplicated. A page that lands on a free
+ * suffixed name is created under that name with a warning noting the rename; only a page that collides
+ * on every attempt up to the cap fails (`'sibling-collision'`, naming the earlier, already-created page
+ * that was kept instead).
+ *
+ * A page whose unsuffixed name collides with a pre-existing 3.0 tree entry instead — an
+ * `'existing-entry-collision'` — is deliberately NOT retried with a suffix at all, and fails
+ * immediately exactly as before this dedupe existed. See `resolveStreamedFileName()`'s own doc comment
+ * for why: `phases/content.ts` relies on that exact reason meaning "this page already exists at the
+ * destination" to safely skip it (not fail the run) when the migration CLI is re-run after an
+ * interrupted earlier attempt — a numeric-suffix rename there would silently create a duplicate of an
+ * already-migrated page instead.
  *
  * ## History backfill, interleaved
  *
@@ -155,6 +170,18 @@ export interface ImportPagesOptions {
   now?: number
 }
 
+/**
+ * - `'sibling-collision'`: the page's normalized `(locale, parentPath, fileName)` clashed with an
+ *   earlier page already imported in this same streaming run — and, per `resolveStreamedFileName()`
+ *   (see the module doc comment), every `name-1`, `name-2`, … numeric-suffix retry up to
+ *   `MAX_NAME_ATTEMPTS` (`models/tree.ts`) *also* collided. This no longer fires on the first
+ *   collision — only once the whole retry budget is exhausted with no free name found.
+ * - `'existing-entry-collision'`: the page's normalized location already holds a pre-existing 3.0
+ *   tree entry. Unlike `'sibling-collision'`, this still fires immediately, with no suffix retried at
+ *   all — `phases/content.ts` relies on this exact reason to classify a page as an idempotent skip
+ *   (already migrated) rather than a failure when the CLI is re-run after an interrupted attempt; see
+ *   `resolveStreamedFileName()`'s own doc comment.
+ */
 export type PageImportFailureReason =
   | 'empty-path'
   | 'invalid-segment'
@@ -395,6 +422,149 @@ function streamedLocationKey(locale: string, parentPath: string, fileName: strin
   return `${locale} ${parentPath} ${fileName}`
 }
 
+/** What blocked one candidate `fileName` from being claimed — either an earlier page in this same
+ * streaming run (`claimedByOldId` names it), or a pre-existing 3.0 tree entry. */
+interface StreamedNameConflict {
+  reason: 'sibling-collision' | 'existing-entry-collision'
+  claimedByOldId?: number
+}
+
+/** Checks one candidate `(locale, parentPath, fileName)` against `claimedLocations` first (cheap, in
+ * memory), then `existingEntry` (the injected tree lookup) — `null` when the candidate is free to
+ * claim. Used by `resolveStreamedFileName()` both for the unsuffixed name and every `name-N` retry. */
+async function checkLocationConflict(
+  siteId: string,
+  locale: string,
+  parentPath: string,
+  fileName: string,
+  claimedLocations: Map<string, number>,
+  existingEntry: PathAssignmentOptions['existingEntry']
+): Promise<StreamedNameConflict | null> {
+  const claimedByOldId = claimedLocations.get(streamedLocationKey(locale, parentPath, fileName))
+  if (claimedByOldId !== undefined) {
+    return { reason: 'sibling-collision', claimedByOldId }
+  }
+  if (await existingEntry(siteId, locale, parentPath, fileName)) {
+    return { reason: 'existing-entry-collision' }
+  }
+  return null
+}
+
+type StreamedNameResolution =
+  | { status: 'free'; fileName: string }
+  | { status: 'renamed'; fileName: string; conflict: StreamedNameConflict }
+  | { status: 'exhausted'; conflict: StreamedNameConflict }
+
+/**
+ * Finds a `fileName` this page may claim at `(locale, parentPath)` — the normalized name itself if
+ * free, otherwise `name-1`, `name-2`, … numeric-suffix retries up to `MAX_NAME_ATTEMPTS`
+ * (`models/tree.ts`, the same cap `resolveName`'s `onConflict: 'suffix'` branch uses for assets), each
+ * re-checked against both `claimedLocations` and `existingEntry`.
+ *
+ * Only a `'sibling-collision'` on the unsuffixed name — two different staged pages in *this same
+ * streaming run* folding to the same location — enters that retry loop. An `'existing-entry-collision'`
+ * on the unsuffixed name is deliberately left `'exhausted'` immediately, with no suffix tried at all:
+ * `phases/content.ts#toRecordOutcome()` relies on this exact reason meaning "this page already exists
+ * at the destination" to safely classify it as an idempotent skip (not a failure) when the migration
+ * CLI is re-run after an earlier attempt was interrupted partway through — renaming it into
+ * `name-1` would instead create a genuine duplicate of an already-migrated page. See
+ * `content.integration.test.ts`'s "correctly skipping a page that already exists at the destination".
+ *
+ * A *suffixed* candidate colliding against `existingEntry` mid-retry is a different situation — that
+ * name was never this page's own canonical target, so there is no idempotency signal to preserve —
+ * and is simply treated as unavailable, same as a suffixed `claimedLocations` hit, so the loop moves on
+ * to the next candidate.
+ *
+ * `'exhausted'` is returned only once every attempt up to the cap has also collided — its `conflict`
+ * is always the *first* one seen (the unsuffixed name's own sibling-collision), which is what actually
+ * explains why this page can't land: a suffixed candidate conflicting for a different reason doesn't
+ * change the underlying story, only whether a free name was eventually found.
+ */
+async function resolveStreamedFileName(
+  siteId: string,
+  locale: string,
+  parentPath: string,
+  fileName: string,
+  claimedLocations: Map<string, number>,
+  existingEntry: PathAssignmentOptions['existingEntry']
+): Promise<StreamedNameResolution> {
+  const initialConflict = await checkLocationConflict(
+    siteId,
+    locale,
+    parentPath,
+    fileName,
+    claimedLocations,
+    existingEntry
+  )
+  if (!initialConflict) {
+    return { status: 'free', fileName }
+  }
+  if (initialConflict.reason === 'existing-entry-collision') {
+    return { status: 'exhausted', conflict: initialConflict }
+  }
+
+  for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
+    const candidate = `${fileName}-${attempt}`
+    const candidateConflict = await checkLocationConflict(
+      siteId,
+      locale,
+      parentPath,
+      candidate,
+      claimedLocations,
+      existingEntry
+    )
+    if (!candidateConflict) {
+      return { status: 'renamed', fileName: candidate, conflict: initialConflict }
+    }
+  }
+
+  return { status: 'exhausted', conflict: initialConflict }
+}
+
+/** Describes what blocked `oldId`'s page for good, once `resolveStreamedFileName()` reports
+ * `'exhausted'` — the failure message for `PageImportOutcome`. Only a `'sibling-collision'` ever
+ * actually went through suffix retries first (see `resolveStreamedFileName()`); an
+ * `'existing-entry-collision'` message reads exactly as it always has, with no mention of retries it
+ * never attempted. */
+function describeStreamedNameConflictFailure(
+  oldId: number,
+  normalizedPath: string,
+  locale: string,
+  conflict: StreamedNameConflict
+): string {
+  if (conflict.reason === 'sibling-collision') {
+    return (
+      `page ${oldId} at "${normalizedPath}" (locale "${locale}") normalizes to the same tree ` +
+      `location as page ${conflict.claimedByOldId}, already imported earlier in this streaming run, ` +
+      `and every numeric-suffix retry (up to ${MAX_NAME_ATTEMPTS}) also collided — the earlier page ` +
+      'was kept, this one was not.'
+    )
+  }
+  return (
+    `page ${oldId} at "${normalizedPath}" (locale "${locale}") already exists in the target site's ` +
+    'tree — import failed for this page.'
+  )
+}
+
+/** Notes that a page's normalized path collided and was renamed via a numeric suffix instead of being
+ * dropped — pushed onto the page's own `warnings` alongside every other per-page note. */
+function describeStreamedNameRenameWarning(
+  oldId: number,
+  normalizedPath: string,
+  locale: string,
+  conflict: StreamedNameConflict,
+  renamedPath: string
+): string {
+  const clash =
+    conflict.reason === 'sibling-collision'
+      ? `page ${conflict.claimedByOldId}, already imported earlier in this streaming run`
+      : "an existing entry in the target site's tree"
+  return (
+    `page ${oldId}: normalized path "${normalizedPath}" (locale "${locale}") collided with ${clash} ` +
+    `— imported instead at "${renamedPath}".`
+  )
+}
+
 /**
  * What one `importOne()` call resolved to — see `phases/content.ts`'s `toRecordOutcome()`, which
  * mirrors `phases/users.ts`'s `routeOutcome()` convention. `importOne()` never throws for a bad page
@@ -449,39 +619,39 @@ export function createPageImporter(
       return { status: 'failed', reason: normalized.reason, message: normalized.message }
     }
 
-    const locationKey = streamedLocationKey(
-      staged.locale,
-      normalized.parentPath,
-      normalized.fileName
-    )
-    const claimedByOldId = claimedLocations.get(locationKey)
-    if (claimedByOldId !== undefined) {
-      const message =
-        `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") normalizes to the ` +
-        `same tree location as page ${claimedByOldId}, already imported earlier in this streaming run ` +
-        '— the earlier page was kept, this one was not.'
-      return { status: 'failed', reason: 'sibling-collision', message }
-    }
-
-    const treeExists = await deps.existingEntry(
+    const resolved = await resolveStreamedFileName(
       options.siteId,
       staged.locale,
       normalized.parentPath,
-      normalized.fileName
+      normalized.fileName,
+      claimedLocations,
+      deps.existingEntry
     )
-    if (treeExists) {
-      const message = `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") already exists in the target site's tree — import failed for this page.`
-      return { status: 'failed', reason: 'existing-entry-collision', message }
+
+    if (resolved.status === 'exhausted') {
+      const message = describeStreamedNameConflictFailure(
+        staged.oldId,
+        normalized.path,
+        staged.locale,
+        resolved.conflict
+      )
+      return { status: 'failed', reason: resolved.conflict.reason, message }
     }
 
-    claimedLocations.set(locationKey, staged.oldId)
+    const fileName = resolved.fileName
+    const path = normalized.parentPath ? `${normalized.parentPath}/${fileName}` : fileName
+
+    claimedLocations.set(
+      streamedLocationKey(staged.locale, normalized.parentPath, fileName),
+      staged.oldId
+    )
 
     const assignment: TreePathAssignment = {
       oldId: staged.oldId,
       locale: staged.locale,
       parentPath: normalized.parentPath,
-      fileName: normalized.fileName,
-      path: normalized.path
+      fileName,
+      path
     }
 
     const mapped = mapStagedPageToInput(
@@ -491,6 +661,18 @@ export function createPageImporter(
       nowMillis,
       options.actorPermissions
     )
+
+    if (resolved.status === 'renamed') {
+      mapped.warnings.push(
+        describeStreamedNameRenameWarning(
+          staged.oldId,
+          normalized.path,
+          staged.locale,
+          resolved.conflict,
+          path
+        )
+      )
+    }
 
     let destId: string
     try {

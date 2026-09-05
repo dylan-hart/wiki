@@ -4,7 +4,8 @@ import type { AccessActor } from './groups.ts'
 import {
   glossaryTerms as glossaryTermsTable,
   glossaryVersions as glossaryVersionsTable,
-  pages as pagesTable
+  pages as pagesTable,
+  type GlossaryAliasRow
 } from '../db/schema.ts'
 import {
   CustomError,
@@ -16,10 +17,16 @@ import { localizedPagePath } from '../helpers/localeRouting.ts'
 
 export type GlossaryTerm = Omit<typeof glossaryTermsTable.$inferSelect, 'siteId'>
 
+/** One alias entry, on the wire and in every in-memory shape below -- see the identical
+ *  `GlossaryAliasRow` doc on the schema column this mirrors. */
+export type GlossaryAlias = GlossaryAliasRow
+
 export interface GlossaryTermInput {
   term: string
   definition: string
-  aliases?: string[]
+  aliases?: GlossaryAlias[]
+  /** Marks the term itself (not one of its aliases) as an acronym -- see `GlossaryAliasRow`. */
+  isAcronym?: boolean
   pageId?: string | null
 }
 
@@ -27,7 +34,8 @@ export interface GlossaryTermInput {
 export interface CachedGlossaryTerm {
   term: string
   definition: string
-  aliases: string[]
+  aliases: GlossaryAlias[]
+  isAcronym: boolean
   link: string | null
 }
 
@@ -40,7 +48,8 @@ export interface CachedGlossaryTerm {
 interface CachedGlossaryEntry {
   term: string
   definition: string
-  aliases: string[]
+  aliases: GlossaryAlias[]
+  isAcronym: boolean
   pagePath: string | null
   pageLocale: string | null
   pageClassification: string | null
@@ -51,15 +60,18 @@ interface CachedGlossaryEntry {
  * The portable, external-editing-round-trip shape (OpenProject #1114): a `path`, not a `pageId`,
  * since an id is meaningless once this JSON has been edited outside the app and re-imported --
  * possibly into a different instance entirely. `formatVersion` bumps only if this shape ever changes
- * incompatibly. Reused as-is for each stored version snapshot (OpenProject #1113) -- one
- * representation shared by export, import, and versioning, per the spec.
+ * incompatibly -- as it just did for OpenProject #2575's acronym distinction (`aliases` moved from a
+ * flat `string[]` to `GlossaryAlias[]`, and `isAcronym` was added). Reused as-is for each stored
+ * version snapshot (OpenProject #1113) -- one representation shared by export, import, and
+ * versioning, per the spec.
  */
-const GLOSSARY_EXPORT_FORMAT_VERSION = 1
+const GLOSSARY_EXPORT_FORMAT_VERSION = 2
 
 export interface GlossaryExportTerm {
   term: string
   definition: string
-  aliases: string[]
+  aliases: GlossaryAlias[]
+  isAcronym: boolean
   /** The canonical page's path, resolved against the site's primary locale. Null when unset. */
   path: string | null
 }
@@ -71,13 +83,15 @@ export interface GlossaryExport {
 
 /**
  * The writable counterpart to `GlossaryExportTerm`: what `importTerms`/`saveVersion` accept, where
- * `aliases`/`path` are optional (a malformed/partial payload is a validation error at runtime, not a
- * type error at the call site) -- mirroring how `GlossaryTermInput` relates to `GlossaryTerm`.
+ * `aliases`/`isAcronym`/`path` are optional (a malformed/partial payload is a validation error at
+ * runtime, not a type error at the call site) -- mirroring how `GlossaryTermInput` relates to
+ * `GlossaryTerm`.
  */
 export interface GlossaryExportTermInput {
   term: string
   definition: string
-  aliases?: string[]
+  aliases?: GlossaryAlias[]
+  isAcronym?: boolean
   path?: string | null
 }
 
@@ -98,6 +112,16 @@ export interface GlossaryVersionSummary {
 
 export interface GlossaryVersion extends GlossaryVersionSummary {
   snapshot: GlossaryExport
+}
+
+/** The shape a validated `GlossaryExportTermInput` resolves to, ready for a bulk insert -- shared by
+ *  `resolveExportTerms`, `replaceAllRowsIn` and `replaceAllRows`. */
+interface ResolvedTermRow {
+  term: string
+  definition: string
+  aliases: GlossaryAlias[]
+  isAcronym: boolean
+  pageId: string | null
 }
 
 function cacheKey(siteId: string): string {
@@ -179,6 +203,7 @@ class Glossary {
       throw new CustomError('glossaryEmptyDefinition', 'A definition cannot be empty.', 400)
     }
     const aliases = normalizeAliases(input.aliases, term)
+    const isAcronym = !!input.isAcronym
     const pageId = await this.validatePageId(siteId, input.pageId)
     await this.assertNoSurfaceFormCollision(siteId, term, aliases)
 
@@ -187,7 +212,7 @@ class Glossary {
       inserted = await WIKI.db.transaction(async (tx) => {
         const rows = await tx
           .insert(glossaryTermsTable)
-          .values({ siteId, term, definition, aliases, pageId })
+          .values({ siteId, term, definition, aliases, isAcronym, pageId })
           .returning()
         if (actor) {
           await this.recordVersionIn(tx, siteId, actor)
@@ -246,6 +271,10 @@ class Glossary {
     if (input.pageId !== undefined) {
       values.pageId = await this.validatePageId(siteId, input.pageId)
       changedFields.push('pageId')
+    }
+    if (input.isAcronym !== undefined) {
+      values.isAcronym = !!input.isAcronym
+      changedFields.push('isAcronym')
     }
 
     // -> A collision check needs the FULL post-update surface-form set, so when either `term` or
@@ -352,6 +381,7 @@ class Glossary {
         term: glossaryTermsTable.term,
         definition: glossaryTermsTable.definition,
         aliases: glossaryTermsTable.aliases,
+        isAcronym: glossaryTermsTable.isAcronym,
         pagePath: pagesTable.path
       })
       .from(glossaryTermsTable)
@@ -365,6 +395,7 @@ class Glossary {
         term: row.term,
         definition: row.definition,
         aliases: row.aliases,
+        isAcronym: row.isAcronym,
         path: row.pagePath ?? null
       }))
     }
@@ -398,13 +429,8 @@ class Glossary {
   private async resolveExportTerms(
     siteId: string,
     terms: GlossaryExportTermInput[]
-  ): Promise<{ term: string; definition: string; aliases: string[]; pageId: string | null }[]> {
-    const resolved: {
-      term: string
-      definition: string
-      aliases: string[]
-      pageId: string | null
-    }[] = []
+  ): Promise<ResolvedTermRow[]> {
+    const resolved: ResolvedTermRow[] = []
     for (const raw of terms) {
       const term = (raw?.term ?? '').trim()
       const definition = (raw?.definition ?? '').trim()
@@ -419,8 +445,9 @@ class Glossary {
         )
       }
       const aliases = normalizeAliases(raw?.aliases, term)
+      const isAcronym = !!raw?.isAcronym
       const pageId = await this.resolvePagePath(siteId, raw?.path, term)
-      resolved.push({ term, definition, aliases, pageId })
+      resolved.push({ term, definition, aliases, isAcronym, pageId })
     }
 
     assertNoInternalSurfaceFormCollision(resolved)
@@ -442,7 +469,7 @@ class Glossary {
   private async replaceAllRowsIn(
     db: WikiDbOrTx,
     siteId: string,
-    rows: { term: string; definition: string; aliases: string[]; pageId: string | null }[]
+    rows: ResolvedTermRow[]
   ): Promise<GlossaryTerm[]> {
     await db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, siteId))
     if (!rows.length) {
@@ -461,10 +488,7 @@ class Glossary {
    * (OpenProject #1113's "atomically" requirement), so THEY open one transaction themselves and call
    * `replaceAllRowsIn` directly instead of going through this wrapper.
    */
-  private async replaceAllRows(
-    siteId: string,
-    rows: { term: string; definition: string; aliases: string[]; pageId: string | null }[]
-  ): Promise<GlossaryTerm[]> {
+  private async replaceAllRows(siteId: string, rows: ResolvedTermRow[]): Promise<GlossaryTerm[]> {
     const inserted = await WIKI.db.transaction((tx) => this.replaceAllRowsIn(tx, siteId, rows))
     this.invalidateCache(siteId)
     return inserted
@@ -639,6 +663,7 @@ class Glossary {
         term: glossaryTermsTable.term,
         definition: glossaryTermsTable.definition,
         aliases: glossaryTermsTable.aliases,
+        isAcronym: glossaryTermsTable.isAcronym,
         pagePath: pagesTable.path,
         pageLocale: pagesTable.locale,
         pageClassification: pagesTable.classification,
@@ -652,6 +677,7 @@ class Glossary {
       term: row.term,
       definition: row.definition,
       aliases: row.aliases,
+      isAcronym: row.isAcronym,
       pagePath: row.pagePath,
       pageLocale: row.pageLocale,
       pageClassification: row.pageClassification ?? null,
@@ -676,6 +702,7 @@ class Glossary {
       term: entry.term,
       definition: entry.definition,
       aliases: entry.aliases,
+      isAcronym: entry.isAcronym,
       link:
         entry.pagePath &&
         WIKI.models.groups.checkAccess(actor, 'read:pages', {
@@ -688,6 +715,31 @@ class Glossary {
           ? localizedPagePath(entry.pagePath, entry.pageLocale ?? '', locales)
           : null
     }))
+  }
+
+  /**
+   * The site's acronym lookup -- lowercase surface form → canonical display casing -- for every
+   * term/alias marked `isAcronym` (OpenProject #2575). Consulted by the frontend's path-segment
+   * humanization helper via a lowercase key, so a path segment like "uss" renders as "USS" rather
+   * than the humanizer's own default title-case guess. Actor-blind, like the raw cache it reads from
+   * (an acronym's casing carries no page-access sensitivity of its own), so this needs no per-actor
+   * resolution the way `getCachedTerms`'s `link` does, and shares that cache's TTL/invalidation
+   * rather than keeping a separate entry to invalidate in step.
+   */
+  async getAcronymMap(siteId: string): Promise<Record<string, string>> {
+    const entries = await this.getRawCachedTerms(siteId)
+    const map: Record<string, string> = {}
+    for (const entry of entries) {
+      if (entry.isAcronym) {
+        map[entry.term.toLowerCase()] = entry.term
+      }
+      for (const alias of entry.aliases) {
+        if (alias.isAcronym) {
+          map[alias.value.toLowerCase()] = alias.value
+        }
+      }
+    }
+    return map
   }
 
   /**
@@ -758,10 +810,10 @@ class Glossary {
   private async assertNoSurfaceFormCollision(
     siteId: string,
     term: string,
-    aliases: string[],
+    aliases: GlossaryAlias[],
     excludeId?: string
   ): Promise<void> {
-    const surfaceForms = new Set([term.toLowerCase(), ...aliases.map((a) => a.toLowerCase())])
+    const surfaceForms = new Set([term.toLowerCase(), ...aliases.map((a) => a.value.toLowerCase())])
     const rows = await WIKI.db
       .select({
         id: glossaryTermsTable.id,
@@ -775,7 +827,7 @@ class Glossary {
       if (excludeId && row.id === excludeId) {
         continue
       }
-      const collides = [row.term, ...row.aliases].some((form) =>
+      const collides = [row.term, ...row.aliases.map((a) => a.value)].some((form) =>
         surfaceForms.has(form.toLowerCase())
       )
       if (collides) {
@@ -790,24 +842,24 @@ class Glossary {
 }
 
 /**
- * Trims each alias, drops empties, dedupes case-insensitively (first occurrence's casing wins), and
- * drops any alias that is just the term itself under a different case -- that would only ever be a
- * no-op surface form, never a genuinely distinct one.
+ * Trims each alias's `value`, drops empties, dedupes case-insensitively (first occurrence's casing
+ * AND `isAcronym` win), and drops any alias whose value is just the term itself under a different
+ * case -- that would only ever be a no-op surface form, never a genuinely distinct one.
  */
-function normalizeAliases(aliases: string[] | undefined, term: string): string[] {
+function normalizeAliases(aliases: GlossaryAlias[] | undefined, term: string): GlossaryAlias[] {
   const seen = new Set<string>([term.toLowerCase()])
-  const result: string[] = []
+  const result: GlossaryAlias[] = []
   for (const raw of aliases ?? []) {
-    const alias = raw.trim()
-    if (!alias) {
+    const value = (raw?.value ?? '').trim()
+    if (!value) {
       continue
     }
-    const lower = alias.toLowerCase()
+    const lower = value.toLowerCase()
     if (seen.has(lower)) {
       continue
     }
     seen.add(lower)
-    result.push(alias)
+    result.push({ value, isAcronym: !!raw?.isAcronym })
   }
   return result
 }
@@ -820,11 +872,11 @@ function normalizeAliases(aliases: string[] | undefined, term: string): string[]
  * is what catches two entries in the same submission claiming the same surface form.
  */
 function assertNoInternalSurfaceFormCollision(
-  entries: { term: string; aliases: string[] }[]
+  entries: { term: string; aliases: GlossaryAlias[] }[]
 ): void {
   const claimedBy = new Map<string, string>()
   for (const entry of entries) {
-    for (const form of [entry.term, ...entry.aliases]) {
+    for (const form of [entry.term, ...entry.aliases.map((a) => a.value)]) {
       const lower = form.toLowerCase()
       const claimant = claimedBy.get(lower)
       if (claimant) {

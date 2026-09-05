@@ -119,6 +119,43 @@
           </w-table>
         </w-card>
       </div>
+      <!--
+        Card-local save, not a page-header Apply, per `docs/decisions/embedded-setting-save-
+        affordance.md`: this page is a viewer (the overrides table above), not a settings form top
+        to bottom, so this embedded setting commits from its own card -- the same shape as
+        `AdminAuditLog.vue`'s retention card (OpenProject #2089/#2574).
+      -->
+      <div class="col-span-12">
+        <w-card class="rounded" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
+          <w-card-section>
+            <div class="text-subtitle1">{{ t('admin.navigation.pathDisplayTitle') }}</div>
+            <div class="text-caption text-grey mb-2">
+              {{ t('admin.navigation.pathDisplaySubtitle') }}
+            </div>
+            <div class="flex items-center gap-3">
+              <div style="width: 220px">
+                <w-select
+                  outlined
+                  dense
+                  v-model="state.pathDisplayCase"
+                  :options="pathDisplayCaseOptions"
+                  option-value="value"
+                  option-label="label"
+                  emit-value
+                  map-options
+                  :aria-label="t('admin.navigation.pathDisplayLabel')" />
+              </div>
+              <w-btn
+                class="acrylic-btn"
+                flat
+                color="primary"
+                :label="t('common.actions.save')"
+                :loading="state.savingPathDisplay"
+                @click="savePathDisplay" />
+            </div>
+          </w-card-section>
+        </w-card>
+      </div>
     </div>
   </w-page>
 </template>
@@ -208,9 +245,19 @@ const { state, load } = useAdminSettings({
      * `loadSiteLocales()` -- deliberately NOT `siteStore.locales`, which is the site currently serving
      * this browser tab and can differ from `adminStore.currentSiteId`, the site actually being
      * administered here (OpenProject #948). Read by `localeOptions` and `openDefaultMenu()` below.
+     *
+     * `loadSiteLocales()` also loads `pathDisplayCase` (below) off the same site payload -- the two
+     * are unrelated settings that happen to share one fetch, not a hint they should be combined.
      */
     siteLocales: [],
-    sitePrimaryLocale: 'en'
+    sitePrimaryLocale: 'en',
+    /**
+     * The administered site's own `pathDisplayCase` (Feature #2574/WP #2577), read off the same
+     * `GET sites/:siteId?strict=true` call `loadSiteLocales()` already makes. `'off'` (show the raw
+     * lowercase path unchanged) until that load resolves.
+     */
+    pathDisplayCase: 'off',
+    savingPathDisplay: false
   },
   fetch: (siteId) =>
     API_CLIENT.get(`sites/${siteId}/navigation/overrides`, {
@@ -324,6 +371,20 @@ const localeOptions = computed(() => [
   ...state.siteLocales
 ])
 
+/**
+ * The `pathDisplayCase` picker's options (Feature #2574) -- values match the backend's
+ * `pathDisplayCaseStyles` enum (`backend/models/sites.ts`) exactly; do not add, remove or rename a
+ * value here without updating that list too.
+ */
+const pathDisplayCaseOptions = computed(() => [
+  { value: 'off', label: t('admin.navigation.pathDisplayCaseOff') },
+  { value: 'lower', label: t('admin.navigation.pathDisplayCaseLower') },
+  { value: 'upper', label: t('admin.navigation.pathDisplayCaseUpper') },
+  { value: 'camel', label: t('admin.navigation.pathDisplayCaseCamel') },
+  { value: 'pascal', label: t('admin.navigation.pathDisplayCasePascal') },
+  { value: 'title', label: t('admin.navigation.pathDisplayCaseTitle') }
+])
+
 /** Path-only, per the task: the locale and mode columns are informational, not filterable here. */
 const filteredOverrides = computed(() => {
   const needle = state.search.trim().toLowerCase()
@@ -382,17 +443,49 @@ watch(() => state.locale, load)
  * why this is not read off `siteStore` directly. Kept as its own request (not folded into `load()`)
  * so filtering the overrides table by locale does not also re-fetch the site's locale list on every
  * change; only a site switch needs this to run again.
+ *
+ * Also refreshes `state.pathDisplayCase` off the same response -- an unrelated setting that happens
+ * to live on the same site payload, not a reason to fetch it twice.
  */
 async function loadSiteLocales() {
   try {
     const site = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     state.siteLocales = site?.locales?.active ?? []
     state.sitePrimaryLocale = site?.locales?.primary ?? 'en'
+    state.pathDisplayCase = site?.pathDisplayCase ?? 'off'
   } catch (err) {
     // -> Non-fatal: the locale filter falling back to "All Locales" only is a degraded control, not
     //    a broken page -- `load()`'s own error handling above covers the data this screen exists to
-    //    show.
+    //    show. `state.pathDisplayCase` is deliberately left as it was rather than reset to `off`,
+    //    same reasoning.
     state.siteLocales = []
+  }
+}
+
+/**
+ * Card-local save for the `pathDisplayCase` setting (Feature #2574/WP #2577) -- writes through the
+ * dedicated `PUT sites/:siteId/navigation/pathDisplay` route (`site:navigation`), not the general
+ * site-update route: see that route's own comment for why `site:navigation` needs a route of its
+ * own rather than a key on `PUT /:siteId`.
+ */
+async function savePathDisplay() {
+  state.savingPathDisplay = true
+  try {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}/navigation/pathDisplay`, {
+      json: { caseStyle: state.pathDisplayCase }
+    }).json()
+    notify({
+      type: 'positive',
+      message: t('admin.navigation.pathDisplaySaveSuccess')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.navigation.pathDisplaySaveFailed'),
+      caption: apiErrorMessage(err)
+    })
+  } finally {
+    state.savingPathDisplay = false
   }
 }
 

@@ -11,7 +11,9 @@
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
       <w-item-section side><w-icon :name="item.icon" color="white" /></w-item-section>
-      <w-item-section class="text-wordbreak-all text-white">{{ item.label }}</w-item-section>
+      <w-item-section class="text-wordbreak-all text-white">{{
+        displayLabel(item)
+      }}</w-item-section>
       <!-- -> Create inside this folder: right-click anywhere on its own header row -->
       <page-new-menu
         v-if="canCreate"
@@ -30,7 +32,7 @@
   </w-expansion-item>
   <w-item v-else v-bind="destination(item)">
     <w-item-section side><w-icon :name="item.icon" color="white" /></w-item-section>
-    <w-item-section class="text-wordbreak-all text-white">{{ item.label }}</w-item-section>
+    <w-item-section class="text-wordbreak-all text-white">{{ displayLabel(item) }}</w-item-section>
     <!-- -> Create as a sibling, in the folder this page lives in: right-click anywhere on its row -->
     <page-new-menu
       v-if="canCreate"
@@ -47,6 +49,7 @@ import { computed } from 'vue'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
 import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
+import { usePathDisplay } from '@/composables/pathDisplay'
 
 import { useUserStore } from '@/stores/user'
 
@@ -66,6 +69,7 @@ const props = defineProps({
 
 const { destination, containsCurrent } = useNavSidebarDestination()
 const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
+const { isActive: pathDisplayActive, humanize } = usePathDisplay()
 
 // STORES
 
@@ -82,6 +86,21 @@ const userStore = useUserStore()
 const canCreate = computed(() => Boolean(props.item.generated) && userStore.can('write:pages'))
 
 // METHODS
+
+/**
+ * The label an item draws (Feature #2574/#2578): the site's humanized last path segment for a
+ * `generated` (auto/mixed tree-walk) item when the path-display setting is on, or `item.label`
+ * unchanged otherwise -- a hand-authored `static` link (never `generated`) always keeps its own
+ * label, since it may not correspond to a real path at all. A deliberate override of the tree
+ * row's own title, not a fallback for a missing one -- see the parent Feature's own scope note.
+ */
+function displayLabel(item) {
+  if (!pathDisplayActive.value || !item.generated || !item.path) {
+    return item.label
+  }
+  const segments = item.path.split('/')
+  return humanize(segments[segments.length - 1])
+}
 
 /**
  * Where a creation action targets, for a generated item: right-click a FOLDER item creates INSIDE

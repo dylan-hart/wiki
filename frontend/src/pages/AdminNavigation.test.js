@@ -35,7 +35,20 @@ const MESSAGES = {
   'admin.navigation.modeLabelOverride': 'Override Current + Descendants',
   'admin.navigation.modeLabelOverrideExact': 'Override Current Only',
   'admin.navigation.modeLabelHide': 'Hide Current + Descendants',
-  'admin.navigation.modeLabelHideExact': 'Hide Current Only'
+  'admin.navigation.modeLabelHideExact': 'Hide Current Only',
+  'admin.navigation.pathDisplayTitle': 'Path Display',
+  'admin.navigation.pathDisplaySubtitle':
+    'Choose how lowercase page and folder paths are cased when shown to readers.',
+  'admin.navigation.pathDisplayLabel': 'Case Style',
+  'admin.navigation.pathDisplayCaseOff': 'Off (show path as-is)',
+  'admin.navigation.pathDisplayCaseLower': 'all lowercase',
+  'admin.navigation.pathDisplayCaseUpper': 'ALL UPPERCASE',
+  'admin.navigation.pathDisplayCaseCamel': 'camelCase',
+  'admin.navigation.pathDisplayCasePascal': 'PascalCase',
+  'admin.navigation.pathDisplayCaseTitle': 'Title Case',
+  'admin.navigation.pathDisplaySaveSuccess': 'Path display setting saved.',
+  'admin.navigation.pathDisplaySaveFailed': 'Failed to save the path display setting.',
+  'common.actions.save': 'Save'
 }
 
 const SITE_LOCALES = [
@@ -51,10 +64,18 @@ const SITE_LOCALES = [
  * across every call regardless of URL, not per-endpoint -- whichever of the two async functions
  * happens to reach its `await` first would silently consume the other's mock.
  */
-function mockApiClient({ overrides = OVERRIDES, siteLocales = SITE_LOCALES, primary = 'en' } = {}) {
+function mockApiClient({
+  overrides = OVERRIDES,
+  siteLocales = SITE_LOCALES,
+  primary = 'en',
+  pathDisplayCase
+} = {}) {
   stubApi({
     'sites/site-1/navigation/overrides': overrides,
-    'sites/site-1?strict=true': { locales: { active: siteLocales, primary } }
+    'sites/site-1?strict=true': {
+      locales: { active: siteLocales, primary },
+      ...(pathDisplayCase !== undefined && { pathDisplayCase })
+    }
   })
 }
 
@@ -270,6 +291,59 @@ describe('AdminNavigation', () => {
     expect(openSpy).toHaveBeenCalledWith('/private', '_blank', 'noopener')
     expect(dialog).not.toHaveBeenCalled()
     openSpy.mockRestore()
+  })
+
+  /**
+   * WP #2577: the path-display case-style setting, embedded as its own card-local save (per
+   * `docs/decisions/embedded-setting-save-affordance.md`) rather than a page-header Apply.
+   */
+  it("defaults the path display picker to 'off' when the site has no pathDisplayCase set yet", async () => {
+    const { wrapper } = await mountPage()
+    await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 2)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.state.pathDisplayCase).toBe('off')
+  })
+
+  it("loads the administered site's own stored pathDisplayCase", async () => {
+    const { wrapper } = await mountPage({ apiClient: { pathDisplayCase: 'title' } })
+    await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 2)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.state.pathDisplayCase).toBe('title')
+  })
+
+  it('saves the path display case style through the dedicated pathDisplay route, not PUT /:siteId', async () => {
+    const { wrapper } = await mountPage()
+    await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 2)
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ ok: true, message: 'Path display setting updated.' })
+    })
+
+    wrapper.vm.state.pathDisplayCase = 'pascal'
+    const saveBtn = wrapper.findAll('button').find((b) => b.text() === 'Save')
+    await saveBtn.trigger('click')
+    await vi.waitUntil(() => API_CLIENT.put.mock.calls.length === 1)
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/navigation/pathDisplay', {
+      json: { caseStyle: 'pascal' }
+    })
+  })
+
+  it('shows a failure toast, and clears the loading flag, when saving the path display setting fails', async () => {
+    const { wrapper } = await mountPage()
+    await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 2)
+
+    API_CLIENT.put.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+
+    const saveBtn = wrapper.findAll('button').find((b) => b.text() === 'Save')
+    await saveBtn.trigger('click')
+    await vi.waitUntil(() => wrapper.vm.state.savingPathDisplay === false)
+
+    expect(wrapper.vm.state.savingPathDisplay).toBe(false)
   })
 })
 

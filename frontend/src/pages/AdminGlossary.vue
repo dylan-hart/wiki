@@ -77,9 +77,25 @@
             <w-item-section>
               <w-item-label>
                 <strong>{{ term.term }}</strong>
+                <w-chip
+                  v-if="term.isAcronym"
+                  square
+                  dense
+                  size="sm"
+                  class="ms-2"
+                  icon="mdi:alpha-a-box-outline">
+                  {{ t('admin.glossary.isAcronym') }}
+                </w-chip>
               </w-item-label>
               <div v-if="term.aliases?.length" class="flex flex-wrap gap-1 mt-1">
-                <w-chip v-for="alias of term.aliases" :key="alias" square dense>{{ alias }}</w-chip>
+                <w-chip
+                  v-for="alias of term.aliases"
+                  :key="alias.value"
+                  square
+                  dense
+                  :icon="alias.isAcronym ? 'mdi:alpha-a-box-outline' : null">
+                  {{ alias.value }}
+                </w-chip>
               </div>
               <w-item-label v-if="term.path" caption>
                 <w-icon name="la:link" size="12px" class="me-1" />
@@ -145,7 +161,8 @@ import { apiErrorMessage } from '@/helpers/apiError'
   EDITING IS A STAGED WORKFLOW (OpenProject #1113): `state.terms` is a local working copy -- add/
   edit/remove buttons only ever touch it, never the API -- and nothing reaches the server until
   "Save Glossary" is clicked, which atomically replaces the whole live glossary and records a version
-  snapshot. Each entry is `{ term, definition, aliases, path }` (a client-only `_key` added for
+  snapshot. Each entry is `{ term, definition, isAcronym, aliases, path }` (`aliases` each
+  `{ value, isAcronym }` -- OpenProject #2575) (a client-only `_key` added for
   `v-for`/editing, stripped back off before anything is sent) -- the exact JSON shape
   `GET .../glossary/export` already returns and `POST .../glossary/{save,import}` both accept
   (OpenProject #1114), so loading, saving, exporting and importing all speak the same shape.
@@ -203,7 +220,13 @@ const isDirty = computed(() => JSON.stringify(stripKeys(state.terms)) !== state.
 // METHODS
 
 function stripKeys(terms) {
-  return terms.map(({ term, definition, aliases, path }) => ({ term, definition, aliases, path }))
+  return terms.map(({ term, definition, isAcronym, aliases, path }) => ({
+    term,
+    definition,
+    isAcronym,
+    aliases,
+    path
+  }))
 }
 
 function createTerm() {

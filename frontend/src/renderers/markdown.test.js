@@ -479,7 +479,7 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
         {
           term: 'Hot Strip Mill',
           definition: 'A rolling mill.',
-          aliases: ['HSM'],
+          aliases: [{ value: 'HSM', isAcronym: true }],
           link: '/en/dev/hsm'
         }
       ]
@@ -495,7 +495,12 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
     const md = new MarkdownRenderer({
       glossaryTerms: [
         { term: 'API', definition: 'Short definition.', aliases: [], link: null },
-        { term: 'Interface', definition: 'Long definition.', aliases: ['REST API'], link: null }
+        {
+          term: 'Interface',
+          definition: 'Long definition.',
+          aliases: [{ value: 'REST API', isAcronym: false }],
+          link: null
+        }
       ]
     })
     const html = md.render('Our REST API is versioned.')

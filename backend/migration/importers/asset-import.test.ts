@@ -228,4 +228,39 @@ describe('importAsset', () => {
 
     assert.equal(assetsModel.uploaded[0]!.mimeType, 'image/png')
   })
+
+  test('a folder path with disallowed characters is folded before being resolved, not passed raw', async () => {
+    const assetsModel = new FakeAssetsModel()
+    const treeModel = new FakeTreeModel()
+    const deps: AssetImportDeps = { assetsModel, treeModel }
+    const file = buildFile({
+      relativePath: 'Docs/Sub_Folder!/diagram.png',
+      filename: 'diagram.png'
+    })
+
+    const outcome = await importAsset(file, deps, buildOptions())
+
+    assert.equal(outcome.result, 'success')
+    assert.equal(treeModel.calls.length, 1)
+    assert.equal(treeModel.calls[0]!.path, 'docs/sub-folder')
+    assert.equal(treeModel.calls[0]!.createIfMissing, true)
+    assert.equal(assetsModel.uploaded[0]!.folderId, 'folder-1')
+  })
+
+  test('a folder path segment made entirely of disallowed characters is a folder-error, never reaching getFolder() or upload()', async () => {
+    const assetsModel = new FakeAssetsModel()
+    const treeModel = new FakeTreeModel()
+    const deps: AssetImportDeps = { assetsModel, treeModel }
+    const file = buildFile({ relativePath: 'docs/!!!/diagram.png', filename: 'diagram.png' })
+
+    const outcome = await importAsset(file, deps, buildOptions())
+
+    assert.equal(outcome.result, 'failure')
+    if (outcome.result === 'failure') {
+      assert.equal(outcome.failure.reason, 'folder-error')
+      assert.match(outcome.failure.message, /docs\/!!!/)
+    }
+    assert.equal(treeModel.calls.length, 0, 'getFolder() was never reached')
+    assert.equal(assetsModel.uploaded.length, 0, 'upload() was never reached')
+  })
 })

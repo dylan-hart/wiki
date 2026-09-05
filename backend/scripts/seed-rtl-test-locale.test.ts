@@ -26,6 +26,24 @@ const enStrings: Record<string, string> = JSON.parse(
 )
 
 /**
+ * Feature-detects between the two shapes real engines ship for `Intl.Locale`'s text-direction info --
+ * mirrors `frontend/src/stores/site.js`'s `textDirection()` (feature 413, task 727), which this test
+ * exists to stay in agreement with. Some Node builds (this sandbox's local macOS Node) expose the
+ * earlier draft's `.textInfo` GETTER; a real Chromium build -- and, per OpenProject #2587, at least
+ * one Node build used by CI -- exposes `Intl.Locale.prototype.getTextInfo()` as a METHOD instead, with
+ * no `.textInfo` getter at all. Reading `.textInfo.direction` unconditionally throws
+ * `TypeError: Cannot read properties of undefined (reading 'direction')` on that shape, which is
+ * exactly the CI failure #2587 reports -- not a missing-ICU-data problem, since both shapes read from
+ * the same CLDR-backed data once resolved.
+ */
+function textDirection(locale: any): string | undefined {
+  if (typeof locale.getTextInfo === 'function') {
+    return locale.getTextInfo().direction
+  }
+  return locale.textInfo?.direction
+}
+
+/**
  * Every code a real vendored locale could resolve to, straight off the live `metadata.js` -- what
  * `models/locales.ts#refreshFromDisk()` itself iterates. Used below to confirm (not merely assume)
  * that `RTL_TEST_LOCALE`/`LTR_TEST_LOCALE` really do share a code with a real locale today, which is
@@ -46,12 +64,40 @@ describe('RTL_TEST_LOCALE', () => {
   })
 
   it('resolves as RTL via the same Intl.Locale CLDR check the frontend uses', () => {
-    // -> `frontend/src/stores/site.js`'s `describeLocales()` resolves `isRTL` from
-    //    `Intl.Locale(code).textInfo.direction` rather than the db column -- this asserts the two
-    //    stay in agreement rather than merely trusting the hand-set `isRTL: true` above.
-    // -> `textInfo` is a TC39 stage-3 addition (`Intl.Locale.prototype.textInfo`) not yet reflected
-    //    in TypeScript's lib types, hence the cast -- same runtime API `describeLocales()` calls.
-    assert.equal((new Intl.Locale(RTL_TEST_LOCALE.code) as any).textInfo.direction, 'rtl')
+    // -> `frontend/src/stores/site.js`'s `describeLocales()` resolves `isRTL` from this same
+    //    feature-detected direction read rather than the db column -- this asserts the two stay in
+    //    agreement rather than merely trusting the hand-set `isRTL: true` above.
+    // -> `textInfo`/`getTextInfo()` are TC39 stage-3 additions not yet reflected in TypeScript's lib
+    //    types, hence the `any` in `textDirection`'s signature -- same runtime API `describeLocales()`
+    //    calls.
+    assert.equal(textDirection(new Intl.Locale(RTL_TEST_LOCALE.code)), 'rtl')
+  })
+
+  /**
+   * Regression coverage for OpenProject #2587: on a Node build that exposes `getTextInfo()` as a
+   * method with no `.textInfo` getter at all (matching a real Chromium build, and apparently at
+   * least one Node build CI runs against), reading `.textInfo.direction` unconditionally throws
+   * `TypeError: Cannot read properties of undefined (reading 'direction')`. Mirrors
+   * `frontend/src/stores/site.test.js`'s "Chrome-shaped Intl.Locale" case: the simulated class still
+   * delegates to a real `Intl.Locale` for the actual CLDR direction data, so this only locks in the
+   * shape handling, not a stubbed answer.
+   */
+  it('still resolves RTL via getTextInfo() on a Node build with no .textInfo getter', () => {
+    const RealLocale = Intl.Locale
+    class GetTextInfoOnlyLocale extends RealLocale {
+      get textInfo(): any {
+        throw new TypeError('textInfo is not a function or its return value is not iterable')
+      }
+      override getTextInfo() {
+        return { direction: (new RealLocale(this.toString()) as any).textInfo.direction }
+      }
+    }
+    ;(Intl as any).Locale = GetTextInfoOnlyLocale
+    try {
+      assert.equal(textDirection(new Intl.Locale(RTL_TEST_LOCALE.code)), 'rtl')
+    } finally {
+      ;(Intl as any).Locale = RealLocale
+    }
   })
 
   it('shares its code with a real, currently-vendored Localazy locale', async () => {
@@ -132,7 +178,7 @@ describe('LTR_TEST_LOCALE', () => {
 
   it('resolves as non-RTL via the same Intl.Locale CLDR check the frontend uses', () => {
     // -> Mirrors the RTL row's own CLDR-agreement check above -- see its comment.
-    assert.notEqual((new Intl.Locale(LTR_TEST_LOCALE.code) as any).textInfo.direction, 'rtl')
+    assert.notEqual(textDirection(new Intl.Locale(LTR_TEST_LOCALE.code)), 'rtl')
   })
 
   it('shares its code with a real, currently-vendored Localazy locale', async () => {

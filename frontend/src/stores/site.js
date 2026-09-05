@@ -168,6 +168,22 @@ export const useSiteStore = defineStore('site', {
     },
     tags: [],
     tagsLoaded: false,
+    /**
+     * The case style (Feature #2574/#2577) applied to a path-derived label at every render site --
+     * breadcrumbs, sidebar/tree nav, auto-nav, and a page's own heading (#2578) -- via
+     * `composables/pathDisplay.js#usePathDisplay()`. `'off'` (the default) means every one of those
+     * sites shows its label unchanged, exactly as before this feature existed.
+     */
+    pathDisplayCase: 'off',
+    /**
+     * The site's lowercase-surface-form -> canonical-display-casing acronym lookup
+     * (`GET sites/:siteId/glossary/acronyms`), consulted by `usePathDisplay()`'s humanizer so e.g.
+     * "uss" renders as "USS" rather than the case style's own guess. Fetched lazily by
+     * `fetchAcronymMap` -- triggered from `applySiteInfo` itself, once per site load, only when
+     * `pathDisplayCase` is not `'off'` -- since a site with the setting off never needs it.
+     */
+    acronymMap: {},
+    acronymMapLoaded: false,
     theme: {
       dark: false,
       injectCSS: '',
@@ -281,6 +297,7 @@ export const useSiteStore = defineStore('site', {
         navigationId: siteInfo.navigationId ?? null,
         blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
+        pathDisplayCase: siteInfo.pathDisplayCase ?? 'off',
         company: siteInfo.company,
         contentLicense: siteInfo.contentLicense,
         footerExtra: siteInfo.footerExtra,
@@ -312,6 +329,39 @@ export const useSiteStore = defineStore('site', {
           ...siteInfo.theme
         }
       })
+      // -> Only a site with the setting on ever needs its acronym lookup; not awaited, since every
+      //    render site (`usePathDisplay()`) reads `acronymMap` reactively off this store and updates
+      //    on its own once the fetch resolves -- the same lazy, swallow-on-failure shape as
+      //    `fetchExtensionsStatus` below, just triggered from here instead of on demand, so every
+      //    caller of `applySiteInfo` (`loadSite`, `bootstrap`) picks it up with no call of its own.
+      if (this.pathDisplayCase !== 'off') {
+        this.fetchAcronymMap()
+      }
+    },
+    /**
+     * The site's acronym lookup (Feature #2574/#2575), for `usePathDisplay()`'s humanizer. Same
+     * cached-until-asked-again, swallow-on-failure shape as `fetchExtensionsStatus` below: a reader
+     * seeing a path-derived label without its acronym override is the safe fallback for a failed or
+     * not-yet-finished fetch, not an uncaught rejection.
+     *
+     * Written through the function form of `$patch` rather than an object -- `acronymMap`'s own keys
+     * come and go as the glossary's acronym entries do, and the object form deep-merges a plain
+     * object field instead of replacing it, which would leave a term removed from the glossary since
+     * the last fetch stuck around forever on `forceRefresh`.
+     */
+    async fetchAcronymMap(forceRefresh = false) {
+      if (this.acronymMapLoaded && !forceRefresh) {
+        return
+      }
+      try {
+        const map = await API_CLIENT.get(`sites/${this.id}/glossary/acronyms`).json()
+        this.$patch((state) => {
+          state.acronymMap = map ?? {}
+          state.acronymMapLoaded = true
+        })
+      } catch (err) {
+        console.warn(err.message)
+      }
     },
     async fetchTags(forceRefresh = false) {
       if (this.tagsLoaded && !forceRefresh) {

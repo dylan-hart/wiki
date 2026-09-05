@@ -15,9 +15,27 @@ describe('normalizeSegment', () => {
     assert.equal(normalizeSegment('already-legal-123'), 'already-legal-123')
   })
 
-  test('rejects a segment that is still illegal after folding', () => {
-    // Not reachable through 2.x's own rePagePath in practice, but this module must not crash on it.
-    assert.equal(normalizeSegment('has a space'), null)
+  test('folds a space to a hyphen', () => {
+    assert.equal(normalizeSegment('has a space'), 'has-a-space')
+  })
+
+  test('folds punctuation and unicode to hyphens', () => {
+    assert.equal(normalizeSegment('café'), 'caf')
+    assert.equal(normalizeSegment('foo!!!bar'), 'foo-bar')
+  })
+
+  test('collapses a run of disallowed characters into a single hyphen', () => {
+    assert.equal(normalizeSegment('foo   bar'), 'foo-bar')
+  })
+
+  test('trims a hyphen produced by folding leading/trailing disallowed characters', () => {
+    assert.equal(normalizeSegment('  leading'), 'leading')
+    assert.equal(normalizeSegment('trailing  '), 'trailing')
+  })
+
+  test('returns null for a segment made entirely of disallowed characters', () => {
+    assert.equal(normalizeSegment('!!!'), null)
+    assert.equal(normalizeSegment('   '), null)
   })
 })
 
@@ -52,7 +70,16 @@ describe('normalizeMigratedPath', () => {
   })
 
   test('reports invalid-segment for a character no amount of folding fixes', () => {
-    const result = normalizeMigratedPath('guide/a b')
+    const result = normalizeMigratedPath('guide/!!!')
     assert.equal('reason' in result && result.reason, 'invalid-segment')
+  })
+
+  test('folds spaces and punctuation in a segment rather than rejecting it', () => {
+    const result = normalizeMigratedPath('Guide Name/My Page!')
+    assert.deepEqual(result, {
+      parentPath: 'guide-name',
+      fileName: 'my-page',
+      path: 'guide-name/my-page'
+    })
   })
 })

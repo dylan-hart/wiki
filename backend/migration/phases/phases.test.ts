@@ -6,6 +6,7 @@ import { contentPhase } from './content.ts'
 import { settingsPhase } from './settings.ts'
 import { usersPhase } from './users.ts'
 import { MIGRATION_PHASES, MIGRATION_PHASE_IDS } from './index.ts'
+import { MAX_NAME_ATTEMPTS } from '../../models/tree.ts'
 import type { MigrationContext } from '../context.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from '../connector.ts'
 import { stubSourceConnector } from '../../test/migrationFixtures.ts'
@@ -232,25 +233,31 @@ describe('migration phases', () => {
 
   test("contentPhase: a page that fails to import (sibling-collision) is not misreported as wouldCreate (Task 13 proactive fix, mirroring Task 14's review fix for users)", async () => {
     // -> Before this fix, blindly wrapping pageImporter.importOne() as recorder.create()'s own write
-    //    callback would have counted BOTH pages as wouldCreate, since importOne() never throws for a
+    //    callback would have counted every page as wouldCreate, since importOne() never throws for a
     //    failed page (it returns a 'failed' outcome instead) and create() counts unconditionally.
-    const pages = [
-      fakeSourcePage({ id: 1, path: 'FooBar' }),
-      fakeSourcePage({ id: 2, path: 'foobar' })
-    ]
+    // -> OpenProject #2572: a colliding page is no longer failed on its FIRST collision — page-import.ts
+    //    now retries a sibling-collision with a numeric suffix (name-1, name-2, ...) up to
+    //    MAX_NAME_ATTEMPTS times before giving up, so genuinely exhausting every attempt (and proving
+    //    the last one truly still fails rather than being misreported) takes MAX_NAME_ATTEMPTS + 2
+    //    colliding pages: the first claims the bare name, the next MAX_NAME_ATTEMPTS claim every
+    //    suffixed variant in turn, and the last one finds nothing left and fails.
+    const pages = Array.from({ length: MAX_NAME_ATTEMPTS + 2 }, (_unused, i) =>
+      fakeSourcePage({ id: i + 1, path: 'FooBar' })
+    )
     const result = await contentPhase.run({
       ...contextWith(creatableContentConnector(pages)),
       dryRun: true
     })
     assert.equal(result.status, 'ok')
     assert.ok(result.report)
-    // -> 2 pages + 1 navigation sentinel.
-    assert.equal(result.report!.found, 3)
-    // -> Page 1 (created) + navigation (created); page 2 is the sibling-collision conflict below.
-    assert.equal(result.report!.wouldCreate, 2)
+    // -> Every colliding page + 1 navigation sentinel.
+    assert.equal(result.report!.found, MAX_NAME_ATTEMPTS + 3)
+    // -> The bare name plus every suffixed retry succeed (created), plus navigation (created); only
+    //    the very last page — which finds every suffix up to the cap already claimed — conflicts.
+    assert.equal(result.report!.wouldCreate, MAX_NAME_ATTEMPTS + 2)
     assert.equal(result.report!.wouldSkipExisting, 0)
     assert.equal(result.report!.conflicts.length, 1)
-    assert.equal(result.report!.conflicts[0]!.identifier, '2')
+    assert.equal(result.report!.conflicts[0]!.identifier, String(MAX_NAME_ATTEMPTS + 2))
     assert.match(result.report!.conflicts[0]!.detail, /sibling-collision|same tree location/)
   })
 

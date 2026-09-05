@@ -2,6 +2,30 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
+   * GLOSSARY ALIAS - One alternate surface form of a term (OpenProject #2575)
+   */
+  app.addSchema({
+    $id: 'GlossaryAlias',
+    type: 'object',
+    required: ['value'],
+    properties: {
+      value: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 255,
+        description:
+          'Matched case-insensitively and on whole words only, same as `term` -- resolves to the same definition and canonical page.'
+      },
+      isAcronym: {
+        type: 'boolean',
+        default: false,
+        description:
+          'Marks this alias\'s stored casing (e.g. "USS") as a canonical DISPLAY casing, distinct from an ordinary alias -- consulted by the path-segment humanizer via a lowercase lookup key.'
+      }
+    }
+  })
+
+  /**
    * GLOSSARY TERM INPUT - The writable fields, used for both create and update
    */
   app.addSchema({
@@ -22,10 +46,23 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       aliases: {
         type: 'array',
-        items: { type: 'string', minLength: 1, maxLength: 255 },
+        items: { $ref: 'GlossaryAlias#' },
         default: [],
         description:
-          'Alternate surface forms (acronyms, alternate names) matched the same way as `term`, all resolving to this same definition and canonical page -- no per-alias override.'
+          'Alternate surface forms (acronyms, alternate names) matched the same way as `term`, all resolving to this same definition and canonical page.'
+      },
+      isAcronym: {
+        type: 'boolean',
+        // -> Deliberately NO `default` here, unlike `GlossaryAlias#isAcronym`/`GlossaryExportTerm#isAcronym`
+        //    below -- this same schema also validates the single-term PUT body (OpenProject #870's
+        //    "accepts any subset of the fields"), and `useDefaults` would otherwise inject `false`
+        //    into every partial update that omits this field, silently clearing an existing acronym
+        //    flag whenever a caller PUTs just `{ definition: '...' }`. Its absence stays `undefined`
+        //    on the wire, which `models/glossary.ts#updateTerm`'s `input.isAcronym !== undefined`
+        //    guard already treats as "leave it alone" -- `createTerm`'s `!!input.isAcronym` still
+        //    coerces an omitted create-time value to `false` correctly, with no schema default needed.
+        description:
+          "Marks the TERM ITSELF (as opposed to one of its aliases) as an acronym -- same canonical-display-casing meaning as an alias's own `isAcronym`. Omit to leave unchanged on an update; treated as `false` on create."
       },
       pageId: {
         type: 'string',
@@ -55,7 +92,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       aliases: {
         type: 'array',
-        items: { type: 'string' }
+        items: { $ref: 'GlossaryAlias#' }
+      },
+      isAcronym: {
+        type: 'boolean'
       },
       pageId: {
         type: 'string',
@@ -90,7 +130,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       aliases: {
         type: 'array',
-        items: { type: 'string' }
+        items: { $ref: 'GlossaryAlias#' }
+      },
+      isAcronym: {
+        type: 'boolean'
       },
       link: {
         type: 'string',
@@ -98,6 +141,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description: "The term's canonical page, already resolved to a link. Null when none is set."
       }
     }
+  })
+
+  /**
+   * GLOSSARY ACRONYM MAP - A lowercase-surface-form → canonical-display-casing lookup (OpenProject
+   * #2575), consulted by the frontend's path-segment humanization helper.
+   */
+  app.addSchema({
+    $id: 'GlossaryAcronymMap',
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    description:
+      'Keys are lowercase surface forms; values are that surface form\'s canonical display casing, e.g. `{ "uss": "USS" }`.'
   })
 
   /**
@@ -115,8 +170,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       definition: { type: 'string' },
       aliases: {
         type: 'array',
-        items: { type: 'string' },
+        items: { $ref: 'GlossaryAlias#' },
         default: []
+      },
+      isAcronym: {
+        type: 'boolean',
+        default: false
       },
       path: {
         type: 'string',

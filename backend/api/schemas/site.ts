@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { pathDisplayCaseStyles } from '../../models/sites.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
@@ -154,6 +155,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       sitemap: {
         type: 'boolean'
+      },
+      pathDisplayCase: {
+        type: 'string',
+        description:
+          "The case style applied at render time to a path-derived label (breadcrumbs, sidebar/tree navigation, auto-nav, a page's own displayed name) — computed off the raw lowercase tree segment, not the stored `title` (Feature #2574). `off` shows the raw lowercase segment unchanged; the others humanize it (`text-case`-style camel/pascal/title casing, or forcing all-lower/all-upper), with a site's Glossary acronym entries overriding a word's casing regardless of the style picked. Written via `PUT /sites/:siteId/navigation/pathDisplay` (`site:navigation`), not this general site-update route.",
+        enum: [...pathDisplayCaseStyles]
       },
       robots: {
         type: 'object',

@@ -191,18 +191,27 @@ git-cliff -o CHANGELOG.md                     # write the full changelog (every 
 `cliff.toml` groups commits into four sections, in this order, mirroring upstream 2.5.x's GitHub
 Release convention (New Features / Bug Fixes / Refactors / Chores):
 
-| Group         | Conventional Commit types                                             |
-| ------------- | --------------------------------------------------------------------- |
-| **Features**  | `feat`                                                                |
-| **Bug Fixes** | `fix`                                                                 |
-| **Refactors** | `refactor`                                                            |
-| **Chores**    | `docs`, `ci`, `chore`, `test`, `style`, `build`, `misc`/`mics`, `dev` |
+| Group         | Conventional Commit types                                                   |
+| ------------- | --------------------------------------------------------------------------- |
+| **Features**  | `feat` (case-insensitive)                                                   |
+| **Bug Fixes** | `fix` (case-insensitive)                                                    |
+| **Refactors** | `refactor` (case-insensitive)                                               |
+| **Chores**    | everything else that parses as `type[(scope)]: description` — the catch-all |
+
+Chores is a catch-all rather than an enumerated list on purpose: `docs`, `ci`, `chore`, `test`,
+`style`, `build`, this repo's `misc`/`mics`/`dev` types, its own ad-hoc annotations (`audit:`,
+`polish:`, ...) and its `Cycle: ...` squash-merge commits all land there. An earlier, enumerated
+version of this list silently dropped any type it didn't name — the exact failure OpenProject
+#2567 tracked, where a squash-merged commit could disappear from the changelog with a "grouping
+error" instead of being categorized.
 
 Each entry links to its commit. A commit that doesn't parse as `type[(scope)]: description` at all
 (pre-fork upstream history has plenty — plain "Update README.md", merge commits) is dropped rather
 than shown unclassified; `backend/test/changelog.test.ts` runs the tool against this repo's actual
-history and asserts the four sections come out non-empty, in order, and that this fork's own recent
-commits land in the section their prefix says they should.
+history and asserts that whichever sections come out are in the documented order and non-empty,
+and cross-checks each entry's commit hash against `git log`'s real subject line to confirm it
+landed in the section its actual type says it should — deliberately without hardcoding any
+specific commit, since which commits are in `--unreleased` range keeps changing as history moves.
 
 Since no `vX.Y.Z` tag has been pushed yet (see [Channel 2](#channel-2-real-releases) above),
 `--unreleased` today walks the _entire_ history rather than "since the last release" — there is no

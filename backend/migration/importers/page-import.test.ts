@@ -472,13 +472,22 @@ describe('per-page import', () => {
     assert.ok(result.succeeded[0].warnings.some((w) => /privateNS "secret-team"/.test(w)))
   })
 
-  test('a page whose path collides with a pre-existing tree entry never reaches createPage()', async () => {
+  test('a page whose path collides with a pre-existing tree entry never reaches createPage(), and is never retried with a numeric suffix', async () => {
+    // -> Unlike sibling-collision, existing-entry-collision is deliberately NOT retried with a
+    //    suffix at all — phases/content.ts relies on this exact reason firing immediately to treat
+    //    an already-migrated page as an idempotent skip on a re-run of the migration CLI, rather
+    //    than creating a renamed duplicate. See resolveStreamedFileName()'s doc comment.
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 5, path: 'taken' })
 
     const result = await runImport(
       [staged],
-      { pagesModel, existingEntry: () => true },
+      // -> Only the unsuffixed name is reported as occupied — "taken-1" would be free, proving the
+      //    importer never even tries it for this reason.
+      {
+        pagesModel,
+        existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName === 'taken'
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -488,6 +497,7 @@ describe('per-page import', () => {
     assert.equal(result.failed[0].reason, 'existing-entry-collision')
     assert.equal(result.failed[0].oldId, 5)
     assert.equal(result.pageIdMap.has(5), false)
+    assert.doesNotMatch(result.failed[0].message, /numeric-suffix/)
   })
 
   test('a page whose path fails to normalize never reaches createPage()', async () => {
@@ -529,10 +539,11 @@ describe('per-page import', () => {
     assert.equal(pagesModel.created.length, 1)
   })
 
-  test('sibling-collision: streaming is single-pass, so the earlier page is already created by the time the later, colliding one is discovered — only the later one fails', async () => {
+  test('sibling-collision: streaming is single-pass, so the earlier page is already created by the time the later, colliding one is discovered — the later one is renamed via a numeric suffix rather than dropped', async () => {
     // -> A single-pass stream cannot fail both sides of a collision: by the time "foobar" is seen to
     //    collide with "FooBar", "FooBar" has already been created. See the module doc comment's
-    //    "Streaming input and per-page sibling-collision detection".
+    //    "Streaming input and per-page sibling-collision detection" — the later page retries with
+    //    "foobar-1" and succeeds, rather than being dropped.
     const pagesModel = new FakePagesModel()
     const pages = [
       buildStagedPage({ oldId: 1, path: 'FooBar' }),
@@ -545,12 +556,46 @@ describe('per-page import', () => {
       { siteId: 'site-1', actorPermissions: [] }
     )
 
+    assert.equal(pagesModel.created.length, 2)
+    assert.equal(result.succeeded.length, 2)
+    assert.equal(result.failed.length, 0)
+    assert.equal(pagesModel.created[0].input.path, 'foobar')
+    assert.equal(pagesModel.created[1].input.path, 'foobar-1')
+    assert.equal(result.pageIdMap.get(1), 'page-1')
+    assert.equal(result.pageIdMap.get(2), 'page-2')
+    const renamed = result.succeeded.find((s) => s.oldId === 2)!
+    assert.ok(renamed.warnings.some((w) => /collided with page 1/.test(w) && /"foobar-1"/.test(w)))
+  })
+
+  test('sibling-collision: exhausts every numeric-suffix retry and fails once no free name can be found', async () => {
+    const pagesModel = new FakePagesModel()
+    const pages = [
+      buildStagedPage({ oldId: 1, path: 'FooBar' }),
+      buildStagedPage({ oldId: 2, path: 'foobar' })
+    ]
+
+    const result = await runImport(
+      pages,
+      {
+        pagesModel,
+        // -> "foobar" itself is free (page 1 claims it), but every numbered suffix "foobar-1"…
+        //    "foobar-100" is reported as already occupying a pre-existing tree entry, so page 2's
+        //    retry budget is exhausted with no free name found — the original sibling-collision (not
+        //    the incidental existing-entry-collisions the suffixed retries hit) is what's reported.
+        existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName !== 'foobar'
+      },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
     assert.equal(pagesModel.created.length, 1)
     assert.equal(result.succeeded.length, 1)
     assert.equal(result.succeeded[0].oldId, 1)
     assert.equal(result.failed.length, 1)
     assert.equal(result.failed[0].oldId, 2)
     assert.equal(result.failed[0].reason, 'sibling-collision')
+    assert.match(result.failed[0].message, /same tree location as page 1/)
+    assert.match(result.failed[0].message, /numeric-suffix retry/)
+    assert.match(result.failed[0].message, /100/)
   })
 
   test("with backfillHistory wired, a page's history is backfilled immediately after it is created — before the next page is even staged", async () => {
@@ -665,11 +710,12 @@ describe('createPageImporter', () => {
     assert.equal(pagesModel.created.length, 2)
   })
 
-  test('detects a sibling collision across two importOne() calls', async () => {
-    // -> Same single-pass semantics as the sibling-collision test above, but driven through two
-    //    separate importOne() calls on an importer a test built itself rather than through runImport()
-    //    — this is exactly the calling shape phases/content.ts needs: claimedLocations must persist in
-    //    the importer's own closure between calls, not just within one loop.
+  test('claimedLocations persists across importOne() calls, so repeated collisions keep incrementing the suffix', async () => {
+    // -> Same single-pass semantics as the sibling-collision test above, but driven through separate
+    //    importOne() calls on an importer a test built itself rather than through runImport() — this
+    //    is exactly the calling shape phases/content.ts needs: claimedLocations (and every suffixed
+    //    name a rename has already claimed) must persist in the importer's own closure between calls,
+    //    not just within one loop.
     const pagesModel = new FakePagesModel()
     const importer = createPageImporter(
       { pagesModel, existingEntry: noExistingEntries },
@@ -677,14 +723,16 @@ describe('createPageImporter', () => {
     )
 
     await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
-    const outcome = await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
+    const outcome2 = await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
+    const outcome3 = await importer.importOne(buildStagedPage({ oldId: 3, path: 'FOOBAR' }))
 
-    assert.equal(pagesModel.created.length, 1)
-    assert.equal(importer.succeeded.length, 1)
-    assert.equal(importer.succeeded[0].oldId, 1)
-    assert.equal(outcome.status, 'failed')
-    if (outcome.status !== 'failed') return // -> type narrowing for the assertion below
-    assert.equal(outcome.reason, 'sibling-collision')
+    assert.equal(pagesModel.created.length, 3)
+    assert.equal(importer.succeeded.length, 3)
+    assert.equal(outcome2.status, 'created')
+    assert.equal(outcome3.status, 'created')
+    assert.equal(pagesModel.created[0].input.path, 'foobar')
+    assert.equal(pagesModel.created[1].input.path, 'foobar-1')
+    assert.equal(pagesModel.created[2].input.path, 'foobar-2')
   })
 
   describe('importOne() return value', () => {
@@ -705,7 +753,7 @@ describe('createPageImporter', () => {
       assert.equal(importer.pageIdMap.get(1), 'page-1')
     })
 
-    test('resolves { status: "failed", reason: "sibling-collision", message } for a colliding page, not a thrown error', async () => {
+    test('resolves { status: "created" } for a page renamed via a numeric suffix after a collision, not a failure', async () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(
         { pagesModel, existingEntry: noExistingEntries },
@@ -715,15 +763,38 @@ describe('createPageImporter', () => {
       await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
       const outcome = await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
 
+      assert.deepEqual(outcome, { status: 'created', pageId: 'page-2' })
+      assert.equal(pagesModel.created[1].input.path, 'foobar-1')
+    })
+
+    test('resolves { status: "failed", reason: "sibling-collision", message } once every numeric-suffix retry also collides, not a thrown error', async () => {
+      const pagesModel = new FakePagesModel()
+      const importer = createPageImporter(
+        {
+          pagesModel,
+          // -> Every suffixed retry ("foobar-1".."foobar-100") also collides with a pre-existing tree
+          //    entry, so the retry budget is exhausted and the original sibling-collision is reported.
+          existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName !== 'foobar'
+        },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
+      const outcome = await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
+
       assert.equal(outcome.status, 'failed')
       assert.equal((outcome as { reason: string }).reason, 'sibling-collision')
       assert.match((outcome as { message: string }).message, /same tree location/)
+      assert.match((outcome as { message: string }).message, /numeric-suffix retry/)
     })
 
-    test('resolves { status: "failed", reason: "existing-entry-collision" } without throwing', async () => {
+    test('resolves { status: "failed", reason: "existing-entry-collision" } immediately, without any numeric-suffix retry, and without throwing', async () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(
-        { pagesModel, existingEntry: () => true },
+        {
+          pagesModel,
+          existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName === 'taken'
+        },
         { siteId: 'site-1', actorPermissions: [] }
       )
 
@@ -731,6 +802,7 @@ describe('createPageImporter', () => {
 
       assert.deepEqual(outcome.status, 'failed')
       assert.equal((outcome as { reason: string }).reason, 'existing-entry-collision')
+      assert.doesNotMatch((outcome as { message: string }).message, /numeric-suffix/)
       assert.equal(pagesModel.created.length, 0)
     })
 

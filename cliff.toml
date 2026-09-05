@@ -35,9 +35,7 @@ trim = true
 # release still prints something explicit rather than silently nothing.
 render_always = true
 footer = ""
-postprocessors = [
-  { pattern = '<REPO>', replace = "https://github.com/requarks/wiki" },
-]
+postprocessors = [{ pattern = '<REPO>', replace = "https://github.com/requarks/wiki" }]
 
 [git]
 # Commits must parse as `type[(scope)][!]: description` to be considered at all — this is what
@@ -49,25 +47,30 @@ require_conventional = false
 split_commits = false
 commit_preprocessors = [
   # Turn a trailing `(#123)` PR-number suffix into a markdown link to the PR.
-  { pattern = '\((#[0-9]+)\)$', replace = "([${1}](<REPO>/pull/${1}))" },
+  { pattern = '\((#[0-9]+)\)$', replace = "([${1}](<REPO>/pull/${1}))" }
 ]
 protect_breaking_commits = false
 
 # Four groups, matching the New Features / Bug Fixes / Refactors / Chores sections upstream's
 # 2.5.x GitHub Releases use. `<!-- N -->` prefixes are stripped by the template (`striptags`) and
 # exist only to force group render order, since `group_by` otherwise sorts alphabetically.
-# Everything that isn't feat/fix/refactor — docs, ci, chore, test, style, build, and this repo's
-# `misc`/`mics` (a recurring typo in the older upstream history) / `dev` types alike — folds into
-# Chores: the same non-user-facing bucket upstream's own convention uses for that catch-all.
+# `feat`/`fix`/`refactor` are matched case-insensitively (`(?i)`) because this fork's own history
+# is not perfectly consistent about casing (e.g. some commits use `Fix:` rather than `fix:`).
+# Chores is a catch-all (`.*`), not an enumerated whitelist: docs/ci/chore/test/style/build, this
+# repo's `misc`/`mics` (a recurring typo in the older upstream history) / `dev` types, this fork's
+# own ad-hoc annotations (`audit:`, `polish:`, ...), and its `Cycle: ...` squash-merge commits all
+# fold into it. A whitelist here previously dropped any type outside it with a "grouping error"
+# instead of categorizing it — a real failure mode against this fork's evolving commit vocabulary,
+# see backend/test/changelog.test.ts and OpenProject #2567.
 commit_parsers = [
-  { message = "^feat", group = "<!-- 0 -->Features" },
-  { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
-  { message = "^refactor", group = "<!-- 2 -->Refactors" },
-  { message = "^(docs|ci|chore|misc|mics|dev|style|test|build)", group = "<!-- 3 -->Chores" },
+  { message = "(?i)^feat", group = "<!-- 0 -->Features" },
+  { message = "(?i)^fix", group = "<!-- 1 -->Bug Fixes" },
+  { message = "(?i)^refactor", group = "<!-- 2 -->Refactors" },
+  { message = ".*", group = "<!-- 3 -->Chores" }
 ]
-# Anything conventional-looking but outside the five known types above (there are none in this
-# repo's history today, see docs/versioning.md's companion changelog test) is dropped rather than
-# printed under a raw, unreviewed heading.
+# No longer load-bearing for grouping (the catch-all above means every conventional-shaped commit
+# always matches something), but left on: it still governs `filter_unconventional`'s partner
+# behavior of dropping anything that doesn't even parse as `type[(scope)]: description` at all.
 filter_commits = true
 link_parsers = []
 use_branch_tags = false

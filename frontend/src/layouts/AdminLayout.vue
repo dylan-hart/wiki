@@ -494,6 +494,7 @@
       :aria-label="overlayAriaLabel">
       <component :is="overlays[adminStore.overlay]" />
     </w-dialog>
+    <main-overlay-dialog />
   </w-layout>
 </template>
 
@@ -516,6 +517,7 @@ import { useUserStore } from '@/stores/user'
 import AccountMenu from '../components/AccountMenu.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import LoadingGeneric from '@/components/LoadingGeneric.vue'
+import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 // -> Each with a loading placeholder, as the overlays opened from the page view have: the dialog
 //    around them is already on screen while the chunk is fetched, so without one the panel is empty
 //    until it arrives and then fills in all at once
