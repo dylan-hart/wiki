@@ -16,24 +16,24 @@
           :key="n.id"
           role="alert"
           aria-live="polite"
-          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-3 rounded py-2 pe-2 ps-4 shadow-menu"
+          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-2.5 px-3 py-2.5"
           :class="n.classes">
           <w-icon :name="n.icon" size="sm" class="shrink-0" />
           <div class="min-w-0 flex-1 py-1">
             <div class="text-body2 break-words">{{ n.message }}</div>
-            <div v-if="n.caption" class="text-caption break-words opacity-75">{{ n.caption }}</div>
+            <div v-if="n.caption" class="text-caption break-words opacity-80">{{ n.caption }}</div>
           </div>
           <button
             v-if="n.action"
             type="button"
-            class="w-unstyled shrink-0 cursor-pointer rounded px-1 py-1 text-body2 font-medium underline-offset-2 hover:underline"
+            class="w-unstyled shrink-0 cursor-pointer border border-current/60 px-2 py-0.5 text-caption font-medium hover:bg-current/15"
             @click="runAction(n)">
             {{ n.action.label }}
           </button>
           <button
             type="button"
             :aria-label="t('common.actions.close')"
-            class="w-unstyled shrink-0 cursor-pointer rounded-full p-1 leading-none opacity-70 transition-opacity hover:opacity-100"
+            class="w-unstyled shrink-0 cursor-pointer p-1 leading-none opacity-70 transition-opacity hover:opacity-100"
             @click="dismiss(n.id)">
             <w-icon name="mdi:close" size="xs" />
           </button>
@@ -54,7 +54,7 @@
           <div
             v-if="n.timeout > 0"
             :key="`${n.id}-${n.count}`"
-            class="w-notification-progress absolute bottom-0 start-0 h-[3px] rounded-b bg-white/40"
+            class="w-notification-progress absolute bottom-0 start-0 h-[3px] bg-white/40"
             :style="{ animationDuration: `${n.timeout}ms` }" />
           <!--
             How many times this notification has been raised while on screen. `aria-hidden`
@@ -64,13 +64,14 @@
             what restarts its animation, and the bounce is the whole point -- a number quietly
             changing from 2 to 3 in the corner is easy to miss.
 
-            `bg-[var(--color-orange)]` rather than `bg-orange`, since Quasar declares that class
-            unlayered with `!important` and would win. Phase 5 can use the plain utility.
+            Drawn as Cardinal draws every other count -- Roboto Mono on the chrome slate -- rather
+            than the orange chip it used to be. It sits on a toast that is already carrying its own
+            status colour, so a second status hue there said nothing and competed with the first.
           -->
           <span
             v-if="n.count > 1"
             :key="`${n.id}-count-${n.count}`"
-            class="w-notification-count absolute -bottom-1.5 -left-1.5 flex h-5 min-w-5 items-center justify-center rounded-md bg-[var(--color-orange)] px-1 text-[11px] leading-none font-medium text-black shadow-menu"
+            class="w-notification-count absolute -bottom-1.5 -left-1.5 flex h-4 min-w-4 items-center justify-center bg-slate px-1 font-mono text-[10px] leading-none font-semibold text-white"
             aria-hidden="true">
             {{ n.count }}
           </span>

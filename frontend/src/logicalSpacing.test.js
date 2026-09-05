@@ -79,8 +79,6 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       'two centered decorative glow/content elements (left: 50% + translate), not a reading-direction lean',
     'components/shared/WSignal.vue':
       'centered ring/core (top/left: 50% + translate(-50%, -50%)), not a reading-direction lean',
-    'css/tailwind.css':
-      "`.w-input-float`'s left offset is paired with `transform-origin: left center`, which CSS has no logical (`inline-start`) keyword for -- converting the position alone would move the floating label to the right edge under RTL while it kept scaling from the left, a worse bug than the current one. See the inline comment for the full reasoning.",
     'pages/ErrorGeneric.vue':
       'two centered decorative elements (left: 50% + translate), not a reading-direction lean',
     'pages/Graph.vue':

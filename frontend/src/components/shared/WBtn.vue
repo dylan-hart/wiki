@@ -80,17 +80,20 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Solid background, no shadow. */
+  /**
+   * @deprecated Inert. Solid-with-no-shadow is the only solid there is now -- see the metrics
+   *   comment below.
+   */
   unelevated: {
     type: Boolean,
     default: false
   },
-  /** Raised, with a ledge along the bottom edge that collapses when the button is pressed. */
+  /** @deprecated Inert. Cardinal draws no ledge; see the metrics comment below. */
   push: {
     type: Boolean,
     default: false
   },
-  /** Adds the Material gloss overlay: a light-to-dark sheen across the button face. */
+  /** @deprecated Inert. Cardinal draws no gloss; see the metrics comment below. */
   glossy: {
     type: Boolean,
     default: false
@@ -116,7 +119,11 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Leaves the label cased as written instead of upper-casing it. */
+  /**
+   * @deprecated Inert. A Cardinal button label is always cased as written, so there is no
+   *   upper-casing left to opt out of. Kept only until the call sites that still pass it are swept
+   *   (see the metrics comment below); it changes nothing.
+   */
   noCaps: {
     type: Boolean,
     default: false
@@ -214,29 +221,32 @@ const linkAttrs = computed(() => {
 const isSolid = computed(() => !props.flat && !props.outline)
 
 /*
-  Geometry taken from Quasar's own button variables, so migrated screens keep their exact metrics:
-    font-size 14px (text-sm) · line-height 1.715em · padding 4px 16px · dense padding .285em
-    min-height 2.572em (2em dense) · round 3em (2.4em dense) with no padding
-    border-radius 3px, 28px when `rounded`, 50% when `round`
-  Sizes are em-relative so they track the font size instead of being re-derived per variant.
-  Padding and min-height live in `styles` below, since they are em values rather than scale steps.
+  Cardinal geometry: a 32px band, square, with a 12.5px/500 label.
+
+    font-size 12.5px · line-height 1.715em · padding 0 1.12em (14px) · dense padding 0 0.8em
+    min-height 2.572em (32.15px), 2.24em dense (28px) · round 3em / 2.4em dense, unpadded
+    border-radius 0 -- except `round` (a circle) and `rounded` (a pill), which are shapes a caller
+    asks for, not a corner style
+
+  `2.572em` is carried over from the metrics this replaces rather than recomputed: at Cardinal's
+  12.5px it lands on the design's 32px band, and at 14px it lands on the 36px band the app used to
+  draw, so a caller that overrides `size` keeps a proportionate button either way. Every metric is
+  em-relative for the same reason -- one `size` value scales padding, height and icon together.
+
+  No shadow and no gloss. Cardinal separates a control from its ground with a hairline, never with
+  elevation, which is why `unelevated`, `push` and `glossy` no longer render differently from the
+  default: the variant they each named is now the only one there is. The props stay for now because
+  ~200 call sites pass them and those files are being rewritten screen by screen anyway; retiring
+  them is a sweep to run once the screens have settled, not mid-re-skin.
 */
 const classes = computed(() => [
-  props.size ? 'leading-[1.715em]' : 'text-sm leading-[1.715em]',
-  props.noCaps ? 'w-btn--no-caps' : '',
-  props.round
-    ? 'rounded-full'
-    : props.rounded
-      ? 'rounded-[28px]'
-      : props.push
-        ? 'w-push rounded-[7px]'
-        : 'rounded-[3px]',
-  isSolid.value && !props.unelevated ? 'shadow-card' : '',
-  props.outline ? 'border border-current' : '',
+  props.size ? 'leading-[1.715em]' : 'text-[12.5px] leading-[1.715em]',
+  props.round ? 'rounded-full' : props.rounded ? 'rounded-[28px]' : 'rounded-none',
+  // -> The hairline, not `border-current`: an outlined button's edge is chrome, its label is not
+  props.outline ? 'border border-hairline dark:border-border-dark' : '',
   isDisabled.value ? 'pointer-events-none opacity-60' : 'cursor-pointer',
   // -> Flat buttons have no background of their own, so hover tints with the current text color
-  isSolid.value ? 'hover:brightness-110' : 'hover:bg-current/10',
-  props.glossy ? 'w-glossy' : ''
+  isSolid.value ? 'hover:brightness-110' : 'hover:bg-current/10'
 ])
 
 /*
@@ -342,8 +352,8 @@ const styles = computed(() => {
     out.minHeight = props.dense ? '2.4em' : '3em'
     out.padding = '0'
   } else {
-    out.minHeight = props.dense ? '2em' : '2.572em'
-    out.padding = props.dense ? '0.285em' : '4px 16px'
+    out.minHeight = props.dense ? '2.24em' : '2.572em'
+    out.padding = props.dense ? '0 0.8em' : '0 1.12em'
   }
 
   // -> An explicit `padding` prop overrides the variant default, as it did before
@@ -378,21 +388,19 @@ function onClick(ev) {
 
 <style scoped>
 /*
-  Capitalisation, in CSS rather than as a `uppercase` utility.
+  Capitalisation, stated rather than inherited.
 
-  Quasar's normalize declares `button, input, select { text-transform: none }` UNLAYERED, and an
-  unlayered rule beats every layered one whatever its specificity -- so the utility lost on the
-  <button> form of this component while still winning on the <a> form it takes with `to` or `href`.
-  The result was two identical buttons rendering with different capitalisation depending on whether
-  they navigated: "New" lowercase beside "MANAGE" on the admin dashboard.
+  Cardinal sets a button label in sentence case -- "Save changes", not "SAVE CHANGES"; uppercase is
+  reserved for the Roboto Mono chrome overlines (a section header, a status mark), which are not
+  buttons. It has to be written here rather than simply left off, because a <button> and an <a>
+  disagree about the default: the app's own reset declares `button, input, select { text-transform:
+  none }` UNLAYERED, which is inherited by the <button> form of this component but not by the <a>
+  form it takes with `to`/`href` -- so with nothing said here, a navigating button and an acting
+  button could still be capitalised differently by whatever an ancestor happened to set.
 
-  These are scoped rules, which are also unlayered, so a class beats the element selector normally.
-  Phase 5 can go back to the utility.
+  A scoped rule, which is unlayered too, so it beats that element selector without `!important`.
 */
 .w-btn {
-  text-transform: uppercase;
-}
-.w-btn--no-caps {
   text-transform: none;
 }
 

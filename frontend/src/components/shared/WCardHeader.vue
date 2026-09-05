@@ -26,7 +26,8 @@
  *
  * Replaces the plain `WCardSection` + `text-subtitle1` pairing the admin cards used, so the whole
  * app draws a section heading the same way. The visual lives in `.w-section-header`
- * (css/tailwind.css), because the profile pages use the same treatment outside a card.
+ * (css/tailwind.css), because the profile pages and the side panels use the same band outside a
+ * card -- a tinted strip in tracked uppercase Roboto Mono, ruled off underneath.
  *
  *   <w-card-header>
  *     Site info
@@ -66,45 +67,51 @@ defineExpose({ headingId })
 
 <style scoped>
 /*
-  The heading's own padding has no top edge -- on a page it follows other content. At the top of a
-  card it needs the card's own inset, matching the section it replaces.
-*/
-.w-card-header {
-  padding-top: 16px;
-}
+  The band's own metrics come from `.w-section-header` (css/tailwind.css); what is left here is the
+  row inside it and the two things a card header adds to a bare section header -- a hint line and a
+  trailing control.
 
+  It is a BAND now, not a heading with a wash behind it, so it starts at the card's top edge rather
+  than needing an inset of its own -- the `padding-top: 16px` this replaces existed only because the
+  old heading had no top edge to speak of.
+*/
 .w-card-header__row {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 /*
-  The hint is the same blue as the title, lightened towards white so it reads as subordinate
-  without turning into a second colour. Mixing towards white in BOTH themes on purpose: mixing
-  towards the surface would darken it against a dark card and make it harder to read, which is the
-  opposite of what a lighter shade should do.
+  The hint drops out of the band's tracked uppercase mono and back into ordinary sentence-case body
+  type: it is a sentence, not a label, and at 0.2em tracking it was unreadable.
 */
 .w-card-header__hint {
   margin-top: 2px;
+  font-family: var(--font-sans);
+  font-size: 12px;
   font-weight: 400;
-  color: color-mix(in srgb, var(--color-primary) 80%, var(--color-white));
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--color-text-caption);
 }
 
 :global(body.body--dark .w-card-header__hint) {
-  color: color-mix(in srgb, var(--color-primary) 55%, var(--color-white));
+  color: var(--color-text-caption-dark);
 }
 
 /*
-  The action is a control, not heading text, so it opts out of the heading's colour -- otherwise a
-  flat button with no colour of its own would come out primary-blue.
+  The action is a control, not heading text, so it opts out of the band's colour and tracking --
+  otherwise a flat button with no colour of its own would come out slate, uppercase and spaced.
 */
 .w-card-header__action {
   color: initial;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 :global(body.body--dark .w-card-header__action) {
-  color: #fff;
+  color: var(--color-text-dark);
 }
 </style>

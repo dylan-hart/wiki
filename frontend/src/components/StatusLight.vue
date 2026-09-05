@@ -26,24 +26,31 @@ const cssClasses = computed(() => {
 </script>
 
 <style lang="scss">
+/*
+  A 5px bar, square. Cardinal draws a status as a flat block of colour against the hairline grid --
+  the rounded, gradient-lit pill this replaces read as a jewel light, which is one more piece of
+  relief in a language that has none.
+
+  `background-color: currentColor` keeps the state on `color`, so a caller can still tint one from
+  outside; the three named states below are the vocabulary the design fixes (healthy / needs setup /
+  off), and they take the bright FILL tones, not the darker text ones -- nothing is drawn over them.
+*/
 .status-light {
   display: block;
   width: 5px;
   height: 100%;
   min-height: 5px;
-  border-radius: 5px;
-  color: $grey-5;
+  color: $slate-pale;
   background-color: currentColor;
-  background-image: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.4));
 
   &.negative {
-    color: $negative;
+    color: $negative-fill;
   }
   &.positive {
-    color: $positive;
+    color: $positive-fill;
   }
   &.warning {
-    color: $warning;
+    color: $warning-fill;
   }
 
   &.pulsate {

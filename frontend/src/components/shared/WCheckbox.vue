@@ -5,37 +5,39 @@
     :aria-checked="indeterminate ? 'mixed' : String(isOn)"
     :aria-label="label ? undefined : ariaLabel"
     :disabled="isDisabled"
-    class="w-checkbox w-unstyled inline-flex flex-nowrap items-center gap-2 rounded outline-offset-2 focus-visible:outline-2"
-    :class="isDisabled ? 'w-checkbox--disabled pointer-events-none opacity-60' : 'cursor-pointer'"
+    class="w-checkbox w-unstyled inline-flex flex-nowrap items-center gap-2 outline-offset-2 focus-visible:outline-2"
+    :class="isDisabled ? 'pointer-events-none opacity-60' : 'cursor-pointer'"
     @click="toggle">
     <!--
-      A recessed well rather than an outlined square, matching the switch's track: the box reads as
-      cut into the surface, and ticking it fills that well rather than painting a flat block. The
-      rim and the shadows come from the style block; the `size-4`/`size-5` pair (picked by `dense`)
-      and the radius stay here because they are metrics rather than relief.
+      A square box with a hairline edge, matching the switch's track: off is an empty outline in the
+      palest slate, on is a solid accent square with a white tick. The recessed-well relief this
+      replaces -- a rim, paired inset shadows and a cast shadow, tuned separately from the switch's
+      because a 20px box shows less gradient than a 48px channel -- is gone with the rest of it.
 
-      Indeterminate fills the same as checked (a well with nothing in it reads as unchecked, not as a
-      third state) but shows a dash rather than the check glyph, so all three states stay visually
-      distinct from one another.
+      Indeterminate fills the same as checked (an empty box reads as unchecked, not as a third
+      state) but shows a dash rather than the tick, so all three states stay distinct.
+
+      The tick stays WHITE in both themes rather than taking dark ink on a lightened accent the way
+      the design's dark sheet does: `color` is a themeable custom property with one value for both
+      themes, so the fill under this glyph is the same `#c14a52` on ink as it is on paper -- and
+      white on that is 4.81:1, where dark ink would be 1.9:1.
     -->
     <span
-      class="w-checkbox__box inline-flex shrink-0 items-center justify-center rounded-sm transition-colors"
+      class="w-checkbox__box inline-flex shrink-0 items-center justify-center border transition-colors"
       :class="[
-        dense ? 'size-4' : 'size-5',
-        isOn || indeterminate ? 'w-checkbox__box--on text-white' : ''
+        dense ? 'size-3' : 'size-[13px]',
+        isOn || indeterminate
+          ? 'w-checkbox__box--on text-white'
+          : 'border-slate-pale dark:border-disabled-dark'
       ]"
-      :style="isOn || indeterminate ? { backgroundColor: `var(--color-${color})` } : undefined">
-      <w-icon v-if="indeterminate" name="mdi:minus" :size="dense ? '0.8em' : '0.9em'" />
-      <w-icon v-else-if="isOn" name="mdi:check" :size="dense ? '0.8em' : '0.9em'" />
+      :style="
+        isOn || indeterminate
+          ? { backgroundColor: `var(--color-${color})`, borderColor: `var(--color-${color})` }
+          : undefined
+      ">
+      <w-icon v-if="indeterminate" name="mdi:minus" :size="dense ? '0.75em' : '0.85em'" />
+      <w-icon v-else-if="isOn" name="mdi:check" :size="dense ? '0.75em' : '0.85em'" />
     </span>
-    <!--
-      Same treatment as the switch's label, down to the optical centring: `text-caption` rather than
-      `text-body2`, and no colour of its own so it takes the surface's, as the switch's does. The two
-      controls answer the same kind of question, so their labels should not be two different sizes.
-
-      `pt-px` is the compensation WToggle and WInput both make -- Roboto's ascent exceeds its descent,
-      so a line box centred by geometry sits above the middle of the control beside it.
-    -->
     <span v-if="label" class="pt-px text-caption">{{ label }}</span>
   </button>
 </template>
@@ -103,83 +105,16 @@ const isDisabled = computed(() => props.disabled)
 
 <style scoped>
 /*
-  Same soft relief as WToggle, and deliberately the same three devices, so a checkbox and a switch
-  sitting in one form look lit from the same place:
+  The accent fill is set inline from the `color` prop, so all this has to add is the ONE thing a
+  utility cannot express here: what the box looks like in dark mode when it is off, and the border
+  the filled state paints in its own colour so the box does not change size between states.
 
-  - a rim around the box, giving it an edge to catch the light instead of fading into the page;
-  - paired inset shadows, dark from the top left and light from the bottom right, which is what makes
-    it read as a well cut into the surface rather than a square drawn on it;
-  - a soft cast shadow below, lifting the control off the page.
-
-  Values are variables for the same reason they are there: a dark surface needs a faint highlight
-  rather than a strong one, or the relief turns to glare, and its rim has to be lighter than the well
-  where on a light surface it is white. Kept as its own set rather than shared with the switch --
-  a 20px square well needs shallower shadows than a 48px channel.
+  The relief that used to live here -- rim, inset shadows, cast shadow, and a second heavier set for
+  the filled state -- is gone with the app's relief generally. Cardinal separates a control from its
+  ground with a hairline, not with light.
 */
-.w-checkbox {
-  /*
-    Deeper than the switch's values, not shallower, which is the opposite of what the size suggests.
-    A 20px box only shows a couple of pixels of gradient either side of centre, so at the switch's
-    strength the recess disappeared at 1:1 and only read when magnified. Compared against three
-    stronger settings side by side at real size before landing here.
-  */
-  --w-checkbox-well: #d5dbe4;
-  --w-checkbox-rim: #ffffff;
-  --w-checkbox-shadow: rgb(0 0 0 / 0.38);
-  --w-checkbox-highlight: rgb(255 255 255 / 1);
-  --w-checkbox-cast: rgb(0 0 0 / 0.2);
-  /* On the filled state the relief has to work over a saturated colour, not a pale grey */
-  --w-checkbox-fill-shadow: rgb(0 0 0 / 0.32);
-  --w-checkbox-fill-highlight: rgb(255 255 255 / 0.34);
-  /* Offsets and blur, kept in one place because the three box-shadows below must agree on them */
-  --w-checkbox-relief-offset: 2.5px;
-  --w-checkbox-relief-blur: 5px;
-}
-
-:global(body.body--dark .w-checkbox) {
-  --w-checkbox-well: #20252e;
-  --w-checkbox-rim: #39414f;
-  --w-checkbox-shadow: rgb(0 0 0 / 0.7);
-  /* -> Carries most of the relief here: a darker shadow on an already-dark well only muddies it */
-  --w-checkbox-highlight: rgb(255 255 255 / 0.11);
-  --w-checkbox-cast: rgb(0 0 0 / 0.5);
-  --w-checkbox-fill-shadow: rgb(0 0 0 / 0.5);
-  --w-checkbox-fill-highlight: rgb(255 255 255 / 0.26);
-}
-
 .w-checkbox__box {
-  background-color: var(--w-checkbox-well);
-  box-shadow:
-    0 0 0 2px var(--w-checkbox-rim),
-    inset var(--w-checkbox-relief-offset) var(--w-checkbox-relief-offset)
-      var(--w-checkbox-relief-blur) var(--w-checkbox-shadow),
-    inset calc(-1 * var(--w-checkbox-relief-offset)) calc(-1 * var(--w-checkbox-relief-offset))
-      var(--w-checkbox-relief-blur) var(--w-checkbox-highlight),
-    1px 3px 6px var(--w-checkbox-cast);
-}
-
-/*
-  Ticked: the well keeps its shape and gains a colour, so the tick reads as sitting IN the box. The
-  inset pair is restated at the heavier fill values -- the pale-grey ones disappear against a
-  saturated background -- while the rim and the cast shadow carry over unchanged.
-*/
-.w-checkbox__box--on {
-  box-shadow:
-    0 0 0 2px var(--w-checkbox-rim),
-    inset var(--w-checkbox-relief-offset) var(--w-checkbox-relief-offset)
-      var(--w-checkbox-relief-blur) var(--w-checkbox-fill-shadow),
-    inset calc(-1 * var(--w-checkbox-relief-offset)) calc(-1 * var(--w-checkbox-relief-offset))
-      var(--w-checkbox-relief-blur) var(--w-checkbox-fill-highlight),
-    1px 3px 6px var(--w-checkbox-cast);
-}
-
-/*
-  Disabled: flat, as the switch goes flat. The relief is what makes the control read as operable, so
-  it goes rather than merely dimming -- the wrapper's own opacity handles the fading.
-*/
-.w-checkbox--disabled .w-checkbox__box {
-  box-shadow:
-    0 0 0 2px var(--w-checkbox-rim),
-    inset 1px 1px 2px var(--w-checkbox-shadow);
+  /* -> Sits on the surface it is drawn on, rather than carrying a well colour of its own */
+  background-color: transparent;
 }
 </style>

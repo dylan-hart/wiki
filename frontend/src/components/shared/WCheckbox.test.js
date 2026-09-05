@@ -61,12 +61,12 @@ describe('WCheckbox', () => {
     })
 
     expect(wrapper.attributes('disabled')).toBeDefined()
-    expect(wrapper.classes()).toContain('w-checkbox--disabled')
+    expect(wrapper.classes()).toContain('opacity-60')
   })
 
   it.each([
-    { dense: false, expected: 'size-5' },
-    { dense: true, expected: 'size-4' }
+    { dense: false, expected: 'size-[13px]' },
+    { dense: true, expected: 'size-3' }
   ])('sizes the box $expected when dense is $dense', ({ dense, expected }) => {
     const wrapper = mount(WCheckbox, {
       props: { modelValue: false, ariaLabel: 'Enabled', dense }
@@ -80,6 +80,6 @@ describe('WCheckbox', () => {
       props: { modelValue: true, ariaLabel: 'Enabled', dense: true }
     })
 
-    expect(wrapper.find('[data-icon="mdi:check"]').attributes('style')).toContain('0.8em')
+    expect(wrapper.find('[data-icon="mdi:check"]').attributes('style')).toContain('0.75em')
   })
 })

@@ -64,68 +64,15 @@ describe('fieldProps', () => {
   })
 })
 
-describe('useFieldFrame — floating label', () => {
-  it('floats the label only on a labelled outlined field', () => {
-    expect(setup({ label: 'Name', outlined: true }).hasFloatingLabel.value).toBe(true)
-    expect(setup({ label: 'Name' }).hasFloatingLabel.value).toBe(false)
-    expect(setup({ outlined: true }).hasFloatingLabel.value).toBe(false)
+describe('useFieldFrame — frame colour', () => {
+  it('rests on the hairline', () => {
+    expect(setup().frameColor.value).toBe('var(--w-input-ring)')
   })
 
-  it('keeps the label above when the caller draws no frame at all', () => {
-    const frame = setup({ label: 'Name', outlined: true }, { noFrame: computed(() => true) })
-    expect(frame.hasFloatingLabel.value).toBe(false)
-  })
-
-  it('rests the label in the field until something displaces it', () => {
-    const frame = setup({ label: 'Name', outlined: true })
-    expect(frame.isFloating.value).toBe(false)
-  })
-
-  it('lifts the label while the field is active', () => {
-    const frame = setup({ label: 'Name', outlined: true })
-    frame.active.value = true
-    expect(frame.isFloating.value).toBe(true)
-  })
-
-  it('lifts the label once the field has a value', () => {
-    const frame = setup({ label: 'Name', outlined: true })
-    frame.state.modelValue = 'x'
-    expect(frame.isFloating.value).toBe(true)
-  })
-
-  it('lifts the label for a placeholder or a leading adornment, which occupy its resting place', () => {
-    expect(setup({ label: 'N', outlined: true, placeholder: 'p' }).isFloating.value).toBe(true)
-    const frame = setup({ label: 'N', outlined: true })
-    frame.hasLeadingAdornment.value = true
-    expect(frame.isFloating.value).toBe(true)
-  })
-})
-
-describe('useFieldFrame — colours', () => {
-  it('colours the floated label by the field’s state', () => {
-    const frame = setup({ label: 'N', outlined: true })
-    expect(frame.floatColorClass.value).toBe('text-black/60 dark:text-white/70')
-    frame.active.value = true
-    expect(frame.floatColorClass.value).toBe('text-primary dark:text-primary-light')
-  })
-
-  it('colours the floated label negative once there is a message', () => {
-    const frame = setup({ label: 'N', outlined: true, rules: [() => 'Nope'] })
-    frame.validate()
-    expect(frame.floatColorClass.value).toBe('text-negative')
-  })
-
-  it('draws the resting frame at 1px in the resting colour', () => {
-    const frame = setup()
-    expect(frame.frameColor.value).toBe('var(--w-input-ring)')
-    expect(frame.frameWidth.value).toBe(1)
-  })
-
-  it('thickens and brightens the frame while active', () => {
+  it('darkens to the chrome slate while active', () => {
     const frame = setup()
     frame.active.value = true
-    expect(frame.frameColor.value).toBe('var(--color-primary)')
-    expect(frame.frameWidth.value).toBe(2)
+    expect(frame.frameColor.value).toBe('var(--w-input-ring-active)')
   })
 
   it('shows the hover colour only on a field that can actually be used', () => {
@@ -140,47 +87,46 @@ describe('useFieldFrame — colours', () => {
     const frame = setup({ rules: [() => 'Nope'] })
     frame.active.value = true
     frame.validate()
-    expect(frame.frameColor.value).toBe('var(--color-negative)')
-    expect(frame.frameWidth.value).toBe(2)
+    expect(frame.frameColor.value).toBe('var(--w-input-ring-error)')
   })
 })
 
 describe('useFieldFrame — frame styles', () => {
-  it('rings an outlined field and underlines a filled one', () => {
-    expect(setup({ outlined: true }).controlStyle.value).toEqual({
+  /*
+    Cardinal's frame is ONE pixel in every state -- only the colour moves. The Material treatment
+    this replaces thickened to 2px on focus, which is why the inset ring existed in the first place;
+    the ring is kept anyway, because it is still what keeps a caller's own `border-*` utility and the
+    field's own frame from fighting over the same edge.
+  */
+  it('rings every field at one pixel, whatever state it is in', () => {
+    expect(setup().controlStyle.value).toEqual({
       boxShadow: 'inset 0 0 0 1px var(--w-input-ring)'
     })
-    expect(setup().controlStyle.value).toEqual({
-      boxShadow: 'inset 0 -1px 0 0 var(--w-input-ring)'
+
+    const active = setup()
+    active.active.value = true
+    expect(active.controlStyle.value).toEqual({
+      boxShadow: 'inset 0 0 0 1px var(--w-input-ring-active)'
     })
   })
 
-  it('draws no inline frame when the fieldset is drawing one that can be interrupted', () => {
-    expect(setup({ label: 'N', outlined: true }).controlStyle.value).toBe(undefined)
+  it('rings a labelled field the same as an unlabelled one -- the label is above it, not in it', () => {
+    expect(setup({ label: 'N' }).controlStyle.value).toEqual({
+      boxShadow: 'inset 0 0 0 1px var(--w-input-ring)'
+    })
   })
 
   it('draws no inline frame when the caller wants none', () => {
-    expect(setup({ outlined: true }, { noFrame: computed(() => true) }).controlStyle.value).toBe(
-      undefined
-    )
-  })
-
-  it('gives the fieldset the same colour and width as the ring', () => {
-    const frame = setup({ label: 'N', outlined: true })
-    frame.active.value = true
-    expect(frame.outlineStyle.value).toEqual({
-      borderColor: 'var(--color-primary)',
-      borderWidth: '2px'
-    })
+    expect(setup({}, { noFrame: computed(() => true) }).controlStyle.value).toBe(undefined)
   })
 })
 
 describe('useFieldFrame — control classes', () => {
   it('sizes the control and includes the caller’s own surface', () => {
-    expect(setup().controlClasses.value).toContain('min-h-11 px-3 py-2')
+    expect(setup().controlClasses.value).toContain('min-h-[34px] px-2.5')
     expect(setup().controlClasses.value).toContain('surface-class')
     expect(setup({ dense: true }).controlClasses.value).toContain(
-      'w-input-control--dense min-h-9 px-2 py-1'
+      'w-input-control--dense min-h-7 px-2'
     )
   })
 
@@ -190,11 +136,14 @@ describe('useFieldFrame — control classes', () => {
     )
   })
 
-  it('makes room for the floated label, and closes the gap when a message line follows', () => {
-    expect(setup({ label: 'N', outlined: true }).controlClasses.value).toContain('relative my-2')
-    expect(setup({ label: 'N', outlined: true, hint: 'h' }).controlClasses.value).toContain(
-      'relative mt-2'
-    )
+  it('reserves no room above the control -- nothing floats into the frame any more', () => {
+    for (const classes of [
+      setup({ label: 'N' }).controlClasses.value,
+      setup({ label: 'N', hint: 'h' }).controlClasses.value
+    ]) {
+      expect(classes).not.toContain('relative my-2')
+      expect(classes).not.toContain('relative mt-2')
+    }
   })
 
   it('carries the caller’s own extra class through', () => {

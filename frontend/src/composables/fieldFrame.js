@@ -1,15 +1,31 @@
 import { computed, ref } from 'vue'
 
 /**
- * The Material outlined-field chrome both text-entry components draw — `WInput` and `WSelect`.
+ * The field chrome both text-entry components draw — `WInput` and `WSelect`.
  *
- * The two carried the same label/notch/float/hint/error/ring logic by copy, parameterised in
- * practice by only two things: what each counts as "active" (focus for an input, an open dropdown
- * for a select) and whether it draws a frame at all (a `standout` select does not). Everything else
- * — the props, the validation, the four computed styles — was identical, which is what lives here.
+ * The two carried the same label/hint/error/frame logic by copy, parameterised in practice by only
+ * two things: what each counts as "active" (focus for an input, an open dropdown for a select) and
+ * whether it draws a frame at all (a `standout` select does not). Everything else — the props, the
+ * validation, the computed styles — was identical, which is what lives here.
  *
  * The markup those styles feed is `components/shared/WFieldFrame.vue`, which is internal to those
  * two components and deliberately not registered in `components/shared/index.js`.
+ *
+ * ## Cardinal
+ *
+ * A field is a square box with a hairline edge, and its label stands ABOVE it. The Material
+ * treatment this replaces — a rounded outline notched open by a fieldset legend so a label could
+ * ride up into the border, thickening from 1px to 2px on focus — is gone entirely, along with
+ * `w-input-outline`, `w-input-float` and their three interlocking measurements.
+ *
+ * Two consequences worth knowing:
+ *
+ *  - The frame is one pixel in EVERY state; only its colour changes (hairline at rest, the faint
+ *    slate under the pointer, chrome slate on focus, the accent fill on error). It is still drawn
+ *    as an inset ring rather than a real border, so a field's box never changes size — which also
+ *    means a caller's own `border-*` utility does not fight it.
+ *  - `outlined` is now inert. Cardinal has no underlined field variant, so every field is the boxed
+ *    one; the prop is kept only until its call sites are swept.
  */
 
 /**
@@ -42,7 +58,10 @@ export const fieldProps = {
     type: String,
     default: null
   },
-  /** Bordered style. Retained as a prop because the markup sets it explicitly nearly everywhere. */
+  /**
+   * @deprecated Inert. Cardinal has no underlined field, so every field is the boxed one -- see the
+   *   file header. Kept only until the call sites that still pass it are swept.
+   */
   outlined: {
     type: Boolean,
     default: false
@@ -156,103 +175,48 @@ export function useFieldFrame({
       (!props.hideBottomSpace && (props.hint || props.rules.length > 0))
   )
 
-  /*
-    A label on an outlined field rides the outline, Material-style, instead of sitting above it: at
-    rest it stands in the middle of the field, and on focus or once there is a value it rises into
-    the top border. A variant with no outline to rise into keeps its label above.
-  */
-  const hasFloatingLabel = computed(() => Boolean(props.label) && props.outlined && !noFrame?.value)
-
-  /*
-    Floated whenever the resting position is unavailable or would collide.
-
-    A leading icon or prefix keeps it floated permanently: the resting label occupies the same place
-    as the field's text, which begins after those, so the two would overlap. MUI resolves this the
-    same way -- it asks the caller to pin the label up whenever there is a start adornment.
-
-    A placeholder likewise: it renders in the resting position the moment the field is empty.
-  */
-  const isFloating = computed(
-    () => active.value || hasValue.value || Boolean(props.placeholder) || hasLeadingAdornment.value
-  )
-
-  const floatColorClass = computed(() => {
-    if (errorMessage.value) {
-      return 'text-negative'
-    }
-    // -> `primary` is picked to read on white; on a dark field it needs the lightened mix
-    return active.value
-      ? 'text-primary dark:text-primary-light'
-      : 'text-black/60 dark:text-white/70'
-  })
-
   /**
-   * The field frame, drawn as an inset ring rather than a border.
+   * The field frame, drawn as an inset ring rather than a real border.
    *
-   * Ports what Quasar did with two stacked pseudo-elements: a 1px resting frame and a 2px focus
-   * frame occupying the same rectangle, so the thicker one covers the thinner one. Insets do not
-   * take part in layout, so thickening on focus cannot nudge the content -- which a real border
-   * would. `--w-input-ring` carries the resting colour so dark mode can swap it in CSS.
+   * Insets take no part in layout, so a field's box is the same size whatever the frame is doing --
+   * which is what lets the colour change on hover, focus and error without nudging the control's
+   * contents by a pixel, and what keeps a caller's own `border-*` utility from fighting it.
    *
-   * Built as an inline style on purpose: the colour depends on three pieces of state, and an
-   * arbitrary Tailwind class would be one more thing that has to survive the scanner and the
-   * Quasar cascade.
+   * One pixel in every state. The Material treatment this replaces thickened to 2px on focus (and
+   * needed the inset trick to avoid a reflow when it did); Cardinal marks focus by DARKENING the
+   * hairline to the chrome slate instead, which is quieter and does not need the field to grow.
+   *
+   * Built as an inline style on purpose: the colour depends on four pieces of state, and an
+   * arbitrary Tailwind class would be one more thing that has to survive the scanner.
    */
   const frameColor = computed(() =>
     errorMessage.value
-      ? 'var(--color-negative)'
+      ? 'var(--w-input-ring-error)'
       : active.value
-        ? 'var(--color-primary)'
+        ? 'var(--w-input-ring-active)'
         : hovered.value && !props.disabled && !props.readonly
           ? 'var(--w-input-ring-hover)'
           : 'var(--w-input-ring)'
   )
 
-  // -> Error and active both read as "active", and get the heavier 2px frame
-  const frameWidth = computed(() => (errorMessage.value || active.value ? 2 : 1))
-
   const controlStyle = computed(() => {
-    // -> A floating label needs a frame that can be interrupted, which the fieldset draws instead
-    if (noFrame?.value || hasFloatingLabel.value) {
+    // -> `standout` carries its state in its fill and draws no frame at all
+    if (noFrame?.value) {
       return undefined
     }
-    return {
-      boxShadow: props.outlined
-        ? `inset 0 0 0 ${frameWidth.value}px ${frameColor.value}`
-        : `inset 0 -${frameWidth.value}px 0 0 ${frameColor.value}`
-    }
+    return { boxShadow: `inset 0 0 0 1px ${frameColor.value}` }
   })
 
-  const outlineStyle = computed(() => ({
-    borderColor: frameColor.value,
-    borderWidth: `${frameWidth.value}px`
-  }))
-
   const controlClasses = computed(() => [
-    props.dense ? 'w-input-control--dense min-h-9 px-2 py-1' : 'min-h-11 px-3 py-2',
+    props.dense ? 'w-input-control--dense min-h-7 px-2' : 'min-h-[34px] px-2.5',
     surface.value,
     props.disabled ? 'pointer-events-none opacity-60' : '',
-    extraClasses?.value ?? '',
-    /*
-      `relative` for the outline and the label. The margin is the room the floated label needs above
-      the control, and it is matched below so the field's box stays symmetric about the control --
-      otherwise a top margin alone drops the control below the centre of whatever row it sits in, out
-      of line with a leading icon beside it.
-
-      Skipped underneath when a message line follows, since that already occupies the space and the
-      gap would only push the message away from the field it belongs to.
-    */
-    hasFloatingLabel.value ? (showsBottom.value ? 'relative mt-2' : 'relative my-2') : ''
+    extraClasses?.value ?? ''
   ])
 
   return {
-    hasFloatingLabel,
-    isFloating,
-    floatColorClass,
     frameColor,
-    frameWidth,
     controlStyle,
-    outlineStyle,
     controlClasses,
     showsBottom,
     errorMessage,

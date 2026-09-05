@@ -41,9 +41,15 @@ const timers = new Map()
  * `<w-icon>`, matching the equivalents from the mdi-v7 icon set that were previously in use.
  */
 const PRESETS = {
+  /*
+    Cardinal fills each toast in the status colour it is about, and picks the foreground per fill
+    rather than defaulting to white: `warning` is the one light enough to need dark ink over it
+    (#d9a441 under white is 2.5:1, under `--color-ink` 7.0:1). `info` is the chrome slate, which is
+    also what the design's fourth, action-carrying toast is drawn in.
+  */
   positive: { icon: 'mdi:check-circle', classes: 'bg-positive text-white' },
   negative: { icon: 'mdi:alert', classes: 'bg-negative text-white' },
-  warning: { icon: 'mdi:exclamation', classes: 'bg-warning text-black' },
+  warning: { icon: 'mdi:exclamation', classes: 'bg-warning text-ink' },
   info: { icon: 'mdi:information', classes: 'bg-info text-white' }
 }
 
