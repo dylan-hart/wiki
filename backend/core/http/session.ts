@@ -70,6 +70,24 @@ export function registerSession(app: FastifyInstance): void {
       sameSite: 'lax'
     },
     saveUninitialized: false,
+    // -> OpenProject #2569: `rolling` (default `true`, verified against `@fastify/session@11.1.2`'s
+    //    own `shouldSaveSession()`) makes its `onSend` hook call `session.save()` -- a full round trip
+    //    through `sessionStoreAdapter()` to Postgres -- on EVERY request that carries an already-
+    //    established session cookie, even a plain `GET` a handler never touches `req.session` on (the
+    //    RTL e2e failures: `GET /_api/locales/en/strings`, `publicAccess: true`). That async store
+    //    write races the reply's own completion; when the store's callback reports late (an error, or
+    //    just a slow tick), Fastify's error path tries to finish a reply it can no longer write to,
+    //    logging `FST_ERR_REP_ALREADY_SENT` and hanging the connection until the client times out --
+    //    which is what stalled the locale-switch UI in `tests/rtl.spec.js`. `rolling: false` makes
+    //    `shouldSaveSession()` fall through to `request.session.isModified()` alone, so the store round
+    //    trip -- and the race -- only happens on a request that genuinely mutates `req.session` (login,
+    //    logout, 2FA, a permission change), for every route, not just this one. There is no per-route
+    //    way to scope `rolling` through this plugin's public API (it's a registration-time closure), so
+    //    this is a deliberate, global tradeoff: because `@fastify/session` only re-sends a refreshed
+    //    `Set-Cookie` when `save()` actually ran, a session's expiry stops sliding with activity and
+    //    instead becomes fixed at `cookie.maxAge` (30 days, above) from the last request that actually
+    //    modified it.
+    rolling: false,
     store: sessionStoreAdapter()
   })
 
