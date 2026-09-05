@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`pages.importBatch.title`)" @hide="onDialogHide">
     <w-card class="import-batch-page-dialog" style="width: 760px; max-width: 94vw">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" size="sm" class="me-2" />
+        <w-icon name="cardinal:pages" size="sm" class="me-2" />
         <span>{{ t(`pages.importBatch.title`) }}</span>
       </w-card-section>
 

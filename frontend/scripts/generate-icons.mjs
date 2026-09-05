@@ -34,7 +34,22 @@ const OUT = path.join(SRC, 'assets/icons.generated.js')
  * The skip is silent on purpose: `prefix:name` also describes every permission string in the frontend
  * (`write:pages`, `manage:system`), and those must not be mistaken for icons.
  */
-const SETS = ['mdi', 'la']
+const SETS = ['mdi', 'la', 'cardinal']
+
+/**
+ * `cardinal` is this project's OWN set, checked in rather than installed: 57 stroke glyphs lifted
+ * from the design files in `ui-redesign/` (see `ui-redesign/ICONS-HANDOFF.md`), replacing the 2.x-era
+ * `fluent-*` / `ultraviolet-*` illustration assets the chrome used to draw with.
+ *
+ * It is an ordinary `IconifyJSON` file, so nothing else here has to know it is local — only where to
+ * read it from. Two things follow from bundling it the same way as `mdi`/`la` rather than serving it:
+ * a `cardinal:` reference resolves to inline SVG at build time and so takes `currentColor` (which is
+ * what lets one glyph be the chrome tone in a nav row and the accent in the active one), and no
+ * administrator action can take it away, exactly as the file header argues for the other two.
+ */
+const LOCAL_SETS = {
+  cardinal: 'src/assets/icons.cardinal.json'
+}
 
 /**
  * A quoted string that is EXACTLY an Iconify reference. Requiring the whole literal to match is what
@@ -108,7 +123,10 @@ export function build() {
     SETS.map((p) => [
       p,
       JSON.parse(
-        fs.readFileSync(path.join(ROOT, `node_modules/@iconify-json/${p}/icons.json`), 'utf8')
+        fs.readFileSync(
+          path.join(ROOT, LOCAL_SETS[p] ?? `node_modules/@iconify-json/${p}/icons.json`),
+          'utf8'
+        )
       )
     ])
   )

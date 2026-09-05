@@ -7,7 +7,7 @@
     ref="menuRef">
     <w-card style="width: 850px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-choose.svg" left size="sm" />
+        <w-icon name="cardinal:defaults" left size="sm" />
         <span>{{ t(`admin.users.defaults`) }}</span>
       </w-card-section>
       <w-list padding>

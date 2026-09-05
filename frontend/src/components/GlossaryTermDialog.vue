@@ -5,7 +5,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" size="sm" class="me-2" />
+        <w-icon name="cardinal:glossary" size="sm" class="me-2" />
         <span>{{ isEdit ? t('admin.glossary.editTerm') : t('admin.glossary.newTerm') }}</span>
       </w-card-section>
       <w-form ref="termForm" class="py-2" @submit="save">

@@ -2,10 +2,7 @@
   <w-page class="admin-audit-log">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-event-log.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="cardinal:audit-log" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.audit.title') }}</h1>

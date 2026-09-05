@@ -67,7 +67,7 @@
                       one. Full strength, unlike the line icons around it: it is a colour image, and
                       dimming it only washes the yellow out. -->
               <button v-else type="button" class="browse-menu-target" @click="descend(item)">
-                <w-icon name="img:/_assets/icons/fluent-folder.svg" size="xs" class="shrink-0" />
+                <w-icon name="cardinal:folder" size="xs" class="shrink-0" />
                 <span class="truncate">{{ item.title }}</span>
                 <w-space />
                 <w-icon name="la:angle-right" size="xs" class="shrink-0 opacity-40" />

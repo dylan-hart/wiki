@@ -81,7 +81,7 @@ describe('AdminLayout sidebar nav', () => {
   it('shows the Comments link enabled, independent of the experimental flag', async () => {
     const wrapper = await mountLayout({ experimental: false })
 
-    const commentsItem = findItemByIcon(wrapper, 'img:/_assets/icons/fluent-comments.svg')
+    const commentsItem = findItemByIcon(wrapper, 'cardinal:comments')
 
     expect(commentsItem).toBeDefined()
     expect(commentsItem.attributes('aria-disabled')).toBeUndefined()
@@ -92,7 +92,7 @@ describe('AdminLayout sidebar nav', () => {
   it('shows the Analytics link enabled, independent of the experimental flag', async () => {
     const wrapper = await mountLayout({ experimental: false })
 
-    const analyticsItem = findItemByIcon(wrapper, 'img:/_assets/icons/fluent-bar-chart.svg')
+    const analyticsItem = findItemByIcon(wrapper, 'cardinal:analytics')
 
     expect(analyticsItem).toBeDefined()
     expect(analyticsItem.attributes('aria-disabled')).toBeUndefined()
@@ -102,7 +102,7 @@ describe('AdminLayout sidebar nav', () => {
   it('keeps the Comments link visible when the experimental flag is on too', async () => {
     const wrapper = await mountLayout({ experimental: true })
 
-    const commentsItem = findItemByIcon(wrapper, 'img:/_assets/icons/fluent-comments.svg')
+    const commentsItem = findItemByIcon(wrapper, 'cardinal:comments')
 
     expect(commentsItem).toBeDefined()
     expect(commentsItem.attributes('aria-disabled')).toBeUndefined()
@@ -128,8 +128,8 @@ describe('AdminLayout sidebar nav', () => {
       sitePermissions: ['site:theme']
     })
 
-    expect(findItemByIcon(wrapper, 'img:/_assets/icons/fluent-bar-chart.svg')).toBeUndefined()
-    expect(findItemByIcon(wrapper, 'img:/_assets/icons/fluent-comments.svg')).toBeUndefined()
+    expect(findItemByIcon(wrapper, 'cardinal:analytics')).toBeUndefined()
+    expect(findItemByIcon(wrapper, 'cardinal:comments')).toBeUndefined()
   })
 })
 

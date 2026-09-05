@@ -35,10 +35,14 @@ describe('WIcon', () => {
   })
 
   it('renders an img: reference with an empty alt inside an aria-hidden wrapper', () => {
-    // -> The 35 admin page headers (frontend/src/pages/Admin*.vue) all depend on this: each one
-    //    already carries a visible text-h5 title next to the icon, so the icon itself must stay out
-    //    of the accessibility tree rather than have assistive tech announce its filename.
-    const wrapper = mount(WIcon, { props: { name: 'img:/_assets/icons/fluent-web.svg' } })
+    // -> Every remaining `img:` caller depends on this: an auth strategy's or storage module's own
+    //    icon (`ultraviolet-*`, named by the module's definition.yml and so only knowable at
+    //    runtime) sits beside a visible label already, so the image itself must stay out of the
+    //    accessibility tree rather than have assistive tech announce its filename.
+    //
+    //    The admin page headers used to be the example here and no longer are: they draw from the
+    //    bundled `cardinal:` set now, which renders as inline SVG rather than an <img>.
+    const wrapper = mount(WIcon, { props: { name: 'img:/_assets/icons/ultraviolet-local.svg' } })
 
     expect(wrapper.attributes('aria-hidden')).toBe('true')
 

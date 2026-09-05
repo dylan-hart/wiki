@@ -1,7 +1,7 @@
 <template>
   <w-layout container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="img:/_assets/icons/fluent-people.svg" left size="md" />
+      <w-icon name="cardinal:groups" left size="md" />
       <div>
         <span>{{ t(`admin.groups.edit`) }}</span>
         <div class="text-caption">{{ state.group.name }}</div>

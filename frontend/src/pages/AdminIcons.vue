@@ -3,7 +3,7 @@
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
         <w-icon
-          name="img:/_assets/icons/fluent-spring.svg"
+          name="cardinal:icons"
           size="64px"
           class="admin-icon admin-icons-icon animated fadeInLeft" />
       </div>

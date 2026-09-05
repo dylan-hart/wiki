@@ -8,7 +8,7 @@
     -->
     <w-header class="card-header">
       <w-toolbar class="fileman-hdr-title">
-        <w-icon name="img:/_assets/icons/fluent-folder.svg" left size="md" />
+        <w-icon name="cardinal:folder" left size="md" />
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
       <w-toolbar class="fileman-hdr-search">

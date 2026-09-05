@@ -93,7 +93,7 @@
           </w-item>
           <w-item to="/_admin/dashboard" active-class="admin-nav-active">
             <w-item-section avatar>
-              <w-icon name="img:/_assets/icons/fluent-apps-tab.svg" />
+              <w-icon name="cardinal:dashboard" />
             </w-item-section>
             <w-item-section>{{ t('admin.dashboard.title') }}</w-item-section>
           </w-item>
@@ -102,7 +102,7 @@
             active-class="admin-nav-active"
             v-if="userStore.can(`manage:sites`)">
             <w-item-section avatar>
-              <w-icon name="img:/_assets/icons/fluent-change-theme.svg" />
+              <w-icon name="cardinal:sites" />
             </w-item-section>
             <w-item-section>{{ t('admin.sites.title') }}</w-item-section>
             <w-item-section side>
@@ -135,7 +135,7 @@
               active-class="admin-nav-active"
               v-if="maySeeGeneral">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-web.svg" />
+                <w-icon name="cardinal:general" />
               </w-item-section>
               <w-item-section>{{ t('admin.general.title') }}</w-item-section>
             </w-item>
@@ -144,7 +144,7 @@
               active-class="admin-nav-active"
               v-if="maySeeApprovals">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-inspection.svg" />
+                <w-icon name="cardinal:approvals" />
               </w-item-section>
               <w-item-section>{{ t('admin.approval.title') }}</w-item-section>
             </w-item>
@@ -153,7 +153,7 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-bar-chart.svg" />
+                <w-icon name="cardinal:analytics" />
               </w-item-section>
               <w-item-section>{{ t('admin.analytics.title') }}</w-item-section>
             </w-item>
@@ -162,7 +162,7 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-comments.svg" />
+                <w-icon name="cardinal:comments" />
               </w-item-section>
               <w-item-section>{{ t('admin.comments.title') }}</w-item-section>
             </w-item>
@@ -171,7 +171,7 @@
               active-class="admin-nav-active"
               v-if="maySeeBlocks">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-plugin.svg" />
+                <w-icon name="cardinal:blocks" />
               </w-item-section>
               <w-item-section>{{ t('admin.blocks.title') }}</w-item-section>
             </w-item>
@@ -180,7 +180,7 @@
               active-class="admin-nav-active"
               v-if="maySeeEditors">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-cashbook.svg" />
+                <w-icon name="cardinal:editors" />
               </w-item-section>
               <w-item-section>{{ t('admin.editors.title') }}</w-item-section>
             </w-item>
@@ -189,7 +189,7 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:glossary`)">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" />
+                <w-icon name="cardinal:glossary" />
               </w-item-section>
               <w-item-section>{{ t('admin.glossary.title') }}</w-item-section>
             </w-item>
@@ -198,7 +198,7 @@
               active-class="admin-nav-active"
               v-if="maySeeLocale">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-language.svg" />
+                <w-icon name="cardinal:locale" />
               </w-item-section>
               <w-item-section>{{ t('admin.locale.title') }}</w-item-section>
             </w-item>
@@ -207,7 +207,7 @@
               active-class="admin-nav-active"
               v-if="maySeeLogin">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-bunch-of-keys.svg" />
+                <w-icon name="cardinal:login" />
               </w-item-section>
               <w-item-section>{{ t('admin.login.title') }}</w-item-section>
             </w-item>
@@ -216,7 +216,7 @@
               active-class="admin-nav-active"
               v-if="maySeeNavigation">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-tree-structure.svg" />
+                <w-icon name="cardinal:navigation" />
               </w-item-section>
               <w-item-section>{{ t('admin.navigation.title') }}</w-item-section>
             </w-item>
@@ -224,7 +224,7 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/pages`"
               active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" />
+                <w-icon name="cardinal:pages" />
               </w-item-section>
               <w-item-section>{{ t('admin.pages.title') }}</w-item-section>
             </w-item>
@@ -232,7 +232,7 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/pages/deleted`"
               active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" />
+                <w-icon name="cardinal:pages-deleted" />
               </w-item-section>
               <w-item-section>{{ t('history.recovery.title') }}</w-item-section>
             </w-item>
@@ -241,7 +241,7 @@
               active-class="admin-nav-active"
               v-if="maySeeStorage">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-ssd.svg" />
+                <w-icon name="cardinal:storage" />
               </w-item-section>
               <w-item-section>{{ t('admin.storage.title') }}</w-item-section>
             </w-item>
@@ -250,7 +250,7 @@
               active-class="admin-nav-active"
               v-if="maySeeTheme">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-paint-roller.svg" />
+                <w-icon name="cardinal:theme" />
               </w-item-section>
               <w-item-section>{{ t('admin.theme.title') }}</w-item-section>
             </w-item>
@@ -262,13 +262,13 @@
               active-class="admin-nav-active"
               v-if="userStore.can(`manage:system`)">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-security-lock.svg" />
+                <w-icon name="cardinal:authentication" />
               </w-item-section>
               <w-item-section>{{ t('admin.auth.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/groups" active-class="admin-nav-active" v-if="groupsAreVisible">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-people.svg" />
+                <w-icon name="cardinal:groups" />
               </w-item-section>
               <w-item-section>{{ t('admin.groups.title') }}</w-item-section>
               <w-item-section side>
@@ -280,7 +280,7 @@
             </w-item>
             <w-item to="/_admin/users" active-class="admin-nav-active" v-if="usersAreVisible">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-account.svg" />
+                <w-icon name="cardinal:users" />
               </w-item-section>
               <w-item-section>{{ t('admin.users.title') }}</w-item-section>
               <w-item-section side>
@@ -297,7 +297,7 @@
             }}</w-item-label>
             <w-item to="/_admin/api" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-rest-api.svg" />
+                <w-icon name="cardinal:api" />
               </w-item-section>
               <w-item-section>{{ t('admin.api.title') }}</w-item-section>
               <w-item-section side>
@@ -306,7 +306,7 @@
             </w-item>
             <w-item to="/_admin/audit" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-event-log.svg" />
+                <w-icon name="cardinal:audit-log" />
               </w-item-section>
               <w-item-section>{{ t('admin.audit.title') }}</w-item-section>
             </w-item>
@@ -318,19 +318,19 @@
             </w-item>
             <w-item to="/_admin/extensions" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-module.svg" />
+                <w-icon name="cardinal:extensions" />
               </w-item-section>
               <w-item-section>{{ t('admin.extensions.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/icons" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-spring.svg" />
+                <w-icon name="cardinal:icons" />
               </w-item-section>
               <w-item-section>{{ t('admin.icons.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/cluster" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-network.svg" />
+                <w-icon name="cardinal:cluster" />
               </w-item-section>
               <w-item-section>{{ t('admin.cluster.title') }}</w-item-section>
               <w-item-section side>
@@ -342,7 +342,7 @@
             </w-item>
             <w-item to="/_admin/mail" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-message-settings.svg" />
+                <w-icon name="cardinal:mail" />
               </w-item-section>
               <w-item-section>{{ t('admin.mail.title') }}</w-item-section>
               <w-item-section side>
@@ -353,7 +353,7 @@
             </w-item>
             <w-item to="/_admin/metrics" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-graph.svg" />
+                <w-icon name="cardinal:metrics" />
               </w-item-section>
               <w-item-section>{{ t('admin.metrics.title') }}</w-item-section>
               <w-item-section side>
@@ -362,7 +362,7 @@
             </w-item>
             <w-item to="/_admin/pageviews" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-live.svg" />
+                <w-icon name="cardinal:pageviews" />
               </w-item-section>
               <w-item-section>{{ t('admin.pageviews.title') }}</w-item-section>
               <w-item-section side>
@@ -372,7 +372,7 @@
             </w-item>
             <w-item to="/_admin/replication" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/ultraviolet-synchronize.svg" />
+                <w-icon name="cardinal:replication" />
               </w-item-section>
               <w-item-section>{{ t('admin.replication.title') }}</w-item-section>
               <w-item-section side>
@@ -382,7 +382,7 @@
             </w-item>
             <w-item to="/_admin/scheduler" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-bot.svg" />
+                <w-icon name="cardinal:scheduler" />
               </w-item-section>
               <w-item-section>{{ t('admin.scheduler.title') }}</w-item-section>
               <w-item-section side>
@@ -393,19 +393,19 @@
             </w-item>
             <w-item to="/_admin/search" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" />
+                <w-icon name="cardinal:glossary" />
               </w-item-section>
               <w-item-section>{{ t('admin.search.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/security" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-protect.svg" />
+                <w-icon name="cardinal:security" />
               </w-item-section>
               <w-item-section>{{ t('admin.security.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/system" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-processor.svg" />
+                <w-icon name="cardinal:system-info" />
               </w-item-section>
               <w-item-section>{{ t('admin.system.title') }}</w-item-section>
               <w-item-section side>
@@ -414,19 +414,19 @@
             </w-item>
             <w-item to="/_admin/terminal" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-linux-terminal.svg" />
+                <w-icon name="cardinal:terminal" />
               </w-item-section>
               <w-item-section>{{ t('admin.terminal.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/utilities" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-swiss-army-knife.svg" />
+                <w-icon name="cardinal:utilities" />
               </w-item-section>
               <w-item-section>{{ t('admin.utilities.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/webhooks" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-lightning-bolt.svg" />
+                <w-icon name="cardinal:webhooks" />
               </w-item-section>
               <w-item-section>{{ t('admin.webhooks.title') }}</w-item-section>
               <w-item-section side>
@@ -438,7 +438,7 @@
             </w-item>
             <w-item to="/_admin/flags" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-windsock.svg" />
+                <w-icon name="cardinal:feature-flags" />
               </w-item-section>
               <w-item-section>{{ t('admin.dev.flags.title') }}</w-item-section>
             </w-item>
@@ -820,8 +820,29 @@ onMounted(async () => {
 .admin-nav {
   height: 100%;
 }
+/*
+  The 64px icon beside an admin page's title. `font-size`, not `height`: these were raster `<img>`
+  assets and are `WIcon`'s inline SVG now, which sizes from the font size. Drawn in the chrome tone
+  and set in a square hairline plate -- the same masthead treatment `PageHeader.vue` gives a page's
+  own icon, so an admin screen opens the way a content screen does.
+*/
 .admin-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
   height: 64px;
+  font-size: 34px;
+  color: $slate-soft;
+  border: 1px solid $hairline;
+  background-color: $paper;
+}
+
+.body--dark .admin-icon {
+  color: $slate-light;
+  border-color: $hairline-dark;
+  background-color: $dark-4;
 }
 
 /*

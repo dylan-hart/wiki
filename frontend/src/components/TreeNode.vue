@@ -118,9 +118,7 @@ const icon = computed(() => {
   if (props.node.icon) {
     return props.node.icon
   }
-  return isOpened.value
-    ? 'img:/_assets/icons/fluent-opened-folder.svg'
-    : 'img:/_assets/icons/fluent-folder.svg'
+  return isOpened.value ? 'cardinal:folder-open' : 'cardinal:folder'
 })
 
 const hasChildren = computed(() => {

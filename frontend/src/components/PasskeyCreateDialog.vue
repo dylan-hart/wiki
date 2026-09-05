@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-add-key.svg" size="sm" class="me-2" />
+        <w-icon name="cardinal:passkey" size="sm" class="me-2" />
         <span>{{ t(`profile.passkeysAdd`) }}</span>
       </w-card-section>
       <w-form ref="passkeyForm" class="py-2" @submit="save">

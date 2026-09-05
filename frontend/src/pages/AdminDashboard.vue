@@ -2,10 +2,7 @@
   <w-page class="admin-dashboard">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          name="img:/_assets/icons/fluent-apps-tab-animated.svg"
-          size="64px"
-          class="admin-icon animated fadeInLeft" />
+        <w-icon name="cardinal:dashboard" size="64px" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
         <h1 class="admin-page-title animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
@@ -40,7 +37,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-change-theme.svg" alt="" />
+            <w-icon name="cardinal:sites" />
             <div>
               <strong>{{ t('admin.sites.title') }}</strong>
               <span>{{ adminStore.sites.length }}</span>
@@ -69,7 +66,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-people.svg" alt="" />
+            <w-icon name="cardinal:groups" />
             <div>
               <strong>{{ t('admin.groups.title') }}</strong>
               <span>{{ adminStore.info.groupsTotal }}</span>
@@ -98,7 +95,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-account.svg" alt="" />
+            <w-icon name="cardinal:users" />
             <div>
               <strong>{{ t('admin.users.title') }}</strong>
               <span>{{ adminStore.info.usersTotal }}</span>
@@ -127,7 +124,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-document-in-folder.svg" alt="" />
+            <w-icon name="cardinal:pages" />
             <div>
               <strong>{{ t('admin.pages.title') }}</strong>
               <span>{{ adminStore.info.pagesTotal }}</span>
@@ -147,7 +144,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-female-working-with-a-laptop.svg" alt="" />
+            <w-icon name="cardinal:pageviews" />
             <div>
               <strong>{{ t(`admin.dashboard.logins`) }}</strong>
               <small
@@ -170,7 +167,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img :src="versionCard.icon" alt="" />
+            <w-icon :name="versionCard.icon" :color="versionCard.color" />
             <div>
               <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
               <small :class="{ pending: versionCard.pending }"
@@ -208,7 +205,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-bot.svg" alt="" />
+            <w-icon name="cardinal:scheduler" />
             <div>
               <strong>{{ t('admin.dashboard.activeWorkers') }}</strong>
               <span>{{ adminStore.info.activeWorkers }}</span>
@@ -229,7 +226,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-network.svg" alt="" />
+            <w-icon name="cardinal:cluster" />
             <div>
               <strong>{{ t('admin.cluster.title') }}</strong>
               <span>{{ adminStore.info.clusterTotal }}</span>
@@ -250,7 +247,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-lightning-bolt.svg" alt="" />
+            <w-icon name="cardinal:webhooks" />
             <div>
               <strong>{{ t('admin.webhooks.title') }}</strong>
               <span>{{ adminStore.info.webhooksTotal }}</span>
@@ -271,7 +268,7 @@
       <div class="col-span-12 lg:col-span-6">
         <w-card>
           <w-card-section class="admin-dashboard-panel">
-            <img src="/_assets/icons/fluent-key-2.svg" alt="" />
+            <w-icon name="cardinal:credential" />
             <strong>{{ t('admin.dashboard.lastLogins') }}</strong>
           </w-card-section>
           <w-separator />
@@ -385,7 +382,8 @@ const versionCard = computed(() => {
   switch (adminStore.versionStatus) {
     case 'latest':
       return {
-        icon: '/_assets/icons/fluent-done.svg',
+        icon: 'cardinal:approvals',
+        color: 'positive',
         status: t('admin.dashboard.versionUpToDate'),
         version: adminStore.info.currentVersion,
         latestVersion: null,
@@ -393,7 +391,8 @@ const versionCard = computed(() => {
       }
     case 'outdated':
       return {
-        icon: '/_assets/icons/fluent-double-up.svg',
+        icon: 'cardinal:check-update',
+        color: 'warning-fill',
         status: t('admin.dashboard.versionUpdateAvailable'),
         version: adminStore.info.currentVersion,
         latestVersion: adminStore.info.latestVersion,
@@ -401,7 +400,8 @@ const versionCard = computed(() => {
       }
     default:
       return {
-        icon: '/_assets/icons/fluent-refresh.svg',
+        icon: 'cardinal:replication',
+        color: 'slate-soft',
         status: t('admin.dashboard.versionChecking'),
         version: null,
         latestVersion: null,
@@ -496,9 +496,15 @@ function checkForUpdates() {
     display: flex;
     align-items: center;
 
-    img {
-      width: 32px;
+    /*
+      `.w-icon`, not `img`: these were raster `<img>` assets and are inline SVG now, so the size has
+      to be stated as a font-size (which is what WIcon sizes from) rather than a width.
+    */
+    > .w-icon {
+      font-size: 26px;
       margin-inline-end: 12px;
+      color: var(--color-slate-soft);
+      flex: none;
     }
 
     strong {
@@ -511,9 +517,12 @@ function checkForUpdates() {
     display: flex;
     align-items: center;
 
-    img {
-      width: 64px;
-      margin-inline-end: 12px;
+    /* -> See `-panel` above: inline SVG now, so sized by font-size rather than width */
+    > .w-icon {
+      font-size: 34px;
+      margin-inline-end: 14px;
+      color: var(--color-slate-soft);
+      flex: none;
     }
 
     strong {

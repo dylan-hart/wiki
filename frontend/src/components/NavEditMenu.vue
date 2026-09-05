@@ -1,7 +1,7 @@
 <template>
   <w-card style="min-width: 350px">
     <w-card-section class="card-header">
-      <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="sm" />
+      <w-icon name="cardinal:sidebar" left size="sm" />
       <span>{{ t(`navEdit.title`) }}</span>
     </w-card-section>
     <w-list padding>

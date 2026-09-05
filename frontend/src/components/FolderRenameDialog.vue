@@ -2,7 +2,7 @@
   <w-dialog v-model="dialogVisible" :aria-label="t(`fileman.folderRename`)" @hide="onDialogHide">
     <w-card class="relative" style="min-width: 650px">
       <w-card-section class="card-header">
-        <w-icon name="img:/_assets/icons/fluent-rename.svg" size="sm" class="me-2" />
+        <w-icon name="cardinal:rename" size="sm" class="me-2" />
         <span>{{ t(`fileman.folderRename`) }}</span>
       </w-card-section>
       <w-form ref="renameFolderForm" class="py-2" @submit="rename">

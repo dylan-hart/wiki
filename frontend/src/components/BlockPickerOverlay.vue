@@ -1,7 +1,7 @@
 <template>
   <w-layout container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="img:/_assets/icons/fluent-rfid-tag.svg" left size="md" />
+      <w-icon name="cardinal:block-picker" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
       <w-space />
       <w-btn-group>

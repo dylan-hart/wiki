@@ -1,7 +1,7 @@
 <template>
   <w-layout container>
     <w-header class="card-header px-4 py-2">
-      <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="md" />
+      <w-icon name="cardinal:sidebar" left size="md" />
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
       <!--
         Which menu is on screen, when it is not this page's own: an inherited menu is shared with every
