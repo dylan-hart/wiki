@@ -83,14 +83,20 @@ library handles it for you as part of speaking the protocol.
 | `search_pages`    | Full-text search over one site's pages, restricted to what the token may read. Returns matches with a highlighted excerpt.                                                                                                                                                                                              |
 | `get_page`        | Read a single page by path — its rendered content and metadata, optionally its raw source.                                                                                                                                                                                                                              |
 | `list_navigation` | List one folder of a site's page tree — the pages and sub-folders readable there.                                                                                                                                                                                                                                       |
+| `list_assets`     | List the assets (uploaded files) in one folder of a site's tree, restricted to what the token may read.                                                                                                                                                                                                                 |
 | `create_page`     | Create a new page from source content. **Requires a personal access token** with `write:pages` on the target path; refused if a page already exists there.                                                                                                                                                              |
 | `update_page`     | Update an existing page — any subset of its fields, the rest left unchanged. **Requires a personal access token** with `write:pages` on the page.                                                                                                                                                                       |
+| `upload_asset`    | Upload a file to the asset library (its bytes base64-encoded). **Requires a personal access token** — the upload is attributed to its owner — and `write:assets` on the destination folder.                                                                                                                             |
+| `rename_asset`    | Rename an existing asset. Requires `manage:assets` on the folder it sits in.                                                                                                                                                                                                                                            |
+| `delete_asset`    | Delete an asset. Requires `manage:assets` on the folder it sits in. This cannot be undone.                                                                                                                                                                                                                              |
 | `render_diagram`  | Render a Mermaid or PlantUML diagram to a static SVG/PNG, server-side — independent of any site or page, since it renders posted source directly. Rate-limited the same as the web UI's own diagram export; Mermaid needs the Puppeteer extension installed on this instance, PlantUML needs the instance to be online. |
 
 Every tool is always registered and visible to a client — nothing is hidden based on what a given
-token happens to hold. `create_page`/`update_page` instead refuse **at call time** with a clear
-error when the token can't use them (no personal access token behind it, or no `write:pages` on that
-path), the same way the read tools refuse per-page rather than per-tool.
+token happens to hold. `create_page`/`update_page`/`upload_asset` instead refuse **at call time**
+with a clear error when the token can't use them (no personal access token behind it, or missing
+the required page-rule permission), the same way the read tools refuse per-page rather than
+per-tool. `delete_asset`/`rename_asset` refuse the same way for a token missing `manage:assets` on
+the asset's folder.
 
 ## 4. Site scoping
 
