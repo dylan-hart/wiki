@@ -309,6 +309,7 @@ describe('fixture: 2.5x-storage.json -> mapStorageRow', () => {
       defaultEmail: 'wiki-bot@acme.example.com',
       defaultName: 'Wiki Bot',
       localRepoPath: './data/repo',
+      maxDeletePercent: 50,
       gitBinaryPath: ''
     })
     // -> git's fixture mode ('sync') is one of its own supportedModes, and its cron syncInterval
