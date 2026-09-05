@@ -259,4 +259,119 @@ describe('parentFanForce (OpenProject #2581)', () => {
     expect(hub.vx).toBe(0)
     expect(hub.vy).toBe(0)
   })
+
+  describe('concentric rings for high-fanout parents (OpenProject #2582)', () => {
+    /** Builds a parent (whose own incoming angle from a fixed root is 0°) plus `count` children,
+     *  each placed at a distinct current radius from the parent so a ring-0 assertion can tell
+     *  which child is which without depending on fan order. */
+    function buildFan(count) {
+      const root = { path: '', locale: 'en', root: true, x: 0, y: 0, vx: 0, vy: 0 }
+      const parent = { path: 'p', locale: 'en', x: 100, y: 0, vx: 0, vy: 0 }
+      const children = Array.from({ length: count }, (_, i) => {
+        const seg = String.fromCharCode(97 + i) // 'a', 'b', 'c', ... -- sorts in build order
+        return { path: `p/${seg}`, locale: 'en', x: 100 + 10 * (i + 1), y: 0, vx: 0, vy: 0 }
+      })
+      return { root, parent, children }
+    }
+
+    it('a parent with exactly the ring-capacity threshold of children stays a single ring, unchanged from #2581', () => {
+      const { root, parent, children } = buildFan(6)
+      const force = parentFanForce(1)
+      force.initialize([root, parent, ...children])
+      force(1)
+
+      // 6 children, single ring, 4+ full-circle rule: step = 60°, rotated so parent's 0° angle
+      // falls at the midpoint between two adjacent children -> 30°, 90°, 150°, 210°, 270°, 330°.
+      const step = Math.PI / 3
+      children.forEach((child, i) => {
+        const angle = step / 2 + i * step
+        const radius = 10 * (i + 1) // each child's own current radius from the parent, unchanged.
+        const tx = parent.x + radius * Math.cos(angle)
+        const ty = parent.y + radius * Math.sin(angle)
+        expect(child.vx).toBeCloseTo(tx - child.x, 5)
+        expect(child.vy).toBeCloseTo(ty - child.y, 5)
+      })
+    })
+
+    it('one child past the threshold splits into two evenly sized rings rather than one lone outer node', () => {
+      const { root, parent, children } = buildFan(7)
+      const force = parentFanForce(1)
+      force.initialize([root, parent, ...children])
+      force(1)
+
+      // Capacity 6, count 7 -> ceil(7/6) = 2 rings, sizes [4, 3] (base 3 + 1 remainder for ring 0).
+      // Ring 0: children a-d (indices 0-3), 4-way full circle at radius 10..40, no radius offset.
+      const ring0Step = Math.PI / 2
+      for (let i = 0; i < 4; i++) {
+        const angle = ring0Step / 2 + i * ring0Step
+        const radius = 10 * (i + 1)
+        const tx = parent.x + radius * Math.cos(angle)
+        const ty = parent.y + radius * Math.sin(angle)
+        expect(children[i].vx).toBeCloseTo(tx - children[i].x, 5)
+        expect(children[i].vy).toBeCloseTo(ty - children[i].y, 5)
+      }
+
+      // Ring 1: children e-g (indices 4-6), 3-way ±45°/0° rule, radius pushed out by one
+      // RING_RADIUS_STEP (80) on top of each child's own current radius.
+      const ring1Angles = [-Math.PI / 4, 0, Math.PI / 4]
+      for (let i = 0; i < 3; i++) {
+        const child = children[4 + i]
+        const baseRadius = 10 * (4 + i + 1)
+        const radius = baseRadius + 80
+        const tx = parent.x + radius * Math.cos(ring1Angles[i])
+        const ty = parent.y + radius * Math.sin(ring1Angles[i])
+        expect(child.vx).toBeCloseTo(tx - child.x, 5)
+        expect(child.vy).toBeCloseTo(ty - child.y, 5)
+      }
+    })
+
+    it('a much larger fanout spreads across more than two rings, each capped at the threshold', () => {
+      const { root, parent, children } = buildFan(19)
+      const force = parentFanForce(1)
+      force.initialize([root, parent, ...children])
+      force(1)
+
+      // Capacity 6, count 19 -> ceil(19/6) = 4 rings, sizes base=4, remainder=3 -> [5, 5, 5, 4].
+      // Every ring's size is within 1 of every other, and none exceeds RING_CHILD_CAPACITY.
+      const ringSizes = [5, 5, 5, 4]
+      expect(ringSizes.every((size) => size <= 6)).toBe(true)
+      expect(Math.max(...ringSizes) - Math.min(...ringSizes)).toBeLessThanOrEqual(1)
+
+      // Spot-check the very last child: ring 3 (0-indexed), position 3 of 4, radius pushed out by
+      // 3 * RING_RADIUS_STEP.
+      const lastChild = children[18]
+      const ringIndex = 3
+      const positionInRing = 3
+      const ringSize = 4
+      const step = (2 * Math.PI) / ringSize
+      const angle = step / 2 + positionInRing * step
+      const baseRadius = 10 * 19
+      const radius = baseRadius + ringIndex * 80
+      const tx = parent.x + radius * Math.cos(angle)
+      const ty = parent.y + radius * Math.sin(angle)
+      expect(lastChild.vx).toBeCloseTo(tx - lastChild.x, 5)
+      expect(lastChild.vy).toBeCloseTo(ty - lastChild.y, 5)
+    })
+
+    it('ring assignment is stable across a re-`initialize()` with the same node set (no reshuffling on reload)', () => {
+      const { root, parent, children } = buildFan(13)
+      const force = parentFanForce(1)
+      force.initialize([root, parent, ...children])
+      force(1)
+      const firstPass = children.map((c) => [c.vx, c.vy])
+
+      children.forEach((c) => {
+        c.vx = 0
+        c.vy = 0
+      })
+      force.initialize([root, parent, ...children])
+      force(1)
+      const secondPass = children.map((c) => [c.vx, c.vy])
+
+      firstPass.forEach(([vx, vy], i) => {
+        expect(secondPass[i][0]).toBeCloseTo(vx, 5)
+        expect(secondPass[i][1]).toBeCloseTo(vy, 5)
+      })
+    })
+  })
 })
