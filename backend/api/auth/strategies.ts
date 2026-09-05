@@ -71,6 +71,33 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * COUNT VISIBLE SITES PER STRATEGY
+   */
+  app.get(
+    '/authentication/strategies/visible-site-counts',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Count how many sites currently show each configured strategy',
+        description:
+          'One entry per strategy id that at least one site currently marks visible on its login screen -- an id absent from the list has a count of zero. Meant to back a warning when an enabled strategy is not reachable from any site (OpenProject #2557).',
+        tags: ['Authentication'],
+        response: {
+          200: { $ref: 'AuthVisibleSiteCounts#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      const counts = await WIKI.models.authentication.getVisibleSiteCounts()
+      return Object.entries(counts).map(([id, visibleSiteCount]) => ({ id, visibleSiteCount }))
+    }
+  )
+
+  /**
    * GET CONFIGURED STRATEGY
    */
   app.get<{ Params: { strategyId: string } }>(
