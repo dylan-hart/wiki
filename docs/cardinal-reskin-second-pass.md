@@ -98,7 +98,9 @@ Ordered by how far each is from the design file it should match.
 4. **Profile.** The rail matches. `ProfileInfo` and the sections under it have not been compared.
 5. **Editor**, **File manager**, **Tags**, **Login/Auth**, **Table editor**, **Admin blocks** — each
    has its own design file and none has been compared against it in this pass.
-6. **Padding, everywhere.** The recurring note in review has been "odd padding not matching the
+6. **Rendered content beyond prose.** Admonitions now take the language's status tones; task lists,
+   footnotes, keyboard keys and the code-token palette have not been looked at.
+7. **Padding, everywhere.** The recurring note in review has been "odd padding not matching the
    mockups". `.w-section-header` now rules on both edges and the page-properties panel takes the
    design's 14/16 rhythm; every other caller of that class still needs walking through.
 
