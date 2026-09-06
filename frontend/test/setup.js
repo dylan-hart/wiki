@@ -70,7 +70,9 @@ beforeEach(() => {
  * happy-dom's `HTMLCanvasElement.prototype.getContext` returns `null` by default -- no 2D canvas
  * backend is implemented. `Graph.vue`'s (`src/pages/Graph.vue`) `sizeCanvas()`/`redraw()`/
  * `drawEdges()`/`drawClusterHulls()`/`drawNodes()`/`drawLabels()` call a fixed set of 2D context
- * methods and settable properties; this stub is a minimal no-op object covering exactly that set, so
+ * methods and settable properties; this stub is a minimal object covering exactly that set (no-op
+ * apart from `measureText`, which has to answer something plausible for the in-node label
+ * truncation to have anything to truncate against -- see its own note below), so
  * mounting `Graph.vue` under test exercises its simulation/draw code paths instead of failing at
  * `ctx.scale()` on a `null` context and silently falling into the component's own `try/catch`.
  * Rebuilt before every test, same rationale as `API_CLIENT`/`EVENT_BUS` above -- `vi.fn()` call
@@ -78,7 +80,7 @@ beforeEach(() => {
  * (not a `vi.fn()`) since no test here needs to assert on how it was called, only on what it returns.
  */
 function createCanvasContext2dStub() {
-  return {
+  const ctx = {
     scale: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),
@@ -92,12 +94,26 @@ function createCanvasContext2dStub() {
     fill: vi.fn(),
     arc: vi.fn(),
     fillText: vi.fn(),
+    strokeText: vi.fn(),
+    // -> `drawLabels()` truncates a node's title to fit inside its own circle (OpenProject #2593),
+    //    so it needs a `measureText` that at least responds to the font size it just set -- a stub
+    //    returning a constant would make every title "fit" or "not fit" regardless of the node.
+    //    happy-dom has no text metrics of its own, so this approximates a proportional face at the
+    //    usual ~0.6em average advance; a suite asserting on exactly which characters survive
+    //    overrides it rather than relying on this figure.
+    measureText: vi.fn((text) => ({
+      width: String(text).length * (Number.parseFloat(ctx.font) || 10) * 0.6
+    })),
     strokeStyle: '',
     lineWidth: 1,
+    lineJoin: 'miter',
     fillStyle: '',
     globalAlpha: 1,
-    font: ''
+    font: '',
+    textAlign: 'start',
+    textBaseline: 'alphabetic'
   }
+  return ctx
 }
 
 /**
