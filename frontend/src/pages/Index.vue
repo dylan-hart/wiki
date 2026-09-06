@@ -1121,11 +1121,18 @@ $toc-overlay-max: 749.98px;
 */
 .page-breadcrumbs {
   /*
-    A fixed 34px band, as the design draws it (`padding: 6px 16px` around one line of 11.5px mono).
-    It used to be sized by its own contents through a `py-1`/`sm:py-2` pair, so the bar's height moved
-    with whatever the trail happened to hold -- a crumb with an icon made it taller than one without.
+    38px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left of this one:
+    the two sit at the same vertical position and each rules itself off with its own hairline, so any
+    disagreement in height leaves the two rules on different lines and the two grounds meeting at a
+    step. Both boxes are `border-box`, so that 1px border is inside the 38px on either side.
+
+    A fixed height at all -- rather than one sized by its own contents through the `py-1`/`sm:py-2`
+    pair this used to carry -- because the bar's height otherwise moved with whatever the trail
+    happened to hold: a crumb with an icon made it taller than one without.
+
+    `min-height` rather than `height` so a trail long enough to wrap can still grow past the band.
   */
-  min-height: 34px;
+  min-height: 38px;
   font-family: var(--font-mono);
   font-size: 11.5px;
 
