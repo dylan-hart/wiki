@@ -4,6 +4,7 @@ import { initializeStore } from './stores'
 import { initializeAnalytics } from './boot/analytics'
 import { initializeApi } from './boot/api'
 import { initializeComponents } from './boot/components'
+import { initializeErrors } from './boot/errors'
 import { initializeEventBus } from './boot/eventbus'
 import { initializeExternals } from './boot/externals'
 import { initializeI18n } from './boot/i18n'
@@ -32,6 +33,7 @@ initializeAnalytics(store)
 initializeApi(router)
 initializeComponents(app)
 initializeEventBus()
+initializeErrors(app)
 initializeIconify()
 initializeExternals(router, store)
 initializeI18n(app, store)
