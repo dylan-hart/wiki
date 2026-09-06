@@ -316,7 +316,7 @@
   "admin.blocks.selfHostedServerNote": "Kroki and PlantUML draw diagrams by sending their source to a server over the network. Left blank, that's a public demo server run by the project, not this instance — fine to try, but not something to depend on: it can rate-limit, go down, or see diagram content you'd rather keep private. Set Server below to a self-hosted Kroki or PlantUML server for production use.",
   "admin.blocks.server": "Server",
   "admin.blocks.serverHint": "Default server for every author on this site. Leave blank to use the block's own default.",
-  "admin.blocks.subtitle": "Manage dynamic components available for use inside pages.",
+  "admin.blocks.subtitle": "Embeddable components authors can place into page content.",
   "admin.blocks.title": "Blocks",
   "admin.blocks.upload": "Upload Custom Block",
   "admin.blocks.uploadChooseFile": "Choose File",

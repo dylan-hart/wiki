@@ -34,11 +34,17 @@ describe('backend/locales/en.json admin blocks title', () => {
     )
   })
 
-  test('the sibling admin.blocks.* strings are untouched by the rename', async () => {
+  /**
+   * The rename itself took nothing but the title. The subtitle has since moved on its own, to the
+   * design file's own wording, under Task #2629 ("Bring Admin Blocks onto Cardinal Wiki - Admin
+   * Blocks 3x.dc.html") — so this pins #2629's string rather than the pre-rename one. What it
+   * still guards is the same thing: the title label and its sibling strings move independently.
+   */
+  test('the sibling admin.blocks.subtitle carries its own wording, not the title label', async () => {
     const parsed = await loadLocale()
     assert.equal(
       parsed['admin.blocks.subtitle'],
-      'Manage dynamic components available for use inside pages.'
+      'Embeddable components authors can place into page content.'
     )
   })
 })
