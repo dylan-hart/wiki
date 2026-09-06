@@ -144,6 +144,7 @@ import CommentComposer from '@/components/CommentComposer.vue'
 import { confirm } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { initials } from '@/helpers/initials'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -260,21 +261,18 @@ function flatten(nodes, depth) {
 }
 
 /**
- * Initials for the avatar: a guest (no `authorId`) gets a single initial off `authorName`, which the
- * server already resolved to `guestName` for that case; an account holder gets up to two, one per
- * word of their display name, so "Jane Doe" reads as "JD" rather than just "J".
+ * Initials for the avatar. A guest (no `authorId`) gets a single initial off `authorName`, which the
+ * server already resolved to `guestName` for that case -- that one letter is a local rule about an
+ * unaccounted commenter, not a second way of computing initials, which is why it stays here. An
+ * account holder goes through the shared `helpers/initials.js`, the same derivation the account menu
+ * and the collab strip draw, so a three-part name reads the same everywhere.
  */
 function initialsFor(comment) {
   const name = comment.authorName ?? ''
   if (!comment.authorId) {
     return name.charAt(0).toUpperCase()
   }
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word.charAt(0).toUpperCase())
-    .join('')
+  return initials(name)
 }
 
 function isModified(comment) {

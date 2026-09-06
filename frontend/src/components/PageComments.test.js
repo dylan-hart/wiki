@@ -562,4 +562,34 @@ describe('PageComments', () => {
     expect(editField.attributes('autofocus')).toBeUndefined()
     expect(document.activeElement).toBe(editField.element)
   })
+
+  /**
+   * OpenProject #2609: this component used to derive its own initials off the first TWO words, while
+   * `AccountMenu.vue` and `CollabPresence.vue` each took the first and LAST -- so a three-part name
+   * drew `DJ` here and `DH` everywhere else. All three now call `helpers/initials.js`; the guest
+   * single-letter rule is the one thing that stayed local.
+   */
+  describe('avatar initials', () => {
+    async function avatarTextFor(overrides) {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment(overrides)]) })
+      const { wrapper } = await mountComments()
+      return wrapper.find('.w-avatar').text()
+    }
+
+    it('takes the first and last word of an account holder, not the first two', async () => {
+      expect(await avatarTextFor({ authorName: 'Dylan James Hart' })).toBe('DH')
+    })
+
+    it('still reads two initials for a two-word name', async () => {
+      expect(await avatarTextFor({ authorName: 'Jane Doe' })).toBe('JD')
+    })
+
+    it('gives an account holder with a mononym their single letter', async () => {
+      expect(await avatarTextFor({ authorName: 'Prince' })).toBe('P')
+    })
+
+    it('gives a guest a single initial off the server-resolved name', async () => {
+      expect(await avatarTextFor({ authorId: null, authorName: 'anonymous visitor' })).toBe('A')
+    })
+  })
 })
