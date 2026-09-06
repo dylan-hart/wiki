@@ -462,7 +462,9 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
     assert.match(indexTs, /const configProvenance = await WIKI\.configSvc\.init\(\)/)
     // -> `init()` runs before `WIKI.logger` exists, so it returns this rather than logging it.
     const initIdx = indexTs.indexOf('await WIKI.configSvc.init()')
-    const loggerInitIdx = indexTs.indexOf('WIKI.logger = logger.init()')
+    // -> Matched as a call prefix, not an exact `init()`: the logger now takes an options object
+    //    (OpenProject #2663), and this assertion is about ordering, not about its arguments.
+    const loggerInitIdx = indexTs.indexOf('WIKI.logger = logger.init(')
     assert.ok(initIdx < loggerInitIdx, 'config must still be loaded before the logger is built')
   })
 
