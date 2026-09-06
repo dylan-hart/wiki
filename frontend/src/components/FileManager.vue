@@ -212,6 +212,17 @@
           </template>
           <template v-else>
             <!--
+              The shared up-one-level plate (`UpOneLevelBtn.vue`), the same control the Browse panel
+              and the save dialog carry. Absent at the root, where the folder tree beside the list is
+              already showing that there is nothing above this. First in the toolbar, ahead of the way
+              INTO the tree, because both answer "where am I" rather than "what can I do here".
+            -->
+            <up-one-level-btn
+              :show="Boolean(state.currentFolderId)"
+              tooltip-anchor="bottom middle"
+              tooltip-self="top middle"
+              @click="goUp" />
+            <!--
               What opens the tree while it is a panel: nothing else does, and the tree is how a reader
               gets to another folder. First in the toolbar rather than in the pushed group, because it is
               about where they are rather than about what to do here.
@@ -543,8 +554,9 @@ import { useSiteStore } from '@/stores/site'
 import Fuse from 'fuse.js/basic'
 import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
+import UpOneLevelBtn from './UpOneLevelBtn.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { fetchTreeEntries, mergeFolderEntries } from '@/helpers/treeNodes'
+import { fetchTreeEntries, mergeFolderEntries, parentFolderIdOf } from '@/helpers/treeNodes'
 import { assetUrl } from '@/helpers/assets'
 import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
@@ -896,6 +908,21 @@ function dismissTreeOverlay(ev) {
     return
   }
   state.treeOpen = false
+}
+
+/**
+ * Up one level: select the folder above the one being listed, or the root when that folder is
+ * directly under it.
+ *
+ * Setting `currentFolderId` is the whole of it -- the same watcher a tree click goes through reloads
+ * the list and closes the tree panel behind the choice, so going up and clicking up arrive at exactly
+ * the same place. Nothing is done at the root; the control is absent there.
+ */
+function goUp() {
+  if (!state.currentFolderId) {
+    return
+  }
+  state.currentFolderId = parentFolderIdOf(state.treeNodes, state.currentFolderId)
 }
 
 function close() {

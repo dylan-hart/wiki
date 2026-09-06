@@ -59,7 +59,17 @@
         </div>
       </div>
       <div class="page-save-dialog-hint">{{ t('pageSaveDialog.newFolderHint') }}</div>
-      <div class="page-save-dialog-path font-robotomono">{{ currentFolderPath }}</div>
+      <!--
+        The folder you are saving into, and the one control that changes it without a tree click: the
+        shared up-one-level plate (`UpOneLevelBtn.vue`), the same one the Browse panel and the File
+        Manager carry. It goes on this row rather than above the browser because this row is already
+        the answer to "where am I" -- which is what the plate acts on, and what the design means by
+        the name beside it moving with it.
+      -->
+      <div class="page-save-dialog-path flex flex-nowrap items-center">
+        <up-one-level-btn :show="Boolean(state.currentFolderId)" @click="goUp" />
+        <span class="font-robotomono truncate">{{ currentFolderPath }}</span>
+      </div>
       <w-list class="py-2">
         <w-item>
           <blueprint-icon icon="tabler:file-plus" />
@@ -170,10 +180,11 @@ import fileTypes from '../helpers/fileTypes'
 
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import Tree from '@/components/TreeNav.vue'
+import UpOneLevelBtn from '@/components/UpOneLevelBtn.vue'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { fetchTreeEntries, mergeFolderEntries } from '@/helpers/treeNodes'
+import { fetchTreeEntries, mergeFolderEntries, parentFolderIdOf } from '@/helpers/treeNodes'
 import { normalizePagePath } from '@/helpers/pagePaths'
 
 // PROPS
@@ -507,6 +518,22 @@ function treeContextAction(nodeId, action) {
   }
 }
 
+/**
+ * Up one level: save into the folder above the one currently selected, or into the root when that
+ * folder is directly under it.
+ *
+ * The same one-line assignment a tree click makes, so the watcher on `currentFolderId` lists the
+ * folder arrived at either way. It deliberately leaves `state.path`, `state.title` and `pathDirty`
+ * alone -- moving WHERE a page is saved is not the same as retyping WHAT it is called, and the path
+ * field's auto-slug behaviour is what `e2e/helpers/admin.js#savePage` drives.
+ */
+function goUp() {
+  if (!state.currentFolderId) {
+    return
+  }
+  state.currentFolderId = parentFolderIdOf(state.treeNodes, state.currentFolderId)
+}
+
 function selectItem(item) {
   // -> A folder is somewhere to save into, not something to overwrite
   if (item.type === 'folder') {
@@ -669,7 +696,14 @@ onMounted(async () => {
     }
   }
 
+  /*
+    A fixed height, for the same reason the Browse panel's header has one: the up-one-level plate is
+    absent at the root rather than disabled, and a row that sized itself to its contents would jog by
+    16px every time the browser crossed in or out of the root. 38px is the 28px plate plus the 5px
+    this row already had above and below it.
+  */
   &-path {
+    min-height: 38px;
     padding: 5px 16px;
     font-size: 12px;
     border-bottom: 1px solid #fff;

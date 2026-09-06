@@ -63,6 +63,38 @@ export function mergeFolderEntries(treeNodes, entries, parentId) {
 }
 
 /**
+ * The folder one level above `folderId`, addressed the way the tree map addresses folders.
+ *
+ * A folder's own `folderPath` already names its parent: the folder at `docs/setup` has a parent whose
+ * own `folderPath` is `docs`'s parent path (`''`) and whose `fileName` is `docs`. So the lookup is a
+ * scan of the same map for the entry that spells that path -- there is no `parent` field to read,
+ * since the tree response does not carry one.
+ *
+ * `null` covers both "already at the root" and "the folder directly above this one IS the root" --
+ * which is the same answer as far as a caller is concerned, since `null` is what every browser here
+ * already uses for the root folder. Whether there is anywhere to go up TO is the caller's own
+ * question (it knows whether it is at the root), not this one's.
+ *
+ * @param {object} treeNodes The `id -> node` map, as `mergeFolderEntries` builds it.
+ * @param {string|null} folderId The folder to find the parent of.
+ * @returns {string|null} The parent folder's id, or `null` for the root.
+ */
+export function parentFolderIdOf(treeNodes, folderId) {
+  const node = folderId ? treeNodes?.[folderId] : null
+  if (!node?.folderPath) {
+    return null
+  }
+  const parts = node.folderPath.split('/')
+  const parentFolderPath = parts.slice(0, -1).join('/')
+  const parentFileName = parts.at(-1)
+  const entry = Object.entries(treeNodes).find(
+    ([, candidate]) =>
+      (candidate.folderPath ?? '') === parentFolderPath && candidate.fileName === parentFileName
+  )
+  return entry?.[0] ?? null
+}
+
+/**
  * One folder's worth of tree, as the API returns it.
  *
  * `initLoad` also asks for the folders above the one being listed, so that opening on a page buried
