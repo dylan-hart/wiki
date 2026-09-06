@@ -563,8 +563,11 @@ function openSidebar() {
   38px band ruled off underneath -- the gradient it used to carry (a white sheen fading to a black
   wash) was relief, and read as a bevel on a tint that is four percent off white.
 
-  Two hairlines, not one: the sidebar's own column starts here, so this band needs an edge above it
-  as well as below, or it merges into the header band it sits under.
+  One hairline, drawn here and nowhere else: `NavSidebar`'s own `.sidebar-nav` sits directly below
+  this band and draws no top edge of its own, so the seam between them stays a single 1px rule, the
+  same as the one between `.page-breadcrumbs` and `<page-header>`. When this band isn't rendered at
+  all (`showSidebarActions` false), `NavSidebar` sits flush under `HeaderNav`'s own `.site-header`
+  bottom edge instead, so the line is still there -- just drawn by the header rather than by this.
 */
 .sidebar-actions {
   height: 38px;
