@@ -1,4 +1,5 @@
 import { LRUCache } from 'lru-cache'
+import { coalesce } from './logCoalesce.ts'
 import { durationToSeconds } from './common.ts'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { RateLimitPolicy, RateLimitVerdict } from '../models/rateLimits.ts'
@@ -124,6 +125,27 @@ function authPolicy(): RateLimitPolicy {
 }
 
 /**
+ * How long the authentication limiter's counting window runs, in milliseconds.
+ *
+ * Exported for `models/login.ts`, whose own refusal lines are coalesced over the same window this
+ * limiter counts in — one bucket of noise, one window, and one place the operator's configured
+ * `security.authRateLimitWindow` is read. Re-deriving it there from `WIKI.config` would be a second
+ * copy of {@link authPolicy}'s fallback rules that could silently drift out of step with this one.
+ */
+export function authRateLimitWindowMs(): number {
+  return authPolicy().windowSeconds * 1000
+}
+
+/**
+ * The key {@link limitAuthAttempts}'s ban lines are coalesced under. Namespaced away from
+ * `models/login.ts`'s own `auth:login-refused:` keys, so a burst of bans and a burst of refusals
+ * count and summarise independently rather than sharing one budget.
+ */
+function banLogKey(ip: string): string {
+  return `auth:rate-limit-banned:${ip}`
+}
+
+/**
  * Refuse an attempt at an authentication endpoint once a client has made too many.
  *
  * Written as a per-route `onRequest` hook — `{ onRequest: limitAuthAttempts, schema: … }` — so that it
@@ -149,9 +171,34 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
   if (verdict.allowed) {
     return
   }
-  WIKI.models.flags.authDebug(
-    `Rate limit: refused ${req.method} ${req.url} from ${req.ip}, ${verdict.retryAfter}s left of its ban.`
-  )
+  /*
+    A banned key is refused on EVERY request it keeps making, so a guessing run that has already
+    tripped the limit produces one of these lines per attempt — the noisiest thing in the auth log,
+    and the reason `helpers/logCoalesce.ts` exists. The first few are logged in full (which address,
+    which endpoint, how much of the ban is left); the rest are counted and reported once when the
+    window closes.
+
+    `hits` is the count the ban itself was decided on, carried onto the line so an operator reading
+    a single refusal can see how far past the limit this client is without correlating attempts.
+  */
+  const ip = req.ip
+  const windowMs = authRateLimitWindowMs()
+  const logInFull = coalesce(banLogKey(ip), windowMs, (summary) => {
+    WIKI.logger.warn(
+      'auth',
+      `rate limit banned ${summary.total} times in ${Math.round(summary.windowMs / 1000)}s`,
+      { ip }
+    )
+  })
+  if (logInFull) {
+    WIKI.logger.warn('auth', 'rate limit banned', {
+      method: req.method,
+      url: req.url,
+      ip,
+      hits: verdict.hits,
+      retryAfter: verdict.retryAfter
+    })
+  }
   /*
     429 rather than 403, and with `Retry-After`: this is not a refusal to serve the client, it is the
     same answer as before with a time on it — which is what a legitimate user locked out by a shared
