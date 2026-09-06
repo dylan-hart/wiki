@@ -1,10 +1,10 @@
 <template>
-  <w-page class="py-4">
+  <w-page>
     <h1 class="w-section-header">{{ t('profile.notifications') }}</h1>
     <div class="px-4 text-body2 text-grey">{{ t('profile.notificationsSubtitle') }}</div>
 
     <template v-for="group of eventGroups" :key="group.key">
-      <h2 class="w-section-header mt-6">{{ group.label }}</h2>
+      <h2 class="w-section-header">{{ group.label }}</h2>
       <template v-for="(evt, idx) of group.events" :key="evt.key">
         <w-separator v-if="idx > 0" inset spaced="sm" />
         <w-item>
@@ -21,7 +21,7 @@
       </template>
     </template>
 
-    <div class="actions-bar mt-6">
+    <div class="actions-bar">
       <w-btn
         icon="tabler:check"
         :label="t(`common.actions.saveChanges`)"

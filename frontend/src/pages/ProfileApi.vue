@@ -1,5 +1,5 @@
 <template>
-  <w-page class="py-4 profile-api">
+  <w-page class="profile-api">
     <div class="flex items-center p-4">
       <div class="min-w-0 flex-1">
         <h1 class="w-section-header">{{ t('profile.api.title') }}</h1>
