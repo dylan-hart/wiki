@@ -188,6 +188,15 @@ export const useSiteStore = defineStore('site', {
      */
     acronymMap: {},
     acronymMapLoaded: false,
+    /**
+     * The pre-load shape, before `applySiteInfo` overwrites it with the real site config. The color
+     * fields are literal hex rather than `var(--color-*)` on purpose: they mirror
+     * `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed (also restated in `AdminTheme.vue`'s
+     * `defaultConfig()`/`resetColors()`, and documented once in `css/tailwind.css`'s `:root`
+     * comment) so a fresh install and a not-yet-loaded site both start on Cardinal's own colors
+     * rather than on an arbitrary CSS fallback -- a seed value, not a token consumer, so there is
+     * nothing here for the aesthetic to resolve through.
+     */
     theme: {
       dark: false,
       injectCSS: '',

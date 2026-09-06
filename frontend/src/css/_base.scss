@@ -48,21 +48,18 @@ body::-webkit-scrollbar-thumb {
 // ------------------------------------------------------------------
 //
 // -> Cardinal chrome: a white header band and the cooler of the two tints for the sidebar, both
-//    drawing their contents in ink. See `css/tailwind.css`'s `:root` for the whole set.
-
-:root {
-  --q-header: #fff;
-  --q-sidebar: #f0f2f7;
-}
+//    drawing their contents in ink. `--q-header`/`--q-sidebar` are declared once, in
+//    `css/tailwind.css`'s `:root` -- both files always load together (`main.js` -> `app.scss` ->
+//    `_base`, alongside `tailwind.css` directly), so redeclaring the same custom properties (and
+//    the literal hex they resolve to) here would just be a second copy to drift out of step with
+//    a themed/re-skinned value.
 
 .header,
 .bg-header {
-  background: #fff;
   background: var(--q-header);
 }
 .sidebar,
 .bg-sidebar {
-  background: #f0f2f7;
   background: var(--q-sidebar);
 }
 
