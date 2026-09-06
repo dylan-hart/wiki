@@ -47,6 +47,14 @@ defaults:
     # whose entries cannot be enumerated here -- with `{}` every real entry would warn as an unknown
     # key on every boot.
     logScopes: ~
+    # Slow-query threshold, in milliseconds. 0 (the default) is off; any positive value makes every
+    # query the main pool runs and that takes at least this long emit one `warn sql slow query` line
+    # carrying the elapsed time, the row count, the first 200 characters of the query text and the
+    # same type/length-only parameter descriptor the `sql` firehose uses -- never a bound value.
+    # A file setting rather than a db-backed one, like `pool.statementTimeoutMillis` next to which it
+    # is meant to be tuned: changing it takes a restart. See config.sample.yml for the operator-facing
+    # writeup, and core/db.ts#instrumentSlowQueries for what is and is not timed.
+    slowQueryMs: 0
     offline: false
     dataPath: ./data
     # In BYTES. Fastify's `bodyLimit` takes an integer and refuses anything else at boot, unlike the

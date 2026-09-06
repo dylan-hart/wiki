@@ -168,6 +168,36 @@ logFormat: text
 # `auth` to debug, from the next line onwards. A flag wins over an entry here.
 
 # ---------------------------------------------------------------------
+# Slow query threshold
+# ---------------------------------------------------------------------
+# Milliseconds. 0 (the default) is off. Set a positive value and every query
+# the main Postgres pool runs that takes at least that long emits one line:
+#
+#   warn  sql       slow query  rows=1 query="select ..." params=(2 params: string(36), object) in 1.4s
+#
+# Bound parameter VALUES are never logged, here or anywhere -- only a
+# type/length descriptor per parameter, exactly as the `sql` firehose does.
+# The query text is truncated to its first 200 characters.
+#
+# This is not a second logging level: the line is a `warn` on the `sql` scope,
+# so `logScopes: { sql: error }` quietens it along with the firehose. It is
+# also a FILE setting, not one of the admin flags above -- changing it takes a
+# restart, the same as `pool` below it.
+#
+# Related, and worth setting together: `pool.statementTimeoutMillis` (above,
+# default 60000) is the hard ceiling at which Postgres CANCELS a query outright.
+# `slowQueryMs` is the softer "tell me before it gets there" signal, so a useful
+# starting point is well under that ceiling -- 1000 or so on a healthy instance.
+#
+# Timing sits below Drizzle, on the pool itself, so it covers raw
+# `db.execute()` calls and the boot-time migration runner as well as ordinary
+# ORM traffic: expect a burst of slow lines on the first boot after an upgrade
+# that applies a large migration. The three permanently-held LISTEN/NOTIFY
+# connections use a separate pool and are not timed.
+
+slowQueryMs: 0
+
+# ---------------------------------------------------------------------
 # Offline Mode
 # ---------------------------------------------------------------------
 # If your server cannot access the internet, set to true. This gates every
