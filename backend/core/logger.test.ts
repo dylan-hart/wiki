@@ -547,3 +547,171 @@ describe('logger backlog', () => {
     assert.equal(frames[0], primaryLogger.backlog()[0])
   })
 })
+
+/**
+ * The scoped-child half. Asserted in JSON mode throughout: that is the format in which the scope and
+ * the merged fields are observable as data rather than as a rendered string.
+ */
+describe('logger scopes', () => {
+  afterEach(() => {
+    mock.restoreAll()
+  })
+
+  function parseLines(logSpy: ReturnType<typeof mock.method>) {
+    return logSpy.mock.calls.map((call) => JSON.parse(call.arguments[0] as string))
+  }
+
+  test("a child's scope and fields ride every line it emits", () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    const log = primaryLogger.scope('storage', { target: 'tgt-1', module: 'git' })
+    log.info('sync started')
+    log.warn('daily backup failed')
+    log.error('working copy left mid-rebase')
+    log.debug('nothing due')
+
+    const lines = parseLines(logSpy)
+    assert.equal(lines.length, 4)
+    assert.deepEqual(
+      lines.map((line) => line.level),
+      ['info', 'warn', 'error', 'debug']
+    )
+    for (const line of lines) {
+      assert.equal(line.scope, 'storage')
+      assert.equal(line.target, 'tgt-1')
+      assert.equal(line.module, 'git')
+    }
+    assert.equal(lines[0]!.message, 'sync started')
+  })
+
+  test("a call's own field overrides the child's", () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    const log = primaryLogger.scope('search', { engine: 'db' })
+    log.info('reindexed', { engine: 'elasticsearch', pages: 12 })
+
+    const [line] = parseLines(logSpy)
+    assert.equal(line.scope, 'search')
+    assert.equal(line.engine, 'elasticsearch')
+    assert.equal(line.pages, 12)
+  })
+
+  test('the scope loses to the fixed fields, exactly as a context key does', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.scope('jobs', { level: 'spoofed', message: 'spoofed' }).info('job done')
+
+    const [line] = parseLines(logSpy)
+    assert.equal(line.level, 'info')
+    assert.equal(line.message, 'job done')
+    assert.equal(line.scope, 'jobs')
+  })
+
+  test('a fieldless child still stamps its scope, and adds nothing else', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.scope('collab').debug('peer joined')
+
+    const [line] = parseLines(logSpy)
+    assert.deepEqual(Object.keys(line).sort(), [
+      'instance',
+      'level',
+      'message',
+      'scope',
+      'timestamp'
+    ])
+    assert.equal(line.scope, 'collab')
+  })
+
+  test("a child of a child takes the new scope and merges both parents' fields", () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    const storage = primaryLogger.scope('storage', { target: 'tgt-1', module: 'git' })
+    storage.scope('pages', { module: 'sftp', page: 42 }).info('moved')
+
+    const [line] = parseLines(logSpy)
+    assert.equal(line.scope, 'pages')
+    assert.equal(line.target, 'tgt-1')
+    assert.equal(line.module, 'sftp')
+    assert.equal(line.page, 42)
+  })
+
+  test('a child does not mutate the parent, nor a sibling child', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    const storage = primaryLogger.scope('storage', { target: 'tgt-1' })
+    storage.scope('search', { engine: 'db' }).info('from the grandchild')
+    storage.info('from the child')
+    primaryLogger.info('from the parent')
+
+    const [grandchild, child, parent] = parseLines(logSpy)
+    assert.equal(grandchild!.engine, 'db')
+    assert.equal(child!.scope, 'storage')
+    assert.equal(child!.engine, undefined)
+    // -> `legacy`, not absent: the parent call above is the pre-scope `(msg, context?)` shape, which
+    //    the renderer files under its own sentinel. What matters here is that it is NOT `storage` —
+    //    the child never wrote its scope or its fields back onto the logger it was built from.
+    assert.equal(parent!.scope, 'legacy')
+    assert.equal(parent!.target, undefined)
+  })
+
+  test("a child is gated by `logLevel` exactly as the parent's own methods are", () => {
+    setWiki({ logFormat: 'json', logLevel: 'warn' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    const log = primaryLogger.scope('db', { schema: 'public' })
+    log.error('pool exhausted')
+    log.warn('reconnecting')
+    log.info('connected')
+    log.debug('LISTEN registered')
+
+    assert.deepEqual(
+      parseLines(logSpy).map((line) => line.level),
+      ['error', 'warn']
+    )
+  })
+
+  test('a scoped line still reaches the backlog and the terminal socket', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    mock.method(console, 'log', () => {})
+
+    const emitted: string[] = []
+    primaryLogger.ws.on('log', (line: string) => emitted.push(line))
+    primaryLogger.scope('mail', { to: 'nobody@example.com' }).warn('mail is not configured')
+
+    assert.equal(emitted.length, 1)
+    assert.match(emitted[0]!, /nobody@example\.com/)
+    assert.deepEqual(primaryLogger.backlog(), emitted)
+  })
+
+  test('text mode renders a scoped line as it renders any other', () => {
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.scope('icons', { prefix: 'mdi' }).info('icon set enabled')
+
+    assert.equal(logSpy.mock.calls.length, 1)
+    // -> The child's scope lands in the scope column and its fields in the `key=value` tail, which is
+    //    the point: a scoped call goes through the one renderer and comes out indistinguishable from
+    //    the same call written out in full.
+    assert.match(
+      stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string),
+      /\binfo\s+icons\s+icon set enabled {2}prefix=mdi$/
+    )
+  })
+})
