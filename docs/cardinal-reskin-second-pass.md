@@ -98,6 +98,14 @@ Ordered by how far each is from the design file it should match.
 4. **Profile.** The rail matches. `ProfileInfo` and the sections under it have not been compared.
 5. **Editor**, **File manager**, **Tags**, **Login/Auth**, **Table editor**, **Admin blocks** — each
    has its own design file and none has been compared against it in this pass.
+   - **Editor** has now been compared. The insert rail and the markup bar are light slate chrome
+     rather than a dark block and a cardinal-red band, both toolbars are the design's 40px, the pane
+     seam is a hairline, the preview renders onto paper at its 22/24 inset, and Monaco's theme takes
+     the design's ground/gutter (which were swapped), its current-line band, caret, code lens and
+     markdown token ramp. The page-actions rail fills while editing — in `#c14a52`, per the
+     divergence below, since it carries white glyphs and a white overline. Not done here and handed
+     on: the preview's own rendered content (item 6), `.w-section-header` padding (item 7), and
+     `CollabPresence`'s initials derivation, which belongs to the `helpers/initials.js` consolidation.
 6. **Rendered content beyond prose.** Admonitions now take the language's status tones; task lists,
    footnotes, keyboard keys and the code-token palette have not been looked at.
 7. **Padding, everywhere.** The recurring note in review has been "odd padding not matching the
