@@ -8,7 +8,20 @@
     -->
     <w-header class="card-header">
       <w-toolbar class="fileman-hdr-title">
-        <w-icon name="tabler:folder" left size="md" />
+        <!--
+          -> The band's glyph takes the accent lightened for a dark ground, not the white the title
+             is set in: `ui-redesign/Cardinal Wiki - File Manager 3x.dc.html` strokes it `#f08287`,
+             which is `--color-accent-dark`, and nine other 3x design files draw their own overlay
+             header the same way. Stated here rather than in `.card-header` (`css/_base.scss`)
+             because that band is shared with every other dialog in the app.
+
+          -> A class rather than `WIcon`'s `color` prop: that prop resolves to a `text-<name>` CLASS,
+             and `text-accent-dark` appears as literal text nowhere in this repo for Tailwind's
+             scanner to find (`css/tailwind.css`'s own note by `@theme static` describes exactly this
+             hazard). The stylesheet below reads the variable instead, which `static` guarantees is
+             emitted.
+        -->
+        <w-icon class="fileman-hdr-icon" name="tabler:folder" left size="md" />
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
       <w-toolbar class="fileman-hdr-search">
@@ -23,16 +36,24 @@
           Menu idiom follows this same file's "view options" button just below: a `w-menu` of
           `w-item`s with a check-circle/circle pair marking the current choice, rather than
           `LocaleSelectorMenu`'s avatar-initials layout -- that one is styled for a reader-facing
-          language switcher, this is an in-toolbar filter control like the rest of this row.
+          language switcher, this is an in-toolbar filter control like the rest of this row. The
+          design agrees and settles it: `Cardinal Wiki - File Manager 3x.dc.html` draws this control
+          as a bare outlined chip reading `EN` with a chevron after it -- no avatar, no initials --
+          so `helpers/initials.js` existing (WP #2609) does not change the calculus either way.
+
+          -> The chip itself: 34px tall with a `rgba(255,255,255,.25)` edge, matching the search
+             field beside it rather than standing a button's height above it. The chevron is what
+             says a menu opens from here; without it the code drew a bare two-letter label that read
+             as a status, not a control.
         -->
         <w-btn
           v-if="siteStore.useLocales"
-          class="fileman-locale me-2 acrylic-btn"
+          class="fileman-locale me-2"
           flat
           color="white"
           :label="state.locale"
-          :aria-label="state.locale"
-          style="height: 40px">
+          :aria-label="state.locale">
+          <w-icon class="fileman-locale-caret" name="tabler:chevron-down" size="xs" />
           <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
             <w-card class="p-2">
               <w-list dense style="min-width: 180px">
@@ -85,6 +106,23 @@
             @click="state.search = ``">
             <w-icon name="tabler:x" />
           </button>
+          <!--
+            The shortcut hint the design draws at this field's trailing edge, and the same key cap
+            `HeaderSearch` sets: a mono square on the field's own ground. It is truthful here -- this
+            overlay really does claim Cmd/Ctrl+K while it is up (`handleKeyPress` below, and the note
+            in `HeaderSearch` explaining why that one stands down for an overlay) -- so the field was
+            answering a shortcut it never advertised.
+
+            Gives way once the field is in use, as HeaderSearch's does: past that point the reader is
+            already where the key would have taken them, and the clear button needs the room.
+          -->
+          <span
+            v-if="!state.searchIsFocused && state.search.length < 1"
+            class="fileman-search-kbd"
+            aria-hidden="true"
+            @click="searchField.focus()">
+            {{ searchShortcutHint }}
+          </span>
         </div>
       </w-toolbar>
       <!--
@@ -128,8 +166,12 @@
       was listening. `treeDrawerOpen` is that listener, and above the breakpoint it answers true always.
 
       Narrower while it overlays, so there is a comfortable width of scrim left to tap on.
+
+      -> 320px beside the list, which is what the design measures both flanking columns at. The
+         overlay width stays 300: the design draws no phone state, and that number is about how much
+         scrim is left beside the panel, not about matching the column.
     -->
-    <w-drawer class="fileman-left" v-model="treeDrawerOpen" :width="isTreeOverlay ? 300 : 350">
+    <w-drawer class="fileman-left" v-model="treeDrawerOpen" :width="isTreeOverlay ? 300 : 320">
       <w-scroll-area style="height: 100%">
         <!--
           -> No side padding: the tree's rows run the full width of the drawer, so a hovered or
@@ -149,15 +191,34 @@
         </div>
       </w-scroll-area>
     </w-drawer>
-    <w-drawer class="fileman-right" :model-value="detailsPaneShown" :width="350" side="right">
+    <w-drawer class="fileman-right" :model-value="detailsPaneShown" :width="320" side="right">
       <w-scroll-area style="height: 100%">
         <div class="p-4">
           <template v-if="currentFileDetails">
-            <img
-              class="w-full aspect-[16/10] object-cover rounded mb-4"
-              v-if="currentFileDetails.thumbnail"
-              :src="currentFileDetails.thumbnail"
-              :alt="currentFileDetails.fileName" />
+            <!--
+              A FRAMED slot, always drawn, not a bare image that appears only when there is one to
+              show: the design gives this pane a fixed 16/10 plate at the top with blueprint corner
+              marks around it, holding a placeholder glyph when the selected file has no preview.
+              Only images have a thumbnail (`/_thumb/:id.webp` 404s for anything else) and pages get
+              an illustration, so a PDF or an archive used to open the pane with the detail rows
+              jumped to the top and nothing above them -- the pane's whole layout changing with the
+              row the reader happened to click.
+
+              -> No `rounded` on the image any more. `--radius-*` is zeroed repo-wide (see the note
+                 in `css/tailwind.css`), and the frame around it is square.
+            -->
+            <div class="fileman-thumb">
+              <img
+                class="w-full aspect-[16/10] object-cover"
+                v-if="currentFileDetails.thumbnail"
+                :src="currentFileDetails.thumbnail"
+                :alt="currentFileDetails.fileName" />
+              <w-icon v-else class="fileman-thumb-placeholder" name="tabler:photo" size="46px" />
+              <i class="fileman-thumb-tick fileman-thumb-tick--tl"></i>
+              <i class="fileman-thumb-tick fileman-thumb-tick--tr"></i>
+              <i class="fileman-thumb-tick fileman-thumb-tick--bl"></i>
+              <i class="fileman-thumb-tick fileman-thumb-tick--br"></i>
+            </div>
             <div
               class="fileman-details-row"
               v-for="item of currentFileDetails.items"
@@ -167,8 +228,14 @@
             </div>
             <template v-if="insertMode">
               <w-separator class="my-4" />
+              <!--
+                -> `primary` (`#c14a52`), not the `#e4676b` the design fills this button with: the
+                   fill tone is 2.9:1 under a white label and `helpers/accessibility.test.js` pins it
+                   as never carrying one. Same call, for the same reason, as the segmented control in
+                   `PageHistoryOverlay.vue`.
+              -->
               <w-btn
-                class="w-full"
+                class="w-full fileman-insert-btn"
                 @click="insertItem()"
                 :label="t(`common.actions.insert`)"
                 color="primary"
@@ -230,10 +297,14 @@
               }}</w-tooltip>
             </w-btn>
             <w-space />
+            <!--
+              -> The toolbar sits on Cardinal's own 32px band, which is `WBtn`'s regular geometry --
+                 `dense` is the 28px compact variant, and the design draws every control in this row
+                 at 32px. See `WBtn`'s own "Cardinal geometry" note.
+            -->
             <w-btn
               class="me-2"
               flat
-              dense
               color="slate-soft"
               :aria-label="t(`fileman.viewOptions`)"
               icon="tabler:layout-list">
@@ -315,7 +386,6 @@
             <w-btn
               class="me-2"
               flat
-              dense
               color="slate-soft"
               :aria-label="t(`common.actions.refresh`)"
               icon="tabler:refresh"
@@ -325,11 +395,18 @@
               }}</w-tooltip>
             </w-btn>
             <w-separator class="me-2" inset vertical />
+            <!--
+              The two labelled actions are OUTLINED where the icon buttons before them are flat: the
+              design rules a separator across the toolbar and puts an edge around everything past it,
+              so "what I can do here" reads as a pair of controls rather than as two more glyphs in
+              the row. `slate`, not `slate-soft` -- the design sets this label in `#38465f`, and
+              `slate-soft` is a hairline/icon tone below the 4.5:1 floor for text (see
+              `css/tailwind.css`'s own note beside the two faint slates).
+            -->
             <w-btn
               class="me-2"
-              flat
-              dense
-              color="slate-soft"
+              outline
+              color="slate"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
               icon="tabler:plus">
@@ -340,11 +417,21 @@
                 @new-page="() => close()"
                 :base-path="folderPath" />
             </w-btn>
-            <!-- -> The pane's own primary action, and so the one accent-coloured control in it -->
+            <!--
+              Upload is GREEN, not the accent: the design draws it `#3f7a66` inside a `#5f9c86` edge,
+              which is `--color-positive` in `--color-positive-fill`. It used to be the accent on the
+              reasoning that this pane's primary action should be the one accent-coloured control in
+              it -- but the accent is spoken for on this screen, marking which row is selected, and a
+              second accent control competing with that is exactly what the design avoids.
+
+              `WBtn`'s `outline` deliberately draws every outlined edge in the hairline tone ("an
+              outlined button's edge is chrome, its label is not"), so the green edge comes from the
+              class below rather than from a change to the shared component.
+            -->
             <w-btn
-              flat
-              dense
-              color="accent"
+              class="fileman-upload-btn"
+              outline
+              color="positive"
               :label="t(`common.actions.upload`)"
               :aria-label="t(`common.actions.upload`)"
               icon="tabler:cloud-upload"
@@ -417,8 +504,14 @@
                     <w-item-label>{{ usePathTitle ? item.fileName : item.title }}</w-item-label>
                     <w-item-label caption v-if="!state.isCompact">{{ item.caption }}</w-item-label>
                   </w-item-section>
+                  <!--
+                    -> A file size is a MEASUREMENT, and the design sets every one of those in the
+                       mono face -- here, in the details pane beside it, and in the path bar along
+                       the bottom. `.text-caption` is the proportional caption scale and was drawing
+                       "248 KB" in the same face as the file's own name.
+                  -->
                   <w-item-section class="fileman-filelist-side" side v-if="item.side">
-                    <div class="text-caption">{{ item.side }}</div>
+                    <div>{{ item.side }}</div>
                   </w-item-section>
                   <!-- RIGHT-CLICK MENU -->
                   <w-menu class="translucent-menu" context-menu auto-close>
@@ -517,9 +610,14 @@
         </div>
       </w-page>
     </w-page-container>
+    <!--
+      -> No utility classes on the text: `.fileman-path` already owns the mono face, the 11.5px size
+         and the colour for both appearances, and `text-grey-7` was painting a neutral Material grey
+         into a language whose every other muted tone is blue-tinted.
+    -->
     <w-footer>
       <w-bar class="fileman-path">
-        <small class="text-caption text-grey-7">{{ folderPath }}</small>
+        <small>{{ folderPath }}</small>
       </w-bar>
     </w-footer>
     <input type="file" ref="fileIpt" multiple @change="uploadNewFiles" style="display: none" />
@@ -550,6 +648,7 @@ import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
 import { formatFileSize } from '@/helpers/fileSize'
 import { localizedPagePath } from '@/helpers/pagePaths'
+import { isApplePlatform } from '@/helpers/platform'
 
 // PROPS
 
@@ -715,6 +814,16 @@ const {
 // COMPUTED
 
 const insertMode = computed(() => props.overlayOpts?.insertMode ?? false)
+
+/**
+ * The search field's key-cap hint: `⌘K` on macOS/iOS/iPadOS, `Ctrl+K` everywhere else, resolved
+ * exactly as `HeaderSearch` resolves its own -- the two answer the same key and must name it the
+ * same way. A `computed()` rather than a `const` for the reason spelled out there: `t()`'s result is
+ * what is reactive, and this component can set up before `boot/i18n.js` has loaded the catalog.
+ */
+const searchShortcutHint = computed(() =>
+  isApplePlatform() ? t('common.header.searchShortcutMac') : t('common.header.searchShortcutOther')
+)
 
 /**
  * Whether the folder tree is a panel over the list rather than a column beside it.
@@ -1307,12 +1416,29 @@ $fileman-hdr-wrap-max: 899.98px;
   }
 
   /*
-    The locale button is cut to the same 7px as the search field and Close, where `WBtn`'s flat variant
-    is 3px. Unlayered, because an SFC style block is not a Tailwind layer -- which is what lets it beat
-    the `rounded-[3px]` utility the component carries, the same way `.w-btn.acrylic-btn` in `_base.scss`
-    beats its hover utility. Specificity alone would not do it: both selectors are one class.
+    The overlay title's own glyph, in the accent lightened for a dark ground. See the template note:
+    the variable rather than a `text-accent-dark` utility, which nothing in this repo emits.
+  */
+  &-hdr-icon {
+    color: $accent-dark;
+  }
+
+  /*
+    The locale chip. The design draws it as a hairline box the same 34px height as the search field
+    beside it -- not as a button standing proud of the row -- so the edge is stated here and the
+    height matched rather than left to `WBtn`'s own 32px band. This selector is one class and so is
+    the `min-h-*` the component sets inline, but the inline style wins regardless of specificity,
+    which is why the height goes on as `!important`; nothing else here needs it.
   */
   &-locale {
+    height: 34px;
+    min-height: 34px !important;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+
+    &-caret {
+      font-size: 12px;
+      opacity: 0.6;
+    }
   }
 
   /*
@@ -1332,8 +1458,14 @@ $fileman-hdr-wrap-max: 899.98px;
   */
   &-search {
     display: flex;
-    flex: 1 1;
-    min-width: 0;
+    /*
+      -> Bounded, as the design bounds it: `min-width: 180px; max-width: 420px`. Unbounded, the field
+         ate every pixel the header's spacer did not, and on a wide monitor a folder search ran the
+         better part of a metre.
+    */
+    flex: 1 1 auto;
+    min-width: 180px;
+    max-width: 420px;
     align-items: center;
     gap: 8px;
     height: 34px;
@@ -1390,6 +1522,27 @@ $fileman-hdr-wrap-max: 899.98px;
         opacity: 1;
       }
     }
+
+    /*
+      The shortcut key cap, declared the same way `.header-search-kbd` is: a square mono cap on the
+      field's own ground. Restated rather than borrowed for the same reason the field itself is --
+      this one sits on a white field in a dark title band, that one on the light site header, and a
+      change to either must not silently move the other.
+    */
+    &-kbd {
+      flex-shrink: 0;
+      padding: 2px 5px;
+      background-color: $surface;
+      border: 1px solid $hairline;
+      color: $text-caption;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      line-height: 1.4;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
   }
 
   /*
@@ -1435,15 +1588,32 @@ $fileman-hdr-wrap-max: 899.98px;
     }
   }
 
+  /*
+    The action bar over the list. The design paints it in the page tint rather than in the list's own
+    white -- the same pairing the path bar along the bottom already uses, so the pane reads as a
+    sheet of paper with a strip of chrome at each end rather than as one continuous white field with
+    two hairlines ruled across it. Dark follows the path bar too: the recessed rung, not the panel's.
+  */
   &-toolbar {
     @at-root .body--light & {
-      background-color: $surface;
+      background-color: $tint;
       border-block-end: 1px solid $hairline;
     }
     @at-root .body--dark & {
-      background-color: $dark-3;
+      background-color: $dark-4;
       border-block-end: 1px solid $hairline-dark;
     }
+  }
+
+  /*
+    Upload's green edge. `WBtn`'s `outline` draws every outlined edge in the hairline tone on purpose
+    ("an outlined button's edge is chrome, its label is not"), and this is the one control the design
+    overrides that for -- so the override lives here rather than as a prop on the shared component.
+  */
+  &-upload-btn {
+    // -> The fill tone in both appearances: it is a hairline here, not a label, so the "never under
+    //    white text" constraint that separates `$positive-fill` from `$positive` does not apply.
+    border-color: $positive-fill;
   }
 
   &-path {
@@ -1541,35 +1711,84 @@ $fileman-hdr-wrap-max: 899.98px;
     }
   }
 
+  /*
+    The listing runs edge to edge -- the rows are the page, not cards floating on it -- so the
+    padding is each row's (11px 16px, the design's own) and the list has none of its own.
+  */
   &-filelist {
-    padding: 8px 12px;
+    padding: 0;
 
     /*
-      The selected row: the tint plus an accent bar down its leading edge, matching how the site
-      sidebar and the folder tree beside this list both mark what the reader is on. A solid accent
-      fill (what this used to do) is the treatment a BUTTON gets; a selected row in a list is not
-      one, and filling it meant the file name, its type and its size all had to be restated in
+      The selected row: the accent WASH plus an accent bar down its leading edge, matching how the
+      site sidebar and the folder tree beside this list both mark what the reader is on. A solid
+      accent fill (what this used to do) is the treatment a BUTTON gets; a selected row in a list is
+      not one, and filling it meant the file name, its type and its size all had to be restated in
       white -- three overrides that existed only to survive the fill.
+
+      The wash, not `--color-tint`: the design tints the selected row towards the accent (`#fdeced`),
+      which is `--color-accent-wash`. The neutral tint was the same colour as the toolbar above the
+      list, so a selected row read as a second strip of chrome rather than as a selection.
+
+      The bar is an inset SHADOW rather than a border, again as the design draws it (`inset 3px 0 0`).
+      A border would have to be reserved as `2px solid transparent` on every unselected row, which is
+      what the previous rule did -- three pixels of padding stolen from every row in the list to make
+      room for a mark almost none of them carry.
     */
     > .w-item {
-      padding: 4px 6px;
-      border-inline-start: 2px solid transparent;
+      padding: 11px 16px;
+
+      // -> The design rules each row off from the next; the last one meets the pane's own edge
+      &:not(:last-child) {
+        border-block-end: 1px solid $tint;
+      }
 
       &.active {
-        border-inline-start-color: var(--color-accent-fill);
-        background-color: var(--color-tint);
+        box-shadow: inset 3px 0 0 var(--color-accent-fill);
+        background-color: var(--color-accent-wash);
         color: var(--color-ink);
 
         @at-root .body--dark & {
-          background-color: var(--color-dark-2);
+          background-color: var(--color-accent-wash-dark);
           color: var(--color-text-dark);
         }
+      }
+
+      @at-root .body--dark & {
+        &:not(:last-child) {
+          border-block-end-color: $hairline-dark;
+        }
+      }
+    }
+
+    // -> The design's own row type scale: a 14.5px/500 name over a 12px caption
+    &-label {
+      .w-item-label {
+        font-size: 14.5px;
+        font-weight: 500;
+      }
+
+      .w-item-label--caption {
+        font-size: 12px;
+        font-weight: 400;
+      }
+    }
+
+    // -> A measurement, in the mono face, as every other measurement on this screen is
+    &-side {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+
+      @at-root .body--light & {
+        color: $text-secondary;
+      }
+      @at-root .body--dark & {
+        color: $text-secondary-dark;
       }
     }
 
     &.is-compact {
       > .w-item {
-        padding: 0 6px;
+        padding: 0 16px;
         min-height: 36px;
       }
 
@@ -1579,14 +1798,104 @@ $fileman-hdr-wrap-max: 899.98px;
       }
     }
   }
+  /*
+    The preview plate at the top of the details pane, always drawn -- see the template note. A framed
+    16/10 box on the tint, with the blueprint corner marks the design language sets around anything
+    it wants read as a plate rather than as a picture that happens to be there.
+  */
+  &-thumb {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-block-end: 16px;
+
+    @at-root .body--light & {
+      background-color: $tint;
+      border: 1px solid $hairline;
+    }
+    @at-root .body--dark & {
+      background-color: $dark-3;
+      border: 1px solid $hairline-dark;
+    }
+
+    // -> The image fills the plate it is framed by, so the frame's own aspect ratio is the one drawn
+    > img {
+      display: block;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    &-placeholder {
+      color: $slate-pale;
+    }
+
+    /*
+      The four corner marks. Outside the frame by 4px, drawn as two edges of a 7px square each, so
+      they read as registration ticks rather than as a second border.
+    */
+    &-tick {
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      border: 0 solid $slate-soft;
+      pointer-events: none;
+
+      @at-root .body--dark & {
+        border-color: $slate-light;
+      }
+
+      &--tl {
+        top: -4px;
+        left: -4px;
+        border-block-start-width: 1px;
+        border-inline-start-width: 1px;
+      }
+      &--tr {
+        top: -4px;
+        right: -4px;
+        border-block-start-width: 1px;
+        border-inline-end-width: 1px;
+      }
+      &--bl {
+        bottom: -4px;
+        left: -4px;
+        border-block-end-width: 1px;
+        border-inline-start-width: 1px;
+      }
+      &--br {
+        bottom: -4px;
+        right: -4px;
+        border-block-end-width: 1px;
+        border-inline-end-width: 1px;
+      }
+    }
+  }
+
+  /*
+    A detail row is a LABELLED VALUE, and the design lays it out as one: a 92px mono-uppercase label
+    gutter with the value beside it, each row ruled off from the next. Stacked (what this used to do)
+    made every value look like the start of its own paragraph and cost twice the vertical room, which
+    is how a four-row pane came to need scrolling.
+  */
   &-details-row {
     display: flex;
-    flex-direction: column;
-    padding: 5px 0;
+    gap: 10px;
+    padding: 7px 0;
+
+    @at-root .body--light & {
+      border-block-end: 1px solid $tint;
+    }
+    @at-root .body--dark & {
+      border-block-end: 1px solid $hairline-dark;
+    }
 
     label {
-      font-size: 0.7rem;
-      font-weight: 500;
+      flex: 0 0 92px;
+      padding-block-start: 2px;
+      font-size: 0.6rem;
+      font-weight: 600;
 
       font-family: var(--font-mono);
       letter-spacing: 0.14em;
@@ -1600,18 +1909,49 @@ $fileman-hdr-wrap-max: 899.98px;
       }
     }
     span {
-      font-size: 0.85rem;
+      flex: 1;
+      min-width: 0;
+      font-size: 13.5px;
+      // -> A long file name has nowhere to break: the gutter beside it is fixed
+      word-break: break-word;
 
       @at-root .body--light & {
-        color: $text-body;
+        color: $ink;
       }
       @at-root .body--dark & {
         color: $text-dark;
       }
     }
+  }
 
-    & + .fileman-details-row {
-      margin-top: 5px;
+  /*
+    The pane's own commit button, marked with the same registration ticks the plate above it carries
+    -- the design puts them on the leading-top and trailing-bottom corners only, which is the motif's
+    abbreviated form for a control rather than a plate.
+  */
+  &-insert-btn {
+    &::before,
+    &::after {
+      content: '';
+      position: absolute;
+      width: 5px;
+      height: 5px;
+      border: 0 solid var(--color-accent);
+      pointer-events: none;
+    }
+
+    &::before {
+      top: -3px;
+      inset-inline-start: -3px;
+      border-block-start-width: 1px;
+      border-inline-start-width: 1px;
+    }
+
+    &::after {
+      bottom: -3px;
+      inset-inline-end: -3px;
+      border-block-end-width: 1px;
+      border-inline-end-width: 1px;
     }
   }
 
