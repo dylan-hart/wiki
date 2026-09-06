@@ -58,10 +58,15 @@ class Analytics {
         }
       )
 
-      WIKI.logger.info(`Loaded ${WIKI.data.analytics.length} analytics module definitions [ OK ]`)
+      WIKI.logger.debug('ext', 'loaded module definitions', {
+        kind: 'analytics',
+        modules: WIKI.data.analytics.length
+      })
     } catch (err: any) {
-      WIKI.logger.error('Failed to scan or load analytics module definitions [ FAILED ]')
-      WIKI.logger.error(err)
+      WIKI.logger.error('ext', 'reading the module definitions failed', {
+        kind: 'analytics',
+        error: err
+      })
     }
   }
 }

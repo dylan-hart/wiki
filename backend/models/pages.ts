@@ -1769,7 +1769,10 @@ class Pages {
     await Promise.all(
       [...relinkedPageIds].map((relinkedPageId) =>
         WIKI.models.pageDrafts.clear(relinkedPageId).catch((err: any) => {
-          WIKI.logger.warn(`Failed to clear the draft for page ${relinkedPageId}: ${err.message}`)
+          WIKI.logger.warn('pages', 'clearing the draft failed', {
+            page: relinkedPageId,
+            error: err
+          })
         })
       )
     )
@@ -1956,7 +1959,9 @@ class Pages {
         authorId: actor.id
       })
     }
-    WIKI.logger.debug(`Deleted ${entries.length} page(s) that went with a deleted folder.`)
+    WIKI.logger.debug('pages', 'deleted the pages that went with a deleted folder', {
+      pages: entries.length
+    })
   }
 
   /**
@@ -2357,7 +2362,10 @@ class Pages {
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to queue watch notifications for page ${pageId}: ${err.message}`)
+      WIKI.logger.warn('pages', 'queueing the watch notifications failed', {
+        page: pageId,
+        error: err
+      })
     }
   }
 

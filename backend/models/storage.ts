@@ -371,13 +371,15 @@ class Storage {
           ? await this.moduleSupportsContentSync(definition.key)
           : false
       }
-      WIKI.logger.info(`Found ${this.definitions.length} storage modules [ OK ]`)
+      WIKI.logger.debug('storage', 'loaded module definitions', {
+        modules: this.definitions.length
+      })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.error(
-        `Could not read the storage module definitions at ${storagePath} [ FAILED ]`
-      )
-      WIKI.logger.error(err.message)
+      WIKI.logger.error('storage', 'reading the module definitions failed', {
+        path: storagePath,
+        error: err
+      })
     }
   }
 
@@ -446,12 +448,11 @@ class Storage {
    * Register the installed storage modules for every site. Called at boot, after the sites cache.
    */
   async syncAllSites(): Promise<void> {
-    WIKI.logger.info('Registering storage targets for all sites...')
     const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
     for (const site of sites) {
       await WIKI.models.storage.syncSite(site.id)
     }
-    WIKI.logger.info(`Registered storage targets for ${sites.length} sites [ OK ]`)
+    WIKI.logger.info('storage', 'registered targets', { sites: sites.length })
   }
 
   /**
@@ -805,7 +806,7 @@ class Storage {
       }
       return queued
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to queue storage dispatch for ${event}: ${err.message}`)
+      WIKI.logger.warn('storage', 'queueing the dispatch failed', { event, error: err })
       return 0
     }
   }
@@ -868,9 +869,11 @@ class Storage {
       try {
         intervalMs = Math.round(Temporal.Duration.from(scheduleStr).total({ unit: 'milliseconds' }))
       } catch (err: any) {
-        WIKI.logger.warn(
-          `Storage target ${row.id} has an unparseable sync schedule "${scheduleStr}", skipping: ${err.message}`
-        )
+        WIKI.logger.warn('storage', 'unparseable sync schedule, skipping the target', {
+          target: row.id,
+          schedule: scheduleStr,
+          error: err
+        })
         continue
       }
       const lastTick = row.lastTickAt ? row.lastTickAt.toTemporalInstant() : null
@@ -934,9 +937,12 @@ class Storage {
           ran++
         } catch (err: any) {
           failed++
-          WIKI.logger.warn(
-            `Daily backup failed for storage target ${target.title} (site ${site.id}): ${err.message}`
-          )
+          WIKI.logger.warn('storage', 'daily backup failed', {
+            target: target.id,
+            module: target.module,
+            site: site.id,
+            error: err
+          })
         }
       }
     }

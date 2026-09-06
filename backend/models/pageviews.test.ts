@@ -62,7 +62,7 @@ describe('Settings.init seeds pageviews.hashKey', () => {
   test('a fresh boot seeds a non-empty hashKey that is not shared with auth.secret', async () => {
     const inserted: { key: string; value: any }[] = []
     ;(globalThis as any).WIKI = {
-      logger: { info: mock.fn(), warn: mock.fn() },
+      logger: { info: mock.fn(), warn: mock.fn(), debug: mock.fn() },
       version: 'test',
       releaseDate: 'test',
       db: {

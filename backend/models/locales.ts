@@ -249,16 +249,17 @@ class Locales extends ClusterReloaded {
       }
       this.invalidateStringsCache(code)
       loaded.push(code)
-      WIKI.logger.info(`Sideloaded locale ${code} from ${this.sideloadPath()}. [ OK ]`)
+      WIKI.logger.debug('locale', 'sideloaded locale', { locale: code, path: this.sideloadPath() })
     }
 
     if (loaded.length > 0) {
       await this.broadcastReload()
     }
     if (skipped.length > 0) {
-      WIKI.logger.warn(
-        `${skipped.length} sideload locale file(s) were skipped: ${skipped.map((s) => `${s.code} (${s.error})`).join(', ')}`
-      )
+      WIKI.logger.warn('locale', 'skipped sideload files', {
+        skipped: skipped.length,
+        files: skipped.map((s) => `${s.code} (${s.error})`).join(', ')
+      })
     }
     return { loaded, skipped }
   }
@@ -266,7 +267,6 @@ class Locales extends ClusterReloaded {
   async refreshFromDisk({ force = false }: { force?: boolean } = {}): Promise<false | void> {
     try {
       const localesMeta = (await import('../locales/metadata.js')).default
-      WIKI.logger.info(`Found ${localesMeta.languages.length} locales [ OK ]`)
 
       // -> Base locale for completeness comparisons, read once per call (not per language) and
       //    reused across the whole loop below.
@@ -282,7 +282,7 @@ class Locales extends ClusterReloaded {
         .from(localesTable)
         .orderBy(localesTable.code)
 
-      let localFilesSkipped = 0
+      const missingOnDisk: string[] = []
       for (const lang of localesMeta.languages) {
         // -> Build filename
         const langFilename = localeCode(lang)
@@ -302,7 +302,6 @@ class Locales extends ClusterReloaded {
             Temporal.Instant.compare(dbLang.updatedAt.toTemporalInstant(), flUpdatedAt) < 0 ||
             force
           ) {
-            WIKI.logger.info(`Loading locale ${langFilename} into DB...`)
             const flStrings = JSON.parse(await readFile(flPath, 'utf8'))
             // -> The base locale trivially covers itself; comparing it against itself would also
             //    read 100 here (en.json has no empty values), but this is explicit rather than
@@ -341,29 +340,34 @@ class Locales extends ClusterReloaded {
                 setWhere: force ? undefined : lt(localesTable.updatedAt, flStat.mtime)
               })
             this.invalidateStringsCache(langFilename)
-            WIKI.logger.info(`Locale ${langFilename} loaded successfully. [ OK ]`)
+            WIKI.logger.debug('locale', 'loaded locale from disk', {
+              locale: langFilename,
+              completeness
+            })
           } else {
-            WIKI.logger.info(
-              `Locale ${langFilename} is newer in the DB. Skipping disk version. [ OK ]`
-            )
+            WIKI.logger.debug('locale', 'db copy is newer, keeping it', { locale: langFilename })
           }
         } catch {
-          localFilesSkipped++
-          WIKI.logger.warn(
-            `Locale ${langFilename} not found on disk. Missing strings file. [ SKIPPED ]`
-          )
+          missingOnDisk.push(langFilename)
         }
       }
-      if (localFilesSkipped > 0) {
-        WIKI.logger.warn(
-          `${localFilesSkipped} locales were defined in the metadata file but not found on disk. [ SKIPPED ]`
-        )
+      if (missingOnDisk.length > 0) {
+        WIKI.logger.warn('locale', 'declared in the metadata file but not found on disk', {
+          skipped: missingOnDisk.length,
+          locales: missingOnDisk.join(', ')
+        })
       }
 
-      await this.sideloadFromDataPath({ force })
+      const sideload = await this.sideloadFromDataPath({ force })
+      // -> One line for the whole pass, in place of the two-per-locale announce/complete pairs the
+      //    loop above used to write at `info`: 112 boot lines became 56 `debug` ones and this.
+      const count = localesMeta.languages.length
+      WIKI.logger.info('locale', `loaded ${count} ${count === 1 ? 'locale' : 'locales'}`, {
+        sideloaded: sideload.loaded.length,
+        skipped: missingOnDisk.length
+      })
     } catch (err: any) {
-      WIKI.logger.warn('Failed to load locales from disk: [ FAILED ]')
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('locale', 'loading locales from disk failed', { error: err })
       return false
     }
   }
@@ -520,7 +524,6 @@ class Locales extends ClusterReloaded {
    * instance including the one that ran the sync.
    */
   async reloadCache(): Promise<void> {
-    WIKI.logger.info('Reloading locales cache...')
     const locales = await WIKI.models.locales.getLocales({ cache: false })
     // -> `getStrings()` caches per code under `localeStrings:<code>` (OpenProject #1915). This is
     //    the single invalidation point for that cache too — called from `sideloadFromDataPath` after
@@ -530,7 +533,7 @@ class Locales extends ClusterReloaded {
     for (const locale of locales) {
       this.invalidateStringsCache(locale.code)
     }
-    WIKI.logger.info(`Loaded ${locales.length} locales into cache [ OK ]`)
+    WIKI.logger.debug('locale', 'reloaded the locales cache', { locales: locales.length })
   }
 }
 

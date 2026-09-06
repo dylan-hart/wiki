@@ -225,7 +225,7 @@ class ApiKeys {
       return null
     }
 
-    WIKI.logger.info(`Regenerated the API key certificates, invalidating ${usable} key(s) [ OK ]`)
+    WIKI.logger.info('auth', 'regenerated the API key certificates', { invalidated: usable })
     return usable
   }
 
@@ -399,7 +399,12 @@ class ApiKeys {
   async purgeRevoked(): Promise<number> {
     const result = await WIKI.db.delete(apiKeysTable).where(eq(apiKeysTable.isRevoked, true))
     const purged = result.rowCount ?? 0
-    WIKI.logger.info(`Purged ${purged} revoked API key(s) [ OK ]`)
+    // -> Silent at `info` when there was nothing to purge; this runs from a scheduled job.
+    if (purged > 0) {
+      WIKI.logger.info('auth', 'purged revoked API keys', { keys: purged })
+    } else {
+      WIKI.logger.debug('auth', 'no revoked API keys to purge')
+    }
     return purged
   }
 

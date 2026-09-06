@@ -156,7 +156,7 @@ class Pageviews {
       return false
     }
 
-    WIKI.logger.info('Rotated the pageview hash key [ OK ]')
+    WIKI.logger.info('config', 'rotated the pageview hash key')
     return true
   }
 
@@ -172,7 +172,10 @@ class Pageviews {
         visitorHash: hashVisitor(params.visitorRawId, WIKI.config.pageviews.hashKey)
       })
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to record a pageview: ${err.message}`)
+      WIKI.logger.warn('pages', 'recording a pageview failed', {
+        page: params.pageId,
+        error: err
+      })
     }
   }
 

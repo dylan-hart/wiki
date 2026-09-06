@@ -36,7 +36,9 @@ class ClassificationLevels extends ClusterReloaded {
   async reloadCache(): Promise<void> {
     const rows = await WIKI.db.select().from(levelsTable).orderBy(asc(levelsTable.sortOrder))
     levelsCache = rows
-    WIKI.logger.info(`Loaded ${levelsCache.length} classification level(s) [ OK ]`)
+    WIKI.logger.debug('config', 'reloaded the classification levels', {
+      levels: levelsCache.length
+    })
   }
 
   /** Every level, most-open first. What the admin list and every level picker render. */
@@ -283,7 +285,7 @@ class ClassificationLevels extends ClusterReloaded {
    * rather than through migrations) still gets seeded correctly.
    */
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.info('Inserting default classification levels...')
+    WIKI.logger.debug('config', 'seeding the default classification levels')
     await WIKI.db
       .insert(levelsTable)
       .values([

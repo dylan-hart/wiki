@@ -661,7 +661,7 @@ describe('hooks emit rate limiting (mocked)', () => {
   let previousWiki: any
   let nowMs: number
   let addJobCalls: any[]
-  let warnCalls: string[]
+  let warnCalls: { scope: string; message: string; fields?: Record<string, any> }[]
   let hooksModel: typeof import('./hooks.ts').hooks
 
   /** Mirrors `models/rateLimits.ts#consume()`'s window semantics, minus the ban/DB plumbing. */
@@ -695,7 +695,12 @@ describe('hooks emit rate limiting (mocked)', () => {
           webhookRateLimitBan: '1m'
         }
       },
-      logger: { info: () => {}, warn: (msg: string) => warnCalls.push(msg), debug: () => {} },
+      logger: {
+        info: () => {},
+        warn: (scope: string, message: string, fields?: Record<string, any>) =>
+          warnCalls.push({ scope, message, fields }),
+        debug: () => {}
+      },
       models: {
         rateLimits: createFakeRateLimits(),
         // -> `emit()`'s email/event-subscriber fan-outs query these too; empty and warn-free so
@@ -734,8 +739,9 @@ describe('hooks emit rate limiting (mocked)', () => {
 
     assert.equal(addJobCalls.length, 3)
     assert.equal(warnCalls.length, 2)
-    assert.match(warnCalls[0]!, /hook-1/)
-    assert.match(warnCalls[0]!, /rate limit/i)
+    assert.equal(warnCalls[0]!.scope, 'hooks')
+    assert.equal(warnCalls[0]!.fields?.hook, 'hook-1')
+    assert.match(warnCalls[0]!.message, /rate limit/i)
   })
 
   test('resets the count once the configured window has elapsed', async () => {

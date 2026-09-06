@@ -325,11 +325,13 @@ class Search {
       this.definitions = definitions.sort((a, b) =>
         a.key === DB_MODULE ? -1 : b.key === DB_MODULE ? 1 : a.title.localeCompare(b.title)
       )
-      WIKI.logger.info(`Found ${this.definitions.length} search modules [ OK ]`)
+      WIKI.logger.debug('search', 'loaded engine definitions', { engines: this.definitions.length })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.error(`Could not read the search module definitions at ${searchPath} [ FAILED ]`)
-      WIKI.logger.error(err.message)
+      WIKI.logger.error('search', 'reading the engine definitions failed', {
+        path: searchPath,
+        error: err
+      })
     }
   }
 
@@ -546,10 +548,11 @@ class Search {
               )
           )
         } catch (err: any) {
-          WIKI.logger.warn(
-            `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
-          )
-          WIKI.logger.warn(err.message)
+          WIKI.logger.warn('search', 'initializing the engine failed', {
+            engine: key,
+            site: siteId,
+            error: err
+          })
         }
       })
     )

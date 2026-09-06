@@ -633,18 +633,15 @@ class Authentication {
         }
       )
 
-      WIKI.logger.info(
-        `Loaded ${WIKI.data.authentication.length} authentication module definitions [ OK ]`
-      )
+      WIKI.logger.debug('auth', 'loaded module definitions', {
+        modules: WIKI.data.authentication.length
+      })
     } catch (err: any) {
-      WIKI.logger.error('Failed to scan or load authentication module definitions [ FAILED ]')
-      WIKI.logger.error(err)
+      WIKI.logger.error('auth', 'reading the module definitions failed', { error: err })
     }
   }
 
   async activateStrategies(): Promise<void> {
-    WIKI.logger.info('Activating authentication strategies...')
-
     // Unload any active strategies
     try {
       for (const strKey in WIKI.auth.strategies) {
@@ -654,13 +651,13 @@ class Authentication {
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to unload active strategies [ FAILED ]`)
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('auth', 'unloading the active strategies failed', { error: err })
     }
     WIKI.auth.strategies = {}
 
     // Load enabled strategies
     const enabledStrategies = await this.getStrategies({ enabledOnly: true })
+    const enabled: string[] = []
     for (const stg of enabledStrategies) {
       try {
         const StrategyModule = (
@@ -673,14 +670,22 @@ class Authentication {
           await strategy.init()
         }
 
-        WIKI.logger.info(`Enabled authentication strategy ${stg.displayName} [ OK ]`)
+        enabled.push(stg.module)
       } catch (err: any) {
-        WIKI.logger.error(
-          `Failed to enable authentication strategy ${stg.displayName} (${stg.id}) [ FAILED ]`
-        )
-        WIKI.logger.error(err)
+        WIKI.logger.error('auth', 'enabling the strategy failed', {
+          strategy: stg.id,
+          module: stg.module,
+          error: err
+        })
       }
     }
+    // -> One line for the activation pass rather than one per strategy: an operator reads this to
+    //    learn which ways in are open, and the module keys are that answer.
+    WIKI.logger.info(
+      'auth',
+      `enabled ${enabled.length} ${enabled.length === 1 ? 'strategy' : 'strategies'}`,
+      { keys: enabled.join(', ') }
+    )
   }
 
   async init(ids: SystemIds): Promise<void> {
