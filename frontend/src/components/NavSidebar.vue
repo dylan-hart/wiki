@@ -129,7 +129,6 @@ $sidebar-overlay-max: 1199.98px;
 }
 
 .sidebar-nav {
-  border-top: 1px solid $hairline;
   /*
     The column's own foreground, stated rather than inherited: the drawer takes the site's chosen
     sidebar colour (or, in dark mode, the ramp -- see `css/_base.scss`), and what a nav row inherits
@@ -358,7 +357,6 @@ $sidebar-overlay-max: 1199.98px;
     because `WItemLabel`'s `header` variant sets its own colour.
   */
   @at-root .body--dark & {
-    border-top-color: $hairline-dark;
     color: $text-secondary-dark;
 
     .w-expansion-item__arrow {

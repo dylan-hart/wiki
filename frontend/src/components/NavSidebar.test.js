@@ -1045,4 +1045,39 @@ describe('NavSidebar', () => {
     expect(sidebarNavBlock).toMatch(/>\s*nav\s*{\s*[^}]*flex:\s*1\s+0\s+auto/)
     expect(sidebarNavBlock).not.toMatch(/min-height:\s*100%/)
   })
+
+  /**
+   * OpenProject #2726: `.sidebar-nav` drew its own `border-top`, stacked on top of
+   * `MainLayout.vue`'s `.sidebar-actions { border-bottom }` right above it, thickening that seam to
+   * 2px against the 1px hairline everywhere else in the app (e.g. between `.page-breadcrumbs` and
+   * `<page-header>`). The upper band owns the line now.
+   *
+   * A static source check, like the two adjacent tests above (border-left/right, min-height) --
+   * happy-dom's `getComputedStyle` was confirmed directly, against this exact element, to return an
+   * empty string rather than the CSS initial value (`0px`) for an unset `border-top-width`, so a
+   * computed-style assertion cannot actually tell "no rule" apart from "environment can't resolve
+   * it" here. Scoped to the specific `.sidebar-nav {` rule body (not the whole style block, which
+   * also holds unrelated selectors) and to the `.body--dark &` block nested inside it, which is
+   * `.sidebar-nav`'s own dark twin (`@at-root` splices it out to `.body--dark .sidebar-nav`).
+   */
+  it('draws no border-top of its own on the nav list, light or dark (OpenProject #2726)', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+    const sidebarNavStart = styleBlock.indexOf('.sidebar-nav {')
+    const darkStart = styleBlock.indexOf('@at-root .body--dark &', sidebarNavStart)
+    const darkEnd = styleBlock.indexOf('\n  }', darkStart)
+
+    // -> The light rule: from `.sidebar-nav {` up to the flex-column block the adjacent test above
+    //    already isolates the end of.
+    const lightBlock = styleBlock.slice(
+      sidebarNavStart,
+      sidebarNavStart + styleBlock.slice(sidebarNavStart).indexOf('&-list >')
+    )
+    // -> The dark twin, nested inside the same `.sidebar-nav { ... }` rule.
+    const darkBlock = styleBlock.slice(darkStart, darkEnd)
+
+    expect(lightBlock).not.toMatch(/border-top\s*:/)
+    expect(darkBlock).not.toMatch(/border-top-color\s*:/)
+  })
 })
