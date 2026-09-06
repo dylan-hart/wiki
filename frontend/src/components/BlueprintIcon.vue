@@ -1,5 +1,5 @@
 <template>
-  <w-item-section avatar>
+  <w-item-section v-if="!standalone" avatar>
     <div class="blueprint-icon">
       <w-badge v-if="indicatorDot" :color="indicatorDot" floating>
         <w-tooltip v-if="props.indicatorText">{{ props.indicatorText }}</w-tooltip>
@@ -8,6 +8,13 @@
       <span v-else class="blueprint-icon__text">{{ props.text }}</span>
     </div>
   </w-item-section>
+  <div v-else class="blueprint-icon">
+    <w-badge v-if="indicatorDot" :color="indicatorDot" floating>
+      <w-tooltip v-if="props.indicatorText">{{ props.indicatorText }}</w-tooltip>
+    </w-badge>
+    <w-icon v-if="!textMode" :name="icon" />
+    <span v-else class="blueprint-icon__text">{{ props.text }}</span>
+  </div>
 </template>
 
 <script setup>
@@ -49,6 +56,27 @@ const props = defineProps({
   text: {
     type: String,
     default: null
+  },
+  /**
+   * Renders the plate alone, without the `WItemSection` wrapper.
+   *
+   * That wrapper is a `WItem`-ism: it is what gives a list row's leading column its 56px width and
+   * 16px trailing gutter, which is exactly right inside a `WItem` and wrong anywhere the plate is
+   * one flex child among others laying out their own gap. `WSettingsRow` is the latter -- the
+   * Cardinal settings row is a 34px plate and a 14px gap, so the section's own metrics would show up
+   * as a 33px gap instead. Pass this rather than overriding `.w-item-section--avatar` from outside.
+   *
+   * The two branches in the template are written out in full, contents and all, rather than as one
+   * body under a conditional wrapper. Each has to be a SINGLE root: a dozen callers pass
+   * `class="self-start"`, which reaches the plate only through attribute fallthrough, and Vue drops
+   * a fallthrough attribute on a fragment root with nothing but a dev warning. That also rules out
+   * an explanatory comment as a template-level sibling here -- `@vitejs/plugin-vue` PRESERVES
+   * template comments in dev (it strips them for `vite build`), so one would make this a fragment in
+   * dev only, which is the environment a developer actually looks at. Hence this note living here.
+   */
+  standalone: {
+    type: Boolean,
+    default: false
   }
 })
 
