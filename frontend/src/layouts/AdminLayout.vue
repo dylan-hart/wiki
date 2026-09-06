@@ -12,7 +12,6 @@
         </w-toolbar>
         <w-toolbar class="max-md:hidden justify-center" style="height: 64px">
           <div class="admin-area-label">{{ t('admin.adminArea') }}</div>
-          <w-badge class="ms-2" label="beta" color="accent" outline />
         </w-toolbar>
         <w-toolbar style="height: 64px">
           <w-space />
