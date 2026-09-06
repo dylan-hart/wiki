@@ -70,9 +70,20 @@ describe('installTestWiki', () => {
 describe('createSilentLogger', () => {
   test('answers every level the app logs at, all no-ops', () => {
     const logger = createSilentLogger()
-    for (const level of ['error', 'warn', 'info', 'debug', 'verbose', 'silly']) {
+    for (const level of ['error', 'warn', 'info', 'debug']) {
       assert.equal(typeof logger[level], 'function')
       assert.equal(logger[level]('anything'), undefined)
+    }
+  })
+
+  test('answers no level the app does not log at', () => {
+    // -> `verbose`/`silly` are 2.x names `core/logger.ts` never implemented; they lived on here as
+    //    no-ops, which made a `logLevel: verbose` misconfiguration look supported (OpenProject
+    //    #2647). A stub that still answers them would let a call site reintroducing one pass its
+    //    tests and then throw in production.
+    const logger = createSilentLogger()
+    for (const level of ['verbose', 'silly']) {
+      assert.equal(logger[level], undefined)
     }
   })
 })

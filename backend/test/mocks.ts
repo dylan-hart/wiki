@@ -108,8 +108,8 @@ export function createSiteAdminAccessStub(
 }
 
 /**
- * `error`/`warn`/`info`/`debug`/`verbose`/`silly`, all no-ops — a test run should not scroll past the
- * logging of the code it is exercising.
+ * `error`/`warn`/`info`/`debug` — every level `core/logger.ts` implements, and no more — all no-ops,
+ * because a test run should not scroll past the logging of the code it is exercising.
  *
  * Exported (TEST-F1) rather than re-inlined per file: 70 backend test files used to carry their own
  * partial literal (`{ debug }`, `{ warn }`, `{ info, warn, error, debug }`, …), so adding one
@@ -118,7 +118,7 @@ export function createSiteAdminAccessStub(
  */
 export function createSilentLogger(): any {
   const noop = () => {}
-  return { error: noop, warn: noop, info: noop, debug: noop, verbose: noop, silly: noop }
+  return { error: noop, warn: noop, info: noop, debug: noop }
 }
 
 /**
