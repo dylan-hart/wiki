@@ -6,7 +6,7 @@ import fastifyFavicon from 'fastify-favicon'
 import fastifySensible from '@fastify/sensible'
 import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
-import gracefulServer from '@gquittet/graceful-server'
+import gracefulServer, { type IGracefulServer } from '@gquittet/graceful-server'
 import ajvFormats from 'ajv-formats'
 
 import { isHashedAssetFilename, isSameOriginWebSocketHandshake } from '../../helpers/common.ts'
@@ -156,21 +156,48 @@ export function createHttpApp(): FastifyInstance {
   // Handle graceful server shutdown
   // ----------------------------------------
 
-  WIKI.server.on(gracefulServer.SHUTTING_DOWN, () => {
+  registerShutdownLogging(WIKI.server)
+
+  return app
+}
+
+/**
+ * The signal names an orderly shutdown legitimately ends with.
+ *
+ * `@gquittet/graceful-server` reports its shutdown reason as an `Error` whose `message` is the bare
+ * signal name, so these are matched exactly rather than by prefix — an `Error('SIGTERM handler
+ * failed')` is a real fault and still warns.
+ */
+const EXPECTED_SHUTDOWN_REASONS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP'])
+
+/**
+ * The two graceful-shutdown listeners, which are logging only.
+ *
+ * Split out of `createHttpApp()` so the branch below is reachable from a test with a fake emitter
+ * rather than only by signalling a real process. Called from where the block sat inline, since the
+ * handlers are registered on `WIKI.server` as it is constructed.
+ *
+ * `SIGTERM` is how Docker, Kubernetes and systemd ask for a shutdown, and `SIGHUP` is how some
+ * supervisors do — only `SIGINT` (a developer's Ctrl-C) used to be exempted, so every ordinary
+ * restart logged `warn: Error: SIGTERM` with a stack and made the most common benign event in an
+ * instance's life read as a fault (OpenProject #2645). An expected reason now gets the one `info`
+ * line and nothing else; anything else — an uncaught exception routed through graceful-server's own
+ * handler — keeps the `warn` with its stack.
+ */
+export function registerShutdownLogging(server: Pick<IGracefulServer, 'on'>): void {
+  server.on(gracefulServer.SHUTTING_DOWN, () => {
     // -> The actual teardown (scheduler drain, collab socket close, db unsubscribe + pool end) now
     //    runs via `closePromises` above, awaited by the library before it closes the server — this
     //    handler is logging only.
     WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
   })
 
-  WIKI.server.on(gracefulServer.SHUTDOWN, (err: Error) => {
+  server.on(gracefulServer.SHUTDOWN, (err: Error) => {
     WIKI.logger.info(`HTTP Server has exited: [ STOPPED ] (${err.message})`)
-    if (err.message !== 'SIGINT') {
+    if (!EXPECTED_SHUTDOWN_REASONS.has(err.message)) {
       WIKI.logger.warn(err)
     }
   })
-
-  return app
 }
 
 /**
