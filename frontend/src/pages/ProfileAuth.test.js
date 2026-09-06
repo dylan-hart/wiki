@@ -205,3 +205,68 @@ describe('ProfileAuth on the settings pattern', () => {
     expect(addButton.element.closest('.w-settings-card')).toBeNull()
   })
 })
+
+/**
+ * OpenProject #2741: the local-strategy actions menu's icons were hardcoded `text-blue-7` /
+ * `text-negative`, with no dark-mode counterpart — unlike every other themed surface in the app.
+ *
+ * Tailwind's global stylesheet is never imported under Vitest (see `vitest.config.js`'s own note on
+ * what it does and does not mirror from the real build), so a `getComputedStyle` assertion cannot
+ * observe whether the `dark:` utility actually paints a different colour — only that the literal
+ * class is present on the rendered icon. This matches the same classList-membership convention
+ * `PageHistoryOverlay.test.js`'s `text-accent-dark` assertion already uses for the same reason.
+ */
+async function mountActionsMenu(config) {
+  stubApi({
+    'users/profile/auth': {
+      authMethods: [localAuthMethod(config)],
+      passkeys: []
+    }
+  })
+
+  const { wrapper } = mountWithApp(ProfileAuth, { messages: MESSAGES })
+  await flushPromises()
+
+  // -> WMenu's real trigger click listener is attached to the enclosing button natively, so a
+  //    plain click on it opens the (teleported-but-inline-stubbed) menu content -- see
+  //    `AccountMenu.test.js` for the same idiom.
+  await wrapper.find('[aria-label="Actions"]').trigger('click')
+
+  return wrapper
+}
+
+function expectBlueDarkPair(wrapper, iconName) {
+  const icons = wrapper.findAll(`[data-icon="${iconName}"]`)
+  expect(icons.length, iconName).toBeGreaterThan(0)
+  for (const icon of icons) {
+    expect(icon.classes(), iconName).toContain('text-blue-7')
+    expect(icon.classes(), iconName).toContain('dark:text-blue-4')
+  }
+}
+
+describe('ProfileAuth actions menu icons stay legible in dark mode (OpenProject #2741)', () => {
+  it('pairs every text-blue-7 icon with dark:text-blue-4 (2FA enabled, password login enabled)', async () => {
+    // -> isTfaSetup + isPasswordLoginEnabled true renders: changePassword, disableTfa,
+    //    regenerateRecoveryCodes, disablePasswordLogin -- covering `tabler:key` (twice) and
+    //    `tabler:fingerprint`.
+    const wrapper = await mountActionsMenu()
+
+    expectBlueDarkPair(wrapper, 'tabler:key')
+    expectBlueDarkPair(wrapper, 'tabler:fingerprint')
+
+    const banIcon = wrapper.find('[data-icon="tabler:ban"]')
+    expect(banIcon.classes()).toContain('text-negative')
+    expect(banIcon.classes()).toContain('dark:text-accent-dark')
+  })
+
+  it('pairs every text-blue-7 icon with dark:text-blue-4 (2FA disabled, password login disabled)', async () => {
+    // -> isTfaSetup + isPasswordLoginEnabled false switches to: setupTfa, enablePasswordLogin --
+    //    covering the `tabler:fingerprint`/`tabler:arrow-forward-up` pair the first mount cannot
+    //    reach, since it and the first case's `disableTfa`/`disablePasswordLogin` are v-if/v-else
+    //    siblings that never render together.
+    const wrapper = await mountActionsMenu({ isTfaSetup: false, isPasswordLoginEnabled: false })
+
+    expectBlueDarkPair(wrapper, 'tabler:fingerprint')
+    expectBlueDarkPair(wrapper, 'tabler:arrow-forward-up')
+  })
+})

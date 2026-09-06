@@ -863,3 +863,37 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2741: the per-version "..." menu's icons were hardcoded `text-blue-7`, with no
+ * dark-mode counterpart -- the identical bug this profile menu this copies from also had.
+ *
+ * Tailwind's global stylesheet is never imported under Vitest (see `vitest.config.js`'s own note on
+ * what it does and does not mirror from the real build), so a `getComputedStyle` assertion cannot
+ * observe whether the `dark:` utility actually paints a different colour -- only that the literal
+ * class is present on the rendered icon. This matches the `text-accent-dark` classList-membership
+ * assertion above (OpenProject #2637's describe), for the same reason.
+ */
+describe('PageHistoryOverlay: version-actions menu icons stay legible in dark mode (OpenProject #2741)', () => {
+  it('pairs every text-blue-7 menu icon with a literal dark:text-blue-4 counterpart', async () => {
+    await mountOverlay()
+
+    const menuBtn = document.body.querySelector('.page-history-pick button')
+    await menuBtn.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const iconNames = [
+      'tabler:square-letter-a',
+      'tabler:square-letter-b',
+      'tabler:code',
+      'tabler:download',
+      'tabler:git-branch'
+    ]
+    for (const name of iconNames) {
+      const icon = document.body.querySelector(`.w-menu [data-icon="${name}"]`)
+      expect(icon, name).not.toBeNull()
+      expect([...icon.classList], name).toContain('text-blue-7')
+      expect([...icon.classList], name).toContain('dark:text-blue-4')
+    }
+  })
+})
