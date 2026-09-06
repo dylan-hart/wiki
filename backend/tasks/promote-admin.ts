@@ -30,13 +30,18 @@ async function main(): Promise<void> {
   // never hand control back to whoever ran it.
   try {
     const result = await promoteUserToAdmin(WIKI, email)
+    // -> The user id, not the e-mail address the operator typed: an identity does not belong in the
+    //    log even when the person running the command already knows it (audit C4).
     if (result.status === 'already-admin') {
-      WIKI.logger.info(`"${email}" is already a member of the Administrators group. Nothing to do.`)
+      WIKI.logger.info('boot', 'already a member of the Administrators group, nothing to do', {
+        user: result.userId
+      })
     } else {
-      WIKI.logger.info(`"${email}" has been promoted to Administrator (user id ${result.userId}).`)
+      WIKI.logger.info('boot', 'promoted to Administrator', { user: result.userId })
       WIKI.logger.info(
-        'If this user has an active session, they must log out and back in for the new ' +
-          'permissions to take effect.'
+        'boot',
+        'if this user has an active session, they must log out and back in for the new ' +
+          'permissions to take effect'
       )
     }
   } finally {

@@ -18,7 +18,7 @@ let wikiHandle: { restore(): void }
 let getById: ReturnType<typeof mock.fn>
 let sendEventSubscriptionNotification: ReturnType<typeof mock.fn>
 let loggerError: ReturnType<typeof mock.fn>
-let loggerWarn: ReturnType<typeof mock.fn>
+let loggerDebug: ReturnType<typeof mock.fn>
 
 function payload(
   overrides: Partial<NotifyEventSubscriptionSubscribersPayload> = {}
@@ -39,9 +39,9 @@ beforeEach(() => {
   getById = mock.fn(async (id: string) => ({ id, name: 'Someone', email: `${id}@example.com` }))
   sendEventSubscriptionNotification = mock.fn(async () => {})
   loggerError = mock.fn()
-  loggerWarn = mock.fn()
+  loggerDebug = mock.fn()
   wikiHandle = installTestWiki({
-    logger: { info: mock.fn(), warn: loggerWarn, error: loggerError, debug: mock.fn() },
+    logger: { info: mock.fn(), warn: mock.fn(), error: loggerError, debug: loggerDebug },
     models: {
       users: { getById },
       mail: { sendEventSubscriptionNotification }
@@ -81,7 +81,8 @@ describe('notify-event-subscription-subscribers task', () => {
     )
   })
 
-  test('a subscriber with no email address is skipped, with a warning, and does not stop the rest', async () => {
+  // -> `debug`, not `warn`, since the Phase 2 sweep (#2665): recurs every run for the same account.
+  test('a subscriber with no email address is skipped, at debug, and does not stop the rest', async () => {
     getById.mock.mockImplementation(async (id: string) =>
       id === 'no-email'
         ? { id, name: 'No Email', email: null }
@@ -95,7 +96,8 @@ describe('notify-event-subscription-subscribers task', () => {
       (sendEventSubscriptionNotification.mock.calls[0]!.arguments[0] as any).to,
       'has-email@example.com'
     )
-    assert.equal(loggerWarn.mock.calls.length, 1)
+    assert.equal(loggerDebug.mock.calls.length, 1)
+    assert.equal(loggerDebug.mock.calls[0]!.arguments[0], 'hooks')
   })
 
   test('one subscriber whose send fails does not stop a second subscriber from being sent to', async () => {
@@ -106,6 +108,11 @@ describe('notify-event-subscription-subscribers task', () => {
     await notifyEventSubscriptionSubscribers(payload({ subscriberIds: ['fails', 'succeeds'] }))
 
     assert.equal(sendEventSubscriptionNotification.mock.calls.length, 2)
-    assert.equal(loggerError.mock.calls.length, 2)
+    // -> One record per failure, not the old sentence-plus-message pair.
+    assert.equal(loggerError.mock.calls.length, 1)
+    const [scope, message, fields] = loggerError.mock.calls[0]!.arguments as [string, string, any]
+    assert.equal(scope, 'hooks')
+    assert.equal(message, 'failed to send event-subscription notification')
+    assert.ok(fields.error instanceof Error)
   })
 })

@@ -91,8 +91,8 @@ describe('processJob claim ordering (fake WIKI)', () => {
  * OpenProject #1931: `runJob()`'s terminal, retries-exhausted failure must log at `error` so an
  * operator shipping only `error` to alerting actually sees it -- `wikijs_jobs_queued` counts
  * *pending* jobs, so a storm of failing-and-retrying jobs looks identical to a healthy queue from
- * that metric alone. A still-retryable failure must keep logging at `warn`, matching the
- * "Rescheduling new attempt" line right after it.
+ * that metric alone. A still-retryable failure must keep logging at `warn`, and says so in its own
+ * message (`, will retry`) rather than in a second line.
  *
  * Drives the real `runJob()` against a fake `WIKI.db`/`notifier`-reachable state, not a live
  * Postgres connection -- there is no SQL orchestration worth a real database here, just a branch on
@@ -157,10 +157,11 @@ describe('runJob log level on failure (fake WIKI)', () => {
     await scheduler.runJob(job)
 
     const failureCalls = logCalls.filter(
-      (c) => c.args[0] === 'Failed to complete job job-retryable: willFail [ FAILED ]'
+      (c) => c.args[0] === 'jobs' && c.args[1] === 'willFail failed, will retry'
     )
     assert.equal(failureCalls.length, 1, 'the failure message must be logged exactly once')
     assert.equal(failureCalls[0]!.level, 'warn')
+    assert.equal(failureCalls[0]!.args[2].job, 'job-retryable')
     assert.equal(
       logCalls.filter((c) => c.level === 'error').length,
       0,
@@ -184,20 +185,18 @@ describe('runJob log level on failure (fake WIKI)', () => {
     await scheduler.runJob(job)
 
     const failureCalls = logCalls.filter(
-      (c) => c.args[0] === 'Failed to complete job job-exhausted: willFail [ FAILED ]'
+      (c) => c.args[0] === 'jobs' && c.args[1] === 'willFail failed, no attempts left'
     )
     assert.equal(failureCalls.length, 1, 'the failure message must be logged exactly once')
     assert.equal(failureCalls[0]!.level, 'error')
     assert.equal(
-      logCalls.filter((c) => c.level === 'warn' && c.args[0] === failureCalls[0]!.args[0]).length,
+      logCalls.filter((c) => c.level === 'warn' && c.args[1] === failureCalls[0]!.args[1]).length,
       0,
       'the exhausted-retries failure message must not also be logged at warn'
     )
-    // -> No reschedule attempted once retries are exhausted, so no "Rescheduling new attempt" line.
+    // -> No reschedule attempted once retries are exhausted, so the message must not claim one.
     assert.equal(
-      logCalls.some(
-        (c) => typeof c.args[0] === 'string' && c.args[0].startsWith('Rescheduling new attempt')
-      ),
+      logCalls.some((c) => typeof c.args[1] === 'string' && c.args[1].endsWith(', will retry')),
       false
     )
   })
@@ -205,11 +204,12 @@ describe('runJob log level on failure (fake WIKI)', () => {
 
 /**
  * OpenProject #1937: `runJob()`'s catch branch used to log a job's failure as two bare strings, with
- * no way to trace which job (or attempt) a given log line was about. This asserts both failure log
- * calls in that branch now carry `{ jobId, task, attempt }` as a sibling context argument, not folded
- * into the message string. `error` and `warn` share one mock here (task #1993's log-level split
- * routes an exhausted-retries failure to `error`, not `warn`) since this test's own concern is the
- * context payload, not which level a given retry count picks.
+ * no way to trace which job (or attempt) a given log line was about. Since the Phase 2 sweep
+ * (#2665) it is ONE record — scope `jobs`, a sentence, and `{ job, attempt, ms, error }` as fields,
+ * with the `Error` itself under `error` so the renderer puts the message inline and the stack under
+ * it. `error` and `warn` share one mock here (task #1993's log-level split routes an
+ * exhausted-retries failure to `error`, not `warn`) since this test's own concern is the field
+ * payload, not which level a given retry count picks.
  */
 describe('runJob failure logging (fake WIKI)', () => {
   let wikiHandle: { restore(): void }
@@ -247,11 +247,11 @@ describe('runJob failure logging (fake WIKI)', () => {
     wikiHandle.restore()
   })
 
-  test('both failure log calls carry { jobId, task, attempt } as sibling context, not concatenated in', async () => {
+  test('the one failure log call carries { job, attempt, error } as fields, not concatenated in', async () => {
     failureMock.mock.resetCalls()
     // -> retries === maxRetries: no reschedule branch, so this stays free of the Temporal/db.insert
-    //    path that `attempt` here doesn't need. This also means retries are exhausted, so both calls
-    //    log at `error` (task #1993) — `failureMock` above is registered for both levels.
+    //    path that `attempt` here doesn't need. This also means retries are exhausted, so the call
+    //    logs at `error` (task #1993) — `failureMock` above is registered for both levels.
     const job = {
       id: 'job-1',
       task: 'boom',
@@ -263,15 +263,20 @@ describe('runJob failure logging (fake WIKI)', () => {
 
     await scheduler.runJob(job)
 
-    assert.equal(failureMock.mock.callCount(), 2)
-    const expectedContext = { jobId: 'job-1', task: 'boom', attempt: 3 }
-    const [firstCall, secondCall] = failureMock.mock.calls
+    assert.equal(failureMock.mock.callCount(), 1, 'a failure is one record, not two')
+    const [failureCall] = failureMock.mock.calls
 
-    assert.match(firstCall!.arguments[0] as string, /Failed to complete job job-1: boom/)
-    assert.deepEqual(firstCall!.arguments[1], expectedContext)
+    assert.equal(failureCall!.arguments[0], 'jobs')
+    assert.equal(failureCall!.arguments[1], 'boom failed, no attempts left')
 
-    assert.ok(secondCall!.arguments[0] instanceof Error)
-    assert.deepEqual(secondCall!.arguments[1], expectedContext)
+    const fields = failureCall!.arguments[2] as Record<string, unknown>
+    assert.equal(fields.job, 'job-1')
+    assert.equal(fields.attempt, 3)
+    assert.equal(typeof fields.ms, 'number')
+    // -> The `Error` itself, not `err.message`: the renderer is what turns it into `error="…"` plus
+    //    a stack, and only an `Error` gives it one.
+    assert.ok(fields.error instanceof Error)
+    assert.equal((fields.error as Error).message, 'task exploded')
   })
 })
 

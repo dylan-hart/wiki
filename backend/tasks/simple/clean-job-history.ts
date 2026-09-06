@@ -1,13 +1,10 @@
+/**
+ * Trim `jobHistory` to the scheduler's retention window.
+ *
+ * Silent: `cleanHistory()` reports no count, so there is nothing to say that the scheduler's own
+ * `debug jobs cleanJobHistory finished` line does not already say, and a failure reaches the log as
+ * the scheduler's single failure record rather than as a second one from here.
+ */
 export async function task(): Promise<void> {
-  WIKI.logger.info('Cleaning scheduler job history...')
-
-  try {
-    await WIKI.models.jobs.cleanHistory()
-
-    WIKI.logger.info('Cleaned scheduler job history: [ COMPLETED ]')
-  } catch (err: any) {
-    WIKI.logger.error('Cleaning scheduler job history: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
-  }
+  await WIKI.models.jobs.cleanHistory()
 }

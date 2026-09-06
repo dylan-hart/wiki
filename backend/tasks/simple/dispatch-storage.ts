@@ -102,15 +102,20 @@ export async function task(
   const target = await storageDep.getSiteTargetById(siteId, targetId)
   if (!target) {
     // -> Deleted (or its site was) between queueing and delivery; nothing to do and nothing to retry
-    WIKI.logger.info(`Storage target ${targetId} no longer exists, skipping "${handler}" dispatch.`)
+    WIKI.logger.debug('storage', 'target no longer exists, dispatch skipped', {
+      target: targetId,
+      handler
+    })
     return
   }
 
   const mod = await storageDep.ensureModule(target.module)
   if (!mod || typeof mod[handler] !== 'function') {
-    WIKI.logger.debug(
-      `${target.title} storage module has no "${handler}" handler installed, skipping dispatch.`
-    )
+    WIKI.logger.debug('storage', 'module has no such handler, dispatch skipped', {
+      target: target.id,
+      module: target.module,
+      handler
+    })
     return
   }
 
@@ -130,9 +135,12 @@ export async function task(
         error: caughtErr.message
       })
     }
-    WIKI.logger.warn(
-      `Failed to dispatch "${handler}" to storage target ${target.title}: ${caughtErr.message}`
-    )
+    WIKI.logger.warn('storage', 'dispatch failed', {
+      target: target.id,
+      module: target.module,
+      handler,
+      error: caughtErr
+    })
     // -> Rethrown so the job fails and the scheduler retries with its usual backoff
     throw caughtErr
   }

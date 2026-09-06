@@ -8,6 +8,8 @@
 export async function task(): Promise<void> {
   const count = await WIKI.models.pageWatchEvents.purgeExpired()
   if (count > 0) {
-    WIKI.logger.info(`Purged ${count} page watch event(s) older than the retention window.`)
+    WIKI.logger.info('pages', 'purged page watch events past the retention window', {
+      purged: count
+    })
   }
 }

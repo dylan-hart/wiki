@@ -16,7 +16,7 @@ let wikiHandle: { restore(): void }
 let getById: ReturnType<typeof mock.fn>
 let sendEventNotification: ReturnType<typeof mock.fn>
 let loggerError: ReturnType<typeof mock.fn>
-let loggerWarn: ReturnType<typeof mock.fn>
+let loggerDebug: ReturnType<typeof mock.fn>
 
 function payload(
   overrides: Partial<NotifyEventSubscribersPayload> = {}
@@ -42,9 +42,9 @@ beforeEach(() => {
   }))
   sendEventNotification = mock.fn(async () => {})
   loggerError = mock.fn()
-  loggerWarn = mock.fn()
+  loggerDebug = mock.fn()
   wikiHandle = installTestWiki({
-    logger: { info: mock.fn(), warn: loggerWarn, error: loggerError, debug: mock.fn() },
+    logger: { info: mock.fn(), warn: mock.fn(), error: loggerError, debug: loggerDebug },
     models: {
       users: { getById },
       mail: { sendEventNotification }
@@ -97,6 +97,8 @@ describe('notify-event-subscribers task', () => {
     assert.deepEqual(call.data, { id: 'comment-1', pageId: 'page-1' })
   })
 
+  // -> `debug`, not `warn`, since the Phase 2 sweep (#2665): the same account with no e-mail
+  //    address recurs on every run, which is a per-item fact rather than a call to act.
   test('skips a subscriber with no email on file, without failing the rest of the batch', async () => {
     getById.mock.mockImplementation(async (id: string) =>
       id === 'user-1'
@@ -113,7 +115,8 @@ describe('notify-event-subscribers task', () => {
       (sendEventNotification.mock.calls[0]!.arguments[0] as any).to,
       'user-2@example.com'
     )
-    assert.equal(loggerWarn.mock.calls.length, 1)
+    assert.equal(loggerDebug.mock.calls.length, 1)
+    assert.equal(loggerDebug.mock.calls[0]!.arguments[0], 'hooks')
   })
 
   test('a failed send is logged and does not stop the rest of the batch', async () => {
@@ -128,6 +131,12 @@ describe('notify-event-subscribers task', () => {
     )
 
     assert.equal(sendEventNotification.mock.calls.length, 2)
-    assert.equal(loggerError.mock.calls.length, 2)
+    // -> One record per failure, not the old sentence-plus-message pair.
+    assert.equal(loggerError.mock.calls.length, 1)
+    const [scope, message, fields] = loggerError.mock.calls[0]!.arguments as [string, string, any]
+    assert.equal(scope, 'hooks')
+    assert.equal(message, 'failed to send event notification')
+    assert.equal(fields.user, 'user-1')
+    assert.ok(fields.error instanceof Error)
   })
 })

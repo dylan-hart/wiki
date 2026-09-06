@@ -1,13 +1,10 @@
 export async function task(): Promise<void> {
-  WIKI.logger.info('Checking storage targets for a due scheduled sync...')
-
-  try {
-    const queued = await WIKI.models.storage.tickScheduledSyncs()
-
-    WIKI.logger.info(`Checked storage sync schedule, queued ${queued} sync(s): [ COMPLETED ]`)
-  } catch (err: any) {
-    WIKI.logger.error('Checking storage sync schedule: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+  const queued = await WIKI.models.storage.tickScheduledSyncs()
+  // -> Runs on a short interval and finds nothing almost every time, so the idle case is `debug` and
+  //    only a tick that actually queued work is worth an operator's `info` log (audit X1/X2).
+  if (queued > 0) {
+    WIKI.logger.info('storage', 'queued scheduled syncs', { queued })
+  } else {
+    WIKI.logger.debug('storage', 'no storage sync was due')
   }
 }

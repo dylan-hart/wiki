@@ -7,6 +7,6 @@
 export async function task(): Promise<void> {
   const count = await WIKI.models.sessions.purgeExpiredSessions()
   if (count > 0) {
-    WIKI.logger.info(`Purged ${count} session(s) past the cookie window.`)
+    WIKI.logger.info('session', 'purged sessions past the cookie window', { purged: count })
   }
 }

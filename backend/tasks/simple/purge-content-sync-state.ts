@@ -7,6 +7,6 @@
 export async function task(): Promise<void> {
   const count = await WIKI.models.contentSync.purgeOrphaned()
   if (count > 0) {
-    WIKI.logger.info(`Purged ${count} orphaned contentSyncState row(s).`)
+    WIKI.logger.info('storage', 'purged orphaned contentSyncState rows', { purged: count })
   }
 }

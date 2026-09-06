@@ -8,17 +8,13 @@
  * `storage-sync-tick.ts` uses for `tickScheduledSyncs()`.
  */
 export async function task(): Promise<void> {
-  WIKI.logger.info('Running scheduled daily storage backups...')
-
-  try {
-    const { ran, failed } = await WIKI.models.storage.runDailyBackups()
-
-    WIKI.logger.info(
-      `Ran ${ran} scheduled daily storage backup(s), ${failed} failed: [ COMPLETED ]`
-    )
-  } catch (err: any) {
-    WIKI.logger.error('Running scheduled daily storage backups: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+  const { ran, failed } = await WIKI.models.storage.runDailyBackups()
+  // -> Silent when there was nothing to back up: a target that opts out of `dailyBackup` should not
+  //    put a line in the log every day saying so. `failed` is a `warn`, since a backup that did not
+  //    run is degraded rather than broken — the target's own module logged why.
+  if (failed > 0) {
+    WIKI.logger.warn('storage', 'ran scheduled daily backups, some failed', { ran, failed })
+  } else if (ran > 0) {
+    WIKI.logger.info('storage', 'ran scheduled daily backups', { ran })
   }
 }

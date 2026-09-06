@@ -314,7 +314,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
 
 /**
  * OpenProject #2205: `queryLogger.logQuery` used to write `JSON.stringify(params)` of the whole
- * bound-parameter array at `info` level under either trigger, with no redaction — and a bound
+ * bound-parameter array under either trigger, with no redaction — and a bound
  * parameter routinely carries a credential (`models/settings.ts#updateConfig` binds the whole
  * settings blob, including the API signing key/passphrase and the session secret, as one JSONB
  * parameter). These cases exercise the fix: the emitted line must carry a parameter's shape
@@ -324,21 +324,25 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
  */
 describe('queryLogger.logQuery() — bound-parameter redaction', () => {
   let wikiHandle: { restore(): void }
-  let infoCalls: string[]
+  // -> The rendered line, as the formatter would see it: the query is the message and the redacted
+  //    parameter descriptor is a field, so both halves have to be in view to assert a value never
+  //    reaches either. Scope `sql` at `debug` since the Phase 2 sweep (#2665).
+  let sqlCalls: string[]
 
   after(() => {
     wikiHandle.restore()
   })
 
   beforeEach(() => {
-    infoCalls = []
+    sqlCalls = []
     wikiHandle = installTestWiki({
       logger: {
-        info: (msg: string) => {
-          infoCalls.push(msg)
-        },
+        info: () => {},
         warn: () => {},
-        debug: () => {},
+        debug: (scope: string, msg: string, fields?: Record<string, unknown>) => {
+          assert.equal(scope, 'sql')
+          sqlCalls.push(fields ? `${msg}  params=${fields.params}` : msg)
+        },
         error: () => {}
       },
       config: { flags: { sqlLog: false }, dev: {} }
@@ -362,8 +366,8 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
       secretBlobParam
     ])
 
-    assert.equal(infoCalls.length, 1)
-    const [line] = infoCalls
+    assert.equal(sqlCalls.length, 1)
+    const [line] = sqlCalls
     assert.ok(line.includes('select 1 from "settings"'), 'query text is still logged')
     assert.ok(!line.includes(pemLikeParam), 'PEM value must not appear')
     assert.ok(!line.includes('BEGIN PRIVATE KEY'), 'PEM value must not appear, even in part')
@@ -382,8 +386,8 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
 
     queryLogger.logQuery('update "settings" set "value" = $1', [secretBlobParam])
 
-    assert.equal(infoCalls.length, 1)
-    const [line] = infoCalls
+    assert.equal(sqlCalls.length, 1)
+    const [line] = sqlCalls
     assert.ok(!line.includes('super-secret-session-value'), 'session secret value must not appear')
     assert.ok(!line.includes('hunter2-passphrase'), 'passphrase value must not appear')
     assert.ok(!line.includes(JSON.stringify(secretBlobParam)), 'no JSON.stringify of the params')
@@ -395,7 +399,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
 
     queryLogger.logQuery('select 1', [pemLikeParam])
 
-    assert.equal(infoCalls.length, 0)
+    assert.equal(sqlCalls.length, 0)
   })
 
   test('no bound parameters: query text is logged with no trailing parameter section', () => {
@@ -403,7 +407,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
 
     queryLogger.logQuery('select 1', [])
 
-    assert.deepEqual(infoCalls, ['[SQL] select 1'])
+    assert.deepEqual(sqlCalls, ['select 1'])
   })
 })
 
@@ -434,8 +438,10 @@ describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
 
     assert.equal(executeMock.mock.calls.length, 0)
     assert.equal(warnMock.mock.calls.length, 1)
-    assert.match(warnMock.mock.calls[0].arguments[0], /refused/i)
-    assert.match(warnMock.mock.calls[0].arguments[0], /NOT dropped/)
+    const [scope, message, fields] = warnMock.mock.calls[0].arguments
+    assert.equal(scope, 'db')
+    assert.match(message, /refused/i)
+    assert.equal(fields.schema, 'wiki')
   })
 
   test('dropSchema set, IS_DEBUG true: the schema IS dropped', async () => {
@@ -623,9 +629,11 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
     })
 
     assert.equal(loggerErrorMock.mock.calls.length, 1)
-    const [message] = loggerErrorMock.mock.calls[0].arguments
-    assert.match(message, /ECONNRESET/)
-    assert.match(message, /Connection terminated unexpectedly/)
+    const [scope, message, fields] = loggerErrorMock.mock.calls[0].arguments
+    assert.equal(scope, 'db')
+    assert.equal(message, 'pool error')
+    assert.equal(fields.code, 'ECONNRESET')
+    assert.equal((fields.error as Error).message, 'Connection terminated unexpectedly')
   })
 })
 

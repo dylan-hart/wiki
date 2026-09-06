@@ -41,9 +41,12 @@ export async function task(payload?: NotifyEventSubscribersPayload): Promise<voi
     try {
       const recipient = await WIKI.models.users.getById(userId)
       if (!recipient?.email) {
-        WIKI.logger.warn(
-          `Skipping email notification for user ${userId} on ${event}: no email address on file.`
-        )
+        // -> `debug`: the same account with no e-mail address recurs on every run, so this is a
+        //    per-item fact rather than something an operator has to act on.
+        WIKI.logger.debug('hooks', 'notification skipped, no email address', {
+          user: userId,
+          event
+        })
         continue
       }
       await WIKI.models.mail.sendEventNotification({
@@ -54,8 +57,11 @@ export async function task(payload?: NotifyEventSubscribersPayload): Promise<voi
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
     } catch (err: any) {
-      WIKI.logger.error(`Sending email notification to user ${userId} for ${event}: [ FAILED ]`)
-      WIKI.logger.error(err.message)
+      WIKI.logger.error('hooks', 'failed to send event notification', {
+        user: userId,
+        event,
+        error: err
+      })
     }
   }
 }

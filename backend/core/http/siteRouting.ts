@@ -239,7 +239,7 @@ export function registerAppShellFallback(app: FastifyInstance): void {
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
       //    fault of this request: say which one, since a bare 500 sends people looking in the server
-      WIKI.logger.error(`Cannot serve the app shell from ${appShellPath}: ${err.message}`)
+      WIKI.logger.error('http', 'cannot serve the app shell', { path: appShellPath, error: err })
       return reply
         .code(503)
         .type('text/plain; charset=utf-8')

@@ -93,11 +93,15 @@ registerUnhandledRejectionHandler(WIKI.logger, {
 // Init Server
 // ----------------------------------------
 
-WIKI.logger.info('=======================================')
-WIKI.logger.info(`= Wiki.js ${(WIKI.version + ' ').padEnd(29, '=')}`)
-WIKI.logger.info('=======================================')
-WIKI.logger.info('Initializing...')
-WIKI.logger.info(`Running node.js ${process.version} [ OK ]`)
+// -> One line for what used to be a three-line banner plus two announcements. Everything the banner
+//    drew as decoration is a field, so the same facts survive into JSON mode and an operator can
+//    grep for `boot starting` rather than for a row of `=`.
+WIKI.logger.info('boot', 'starting', {
+  version: WIKI.version,
+  node: process.version,
+  instance: WIKI.INSTANCE_ID,
+  config: process.env.CONFIG_FILE ?? 'config.yml'
+})
 
 // ----------------------------------------
 // Pre-Boot Sequence
@@ -276,9 +280,8 @@ async function initHTTPServer() {
   // ----------------------------------------
 
   try {
-    WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
-    WIKI.logger.info('HTTP Server: [ RUNNING ]')
+    WIKI.logger.info('http', 'listening', { host: WIKI.config.bindIP, port: WIKI.config.port })
     // -> `/_ready` is deliberately NOT flipped ready here: `app.listen()` only means the socket
     //    accepts connections, not that a request can be served correctly. `WIKI.sites`/
     //    `WIKI.sitesMappings` are still `{}` at this point (see the WIKI literal above), no auth
@@ -291,7 +294,11 @@ async function initHTTPServer() {
     //    (bound by `gracefulServer` above, independent of that readiness flag) answers from here
     //    onward regardless, so liveness probes still see the process as up throughout.
   } catch (err: any) {
-    WIKI.logger.error(err)
+    WIKI.logger.error('boot', 'http server failed to bind', {
+      host: WIKI.config.bindIP,
+      port: WIKI.config.port,
+      error: err
+    })
     process.exit(1)
   }
 }

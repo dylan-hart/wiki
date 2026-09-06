@@ -52,7 +52,10 @@ export async function task(
     addJob = (opts) => WIKI.scheduler.addJob(opts)
   } = deps
 
-  WIKI.logger.info(`Importing content into site ${payload.targetSiteId}...`)
+  // -> Announced at `debug` because a whole site's restore can take minutes. The `try` stays for the
+  //    `finally` that deletes the upload; the failure itself is not logged here, it propagates and
+  //    the scheduler writes the one record for it.
+  WIKI.logger.debug('pages', 'importing site content', { site: payload.targetSiteId })
   try {
     const result = await siteImportDep.importSite(
       payload.filePath,
@@ -70,11 +73,7 @@ export async function task(
     if (jobId) {
       await jobsDep.setResult(jobId, result)
     }
-    WIKI.logger.info(`Imported content into site ${payload.targetSiteId}: [ COMPLETED ]`)
-  } catch (err: any) {
-    WIKI.logger.error(`Importing content into site ${payload.targetSiteId}: [ FAILED ]`)
-    WIKI.logger.error(err.message)
-    throw err
+    WIKI.logger.info('pages', 'imported site content', { site: payload.targetSiteId })
   } finally {
     await siteImportDep.deleteUpload(payload.filePath)
   }
