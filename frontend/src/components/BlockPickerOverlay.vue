@@ -12,8 +12,15 @@
           :aria-label="t(`common.actions.cancel`)"
           icon="tabler:x"
           @click="close" />
+        <!--
+          -> Insert is this screen's primary action, so it takes the accent, not the source's green
+
+          `accent` (#c14a52), not the brighter `accent-fill` (#e4676b): the label over it is white,
+          and only the darker of the two tones clears 4.5:1 under white. See the live-edge note at
+          the top of `css/_theme.scss` for which tone belongs on which surface.
+        -->
         <w-btn
-          color="positive"
+          color="accent"
           text-color="white"
           :label="t(`editor.blockPicker.insert`)"
           :aria-label="t(`editor.blockPicker.insert`)"
@@ -27,7 +34,7 @@
         <!-- ----------------------- -->
         <!-- The blocks -->
         <!-- ----------------------- -->
-        <div class="block-picker-catalog w-2/3">
+        <div class="block-picker-catalog">
           <w-scroll-area style="height: 100%">
             <div class="p-4">
               <w-inner-loading :showing="state.isLoading" size="32px" />
@@ -44,37 +51,48 @@
                   class="block-picker-card"
                   :class="{ 'is-selected': state.selected?.id === block.id }"
                   @click="select(block)">
-                  <w-icon
-                    :name="`img:/_assets/icons/ultraviolet-${block.isCustom ? 'plugin' : block.icon}.svg`"
-                    size="40px" />
+                  <span class="block-picker-plate">
+                    <w-icon
+                      :name="`img:/_assets/icons/ultraviolet-${block.isCustom ? 'plugin' : block.icon}.svg`"
+                      size="21px" />
+                  </span>
                   <div class="min-w-0 flex-1 text-left">
-                    <div class="text-body2">
+                    <div class="block-picker-name">
                       <strong>{{ block.name }}</strong>
+                      <!-- -> The same italic purple tag `AdminBlocks.vue` gives an uploaded block -->
+                      <em v-if="block.isCustom" class="text-purple">
+                        {{ t('admin.blocks.custom') }}
+                      </em>
                     </div>
-                    <div class="text-caption opacity-70">
+                    <div class="block-picker-description">
                       {{ blockText(block.block, 'description', block.description) }}
                     </div>
-                    <div class="text-caption font-robotomono mt-1 opacity-60">
-                      &lt;block-{{ block.block }}&gt;
-                    </div>
+                    <div class="block-picker-tag">&lt;block-{{ block.block }}&gt;</div>
                   </div>
+                  <!--
+                    The corner marks that say this card is the chosen one. Out of flow and faded in
+                    rather than added, so a card occupies exactly the same box selected or not --
+                    see the `&-card` rule below for why nothing here may change its size.
+                  -->
+                  <i class="block-picker-mark block-picker-mark-tl" aria-hidden="true" />
+                  <i class="block-picker-mark block-picker-mark-tr" aria-hidden="true" />
+                  <i class="block-picker-mark block-picker-mark-bl" aria-hidden="true" />
+                  <i class="block-picker-mark block-picker-mark-br" aria-hidden="true" />
                 </button>
               </div>
             </div>
           </w-scroll-area>
         </div>
-        <w-separator vertical />
         <!-- ----------------------- -->
         <!-- Its properties -->
         <!-- ----------------------- -->
-        <div class="block-picker-form w-1/3">
+        <div class="block-picker-form">
           <w-scroll-area style="height: 100%">
             <!-- A section header draws its own horizontal inset, so this pads vertically only -->
             <div class="py-4">
-              <div
-                v-if="!state.selected"
-                class="text-caption p-6 text-center text-black/60 dark:text-white/70">
-                {{ t('editor.blockPicker.selectHint') }}
+              <div v-if="!state.selected" class="block-picker-empty">
+                <w-icon name="tabler:square-minus" size="38px" />
+                <p>{{ t('editor.blockPicker.selectHint') }}</p>
               </div>
               <template v-else>
                 <div class="w-section-header">{{ state.selected.name }}</div>
@@ -210,33 +228,46 @@ onMounted(async () => {
     panels have to state it themselves or everything inheriting `color` stays black on a dark surface.
   */
   @at-root .body--light & {
-    color: $grey-9;
+    color: $text-body;
   }
   @at-root .body--dark & {
-    color: #fff;
+    color: var(--color-text-dark);
   }
 
   /*
-    In dark mode the catalog is the darkest surface in the pair, so the cards read as lifted off it,
-    and the form is the lighter panel beside it. Stated outright rather than left to whatever sits
-    behind the overlay, since the two panels are only legible relative to each other.
+    The catalog is paper and the properties panel is the tinted strip beside it, ruled off with the
+    one hairline between them -- the pairing the design draws, and the same relationship a settings
+    card's header strip has to its rows. Stated outright rather than left to whatever sits behind
+    the overlay, since the two panels are only legible relative to each other.
+
+    The proportions are the design's own: the catalog takes the room, the panel is a fixed 340px
+    column that stops growing once the fields in it are wide enough to read.
   */
   &-catalog {
+    flex: 1 1 480px;
+    min-width: 300px;
     height: 100%;
 
+    @at-root .body--light & {
+      background-color: var(--color-surface);
+    }
     @at-root .body--dark & {
-      background-color: $dark-6;
+      background-color: var(--color-dark-5);
     }
   }
 
   &-form {
+    flex: 0 0 340px;
+    min-width: 280px;
     height: 100%;
 
     @at-root .body--light & {
-      background-color: $grey-1;
+      background-color: var(--color-tint);
+      border-left: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
+      background-color: var(--color-dark-3);
+      border-left: 1px solid var(--color-hairline-dark);
     }
   }
 
@@ -255,76 +286,246 @@ onMounted(async () => {
   /*
     -> A card is the whole hit target, so the icon and the text are both part of choosing it
 
-    It floats on its shadow rather than sitting in a border: deeper on hover, and ringed by a glow of
-    the site's primary colour once picked. Selection is a shadow too, so nothing reflows as it moves
-    between cards. Dark mode takes the raised surface `w-card` uses instead of staying white, which at
-    this size would glare and would need its own text colour to stay readable.
+    A Cardinal card is a line drawing, so being the chosen one has to be drawn in line weight: 2.x
+    rang the picked card with a coloured glow, which this surface cannot wear. Selection is the
+    hairline recoloured to the accent, doubled by an INSET shadow of the same tone, plus the four
+    corner marks and a tinted icon plate.
+
+    Every part of that is deliberate about geometry, and this is the constraint to preserve if these
+    rules are ever touched: an unselected card already carries a 1px border, a selected one carries
+    the same 1px border in a different colour, the extra weight is painted inside the existing
+    bounds by an inset shadow (which cannot affect layout at all), and the corner marks are
+    absolutely positioned. So a card's box is identical in both states and NOTHING on the screen
+    moves as selection travels from one card to another. A border that appeared on selection, or a
+    thicker one, would widen the card and reflow the row -- see `blockPickerLayout.test.js`, which
+    measures exactly this in a real browser.
   */
   &-card {
+    position: relative;
     display: flex;
     flex-wrap: nowrap;
     align-items: flex-start;
     gap: 12px;
     padding: 12px;
-    background-color: #fff;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-hairline);
     color: inherit;
     text-align: start;
     cursor: pointer;
-    box-shadow:
-      0 1px 3px rgb(0 0 0 / 0.12),
-      0 1px 2px rgb(0 0 0 / 0.06);
-    transition: box-shadow 0.15s var(--ease-standard);
+    transition:
+      border-color 0.15s var(--ease-standard),
+      box-shadow 0.15s var(--ease-standard);
 
     &:hover {
-      box-shadow:
-        0 5px 12px rgb(0 0 0 / 0.16),
-        0 2px 4px rgb(0 0 0 / 0.08);
+      border-color: var(--color-rule);
     }
 
     &.is-selected,
     &.is-selected:hover {
-      box-shadow:
-        0 0 0 2px var(--color-primary),
-        0 0 14px 2px color-mix(in srgb, var(--color-primary) 45%, transparent);
+      border-color: var(--color-accent-fill);
+      box-shadow: inset 0 0 0 1px var(--color-accent-fill);
     }
 
     @at-root .body--dark & {
-      background-color: $dark-3;
-      box-shadow:
-        0 1px 3px rgb(0 0 0 / 0.5),
-        0 1px 2px rgb(0 0 0 / 0.35);
+      background-color: var(--color-dark-3);
+      border-color: var(--color-hairline-dark);
 
       &:hover {
-        box-shadow:
-          0 5px 14px rgb(0 0 0 / 0.6),
-          0 2px 5px rgb(0 0 0 / 0.4);
+        border-color: var(--color-border-dark);
       }
 
       &.is-selected,
       &.is-selected:hover {
-        box-shadow:
-          0 0 0 2px var(--color-primary),
-          0 0 16px 3px color-mix(in srgb, var(--color-primary) 55%, transparent);
+        border-color: var(--color-accent-dark);
+        box-shadow: inset 0 0 0 1px var(--color-accent-dark);
       }
     }
   }
 
+  /* The 40px hairline plate the glyph sits in -- the same material as a settings row's plate. */
+  &-plate {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--color-hairline);
+    background-color: var(--color-surface);
+    color: var(--color-slate-soft);
+
+    .is-selected > & {
+      border-color: var(--color-accent-fill);
+      background-color: var(--color-accent-wash);
+      color: var(--color-accent);
+    }
+
+    @at-root .body--dark & {
+      border-color: var(--color-hairline-dark);
+      background-color: var(--color-dark-4);
+      color: var(--color-slate-light);
+    }
+
+    @at-root .body--dark .is-selected > & {
+      border-color: var(--color-accent-dark);
+      background-color: var(--color-accent-wash-dark);
+      color: var(--color-accent-dark);
+    }
+  }
+
+  /*
+    Two adjacent 1px rules per corner, sitting 4px clear of the card. They overhang the card, which
+    the catalog's own 16px inset and the grid's 12px gap both absorb -- nothing clips them and
+    nothing is pushed aside, since they are out of flow.
+  */
+  &-mark {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    opacity: 0;
+    /* -> One property so each corner states only WHICH two of its edges it draws, not in what tone */
+    --mark-tone: var(--color-accent-fill);
+    transition: opacity 0.15s var(--ease-standard);
+
+    .is-selected > & {
+      opacity: 1;
+    }
+
+    @at-root .body--dark & {
+      --mark-tone: var(--color-accent-dark);
+    }
+  }
+
+  &-mark-tl {
+    top: -4px;
+    left: -4px;
+    border-top: 1px solid var(--mark-tone);
+    border-left: 1px solid var(--mark-tone);
+  }
+
+  &-mark-tr {
+    top: -4px;
+    right: -4px;
+    border-top: 1px solid var(--mark-tone);
+    border-right: 1px solid var(--mark-tone);
+  }
+
+  &-mark-bl {
+    bottom: -4px;
+    left: -4px;
+    border-bottom: 1px solid var(--mark-tone);
+    border-left: 1px solid var(--mark-tone);
+  }
+
+  &-mark-br {
+    bottom: -4px;
+    right: -4px;
+    border-bottom: 1px solid var(--mark-tone);
+    border-right: 1px solid var(--mark-tone);
+  }
+
+  &-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    font-size: 13.5px;
+    font-weight: 600;
+
+    @at-root .body--light & {
+      color: $ink;
+    }
+
+    em {
+      font-size: 11.5px;
+      font-weight: 400;
+    }
+  }
+
+  &-description {
+    font-size: 12.5px;
+    line-height: 1.5;
+
+    @at-root .body--light & {
+      color: $text-secondary;
+    }
+    @at-root .body--dark & {
+      color: var(--color-text-secondary-dark);
+    }
+  }
+
+  /*
+    The tag name is what actually lands in the page, so it is the one line on the card that follows
+    the selection into the accent -- the card's own confirmation of what it is about to insert.
+  */
+  &-tag {
+    padding-top: 4px;
+    font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
+    font-size: 11px;
+    font-weight: 500;
+
+    @at-root .body--light & {
+      color: $text-caption;
+    }
+    @at-root .body--dark & {
+      color: var(--color-text-caption-dark);
+    }
+
+    .is-selected & {
+      color: var(--color-accent);
+    }
+
+    @at-root .body--dark .is-selected & {
+      color: var(--color-accent-dark);
+    }
+  }
+
+  /* Nothing picked yet: a faint outline of the shape a block leaves, and the sentence saying so. */
+  &-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 44px 24px;
+    text-align: center;
+
+    .w-icon {
+      color: var(--color-slate-faint);
+    }
+
+    p {
+      max-width: 240px;
+      margin: 0;
+      font-size: 13.5px;
+      line-height: 1.6;
+    }
+
+    @at-root .body--light & {
+      color: $text-secondary;
+    }
+    @at-root .body--dark & {
+      color: var(--color-text-secondary-dark);
+    }
+  }
+
+  /*
+    The generated markup, drawn as the design draws it: an ink slab with the accent down its leading
+    edge. It reads as a quotation of the page rather than another field, which is what it is.
+  */
   &-output {
-    padding: 10px;
+    padding: 11px 12px;
+    border-inline-start: 2px solid var(--color-accent-fill);
+    background-color: var(--color-ink);
+    color: var(--color-text-dark);
     font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
     font-size: 12px;
-    line-height: 1.5;
+    line-height: 1.6;
     overflow-x: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 
-    @at-root .body--light & {
-      background-color: $grey-3;
-      color: $grey-9;
-    }
     @at-root .body--dark & {
-      background-color: $dark-6;
-      color: #fff;
+      background-color: var(--color-dark-6);
     }
   }
 }
