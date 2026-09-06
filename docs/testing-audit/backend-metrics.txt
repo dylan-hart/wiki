@@ -1,0 +1,54 @@
+commit: 3b3635f7433241bd9a65a580e1ea73dab7234a2a
+
+## backend
+  test files                 397
+  test LOC                   123343
+  test cases (test|it)       5470
+  source files               383
+  source LOC                 101717
+  test LOC / source LOC      1.21
+  DB-backed suites           79
+  ...named *.db.test.*       9
+  suites behind a skip gate  82
+  suites booting Fastify     71
+  suites scanning repo files 32
+
+## frontend
+  test files                 305
+  test LOC                   58208
+  test cases (test|it)       2906
+  source files               366
+  source LOC                 87963
+  test LOC / source LOC      0.66
+  DB-backed suites           0
+  ...named *.db.test.*       0
+  suites behind a skip gate  2
+  suites booting Fastify     0
+  suites scanning repo files 0
+
+## blocks
+  test files                 40
+  test LOC                   5626
+  test cases (test|it)       386
+  source files               48
+  source LOC                 10907
+  test LOC / source LOC      0.52
+  DB-backed suites           0
+  ...named *.db.test.*       0
+  suites behind a skip gate  0
+  suites booting Fastify     0
+  suites scanning repo files 0
+
+## e2e
+  test files                 10
+  test LOC                   1392
+  test cases (test|it)       25
+  source files               —
+  source LOC                 —
+  test LOC / source LOC      —
+  DB-backed suites           0
+  ...named *.db.test.*       0
+  suites behind a skip gate  0
+  suites booting Fastify     0
+  suites scanning repo files 0
+
