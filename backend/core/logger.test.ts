@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { styleText } from 'node:util'
 import { afterEach, describe, mock, test } from 'node:test'
-import logger from './logger.ts'
+import logger, { renderJson, renderText } from './logger.ts'
+import type { LogFrame } from './logger.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
@@ -513,7 +514,7 @@ describe('logger backlog', () => {
     mock.restoreAll()
   })
 
-  test('keeps the last 500 rendered lines and drops the oldest beyond that', () => {
+  test('keeps the last 500 frames and drops the oldest beyond that', () => {
     // -> 100 was minutes of heartbeat ticks; with those demoted to `debug`, 500 is hours of real
     //    history for an admin terminal that connects after the fact.
     setWiki({ logFormat: 'json', logLevel: 'debug' })
@@ -526,25 +527,181 @@ describe('logger backlog', () => {
 
     const backlog = primaryLogger.backlog()
     assert.equal(backlog.length, 500)
-    assert.equal(JSON.parse(backlog[0]!).message, 'line 5')
-    assert.equal(JSON.parse(backlog[499]!).message, 'line 504')
+    assert.equal(backlog[0]!.message, 'line 5')
+    assert.equal(backlog[499]!.message, 'line 504')
   })
 
-  test('the ws frame is the rendered string, byte-identical to the backlog entry', () => {
-    // -> Phase 4 (#2679) replaces this with a structured frame the Live log page renders itself;
-    //    until then the admin terminal receives exactly what stdout got.
+  test('the backlog holds frames, not rendered lines (OpenProject #2679)', () => {
+    /*
+      Deliberately in TEXT mode: what the admin terminal replays must not depend on how this process
+      happens to be writing its own stdout, which is the whole reason the element type changed.
+    */
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    mock.method(console, 'log', () => {})
+
+    primaryLogger.info('db', 'connected', { schema: 'public', ms: 528 })
+
+    const [frame] = primaryLogger.backlog()
+    assert.ok(frame)
+    assert.deepEqual(Object.keys(frame).sort(), [
+      'fields',
+      'instance',
+      'level',
+      'message',
+      'scope',
+      'timestamp'
+    ])
+    assert.equal(frame.instance, 'test-instance')
+    assert.equal(frame.level, 'info')
+    assert.equal(frame.scope, 'db')
+    assert.equal(frame.message, 'connected')
+    assert.deepEqual(frame.fields, { schema: 'public', ms: 528 })
+    assert.match(frame.timestamp, /^\d{4}-\d{2}-\d{2}T/)
+    // -> No ANSI, no padding, no `key=value` tail: nothing of the text renderer leaked into it
+    assert.ok(!JSON.stringify(frame).includes(''))
+  })
+
+  test('the ws frame is the very same frame the backlog kept', () => {
     setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
-    const frames: unknown[] = []
-    primaryLogger.ws.on('log', (frame: unknown) => frames.push(frame))
+    const frames: LogFrame[] = []
+    primaryLogger.ws.on('log', (frame: LogFrame) => frames.push(frame))
 
     primaryLogger.info('db', 'connected', { ms: 528 })
 
     assert.equal(frames.length, 1)
-    assert.equal(typeof frames[0], 'string')
-    assert.equal(frames[0], logSpy.mock.calls[0]!.arguments[0])
-    assert.equal(frames[0], primaryLogger.backlog()[0])
+    assert.deepEqual(frames, primaryLogger.backlog())
+    // -> stdout still gets the rendered line; only the socket and the backlog changed
+    assert.equal(typeof logSpy.mock.calls[0]!.arguments[0], 'string')
+    assert.equal(logSpy.mock.calls[0]!.arguments[0], renderText(frames[0]!))
+  })
+
+  test('an error rides the frame as a serialisable field and a top-level stack', () => {
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    mock.method(console, 'log', () => {})
+
+    primaryLogger.error('jobs', 'purgeUploads failed', {
+      job: 'job-1',
+      attempt: 3,
+      error: new Error('disk full')
+    })
+
+    const [frame] = primaryLogger.backlog()
+    assert.ok(frame)
+    assert.deepEqual(frame.fields.error, {
+      name: 'Error',
+      message: 'disk full',
+      stack: (frame.fields.error as { stack: string }).stack
+    })
+    assert.match(frame.stack!, /Error: disk full/)
+    assert.equal(frame.stack, (frame.fields.error as { stack: string }).stack)
+    // -> Last in `fields`, which is what keeps the text tail reading `job=… attempt=… error=… in …`
+    assert.deepEqual(Object.keys(frame.fields), ['job', 'attempt', 'error'])
+  })
+
+  test('a field JSON cannot represent is stringified rather than dropped or thrown on', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    mock.method(console, 'log', () => {})
+
+    const circular: Record<string, unknown> = { name: 'loop' }
+    circular.self = circular
+
+    primaryLogger.warn('cluster', 'odd payload', {
+      circular,
+      missing: undefined,
+      big: 9007199254740993n,
+      fn: function handler() {},
+      nested: { cause: new Error('inner') }
+    })
+
+    const [frame] = primaryLogger.backlog()
+    assert.ok(frame)
+    assert.equal(typeof frame.fields.circular, 'string')
+    assert.equal(frame.fields.missing, 'undefined')
+    assert.equal(frame.fields.big, '9007199254740993')
+    assert.match(frame.fields.fn as string, /handler/)
+    // -> A nested `Error` is serialised too, not just the top-level one
+    assert.equal((frame.fields.nested as any).cause.message, 'inner')
+    // -> The point of all of the above: the frame survives being put on the wire
+    assert.doesNotThrow(() => JSON.stringify(frame))
+  })
+})
+
+/**
+ * The two renderers, driven directly off a hand-built frame — which is the payoff of #2679's split:
+ * neither needs a logger instance, a `WIKI` global or a `console.log` spy any more.
+ */
+describe('logger renderers', () => {
+  const frame: LogFrame = {
+    timestamp: '2026-09-06T07:00:00.000Z',
+    instance: 'inst-a',
+    level: 'error',
+    scope: 'jobs',
+    message: 'purgeUploads failed',
+    fields: {
+      job: 'job-1',
+      ms: 3900,
+      error: { name: 'Error', message: 'disk full', stack: 'Error: disk full\n    at nowhere' }
+    },
+    stack: 'Error: disk full\n    at nowhere'
+  }
+
+  test('renderJson spreads the fields under the fixed keys', () => {
+    const parsed = JSON.parse(renderJson(frame))
+    assert.deepEqual(parsed, {
+      job: 'job-1',
+      ms: 3900,
+      error: { name: 'Error', message: 'disk full', stack: 'Error: disk full\n    at nowhere' },
+      timestamp: '2026-09-06T07:00:00.000Z',
+      instance: 'inst-a',
+      level: 'error',
+      scope: 'jobs',
+      message: 'purgeUploads failed'
+    })
+  })
+
+  test('renderJson lets a fixed key win a collision with a field of the same name', () => {
+    const parsed = JSON.parse(
+      renderJson({ ...frame, fields: { level: 'debug', scope: 'nonsense' } })
+    )
+    assert.equal(parsed.level, 'error')
+    assert.equal(parsed.scope, 'jobs')
+  })
+
+  test('renderText puts the error message in the tail and the duration last', () => {
+    assert.equal(
+      stripAnsi(renderText(frame)),
+      '2026-09-06T07:00:00.000Z error jobs      purgeUploads failed  job=job-1 error="disk full" in 3.9s'
+    )
+  })
+
+  test('renderText appends the stack only when asked for it', () => {
+    assert.ok(!renderText(frame).includes('at nowhere'))
+    // -> Every stack line gains two spaces, so the frame's own four-space `at …` indent becomes six
+    assert.match(
+      stripAnsi(renderText(frame, { withStack: true })),
+      /\n {2}Error: disk full\n {6}at nowhere$/
+    )
+  })
+
+  test('renderText round-trips a frame with no fields and no error', () => {
+    assert.equal(
+      stripAnsi(
+        renderText({
+          timestamp: '2026-09-06T07:00:00.000Z',
+          instance: 'inst-a',
+          level: 'info',
+          scope: 'boot',
+          message: 'ready',
+          fields: {}
+        })
+      ),
+      '2026-09-06T07:00:00.000Z info  boot      ready'
+    )
   })
 })
 
@@ -689,12 +846,13 @@ describe('logger scopes', () => {
     const primaryLogger = logger.init()
     mock.method(console, 'log', () => {})
 
-    const emitted: string[] = []
-    primaryLogger.ws.on('log', (line: string) => emitted.push(line))
+    const emitted: LogFrame[] = []
+    primaryLogger.ws.on('log', (frame: LogFrame) => emitted.push(frame))
     primaryLogger.scope('mail', { to: 'nobody@example.com' }).warn('mail is not configured')
 
     assert.equal(emitted.length, 1)
-    assert.match(emitted[0]!, /nobody@example\.com/)
+    assert.equal(emitted[0]!.scope, 'mail')
+    assert.deepEqual(emitted[0]!.fields, { to: 'nobody@example.com' })
     assert.deepEqual(primaryLogger.backlog(), emitted)
   })
 

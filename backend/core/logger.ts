@@ -21,6 +21,30 @@ export type LogFormat = 'text' | 'json'
 export type LogFields = Record<string, unknown>
 
 /**
+ * One log record, built once per call, before either renderer runs.
+ *
+ * This is the wire shape the admin Live Log receives (`controllers/terminal.ts` sends
+ * `JSON.stringify(frame)`) and the element type of the in-memory backlog, so the page filters and
+ * colours by `level`/`scope` and expands `stack` itself rather than re-parsing a rendered line.
+ * `renderText`/`renderJson` are pure functions of it, which is also what makes them unit-testable
+ * without a logger instance.
+ *
+ * `fields` is already serialisation-safe: an `Error` anywhere in it has become
+ * `{ name, message, stack }`, and a value `JSON.stringify` cannot represent (`undefined`, a
+ * `bigint`, a symbol, a function, a circular object) has been stringified — see `toSerializable`.
+ * `stack` repeats the top-level error's stack so the page has one place to look for it.
+ */
+export interface LogFrame {
+  timestamp: string
+  instance: string
+  level: LogLevel
+  scope: LogScope
+  message: string
+  fields: LogFields
+  stack?: string
+}
+
+/**
  * Both call shapes a level accepts for the duration of Phase 2.
  *
  * `(scope, message, fields?)` is the real one. The legacy `(msg, context?)` overload is what the
@@ -62,7 +86,7 @@ export interface ScopedLogger {
 }
 
 /**
- * Formatted lines kept in memory, replayed to an admin terminal the moment it connects
+ * `LogFrame`s kept in memory, replayed to an admin terminal the moment it connects
  * (`controllers/terminal.ts`). Enough to see how the instance got to where it is, not a log file.
  *
  * 500 rather than 100: with the heartbeat lines demoted to `debug`, a quiet instance adds a handful
@@ -167,48 +191,137 @@ function renderValue(value: unknown): string {
 }
 
 /**
+ * `{ name, message, stack }` — what an `Error` becomes on a frame, in JSON output and on the wire
+ * alike. An `Error` has no enumerable own properties, so `JSON.stringify`-ing one straight serializes
+ * it as `{}`, losing the stack exactly where structured logging was requested (OpenProject #939).
+ */
+function serializeError(err: Error): { name: string; message: string; stack?: string } {
+  return { name: err.name, message: err.message, stack: err.stack }
+}
+
+/**
+ * One field value, made safe to `JSON.stringify` — because a frame is stringified twice over (once
+ * onto stdout in JSON mode, once onto the admin terminal's socket) and a throw from either would
+ * lose the very line the operator was trying to read.
+ *
+ * An `Error` anywhere in the fields gets the `{ name, message, stack }` treatment, not just the
+ * top-level one. Everything `JSON.stringify` cannot represent — `undefined`, a `bigint`, a symbol, a
+ * function, a circular object — is stringified rather than silently dropped: a field a call site
+ * bothered to pass is worth showing even when it is only worth showing as text.
+ */
+function toSerializable(value: unknown): unknown {
+  if (value === null) {
+    return null
+  }
+  if (isError(value)) {
+    return serializeError(value)
+  }
+  const kind = typeof value
+  if (kind === 'string' || kind === 'boolean') {
+    return value
+  }
+  // -> `NaN` and the infinities stringify as `null`, which reads as "no value" rather than as the
+  //    arithmetic accident it usually is
+  if (kind === 'number') {
+    return Number.isFinite(value) ? value : String(value)
+  }
+  if (kind === 'object') {
+    try {
+      JSON.stringify(value)
+      return value
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
+/**
+ * The one place a call becomes a frame — built before either renderer runs, so stdout, the backlog
+ * and the admin terminal are all looking at the same record rather than at three near-copies.
+ *
+ * A top-level `Error` lands twice on purpose: in `fields.error` (where both renderers read it, and
+ * where a JSON consumer expects it) and as `frame.stack` (where the Live Log page's expand
+ * affordance reads it, without having to know the field convention). It is appended LAST in
+ * `fields`, which is what keeps the text tail reading `…other fields… error=… in 528ms`.
+ */
+function buildFrame(
+  record: LogRecord,
+  level: LogLevel,
+  timestamp: string,
+  instance: string
+): LogFrame {
+  const fields: LogFields = {}
+  for (const [key, value] of Object.entries(record.fields)) {
+    fields[key] = toSerializable(value)
+  }
+  if (record.error) {
+    fields.error = serializeError(record.error)
+  }
+  return {
+    timestamp,
+    instance,
+    level,
+    // -> `legacy` is not a member of the vocabulary — it is the sentinel an un-swept
+    //    `(msg, context?)` call renders under, and OpenProject #2668 deletes that overload and this
+    //    cast together. Narrow and deliberate, rather than widening the exported frame contract that
+    //    the Live Log page reads.
+    scope: record.scope as LogScope,
+    message: record.message,
+    fields,
+    ...(record.error?.stack ? { stack: record.error.stack } : {})
+  }
+}
+
+/** What an `error` field renders as in a text tail, whatever shape the field turned out to be. */
+function errorTailValue(value: unknown): string {
+  const message = (value as { message?: unknown } | null)?.message
+  return typeof message === 'string' ? renderValue(message) : renderValue(value)
+}
+
+/**
  * `<ISO timestamp> <level padded 5> <scope padded 8>  <message>  <k=v …>`, with the stack — when the
  * level warrants one — on following lines indented two spaces.
  *
- * No instance id: text mode is a person tailing one process, where the id is dead weight. It stays
- * on every JSON record for aggregators, and the admin terminal gets it in its handshake frame.
+ * A pure function of the frame plus the one thing a frame cannot know: whether this run wants the
+ * stack printed. No instance id: text mode is a person tailing one process, where the id is dead
+ * weight. It stays on every JSON record for aggregators, and the admin terminal gets it in its
+ * handshake frame.
  */
-function renderText(
-  record: LogRecord,
-  lvl: LogLevel,
-  timestamp: string,
-  { withStack }: { withStack: boolean }
+export function renderText(
+  frame: LogFrame,
+  { withStack = false }: { withStack?: boolean } = {}
 ): string {
+  const lvl = frame.level
   const color = LEVELCOLORS[lvl]
   const parts: string[] = []
-  for (const [key, value] of Object.entries(record.fields)) {
+  for (const [key, value] of Object.entries(frame.fields)) {
     if (key === 'ms' && typeof value === 'number') {
       continue
     }
-    parts.push(`${styleText('dim', key)}=${renderValue(value)}`)
-  }
-  if (record.error) {
-    parts.push(`${styleText('dim', 'error')}=${renderValue(record.error.message)}`)
+    parts.push(
+      `${styleText('dim', key)}=${key === 'error' ? errorTailValue(value) : renderValue(value)}`
+    )
   }
   // -> Last in the tail, per the spec's own sample lines (`migrations=0 in 528ms`): the duration
   //    reads as a closing clause on the sentence, not as one field among the others.
-  if (typeof record.fields.ms === 'number') {
-    parts.push(styleText('dim', humanizeDuration(record.fields.ms)))
+  if (typeof frame.fields.ms === 'number') {
+    parts.push(styleText('dim', humanizeDuration(frame.fields.ms)))
   }
 
-  const message = color ? styleText(color, record.message) : record.message
+  const message = color ? styleText(color, frame.message) : frame.message
   const head = [
-    styleText('dim', timestamp),
+    styleText('dim', frame.timestamp),
     color ? styleText(color, lvl.padEnd(LEVEL_WIDTH)) : lvl.padEnd(LEVEL_WIDTH),
-    styleText('dim', record.scope.padEnd(SCOPE_WIDTH))
+    styleText('dim', frame.scope.padEnd(SCOPE_WIDTH))
   ].join(' ')
 
   let line = `${head}  ${message}`
   if (parts.length > 0) {
     line += `  ${parts.join(' ')}`
   }
-  if (withStack && record.error?.stack) {
-    line += `\n${record.error.stack
+  if (withStack && frame.stack) {
+    line += `\n${frame.stack
       .split('\n')
       .map((stackLine) => `  ${stackLine}`)
       .join('\n')}`
@@ -217,30 +330,23 @@ function renderText(
 }
 
 /**
- * `{ ...fields, timestamp, instance, level, scope, message, error? }`.
+ * `{ ...fields, timestamp, instance, level, scope, message }`.
  *
  * Fields are spread first so a caller can only ever ADD siblings: a field named `message` or `level`
- * loses the collision rather than corrupting the record. `error` is an object rather than a
- * stack pasted over `message` — the fix #939 needed at the time, now that there is somewhere proper
- * to put it, which lets `message` stay a sentence.
+ * loses the collision rather than corrupting the record. `error` rides in `fields` as an object
+ * rather than as a stack pasted over `message` — the fix #939 needed at the time, now that there is
+ * somewhere proper to put it, which lets `message` stay a sentence. `frame.stack` is deliberately
+ * NOT repeated at the top level: in JSON it is already `error.stack`, and the frame's own copy
+ * exists for the Live Log page's expand affordance, not for an aggregator.
  */
-function renderJson(record: LogRecord, lvl: LogLevel, timestamp: string): string {
+export function renderJson(frame: LogFrame): string {
   return JSON.stringify({
-    ...record.fields,
-    timestamp,
-    instance: WIKI.INSTANCE_ID,
-    level: lvl,
-    scope: record.scope,
-    message: record.message,
-    ...(record.error
-      ? {
-          error: {
-            name: record.error.name,
-            message: record.error.message,
-            stack: record.error.stack
-          }
-        }
-      : {})
+    ...frame.fields,
+    timestamp: frame.timestamp,
+    instance: frame.instance,
+    level: frame.level,
+    scope: frame.scope,
+    message: frame.message
   })
 }
 
@@ -280,7 +386,7 @@ class Logger extends EventEmitter {
   // -> Assigned dynamically in init(). `declare` keeps these type-only so that no class field is
   //    emitted, leaving the runtime shape of the instance untouched.
   declare ws: EventEmitter
-  declare backlog: () => string[]
+  declare backlog: () => LogFrame[]
   declare error: LogFn
   declare warn: LogFn
   declare info: LogFn
@@ -340,7 +446,7 @@ export default {
     const primaryLogger = new Logger()
 
     let ignoreNextLevels = false
-    const backlog: string[] = []
+    const backlog: LogFrame[] = []
 
     primaryLogger.ws = new EventEmitter()
     // -> One listener per connected admin terminal, so the default cap of 10 is a leak warning rather
@@ -356,23 +462,28 @@ export default {
       if (!ignoreNextLevels) {
         primaryLogger.on(lvl, (a: unknown, b?: unknown, c?: LogFields) => {
           const record = normalizeCall(a, b, c)
-          const timestamp = new Date().toISOString()
+          const frame = buildFrame(record, lvl, new Date().toISOString(), WIKI.INSTANCE_ID)
           // -> A stack is noise on a warning an operator has already decided to live with, and the
           //    whole point of the record on an error. `warn` gets one only when the operator has
           //    asked for everything.
           const withStack = lvl === 'error' || (lvl === 'warn' && WIKI.config.logLevel === 'debug')
-          const formatted =
-            WIKI.config.logFormat === 'json'
-              ? renderJson(record, lvl, timestamp)
-              : renderText(record, lvl, timestamp, { withStack })
 
-          console.log(formatted)
+          console.log(
+            WIKI.config.logFormat === 'json' ? renderJson(frame) : renderText(frame, { withStack })
+          )
 
-          backlog.push(formatted)
+          /*
+            The backlog and the socket carry the FRAME, not the rendered line (OpenProject #2679):
+            the admin Live Log filters by level and scope and expands a stack on demand, none of
+            which it can do against a string it would have to parse back apart — and doing so would
+            also mean shipping this process's stdout format and its ANSI escapes to a browser that
+            has its own opinion about both.
+          */
+          backlog.push(frame)
           if (backlog.length > BACKLOG_SIZE) {
             backlog.shift()
           }
-          primaryLogger.ws.emit('log', formatted)
+          primaryLogger.ws.emit('log', frame)
         })
       }
       if (lvl === WIKI.config.logLevel) {
