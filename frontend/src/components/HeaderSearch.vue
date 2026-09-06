@@ -15,11 +15,12 @@
       `top: 100%` on the panel lands on the bottom edge of the header instead of 12px above it.
     -->
     <div class="header-search relative flex h-full min-w-0 flex-1 flex-col justify-center">
-      <div class="header-search-row-inline flex items-stretch">
+      <div
+        class="header-search-row-inline flex items-stretch"
+        :class="{ 'is-focused': state.searchIsFocused }">
         <div
           class="header-search-field"
           :class="{
-            'is-focused': state.searchIsFocused,
             'header-search-field--row': row,
             'header-search-field--docked': !row
           }">
@@ -599,9 +600,14 @@ defineExpose({ focus, state })
     being used -- clicking a tag in there moves focus out of the input, and the border flicking back
     mid-interaction reads as a glitch.
 
+    The class lives on `.header-search-row-inline` (the parent of both the field and the docked tags
+    button below), not on the field itself -- that is what lets the focus ring extend across the
+    field's right edge, which the field never draws (see `--field--docked` above), onto the button's
+    own border instead of stopping where the two controls meet (OpenProject #2718).
+
     Two classes, so this outranks the `--row` rule above whichever order they end up in.
   */
-  &-field.is-focused {
+  .header-search-row-inline.is-focused &-field {
     background-color: $surface;
     border-color: $slate;
     color: $ink;
@@ -669,7 +675,7 @@ defineExpose({ focus, state })
     color: $text-caption-dark;
   }
 
-  &-field.is-focused {
+  .header-search-row-inline.is-focused &-field {
     background-color: $dark-3;
     border-color: $slate-light;
     color: $text-dark;
@@ -717,6 +723,16 @@ defineExpose({ focus, state })
   }
 }
 
+/*
+  -> The other half of the shared focus ring above: the field's own `is-focused` rule darkens its
+     top/bottom/left edges, but its right edge is never drawn (`--field--docked`) -- this button
+     draws that edge instead, so it needs its own border darkened for the ring to read as continuous
+     around both controls rather than stopping where they meet (OpenProject #2718).
+*/
+.header-search-row-inline.is-focused .header-search-tags-btn {
+  border-color: $slate;
+}
+
 .body--dark .header-search-tags-btn {
   background-color: $dark-4;
   border-color: $hairline-dark;
@@ -727,6 +743,10 @@ defineExpose({ focus, state })
     background-color: $dark-2;
     color: $text-dark;
   }
+}
+
+.body--dark .header-search-row-inline.is-focused .header-search-tags-btn {
+  border-color: $slate-light;
 }
 
 /*
