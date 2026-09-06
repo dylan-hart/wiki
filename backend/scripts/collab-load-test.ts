@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- a throwaway load-test script: its stdout IS its result, and it runs outside a booted `WIKI`. */
 /**
  * Throwaway load test for `core/collab.ts`'s chunked relay path — task 478.
  *

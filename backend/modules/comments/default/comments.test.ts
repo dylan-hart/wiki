@@ -16,14 +16,34 @@ import type { CheckSpamParams } from './comments.ts'
  * `checkSpam` reads `WIKI.config.host` (the Akismet "blog" identity, matching 2.5.x) and
  * `WIKI.logger.warn` (fail-open logging) — a minimal stub of just those two, not the full
  * `test/db.ts` fixture, since nothing here touches the database. `warnLog` collects every warning so
- * tests can assert on the fail-open message without asserting on real log formatting.
+ * tests can assert on the fail-open line without asserting on real log formatting.
+ *
+ * The whole record is captured, not the message alone: on the scoped call shape the cause of a
+ * fail-open lives in `fields.error` (OpenProject #2668's convention — say what failed in the
+ * message, pass the error as a field), so a test asserting only on the message would no longer see
+ * the `ENOTFOUND` it is actually about.
  */
-const warnLog: string[] = []
+interface WarnRecord {
+  scope: string
+  message: string
+  fields?: Record<string, unknown>
+}
+const warnLog: WarnRecord[] = []
 installTestWiki({
   config: { host: 'https://test.wiki' },
   // -> Not the silent default: tests assert on the fail-open warning this module emits.
-  logger: { ...createSilentLogger(), warn: (msg: string) => warnLog.push(msg) }
+  logger: {
+    ...createSilentLogger(),
+    warn: (scope: string, message: string, fields?: Record<string, unknown>) =>
+      warnLog.push({ scope, message, fields })
+  }
 })
+
+/** The message plus the rendered cause — what an operator reads off one fail-open line. */
+function warnText(record: WarnRecord): string {
+  const error = record.fields?.error
+  return error instanceof Error ? `${record.message}: ${error.message}` : record.message
+}
 
 /**
  * Minimal stand-in for the subset of `Temporal` `checkRateLimit` and this file's own fixtures use
@@ -250,7 +270,7 @@ describe('modules/comments/default', () => {
         assert.equal(result.isSpam, false)
         assert.ok(result.reason)
         assert.equal(warnLog.length, 1)
-        assert.match(warnLog[0]!, /invalid/i)
+        assert.match(warnText(warnLog[0]!), /rejected/i)
       })
 
       it('fails open and logs a warning, without throwing, when verifyKey rejects (Akismet unreachable)', async () => {
@@ -270,7 +290,7 @@ describe('modules/comments/default', () => {
         assert.equal(result.isSpam, false)
         assert.ok(result.reason)
         assert.equal(warnLog.length, 1)
-        assert.match(warnLog[0]!, /ENOTFOUND/)
+        assert.match(warnText(warnLog[0]!), /ENOTFOUND/)
       })
 
       it('fails open and logs a warning when checkSpam itself rejects, after a valid key', async () => {
@@ -288,7 +308,7 @@ describe('modules/comments/default', () => {
         assert.equal(result.isSpam, false)
         assert.ok(result.reason)
         assert.equal(warnLog.length, 1)
-        assert.match(warnLog[0]!, /502 Bad Gateway/)
+        assert.match(warnText(warnLog[0]!), /502 Bad Gateway/)
       })
 
       it('validates a given key only once (memoized), reusing the client across calls', async () => {

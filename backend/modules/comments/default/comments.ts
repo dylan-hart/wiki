@@ -291,12 +291,17 @@ function getAkismetClient(key: string, blog: string): Promise<AkismetClientLike 
       try {
         const isValid = await client.verifyKey()
         if (!isValid) {
-          WIKI.logger.warn('(COMMENTS/DEFAULT) Akismet key is invalid. Spam checking disabled.')
+          WIKI.logger.warn('ext', 'akismet key rejected, spam checking disabled', {
+            module: 'default'
+          })
           return null
         }
         return client
       } catch (err: any) {
-        WIKI.logger.warn(`(COMMENTS/DEFAULT) Unable to verify Akismet key: ${err.message}`)
+        WIKI.logger.warn('ext', 'verifying the akismet key failed', {
+          module: 'default',
+          error: err
+        })
         return null
       }
     })()
@@ -323,9 +328,9 @@ async function checkSpam(
 
   const blog = WIKI.config?.host
   if (!blog) {
-    WIKI.logger.warn(
-      '(COMMENTS/DEFAULT) No site host configured — cannot verify Akismet key. Spam checking disabled.'
-    )
+    WIKI.logger.warn('ext', 'no site host configured, akismet spam checking disabled', {
+      module: 'default'
+    })
     return { isSpam: false, reason: 'Akismet is not configured (missing site host).' }
   }
 
@@ -348,7 +353,7 @@ async function checkSpam(
     })
     return { isSpam }
   } catch (err: any) {
-    WIKI.logger.warn(`(COMMENTS/DEFAULT) Akismet spam check failed: ${err.message}`)
+    WIKI.logger.warn('ext', 'akismet spam check failed', { module: 'default', error: err })
     return { isSpam: false, reason: `Akismet check failed: ${err.message}` }
   }
 }

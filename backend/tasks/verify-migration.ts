@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- CLI entry point: the `usage:` text and the fatal-exit lines are stdout/stderr for a person at a terminal, not log records. */
 /**
  * Wiki.js 2.5.x -> 3.0 migration verification — Feature 421 task 748.
  *

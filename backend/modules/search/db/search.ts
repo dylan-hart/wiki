@@ -161,11 +161,12 @@ class DbSearchModule implements SearchModule {
       return wanted
     }
     if (wanted) {
-      WIKI.logger.warn(
-        'search',
-        `Text search dictionary "${wanted}" for locale ${locale} is not installed — falling back to ${FALLBACK_DICTIONARY}.`,
-        { engine: MODULE_KEY, locale, dictionary: wanted, fallback: FALLBACK_DICTIONARY }
-      )
+      WIKI.logger.warn('search', 'text search dictionary is not installed, falling back', {
+        engine: MODULE_KEY,
+        locale,
+        dictionary: wanted,
+        fallback: FALLBACK_DICTIONARY
+      })
     }
     return FALLBACK_DICTIONARY
   }

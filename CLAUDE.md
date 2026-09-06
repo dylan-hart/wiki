@@ -834,8 +834,11 @@ log.debug('pulling from origin', { branch })
 - **No bare `console.log` in `backend/`.** The exceptions are the places that genuinely have no
   logger yet, cannot share the stream, or are talking to a person at a terminal rather than writing
   a log: `core/config.ts` (runs before `logger.init()`), `core/logger.ts` itself (it *is* the sink),
-  `mcp/stdio.ts` (stdout is JSON-RPC there) and the CLI entry points under `scripts/` and
-  `tasks/*.ts`. Each carries a file-level disable and a one-line reason; a new one anywhere else
+  `mcp/stdio.ts` (stdout is JSON-RPC there), every script under `scripts/`, and the CLI entry points
+  `tasks/migrate.ts`, `tasks/verify-migration.ts` and `tasks/promote-admin.ts`. Each carries a
+  file-level disable and a one-line reason. `index.ts` gets three *inline* disables instead — the
+  Node-version and cwd refusals, and the `IS_DEBUG` process-warning dump, all of which run before
+  `WIKI.logger` exists — since the rest of the file logs normally. A new `console.*` anywhere else
   goes through `WIKI.logger`.
 
 `logLevel` (`error|warn|info|debug`) and `logFormat` (`text|json`) are validated at boot
@@ -843,14 +846,30 @@ case-sensitively: an unrecognised value is a one-line refusal and `exit(1)`, not
 logs everything. Per-scope thresholds (`logScopes:`) and the `sqlLog`/`authDebug` flags as runtime
 scope overrides are planned under Epic #2643 and are **not** config keys yet — do not write one.
 
-Enforcement is being landed alongside the call-site sweep (Epic #2643): `no-console` as an oxlint
-error in `backend/`, and a structural `test/logging-conventions.test.ts` that walks the source tree
-and fails on status tags, a message ending in `.` or `...`, a message opening with a capital letter
-that is not an identifier, a `logger.x(err)` one-liner, and a first argument outside the scope
-vocabulary. A line that genuinely needs an exception will carry `// log-conventions: allow` with a
-reason. Until those land, the rules above are enforced by review — and the logger still accepts a
-legacy `(msg, context?)` call, which renders under a `legacy` sentinel scope purely so the remaining
-un-swept sites are greppable. **Never write a new one.**
+**`(scope, message, fields?)` is the only call shape there is.** The legacy `(msg, context?)`
+overload that carried the un-swept call sites through the sweep — filed under a sentinel `legacy`
+scope so a grep over the output said how much was left — was deleted with the sweep's last task
+(#2668), and deleting it is what makes `npm run typecheck` the gate: a call that forgot its scope
+has no overload to land on. Do not reintroduce one.
+
+**Three gates enforce the rules above, and they cover different things:**
+
+- **`npm run typecheck`** — the scope vocabulary (`LogScope` is a union, so a name outside
+  `core/logScopes.ts` is a compile error, at a `scope()` declaration as much as at a direct call)
+  and the call shape itself.
+- **`no-console: error` in `backend/.oxlintrc.json`** — the other direction: a line that never
+  reached the logger at all. The exceptions listed above each carry a file-level (or, in `index.ts`,
+  an inline) disable with a one-line reason; a new `console.*` anywhere else fails the lint step.
+- **`test/logging-conventions.test.ts`** — what neither can see: it walks the source tree (skipping
+  `*.test.ts`, `test/`, `scripts/` and `db/migrations/`) and fails on an `[ OK ]`-style status tag,
+  a message ending in `.` or `...`, a message opening with a capital that is not a known acronym, a
+  `logger.x(err)` / `logger.x(err.message)` one-liner, a first argument outside the vocabulary, and
+  any `verbose`/`silly` call. It reads comments and string contents as such, so a doc comment
+  quoting a bad line is not itself a finding.
+
+A line that genuinely needs an exception carries `// log-conventions: allow <reason>` on the
+preceding line. That is the escape hatch for a correct line a text heuristic refuses — not a way to
+opt out of the conventions, and the test caps how many may exist at once.
 
 ### Testing (backend)
 

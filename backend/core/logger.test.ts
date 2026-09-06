@@ -43,7 +43,7 @@ describe('logger', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.error(new Error('boom'))
+    primaryLogger.error('db', 'connecting failed', { error: new Error('boom') })
 
     assert.equal(logSpy.mock.calls.length, 1)
     const line = logSpy.mock.calls[0]!.arguments[0] as string
@@ -54,7 +54,7 @@ describe('logger', () => {
     //    (OpenProject #939). The stack-as-message stand-in that fixed it is gone now that there is
     //    a real `error` field to put it in, so `message` can stay a sentence.
     assert.notEqual(JSON.stringify(parsed.error), '{}')
-    assert.equal(parsed.message, 'boom')
+    assert.equal(parsed.message, 'connecting failed')
     assert.equal(parsed.error.name, 'Error')
     assert.equal(parsed.error.message, 'boom')
     assert.match(parsed.error.stack, /Error: boom/)
@@ -65,7 +65,7 @@ describe('logger', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.warn(new Error('kaboom'))
+    primaryLogger.warn('db', 'query failed', { error: new Error('kaboom') })
 
     assert.equal(logSpy.mock.calls.length, 1)
     const line = logSpy.mock.calls[0]!.arguments[0] as string
@@ -77,7 +77,7 @@ describe('logger', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.info('hello world')
+    primaryLogger.info('boot', 'hello world')
 
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
@@ -89,7 +89,7 @@ describe('logger', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.info('request handled', { requestId: 'abc-123', durationMs: 42 })
+    primaryLogger.info('http', 'request handled', { requestId: 'abc-123', durationMs: 42 })
 
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
@@ -112,7 +112,7 @@ describe('logger', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.info('hello world')
+    primaryLogger.info('boot', 'hello world')
 
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
@@ -130,7 +130,7 @@ describe('logger', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.info('hello world', { message: 'spoofed', level: 'spoofed' })
+    primaryLogger.info('boot', 'hello world', { message: 'spoofed', level: 'spoofed' })
 
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
@@ -146,7 +146,7 @@ describe('logger', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.info('hello world', { requestId: 'abc-123' })
+    primaryLogger.info('http', 'hello world', { requestId: 'abc-123' })
 
     assert.equal(logSpy.mock.calls.length, 1)
     const line = stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string)
@@ -164,10 +164,10 @@ describe('logger threshold', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.error('an error')
-    primaryLogger.warn('a warning')
-    primaryLogger.info('some info')
-    primaryLogger.debug('a debug line')
+    primaryLogger.error('boot', 'an error')
+    primaryLogger.warn('boot', 'a warning')
+    primaryLogger.info('boot', 'some info')
+    primaryLogger.debug('boot', 'a debug line')
 
     const levels = logSpy.mock.calls.map(
       (call) => JSON.parse(call.arguments[0] as string).level as string
@@ -180,10 +180,10 @@ describe('logger threshold', () => {
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.error('e')
-    primaryLogger.warn('w')
-    primaryLogger.info('i')
-    primaryLogger.debug('d')
+    primaryLogger.error('boot', 'e')
+    primaryLogger.warn('boot', 'w')
+    primaryLogger.info('boot', 'i')
+    primaryLogger.debug('boot', 'd')
 
     const levels = logSpy.mock.calls.map(
       (call) => JSON.parse(call.arguments[0] as string).level as string
@@ -444,68 +444,61 @@ describe('logger text renderer', () => {
 })
 
 /**
- * The legacy `(msg, context?)` shape stays accepted for the duration of Phase 2 — 480-odd call
- * sites still use it — and is filed under the sentinel scope `legacy` so a grep over the output
- * says how much of the sweep is left. Phase 2's last task (#2668) deletes it.
+ * `(scope, message, fields?)` is the ONLY call shape (OpenProject #2668).
+ *
+ * There used to be a second — the legacy `(msg, context?)` overload #2660 kept while the three area
+ * sweeps ran, filed under a sentinel scope `legacy` so a grep over the output said how much was
+ * left — and a describe here asserting it rendered. Both are gone: a call missing its scope is a
+ * `tsc` error now, which is exactly what proves the sweeps finished, so the coverage that matters
+ * lives in the type checker and not in a runtime assertion.
+ *
+ * What survives from that describe is the half that is still about behaviour rather than about the
+ * bridge: an `Error` handed to the logger reaches the record as `{ name, message, stack }`, whether
+ * it arrives on a parent call or through a scoped child.
  */
-describe('logger dual call shape', () => {
+describe('logger single call shape', () => {
   afterEach(() => {
     mock.restoreAll()
   })
 
-  test('text: a legacy call renders under scope legacy, context and all', () => {
+  test('the scope, the message and the fields each land in their own place', () => {
     setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.warn('Something Happened.', { reqId: 'req-1q' })
+    primaryLogger.warn('http', 'request rejected', { reqId: 'req-1q' })
 
     const line = stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string)
-    assert.match(line, / warn {2}legacy {4}Something Happened\. {2}reqId=req-1q$/)
+    assert.match(line, / warn {2}http {6}request rejected {2}reqId=req-1q$/)
   })
 
-  test('json: a legacy call carries scope "legacy"', () => {
+  test('an Error in the fields becomes the error field, message and stack intact', () => {
     setWiki({ logFormat: 'json', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
-    primaryLogger.info('Something Happened.')
+    primaryLogger.warn('http', 'request rejected', { reqId: 'req-1q', error: new Error('kaboom') })
 
     const parsed = JSON.parse(logSpy.mock.calls[0]!.arguments[0] as string)
-    assert.equal(parsed.scope, 'legacy')
-    assert.equal(parsed.message, 'Something Happened.')
-  })
-
-  test('both shapes render off the same call, in the same format', () => {
-    setWiki({ logFormat: 'json', logLevel: 'debug' })
-    const primaryLogger = logger.init()
-    const logSpy = mock.method(console, 'log', () => {})
-
-    primaryLogger.info('db', 'connected', { schema: 'public' })
-    primaryLogger.info('connected', { schema: 'public' })
-
-    const [scoped, legacy] = logSpy.mock.calls.map(
-      (call) => JSON.parse(call.arguments[0] as string) as Record<string, unknown>
-    )
-    assert.equal(scoped!.scope, 'db')
-    assert.equal(legacy!.scope, 'legacy')
-    assert.equal(scoped!.message, legacy!.message)
-    assert.equal(scoped!.schema, legacy!.schema)
-    assert.deepEqual(Object.keys(scoped!), Object.keys(legacy!))
-  })
-
-  test('a legacy Error argument becomes the error field, message and stack intact', () => {
-    setWiki({ logFormat: 'json', logLevel: 'debug' })
-    const primaryLogger = logger.init()
-    const logSpy = mock.method(console, 'log', () => {})
-
-    primaryLogger.warn(new Error('kaboom'), { reqId: 'req-1q' })
-
-    const parsed = JSON.parse(logSpy.mock.calls[0]!.arguments[0] as string)
-    assert.equal(parsed.scope, 'legacy')
-    assert.equal(parsed.message, 'kaboom')
+    assert.equal(parsed.scope, 'http')
+    assert.equal(parsed.message, 'request rejected')
     assert.equal(parsed.reqId, 'req-1q')
+    assert.equal(parsed.error.message, 'kaboom')
     assert.match(parsed.error.stack, /Error: kaboom/)
+  })
+
+  test('a non-Error `error` field stays an ordinary field rather than being promoted', () => {
+    // -> `normalizeCall` lifts `fields.error` into the record's own slot only when it really is an
+    //    `Error`; a route that logs `{ error: 'ECONNREFUSED' }` keeps a plain string field and gets
+    //    no invented `name`/`stack`.
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.warn('db', 'connection refused', { error: 'ECONNREFUSED' })
+
+    const parsed = JSON.parse(logSpy.mock.calls[0]!.arguments[0] as string)
+    assert.equal(parsed.error, 'ECONNREFUSED')
   })
 })
 
@@ -811,16 +804,15 @@ describe('logger scopes', () => {
     const storage = primaryLogger.scope('storage', { target: 'tgt-1' })
     storage.scope('search', { engine: 'db' }).info('from the grandchild')
     storage.info('from the child')
-    primaryLogger.info('from the parent')
+    primaryLogger.info('boot', 'from the parent')
 
     const [grandchild, child, parent] = parseLines(logSpy)
     assert.equal(grandchild!.engine, 'db')
     assert.equal(child!.scope, 'storage')
     assert.equal(child!.engine, undefined)
-    // -> `legacy`, not absent: the parent call above is the pre-scope `(msg, context?)` shape, which
-    //    the renderer files under its own sentinel. What matters here is that it is NOT `storage` —
-    //    the child never wrote its scope or its fields back onto the logger it was built from.
-    assert.equal(parent!.scope, 'legacy')
+    // -> The parent names its own scope, and what matters here is that it is NOT `storage` — the
+    //    child never wrote its scope or its fields back onto the logger it was built from.
+    assert.equal(parent!.scope, 'boot')
     assert.equal(parent!.target, undefined)
   })
 

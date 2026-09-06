@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- this file IS the sink: `console` here is where every log line is actually written. */
 import { styleText } from 'node:util'
 import EventEmitter from 'node:events'
 import type { LogScope } from './logScopes.ts'
@@ -45,26 +46,22 @@ export interface LogFrame {
 }
 
 /**
- * Both call shapes a level accepts for the duration of Phase 2.
+ * The one call shape a level accepts: `(scope, message, fields?)`.
  *
- * `(scope, message, fields?)` is the real one. The legacy `(msg, context?)` overload is what the
- * remaining un-swept call sites still use; it renders under the sentinel scope `legacy`, so a grep
- * over the output says how much of the sweep is left. Phase 2's last task (OpenProject #2668)
- * deletes the overload and the branch behind it together.
+ * There was briefly a second — the legacy `(msg, context?)` overload #2660 kept so that un-swept
+ * call sites still compiled while the three area sweeps ran, rendering under a `legacy` sentinel
+ * scope so a grep over the output said how much was left. #2668 deleted it, and deleting it is what
+ * makes the type checker the gate: a call the sweeps missed no longer has an overload to land on.
+ * Do not reintroduce one.
  *
- * A bare `Error` as the `message` of the new shape is a type error, on purpose: an error goes in
- * `fields.error`, where the renderer can put the situation and the stack in ONE record.
+ * A bare `Error` as the `message` is a type error, on purpose: an error goes in `fields.error`,
+ * where the renderer can put the situation and the stack in ONE record.
  */
-export type LogFn = {
-  (scope: LogScope, message: string, fields?: LogFields): void
-  (msg: unknown, context?: LogFields): void
-}
+export type LogFn = (scope: LogScope, message: string, fields?: LogFields) => void
 
 /**
- * A level method on a scoped child. The scope is already fixed, so what is left is the same
- * `(message, fields?)` tail the parent's own new-shape call takes — and only that: the legacy
- * `(msg, context?)` overload is a Phase 2 bridge for un-swept call sites, and a child is new API
- * with nothing to bridge.
+ * A level method on a scoped child. The scope is already fixed, so what is left is the
+ * `(message, fields?)` tail.
  */
 export type ScopedLogFn = (message: string, fields?: LogFields) => void
 
@@ -94,13 +91,6 @@ export interface ScopedLogger {
  */
 const BACKLOG_SIZE = 500
 
-/**
- * The scope a legacy `(msg, context?)` call is filed under. Deliberately NOT a member of the
- * `LOG_SCOPES` vocabulary: it is a renderer-internal sentinel, so passing `'legacy'` as a real first
- * argument stays something the Phase 2 structural test can refuse.
- */
-const LEGACY_SCOPE = 'legacy'
-
 const LEVELS: LogLevel[] = ['error', 'warn', 'info', 'debug']
 const LOG_FORMATS: LogFormat[] = ['text', 'json']
 
@@ -119,14 +109,14 @@ const LEVEL_WIDTH = 5
 const SCOPE_WIDTH = 8
 
 /**
- * One call, normalized: whichever shape the caller used, the renderers see the same three things.
+ * One call, normalized: what the renderers see, whichever level it came in on.
  *
- * The discriminator is `typeof b === 'string'` on top of `typeof a === 'string'` — the new shape's
- * second argument is always a message, the legacy shape's is always a context object or absent, and
- * a grep over `backend/` confirms no legacy call site passes a string there.
+ * The only thing left to normalize now that `(scope, message, fields?)` is the only shape is
+ * `fields.error` — lifted out of the fields into its own slot when (and only when) it really is an
+ * `Error`, so `buildFrame` has one place to look for a stack.
  */
 interface LogRecord {
-  scope: string
+  scope: LogScope
   message: string
   fields: LogFields
   error?: Error
@@ -136,27 +126,9 @@ function isError(value: unknown): value is Error {
   return value instanceof Error
 }
 
-function normalizeCall(a: unknown, b?: unknown, c?: LogFields): LogRecord {
-  const isNewShape = typeof a === 'string' && typeof b === 'string'
-  const scope = isNewShape ? a : LEGACY_SCOPE
-  const rawFields = (isNewShape ? c : (b as LogFields | undefined)) ?? {}
-
-  // -> The legacy shape's message may be anything, `Error` included, and the stack-as-message trick
-  //    (OpenProject #939) is what kept that call readable before there was an `error` field. Route
-  //    it into `fields.error` instead, so both shapes reach the renderers with the situation in
-  //    `message` and the error in one place.
-  let message: string
+function normalizeCall(scope: LogScope, message: string, fields?: LogFields): LogRecord {
+  const { error: fieldError, ...rest } = fields ?? {}
   let error: Error | undefined
-  if (isNewShape) {
-    message = b as string
-  } else if (isError(a)) {
-    message = a.message
-    error = a
-  } else {
-    message = String(a)
-  }
-
-  const { error: fieldError, ...rest } = rawFields
   if (isError(fieldError)) {
     error = fieldError
   } else if (fieldError !== undefined) {
@@ -262,11 +234,7 @@ function buildFrame(
     timestamp,
     instance,
     level,
-    // -> `legacy` is not a member of the vocabulary — it is the sentinel an un-swept
-    //    `(msg, context?)` call renders under, and OpenProject #2668 deletes that overload and this
-    //    cast together. Narrow and deliberate, rather than widening the exported frame contract that
-    //    the Live Log page reads.
-    scope: record.scope as LogScope,
+    scope: record.scope,
     message: record.message,
     fields,
     ...(record.error?.stack ? { stack: record.error.stack } : {})
@@ -455,13 +423,13 @@ export default {
     primaryLogger.backlog = () => [...backlog]
 
     LEVELS.forEach((lvl) => {
-      primaryLogger[lvl] = ((a: unknown, b?: unknown, c?: LogFields) => {
-        primaryLogger.emit(lvl, a, b, c)
+      primaryLogger[lvl] = ((scope: LogScope, message: string, fields?: LogFields) => {
+        primaryLogger.emit(lvl, scope, message, fields)
       }) as LogFn
 
       if (!ignoreNextLevels) {
-        primaryLogger.on(lvl, (a: unknown, b?: unknown, c?: LogFields) => {
-          const record = normalizeCall(a, b, c)
+        primaryLogger.on(lvl, (scope: LogScope, message: string, fields?: LogFields) => {
+          const record = normalizeCall(scope, message, fields)
           const frame = buildFrame(record, lvl, new Date().toISOString(), WIKI.INSTANCE_ID)
           // -> A stack is noise on a warning an operator has already decided to live with, and the
           //    whole point of the record on an error. `warn` gets one only when the operator has

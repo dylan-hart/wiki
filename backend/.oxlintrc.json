@@ -10,6 +10,9 @@
   "categories": {
     "correctness": "error"
   },
+  "rules": {
+    "no-console": "error"
+  },
   "ignorePatterns": [
     "node_modules/**",
     "**/*.min.js",
