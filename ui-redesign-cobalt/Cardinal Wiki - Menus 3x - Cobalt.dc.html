@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5ff;font-family:Barlow,system-ui,sans-serif}
+a{color:#1f4fd6;text-decoration:none}a:hover{color:#1a3fb0}
+</style></helmet>
+
+<div style="background:#f2f5ff;min-height:100vh;padding:28px" data-screen-label="Menus and pickers">
+  <div style="display:flex;align-items:center;gap:12px">
+    <svg width="30" height="30" viewBox="0 0 32 32" style="flex:none"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#10194a"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#ff4d5a"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#10194a"></path></svg>
+    <div>
+      <div style="font:700 22px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#10194a;text-transform:uppercase">Cardinal</div>
+      <div style="font:500 8.5px/1.3 'Roboto Mono',monospace;letter-spacing:.22em;color:#4a5580;text-transform:uppercase">Menus &amp; pickers</div>
+    </div>
+  </div>
+  <div style="font:400 13.5px/1.6 Barlow;color:#4a5580;max-width:760px;padding:10px 0 26px;text-wrap:pretty">Four surfaces that had no Ledger treatment yet: the create menu, the same menu as the sidebar's right-click, the Browse panel's up button, and the tree-browser dialog that names a new page. Menu rows carry the 34px hairline plate the settings rows already use, so a menu and a settings list read as the same material.</div>
+
+  <div style="display:flex;flex-direction:column;gap:34px">
+
+    <!-- 1 — CREATE NEW PAGE MENU -->
+    <div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c8303c;text-transform:uppercase">01 &nbsp;Create menu</div>
+      <div style="font:400 13px/1.6 Barlow;color:#4a5580;max-width:640px;padding:6px 0 14px">Opened by the header's New page button, anchored bottom-right to top-right so its edge lines up under the button. One row per editor the site has enabled, then the two imports, then assets behind a rule.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+        <div style="flex:none">
+          <div style="display:flex;justify-content:flex-end;width:296px">
+            <div style="height:32px;background:#c8303c;color:#fff;border-radius:6px;box-shadow:0 4px 14px rgba(200,48,60,.35);display:flex;align-items:center;gap:8px;padding:0 14px;font:500 12.5px Barlow;white-space:nowrap;position:relative">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><path d="M12 5v14M5 12h14"></path></svg>New page
+              <span style="position:absolute;bottom:-1px;left:0;right:0;height:1px;background:#fff"></span>
+            </div>
+          </div>
+          <div style="width:296px;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);box-shadow:0 10px 28px rgba(28,34,51,.14);padding:6px 0;position:relative">
+            <sc-if value="{{ experimentalEditors }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:12px;padding:5px 12px">
+                <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M3 4h18v11H3z"></path><path d="M12 15v4M9 21l3-2 3 2"></path></svg></div>
+                <span style="font:400 13.5px Barlow;color:#1a2038;flex:1;min-width:0">New page</span>
+                <span style="font:500 9px 'Roboto Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6699;border:1px solid #dfe5f5;padding:2px 5px;flex:none">Beta</span>
+              </div>
+            </sc-if>
+            <div style="display:flex;align-items:center;gap:12px;padding:5px 12px;background:#e6edff">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.5"><path d="M3 5h18v14H3z"></path><path d="M6.5 15.5V9l2.75 3.25L12 9v6.5"></path><path d="M15.25 9v4.25M15.25 13.25l1.75 1.75 1.75-1.75"></path></svg></div>
+              <span style="font:500 13.5px Barlow;color:#10194a;flex:1;min-width:0">Markdown page</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:5px 12px">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M4 3l1.4 16.4L12 21l6.6-1.6L20 3z"></path><path d="M8 8h8l-.4 4.4H10l.2 3 2.8.8 2.8-.8"></path></svg></div>
+              <span style="font:400 13.5px Barlow;color:#1a2038;flex:1;min-width:0">HTML page</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:5px 12px">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path><path d="M9 12h6M9 16h4"></path></svg></div>
+              <span style="font:400 13.5px Barlow;color:#1a2038;flex:1;min-width:0">AsciiDoc page</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:5px 12px">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M4 6.5l8 5.5-8 5.5z"></path><path d="M13 6.5l7 5.5-7 5.5z"></path></svg></div>
+              <span style="font:400 13.5px Barlow;color:#1a2038;flex:1;min-width:0">Redirection</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:5px 12px">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path><path d="M12 12v6M9 15h6"></path></svg></div>
+              <span style="font:400 13.5px Barlow;color:#1a2038;flex:1;min-width:0">Import a page</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:5px 12px">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M6 20c4.5 0 6-3.2 6-7.5V4.5"></path><path d="M18 20c-4.5 0-6-3.2-6-7.5"></path><path d="M9 7.5L12 4.5l3 3"></path></svg></div>
+              <span style="font:400 13.5px Barlow;color:#1a2038;flex:1;min-width:0">Batch import&hellip;</span>
+            </div>
+            <sc-if value="{{ assetUpload }}" hint-placeholder-val="{{ true }}">
+              <div style="height:1px;background:#dfe5f5;margin:6px 12px"></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:5px 12px">
+                <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M21 12V4H3v16h9"></path><path d="M3 16l4-4 3 3 3-3 2 2"></path><circle cx="9" cy="9" r="1.3"></circle><path d="M16 19h6M19 16v6"></path></svg></div>
+                <span style="font:400 13.5px Barlow;color:#1a2038;flex:1;min-width:0">Upload an asset</span>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="flex:1 1 260px;min-width:240px;display:flex;flex-direction:column;gap:10px;padding-top:40px">
+          <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#5a6699;text-transform:uppercase">Rules</div>
+          <div style="font:400 12.5px/1.6 Barlow;color:#4a5580">A row is present only if the site has that editor enabled; nothing sits here disabled. The Markdown row is the hovered state — a full-strength label, a plate that keeps its hairline, and the accent taken by the glyph rather than the row.</div>
+          <div style="font:400 12.5px/1.6 Barlow;color:#4a5580">Redirection is always offered: it authors nothing, so no editor toggle governs it. The asset rule only appears where uploading is permitted.</div>
+          <div style="font:400 12.5px/1.6 Barlow;color:#4a5580">Corner marks on two opposite corners only. A menu is a light object — the full four belong to dialogs and cards.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:#dfe5f5"></div>
+
+    <!-- 2 — SIDEBAR CONTEXT MENU -->
+    <div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c8303c;text-transform:uppercase">02 &nbsp;Sidebar context menu</div>
+      <div style="font:400 13px/1.6 Barlow;color:#4a5580;max-width:640px;padding:6px 0 14px">The same menu, opened by right-click on a nav row and placed at the pointer. It gains a New folder rule, and the row it came from stays marked while it is open so the target is never in doubt. Only rows generated from the tree carry it — a hand-authored link has no path to create against.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+        <div style="flex:none;width:520px;max-width:100%;background:#e6edff;border-radius:6px;position:relative;height:412px;overflow:hidden">
+          <div style="width:255px;height:100%;background:#fff;border-right:1px solid #dfe5f5;box-sizing:border-box">
+            <div style="height:36px;display:flex;align-items:stretch;background:#e6edff;border-bottom:1px solid #dfe5f5">
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#1e2a5e"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><path d="M3.5 12h17M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>EN</div>
+              <span style="width:1px;background:#dfe5f5"></span>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#1e2a5e"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M3 6h6l2 2h10v12H3z"></path></svg>Browse</div>
+            </div>
+            <div style="padding:16px 0">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#5a6699;text-transform:uppercase;padding:0 18px 10px">Documentation</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#1e2a5e"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg>Getting started</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#1e2a5e"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>Architecture<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="margin-left:auto;flex:none"><path d="M6 10l6 6 6-6"></path></svg></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:500 13.5px Barlow;color:#10194a;background:#e6edff;box-shadow:inset 2px 0 0 #ff4d5a"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>Ingest<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6" style="margin-left:auto;flex:none"><path d="M6 10l6 6 6-6"></path></svg></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px 7px 34px;font:400 13.5px Barlow;color:#1e2a5e"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg>Workers</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#1e2a5e"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg>Runbooks</div>
+            </div>
+          </div>
+          <svg width="17" height="22" viewBox="0 0 24 30" style="position:absolute;left:150px;top:150px" fill="#10194a" stroke="#fff" stroke-width="1.4"><path d="M3 2l16 12h-7l3 8-3 1.4-3-7.6-6 5z"></path></svg>
+          <div style="position:absolute;left:162px;top:166px;width:262px;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);box-shadow:0 10px 28px rgba(28,34,51,.18);padding:6px 0">
+            <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#5a6699;padding:2px 12px 6px">Create in /docs/ingest</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 12px">
+              <div style="width:28px;height:28px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M3 5h18v14H3z"></path><path d="M6.5 15.5V9l2.75 3.25L12 9v6.5"></path><path d="M15.25 9v4.25M15.25 13.25l1.75 1.75 1.75-1.75"></path></svg></div>
+              <span style="font:400 13px Barlow;color:#1a2038">Markdown page</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 12px">
+              <div style="width:28px;height:28px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M4 3l1.4 16.4L12 21l6.6-1.6L20 3z"></path><path d="M8 8h8l-.4 4.4H10l.2 3 2.8.8 2.8-.8"></path></svg></div>
+              <span style="font:400 13px Barlow;color:#1a2038">HTML page</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 12px">
+              <div style="width:28px;height:28px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M4 6.5l8 5.5-8 5.5z"></path><path d="M13 6.5l7 5.5-7 5.5z"></path></svg></div>
+              <span style="font:400 13px Barlow;color:#1a2038">Redirection</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 12px">
+              <div style="width:28px;height:28px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path><path d="M12 12v6M9 15h6"></path></svg></div>
+              <span style="font:400 13px Barlow;color:#1a2038">Import a page</span>
+            </div>
+            <div style="height:1px;background:#dfe5f5;margin:6px 12px"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 12px">
+              <div style="width:28px;height:28px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.5"><path d="M3 6h6l2 2h10v12H3z"></path><path d="M12 13v4M10 15h4"></path></svg></div>
+              <span style="font:400 13px Barlow;color:#1a2038">New folder&hellip;</span>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1 1 260px;min-width:240px;display:flex;flex-direction:column;gap:10px">
+          <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#5a6699;text-transform:uppercase">Rules</div>
+          <div style="font:400 12.5px/1.6 Barlow;color:#4a5580">Right-clicking a folder creates inside it; right-clicking a page creates beside it, in the folder it lives in. The mono line at the top of the panel says which of the two happened, so the menu is never ambiguous about where the page will land.</div>
+          <div style="font:400 12.5px/1.6 Barlow;color:#4a5580">Plates drop to 28px here and the imports thin out to one row — a pointer-anchored menu should not be taller than the tree it covers.</div>
+          <div style="font:400 12.5px/1.6 Barlow;color:#4a5580">The target row keeps the accent edge it wears while open. On touch, a long press opens the same panel at the finger.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:#dfe5f5"></div>
+
+    <!-- 3 — UP BUTTON -->
+    <div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c8303c;text-transform:uppercase">03 &nbsp;Up one level</div>
+      <div style="font:400 13px/1.6 Barlow;color:#4a5580;max-width:640px;padding:6px 0 14px">A 28px square plate, the one control in the Browse panel's 52px header. It is absent at the root rather than sitting disabled, and slides in from the left as its own space opens, so the folder name beside it moves with it instead of jumping.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+        <div style="flex:none">
+          <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#5a6699;padding-bottom:8px">At the root &mdash; no button</div>
+          <div style="width:270px;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);box-shadow:0 10px 28px rgba(28,34,51,.14)">
+            <div style="height:52px;box-sizing:border-box;padding:0 8px 0 12px;display:flex;align-items:center">
+              <div style="min-width:0;flex:1">
+                <div style="font:400 11.5px 'Roboto Mono',monospace;color:#5a6699">/</div>
+              </div>
+            </div>
+            <div style="height:1px;background:#dfe5f5"></div>
+            <div style="padding:4px 0">
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;font:400 13px Barlow;color:#1a2038"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg><span style="flex:1;min-width:0">Documentation</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;font:400 13px Barlow;color:#1a2038"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg><span style="flex:1;min-width:0">Operations</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;font:400 13px Barlow;color:#1a2038"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg><span style="flex:1;min-width:0">Release calendar</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="flex:none">
+          <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#5a6699;padding-bottom:8px">Two levels down</div>
+          <div style="width:270px;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);box-shadow:0 10px 28px rgba(28,34,51,.14)">
+            <div style="height:52px;box-sizing:border-box;padding:0 8px 0 12px;display:flex;align-items:center">
+              <div style="width:28px;height:28px;flex:none;margin-inline-end:12px;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M12 20V5M6 11l6-6 6 6"></path></svg></div>
+              <div style="min-width:0;flex:1">
+                <div style="font:500 13.5px Barlow;color:#10194a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ingest</div>
+                <div style="font:400 11.5px 'Roboto Mono',monospace;color:#5a6699;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">/docs/ingest</div>
+              </div>
+            </div>
+            <div style="height:1px;background:#dfe5f5"></div>
+            <div style="padding:4px 0">
+              <div style="display:flex;align-items:stretch">
+                <div style="display:flex;flex:1;min-width:0;align-items:center;gap:8px;padding:6px 12px;font:500 13px Barlow;color:#c8303c"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg><span style="flex:1;min-width:0">Workers</span></div>
+                <div style="display:flex;align-items:center;padding:0 10px;border-left:1px solid #e4e9f2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><path d="M9 6l6 6-6 6"></path></svg></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;font:400 13px Barlow;color:#1a2038"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg><span style="flex:1;min-width:0">Backfill</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;font:400 13px Barlow;color:#1a2038"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg><span style="flex:1;min-width:0">Schemas</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg></div>
+              <div style="padding:8px 12px;font:400 12px Barlow;color:#5a6699">Showing the first 50 of this folder.</div>
+            </div>
+          </div>
+        </div>
+        <div style="flex:1 1 280px;min-width:250px;display:flex;flex-direction:column;gap:12px">
+          <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#5a6699;text-transform:uppercase">The plate, everywhere it appears</div>
+          <div style="display:flex;flex-direction:column;gap:1px;background:#dfe5f5;border:1px solid #dfe5f5">
+            <div style="background:#fff;display:flex;align-items:center;gap:12px;padding:9px 12px">
+              <div style="width:28px;height:28px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="opacity:.7"><path d="M12 20V5M6 11l6-6 6 6"></path></svg></div>
+              <div style="font:400 12.5px/1.45 Barlow;color:#4a5580;flex:1;min-width:0">At rest &mdash; glyph at 70%, so it does not compete with the folder name beside it</div>
+            </div>
+            <div style="background:#e6edff;display:flex;align-items:center;gap:12px;padding:9px 12px">
+              <div style="width:28px;height:28px;flex:none;border:1px solid #7f8ed1;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e2a5e" stroke-width="1.5"><path d="M12 20V5M6 11l6-6 6 6"></path></svg></div>
+              <div style="font:400 12.5px/1.45 Barlow;color:#4a5580;flex:1;min-width:0">Hover &mdash; full strength, hairline darkens. Tooltip reads <span style="color:#1a2038">Up one level</span></div>
+            </div>
+            <div style="background:#fff;display:flex;align-items:center;gap:12px;padding:9px 12px">
+              <div style="width:28px;height:28px;flex:none;border:1px solid #ff4d5a;background:#fff;display:flex;align-items:center;justify-content:center;outline:1px solid #ff4d5a;outline-offset:2px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.5"><path d="M12 20V5M6 11l6-6 6 6"></path></svg></div>
+              <div style="font:400 12.5px/1.45 Barlow;color:#4a5580;flex:1;min-width:0">Keyboard focus &mdash; the accent ring, 2px clear of the plate</div>
+            </div>
+          </div>
+          <div style="font:400 12.5px/1.6 Barlow;color:#4a5580">The same plate carries the same meaning in the file manager toolbar and in the tree-browser dialog below. Wherever it appears it sits at the leading edge of the header it belongs to, ahead of the path it would leave.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:#dfe5f5"></div>
+
+    <!-- 4 — SAVE AS DIALOG -->
+    <div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c8303c;text-transform:uppercase">04 &nbsp;Save as&hellip;</div>
+      <div style="font:400 13px/1.6 Barlow;color:#4a5580;max-width:640px;padding:6px 0 14px">Where a new page gets its name. The tree picks the folder and the field names only the leaf, so a path is assembled rather than typed — the path bar between them always shows what the two add up to. The same dialog serves duplicate and rename.</div>
+      <div style="background:rgba(28,34,51,.28);padding:24px;display:flex;justify-content:center">
+        <div style="width:860px;max-width:100%;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 24px 60px rgba(16,25,74,.28);position:relative">
+          <div style="background:#1c2a70;color:#fff;padding:11px 16px;display:flex;align-items:center;gap:10px">
+            <sc-if value="{{ isSave }}" hint-placeholder-val="{{ true }}">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff7a84" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path><path d="M12 12v6M9 15h6"></path></svg>
+            </sc-if>
+            <sc-if value="{{ isDuplicate }}" hint-placeholder-val="{{ false }}">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff7a84" stroke-width="1.5" style="flex:none"><path d="M8 3h8l3 3v11H8z"></path><path d="M5 7v14h11"></path></svg>
+            </sc-if>
+            <sc-if value="{{ isRename }}" hint-placeholder-val="{{ false }}">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ff7a84" stroke-width="1.5" style="flex:none"><path d="M12 5v14M9 5h6M9 19h6"></path><path d="M4 9v6M20 9v6"></path></svg>
+            </sc-if>
+            <span style="font:600 13px 'Barlow Condensed',sans-serif;letter-spacing:.09em;text-transform:uppercase">{{ dialogTitle }}</span>
+          </div>
+          <div style="display:flex;flex-wrap:nowrap;height:300px;overflow:hidden;border-bottom:1px solid #dfe5f5">
+            <div style="width:33.333%;background:#e6edff;border-right:1px solid #dfe5f5;overflow:hidden;padding:6px 0">
+              <div style="display:flex;align-items:center;gap:7px;padding:5px 12px;font:400 13px Barlow;color:#1a2038"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>operations</div>
+              <div style="display:flex;align-items:center;gap:7px;padding:5px 12px;font:400 13px Barlow;color:#1a2038"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7" style="flex:none;transform:rotate(90deg)"><path d="M9 6l6 6-6 6"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>docs</div>
+              <div style="display:flex;align-items:center;gap:7px;padding:5px 12px 5px 30px;font:500 13px Barlow;color:#fff;background:#ff4d5a"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>ingest</div>
+              <div style="display:flex;align-items:center;gap:7px;padding:5px 12px 5px 30px;font:400 13px Barlow;color:#1a2038"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>runbooks</div>
+              <div style="display:flex;align-items:center;gap:7px;padding:5px 12px;font:400 13px Barlow;color:#1a2038"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>reference</div>
+            </div>
+            <div style="width:66.666%;overflow:hidden;padding:8px 12px">
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 6px;font:400 13px Barlow;color:#1a2038"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5" style="flex:none"><path d="M3 6h6l2 2h10v12H3z"></path></svg>schemas</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 6px;font:400 13px Barlow;color:#1a2038"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg>Deploying the ingest workers</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 6px;font:400 13px Barlow;color:#1a2038"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg>Backfilling a partition</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 6px;font:400 13px Barlow;color:#1a2038"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg>Dead-letter queue</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 6px;font:400 13px Barlow;color:#1a2038"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.5" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg>Ingest SLOs</div>
+            </div>
+          </div>
+          <div style="padding:6px 16px 0;font:italic 400 12px Barlow;color:#5a6699">Right-click a folder in the tree to create a new one inside it.</div>
+          <div style="padding:5px 16px;background:#e6edff;border-bottom:1px solid #dfe5f5;font:400 12px 'Roboto Mono',monospace;color:#1e2a5e">/docs/ingest/</div>
+          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:14px">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path><path d="M12 12v6M9 15h6"></path></svg></div>
+              <div style="flex:1;min-width:0">
+                <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#5a6699;padding-bottom:4px">Page title</div>
+                <div style="height:34px;box-sizing:border-box;border:1px solid #7f8ed1;background:#fff;display:flex;align-items:center;padding:0 10px;font:400 13.5px Barlow;color:#10194a">Rotating ingest credentials<span style="width:1px;height:17px;background:#ff4d5a;margin-left:1px"></span></div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:14px">
+              <div style="width:34px;height:34px;flex:none;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.5"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path><path d="M8 17.5c0-3 2-4.5 5-4.5"></path><path d="M10.5 10.5L13.5 13l-3 2.5"></path></svg></div>
+              <div style="flex:1;min-width:0">
+                <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#5a6699;padding-bottom:4px">Path name</div>
+                <div style="height:34px;box-sizing:border-box;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;padding:0 10px;font:400 13px 'Roboto Mono',monospace;color:#1a2038">rotating-ingest-credentials</div>
+                <div style="font:400 11.5px Barlow;color:#5a6699;padding-top:4px">The last segment only &mdash; the folder above comes from the tree.</div>
+              </div>
+            </div>
+            <sc-if value="{{ isRename }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:14px;padding-left:48px">
+                <span style="width:15px;height:15px;flex:none;border:1px solid #c8303c;background:#ff4d5a;display:flex;align-items:center;justify-content:center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M6 12.5l4 4 8-9"></path></svg></span>
+                <span style="font:400 13px Barlow;color:#1a2038">Also move 2 translations of this page</span>
+              </div>
+            </sc-if>
+          </div>
+          <div style="border-top:1px solid #dfe5f5;display:flex;align-items:center;gap:10px;padding:10px 16px">
+            <div style="width:30px;height:30px;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><circle cx="5.5" cy="12" r="1.3"></circle><circle cx="12" cy="12" r="1.3"></circle><circle cx="18.5" cy="12" r="1.3"></circle></svg></div>
+            <span style="font:400 11.5px Barlow;color:#5a6699">Display folders by title or by path</span>
+            <span style="flex:1"></span>
+            <div style="display:flex;align-items:center;gap:7px;height:32px;padding:0 14px;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);font:500 12.5px Barlow;color:#4a5580"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7"><path d="M6 6l12 12M18 6L6 18"></path></svg>Cancel</div>
+            <div style="display:flex;align-items:center;gap:7px;height:32px;padding:0 16px;background:#c8303c;color:#fff;border-radius:6px;box-shadow:0 4px 14px rgba(200,48,60,.35);font:500 12.5px Barlow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>{{ confirmLabel }}</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:26px;padding-top:16px">
+        <div style="flex:1 1 300px;min-width:260px;font:400 12.5px/1.6 Barlow;color:#4a5580">The tree column is tinted so it reads as its own column rather than running into the list beside it; both scroll independently inside the same fixed 300px, so a deep folder never pushes the fields off the dialog. Selection is the one accent fill on the sheet — the folder being saved into, and nothing else.</div>
+        <div style="flex:1 1 300px;min-width:260px;font:400 12.5px/1.6 Barlow;color:#4a5580">Typing a title slugs the path below it until the path is edited by hand, after which the two are independent. A slash in the path name is refused inline and disables Save rather than failing after the click. Clicking a page in the list adopts its title and slug, which is how the dialog offers overwriting.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;experimentalEditors&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Create menu&quot;},&quot;assetUpload&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Create menu&quot;},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;savePage&quot;,&quot;duplicatePage&quot;,&quot;renamePage&quot;],&quot;default&quot;:&quot;savePage&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Tree browser dialog&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const mode = this.props.mode ?? 'savePage';
+    const titles = { savePage: 'Save as\u2026', duplicatePage: 'Duplicate page', renamePage: 'Rename / move page' };
+    return {
+      experimentalEditors: this.props.experimentalEditors ?? true,
+      assetUpload: this.props.assetUpload ?? true,
+      isSave: mode === 'savePage',
+      isDuplicate: mode === 'duplicatePage',
+      isRename: mode === 'renamePage',
+      dialogTitle: titles[mode] ?? titles.savePage,
+      confirmLabel: mode === 'savePage' ? 'Save' : mode === 'duplicatePage' ? 'Duplicate' : 'Move'
+    };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#2b3040;font-family:Barlow,system-ui,sans-serif}
+a{color:#1f4fd6;text-decoration:none}a:hover{color:#1a3fb0}
+</style></helmet>
+<div style="min-height:100vh;background:linear-gradient(rgba(20,23,31,.72),rgba(20,23,31,.72)),repeating-linear-gradient(135deg,#3a4256 0 12px,#333b4d 12px 24px);padding:24px;box-sizing:border-box" data-screen-label="Table editor overlay 3.x">
+  <div style="background:#f2f5ff;border-radius:12px;overflow:hidden;box-shadow:0 0 30px rgba(0,0,0,.4);display:flex;flex-direction:column;min-height:calc(100vh - 48px);box-sizing:border-box">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#1c2a70;flex:none;flex-wrap:wrap">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff7a84" stroke-width="1.6" style="flex:none"><rect x="3" y="4" width="18" height="16"></rect><path d="M3 10h18M3 15h18M9 4v16M15 4v16"></path></svg>
+      <span style="font:600 15px 'Barlow Condensed',sans-serif;letter-spacing:.08em;color:#fff;text-transform:uppercase;white-space:nowrap">Table editor</span>
+      <span style="flex:1"></span>
+      <div style="display:flex;align-items:stretch;flex:none">
+        <div style="height:28px;background:#fff;color:#1e2a5e;display:flex;align-items:center;gap:7px;padding:0 12px;font:500 12.5px Barlow;white-space:nowrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.8" style="flex:none"><path d="M6 6l12 12M18 6L6 18"></path></svg>Cancel</div>
+        <div style="height:28px;background:#22a37f;color:#fff;display:flex;align-items:center;gap:7px;padding:0 12px;font:500 12.5px Barlow;white-space:nowrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="flex:none"><path d="M5 12l4.5 4.5L19 7"></path></svg>Update</div>
+      </div>
+    </div>
+
+    <div style="flex:none;background:#e6edff;border-bottom:1px solid #dfe5f5;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 16px">
+      <div style="height:28px;background:#c8303c;color:#fff;border-radius:6px;box-shadow:0 4px 14px rgba(200,48,60,.35);display:flex;align-items:center;gap:6px;padding:0 10px;font:500 12px Barlow;white-space:nowrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="flex:none"><path d="M12 5v14M5 12h14"></path></svg>Add row</div>
+      <div style="height:28px;background:#c8303c;color:#fff;border-radius:6px;box-shadow:0 4px 14px rgba(200,48,60,.35);display:flex;align-items:center;gap:6px;padding:0 10px;font:500 12px Barlow;white-space:nowrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="flex:none"><path d="M12 5v14M5 12h14"></path></svg>Add column</div>
+      <span style="width:1px;height:22px;background:#b6bfe0;margin:0 4px"></span>
+      <div style="display:flex;align-items:center;gap:8px;font:400 12.5px Barlow;color:#1e2a5e;white-space:nowrap"><span style="width:13px;height:13px;border:1px solid #c5cff5;background:#fff;flex:none"></span>Headerless</div>
+      <div style="display:flex;align-items:center;gap:8px;font:400 12.5px Barlow;color:#1e2a5e;white-space:nowrap"><span style="width:13px;height:13px;background:#ff4d5a;border:1px solid #ff4d5a;display:flex;align-items:center;justify-content:center;flex:none"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l4.5 4.5L19 7"></path></svg></span>Compact</div>
+      <span style="width:1px;height:22px;background:#b6bfe0;margin:0 4px"></span>
+      <div style="height:28px;background:#1e2a5e;color:#fff;display:flex;align-items:center;gap:6px;padding:0 10px;font:500 12px Barlow;white-space:nowrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" style="flex:none"><circle cx="12" cy="12" r="8.5"></circle><circle cx="9" cy="10" r="1.3"></circle><circle cx="15" cy="10" r="1.3"></circle><circle cx="12" cy="15" r="1.3"></circle></svg>Styling<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" style="flex:none"><path d="M6 10l6 6 6-6"></path></svg></div>
+      <span style="flex:1"></span>
+      <div style="font:400 11.5px Barlow;color:#1e2a5e">Paste from a spreadsheet to fill the grid.</div>
+    </div>
+
+    <div style="padding:16px;overflow-x:auto">
+      <table style="border-collapse:collapse">
+        <thead>
+          <tr>
+            <th style="padding:2px 4px;border:0">
+              <div style="display:flex;align-items:center;justify-content:center;gap:4px">
+                <div style="width:24px;height:22px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7"><path d="M4 6h16M4 12h10M4 18h13"></path></svg></div>
+                <div style="width:24px;height:22px;display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.9"><path d="M6 6l12 12M18 6L6 18"></path></svg></div>
+              </div>
+            </th>
+            <th style="padding:2px 4px;border:0">
+              <div style="display:flex;align-items:center;justify-content:center;gap:4px">
+                <div style="width:24px;height:22px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7"><path d="M4 6h16M7 12h10M6 18h12"></path></svg></div>
+                <div style="width:24px;height:22px;display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.9"><path d="M6 6l12 12M18 6L6 18"></path></svg></div>
+              </div>
+            </th>
+            <th style="padding:2px 4px;border:0">
+              <div style="display:flex;align-items:center;justify-content:center;gap:4px">
+                <div style="width:24px;height:22px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7"><path d="M4 6h16M10 12h10M7 18h13"></path></svg></div>
+                <div style="width:24px;height:22px;display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.9"><path d="M6 6l12 12M18 6L6 18"></path></svg></div>
+              </div>
+            </th>
+            <th style="width:32px;padding:0 2px;border:0"></th>
+          </tr>
+          <tr>
+            <th style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:600 14px Barlow;color:#10194a;text-align:left">Setting</div></th>
+            <th style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:600 14px Barlow;color:#10194a;text-align:center">Default</div></th>
+            <th style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:600 14px Barlow;color:#10194a;text-align:right">Gate</div></th>
+            <th style="width:32px;padding:0 2px;border:0"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:left">batch size</div></td>
+            <td style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:center">2</div></td>
+            <td style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:right">&mdash;</div></td>
+            <td style="width:32px;padding:0 2px;border:0;text-align:center"><div style="width:24px;height:22px;display:inline-flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.9"><path d="M6 6l12 12M18 6L6 18"></path></svg></div></td>
+          </tr>
+          <tr>
+            <td style="padding:0;border:1px solid #dfe5f5;background:#f8f9fc"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:left">p99 latency</div></td>
+            <td style="padding:0;border:1px solid #dfe5f5;background:#f8f9fc"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:center">250 ms</div></td>
+            <td style="padding:0;border:1px solid #1e2a5e;background:#e6edff"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:right">abort<span style="display:inline-block;width:1px;height:15px;background:#ff4d5a;vertical-align:middle;margin-left:2px"></span></div></td>
+            <td style="width:32px;padding:0 2px;border:0;text-align:center"><div style="width:24px;height:22px;display:inline-flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.9"><path d="M6 6l12 12M18 6L6 18"></path></svg></div></td>
+          </tr>
+          <tr>
+            <td style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:left">drain timeout</div></td>
+            <td style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:center">4 min</div></td>
+            <td style="padding:0;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)"><div style="width:200px;padding:7px 9px;font:400 14px Barlow;color:#10194a;text-align:right">warn</div></td>
+            <td style="width:32px;padding:0 2px;border:0;text-align:center"><div style="width:24px;height:22px;display:inline-flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.9"><path d="M6 6l12 12M18 6L6 18"></path></svg></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="height:34px;box-sizing:border-box;background:#e6edff;border-top:1px solid #dfe5f5;border-bottom:1px solid #dfe5f5;display:flex;align-items:center;padding:0 16px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#1e2a5e;text-transform:uppercase">Markdown</div>
+    <div style="padding:16px">
+      <div style="background:#10194a;border-radius:8px;padding:14px 16px;overflow-x:auto">
+        <code style="display:block;color:#e6eaff;font:400 12.5px/1.8 'Roboto Mono',monospace;white-space:pre">|Setting|Default|Gate|
+|:--|:-:|--:|
+|batch size|2|—|
+|p99 latency|250 ms|abort|
+|drain timeout|4 min|warn|
+{.table-leading-col}</code>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440}}"></script>
+</body>
+</html>

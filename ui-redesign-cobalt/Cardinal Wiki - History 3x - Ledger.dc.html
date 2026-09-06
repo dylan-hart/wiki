@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#2b3040;font-family:Barlow,system-ui,sans-serif}
+a{color:#f08287;text-decoration:none}a:hover{color:#f08287}
+</style></helmet>
+<div style="min-height:100vh;background:linear-gradient(rgba(20,23,31,.72),rgba(20,23,31,.72)),repeating-linear-gradient(135deg,#3a4256 0 12px,#333b4d 12px 24px);padding:24px;box-sizing:border-box" data-screen-label="Page history overlay 3.x">
+  <div style="background:#1b1f2a;box-shadow:0 0 30px rgba(0,0,0,.4);display:flex;flex-direction:column;min-height:calc(100vh - 48px);box-sizing:border-box;border-top:10px solid #14171f">
+    <div style="position:relative;display:flex;align-items:center;gap:10px;padding:10px 14px;background:#242b3a;border-bottom:1px solid #2a3040">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f08287" stroke-width="1.6" style="flex:none"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v4h-4"></path><path d="M12 8v4.5l3.5 2"></path></svg>
+      <span style="font:600 15px 'Barlow Condensed',sans-serif;letter-spacing:.08em;color:#fff;text-transform:uppercase;white-space:nowrap">Page history</span>
+      <span style="position:absolute;left:50%;transform:translateX(-50%);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:400 12.8px Barlow;color:rgba(255,255,255,.6);pointer-events:none">Deploying the ingest workers</span>
+      <span style="flex:1"></span>
+      <div style="display:flex;align-items:stretch;flex:none">
+        <div style="height:26px;background:#e4676b;color:#fff;display:flex;align-items:center;padding:0 11px;font:500 12px Barlow;white-space:nowrap">Side by side</div>
+        <div style="height:26px;background:#fff;color:#1c2233;display:flex;align-items:center;padding:0 11px;font:500 12px Barlow;white-space:nowrap">Inline</div>
+      </div>
+      <div style="width:28px;height:26px;display:flex;align-items:center;justify-content:center;flex:none;margin-left:14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f08287" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"></path></svg></div>
+    </div>
+
+    <div style="display:flex;align-items:stretch;flex:1;min-height:600px">
+      <div style="flex:0 0 380px;background:#171b24;border-right:1px solid rgba(255,255,255,.08);position:relative;padding:16px 0">
+        <div style="position:absolute;top:0;bottom:0;left:0;width:31px;border-right:2px solid rgba(255,255,255,.12);border-bottom:2px solid rgba(255,255,255,.12);border-bottom-right-radius:16px"></div>
+
+        <div style="position:relative;display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 12px;padding:12px 16px;background:rgba(228,103,107,.16);box-shadow:inset 3px 0 0 #e4676b">
+          <div style="flex:0 0 28px;height:28px;border-radius:50%;background:#5f78a8;box-shadow:0 0 0 3px #171b24;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M4 20h4l11-11-4-4L4 16z"></path></svg></div>
+          <div style="flex:1 1 auto;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px"><strong style="font:600 13.6px Barlow;color:#fff">Updated</strong><span style="font:600 9px 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;background:#e4676b;color:#fff;padding:2px 6px">Current</span></div>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:rgba(255,255,255,.6);margin-top:2px">Tue 4:12 PM</div>
+            <div style="font:400 12px Barlow;color:rgba(255,255,255,.6)">Dylan Hart</div>
+          </div>
+          <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px">
+            <div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6"><circle cx="5.5" cy="12" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle></svg></div>
+            <div style="display:flex;align-items:stretch">
+              <div style="height:22px;width:24px;background:#38465f;color:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">A</div>
+              <div style="height:22px;width:24px;background:#e4676b;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">B</div>
+            </div>
+          </div>
+          <div style="flex:0 0 100%;min-width:0;padding-left:40px">
+            <div style="font:italic 400 12.5px Barlow;color:rgba(255,255,255,.8);margin-top:4px">Added the health gate flag to the rollout command.</div>
+            <div style="font:400 11.2px 'Roboto Mono',monospace;color:rgba(255,255,255,.45);margin-top:4px">Changed: content, description</div>
+          </div>
+        </div>
+
+        <div style="position:relative;display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 12px;padding:12px 16px;background:rgba(228,103,107,.16);box-shadow:inset 3px 0 0 #e4676b">
+          <div style="flex:0 0 28px;height:28px;border-radius:50%;background:#5f78a8;box-shadow:0 0 0 3px #171b24;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M4 20h4l11-11-4-4L4 16z"></path></svg></div>
+          <div style="flex:1 1 auto;min-width:0">
+            <strong style="font:600 13.6px Barlow;color:#fff">Updated</strong>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:rgba(255,255,255,.6);margin-top:2px">Mon 6:40 PM</div>
+            <div style="display:flex;align-items:center;gap:6px;font:400 12px Barlow;color:rgba(255,255,255,.6)">Maya Reyes<span style="font:600 8.5px 'Roboto Mono',monospace;letter-spacing:.12em;text-transform:uppercase;border:1px solid rgba(255,255,255,.35);color:rgba(255,255,255,.6);padding:1px 4px">via MCP</span></div>
+          </div>
+          <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px">
+            <div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6"><circle cx="5.5" cy="12" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle></svg></div>
+            <div style="display:flex;align-items:stretch">
+              <div style="height:22px;width:24px;background:#e4676b;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">A</div>
+              <div style="height:22px;width:24px;background:#38465f;color:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">B</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:relative;display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 12px;padding:12px 16px">
+          <div style="flex:0 0 28px;height:28px;border-radius:50%;background:#d9a441;box-shadow:0 0 0 3px #171b24;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1c2233" stroke-width="1.9"><circle cx="18" cy="5" r="2.3"></circle><circle cx="6" cy="12" r="2.3"></circle><circle cx="18" cy="19" r="2.3"></circle><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"></path></svg></div>
+          <div style="flex:1 1 auto;min-width:0">
+            <strong style="font:600 13.6px Barlow;color:#fff">Moved</strong>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:rgba(255,255,255,.6);margin-top:2px">Sat 11:02 AM</div>
+            <div style="font:400 12px Barlow;color:rgba(255,255,255,.6)">Sam Okafor</div>
+            <div style="font:400 11.5px 'Roboto Mono',monospace;color:rgba(255,255,255,.6)">/docs/ingest/workers</div>
+          </div>
+          <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px">
+            <div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6"><circle cx="5.5" cy="12" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle></svg></div>
+            <div style="display:flex;align-items:stretch">
+              <div style="height:22px;width:24px;background:#38465f;color:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">A</div>
+              <div style="height:22px;width:24px;background:#38465f;color:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">B</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:relative;display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 12px;padding:12px 16px">
+          <div style="flex:0 0 28px;height:28px;border-radius:50%;background:#5f9c86;box-shadow:0 0 0 3px #171b24;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 5v14M5 12h14"></path></svg></div>
+          <div style="flex:1 1 auto;min-width:0">
+            <strong style="font:600 13.6px Barlow;color:#fff">Created</strong>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:rgba(255,255,255,.6);margin-top:2px">12 Aug, 9:15 AM</div>
+            <div style="font:400 12px Barlow;color:rgba(255,255,255,.6)">Dylan Hart</div>
+          </div>
+          <div style="flex:0 0 auto;display:flex;align-items:center;gap:5px">
+            <div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6"><circle cx="5.5" cy="12" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="18.5" cy="12" r="1.4"></circle></svg></div>
+            <div style="display:flex;align-items:stretch">
+              <div style="height:22px;width:24px;background:#38465f;color:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">A</div>
+              <div style="height:22px;width:24px;background:#38465f;color:rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font:600 11px 'Roboto Mono',monospace">B</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:relative;display:flex;justify-content:center;padding:8px 16px 16px">
+          <div style="height:28px;border:1px solid #5f9c86;color:#8fd0b8;display:flex;align-items:center;padding:0 14px;font:500 12px Barlow">Load older versions</div>
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:0;background:#14171f;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.1);flex:none">
+          <div style="display:flex;align-items:center;gap:10px;flex:0 0 50%;min-width:0;padding:0 16px">
+            <span style="flex:0 0 24px;height:24px;background:#e4676b;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px 'Roboto Mono',monospace">A</span>
+            <div style="min-width:0">
+              <div style="font:400 13.6px Barlow;color:#e6eaf2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Mon 6:40 PM</div>
+              <div style="font:400 12px Barlow;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Maya Reyes (via MCP)</div>
+            </div>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1.6" style="margin-left:auto;flex:none"><path d="M4 12h16M14 6l6 6-6 6"></path></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex:0 0 50%;min-width:0;padding:0 16px">
+            <span style="flex:0 0 24px;height:24px;background:#e4676b;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px 'Roboto Mono',monospace">B</span>
+            <div style="min-width:0">
+              <div style="font:400 13.6px Barlow;color:#e6eaf2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Tue 4:12 PM</div>
+              <div style="font:400 12px Barlow;color:rgba(255,255,255,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Dylan Hart &mdash; Added the health gate flag</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex:1;display:flex;align-items:stretch;font:400 12.5px/1.9 'Roboto Mono',monospace;color:#c3cee2;overflow:hidden">
+          <div style="flex:1 1 50%;min-width:0;border-right:1px solid rgba(255,255,255,.1)">
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">8</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#f08287">## Rolling deploy</span></span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">9</span><span style="flex:1;min-width:0;padding:0 12px"><br></span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">10</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap">Run the deploy from the release host.</span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">11</span><span style="flex:1;min-width:0;padding:0 12px"><br></span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">12</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#8792ab">```bash</span></span></div>
+            <div style="display:flex;background:rgba(228,103,107,.16)"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#f08287;background:#11141b">13</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#f08287">-</span> cardinal-ctl deploy ingest-workers</span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">14</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#8792ab">```</span></span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">15</span><span style="flex:1;min-width:0;padding:0 12px"><br></span></div>
+          </div>
+          <div style="flex:1 1 50%;min-width:0">
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">8</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#f08287">## Rolling deploy</span></span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">9</span><span style="flex:1;min-width:0;padding:0 12px"><br></span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">10</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap">Run the deploy from the release host.</span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">11</span><span style="flex:1;min-width:0;padding:0 12px"><br></span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">12</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#8792ab">```bash</span></span></div>
+            <div style="display:flex;background:rgba(95,156,134,.18)"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#8fd0b8;background:#11141b">13</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#8fd0b8">+</span> cardinal-ctl deploy ingest-workers \</span></div>
+            <div style="display:flex;background:rgba(95,156,134,.18)"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#8fd0b8;background:#11141b">14</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#8fd0b8">+</span>   --batch 2 --gate p99_latency&lt;250ms</span></div>
+            <div style="display:flex"><span style="flex:none;width:44px;padding-right:10px;text-align:right;color:#3f4a63;background:#11141b">15</span><span style="flex:1;min-width:0;padding:0 12px;white-space:pre-wrap"><span style="color:#8792ab">```</span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440}}"></script>
+</body>
+</html>
