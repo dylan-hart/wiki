@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import BlockPickerOverlay from './BlockPickerOverlay.vue'
+import WBtn from '@/components/shared/WBtn.vue'
 
 import { mountWithApp } from '../../test/mount.js'
 
@@ -33,6 +34,13 @@ async function mountPicker(blocks) {
   const { wrapper } = mountWithApp(BlockPickerOverlay)
   await flushPromises()
   return wrapper
+}
+
+/** The header's Insert button — the second of the two, and the only one that can be disabled. */
+function insertButton(wrapper) {
+  return wrapper
+    .findAllComponents(WBtn)
+    .find((btn) => btn.props('label') === 'editor.blockPicker.insert')
 }
 
 describe('BlockPickerOverlay', () => {
@@ -134,5 +142,157 @@ describe('the isEnabled filter', () => {
 
     expect(wrapper.findAll('.block-picker-card')).toHaveLength(0)
     expect(wrapper.find('.block-picker-output').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2698. Selection stopped being a coloured glow and became line weight — an accent
+ * hairline, four corner marks and a tinted icon plate — and the design's hard requirement is that
+ * NOTHING reflows as selection travels between cards.
+ *
+ * What is asserted here is the half a DOM emulator can actually answer: that selection is a class
+ * swap on an element whose children are identical in both states, so there is nothing for the
+ * browser to add or remove and therefore nothing to reflow. The geometry itself — that the boxes
+ * really are pixel-identical, and that the grid really does hold two cards to a row — is measured
+ * in a real browser by `blockPickerLayout.test.js`; neither `happy-dom` nor `jsdom` runs a layout
+ * engine, so an assertion about position written here would pass against zeroed rects.
+ */
+describe('the selection treatment', () => {
+  const FIRST = { ...BLOCK, id: 'block-1', block: 'kroki', name: 'Kroki' }
+  const SECOND = { ...BLOCK, id: 'block-2', block: 'diagram', name: 'Mermaid' }
+
+  it('marks exactly the picked card, and moves the mark rather than adding a second', async () => {
+    const wrapper = await mountPicker([FIRST, SECOND])
+    const cards = wrapper.findAll('.block-picker-card')
+
+    expect(cards.filter((card) => card.classes('is-selected'))).toHaveLength(0)
+
+    await cards[0].trigger('click')
+    expect(cards[0].classes()).toContain('is-selected')
+    expect(cards[1].classes()).not.toContain('is-selected')
+
+    await cards[1].trigger('click')
+    expect(cards[0].classes()).not.toContain('is-selected')
+    expect(cards[1].classes()).toContain('is-selected')
+  })
+
+  /*
+   * The corner marks are rendered on every card and faded in by the `is-selected` class, never
+   * added to the picked one -- an element that appears on selection is exactly the thing that
+   * could push the row around. Same for the icon plate: one per card, always.
+   */
+  it('renders the four corner marks and the icon plate on every card, selected or not', async () => {
+    const wrapper = await mountPicker([FIRST, SECOND])
+    const cards = wrapper.findAll('.block-picker-card')
+
+    const shapeOf = (card) => ({
+      marks: card.findAll('.block-picker-mark').length,
+      plates: card.findAll('.block-picker-plate').length,
+      children: card.element.children.length
+    })
+    const before = cards.map(shapeOf)
+
+    await cards[0].trigger('click')
+
+    expect(before).toEqual([
+      { marks: 4, plates: 1, children: 6 },
+      { marks: 4, plates: 1, children: 6 }
+    ])
+    expect(cards.map(shapeOf)).toEqual(before)
+  })
+
+  it("follows the selection onto the card's own plate and tag line", async () => {
+    const wrapper = await mountPicker([FIRST, SECOND])
+    const cards = wrapper.findAll('.block-picker-card')
+
+    await cards[0].trigger('click')
+
+    // -> The tag name is what actually lands in the page, so it is the line that takes the accent
+    expect(cards[0].find('.block-picker-tag').text()).toBe('<block-kroki>')
+    expect(cards[0].find('.block-picker-plate').exists()).toBe(true)
+  })
+
+  // -> #2634 owns the icon reference itself; this only pins the plate it now sits inside
+  it('draws the glyph inside the plate rather than loose on the card', async () => {
+    const wrapper = await mountPicker([FIRST])
+
+    const plate = wrapper.find('.block-picker-card .block-picker-plate')
+    expect(plate.find('.w-icon').exists()).toBe(true)
+  })
+
+  it('draws the empty-state glyph and hint until something is picked', async () => {
+    const wrapper = await mountPicker([FIRST])
+
+    expect(wrapper.find('.block-picker-empty').exists()).toBe(true)
+
+    await wrapper.find('.block-picker-card').trigger('click')
+
+    expect(wrapper.find('.block-picker-empty').exists()).toBe(false)
+  })
+
+  // -> `AdminBlocks.vue` already tags an uploaded block this way; the picker says the same thing
+  it('tags a custom block on its card', async () => {
+    const wrapper = await mountPicker([
+      { ...FIRST, isCustom: false },
+      { ...SECOND, isCustom: true }
+    ])
+    const cards = wrapper.findAll('.block-picker-card')
+
+    expect(cards[0].find('.block-picker-name em').exists()).toBe(false)
+    expect(cards[1].find('.block-picker-name em').exists()).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #2698. Insert is this screen's primary action, so it takes the accent rather than the
+ * `positive` green it was drawn in — `accent` (#c14a52), not the brighter `accent-fill`, because the
+ * label over it is white and only the darker tone clears 4.5:1 under white.
+ *
+ * Its disabled rule is unchanged and already correct (`canInsert` → `blockPropsFilled`); what is
+ * pinned here is that the rule really is what the button is bound to, in both directions.
+ */
+describe('the Insert action', () => {
+  const REQUIRED_PROP = {
+    ...BLOCK,
+    props: [{ name: 'server', type: 'string', label: 'Server', required: true }],
+    config: {}
+  }
+
+  it('takes the accent, not the source green', async () => {
+    const wrapper = await mountPicker([BLOCK])
+
+    expect(insertButton(wrapper).props('color')).toBe('accent')
+    expect(insertButton(wrapper).props('textColor')).toBe('white')
+  })
+
+  it('is disabled before anything is picked', async () => {
+    const wrapper = await mountPicker([BLOCK])
+
+    expect(insertButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('stays disabled on a block whose required prop is still empty', async () => {
+    const wrapper = await mountPicker([REQUIRED_PROP])
+
+    await wrapper.find('.block-picker-card').trigger('click')
+
+    expect(insertButton(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('enables once that required prop is filled in', async () => {
+    const wrapper = await mountPicker([REQUIRED_PROP])
+
+    await wrapper.find('.block-picker-card').trigger('click')
+    await wrapper.find('.block-picker-form input').setValue('https://kroki.example.com')
+
+    expect(insertButton(wrapper).attributes('disabled')).toBeUndefined()
+  })
+
+  it('enables straight away on a block with no required prop to fill', async () => {
+    const wrapper = await mountPicker([BLOCK])
+
+    await wrapper.find('.block-picker-card').trigger('click')
+
+    expect(insertButton(wrapper).attributes('disabled')).toBeUndefined()
   })
 })
