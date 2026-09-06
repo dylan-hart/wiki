@@ -323,7 +323,7 @@ if [ "$RUN_SMOKE_BOOT" = '1' ]; then
     if grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find (package|module)' "$smoke_log"; then
       warn 'A devDependency has leaked onto the real boot path -- see docs/variances.md.'
       smoke_status=1
-    elif ! grep -q 'Database connection error' "$smoke_log"; then
+    elif ! grep -q 'connection failed, retrying' "$smoke_log"; then
       warn 'Boot never reached the database-connect stage, so this asserted nothing useful.'
       smoke_status=1
     fi

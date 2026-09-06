@@ -204,7 +204,7 @@ describe('scripts/verify-ci.sh covers the legs outside the quality gate', () => 
 
     // The two failure conditions that job asserts on, reproduced verbatim rather than paraphrased.
     assert.match(SCRIPT, /ERR_MODULE_NOT_FOUND\|Cannot find \(package\|module\)/)
-    assert.match(SCRIPT, /Database connection error/)
+    assert.match(SCRIPT, /connection failed, retrying/)
   })
 })
 

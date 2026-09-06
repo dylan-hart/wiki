@@ -175,29 +175,61 @@ function ambientInitBranchEnv(branch: string): GitConfigEnv {
 }
 
 /**
+ * The only ambient variables a fixture `git` child is handed, on top of the stated overrides.
+ *
+ * An ALLOWLIST rather than a deny list, and that is the whole point. simple-git inspects the env it
+ * is given and refuses a whole vocabulary of variables outright — not just the `GIT_*` ones, but
+ * `EDITOR`, `PAGER`, `PREFIX` and `SSH_ASKPASS` too (`@simple-git/argv-parser`'s env vulnerability
+ * table), each throwing `Use of "X" is not permitted without enabling allowUnsafeX` before git even
+ * runs. A stock GitHub Actions runner exports `EDITOR`, which is exactly how a deny list of
+ * `GIT_*` alone passed locally and failed on CI. Naming what git needs means a variable added to
+ * that refusal table later cannot break this suite at all.
+ *
+ * `PATH` is the load-bearing one: without it git would survive only on `execvp`'s built-in
+ * `/usr/bin:/bin` fallback, which is precisely the kind of ambient-environment dependency this
+ * suite is being hardened against. The rest are the platform's own plumbing (`HOME` and the
+ * Windows quartet for config/temp lookup, `TMPDIR` for git's scratch files, the locale pair so
+ * porcelain output stays parseable). Author identity is not among them — every fixture repo sets
+ * `user.name`/`user.email` explicitly.
+ */
+const AMBIENT_ENV_KEYS = [
+  'PATH',
+  'HOME',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'LANG',
+  'LC_ALL',
+  'SYSTEMROOT',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA'
+] as const
+
+/**
  * A `simpleGit()` instance for a fixture repo, optionally under git-config environment overrides.
  *
  * `.env()` REPLACES the spawned child's whole environment rather than merging into it (simple-git
- * assigns the object straight onto its executor), so `process.env` is spread back underneath the
- * overrides — without that, git would run with no `PATH` and survive only on `execvp`'s built-in
- * `/usr/bin:/bin` fallback, which is precisely the kind of ambient-environment dependency this
- * suite is being hardened against.
+ * assigns the object straight onto its executor), so `AMBIENT_ENV_KEYS` is laid back underneath the
+ * overrides — see that constant for why it is an allowlist and not a `GIT_*` filter.
  *
- * Every ambient `GIT_*` variable is dropped on the way through, for two reasons: this fixture is
- * meant to model a *stated* git environment rather than inherit the developer's (a `GIT_DIR` or
- * `GIT_CONFIG_COUNT` already in the shell would otherwise silently fight the overrides), and
- * simple-git refuses several of them outright — a shell exporting `GIT_EDITOR`, as an interactive
- * one commonly does, makes every call throw "Use of GIT_EDITOR is not permitted" before git even
- * runs. `allowUnsafeConfigEnvCount` is simple-git's opt-in for passing `GIT_CONFIG_COUNT` at all;
- * the values here are literals in this file, never request input.
+ * Dropping every ambient `GIT_*` variable falls out of the same allowlist, and is wanted on its own
+ * account: this fixture models a *stated* git environment rather than inheriting the developer's,
+ * so a `GIT_DIR` or `GIT_CONFIG_COUNT` already in the shell cannot silently fight the overrides.
+ * `allowUnsafeConfigEnvCount` is simple-git's opt-in for passing `GIT_CONFIG_COUNT` at all; the
+ * values here are literals in this file, never request input.
  */
 function fixtureGit(repoPath: string, env?: GitConfigEnv): ReturnType<typeof simpleGit> {
   if (!env) {
     return simpleGit(repoPath)
   }
-  const ambient = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
-  )
+  const ambient: Record<string, string> = {}
+  for (const key of AMBIENT_ENV_KEYS) {
+    const value = process.env[key]
+    if (value !== undefined) {
+      ambient[key] = value
+    }
+  }
   return simpleGit(repoPath, { unsafe: { allowUnsafeConfigEnvCount: true } }).env({
     ...ambient,
     ...env

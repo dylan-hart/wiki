@@ -58,8 +58,14 @@ jobs:
       # Bounded with `timeout` rather than left to core/db.ts's own 10-attempt/3s retry loop running
       # to completion (~30s+): the very first connection attempt against an unreachable database
       # fails immediately, so a couple of seconds is enough to see either the module-resolution
-      # crash we're guarding against or the first "Database connection error" log line -- whichever
+      # crash we're guarding against or the first "connection failed, retrying" log line -- whichever
       # comes first tells us everything this step needs to know.
+      #
+      # That string is core/db.ts#connect()'s per-attempt line (`warn db connection failed, retrying
+      # attempt=1/10 ...`). It replaced an older per-attempt "Database connection error" error line
+      # when the scoped logger landed: an attempt that will be retried is a warning, and the `error`
+      # an operator has to act on is the throw once all ten attempts are spent -- which this bounded
+      # window deliberately never reaches. So grep for the retry line, not the exhausted-retries one.
       - name: Boot smoke test (production install, unreachable database)
         run: |
           set +e
@@ -73,7 +79,7 @@ jobs:
             exit 1
           fi
 
-          if ! grep -q 'Database connection error' boot.log; then
+          if ! grep -q 'connection failed, retrying' boot.log; then
             echo "::error::Boot did not reach the database-connect stage at all, so this step asserted nothing useful -- investigate the boot log above."
             exit 1
           fi

@@ -37,7 +37,9 @@ test('a Users-group account can read a page but not write it, and is refused the
   await page.goto('/_admin/users')
   await page.getByRole('button', { name: 'Create User', exact: true }).click()
   const createDialog = page.getByRole('dialog')
-  await createDialog.getByLabel('Name', { exact: true }).fill(`E2E Permissions ${slug}`)
+  // -> Two authored name halves, no single "Name" field: Feature #2608 split the dialog and derives
+  //    the display name server-side. Only the first name is required, which is all this spec needs.
+  await createDialog.getByLabel('First Name', { exact: true }).fill(`E2E Permissions ${slug}`)
   await createDialog.getByLabel('Email', { exact: true }).fill(userEmail)
   await createDialog.getByLabel('Password', { exact: true }).fill(userPassword)
   const groupsCombobox = createDialog.getByRole('combobox', { name: 'Groups' })
