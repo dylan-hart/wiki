@@ -69,40 +69,54 @@ props:
     icon: person
     default: displayName
     order: 9
+  firstNameClaim:
+    type: String
+    title: First Name Claim
+    hint: Which field of the user info response carries the user's first name. Plain OAuth2 has no standard for this, so set it to whatever the provider actually calls it.
+    icon: person
+    default: firstName
+    order: 10
+  lastNameClaim:
+    type: String
+    title: Last Name Claim
+    hint: Which field of the user info response carries the user's last name. A provider that issues no surname simply leaves it empty — nothing is invented from the first name.
+    icon: person
+    default: lastName
+    order: 11
   logoutURL:
     type: String
     title: Logout URL
     hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
     icon: exit
-    order: 10
+    order: 12
   emailVerifiedClaim:
     type: String
     title: Email Verified Claim
     hint: (optional) Which field of the user info response says whether the address is verified. A plain OAuth2 provider has no standard field for this -- leave empty for one that reports none, so nothing is refused for a claim that was never going to be present.
     icon: validation
     default: ''
-    order: 11
+    order: 13
   allowUnverifiedEmail:
     type: Boolean
     title: Accept Unverified Addresses
     hint: Off by default. Only applies when Email Verified Claim above is set. An address the provider reports as unverified proves nothing about the mailbox, and an account here is matched on the address.
     icon: received
     default: false
-    order: 12
+    order: 14
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the field reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
     icon: user-groups
     default: false
-    order: 13
+    order: 15
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which field of the user info response carries the user's group/role memberships.
     icon: user-groups
     default: 'groups'
-    order: 14
+    order: 16
     if:
       - { key: 'mapGroups', eq: true }
   groupsScope:
@@ -111,7 +125,7 @@ props:
     hint: (optional) A scope to add to Scope above if it isn't already there, for a provider that only includes group/role membership when it is explicitly requested. Leave empty if the provider needs none.
     icon: rules
     default: ''
-    order: 15
+    order: 17
     if:
       - { key: 'mapGroups', eq: true }
 refs:

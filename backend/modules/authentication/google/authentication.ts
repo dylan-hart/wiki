@@ -1,8 +1,44 @@
 import * as client from 'openid-client'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
+import { providerNameHalves } from '../../../models/authentication.ts'
 
 /** Google's issuer, from which every endpoint and signing key is discovered. */
 const ISSUER = 'https://accounts.google.com'
+
+/**
+ * Map Google's verified ID-token claims onto a `ProviderProfile`.
+ *
+ * Exported standalone for the same reason `oidc/authentication.ts`'s `mapOidcProfile` is: everything
+ * upstream of it — discovery, the code exchange, the ID token's signature/issuer/audience/nonce — is
+ * `openid-client`'s own already-tested job, so the claim reading is the part worth asserting
+ * directly, and doing so needs neither a network round trip nor a signed token.
+ *
+ * Unlike the generic OIDC module there are no configurable claim names here: this is Google, and
+ * Google issues the OpenID Connect standard `given_name`/`family_name` (Feature #2608). An account
+ * whose Google profile carries only a given name keeps an empty last name — that is the mononym
+ * case, and `models/users.ts` derives the display name from whatever halves it is handed.
+ */
+export function mapGoogleProfile(
+  conf: Record<string, any>,
+  claims: Record<string, any>
+): ProviderProfile {
+  const email = claims.email
+  if (!email || typeof email !== 'string') {
+    throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
+  }
+  if (claims.email_verified === false && conf.allowUnverifiedEmail !== true) {
+    throw new Error('ERR_EMAIL_NOT_VERIFIED')
+  }
+  if (conf.hostedDomain && claims.hd !== conf.hostedDomain) {
+    throw new Error('ERR_LOGIN_RESTRICTED')
+  }
+  return {
+    id: claims.sub,
+    email,
+    name: (claims.name as string) || email,
+    ...providerNameHalves(claims.given_name, claims.family_name)
+  }
+}
 
 /**
  * Google
@@ -79,21 +115,6 @@ export default class GoogleAuthentication {
       throw new Error('ERR_NO_ID_TOKEN')
     }
 
-    const email = claims.email
-    if (!email || typeof email !== 'string') {
-      throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
-    }
-    if (claims.email_verified === false && this.conf.allowUnverifiedEmail !== true) {
-      throw new Error('ERR_EMAIL_NOT_VERIFIED')
-    }
-    if (this.conf.hostedDomain && claims.hd !== this.conf.hostedDomain) {
-      throw new Error('ERR_LOGIN_RESTRICTED')
-    }
-
-    return {
-      id: claims.sub,
-      email,
-      name: (claims.name as string) || email
-    }
+    return mapGoogleProfile(this.conf, claims)
   }
 }

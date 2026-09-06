@@ -478,11 +478,86 @@ describe('OAuth2Authentication', () => {
 
       const oauth2 = new OAuth2Authentication('strategy-1', conf)
       const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'throwaway-code' })
+      // -> GitHub issues no separated halves, so neither key is on the profile at all — the whole
+      //    point of leaving them off rather than writing two empty strings.
       assert.deepEqual(profile, {
         id: '123456',
         email: 'octocat@example.com',
         name: 'The Octocat'
       })
+    })
+  })
+
+  /*
+    Feature #2608. `discord`, `slack` and `twitch` all inherit `mapProfile()` from this class, so a
+    claim read added here is added to them too — which is why nothing in this base falls back to
+    splitting the display name when the halves come back empty. That fallback is per-preset (Task
+    #2641), and doing it here would fire for every provider built on this module.
+  */
+  describe('mapProfile: separated name halves', () => {
+    let fetchMock: any
+    afterEach(() => {
+      fetchMock?.mock.restore()
+    })
+
+    /** Answers the token exchange, then hands `info` back as the userinfo response. */
+    function stubUserInfo(info: Record<string, any>): void {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        if (String(input) === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(JSON.stringify(info), { status: 200 })
+      })
+    }
+
+    test('reads the default firstName/lastName fields off the userinfo response', async () => {
+      stubUserInfo({
+        id: 7,
+        email: 'person@example.com',
+        displayName: 'Alice Example',
+        firstName: 'Alice',
+        lastName: 'Example'
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.firstName, 'Alice')
+      assert.equal(profile.lastName, 'Example')
+      // -> Still the display-name claim; the model derives `name` from the halves, not this module.
+      assert.equal(profile.name, 'Alice Example')
+    })
+
+    test('honors configured non-standard field names for either half', async () => {
+      stubUserInfo({
+        id: 7,
+        email: 'person@example.com',
+        given_name: 'Alice',
+        family_name: 'Example',
+        firstName: 'Wrong',
+        lastName: 'Wrong'
+      })
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ firstNameClaim: 'given_name', lastNameClaim: 'family_name' })
+      )
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.firstName, 'Alice')
+      assert.equal(profile.lastName, 'Example')
+    })
+
+    test('a provider reporting neither half leaves both keys off the profile', async () => {
+      stubUserInfo({ id: 7, email: 'person@example.com', displayName: 'A Person' })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal('firstName' in profile, false)
+      assert.equal('lastName' in profile, false)
+    })
+
+    test('a mononym keeps its first half and gets no invented surname', async () => {
+      stubUserInfo({ id: 7, email: 'person@example.com', firstName: 'Prince', lastName: '' })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.firstName, 'Prince')
+      assert.equal('lastName' in profile, false)
     })
   })
 })
@@ -551,5 +626,15 @@ describe('oauth2/definition.yml', () => {
 
   test('the callback URL ref matches the {host}/_api/auth/{id}/callback convention every module uses', () => {
     assert.equal(def.refs.callbackUrl.value, '{host}/_api/auth/{id}/callback')
+  })
+
+  test("declares firstNameClaim/lastNameClaim, defaulted to this definition's camelCase house style (Feature #2608)", () => {
+    assert.equal(def.props.firstNameClaim?.default, 'firstName')
+    assert.equal(def.props.lastNameClaim?.default, 'lastName')
+  })
+
+  test('every prop still has a distinct order, after the two name claims were inserted mid-list', () => {
+    const orders = Object.values(def.props).map((p: any) => p.order)
+    assert.equal(new Set(orders).size, orders.length)
   })
 })

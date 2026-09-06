@@ -66,6 +66,14 @@ const ASSERTION_XPATH =
  */
 const REQUEST_ID = '_test-authn-request-1'
 
+/**
+ * The two claim URIs `authentication.ts` reads a separated name from, restated here as literals
+ * rather than imported: this suite is asserting that the module reads THESE specific standard
+ * claims, so sharing the module's own constants would make the assertion vacuous.
+ */
+const GIVEN_NAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname'
+const SURNAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname'
+
 function iso(d: Date): string {
   return d.toISOString().replace(/\.\d+Z$/, 'Z')
 }
@@ -78,7 +86,9 @@ function buildResponseXml({
   audience = AUDIENCE,
   nameId = 'alice@example.com',
   groups = ['editors', 'admins'],
-  inResponseTo = REQUEST_ID
+  inResponseTo = REQUEST_ID,
+  givenName = 'Alice',
+  surname = 'Example'
 }: {
   notBefore: string
   notOnOrAfter: string
@@ -88,9 +98,20 @@ function buildResponseXml({
   groups?: string[]
   /** Omit entirely (`null`) to build a response with no `InResponseTo` attribute at all. */
   inResponseTo?: string | null
+  /**
+   * The standard WS-Federation givenname/surname claims (Feature #2608). `null` omits the
+   * `<Attribute>` element entirely, for an identity provider that issues no separated name at all;
+   * `''` emits it with an empty value, which several real IdPs do for a mononym.
+   */
+  givenName?: string | null
+  surname?: string | null
 }): string {
   const groupValues = groups.map((g) => `<saml:AttributeValue>${g}</saml:AttributeValue>`).join('')
   const inResponseToAttr = inResponseTo ? ` InResponseTo="${inResponseTo}"` : ''
+  const nameAttribute = (claim: string, value: string | null): string =>
+    value === null
+      ? ''
+      : `<saml:Attribute Name="${claim}"><saml:AttributeValue>${value}</saml:AttributeValue></saml:Attribute>`
   return `<?xml version="1.0"?>
 <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_resp1" Version="2.0" IssueInstant="${issueInstant}" Destination="https://wiki.example.com/_api/auth/strategy1/callback"${inResponseToAttr}>
 <saml:Issuer>https://idp.example.com/saml</saml:Issuer>
@@ -111,6 +132,8 @@ function buildResponseXml({
 <saml:Attribute Name="email"><saml:AttributeValue>${nameId}</saml:AttributeValue></saml:Attribute>
 <saml:Attribute Name="name"><saml:AttributeValue>Alice Example</saml:AttributeValue></saml:Attribute>
 <saml:Attribute Name="groups">${groupValues}</saml:Attribute>
+${nameAttribute(GIVEN_NAME_CLAIM, givenName)}
+${nameAttribute(SURNAME_CLAIM, surname)}
 </saml:AttributeStatement>
 </saml:Assertion>
 </samlp:Response>`
@@ -304,6 +327,66 @@ test('profile: validates a genuinely signed assertion and extracts the mapped cl
   assert.equal(profile.email, 'alice@example.com')
   assert.equal(profile.name, 'Alice Example')
   assert.deepEqual(profile.groups, ['editors', 'admins'])
+})
+
+/*
+  Feature #2608. The two claim URIs are fixed rather than configurable mapping props -- see the
+  constants in `authentication.ts` -- so what is asserted here is that an assertion carrying the
+  standard claims produces both halves, and one carrying neither produces neither.
+*/
+test('profile: reads the standard givenname/surname claims into the separated halves', async () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  const profile = await auth.profile({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    authnRequestId: REQUEST_ID,
+    currentUrl: REDIRECT_URI,
+    body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
+  })
+  assert.equal(profile.firstName, 'Alice')
+  assert.equal(profile.lastName, 'Example')
+  // -> `name` still comes from the configured display-name mapping, not from the halves.
+  assert.equal(profile.name, 'Alice Example')
+})
+
+test('profile: an assertion carrying neither name claim leaves both halves off the profile', async () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  const profile = await auth.profile({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    authnRequestId: REQUEST_ID,
+    currentUrl: REDIRECT_URI,
+    body: {
+      SAMLResponse: validResponseBase64({ givenName: null, surname: null }),
+      RelayState: 's'
+    }
+  })
+  assert.equal('firstName' in profile, false)
+  assert.equal('lastName' in profile, false)
+  // -> And no split of the display name to fill them in.
+  assert.equal(profile.name, 'Alice Example')
+})
+
+test('profile: a mononym -- a givenname claim with an empty surname -- invents no surname', async () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  const profile = await auth.profile({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    authnRequestId: REQUEST_ID,
+    currentUrl: REDIRECT_URI,
+    body: {
+      SAMLResponse: validResponseBase64({ givenName: 'Prince', surname: '' }),
+      RelayState: 's'
+    }
+  })
+  assert.equal(profile.firstName, 'Prince')
+  assert.equal('lastName' in profile, false)
 })
 
 test('profile: mapGroups off leaves groups undefined rather than empty', async () => {

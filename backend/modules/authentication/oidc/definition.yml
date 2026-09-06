@@ -82,33 +82,47 @@ props:
     icon: person
     default: name
     order: 11
+  firstNameClaim:
+    type: String
+    title: First Name Claim
+    hint: Which claim carries the user's first name. `given_name` is the OpenID Connect standard one; change it only for a provider that puts it elsewhere.
+    icon: person
+    default: given_name
+    order: 12
+  lastNameClaim:
+    type: String
+    title: Last Name Claim
+    hint: Which claim carries the user's last name. `family_name` is the OpenID Connect standard one. A provider that issues no surname simply leaves it empty — nothing is invented from the first name.
+    icon: person
+    default: family_name
+    order: 13
   logoutURL:
     type: String
     title: Logout URL
     hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
     icon: exit
-    order: 12
+    order: 14
   allowUnverifiedEmail:
     type: Boolean
     title: Accept Unverified Addresses
     hint: Off by default. An address the provider itself reports as unverified (email_verified false) proves nothing about the mailbox, and an account here is matched on the address.
     icon: received
     default: false
-    order: 13
+    order: 15
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
     icon: user-groups
     default: false
-    order: 14
+    order: 16
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which claim carries the user's group memberships.
     icon: user-groups
     default: 'groups'
-    order: 15
+    order: 17
     if:
       - { key: 'mapGroups', eq: true }
   groupsScope:
@@ -117,7 +131,7 @@ props:
     hint: (optional) A scope to add to Scopes above if it isn't already there, for a provider that only includes group membership when it is explicitly requested (Okta and Keycloak both gate it behind a scope literally named `groups`). Leave empty if the provider needs none.
     icon: rules
     default: ''
-    order: 16
+    order: 18
     if:
       - { key: 'mapGroups', eq: true }
 refs:
