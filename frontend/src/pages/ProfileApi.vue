@@ -38,76 +38,73 @@
           </w-card-section>
         </w-card>
       </div>
-      <w-card v-else>
-        <w-list separator>
-          <w-item v-for="key of state.keys" :key="key.id">
-            <w-item-section side>
-              <w-icon name="tabler:key" :color="isUsable(key) ? `positive` : `negative`" />
-            </w-item-section>
-            <w-item-section>
-              <w-item-label>{{ key.name }}</w-item-label>
-              <w-item-label caption>{{
-                t('profile.api.keyEndingIn', { suffix: key.keyShort })
-              }}</w-item-label>
-              <!--
-                A personal token's reach is always the holder's own current permissions -- there is no
-                "permissions from group X" line the admin listing shows, only whether it has been
-                narrowed by a scope.
-              -->
-              <w-item-label caption>{{
+      <!--
+        A list of tokens rather than a settings form, so what the settings pattern lends it is the
+        ROW -- the 34px plate, the name over everything the token says about itself, the one action
+        at the trailing edge. What used to be a separate `side` section for an unusable token's
+        warning is now the plate's own indicator dot plus a line in the hint: a token that cannot be
+        used says so where the eye already is rather than in a third column.
+
+        The broader question of what the pattern means for the app's other list and viewer pages is
+        Task #2702's, not this one's.
+      -->
+      <w-settings-card v-else :title="t('profile.api.listTitle')">
+        <w-settings-row
+          v-for="key of state.keys"
+          :key="key.id"
+          control-width="auto"
+          icon="tabler:key"
+          :indicator="isUsable(key) ? null : `negative`"
+          :indicator-text="keyState(key) ? t(`profile.api.${keyState(key)}`) : null"
+          :label="key.name">
+          <template #hint>
+            <div>{{ t('profile.api.keyEndingIn', { suffix: key.keyShort }) }}</div>
+            <!--
+              A personal token's reach is always the holder's own current permissions -- there is no
+              "permissions from group X" line the admin listing shows, only whether it has been
+              narrowed by a scope.
+            -->
+            <div>
+              {{
                 key.scope === null
                   ? t('profile.api.newKeyFullAccess')
                   : t('profile.api.scopedTo', { scope: key.scope.join(', ') })
-              }}</w-item-label>
-              <template v-if="key.allowedClassifications != null">
-                <w-item-label v-if="key.allowedClassifications.length < 1" caption>{{
-                  t('profile.api.limitedToNone')
-                }}</w-item-label>
-                <w-item-label v-else caption>{{
-                  t('profile.api.limitedTo', { levels: classificationLevelNames(key) })
-                }}</w-item-label>
-              </template>
-              <w-item-label caption>{{
-                t('profile.api.keySite', { site: siteName(key) })
-              }}</w-item-label>
-              <w-item-label caption>{{
-                t('profile.api.createdOn', { date: humanizeDate(t, key.createdAt) })
-              }}</w-item-label>
-              <w-item-label caption>
-                <span :style="key.isRevoked ? `text-decoration: line-through;` : ``">{{
-                  t('profile.api.expiresOn', { date: humanizeDate(t, key.expiration) })
-                }}</span>
-              </w-item-label>
-            </w-item-section>
-            <w-item-section v-if="keyState(key)" side>
-              <div class="flex items-center">
-                <w-icon class="me-2" color="negative" size="xs" name="tabler:alert-triangle" />
-                <div class="text-caption text-negative">
-                  {{ t(`profile.api.${keyState(key)}`) }}
-                </div>
+              }}
+            </div>
+            <template v-if="key.allowedClassifications != null">
+              <div v-if="key.allowedClassifications.length < 1">
+                {{ t('profile.api.limitedToNone') }}
               </div>
-              <div class="text-caption text-grey mt-1 text-right" style="max-width: 340px">
-                {{ stateHint(key) }}
+              <div v-else>
+                {{ t('profile.api.limitedTo', { levels: classificationLevelNames(key) }) }}
               </div>
-            </w-item-section>
-            <w-separator class="ms-4" vertical />
-            <w-item-section side style="flex-direction: row; align-items: center">
-              <w-btn
-                class="acrylic-btn"
-                :color="key.isRevoked ? `gray` : `red`"
-                icon="tabler:ban"
-                flat
-                :aria-label="t(`profile.api.revoke`)"
-                @click="revoke(key)"
-                :disabled="key.isRevoked">
-                <w-tooltip v-if="!key.isRevoked" anchor="center left" self="center right">{{
-                  t('profile.api.revoke')
-                }}</w-tooltip>
-              </w-btn>
-            </w-item-section>
-          </w-item>
-        </w-list>
-      </w-card>
+            </template>
+            <div>{{ t('profile.api.keySite', { site: siteName(key) }) }}</div>
+            <div>{{ t('profile.api.createdOn', { date: humanizeDate(t, key.createdAt) }) }}</div>
+            <div>
+              <span :style="key.isRevoked ? `text-decoration: line-through;` : ``">{{
+                t('profile.api.expiresOn', { date: humanizeDate(t, key.expiration) })
+              }}</span>
+            </div>
+            <div v-if="keyState(key)" class="text-negative mt-1 flex items-center">
+              <w-icon class="me-2" size="xs" name="tabler:alert-triangle" />
+              <span>{{ t(`profile.api.${keyState(key)}`) }} &mdash; {{ stateHint(key) }}</span>
+            </div>
+          </template>
+          <w-btn
+            class="acrylic-btn"
+            :color="key.isRevoked ? `gray` : `red`"
+            icon="tabler:ban"
+            flat
+            :aria-label="t(`profile.api.revoke`)"
+            @click="revoke(key)"
+            :disabled="key.isRevoked">
+            <w-tooltip v-if="!key.isRevoked" anchor="center left" self="center right">{{
+              t('profile.api.revoke')
+            }}</w-tooltip>
+          </w-btn>
+        </w-settings-row>
+      </w-settings-card>
     </div>
 
     <w-inner-loading :showing="state.loading > 0" />

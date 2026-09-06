@@ -108,6 +108,31 @@ describe('ProfileNotifications', () => {
     )
   })
 
+  /**
+   * OpenProject #2701. The question the work package asked about this page was whether a per-event
+   * subscription list is really a settings form or only looks like one; the answer taken was that it
+   * is -- five groups, five cards, one settings row per event, each row a plate, a label and a
+   * switch, which is the shape Admin General's Features card already has. This pins that answer down
+   * so a later change has to disagree with it deliberately.
+   */
+  it('draws one settings card per event group, one plated settings row per event', async () => {
+    stubApi({ 'users/profile/notifications': { ...ALL_FALSE } })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.findAll('.w-settings-card')).toHaveLength(5)
+
+    const rows = wrapper.findAll('.w-settings-row')
+    expect(rows).toHaveLength(Object.keys(ALL_FALSE).length)
+    for (const row of rows) {
+      expect(row.find('.blueprint-icon').exists()).toBe(true)
+      // -> `tag="label"`: the whole row toggles the switch inside it, rather than only the switch
+      expect(row.element.tagName).toBe('LABEL')
+      expect(row.findComponent({ name: 'WToggle' }).exists()).toBe(true)
+    }
+  })
+
   it('flipping a toggle and saving PUTs the whole current map to users/profile/notifications', async () => {
     stubApi({ 'users/profile/notifications': { ...ALL_FALSE } })
     globalThis.API_CLIENT.put.mockReturnValue({

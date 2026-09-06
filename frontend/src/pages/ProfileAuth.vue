@@ -3,16 +3,20 @@
     <h1 class="w-section-header">{{ t('profile.auth') }}</h1>
     <div class="p-4">
       <div class="text-body2">{{ t('profile.authInfo') }}</div>
-      <w-list class="mt-6" bordered separator>
-        <w-item v-for="auth of state.authMethods" :key="auth.id">
-          <w-item-section avatar>
-            <w-avatar color="dark-5" text-color="white" rounded>
-              <w-icon :name="`img:` + auth.strategyIcon" />
-            </w-avatar>
-          </w-item-section>
-          <w-item-section>
-            <strong>{{ auth.authName }}</strong>
-            <div v-if="!auth.config.isPasswordLoginEnabled" class="text-caption text-negative">
+      <!--
+        The plate is the provider's OWN logo rather than a generic glyph -- `img:` for a strategy
+        icon served as a file, which is what identifies a row here; every other settings row in the
+        app names its subject with a Tabler reference, and none of them stands for a third party.
+      -->
+      <w-settings-card class="mt-4" :title="t('profile.auth')">
+        <w-settings-row
+          v-for="auth of state.authMethods"
+          :key="auth.id"
+          control-width="auto"
+          :icon="`img:` + auth.strategyIcon"
+          :label="auth.authName">
+          <template #hint>
+            <div v-if="!auth.config.isPasswordLoginEnabled" class="text-negative">
               {{ t('profile.authPasswordLoginOff') }}
             </div>
             <!--
@@ -21,15 +25,35 @@
             -->
             <div
               v-else-if="auth.strategyKey === `local` && !auth.config.canDisablePasswordLogin"
-              class="text-caption text-grey">
+              class="text-grey">
               {{ t('profile.authPasswordLoginOnlyMethod') }}
             </div>
-          </w-item-section>
+            <!--
+              Only rendered once the status fetch (fired from `fetchAuthMethods()`) resolves --
+              absent while loading or on a failed fetch, since this is a nudge on top of an
+              auth-methods list that already rendered, not something worth its own error state.
+              Under the label rather than under the control, now that the row has one hint column
+              for everything it has to say about itself.
+            -->
+            <template v-if="auth.config.isTfaSetup && state.recoveryCodesStatus[auth.authId]">
+              <div :class="isRecoveryCodesLow(auth.authId) ? 'text-negative' : 'text-grey-7'">
+                {{
+                  t('profile.tfaRecoveryCodesRemaining', {
+                    remaining: state.recoveryCodesStatus[auth.authId].remaining,
+                    total: state.recoveryCodesStatus[auth.authId].total
+                  })
+                }}
+              </div>
+              <div v-if="isRecoveryCodesLow(auth.authId)" class="text-negative">
+                {{ t('profile.tfaRecoveryCodesLow') }}
+              </div>
+            </template>
+          </template>
           <!--
             One trigger rather than a row of buttons: these are occasional actions on a row that also
-            has to stay readable, and a `w-item` puts every `side` section on the same line.
+            has to stay readable, and the settings row keeps its whole control column on one line.
           -->
-          <w-item-section v-if="auth.strategyKey === `local`" side>
+          <template v-if="auth.strategyKey === `local`">
             <div class="flex items-center gap-3">
               <!--
                 Says at a glance that the account is protected, without opening the menu to find out.
@@ -121,58 +145,39 @@
                 </w-menu>
               </w-btn>
             </div>
-            <!--
-              Only rendered once the status fetch (fired from `fetchAuthMethods()`) resolves --
-              absent while loading or on a failed fetch, since this is a nudge on top of an
-              auth-methods list that already rendered, not something worth its own error state.
-            -->
-            <div
-              v-if="auth.config.isTfaSetup && state.recoveryCodesStatus[auth.authId]"
-              class="text-caption mt-1"
-              :class="isRecoveryCodesLow(auth.authId) ? 'text-negative' : 'text-grey-7'">
-              <div>
-                {{
-                  t('profile.tfaRecoveryCodesRemaining', {
-                    remaining: state.recoveryCodesStatus[auth.authId].remaining,
-                    total: state.recoveryCodesStatus[auth.authId].total
-                  })
-                }}
-              </div>
-              <div v-if="isRecoveryCodesLow(auth.authId)">
-                {{ t('profile.tfaRecoveryCodesLow') }}
-              </div>
-            </div>
-          </w-item-section>
-        </w-item>
-      </w-list>
-    </div>
+          </template>
+        </w-settings-row>
+      </w-settings-card>
 
-    <h2 class="w-section-header">{{ t('profile.passkeys') }}</h2>
-    <div class="p-4">
-      <div class="text-body2">{{ t('profile.passkeysIntro') }}</div>
-      <w-list v-if="state.passkeys?.length > 0" class="mt-6" bordered separator>
-        <w-item v-for="pkey of state.passkeys" :key="pkey.id">
-          <w-item-section avatar>
-            <w-avatar color="slate" text-color="white" rounded>
-              <w-icon name="tabler:key" />
-            </w-avatar>
-          </w-item-section>
-          <w-item-section>
-            <strong>{{ pkey.name }}</strong>
-            <div class="text-caption">{{ pkey.siteHostname }}</div>
-            <div class="text-caption text-grey-7">{{ humanizeDate(t, pkey.createdAt) }}</div>
-          </w-item-section>
-          <w-item-section side>
-            <w-btn
-              class="acrylic-btn"
-              flat
-              icon="tabler:trash"
-              :aria-label="t(`common.actions.delete`)"
-              color="negative"
-              @click="deactivatePasskey(pkey)" />
-          </w-item-section>
-        </w-item>
-      </w-list>
+      <div class="text-body2 mt-6">{{ t('profile.passkeysIntro') }}</div>
+      <!--
+        The card is only drawn once there is a passkey to put in it: an empty settings card is a
+        header strip over nothing, where the intro above and the Add button below already say what
+        this section is and what to do about it.
+      -->
+      <w-settings-card
+        v-if="state.passkeys?.length > 0"
+        class="mt-4"
+        :title="t('profile.passkeys')">
+        <w-settings-row
+          v-for="pkey of state.passkeys"
+          :key="pkey.id"
+          control-width="auto"
+          icon="tabler:key"
+          :label="pkey.name">
+          <template #hint>
+            <div>{{ pkey.siteHostname }}</div>
+            <div class="text-grey-7">{{ humanizeDate(t, pkey.createdAt) }}</div>
+          </template>
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:trash"
+            :aria-label="t(`common.actions.delete`)"
+            color="negative"
+            @click="deactivatePasskey(pkey)" />
+        </w-settings-row>
+      </w-settings-card>
       <div class="mt-4">
         <w-btn
           icon="tabler:plus"

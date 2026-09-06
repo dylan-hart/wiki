@@ -42,7 +42,11 @@ function mountPage({ freshPinia = true } = {}) {
         newKeySiteAllSites: 'All Sites',
         createdOn: 'Created on {date}',
         expiresOn: 'Expires on {date}',
-        loadFailed: 'Failed to load'
+        listTitle: 'Access Tokens',
+        loadFailed: 'Failed to load',
+        revoke: 'Revoke',
+        revoked: 'Revoked',
+        revokedHint: 'This token has been revoked and can no longer be used.'
       }
     }
   })
@@ -182,5 +186,69 @@ describe('ProfileApi', () => {
     // -> Same instant as createdAt above, nine hours ahead in Tokyo: 2026-03-04T15:30Z rolls over
     //    to 2026-03-05 00:30 local -- proof the stored timezone is what produced this text.
     expect(wrapper.text()).toContain('2026-03-05 at 00:30')
+  })
+
+  /**
+   * OpenProject #2701. This is a list, not a settings form, so what it took from the pattern is the
+   * ROW: a plate, the token's name over everything it says about itself, and one action at the
+   * trailing edge. The warning an unusable token used to carry in a third column is now the plate's
+   * indicator dot plus a line in the hint -- what is pinned here is that it did not simply
+   * disappear in the move.
+   */
+  it('draws each token as a settings row, and marks an unusable one on the plate itself', async () => {
+    stubApi(
+      {
+        'users/profile/api-keys': [
+          {
+            id: 'key-1',
+            name: 'My Laptop',
+            keyShort: 'abcd',
+            scope: null,
+            siteId: null,
+            userId: 'user-1',
+            isRevoked: false,
+            isInvalidated: false,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            expiration: '2099-01-01T00:00:00.000Z'
+          },
+          {
+            id: 'key-2',
+            name: 'Old Laptop',
+            keyShort: 'efgh',
+            scope: null,
+            siteId: null,
+            userId: 'user-1',
+            isRevoked: true,
+            isInvalidated: false,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            expiration: '2099-01-01T00:00:00.000Z'
+          }
+        ],
+        sites: []
+      },
+      { fallback: [] }
+    )
+
+    const wrapper = mountPage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    const rows = wrapper.findAll('.w-settings-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].find('.w-settings-row__label').text()).toBe('My Laptop')
+    expect(rows[0].find('.blueprint-icon').exists()).toBe(true)
+    expect(rows[0].find('.w-settings-row__hint').text()).toContain('Ending in abcd')
+
+    // -> A usable token has no dot on its plate; the revoked one does, and says so in its hint
+    expect(rows[0].find('.blueprint-icon .w-badge').exists()).toBe(false)
+    expect(rows[1].find('.blueprint-icon .w-badge').exists()).toBe(true)
+    expect(rows[1].find('.w-settings-row__hint').text()).toContain('Revoked')
+
+    // -> Revoke stays the row's one action, and is off on a token already revoked
+    const revoke = rows[1]
+      .find('.w-settings-row__control')
+      .findAll('button')
+      .find((btn) => btn.attributes('aria-label') === 'Revoke')
+    expect(revoke.attributes('disabled')).toBeDefined()
   })
 })

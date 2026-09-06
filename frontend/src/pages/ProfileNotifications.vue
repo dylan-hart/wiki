@@ -1,25 +1,34 @@
 <template>
   <w-page>
     <h1 class="w-section-header">{{ t('profile.notifications') }}</h1>
-    <div class="px-4 text-body2 text-grey">{{ t('profile.notificationsSubtitle') }}</div>
-
-    <template v-for="group of eventGroups" :key="group.key">
-      <h2 class="w-section-header">{{ group.label }}</h2>
-      <template v-for="(evt, idx) of group.events" :key="evt.key">
-        <w-separator v-if="idx > 0" inset spaced="sm" />
-        <w-item>
-          <w-item-section>
-            <w-item-label>{{ evt.label }}</w-item-label>
-          </w-item-section>
-          <w-item-section side>
-            <w-toggle
-              v-model="state.config[evt.key]"
-              :loading="state.loading > 0"
-              :aria-label="evt.label" />
-          </w-item-section>
-        </w-item>
-      </template>
-    </template>
+    <div class="p-4">
+      <div class="text-body2 text-grey">{{ t('profile.notificationsSubtitle') }}</div>
+      <!--
+        One card per event group, one settings row per event -- the same shape AdminGeneral's
+        Features card is, which is what settles the question this page raised: a per-event
+        subscription list IS a settings form, just one whose every control happens to be a switch.
+        `tag="label"` makes the whole row toggle the switch inside it, so the click target is the
+        row's full width rather than the 40px at its trailing edge.
+      -->
+      <w-settings-card
+        v-for="group of eventGroups"
+        :key="group.key"
+        class="mt-4"
+        :title="group.label">
+        <w-settings-row
+          v-for="evt of group.events"
+          :key="evt.key"
+          tag="label"
+          control-width="auto"
+          :icon="evt.icon"
+          :label="evt.label">
+          <w-toggle
+            v-model="state.config[evt.key]"
+            :loading="state.loading > 0"
+            :aria-label="evt.label" />
+        </w-settings-row>
+      </w-settings-card>
+    </div>
 
     <div class="actions-bar">
       <w-btn
@@ -64,18 +73,40 @@ useMeta(() => ({
  * A computed, not a plain array evaluated once at setup, so switching interface language relabels
  * every row immediately rather than only after a remount -- same reasoning as
  * `ProfileOverlay.vue`'s own `sidenav`.
+ *
+ * Each event carries the plate its settings row draws, written out as a literal `tabler:` reference
+ * here rather than assembled from the event key: a name built by concatenation is invisible to
+ * `scripts/generate-icons.mjs`'s scanner and would resolve at runtime through `/_icons` instead of
+ * being inlined at build time (CLAUDE.md, "Icons").
  */
 const eventGroups = computed(() => [
   {
     key: 'pages',
     label: t('profile.notificationsGroupPages'),
     events: [
-      { key: 'page:create', label: t('profile.notificationsEventPageCreate') },
-      { key: 'page:edit', label: t('profile.notificationsEventPageEdit') },
-      { key: 'page:rename', label: t('profile.notificationsEventPageRename') },
-      { key: 'page:delete', label: t('profile.notificationsEventPageDelete') },
+      {
+        key: 'page:create',
+        icon: 'tabler:file-plus',
+        label: t('profile.notificationsEventPageCreate')
+      },
+      {
+        key: 'page:edit',
+        icon: 'tabler:file-pencil',
+        label: t('profile.notificationsEventPageEdit')
+      },
+      {
+        key: 'page:rename',
+        icon: 'tabler:file-symlink',
+        label: t('profile.notificationsEventPageRename')
+      },
+      {
+        key: 'page:delete',
+        icon: 'tabler:file-x',
+        label: t('profile.notificationsEventPageDelete')
+      },
       {
         key: 'page:classification-changed',
+        icon: 'tabler:shield-lock',
         label: t('profile.notificationsEventPageClassificationChanged')
       }
     ]
@@ -84,37 +115,85 @@ const eventGroups = computed(() => [
     key: 'assets',
     label: t('profile.notificationsGroupAssets'),
     events: [
-      { key: 'asset:upload', label: t('profile.notificationsEventAssetUpload') },
-      { key: 'asset:edit', label: t('profile.notificationsEventAssetEdit') },
-      { key: 'asset:rename', label: t('profile.notificationsEventAssetRename') },
-      { key: 'asset:delete', label: t('profile.notificationsEventAssetDelete') }
+      {
+        key: 'asset:upload',
+        icon: 'tabler:cloud-upload',
+        label: t('profile.notificationsEventAssetUpload')
+      },
+      {
+        key: 'asset:edit',
+        icon: 'tabler:photo-edit',
+        label: t('profile.notificationsEventAssetEdit')
+      },
+      {
+        key: 'asset:rename',
+        icon: 'tabler:photo-cog',
+        label: t('profile.notificationsEventAssetRename')
+      },
+      {
+        key: 'asset:delete',
+        icon: 'tabler:photo-x',
+        label: t('profile.notificationsEventAssetDelete')
+      }
     ]
   },
   {
     key: 'comments',
     label: t('profile.notificationsGroupComments'),
     events: [
-      { key: 'comment:new', label: t('profile.notificationsEventCommentNew') },
-      { key: 'comment:edit', label: t('profile.notificationsEventCommentEdit') },
-      { key: 'comment:delete', label: t('profile.notificationsEventCommentDelete') }
+      {
+        key: 'comment:new',
+        icon: 'tabler:message-plus',
+        label: t('profile.notificationsEventCommentNew')
+      },
+      {
+        key: 'comment:edit',
+        icon: 'tabler:message-circle',
+        label: t('profile.notificationsEventCommentEdit')
+      },
+      {
+        key: 'comment:delete',
+        icon: 'tabler:message-x',
+        label: t('profile.notificationsEventCommentDelete')
+      }
     ]
   },
   {
     key: 'approvals',
     label: t('profile.notificationsGroupApprovals'),
     events: [
-      { key: 'approval:submitted', label: t('profile.notificationsEventApprovalSubmitted') },
-      { key: 'approval:approved', label: t('profile.notificationsEventApprovalApproved') },
-      { key: 'approval:rejected', label: t('profile.notificationsEventApprovalRejected') }
+      {
+        key: 'approval:submitted',
+        icon: 'tabler:clipboard-text',
+        label: t('profile.notificationsEventApprovalSubmitted')
+      },
+      {
+        key: 'approval:approved',
+        icon: 'tabler:clipboard-check',
+        label: t('profile.notificationsEventApprovalApproved')
+      },
+      {
+        key: 'approval:rejected',
+        icon: 'tabler:clipboard-x',
+        label: t('profile.notificationsEventApprovalRejected')
+      }
     ]
   },
   {
     key: 'account',
     label: t('profile.notificationsGroupAccount'),
     events: [
-      { key: 'user:join', label: t('profile.notificationsEventUserJoin') },
-      { key: 'user:login', label: t('profile.notificationsEventUserLogin') },
-      { key: 'user:logout', label: t('profile.notificationsEventUserLogout') }
+      {
+        key: 'user:join',
+        icon: 'tabler:user-plus',
+        label: t('profile.notificationsEventUserJoin')
+      },
+      { key: 'user:login', icon: 'tabler:login', label: t('profile.notificationsEventUserLogin') },
+      {
+        key: 'user:logout',
+        icon: 'tabler:logout',
+        label: t('profile.notificationsEventUserLogout')
+      }
     ]
   }
 ])
