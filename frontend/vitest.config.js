@@ -118,6 +118,12 @@ export default defineConfig({
     // `FLAKY_GLOB` is the quarantine lane (`docs/decisions/flaky-test-quarantine.md`), run by
     // `npm run test:flaky` instead.
     exclude: [...configDefaults.exclude, FLAKY_GLOB],
+    // Bounded rather than left to Vitest's own core-count-derived default -- see
+    // `docs/decisions/testing-strategy.md`'s "Bounded test concurrency" section. `4` matches a
+    // GitHub-hosted standard runner's actual vCPU count, so CI and a bounded local run see the
+    // same real ceiling instead of a runner-dependent one.
+    maxWorkers: 4,
+    minWorkers: 1,
     css: true,
     server: {
       deps: {

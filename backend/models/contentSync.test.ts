@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
   assets as assetsTable,
   contentSyncState as contentSyncStateTable,
@@ -298,9 +298,40 @@ test('countOutOfDate drops a page synced after its last update', { skip }, async
   assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), before - 1)
 })
 
-// -> 'countOutOfDate counts a page updated after its last sync again' moved to
-//    contentSync.flaky.test.ts (OpenProject #2737): it raced this file's other tests over the
-//    site-wide count `countOutOfDate` computes, with no isolation between sibling tests.
+test('countOutOfDate counts a page updated after its last sync again', { skip }, async () => {
+  const targetId = await makeTarget('test-count-updated-after-sync')
+  const pageId = await makePage('updated-after-sync')
+
+  // -> `recordSuccess` stamps `lastSyncedAt` from the caller's clock (defaulting to the Node
+  //    process's own `Temporal.Now.instant()`), while `countOutOfDate` compares it against
+  //    `pages.updatedAt`, a column Postgres itself writes. Bumping `updatedAt` with the DB's own
+  //    `now() + interval '1 second'` while leaving `recordSuccess` on the Node clock mixes two
+  //    clocks for what has to be one consistent ordering -- fine on a single host, not guaranteed
+  //    between a CI runner and its separate Postgres service container, and it flaked exactly
+  //    this assertion when the two drifted (OpenProject #2737, previously quarantined). Reading
+  //    Postgres's own `now()` once and deriving both timestamps from it makes the ordering a fact
+  //    about one clock, not two.
+  const [{ dbNow }] = (await WIKI.db.execute(sql`select now() as "dbNow"`)).rows as [
+    { dbNow: string }
+  ]
+  await contentSync.recordSuccess({
+    contentType: 'page',
+    contentId: pageId,
+    targetId,
+    direction: 'push',
+    syncedAt: Temporal.Instant.from(dbNow)
+  })
+  const whileSynced = await contentSync.countOutOfDate('page', targetId, { siteId })
+  await WIKI.db
+    .update(pagesTable)
+    .set({
+      title: 'edited after sync',
+      updatedAt: sql`${dbNow}::timestamptz + interval '1 second'`
+    })
+    .where(eq(pagesTable.id, pageId))
+
+  assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), whileSynced + 1)
+})
 
 test('countOutOfDate applies the same logic to assets', { skip }, async () => {
   const targetId = await makeTarget('test-count-assets')
