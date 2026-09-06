@@ -1,4 +1,5 @@
 import OAuth2Authentication from '../oauth2/authentication.ts'
+import { fillNameHalves } from '../../../helpers/personName.ts'
 import type { AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /** Discord's fixed endpoints, merged over whatever the admin config carries (only credentials + guildId). */
@@ -60,6 +61,23 @@ export default class DiscordAuthentication extends OAuth2Authentication {
     }
     const info = await this.fetchUserInfo(accessToken)
     return this.mapProfile(info)
+  }
+
+  /**
+   * The base mapping, plus the first/last split every single-string provider needs.
+   *
+   * Discord's user object carries no separated name halves — there is no `given_name`/`family_name`
+   * equivalent on it, only `username` (and `global_name`, another single free-text string) — so the
+   * split of the display name is the only source there is. It is applied through `fillNameHalves`
+   * rather than unconditionally so that a half the generic `oauth2` mapping did establish from a
+   * configured claim is never re-guessed; today it never does, and this override does not assume
+   * that stays true. The override lives here rather than in `oauth2/authentication.ts` deliberately:
+   * a fallback in the base class would fire for every plain-OAuth2 strategy, including ones whose
+   * provider reports real halves.
+   */
+  protected override mapProfile(info: Record<string, any>): ProviderProfile {
+    const profile = super.mapProfile(info)
+    return { ...profile, ...fillNameHalves(profile.name, profile) }
   }
 
   /** Confirms the signed-in user belongs to `conf.guildId`, or throws `ERR_LOGIN_RESTRICTED`. */

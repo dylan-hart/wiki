@@ -83,9 +83,64 @@ describe('TwitchAuthentication', () => {
       assert.equal(authorizationUrlMock.mock.callCount(), 1)
 
       const profile = await tw.profile({ ...flow, currentUrl: 'https://wiki.example/cb?code=1' })
-      assert.deepEqual(profile, { id: 'abc123', email: 'person@example.com', name: 'A Person' })
+      assert.deepEqual(profile, {
+        id: 'abc123',
+        email: 'person@example.com',
+        name: 'A Person',
+        // -> the preset's own split of the one display string the OIDC mapping reports
+        firstName: 'A',
+        lastName: 'Person'
+      })
     } finally {
       authorizationUrlMock.mock.restore()
+      profileMock.mock.restore()
+    }
+  })
+
+  test('a Twitch handle is a mononym — no surname is invented out of it', async () => {
+    // -> Twitch issues no given_name/family_name at all; `preferred_username` is a handle, so the
+    //    split leaves `lastName` empty rather than manufacturing one.
+    const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
+      id: 'abc123',
+      email: 'person@example.com',
+      name: 'somestreamer'
+    }))
+    try {
+      const tw = new TwitchAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
+      const profile = await tw.profile({
+        redirectUri: 'https://wiki.example/cb',
+        state: 's',
+        nonce: 'n',
+        codeVerifier: 'v',
+        currentUrl: 'https://wiki.example/cb?code=1'
+      })
+      assert.equal(profile.firstName, 'somestreamer')
+      assert.equal(profile.lastName, '')
+    } finally {
+      profileMock.mock.restore()
+    }
+  })
+
+  test('name halves the OIDC mapping already established are kept, not re-guessed from the display string', async () => {
+    const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
+      id: 'abc123',
+      email: 'person@example.com',
+      name: 'Ada Lovelace',
+      firstName: 'Augusta',
+      lastName: 'King'
+    }))
+    try {
+      const tw = new TwitchAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
+      const profile = await tw.profile({
+        redirectUri: 'https://wiki.example/cb',
+        state: 's',
+        nonce: 'n',
+        codeVerifier: 'v',
+        currentUrl: 'https://wiki.example/cb?code=1'
+      })
+      assert.equal(profile.firstName, 'Augusta')
+      assert.equal(profile.lastName, 'King')
+    } finally {
       profileMock.mock.restore()
     }
   })

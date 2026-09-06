@@ -125,6 +125,9 @@ export interface ProviderProfile {
   id: string
   email: string
   name: string
+  /** Separated halves where the provider issues them; '' / absent means "the provider did not say". */
+  firstName?: string
+  lastName?: string
   /**
    * Group names as the provider reports them, for a strategy configured with `mapGroups: true`. Absent
    * (rather than empty) means the module did not look — `undefined` and `[]` are different answers, and

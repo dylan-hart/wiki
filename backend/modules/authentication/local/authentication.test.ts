@@ -120,4 +120,18 @@ describe('LocalAuthentication.authenticate', () => {
       /ERR_LOGIN_RESTRICTED/
     )
   })
+
+  /*
+    The display-name split (OpenProject #2641) reaches every provider module that hands over one
+    display string. This one hands over none: `authenticate()` returns the existing user row, and the
+    module builds no `ProviderProfile` and provisions no account — a local account is created by the
+    model layer and the registration route, both of which take a first and last name outright rather
+    than guessing at one. So there is deliberately nothing to split here, and this asserts the shape
+    that makes that true rather than leaving it as an unwritten assumption.
+  */
+  test('builds no provider profile — there is no display string here to split (OpenProject #2641)', () => {
+    const local = new LocalAuthentication('local', {}) as unknown as Record<string, unknown>
+    assert.equal(typeof local.profile, 'undefined')
+    assert.equal(typeof local.authenticate, 'function')
+  })
 })

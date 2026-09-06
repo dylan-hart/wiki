@@ -32,6 +32,11 @@ const grantedTickets: Record<string, GrantedTicket> = {
     attrs: { uid: 'a12345', mail: 'alice@example.com', displayName: 'Alice Example' }
   },
   'ST-bob-noattrs': { username: 'bob', attrs: {} },
+  'ST-eve-mononym': {
+    username: 'eve',
+    attrs: { uid: 'e999', mail: 'eve@example.com', displayName: 'Eve' }
+  },
+  'ST-frank-noname': { username: 'frank', attrs: { uid: 'f111', mail: 'frank@example.com' } },
   'ST-replay-me': { username: 'carol', attrs: { mail: 'carol@example.com' } },
   'ST-cas1-dave': { username: 'dave' }
 }
@@ -137,7 +142,46 @@ test('CAS 3.0: a valid ticket maps id/email/name from the configured attributes'
     currentUrl: 'x',
     ticket: 'ST-alice'
   })
-  assert.deepEqual(profile, { id: 'a12345', email: 'alice@example.com', name: 'Alice Example' })
+  assert.deepEqual(profile, {
+    id: 'a12345',
+    email: 'alice@example.com',
+    name: 'Alice Example',
+    firstName: 'Alice',
+    lastName: 'Example'
+  })
+})
+
+test('CAS 3.0: a one-word display name stays a mononym — no surname is invented for it', async () => {
+  const cas = new CasAuthentication('strategy1', CAS3_CONF())
+  const profile = await cas.profile({
+    redirectUri: REDIRECT,
+    state: 's1',
+    nonce: '',
+    codeVerifier: '',
+    currentUrl: 'x',
+    ticket: 'ST-eve-mononym'
+  })
+  assert.equal(profile.name, 'Eve')
+  assert.equal(profile.firstName, 'Eve')
+  assert.equal(profile.lastName, '')
+})
+
+test('CAS 3.0: a display name that fell back to the bare username splits as a mononym, the same restraint email gets', async () => {
+  // -> This ticket releases `uid`/`mail` and no `displayName`, so `name` falls back to the CAS
+  //    username. `email` is never fabricated out of a username (see the module's doc comment); a
+  //    surname is not either — the username lands whole in `firstName` and `lastName` stays empty.
+  const cas = new CasAuthentication('strategy1', CAS3_CONF())
+  const profile = await cas.profile({
+    redirectUri: REDIRECT,
+    state: 's1',
+    nonce: '',
+    codeVerifier: '',
+    currentUrl: 'x',
+    ticket: 'ST-frank-noname'
+  })
+  assert.equal(profile.name, 'frank')
+  assert.equal(profile.firstName, 'frank')
+  assert.equal(profile.lastName, '')
 })
 
 test('CAS 3.0: a valid ticket with no attributes falls id/name back to the username, but has no email to establish', async () => {
