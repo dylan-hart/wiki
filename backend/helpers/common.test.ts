@@ -171,11 +171,12 @@ describe('isHashedAssetFilename', () => {
     })
   }
 
-  // -> The 8 entries under `assets/_assets` that are NOT vite build output: `renderer.js` is a
+  // -> The 7 entries under `assets/_assets` that are NOT vite build output: `renderer.js` is a
   //    deliberately fixed entry point name (referenced by a static server-rendered page), and the
-  //    other 7 are hand-authored trees vite never touches.
+  //    other 6 are hand-authored trees vite never touches. (`bg/` was an eighth until the login
+  //    background it held became a backend-owned branding fallback — see `controllers/site.ts`'s
+  //    `SITE_ASSET_FALLBACKS`, OpenProject #2611.)
   const unhashedSamples = [
-    'bg',
     'fonts',
     'icons',
     'illustrations',
