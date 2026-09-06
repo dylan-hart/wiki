@@ -860,15 +860,23 @@ approach as everything else in `backend/`: `node --test` type-strips `.ts` test 
 `node backend` does, so a test file is written and run the same way as the code it tests, with no
 separate transpile or worker config.
 
+**What earns a test, at which layer, and what deliberately gets none is
+`docs/decisions/testing-strategy.md`** — the settled policy, written from the #2687/#2688 test-value
+audits under `docs/testing-audit/`. This section is the mechanics; that document is the reasoning,
+and it governs where the two ever disagree.
+
 - **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
   `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
   already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
   oxlint and oxfmt cover them the same way. One source file's tests may be several sibling files
   split by subject — `models/users.test.ts` (pure), `models/users.crud.test.ts`,
-  `models/users.profile.test.ts` — and **`*.db.test.ts` marks a DB-backed file**
-  (`core/scheduler.reaping.db.test.ts`, `models/storage.db.test.ts`, …), so the pure/DB boundary is
-  visible from the filename and the pure half can be run alone. Both halves still gate exactly as
-  before; the suffix is a naming convention, not a mechanism. A DB-backed file opens **one**
+  `models/users.profile.test.ts`. Eleven files carry a **`*.db.test.ts`** suffix
+  (`core/scheduler.reaping.db.test.ts`, `models/storage.db.test.ts`, …), but **it is not the pure/DB
+  boundary and must not be read as one** — 81 suites open a real Postgres schema and only those
+  eleven are so named. `docs/decisions/testing-strategy.md` retires the claim: the boundary is
+  `hasTestDatabase()`, which every one of them carries, running the pure half alone is
+  `DATABASE_URL` unset, and nothing is renamed in either direction. The suffix is not required of a
+  new DB-backed file and carries no claim if used. A DB-backed file opens **one**
   `setupTestDb()` for the whole file, shared by its describes, rather than one per describe.
   `test/` holds the shared harness and fixture code that is not itself a
   `*.test.ts` (`db.ts`, `mocks.ts`, …) — plus, since a harness module is a source file like any
@@ -1091,6 +1099,11 @@ the `twemoji-assets` tarball dependency is resolvable) and `vite-plugin-vue-devt
 `../config.yml` at import time for the dev proxy port, none of which a unit test needs or wants
 paying the cost of on every run.
 
+**The policy for what earns a test and at which layer is `docs/decisions/testing-strategy.md`**,
+written from `docs/testing-audit/frontend.md`'s classification of every suite in this workspace. It
+is where the real-Chromium layer, the source-scanning gates and the `describe.each` convention are
+settled; the mechanics below stand unchanged.
+
 What IS mirrored from `vite.config.js`, because component code has to resolve exactly the way it
 does in the real build, not because it was convenient to share:
 
@@ -1204,6 +1217,11 @@ a block has no build-time template compilation (`rollup.config.mjs` bundles plai
 transform it) and no app framework around it, so a test loads `component.js` exactly as the browser
 would.
 
+**`docs/decisions/testing-strategy.md` is the policy** for what earns a test here and at which
+layer. `blocks/` was not separately classified by the #2687/#2688 audits, but the layers and the
+"what gets no test at all" rules apply to it unchanged — a block's suite sits at the component
+layer.
+
 - **`environment: 'jsdom'`**, not `happy-dom` (frontend's choice). A block's whole surface under test
   _is_ its shadow DOM — attribute reflection, light-DOM content read out of `this.textContent` /
   `querySelector`, Lit's `adoptedStyleSheets`-or-injected-`<style>` fallback — and jsdom's coverage of
@@ -1250,6 +1268,11 @@ because none of those own it at runtime — a spec drives a real browser against
 production-shaped stack (`node backend` from the repo root, serving `frontend/`'s `vite build`
 output out of `assets/`), which is a different thing from any one workspace's unit tests, not a
 superset of one of them.
+
+**`docs/decisions/testing-strategy.md` is the policy**, and it is deliberately restrictive about
+this layer: a flow earns an e2e spec when its failure mode is *the pieces not fitting together*.
+Permission matrices, error taxonomies and accessibility properties belong above it, in the unit and
+component suites, which is where they are.
 
 - **Boots the real thing, not a dev proxy.** `playwright.config.js`'s `webServer` runs `node
 backend` (`cwd: '..'` — `index.ts` refuses to boot from anywhere else) against `CONFIG_FILE:
