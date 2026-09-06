@@ -438,7 +438,11 @@ class Navigation {
    * A menu row's own source mode (`static`/`auto`/`mixed`), with no item resolution -- what
    * `NavEditMenu.vue`'s mode selector (Task 464) asks before it has anything to PUT, so it can
    * preselect the option that is actually stored rather than always defaulting to `static`. `static`
-   * (the schema default) for a menu with no row yet, same fallback `getNav` uses.
+   * for a menu with no row AT ALL yet, same fallback `getNav` uses -- deliberately independent of the
+   * schema's own column default (`auto`, since OpenProject #2745), because every real navId reaching
+   * this method was already created up front via `ensureSiteNav`/`ancestorNavId` (which DOES pick up
+   * that column default for a genuinely new row); this fallback only fires for the narrower,
+   * defensive case of an id with no row behind it at all.
    *
    * @param siteId Required (OpenProject #2127/#2135), scoping the lookup the same way every
    *               neighbouring method here (`getNav()`, `setNavItems()`, `copyNav()`) already does --
@@ -579,8 +583,8 @@ class Navigation {
    * error. Idempotent: identified by `(siteId, locale)`, not by id, so calling it again for the same
    * site and locale returns the same row instead of creating a second one.
    *
-   * Deliberately does not set `mode` -- the schema default (`static`) is what every row created here
-   * should get, so a row this creates behaves exactly as it did before `mode` existed.
+   * Deliberately does not set `mode` -- the schema default (`auto`, since OpenProject #2745; `static`
+   * before it) is what every row created here should get.
    */
   async ensureSiteNav(siteId: string, locale: string): Promise<string> {
     const inserted = await WIKI.db
