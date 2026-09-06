@@ -180,7 +180,9 @@ export const useSiteStore = defineStore('site', {
      * (`GET sites/:siteId/glossary/acronyms`), consulted by `usePathDisplay()`'s humanizer so e.g.
      * "uss" renders as "USS" rather than the case style's own guess. Fetched lazily by
      * `fetchAcronymMap` -- triggered from `applySiteInfo` itself, once per site load, only when
-     * `pathDisplayCase` is not `'off'` -- since a site with the setting off never needs it.
+     * `pathDisplayCase` is not `'off'` -- since a site with the setting off never needs it. Both
+     * fields are per-site and are reset by `applySiteInfo` on every site load, so a switch never
+     * renders the previous site's casing.
      */
     acronymMap: {},
     acronymMapLoaded: false,
@@ -328,6 +330,18 @@ export const useSiteStore = defineStore('site', {
           ...this.theme,
           ...siteInfo.theme
         }
+      })
+      // -> The acronym lookup is per-site, so the previous site's map and its loaded flag are
+      //    dropped here rather than left for `fetchAcronymMap` to notice: the early return on
+      //    `acronymMapLoaded` would otherwise skip the new site's fetch entirely and leave it
+      //    rendering the old site's casing, and the `'off'` branch below issues no fetch at all, so
+      //    without the reset that map would simply stay put (#2599). Deliberately a second,
+      //    FUNCTION-form `$patch` rather than an `acronymMap: {}` field on the object one above --
+      //    the object form deep-merges a plain object field instead of replacing it, exactly as
+      //    `fetchAcronymMap`'s own comment records, so folding it in there would be a no-op.
+      this.$patch((state) => {
+        state.acronymMap = {}
+        state.acronymMapLoaded = false
       })
       // -> Only a site with the setting on ever needs its acronym lookup; not awaited, since every
       //    render site (`usePathDisplay()`) reads `acronymMap` reactively off this store and updates
