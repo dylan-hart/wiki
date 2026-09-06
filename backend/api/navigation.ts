@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { actorFrom } from '../helpers/pageAccess.ts'
 import { maySiteAdmin } from '../helpers/siteRules.ts'
 import {
   assertValidNavItems,
@@ -465,7 +466,14 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
       assertValidNavItems(req.body.items)
-      await WIKI.models.navigation.setNavItems(req.params.siteId, req.params.navId, req.body.items)
+      await WIKI.models.navigation.setNavItems(
+        req.params.siteId,
+        req.params.navId,
+        req.body.items,
+        {
+          authorId: actorFrom(req)?.id
+        }
+      )
       return {
         ok: true,
         message: 'Navigation updated successfully.'
@@ -551,7 +559,8 @@ async function routes(app: FastifyInstance) {
         sourceId: req.body.sourceNavId,
         targetSiteId: req.params.siteId,
         targetId: req.params.targetNavId,
-        mode: req.body.mode
+        mode: req.body.mode,
+        authorId: actorFrom(req)?.id
       })
       return {
         ok: true,
@@ -638,7 +647,8 @@ async function routes(app: FastifyInstance) {
         pageId: req.params.pageId,
         mode: req.body.mode,
         items: req.body.items,
-        menuMode: req.body.menuMode
+        menuMode: req.body.menuMode,
+        authorId: actorFrom(req)?.id
       })
       return {
         ok: true,

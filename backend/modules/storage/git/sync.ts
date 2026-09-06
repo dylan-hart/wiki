@@ -349,7 +349,7 @@ async function processAssetEntry(
       // -> Renamed across folders, or renamed AND rewritten in one commit: either way the old row
       //    cannot be updated in place (renameAsset only changes the file name; upload() below keys
       //    on the new path) — delete it so the fresh upload doesn't leave it orphaned.
-      await WIKI.models.assets.deleteAsset(target.siteId, existing.id)
+      await WIKI.models.assets.deleteAsset(target.siteId, existing.id, { authorId: actor.id })
     }
     // -> fall through to the upload below
   } else if (
@@ -359,7 +359,7 @@ async function processAssetEntry(
   ) {
     const existing = await WIKI.models.assets.getAssetByPath(target.siteId, entry.relPath)
     if (existing) {
-      await WIKI.models.assets.deleteAsset(target.siteId, existing.id)
+      await WIKI.models.assets.deleteAsset(target.siteId, existing.id, { authorId: actor.id })
     }
     return
   }

@@ -60,7 +60,7 @@ export async function handleDeleteAsset(
   // -> Can still be false here: the asset existed at the `getAsset()` lookup above but was removed
   //    concurrently before this call landed. The REST route treats that the same as never having
   //    found it -- a 404, not a silently-successful delete -- so this does too.
-  if (!(await WIKI.models.assets.deleteAsset(site.id, args.assetId))) {
+  if (!(await WIKI.models.assets.deleteAsset(site.id, args.assetId, { authorId: ctx.userId }))) {
     throw new McpToolError('This asset does not exist.')
   }
 

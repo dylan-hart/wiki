@@ -384,3 +384,204 @@ test('deleteAsset awaits both asset:delete hooks.emit and storage.dispatch befor
   assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
   assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
 })
+
+// ---------------------------------------------------------------------------------------------
+// The content lifecycle log lines (OpenProject #2674)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A logger whose `info` calls are collected rather than written.
+ *
+ * Asserted on the SCOPE and the FIELDS a call passed, never on a rendered string — the renderer is
+ * `core/logger.ts`'s business, and a suite matching formatted text breaks the moment a column widens.
+ */
+function collectingLogger() {
+  const lines: { scope: string; message: string; fields: Record<string, any> }[] = []
+  const noop = () => {}
+  const logger: any = {
+    error: noop,
+    warn: noop,
+    debug: noop,
+    info: (scope: string, message: string, fields: Record<string, any> = {}) => {
+      lines.push({ scope, message, fields })
+    }
+  }
+  logger.scope = () => logger
+  return { logger, assetLines: () => lines.filter((line) => line.scope === 'assets') }
+}
+
+test('upload logs one "uploaded" line naming the site, asset, path, bytes, kind and user', async () => {
+  const { logger, assetLines } = collectingLogger()
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    logger,
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'new' } } } },
+    db: makeAssetsDbStub(undefined),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        addAsset: async () => ({
+          id: 'asset-9',
+          fileName: 'notes.txt',
+          folderPath: 'docs',
+          title: 'notes.txt',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        })
+      },
+      hooks: { emit: async () => {} },
+      storage: { dispatch: async () => {} }
+    }
+  } as unknown as WikiGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'notes.txt',
+    mimeType: 'text/plain',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  const lines = assetLines()
+  assert.equal(lines.length, 1)
+  assert.equal(lines[0]!.message, 'uploaded')
+  assert.deepEqual(lines[0]!.fields, {
+    site: 'site-1',
+    asset: 'asset-9',
+    path: 'docs/notes.txt',
+    bytes: 5,
+    kind: 'document',
+    user: 'user-1'
+  })
+})
+
+test('an overwrite is still one "uploaded" line, marked as such rather than logged as a new file', async () => {
+  const { logger, assetLines } = collectingLogger()
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    logger,
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+    db: makeAssetsDbStub(undefined),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        getEntryAt: async () => ({
+          type: 'asset',
+          id: 'asset-1',
+          fileName: 'test.txt',
+          folderPath: '',
+          title: 'test.txt'
+        }),
+        addAsset: async () => {
+          throw new Error('should not have been called: addAsset (an occupant exists)')
+        }
+      },
+      hooks: { emit: async () => {} },
+      storage: { dispatch: async () => {} }
+    }
+  } as unknown as WikiGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'test.txt',
+    mimeType: 'text/plain',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  const lines = assetLines()
+  assert.equal(lines.length, 1)
+  assert.equal(lines[0]!.message, 'uploaded')
+  assert.deepEqual(lines[0]!.fields, {
+    site: 'site-1',
+    asset: 'asset-1',
+    path: 'test.txt',
+    bytes: 5,
+    kind: 'document',
+    overwrite: true,
+    user: 'user-1'
+  })
+})
+
+test('deleteAsset logs one "deleted" line, falling back to user=system with no actor', async () => {
+  const { logger, assetLines } = collectingLogger()
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    logger,
+    db: makeAssetsDbStub({ ...testAsset, mimeType: 'image/png' }),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: { deleteEntry: async () => undefined },
+      contentSync: { forgetContent: async () => undefined },
+      hooks: { emit: async () => {} },
+      storage: { dispatch: async () => {} }
+    }
+  } as unknown as WikiGlobal
+
+  await assets.deleteAsset('site-1', 'asset-1')
+  await assets.deleteAsset('site-1', 'asset-1', { authorId: 'user-1' })
+
+  const lines = assetLines()
+  assert.equal(lines.length, 2)
+  assert.deepEqual(lines[0]!.fields, {
+    site: 'site-1',
+    asset: 'asset-1',
+    path: 'x.png',
+    kind: 'image',
+    user: 'system'
+  })
+  assert.equal(lines[1]!.fields.user, 'user-1')
+})
+
+test('deleteOrphaned logs one line per asset, marked as a folder cascade', async () => {
+  const { logger, assetLines } = collectingLogger()
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    logger,
+    db: {
+      ...makeAssetsDbStub(undefined),
+      delete: () => ({
+        where: () => ({
+          returning: async () => [
+            { id: 'asset-1', kind: 'image', fileSize: 10 },
+            { id: 'asset-2', kind: 'other', fileSize: 20 }
+          ]
+        })
+      })
+    },
+    models: {
+      ...(global.WIKI as any).models,
+      contentSync: { forgetContentBatch: async () => undefined },
+      hooks: { emit: async () => {} },
+      storage: { dispatch: async () => {} }
+    }
+  } as unknown as WikiGlobal
+
+  await assets.deleteOrphaned(
+    'site-1',
+    [
+      { id: 'asset-1', fileName: 'a.png', folderPath: 'shots', locale: 'en' },
+      { id: 'asset-2', fileName: 'b.zip', folderPath: '', locale: 'en' }
+    ],
+    { authorId: 'user-1' }
+  )
+
+  const lines = assetLines()
+  assert.equal(lines.length, 2)
+  assert.deepEqual(lines[0]!.fields, {
+    site: 'site-1',
+    asset: 'asset-1',
+    path: 'shots/a.png',
+    kind: 'image',
+    cascade: 'folder',
+    user: 'user-1'
+  })
+  assert.equal(lines[1]!.fields.path, 'b.zip')
+  assert.equal(lines[1]!.fields.cascade, 'folder')
+})

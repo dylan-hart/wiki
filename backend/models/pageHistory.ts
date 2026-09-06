@@ -935,7 +935,10 @@ class PageHistory {
       tocDepth: config.tocDepth
     }
 
-    const page = await WIKI.models.pages.createPage(siteId, input, actor)
+    // -> `origin: 'restore'` changes nothing about what is written -- it is the one bit of provenance
+    //    `createPage()` cannot infer, and it only decides whether the lifecycle line reads `restored`
+    //    or `created` (OpenProject #2674).
+    const page = await WIKI.models.pages.createPage(siteId, input, actor, { origin: 'restore' })
     if (meta.password) {
       await WIKI.db
         .update(pagesTable)
