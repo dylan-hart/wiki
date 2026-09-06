@@ -15,10 +15,12 @@
  *   * the git configuration is stated rather than inherited from the host (Bug #2586);
  *   * only what CI has starts by default; a developer-only service sits behind a compose profile.
  *
- * Deliberately NOT asserted here: that `.github/workflows/*.yml`'s own `node-version:` equals the
- * image's pin. Those files still say `26.x` and pinning them is sibling Task #2685's entire scope;
- * that cross-check belongs in this file once #2685 lands, and adding it now would fail on work
- * this WP is explicitly told not to do.
+ * The cross-check this file originally deferred -- that `.github/workflows/*.yml`'s own
+ * `node-version:` equals the image's pin -- landed with Task #2685 and is asserted below. It is
+ * the half of Feature #2601 that a comment cannot hold on its own: an image on 26.8.1 and a
+ * workflow on 26.5.0 are both "Node 26", so the drift is invisible until something breaks in one
+ * place and not the other. #2685 also settled what `engines` means next to a pin, and that
+ * decision is asserted here rather than only written down -- see its describe block.
  *
  * Neither `.devcontainer/` nor `.github/` has a test workspace of its own to sit next to, so this
  * lives here as a structural/self-consistency check against repo-root files -- the same category
@@ -77,6 +79,31 @@ function declaredVersion(relPath: string, name: string): string {
   return version as string
 }
 
+const WORKFLOWS_DIR = '.github/workflows'
+
+/** Every workflow file GitHub Actions would actually pick up, sorted for a stable failure message. */
+function workflowFiles(): string[] {
+  return fs
+    .readdirSync(path.join(REPO_ROOT, WORKFLOWS_DIR))
+    .filter((name) => /\.ya?ml$/.test(name))
+    .sort()
+}
+
+/**
+ * Every `node-version:` in one workflow file, with the line it sits on.
+ *
+ * Read out of the source text rather than the parsed YAML on purpose: the parse loses line numbers,
+ * and a failure here is only actionable if it names the line to edit. Nothing else in these files
+ * spells `node-version`, so a textual scan and a parse would agree anyway.
+ */
+function nodeVersionsIn(relPath: string): { line: number; value: string }[] {
+  return read(relPath)
+    .split('\n')
+    .map((text, index) => ({ text, line: index + 1 }))
+    .filter(({ text }) => /^\s*node-version:/.test(text))
+    .map(({ text, line }) => ({ line, value: text.replace(/^\s*node-version:\s*/, '').trim() }))
+}
+
 describe('devcontainer CI parity: the pinned Node patch (#2684)', () => {
   test('NODE_VERSION is an exact patch, not a range or a bare major', () => {
     assert.match(
@@ -133,6 +160,123 @@ describe('devcontainer CI parity: the pinned Node patch (#2684)', () => {
         /\bnode:2\d[.\d]*\b/,
         `${label} names a Node image version; the Dockerfile's ARG NODE_VERSION is the only place ` +
           'that may'
+      )
+    }
+  })
+})
+
+describe('devcontainer CI parity: CI runs the same pinned patch (#2685)', () => {
+  // Deferred from #2684 with nothing to pin TO -- the workflows still said `26.x` while it landed.
+  // This is the assertion that makes the parity claim non-drifting rather than merely true on the
+  // day it was written: `26.8.1` in the image and `26.5.0` on the runner are both "Node 26", so a
+  // divergence produces no error anywhere, just a test that passes in one place and not the other.
+  const workflows = workflowFiles()
+
+  test('there are workflow files to scan at all', () => {
+    // Guards the scan itself: a rename of the directory, or a glob that stops matching, would
+    // otherwise turn every check below into a vacuous pass over an empty list.
+    assert.ok(
+      workflows.length > 0,
+      `expected .yml workflow files under ${WORKFLOWS_DIR}/, found none -- the scan below is only ` +
+        'meaningful if it actually reads something'
+    )
+  })
+
+  test('every node-version: under .github/workflows/ is the exact patch the image pins', () => {
+    const pinned = dockerArg('NODE_VERSION')
+    const seen: string[] = []
+
+    for (const name of workflows) {
+      for (const { line, value } of nodeVersionsIn(`${WORKFLOWS_DIR}/${name}`)) {
+        seen.push(`${name}:${line}`)
+        assert.equal(
+          value,
+          pinned,
+          `${WORKFLOWS_DIR}/${name}:${line} says \`${value}\`, but .devcontainer/Dockerfile pins ` +
+            `\`ARG NODE_VERSION=${pinned}\`. That ARG is the single declaration; raising it is a ` +
+            'three-file change made in one commit (the ARG, NODE_IMAGE_DIGEST beside it, and every ' +
+            'node-version: here) -- see the Dockerfile header, which states the rule.'
+        )
+      }
+    }
+
+    assert.ok(
+      seen.length > 0,
+      'no workflow declares a node-version at all, which means this scan is asserting nothing'
+    )
+  })
+
+  test('every setup-node step declares a node-version, rather than taking the runner default', () => {
+    // setup-node with no node-version installs whatever the runner image already ships, which is
+    // the floating resolution this Feature exists to remove -- reintroduced by omission instead of
+    // by a range, and invisible in a diff that only greps for `26.x`.
+    for (const name of workflows) {
+      const text = read(`${WORKFLOWS_DIR}/${name}`)
+      const setupSteps = [...text.matchAll(/uses:\s*actions\/setup-node@/g)].length
+      assert.equal(
+        nodeVersionsIn(`${WORKFLOWS_DIR}/${name}`).length,
+        setupSteps,
+        `${WORKFLOWS_DIR}/${name} has ${setupSteps} setup-node step(s) but does not give every one ` +
+          'of them a node-version'
+      )
+    }
+  })
+})
+
+describe('the pin and `engines` answer different questions (#2685)', () => {
+  // #2685 was asked to decide whether `engines` moves with the pin. It does not, and this block is
+  // where that decision is enforced rather than merely written down.
+  //
+  //   * the pin (ARG NODE_VERSION / node-version:) is "what we run" -- one exact patch, so the
+  //     image and the runner cannot resolve different ones;
+  //   * `engines` is "what this code is compatible with" -- a floor, for whoever installs it.
+  //
+  // Collapsing the second into the first would make `npm ci` refuse a perfectly compatible 26.9.0
+  // and turn every currency bump into a lockstep edit across four package.json files, buying no
+  // correctness. What DOES need policing is the pair drifting a major apart, which is a real
+  // incompatibility rather than a bookkeeping difference -- so that is what is asserted.
+  const WORKSPACES = ['backend', 'frontend', 'blocks', 'e2e'] as const
+
+  /** `engines.node` for a workspace, or null where it declares none (blocks/ and e2e/ today). */
+  function enginesNode(workspace: string): string | null {
+    return JSON.parse(read(`${workspace}/package.json`)).engines?.node ?? null
+  }
+
+  test('at least one workspace declares engines.node, so this block is not vacuous', () => {
+    assert.ok(WORKSPACES.some((workspace) => enginesNode(workspace) !== null))
+  })
+
+  for (const workspace of WORKSPACES) {
+    test(`${workspace}/package.json's engines.node stays a floor, not a second copy of the pin`, () => {
+      const declared = enginesNode(workspace)
+      if (declared === null) {
+        // No `engines` is a legitimate state for a workspace nobody installs as a dependency; the
+        // rule is about the shape of the statement when one IS made, not about making one.
+        return
+      }
+      assert.match(
+        declared,
+        /^>=\s*\d+/,
+        `${workspace}/package.json declares engines.node as \`${declared}\`; it is a compatibility ` +
+          'floor and must stay one. The exact patch belongs to .devcontainer/Dockerfile ARG ' +
+          'NODE_VERSION and the workflows, not here.'
+      )
+    })
+  }
+
+  test('the floor and the pin agree on the major', () => {
+    const pinnedMajor = dockerArg('NODE_VERSION').split('.')[0]
+    for (const workspace of WORKSPACES) {
+      const declared = enginesNode(workspace)
+      if (declared === null) {
+        continue
+      }
+      assert.equal(
+        declared.match(/(\d+)/)![1],
+        pinnedMajor,
+        `${workspace}/package.json allows Node ${declared} while CI and the devcontainer run ` +
+          `${dockerArg('NODE_VERSION')} -- a floor a whole major below what anything is ever run ` +
+          'on is a claim nothing tests'
       )
     }
   })

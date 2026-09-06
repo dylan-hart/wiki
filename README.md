@@ -161,6 +161,15 @@ Add a new server under **Servers** with the following settings:
 - PostgreSQL **16** or later
 - Node.js **26.x** or later
 
+That is the supported *floor* — what the code is compatible with, and what each workspace's
+`package.json` `engines` states. It is deliberately not the same statement as the exact patch CI and
+the development container run on, which is pinned once, as `ARG NODE_VERSION` in
+[`.devcontainer/Dockerfile`](.devcontainer/Dockerfile). That file's header states how the pin is
+raised — the ARG, the base-image digest beside it and every `node-version:` in
+`.github/workflows/*.yml`, together, in one commit — and
+`backend/test/devcontainerCiParity.test.ts` fails if the two ever drift apart. You do not need the
+pinned patch to run this locally; a newer 26.x is fine.
+
 ### Usage
 
 1. Clone the project

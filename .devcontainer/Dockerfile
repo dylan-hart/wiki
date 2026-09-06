@@ -7,7 +7,7 @@
 #
 #   | What CI installs                          | Where                              | Here          |
 #   | ----------------------------------------- | ---------------------------------- | ------------- |
-#   | Node (setup-node `node-version: 26.x`)    | all four workflows                 | NODE_VERSION  |
+#   | Node (setup-node `node-version:`)         | all four workflows                 | NODE_VERSION  |
 #   | postgres:18                               | quality.yml / build.yml / e2e.yml  | docker-compose|
 #   | pandoc                                    | quality.yml                        | apt, below    |
 #   | git-cliff, pinned                         | quality.yml                        | GIT_CLIFF_... |
