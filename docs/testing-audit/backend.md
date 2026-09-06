@@ -869,3 +869,32 @@ Left deliberately open for #2689 and #2690, with the evidence but not the verdic
   should shrink in coverage; that is a reviewability question, not a value one.
 - **Any deletion.** This document records what each file gates and what would gate it instead. It
   authorises nothing.
+
+## Post-pruning re-measurement (OpenProject #2690)
+
+Re-measured with `node docs/testing-audit/metrics.mjs` immediately before and after #2690's pass,
+both on branch `wp-2690-prune-backend-suite` at the same commit (`b975f7b4c`) this audit's own
+figures above were corrected against:
+
+| | before | after | change |
+| --- | ---: | ---: | ---: |
+| test files | 419 | 378 | −41 |
+| test LOC | 134,188 | 130,019 | −4,169 |
+| test cases | 5,965 | 5,696 | −269 |
+| test LOC / source LOC | 1.27 | 1.23 | −0.04 |
+| DB-backed suites | 81 | 81 | unchanged |
+| suites scanning repo files | 36 | 18 | −18 |
+
+Per Epic #2600's second direction, stated plainly rather than left to be inferred: **this pass did
+not, and was never going to, bring `backend/`'s test-LOC-to-source-LOC ratio below 1** — the parent
+Feature's resolved scope is explicit that a target ratio is the same volume-as-a-proxy-for-quality
+error the policy exists to correct, and `docs/decisions/testing-strategy.md`'s rollup found 85% of
+the suite to be category-1 product behaviour with nothing to prune. The reduction above is real
+(41 files, ~3% of test LOC, and the repo-file-scanning population exactly halved — the
+documentation-scan set was where the volume without value actually lived) but bounded: #2690's own
+scope note (posted as the work package's implementation-plan comment) records that this pass covered
+the unambiguous, "nothing gates it" verdicts and the two named recurring restatement shapes
+(documentation scans, `definition.yml`-prop-declaration), not the full ~106-row restatement surface
+the audit found. A second pass over the remaining mixed-percentage `api/`/`models/` rows is left to
+a follow-up work package if the parent Feature wants one; this note exists so that possibility isn't
+silently foreclosed by reading this pass as exhaustive.

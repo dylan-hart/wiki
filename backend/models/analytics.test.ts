@@ -9,8 +9,13 @@ import path from 'node:path'
  * `modules/analytics`, parse each `definition.yml`, run its `props` through
  * `helpers/moduleProps.ts#parseModuleProps` — but has no db table behind it, since a provider's
  * enabled/config state lives directly in each site's `config.analytics.providers` rather than being
- * shared instance-wide the way an auth strategy is. This is a plain unit test against the real
- * `modules/analytics` directory added by this task: no db, no fastify app, just `fs` + `js-yaml`.
+ * shared instance-wide the way an auth strategy is.
+ *
+ * Trimmed by OpenProject #2690 (`docs/testing-audit/backend.md`'s `models/analytics.test.ts` row):
+ * the per-module `definition.yml`-declares-its-own-props assertions and the discovery/sort checks
+ * were deleted — nothing gates them, and nothing user-facing is lost, since an admin filling the
+ * config form would see a missing prop immediately. What survives is the one real branch: a failed
+ * scan must still leave `WIKI.data.analytics` an array, not `undefined`.
  */
 
 let analyticsModel: typeof import('./analytics.ts').analytics
@@ -31,54 +36,6 @@ before(async () => {
 
 after(() => {
   delete (globalThis as any).WIKI
-})
-
-test('refreshFromDisk() discovers all three modules this task adds', async () => {
-  await analyticsModel.refreshFromDisk()
-  const modules = analyticsModel.getModules()
-  const keys = modules.map((m) => m.key).sort()
-  assert.deepEqual(keys, ['google', 'gtm', 'matomo'])
-})
-
-test('getModules() sorts alphabetically by title', async () => {
-  await analyticsModel.refreshFromDisk()
-  const titles = analyticsModel.getModules().map((m) => m.title)
-  assert.deepEqual(
-    titles,
-    [...titles].sort((a, b) => a.localeCompare(b))
-  )
-})
-
-test('google declares a propertyTrackingId string prop hinting the G-XXXXXXXXXX format', async () => {
-  await analyticsModel.refreshFromDisk()
-  const google = analyticsModel.getModule('google')
-  assert.ok(google)
-  assert.equal(google!.isAvailable, true)
-  assert.equal(google!.props.propertyTrackingId.type, 'string')
-  assert.equal(google!.props.propertyTrackingId.hint, 'G-XXXXXXXXXX')
-})
-
-test('gtm declares a containerTrackingId string prop hinting the GTM-XXXXXXX format', async () => {
-  await analyticsModel.refreshFromDisk()
-  const gtm = analyticsModel.getModule('gtm')
-  assert.ok(gtm)
-  assert.equal(gtm!.props.containerTrackingId.type, 'string')
-  assert.equal(gtm!.props.containerTrackingId.hint, 'GTM-XXXXXXX')
-})
-
-test('matomo declares siteId and serverHost props with the real upstream defaults', async () => {
-  await analyticsModel.refreshFromDisk()
-  const matomo = analyticsModel.getModule('matomo')
-  assert.ok(matomo)
-  assert.equal(matomo!.props.siteId.type, 'string')
-  assert.equal(matomo!.props.siteId.default, 1)
-  assert.equal(matomo!.props.serverHost.type, 'string')
-  assert.equal(matomo!.props.serverHost.default, 'https://example.matomo.cloud')
-})
-
-test('getModule() returns null for a key nothing on disk declares', async () => {
-  await analyticsModel.refreshFromDisk()
-  assert.equal(analyticsModel.getModule('does-not-exist'), null)
 })
 
 /**
