@@ -1,5 +1,5 @@
 #######################################################################
-# Wiki.js - CONFIGURATION                                             #
+# Cardinal.js - CONFIGURATION                                         #
 #######################################################################
 # Full documentation + examples:
 # https://next.js.wiki/docs/install
@@ -56,7 +56,7 @@ db:
   db: postgres
   schema: wiki
   # -> This is the Postgres connection's own TLS setting, not application-level TLS for the wiki
-  #    itself — Wiki.js never terminates HTTPS; see docs/tls-termination.md.
+  #    itself — Cardinal.js never terminates HTTPS; see docs/tls-termination.md.
   ssl: false
 
   # Optional
