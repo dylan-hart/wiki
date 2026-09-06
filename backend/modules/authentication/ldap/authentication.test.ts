@@ -252,7 +252,16 @@ test('a correct password verifies and hands back a ProvisionableLoginError carry
         : new Error('InvalidCredentialsError')
     },
     search: () => [
-      { dn: userDn, attrs: { uid: 'jdoe', mail: 'jdoe@example.com', displayName: 'Jane Doe' } }
+      {
+        dn: userDn,
+        attrs: {
+          uid: 'jdoe',
+          mail: 'jdoe@example.com',
+          displayName: 'Jane Doe',
+          givenName: 'Jane',
+          sn: 'Doe'
+        }
+      }
     ]
   })
   const mod = new LdapAuthentication('strategy-1', CONF, factory)
@@ -265,8 +274,92 @@ test('a correct password verifies and hands back a ProvisionableLoginError carry
         id: 'jdoe',
         email: 'jdoe@example.com',
         name: 'Jane Doe',
+        firstName: 'Jane',
+        lastName: 'Doe',
         groups: undefined
       })
+      return true
+    }
+  )
+})
+
+/*
+  Feature #2608. `givenName`/`sn` are read from their standard RFC 4519 names with no mapping prop of
+  their own, unlike the unique-ID and email attributes -- see the comment at the read site.
+*/
+test('reads givenName/sn into the separated halves, independently of the display-name mapping', async () => {
+  const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
+  const { factory } = makeClientFactory({
+    bind: () => true,
+    search: () => [
+      {
+        dn: userDn,
+        attrs: {
+          uid: 'jdoe',
+          mail: 'jdoe@example.com',
+          // -> A directory whose display name is not simply "first last": the halves are still read
+          //    as the directory states them, and nothing here reconciles the two.
+          displayName: 'Doe, Jane (Contractor)',
+          givenName: 'Jane',
+          sn: 'Doe'
+        }
+      }
+    ]
+  })
+  const mod = new LdapAuthentication('strategy-1', CONF, factory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
+    (err: any) => {
+      assert.equal(err.profile.firstName, 'Jane')
+      assert.equal(err.profile.lastName, 'Doe')
+      assert.equal(err.profile.name, 'Doe, Jane (Contractor)')
+      return true
+    }
+  )
+})
+
+test('an entry with an empty sn keeps its given name and gets no invented surname', async () => {
+  const userDn = 'uid=prince,ou=people,dc=example,dc=com'
+  const { factory } = makeClientFactory({
+    bind: () => true,
+    // -> `sn` is schema-required for a `person`, but a directory can still return it valueless.
+    search: () => [
+      {
+        dn: userDn,
+        attrs: { uid: 'prince', mail: 'prince@example.com', givenName: 'Prince', sn: '' }
+      }
+    ]
+  })
+  const mod = new LdapAuthentication('strategy-1', CONF, factory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'prince', password: 'correct-password' }),
+    (err: any) => {
+      assert.equal(err.profile.firstName, 'Prince')
+      assert.equal('lastName' in err.profile, false)
+      return true
+    }
+  )
+})
+
+test('an entry carrying neither givenName nor sn leaves both halves off the profile', async () => {
+  const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
+  const { factory } = makeClientFactory({
+    bind: () => true,
+    search: () => [
+      { dn: userDn, attrs: { uid: 'jdoe', mail: 'jdoe@example.com', displayName: 'Jane Doe' } }
+    ]
+  })
+  const mod = new LdapAuthentication('strategy-1', CONF, factory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
+    (err: any) => {
+      assert.equal('firstName' in err.profile, false)
+      assert.equal('lastName' in err.profile, false)
+      // -> And no split of the display name to fill them, which is deliberately not this module's.
+      assert.equal(err.profile.name, 'Jane Doe')
       return true
     }
   )

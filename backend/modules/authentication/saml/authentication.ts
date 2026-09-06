@@ -1,6 +1,19 @@
 import { SAML, ValidateInResponseTo } from '@node-saml/node-saml'
 import type { CacheProvider } from '@node-saml/node-saml'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
+import { providerNameHalves } from '../../../models/authentication.ts'
+
+/**
+ * The two claim URIs a separated name is read from (Feature #2608).
+ *
+ * Fixed rather than exposed as mapping props the way `mappingUID`/`mappingEmail`/
+ * `mappingDisplayName` are: these two are the standard WS-Federation/SAML claim types every identity
+ * provider that issues a separated name at all emits (ADFS, Entra ID, Okta, Shibboleth). A provider
+ * that issues neither simply leaves both halves empty, which is what a mononym or a
+ * display-name-only directory already looks like to `models/users.ts`.
+ */
+const GIVEN_NAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname'
+const SURNAME_CLAIM = 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname'
 
 /**
  * How long after its `IssueInstant` an assertion may still be accepted, capping the identity
@@ -288,6 +301,7 @@ export default class SamlAuthentication {
       id: `${id}`,
       email: `${email}`,
       name: name ? `${name}` : `${email}`,
+      ...providerNameHalves(firstOf(claim(GIVEN_NAME_CLAIM)), firstOf(claim(SURNAME_CLAIM))),
       groups
     }
   }

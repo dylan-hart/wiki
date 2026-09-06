@@ -2,7 +2,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { authentication } from './authentication.ts'
+import { authentication, providerNameHalves } from './authentication.ts'
 import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
@@ -560,5 +560,46 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
     // -> Cleanup so this test's second site does not bleed into the next test's own counts within
     //    the same suite (one shared schema across the whole describe, not one per test).
     await fixtures.db.delete(sitesTable).where(eq(sitesTable.id, secondSite!.id))
+  })
+})
+
+/**
+ * The one place a module turns "what the provider said" into the two `ProviderProfile` keys
+ * (Feature #2608). All five modules that issue separated names spread this, so a change here is a
+ * change to every one of them at once — which is exactly why the two decisions it encodes get their
+ * own coverage rather than being re-asserted five times over.
+ */
+describe('providerNameHalves', () => {
+  test('carries both halves through when the provider issued both', () => {
+    assert.deepEqual(providerNameHalves('Alice', 'Example'), {
+      firstName: 'Alice',
+      lastName: 'Example'
+    })
+  })
+
+  test('trims surrounding whitespace off each half', () => {
+    assert.deepEqual(providerNameHalves('  Alice ', ' Example  '), {
+      firstName: 'Alice',
+      lastName: 'Example'
+    })
+  })
+
+  test('omits an absent half entirely rather than reporting it empty', () => {
+    assert.deepEqual(providerNameHalves('Prince', undefined), { firstName: 'Prince' })
+  })
+
+  test('treats an empty or whitespace-only value as unanswered', () => {
+    assert.deepEqual(providerNameHalves('', '   '), {})
+  })
+
+  test('ignores a value that is not a string, rather than stringifying it into a name', () => {
+    assert.deepEqual(providerNameHalves({ formatted: 'Alice' }, ['Example']), {})
+    assert.deepEqual(providerNameHalves(42, null), {})
+  })
+
+  test('never derives one half from the other -- a mononym stays a mononym', () => {
+    const halves = providerNameHalves('Prince', '')
+    assert.equal(halves.firstName, 'Prince')
+    assert.equal('lastName' in halves, false)
   })
 })

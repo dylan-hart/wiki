@@ -235,6 +235,17 @@ class Login {
    * `isActive`/`isVerified` are deliberately not checked here: both callers hand the returned user
    * straight to `afterLoginChecks()`, which is the one place that check belongs now.
    *
+   * Separated name halves (Feature #2608) reach the account from here and nowhere else in the
+   * provider path. On creation the halves are handed to `createUser()` INSTEAD of a display name, so
+   * `resolveNameFields()` derives `name` from them and the row is not born locally edited; a profile
+   * carrying neither half falls back to the single display name as before. On every later login a
+   * half the account is still missing is filled in, and a half it already has is left alone — a
+   * provider is a source for a field nobody has answered yet, not an authority that overwrites what
+   * a person wrote. Note that "is this authored" is not asked here: `updateUser()` consults the row's
+   * own `nameLocallyEdited` marker to decide whether `name` re-derives, and this method never sets
+   * it. `firstName`/`lastName` are `''` on a row nothing has filled, never null, so the emptiness
+   * test needs no defaulting.
+   *
    * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_ACCOUNT_NOT_LINKED`,
    *         `ERR_LOGIN_FAILED`
    */
@@ -243,6 +254,8 @@ class Login {
     profile: ProviderProfile
   ): Promise<any> {
     const email = profile.email.toLowerCase().trim()
+    const firstName = (profile.firstName ?? '').trim()
+    const lastName = (profile.lastName ?? '').trim()
     let user = await WIKI.models.users.getByEmail(email)
 
     // -> Checked before anything else: a system account (the seeded Guest row) must never be reachable
@@ -289,7 +302,10 @@ class Login {
       }
       this.assertAllowedProviderEmail(strategy, email)
       const userId = await WIKI.models.users.createUser({
-        name: profile.name || email,
+        // -> The halves win when the provider issued either: passing them alongside `name` would
+        //    mark the row locally edited the moment the provider's display name is not exactly
+        //    `first last` ("Dr. Alice Example"), permanently freezing the derivation.
+        ...(firstName || lastName ? { firstName, lastName } : { name: profile.name || email }),
         email,
         // -> Nothing signs in with it: this account authenticates at the provider, and the local
         //    strategy's own entry is what a password would live under
@@ -326,6 +342,8 @@ class Login {
       await this.clearMigratedFallbackLocalAuth(user)
     }
 
+    await this.fillMissingNameHalves(user, firstName, lastName)
+
     // -> Every login, not only the one that created the account: a group added or removed at the
     //    provider since the last login has to show up here too.
     if (strategy.config?.mapGroups && profile.groups) {
@@ -333,6 +351,47 @@ class Login {
     }
 
     return user
+  }
+
+  /**
+   * Fill in a name half the account does not have yet, from what the provider just reported.
+   *
+   * Only an EMPTY field is written. A populated one is left exactly as it is, whoever put it there —
+   * the user, an administrator, or an earlier login through this same provider — which is what makes
+   * a locally corrected name survive every subsequent sign-in. A provider that reported neither half
+   * costs nothing: no row is read and no statement is issued.
+   *
+   * `nameLocallyEdited` is deliberately absent from the patch. `updateUser()` owns the display-name
+   * rule (Task #2639) and re-derives `name` from the resulting pair unless the row is already marked
+   * authored; setting the marker from here would be a second owner of that decision, and clearing it
+   * would let a provider quietly undo somebody's edit.
+   *
+   * The row is re-read and merged back onto `user` afterwards rather than the patch being assigned
+   * onto it: `updateUser()` also re-derives `name`, so the caller — which returns this same object,
+   * and whose `afterLoginChecks()` reads `name` onto the session — would otherwise carry the display
+   * name from before the fill for the rest of the request. That extra read only happens on a login
+   * that actually filled something in, which is at most once per account per half.
+   */
+  private async fillMissingNameHalves(
+    user: any,
+    firstName: string,
+    lastName: string
+  ): Promise<void> {
+    const patch: { firstName?: string; lastName?: string } = {}
+    if (firstName && !user.firstName) {
+      patch.firstName = firstName
+    }
+    if (lastName && !user.lastName) {
+      patch.lastName = lastName
+    }
+    if (Object.keys(patch).length === 0) {
+      return
+    }
+    await WIKI.models.users.updateUser(user.id, patch)
+    const refreshed = await WIKI.models.users.getById(user.id)
+    if (refreshed) {
+      Object.assign(user, refreshed)
+    }
   }
 
   /**
