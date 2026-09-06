@@ -35,10 +35,10 @@ defaults:
       statementTimeoutMillis: 60000
     bindIP: 0.0.0.0
     # Both validated at boot by core/logger.ts, case-sensitively: logLevel is one of
-    # error/warn/info/debug, logFormat one of default/json. Anything else is a one-line refusal and
+    # error/warn/info/debug, logFormat one of text/json. Anything else is a one-line refusal and
     # exit(1) rather than a silently ignored value logging everything at debug.
     logLevel: info
-    logFormat: default
+    logFormat: text
     offline: false
     dataPath: ./data
     # In BYTES. Fastify's `bodyLimit` takes an integer and refuses anything else at boot, unlike the

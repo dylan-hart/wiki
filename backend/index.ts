@@ -86,7 +86,6 @@ WIKI.logger = logger.init()
 //    crash the process unlogged via a rejection nobody's `.catch` caught. Exits deliberately rather
 //    than carrying on in a state some in-flight operation already gave up on.
 registerUnhandledRejectionHandler(WIKI.logger, {
-  debug: WIKI.IS_DEBUG,
   exit: (code) => process.exit(code)
 })
 
@@ -114,10 +113,9 @@ async function preBoot() {
     //    booting instance can never observe a half-seeded database — see `configSvc.ensureSeeded()`.
     await WIKI.configSvc.ensureSeeded()
   } catch (err: any) {
-    WIKI.logger.error('Database Initialization Error: ' + err.message)
-    if (WIKI.IS_DEBUG) {
-      WIKI.logger.error(err)
-    }
+    // -> One record: the message inline and the stack below it, rather than a second `error(err)`
+    //    the operator only saw with debug already on.
+    WIKI.logger.error('db', 'database initialization failed', { error: err })
     process.exit(1)
   }
 
@@ -305,9 +303,7 @@ async function initHTTPServer() {
 await preBoot()
 await initHTTPServer()
 
-await runBootPhaseOrExit(postBoot, 'Post-Boot Initialization Error', WIKI.logger, {
-  debug: WIKI.IS_DEBUG
-})
+await runBootPhaseOrExit(postBoot, 'post-boot initialization', WIKI.logger)
 
 // -> Not ready until postBoot() has resolved: everything that makes the instance able to answer a
 //    page request (site/group/locale/approval/classification caches, storage/search/comment sync,

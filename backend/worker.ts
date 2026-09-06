@@ -37,10 +37,9 @@ const WIKI = {
     try {
       await WIKI.configSvc.loadFromDb()
     } catch (err: any) {
-      WIKI.logger.error('Database Initialization Error: ' + err.message)
-      if (WIKI.IS_DEBUG) {
-        WIKI.logger.error(err)
-      }
+      // -> One record: the message inline and the stack below it, rather than a second `error(err)`
+      //    the operator only saw with debug already on.
+      WIKI.logger.error('db', 'database initialization failed', { error: err })
       process.exit(1)
     }
   }
