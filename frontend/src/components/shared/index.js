@@ -51,6 +51,8 @@ import WRange from './WRange.vue'
 import WScrollArea from './WScrollArea.vue'
 import WSelect from './WSelect.vue'
 import WSeparator from './WSeparator.vue'
+import WSettingsCard from './WSettingsCard.vue'
+import WSettingsRow from './WSettingsRow.vue'
 import WSignal from './WSignal.vue'
 import WSpace from './WSpace.vue'
 import WSpinner from './WSpinner.vue'
@@ -109,6 +111,8 @@ export const sharedComponents = {
   WScrollArea,
   WSelect,
   WSeparator,
+  WSettingsCard,
+  WSettingsRow,
   WSignal,
   WSpace,
   WSpinner,

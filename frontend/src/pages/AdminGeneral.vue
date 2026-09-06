@@ -47,284 +47,221 @@
         <!-- ----------------------- -->
         <!-- Site Info -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.general.siteInfo') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:home" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.siteTitle`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.siteTitleHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.title"
-                dense
-                :rules="rulesTitle"
-                hide-bottom-space
-                :aria-label="t(`admin.general.siteTitle`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:file-description" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.siteDescription`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.siteDescriptionHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.description"
-                dense
-                :aria-label="t(`admin.general.siteDescription`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:world-www" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.siteHostname`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.siteHostnameHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.hostname"
-                dense
-                :rules="rulesHostname"
-                hide-bottom-space
-                :aria-label="t(`admin.general.siteHostname`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.general.siteInfo')">
+          <w-settings-row
+            icon="tabler:home"
+            :label="t(`admin.general.siteTitle`)"
+            :hint="t(`admin.general.siteTitleHint`)">
+            <w-input
+              v-model="state.config.title"
+              dense
+              :rules="rulesTitle"
+              hide-bottom-space
+              :aria-label="t(`admin.general.siteTitle`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:file-description"
+            :label="t(`admin.general.siteDescription`)"
+            :hint="t(`admin.general.siteDescriptionHint`)">
+            <w-input
+              v-model="state.config.description"
+              dense
+              :aria-label="t(`admin.general.siteDescription`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:world-www"
+            :label="t(`admin.general.siteHostname`)"
+            :hint="t(`admin.general.siteHostnameHint`)">
+            <w-input
+              v-model="state.config.hostname"
+              dense
+              :rules="rulesHostname"
+              hide-bottom-space
+              :aria-label="t(`admin.general.siteHostname`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Footer / Copyright -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.general.footerCopyright') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:building" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.companyName`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.companyNameHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.company"
-                dense
-                :aria-label="t(`admin.general.companyName`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:copyright" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.contentLicense`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.contentLicenseHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-select
-                v-model="state.config.contentLicense"
-                :options="contentLicenses"
-                option-value="value"
-                option-label="text"
-                emit-value
-                map-options
-                dense
-                :aria-label="t(`admin.general.contentLicense`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:align-left" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.footerExtra`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.footerExtraHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.footerExtra"
-                dense
-                :aria-label="t(`admin.general.footerExtra`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" :title="t('admin.general.footerCopyright')">
+          <w-settings-row
+            icon="tabler:building"
+            :label="t(`admin.general.companyName`)"
+            :hint="t(`admin.general.companyNameHint`)">
+            <w-input
+              v-model="state.config.company"
+              dense
+              :aria-label="t(`admin.general.companyName`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:copyright"
+            :label="t(`admin.general.contentLicense`)"
+            :hint="t(`admin.general.contentLicenseHint`)">
+            <w-select
+              v-model="state.config.contentLicense"
+              :options="contentLicenses"
+              option-value="value"
+              option-label="text"
+              emit-value
+              map-options
+              dense
+              :aria-label="t(`admin.general.contentLicense`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:align-left"
+            :label="t(`admin.general.footerExtra`)"
+            :hint="t(`admin.general.footerExtraHint`)">
+            <w-input
+              v-model="state.config.footerExtra"
+              dense
+              :aria-label="t(`admin.general.footerExtra`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- FEATURES -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.general.features') }}</w-card-header>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:sitemap" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowBrowse`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.allowBrowseHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.features.browse"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.allowBrowse`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:writing" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowCollaborativeEditing`) }}</w-item-label>
-              <w-item-label caption>
-                {{ t(`admin.general.allowCollaborativeEditingHint`) }}
-              </w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.features.collaborativeEditing"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.allowCollaborativeEditing`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:messages" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowComments`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.allowCommentsHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.features.comments"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.allowComments`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:user-shield" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowProfile`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.allowProfileHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.features.profile"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.allowProfile`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:users" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.showOtherGroups`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.showOtherGroupsHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.features.showOtherGroups"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.showOtherGroups`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:search" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowSearch`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.allowSearchHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.features.search"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.allowSearch`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:help-circle" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.reasonForChange`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.reasonForChangeHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-btn-toggle
-                v-model="state.config.features.reasonForChange"
-                toggle-color="primary"
-                :aria-label="t(`admin.general.reasonForChange`)"
-                :options="reasonForChangeModes" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" :title="t('admin.general.features')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:sitemap"
+            :label="t(`admin.general.allowBrowse`)"
+            :hint="t(`admin.general.allowBrowseHint`)">
+            <w-toggle
+              v-model="state.config.features.browse"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.allowBrowse`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:writing"
+            :label="t(`admin.general.allowCollaborativeEditing`)"
+            :hint="t(`admin.general.allowCollaborativeEditingHint`)">
+            <w-toggle
+              v-model="state.config.features.collaborativeEditing"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.allowCollaborativeEditing`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:messages"
+            :label="t(`admin.general.allowComments`)"
+            :hint="t(`admin.general.allowCommentsHint`)">
+            <w-toggle
+              v-model="state.config.features.comments"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.allowComments`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:user-shield"
+            :label="t(`admin.general.allowProfile`)"
+            :hint="t(`admin.general.allowProfileHint`)">
+            <w-toggle
+              v-model="state.config.features.profile"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.allowProfile`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:users"
+            :label="t(`admin.general.showOtherGroups`)"
+            :hint="t(`admin.general.showOtherGroupsHint`)">
+            <w-toggle
+              v-model="state.config.features.showOtherGroups"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.showOtherGroups`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:search"
+            :label="t(`admin.general.allowSearch`)"
+            :hint="t(`admin.general.allowSearchHint`)">
+            <w-toggle
+              v-model="state.config.features.search"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.allowSearch`)" />
+          </w-settings-row>
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:help-circle"
+            :label="t(`admin.general.reasonForChange`)"
+            :hint="t(`admin.general.reasonForChangeHint`)">
+            <w-btn-toggle
+              v-model="state.config.features.reasonForChange"
+              toggle-color="primary"
+              :aria-label="t(`admin.general.reasonForChange`)"
+              :options="reasonForChangeModes" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Defaults -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4" v-if="state.config.defaults">
-          <w-card-header>{{ t('admin.general.defaults') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:stack-3" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.defaultTocDepth`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.defaultTocDepthHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section class="flex-none ps-2" style="min-width: 180px">
-              <div class="text-caption">
-                {{ t('editor.props.tocMinMaxDepth') }}
-                <strong
-                  >(H{{ state.config.defaults.tocDepth.min }} &rarr; H{{
-                    state.config.defaults.tocDepth.max
-                  }})</strong
-                >
-              </div>
-              <w-range
-                v-model="state.config.defaults.tocDepth"
-                :min="1"
-                :max="6"
-                color="primary"
-                :left-label-value="`H` + state.config.defaults.tocDepth.min"
-                :right-label-value="`H` + state.config.defaults.tocDepth.max"
-                :aria-label-min="t('editor.props.tocMinMaxDepth')"
-                :aria-label-max="t('editor.props.tocMinMaxDepth')"
-                label
-                markers />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card
+          class="mt-4"
+          v-if="state.config.defaults"
+          :title="t('admin.general.defaults')">
+          <w-settings-row
+            control-width="fixed"
+            icon="tabler:stack-3"
+            :label="t(`admin.general.defaultTocDepth`)"
+            :hint="t(`admin.general.defaultTocDepthHint`)">
+            <div class="text-caption">
+              {{ t('editor.props.tocMinMaxDepth') }}
+              <strong
+                >(H{{ state.config.defaults.tocDepth.min }} &rarr; H{{
+                  state.config.defaults.tocDepth.max
+                }})</strong
+              >
+            </div>
+            <w-range
+              v-model="state.config.defaults.tocDepth"
+              :min="1"
+              :max="6"
+              color="primary"
+              :left-label-value="`H` + state.config.defaults.tocDepth.min"
+              :right-label-value="`H` + state.config.defaults.tocDepth.max"
+              :aria-label-min="t('editor.props.tocMinMaxDepth')"
+              :aria-label-max="t('editor.props.tocMinMaxDepth')"
+              label
+              markers />
+          </w-settings-row>
+        </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-5">
         <!-- ----------------------- -->
         <!-- Logo -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.general.logo') }}</w-card-header>
-          <w-item>
-            <blueprint-icon
-              class="self-start"
-              icon="tabler:photo"
-              :indicator="state.sharpMissing ? '' : null"
-              :indicator-text="t(`admin.extensions.requiresSharp`)" />
-            <w-item-section>
-              <div class="flex">
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.general.logoUpl`) }}</w-item-label>
-                  <w-item-label caption>{{ t(`admin.general.logoUplHint`) }}</w-item-label>
-                </w-item-section>
-                <w-item-section class="flex-none">
-                  <div class="flex gap-2">
-                    <w-btn
-                      :label="t(`common.actions.upload`)"
-                      icon="tabler:upload"
-                      color="primary"
-                      text-color="white"
-                      @click="uploadLogo" />
-                    <w-btn
-                      :label="t(`common.actions.clear`)"
-                      outline
-                      icon="tabler:x"
-                      color="primary"
-                      :disabled="!state.hasLogo"
-                      @click="clearLogo" />
-                  </div>
-                </w-item-section>
-              </div>
-              <w-toolbar class="bg-header mt-4 rounded text-white" style="height: 64px">
+        <w-settings-card :title="t('admin.general.logo')">
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:photo"
+            :indicator="state.sharpMissing ? '' : null"
+            :indicator-text="t(`admin.extensions.requiresSharp`)"
+            :label="t(`admin.general.logoUpl`)"
+            :hint="t(`admin.general.logoUplHint`)">
+            <div class="flex gap-2">
+              <w-btn
+                :label="t(`common.actions.upload`)"
+                icon="tabler:upload"
+                color="primary"
+                text-color="white"
+                @click="uploadLogo" />
+              <w-btn
+                :label="t(`common.actions.clear`)"
+                outline
+                icon="tabler:x"
+                color="primary"
+                :disabled="!state.hasLogo"
+                @click="clearLogo" />
+            </div>
+            <template #preview>
+              <w-toolbar class="bg-header text-white" style="height: 64px">
                 <!--
                   Keyed off `state.config.id`, not `adminStore.currentSiteId`: the store field flips
                   the instant a different site is picked, but the title/logoText text below comes from
@@ -348,54 +285,43 @@
                   state.config.title
                 }}</w-toolbar-title>
               </w-toolbar>
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:info-circle" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.displaySiteTitle`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.displaySiteTitleHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.logoText"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.displaySiteTitle`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon
-              class="self-start"
-              icon="tabler:browser"
-              :indicator="state.sharpMissing ? '' : null"
-              :indicator-text="t(`admin.extensions.requiresSharp`)" />
-            <w-item-section>
-              <div class="flex">
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.general.favicon`) }}</w-item-label>
-                  <w-item-label caption>{{ t(`admin.general.faviconHint`) }}</w-item-label>
-                </w-item-section>
-                <w-item-section class="flex-none">
-                  <div class="flex gap-2">
-                    <w-btn
-                      :label="t(`common.actions.upload`)"
-                      icon="tabler:upload"
-                      color="primary"
-                      text-color="white"
-                      @click="uploadFavicon" />
-                    <w-btn
-                      :label="t(`common.actions.clear`)"
-                      outline
-                      icon="tabler:x"
-                      color="primary"
-                      :disabled="!state.hasFavicon"
-                      @click="clearFavicon" />
-                  </div>
-                </w-item-section>
-              </div>
-              <div class="admin-general-favicontabs mt-4">
+            </template>
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:info-circle"
+            :label="t(`admin.general.displaySiteTitle`)"
+            :hint="t(`admin.general.displaySiteTitleHint`)">
+            <w-toggle
+              v-model="state.config.logoText"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.displaySiteTitle`)" />
+          </w-settings-row>
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:browser"
+            :indicator="state.sharpMissing ? '' : null"
+            :indicator-text="t(`admin.extensions.requiresSharp`)"
+            :label="t(`admin.general.favicon`)"
+            :hint="t(`admin.general.faviconHint`)">
+            <div class="flex gap-2">
+              <w-btn
+                :label="t(`common.actions.upload`)"
+                icon="tabler:upload"
+                color="primary"
+                text-color="white"
+                @click="uploadFavicon" />
+              <w-btn
+                :label="t(`common.actions.clear`)"
+                outline
+                icon="tabler:x"
+                color="primary"
+                :disabled="!state.hasFavicon"
+                @click="clearFavicon" />
+            </div>
+            <template #preview>
+              <div class="admin-general-favicontabs">
                 <div>
                   <!-- Same reasoning as the logo preview toolbar above: keyed off `state.config.id`
                        so this can never show a new site's favicon beside the old site's title. -->
@@ -419,135 +345,109 @@
                   </div>
                 </div>
               </div>
-            </w-item-section>
-          </w-item>
-        </w-card>
+            </template>
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Discovery -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.general.discovery') }}</w-card-header>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:antenna-bars-5" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.discoverable`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.discoverableHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.discoverable"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.discoverable`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" :title="t('admin.general.discovery')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:antenna-bars-5"
+            :label="t(`admin.general.discoverable`)"
+            :hint="t(`admin.general.discoverableHint`)">
+            <w-toggle
+              v-model="state.config.discoverable"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.discoverable`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Uploads -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4" v-if="state.config.uploads">
-          <w-card-header>{{ t('admin.general.uploads') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:arrow-merge" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.uploadConflictBehavior`) }}</w-item-label>
-              <w-item-label caption>{{
-                t(`admin.general.uploadConflictBehaviorHint`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-select
-                v-model="state.config.uploads.conflictBehavior"
-                :options="uploadConflictBehaviors"
-                option-value="value"
-                option-label="label"
-                emit-value
-                map-options
-                dense
-                options-dense
-                :aria-label="t(`admin.general.uploadConflictBehavior`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card
+          class="mt-4"
+          v-if="state.config.uploads"
+          :title="t('admin.general.uploads')">
+          <w-settings-row
+            icon="tabler:arrow-merge"
+            :label="t(`admin.general.uploadConflictBehavior`)"
+            :hint="t(`admin.general.uploadConflictBehaviorHint`)">
+            <w-select
+              v-model="state.config.uploads.conflictBehavior"
+              :options="uploadConflictBehaviors"
+              option-value="value"
+              option-label="label"
+              emit-value
+              map-options
+              dense
+              options-dense
+              :aria-label="t(`admin.general.uploadConflictBehavior`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- URL Handling -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.general.urlHandling') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:sort-descending" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.pageExtensions`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.pageExtensionsHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.pageExtensions"
-                dense
-                :aria-label="t(`admin.general.pageExtensions`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:link" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowedUrlSchemes`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.allowedUrlSchemesHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.allowedUrlSchemes"
-                dense
-                :aria-label="t(`admin.general.allowedUrlSchemes`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" :title="t('admin.general.urlHandling')">
+          <w-settings-row
+            icon="tabler:sort-descending"
+            :label="t(`admin.general.pageExtensions`)"
+            :hint="t(`admin.general.pageExtensionsHint`)">
+            <w-input
+              v-model="state.config.pageExtensions"
+              dense
+              :aria-label="t(`admin.general.pageExtensions`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:link"
+            :label="t(`admin.general.allowedUrlSchemes`)"
+            :hint="t(`admin.general.allowedUrlSchemesHint`)">
+            <w-input
+              v-model="state.config.allowedUrlSchemes"
+              dense
+              :aria-label="t(`admin.general.allowedUrlSchemes`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- SEO -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4" v-if="state.config.robots">
-          <w-card-header>SEO</w-card-header>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:robot" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.searchAllowIndexing`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.searchAllowIndexingHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.robots.index"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.searchAllowIndexing`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:vector" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.searchAllowFollow`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.searchAllowFollowHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.robots.follow"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.searchAllowFollow`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:binary-tree" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.sitemap`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.sitemapHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.sitemap"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.general.sitemap`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" v-if="state.config.robots" title="SEO">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:robot"
+            :label="t(`admin.general.searchAllowIndexing`)"
+            :hint="t(`admin.general.searchAllowIndexingHint`)">
+            <w-toggle
+              v-model="state.config.robots.index"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.searchAllowIndexing`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:vector"
+            :label="t(`admin.general.searchAllowFollow`)"
+            :hint="t(`admin.general.searchAllowFollowHint`)">
+            <w-toggle
+              v-model="state.config.robots.follow"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.searchAllowFollow`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:binary-tree"
+            :label="t(`admin.general.sitemap`)"
+            :hint="t(`admin.general.sitemapHint`)">
+            <w-toggle
+              v-model="state.config.sitemap"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.sitemap`)" />
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>
