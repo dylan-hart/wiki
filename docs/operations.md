@@ -237,14 +237,14 @@ handshake frame.
 
 Every line names exactly one subsystem, from a closed vocabulary
 (`backend/core/logScopes.ts`). It is what makes `grep ' storage '` a useful filter, and what
-per-scope verbosity will hang off (below).
+per-scope verbosity (`logScopes`, below) hangs off.
 
 | Scope | Owns |
 | --- | --- |
 | `boot` | process start-up, the three boot phases, shutdown |
 | `config` | config load, settings seed and save, unknown-key warnings |
 | `db` | connection, migrations, pool errors, the LISTEN/NOTIFY channel |
-| `sql` | the query firehose, behind the `sqlLog` admin flag |
+| `sql` | the query firehose, at `debug` — the `sqlLog` admin flag is what raises it |
 | `http` | the access log, 5xx, the app-shell fallback |
 | `auth` | strategies, login/register/2FA/passkey outcomes, API-key and bearer refusals |
 | `session` | secret rotation, session purge |
@@ -274,22 +274,36 @@ A subsystem inside one of these is a **field**, not a new scope: a git storage t
 
 ### Configuration
 
-Two keys in `config.yml`, both validated at boot **case-sensitively** — an unrecognised value is a
+Three keys in `config.yml`, all validated at boot **case-sensitively** — an unrecognised value is a
 one-line refusal and `exit(1)`, not a silently ignored setting:
 
 | Key | Values | Default |
 | --- | --- | --- |
 | `logLevel` | `error`, `warn`, `info`, `debug` | `info` |
 | `logFormat` | `text` (human-readable, coloured on a TTY) or `json` (one object per line, for a log shipper) | `text` |
+| `logScopes` | a map of any scope in the table above to any of the four levels | none |
 
 The 2.x levels `verbose` and `silly` do not exist here, and neither does the old `default` format
 name — `text` is what that value is called.
 
-Two knobs are **planned but not yet implemented** (Epic #2643): a `logScopes:` map raising individual
-scopes above the global floor (`logScopes: { storage: debug }` to trace one subsystem without turning
-everything on), and the two admin flags (`sqlLog`, `authDebug`) becoming runtime overrides of the
-`sql` and `auth` scopes rather than separate switches. Until they land, `logLevel` is the only
-threshold and the two flags behave as they always have.
+`logScopes` is how you trace one subsystem without turning everything on. `logLevel` is the default
+for a scope that says nothing; an entry sets that one scope's threshold instead, up or down:
+
+```yaml
+logLevel: info
+logScopes:
+  http: debug    # turn the access log on — it is a `debug http` line, so `info` shows none of it
+  sql: error     # and quieten a scope below the global default
+```
+
+An unknown scope name or an unknown level refuses the boot, for the same reason a bad `logLevel`
+does: a typo would otherwise trace nothing and say nothing about why.
+
+Two **admin system flags** are the live counterpart, for a scope you want to raise on a running
+instance: `sqlLog` raises `sql` to `debug` and `authDebug` raises `auth` to `debug`, from the next
+line onwards, across the whole cluster, with no restart. They are overrides of the same threshold
+rather than switches of their own — a flag beats a `logScopes` entry, which beats `logLevel` — so a
+scope's verbosity is one question with one answer, whichever of the three settings supplied it.
 
 ### Where the lines go
 

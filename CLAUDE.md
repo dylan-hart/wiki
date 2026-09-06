@@ -838,10 +838,24 @@ log.debug('pulling from origin', { branch })
   `tasks/*.ts`. Each carries a file-level disable and a one-line reason; a new one anywhere else
   goes through `WIKI.logger`.
 
-`logLevel` (`error|warn|info|debug`) and `logFormat` (`text|json`) are validated at boot
-case-sensitively: an unrecognised value is a one-line refusal and `exit(1)`, not a value that quietly
-logs everything. Per-scope thresholds (`logScopes:`) and the `sqlLog`/`authDebug` flags as runtime
-scope overrides are planned under Epic #2643 and are **not** config keys yet — do not write one.
+`logLevel` (`error|warn|info|debug`), `logFormat` (`text|json`) and `logScopes` (a map of scope to
+level) are validated at boot case-sensitively: an unrecognised value — including an unknown scope
+name in `logScopes` — is a one-line refusal and `exit(1)`, not a value that quietly logs everything.
+
+**A line's threshold is per scope, resolved per call**, in `core/logger.ts#effectiveLevel`: the
+`scopeOverrides` thunk `init()` was handed, then `WIKI.config.logScopes`, then `logLevel` as the
+default for a scope neither map names. `index.ts` is what supplies the thunk, over
+`models/flags.ts#logScopeOverrides()` — which is all the `sqlLog` and `authDebug` system flags are
+now: `sqlLog` raises `sql` to `debug`, `authDebug` raises `auth` to `debug`, live, no restart.
+Neither flag gates a call site any more, and **new code must not add a second gate of its own**:
+`core/db.ts`'s query logger emits every query at `debug sql` unconditionally and lets the threshold
+decide, and `models/flags.ts#authDebug()` is a bare `WIKI.logger.debug('auth', message)`. A line
+worth emitting only sometimes is a line at the right level in the right scope, not a line behind an
+`if`.
+
+`logScopes` is declared in `base.yml` as an explicit null rather than `{}`, deliberately:
+`core/config.ts#warnUnknownConfigKeys` descends into any key that is a plain object on both sides,
+so `{}` would make every real entry warn as an unknown config key on every boot.
 
 Enforcement is being landed alongside the call-site sweep (Epic #2643): `no-console` as an oxlint
 error in `backend/`, and a structural `test/logging-conventions.test.ts` that walks the source tree

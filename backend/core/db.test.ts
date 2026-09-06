@@ -314,13 +314,16 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
 
 /**
  * OpenProject #2205: `queryLogger.logQuery` used to write `JSON.stringify(params)` of the whole
- * bound-parameter array under either trigger, with no redaction — and a bound
- * parameter routinely carries a credential (`models/settings.ts#updateConfig` binds the whole
- * settings blob, including the API signing key/passphrase and the session secret, as one JSONB
- * parameter). These cases exercise the fix: the emitted line must carry a parameter's shape
- * (count, type, length) but never its value, under both `sqlLog` and `WIKI.config.dev.logQueries`
- * independently, since redaction has to sit inside `logQuery` itself rather than behind either
- * trigger's own `if`.
+ * bound-parameter array, with no redaction — and a bound parameter routinely carries a credential
+ * (`models/settings.ts#updateConfig` binds the whole settings blob, including the API signing
+ * key/passphrase and the session secret, as one JSONB parameter). These cases exercise the fix: the
+ * emitted line must carry a parameter's shape (count, type, length) but never its value.
+ *
+ * OpenProject #2663 removed the `sqlLog`/`dev.logQueries` gate that used to sit in front of the
+ * call. `logQuery` now emits unconditionally at `debug` on the `sql` scope and the logger's own
+ * per-scope threshold decides whether the line survives — which is why redaction has to live inside
+ * `logQuery` and not behind any trigger: there is no longer a trigger to hide behind, and the line
+ * reaches every connected admin terminal as well as stdout the moment the threshold lets it through.
  */
 describe('queryLogger.logQuery() — bound-parameter redaction', () => {
   let wikiHandle: { restore(): void }
@@ -345,7 +348,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
         },
         error: () => {}
       },
-      config: { flags: { sqlLog: false }, dev: {} }
+      config: { flags: { sqlLog: false } }
     })
   })
 
@@ -358,9 +361,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
     auth: { secret: 'super-secret-session-value', certs: { passphrase: 'hunter2-passphrase' } }
   }
 
-  test('sqlLog flag on: query text is logged, neither the PEM value nor the secret-object value is', () => {
-    WIKI.config.flags.sqlLog = true
-
+  test('query text is logged, neither the PEM value nor the secret-object value is', () => {
     queryLogger.logQuery('select 1 from "settings" where "key" = $1 and "value" = $2', [
       pemLikeParam,
       secretBlobParam
@@ -380,9 +381,8 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
     assert.match(line, /object/)
   })
 
-  test('WIKI.config.dev.logQueries on, sqlLog flag off: the same redaction applies independently', () => {
-    WIKI.config.flags.sqlLog = false
-    WIKI.config.dev.logQueries = true
+  test('redaction does not depend on the sqlLog flag, which no longer gates the call', () => {
+    WIKI.config.flags.sqlLog = true
 
     queryLogger.logQuery('update "settings" set "value" = $1', [secretBlobParam])
 
@@ -393,18 +393,19 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
     assert.ok(!line.includes(JSON.stringify(secretBlobParam)), 'no JSON.stringify of the params')
   })
 
-  test('both triggers off: nothing is logged at all', () => {
+  test('the flag being off does not silence the call — the threshold does that (#2663)', () => {
+    // -> The behaviour change this suite exists to pin: `logQuery` has no gate of its own any more.
+    //    Whether the line is rendered is `core/logger.ts#effectiveLevel`'s decision, asserted over
+    //    in `core/logger.test.ts`; here the only claim is that this call site stopped making it.
     WIKI.config.flags.sqlLog = false
-    WIKI.config.dev.logQueries = false
 
     queryLogger.logQuery('select 1', [pemLikeParam])
 
-    assert.equal(sqlCalls.length, 0)
+    assert.equal(sqlCalls.length, 1)
+    assert.ok(!sqlCalls[0]!.includes(pemLikeParam), 'PEM value must not appear')
   })
 
   test('no bound parameters: query text is logged with no trailing parameter section', () => {
-    WIKI.config.flags.sqlLog = true
-
     queryLogger.logQuery('select 1', [])
 
     assert.deepEqual(sqlCalls, ['select 1'])
