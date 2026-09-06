@@ -26,6 +26,12 @@ import { buildTestRouter } from '../../test/router.js'
 const i18n = createTestI18n({
   common: {
     datetime: '{date} at {time}',
+    // -> The key-cap hint resolves through the SAME two keys `HeaderSearch` uses; see the design
+    //    conformance suite at the bottom of this file.
+    header: {
+      searchShortcutMac: '\u2318K',
+      searchShortcutOther: 'Ctrl+K'
+    },
     pageSelector: {
       folderEmptyWarning: 'This folder is empty.'
     }
@@ -741,6 +747,199 @@ describe('FileManager toolbar "New" icon (OpenProject #2074)', () => {
 
     expect(wrapper.find('[data-icon="tabler:plus"]').exists()).toBe(true)
     expect(wrapper.find('[data-icon="tabler:circle-plus"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * WP #2625: the first full comparison of this screen against `ui-redesign/Cardinal Wiki - File
+ * Manager 3x.dc.html`. Each assertion below names one line of that file, so a later change that
+ * drifts back off it fails as the design disagreement it is rather than as an unexplained snapshot
+ * diff. What the design draws but this pass deliberately did NOT change -- the file-type icon set
+ * (`helpers/fileTypes.js`, four call sites), `.card-header`'s own title size, the folder tree's row
+ * rhythm (`TreeNav.vue`, four call sites) and the Insert button's `#e4676b` fill (2.9:1 under a
+ * white label) -- is recorded on the work package, not asserted here.
+ */
+describe('FileManager design conformance (WP #2625)', () => {
+  it("draws the header glyph in the accent, not in the title's white", async () => {
+    const { wrapper } = await mountFileManager()
+
+    const icon = wrapper.find('.fileman-hdr-icon')
+    expect(icon.exists()).toBe(true)
+    expect(icon.attributes('data-icon')).toBe('tabler:folder')
+
+    wrapper.unmount()
+  })
+
+  it('offers the locale chip with a chevron, and no leftover 40px inline height', async () => {
+    const { wrapper, siteStore } = await mountFileManager()
+    siteStore.locales = {
+      active: [
+        { code: 'en', nativeName: 'English' },
+        { code: 'fr', nativeName: 'Francais' }
+      ]
+    }
+    await flushPromises()
+
+    const chip = wrapper.find('.fileman-locale')
+    expect(chip.exists()).toBe(true)
+    expect(chip.attributes('style') ?? '').not.toContain('height: 40px')
+    expect(chip.find('.fileman-locale-caret').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('advertises the Cmd/Ctrl+K shortcut it already answers, withdrawing the cap once typing starts', async () => {
+    const { wrapper } = await mountFileManager()
+
+    // -> Resolved through `common.header.searchShortcut*`, whichever platform the suite runs on
+    const cap = wrapper.find('.fileman-search-kbd')
+    expect(cap.exists()).toBe(true)
+    expect(['⌘K', 'Ctrl+K']).toContain(cap.text())
+
+    wrapper.vm.state.search = 'q'
+    await flushPromises()
+    expect(wrapper.find('.fileman-search-kbd').exists()).toBe(false)
+
+    // -> ...and the key it advertises really is bound
+    wrapper.vm.state.search = ''
+    await flushPromises()
+    const input = wrapper.find('.fileman-search-input').element
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await flushPromises()
+    expect(document.activeElement).toBe(input)
+
+    wrapper.unmount()
+  })
+
+  it('draws Upload as an outlined positive control carrying its own green edge, not the accent', async () => {
+    const { wrapper } = await mountFileManager()
+
+    const upload = wrapper.find('.fileman-upload-btn')
+    expect(upload.exists()).toBe(true)
+    expect(upload.find('[data-icon="tabler:cloud-upload"]').exists()).toBe(true)
+    // -> `outline`, which is what `WBtn` turns into a `border` class; the class above recolours it
+    expect(upload.classes()).toContain('border')
+
+    wrapper.unmount()
+  })
+
+  it('renders a file size without the proportional caption class', async () => {
+    const { wrapper } = await mountFileManager()
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 253952,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+    await flushPromises()
+
+    const side = wrapper.find('.fileman-filelist-side')
+    expect(side.exists()).toBe(true)
+    // -> `.text-caption` is the proportional scale; a measurement is set in the mono face instead
+    expect(side.html()).not.toContain('text-caption')
+
+    wrapper.unmount()
+  })
+
+  it('draws the details preview as a framed plate with corner marks even with no thumbnail', async () => {
+    const { wrapper } = await mountFileManager()
+
+    // -> A PDF: `currentFileDetails.thumbnail` is null, which used to mean no plate at all
+    wrapper.vm.state.fileList = [
+      {
+        id: 'a2',
+        type: 'asset',
+        title: 'runbook',
+        fileName: 'runbook.pdf',
+        fileExt: 'pdf',
+        fileSize: 1258291,
+        mimeType: 'application/pdf',
+        folderPath: ''
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'a2'
+    await flushPromises()
+
+    const plate = wrapper.find('.fileman-thumb')
+    expect(plate.exists()).toBe(true)
+    expect(plate.find('img').exists()).toBe(false)
+    expect(plate.find('.fileman-thumb-placeholder').exists()).toBe(true)
+    expect(plate.findAll('.fileman-thumb-tick')).toHaveLength(4)
+
+    wrapper.unmount()
+  })
+
+  it('keeps the image inside that plate, square-cornered, when there is a thumbnail', async () => {
+    const { wrapper } = await mountFileManager()
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'a3',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'a3'
+    await flushPromises()
+
+    const img = wrapper.find('.fileman-thumb img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toBe('/_thumb/a3.webp')
+    // -> `--radius-*` is zeroed repo-wide; the plate and its image are square
+    expect(img.classes()).not.toContain('rounded')
+    expect(wrapper.find('.fileman-thumb-placeholder').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('lays each detail row out as a label gutter beside its value, not stacked over it', async () => {
+    const { wrapper } = await mountFileManager()
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'a4',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 253952,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'a4'
+    await flushPromises()
+
+    const rows = wrapper.findAll('.fileman-details-row')
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      expect(row.find('label').exists()).toBe(true)
+      expect(row.find('span').exists()).toBe(true)
+    }
+
+    wrapper.unmount()
+  })
+
+  it('leaves the path bar to its own stylesheet rather than a legacy Material grey utility', async () => {
+    const { wrapper } = await mountFileManager()
+
+    const path = wrapper.find('.fileman-path')
+    expect(path.exists()).toBe(true)
+    expect(path.html()).not.toContain('text-grey-7')
 
     wrapper.unmount()
   })
