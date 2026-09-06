@@ -1,5 +1,10 @@
 <template>
-  <w-page padding class="tags-browse">
+  <w-page class="tags-browse">
+    <!--
+      No page padding: `padding` on `w-page` insets the band 16px on both sides, and a section band is
+      full-bleed -- it opens the panel edge to edge, flush against the top, with nothing above it to
+      rule off from. The body below carries the page's inset instead (`.tags-browse-body`).
+    -->
     <div class="w-section-header">{{ t('tags.title') }}</div>
 
     <div class="tags-browse-body">
@@ -570,10 +575,15 @@ onMounted(async () => {
 
 <style lang="scss">
 .tags-browse {
+  /*
+    The page's own inset, held here rather than on `w-page`, so the band above stays full-bleed. No top
+    padding: the band already trails the section rhythm's 14px below itself.
+  */
   &-body {
     display: flex;
     align-items: flex-start;
     gap: 1.5rem;
+    padding: 0 16px 16px;
   }
 
   &-sidebar {

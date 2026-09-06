@@ -200,11 +200,11 @@
           The markdown itself, because that is what gets inserted and it is worth seeing before it lands
           in the page. Headed the way the block picker heads its own markdown.
 
-          `-mx-4` gives back the page's own padding, so the band `w-section-header` trails reaches the
-          panel's edges instead of stopping short of them — and the class's own 16px leaves the heading
-          text at the same inset the rest of the page keeps.
+          The band reaches the panel's edges through `--w-section-bleed`, declared once on `.table-editor`
+          next to the `p-4` it cancels, rather than as a `-mx-4` here that restates that padding's value
+          from the far side of the file.
         -->
-        <div class="w-section-header -mx-4 mt-6">{{ t('editor.tableEditor.markdown') }}</div>
+        <div class="w-section-header mt-6">{{ t('editor.tableEditor.markdown') }}</div>
         <!--
           Drawn as the page will draw it: `page-contents` is the content stylesheet, so the preview is
           a code block, not a panel of its own invention — one that follows the site's own code surface,
@@ -430,6 +430,12 @@ onBeforeUnmount(() => {
 
 <style lang="scss">
 .table-editor {
+  /*
+    The page pads itself 16px (`<w-page class="p-4">`); a section band is full-bleed, so it needs that
+    inset given back. Named here, beside the padding it cancels, so the two cannot drift apart.
+  */
+  --w-section-bleed: 16px;
+
   /*
     Nothing here sits on a `w-card`, and that is where the app's dark text colour comes from -- so the
     overlay has to state its own or everything that merely inherits `color` stays black on the dark

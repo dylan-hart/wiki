@@ -5,12 +5,19 @@
     <!-- ----------------------------------------------------- -->
     <template v-if="!state.selected">
       <!--
-        `pt-4` on the heading rather than `py-4` on the page, which is where the other sections get it
-        from: this page is a flex column whose diff view fills the rest of the card, and padding on the
-        container would sit under that too.
+        Flush against the top of the panel, with nothing above it to rule off from -- the shape
+        `PagePropertiesDialog` opens its panel with, and the same one `InboxWatching` uses next door.
+        The `pt-4` this replaces was the page's top padding wearing the band as a costume: it left this
+        one band's text 5px below the centre every other band's sits on, and no other band in the app
+        pays for its container's spacing out of its own padding.
       -->
-      <div class="w-section-header pt-4">{{ t('inbox.pendingReview') }}</div>
-      <div class="p-4">
+      <div class="w-section-header">{{ t('inbox.pendingReview') }}</div>
+      <!--
+        No top padding of its own: the band already trails the rhythm's 14px below itself, and a `pt-4`
+        here would stack a second gap on top of it -- 30px under the heading where every other section
+        in the app has 14.
+      -->
+      <div class="px-4 pb-4">
         <div class="text-body2">{{ t('inbox.pendingReviewInfo') }}</div>
         <w-banner
           v-if="state.submissions.length < 1 && state.loading < 1"

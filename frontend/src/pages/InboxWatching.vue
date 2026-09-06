@@ -1,6 +1,12 @@
 <template>
-  <w-page class="py-4">
+  <w-page>
     <!--
+      No page padding: the first band opens the panel flush against its top edge (and drops its top
+      rule as `:first-child`), which is the shape every other panel in the app opens with. Each
+      section's body carries its own inset instead, so a band always spans the panel rather than being
+      held 16px in from it on either side -- and at `px-4` that body's text finally starts at the same
+      inset as the heading above it, where `px-5` left the two 4px out of step.
+
       Notifications first, Watching second: this is the tab `InboxOverlay`'s sidebar rail's first
       entry ("Inbox") opens onto directly (OpenProject #2000 repointed it here once the dead
       `/_inbox/messages` stub it used to point at was deleted; #2531 later converted the rail entry
@@ -9,7 +15,7 @@
       urgent of the two.
     -->
     <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
-    <div class="px-5 py-4">
+    <div class="px-4 pb-4">
       <div class="text-body2">{{ t('inbox.notificationsInfo') }}</div>
       <w-banner
         v-if="state.notifications.length < 1"
@@ -58,7 +64,7 @@
     </div>
 
     <div class="w-section-header">{{ t('inbox.watching') }}</div>
-    <div class="px-5 py-4">
+    <div class="px-4 pb-4">
       <div class="text-body2">{{ t('inbox.watchingInfo') }}</div>
       <!--
         The empty state carries the instruction with it: this screen is reached from the sidebar, quite
