@@ -484,3 +484,53 @@ describe('PageHistoryOverlay: no history yet', () => {
     expect(notifyQueue).toHaveLength(0)
   })
 })
+
+/**
+ * OpenProject #2637, notes 1 and 2 of Dylan's 2026-09-05 review: "the PAGE HISTORY icon is too
+ * large; the mockup defines it smaller and accent-colored. the page title in the dialog is normal
+ * case, not uppercased, in the mockup."
+ *
+ * Both are read off `ui-redesign/Cardinal Wiki - History 3x.dc.html`'s own header row.
+ */
+describe('PageHistoryOverlay: the header band (OpenProject #2637)', () => {
+  it('draws the history glyph at the designs 20px, in the accent rather than the headers white', async () => {
+    await mountOverlay()
+
+    const icon = document.body.querySelector('.card-header [data-icon="tabler:history"]')
+    /*
+      `w-icon` sizes itself in `em` off `font-size`, so 20px here IS the design's `width="20"`. It was
+      `size="md"` -- 32px, per `components/shared/metrics.js` -- which is what made it read as chrome
+      rather than as a mark beside the label.
+    */
+    expect(icon.style.fontSize).toBe('20px')
+    // -> `color="accent-dark"`, the `#f08287` the design strokes it in; see the template's own note
+    //    on why the DARK accent is the right one on a surface that is inked in both themes
+    expect([...icon.classList]).toContain('text-accent-dark')
+  })
+
+  it('leaves the page title in the case its author wrote it, despite the uppercased title band', async () => {
+    /*
+      `.card-header` uppercases a dialog's title band (`css/_base.scss`), and the page-title span sits
+      inside it -- so this is a cascade fact, and asserting it needs both halves present. The overlay
+      brings its own stylesheet with it (Vitest's `css: true`), but `_base.scss` is a global sheet the
+      app loads in `main.js` and no component test pulls in, so its one relevant declaration is
+      restated here rather than the whole file being imported for it.
+    */
+    const baseSheet = document.createElement('style')
+    baseSheet.textContent = '.card-header { text-transform: uppercase; }'
+    document.head.appendChild(baseSheet)
+
+    try {
+      await mountOverlay()
+
+      const band = document.body.querySelector('.card-header')
+      const title = document.body.querySelector('.page-history-page')
+
+      // -> The control: the band itself really is uppercased, so the next assertion means something
+      expect(getComputedStyle(band).textTransform).toBe('uppercase')
+      expect(getComputedStyle(title).textTransform).toBe('none')
+    } finally {
+      baseSheet.remove()
+    }
+  })
+})
