@@ -1,5 +1,9 @@
-import { and, desc, eq, ne } from 'drizzle-orm'
-import { pageWatching as watchingTable, pages as pagesTable } from '../db/schema.ts'
+import { and, asc, count, desc, eq, ne } from 'drizzle-orm'
+import {
+  pageWatching as watchingTable,
+  pages as pagesTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 
 /** `immediate` sends a mail per change; `digest` batches them for a later send. */
@@ -80,13 +84,53 @@ export interface WatchedPage {
   preference: ResolvedWatchNotifyPreference
 }
 
+/** One person watching a page, as the page metadata rail plates them. */
+export interface PageWatcher {
+  userId: string
+  name: string
+  /** Up to two letters for the plate — see `initialsFor`. */
+  initials: string
+  /** When this person started watching, which is what orders the list. */
+  watchedAt: Date
+}
+
+/** `listForPage`'s answer: the leading watchers, and how many there are in total. */
+export interface PageWatchers {
+  watchers: PageWatcher[]
+  /** Every watcher of the page, not just the ones returned — what the `+N` remainder counts from. */
+  total: number
+}
+
+/**
+ * Up to two letters, from the first and last word of a name — `Ada Lovelace` gives `AL`, and a
+ * mononym gives its first letter. A nameless account gets a neutral glyph rather than a blank plate.
+ *
+ * The same derivation `frontend/src/components/CollabPresence.vue` draws its presence avatars with.
+ * It is repeated here rather than left to the caller because `initials` is part of THIS route's
+ * response contract (see `api/schemas/watcher.ts`), which any consumer reads — not only the SPA,
+ * which has its own copy for the avatars it renders from data that never came from here.
+ */
+export function initialsFor(name: string | null | undefined): string {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean)
+  if (words.length < 1) {
+    return '?'
+  }
+  const last = words.length > 1 ? words.at(-1)![0] : ''
+  return `${words[0]![0]}${last}`.toUpperCase()
+}
+
 /**
  * Page watching model
  *
  * Who has asked to be told about which pages, and how: the bell on a page reads `isWatching`, the
- * inbox lists `listForUser`, and `models/pages.ts#notifyWatchers` reads `listWatchers` to resolve who
- * gets a notification — and whether it should be sent right away or left for the digest job — for one
- * change.
+ * inbox lists `listForUser`, the page metadata rail's Watching section reads `listForPage`, and
+ * `models/pages.ts#notifyWatchers` reads `listWatchers` to resolve who gets a notification — and
+ * whether it should be sent right away or left for the digest job — for one change.
+ *
+ * `listForPage` and `listWatchers` both answer "who watches this page" and are NOT variations of one
+ * method: the first is a public, ordered, counted read for display, the second a notification-path
+ * read that excludes the actor, honours each watcher's delivery preference and re-checks their own
+ * `read:pages`. Each documents where its own line is drawn.
  */
 class PageWatching {
   /**
@@ -349,6 +393,62 @@ class PageWatching {
       }
     }
     return readable
+  }
+
+  /**
+   * Who is watching this page, oldest watcher first, plus how many there are in total.
+   *
+   * The page metadata rail's Watching section: a row of initial plates and a `+N` remainder. The cap
+   * on how many plates are drawn is the RAIL's decision, so it arrives as `limit` and is nowhere in
+   * here — `total` is always counted over every watcher, not over the returned slice, or the
+   * remainder would be wrong the moment the cap changed.
+   *
+   * Oldest first (`asc` on `createdAt`), not newest: the plates are meant to read as who has been
+   * following the page, and a page whose watchers churn should not have its rail reshuffle. The
+   * ordering is the whole reason `watchedAt` comes back on each row — a consumer can see the order is
+   * real rather than take the array's word for it.
+   *
+   * **Deliberately NOT filtered by each watcher's own `read:pages`**, unlike `listForUser` and
+   * `listWatchers`. Those two answer "what should this person be shown / be mailed", so a watcher who
+   * has since lost the page has to drop out of their own answer (OpenProject #2173). This answers
+   * "who watches this page", asked BY somebody else; the privacy boundary is the CALLER's `read:pages`
+   * on the page, which `helpers/pageAccess.ts#requireReadablePage` has already enforced before the
+   * route gets here. Re-checking every watcher would also turn a fixed two-query read into one group
+   * -rule evaluation per watcher for a decoration on the page view.
+   *
+   * `pageId` alone is the key — no `siteId`. A page belongs to exactly one site and the route resolved
+   * it within that site already, so a second predicate would assert something the caller has proven;
+   * `listForUser` takes a `siteId` because an inbox genuinely spans sites and this does not.
+   */
+  async listForPage(pageId: string, { limit }: { limit: number }): Promise<PageWatchers> {
+    const rows = await WIKI.db
+      .select({
+        userId: watchingTable.userId,
+        name: usersTable.name,
+        watchedAt: watchingTable.createdAt
+      })
+      .from(watchingTable)
+      .innerJoin(usersTable, eq(usersTable.id, watchingTable.userId))
+      .where(eq(watchingTable.pageId, pageId))
+      .orderBy(asc(watchingTable.createdAt), asc(watchingTable.userId))
+      .limit(limit)
+    /*
+      Counted separately rather than inferred from `rows.length`, which only equals the total while the
+      page has fewer watchers than the cap -- exactly the case the `+N` remainder does not exist for.
+    */
+    const totals = await WIKI.db
+      .select({ total: count() })
+      .from(watchingTable)
+      .where(eq(watchingTable.pageId, pageId))
+    return {
+      watchers: rows.map((row) => ({
+        userId: row.userId,
+        name: row.name,
+        initials: initialsFor(row.name),
+        watchedAt: row.watchedAt
+      })),
+      total: totals[0]?.total ?? 0
+    }
   }
 }
 

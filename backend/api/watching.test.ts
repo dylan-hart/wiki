@@ -224,3 +224,145 @@ describe('WATCH route — siteId threading (task 673)', () => {
     assert.equal(checkAccessCalls[0].path, 'some/page')
   })
 })
+
+describe('page watchers listing (OpenProject #2646)', () => {
+  /**
+   * `GET /sites/:siteId/pages/:pageId/watchers` — the producer behind the page metadata rail's
+   * Watching section. What is asserted here is the ROUTE's own contract, not the model's SQL (that is
+   * `models/pageWatching.test.ts`'s DB-backed `listForPage` coverage): that an anonymous caller on a
+   * readable page gets the list at all, that an unreadable page answers 404 rather than 403, that the
+   * order the model returns survives the response schema, and that `limit` reaches the model from the
+   * schema's default rather than from a number the route invented.
+   *
+   * `schemas` is left at its default `'all'` on purpose — the response `$ref`s `PageWatchers#`, which
+   * `$ref`s `Watcher#`, so a schema missing from `registerAllSchemas` fails here rather than only at
+   * boot.
+   */
+
+  const SITE_ID = '55555555-5555-4555-8555-555555555555'
+  const PAGE_ID = '66666666-6666-4666-8666-666666666666'
+
+  const WATCHERS_URL = `/sites/${SITE_ID}/pages/${PAGE_ID}/watchers`
+
+  let app: FastifyInstance
+  let session: any
+  let readable: boolean
+  let locked: boolean
+  let listForPageMock: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    app = await buildTestApp({
+      routes: watchingRoutes,
+      ajv: true,
+      session: () => session,
+      wiki: {
+        models: {
+          pages: {
+            getPage: async () =>
+              readable
+                ? { id: PAGE_ID, path: 'watched/page', locale: 'en', tags: [], isLocked: locked }
+                : null
+          },
+          groups: {
+            actorForRequest: () => ({ groupIds: [], permissions: [] }),
+            groupIdsForRequest: () => [],
+            checkAccess: () => readable
+          },
+          pageWatching: {
+            listForPage: (...args: any[]) => listForPageMock(...args)
+          }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    // -> Anonymous by default: the rail draws this section for a signed-out reader too, so that is
+    //    the baseline every test here runs against rather than one special case at the end.
+    session = undefined
+    readable = true
+    locked = false
+    listForPageMock = mock.fn(async () => ({
+      watchers: [
+        { userId: 'a', name: 'Ada Lovelace', initials: 'AL', watchedAt: new Date(1_000) },
+        { userId: 'b', name: 'Grace Hopper', initials: 'GH', watchedAt: new Date(2_000) }
+      ],
+      total: 7
+    }))
+  })
+
+  test('an anonymous caller on a readable page gets the watchers and the full total', async () => {
+    const res = await app.inject({ method: 'GET', url: WATCHERS_URL })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.total, 7, 'total counts every watcher, not only the two returned')
+    assert.deepEqual(
+      body.watchers.map((w: any) => w.name),
+      ['Ada Lovelace', 'Grace Hopper'],
+      'the order the model returned is the order the response carries'
+    )
+    assert.deepEqual(
+      body.watchers.map((w: any) => w.initials),
+      ['AL', 'GH']
+    )
+  })
+
+  test('a caller who cannot read the page gets 404, not 403, and the model is never asked', async () => {
+    readable = false
+
+    const res = await app.inject({ method: 'GET', url: WATCHERS_URL })
+
+    // -> `requireReadablePage` answers missing and unreadable identically on purpose: a 403 would
+    //    confirm the page exists to somebody who may not see it.
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().message, 'This page does not exist.')
+    assert.equal(listForPageMock.mock.calls.length, 0)
+  })
+
+  test('a password-protected page the reader has not unlocked is refused', async () => {
+    locked = true
+
+    const res = await app.inject({ method: 'GET', url: WATCHERS_URL })
+
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json().message, 'This page is password protected.')
+    assert.equal(listForPageMock.mock.calls.length, 0)
+  })
+
+  test('limit defaults from the schema rather than from a number the route invented', async () => {
+    await app.inject({ method: 'GET', url: WATCHERS_URL })
+
+    assert.deepEqual(listForPageMock.mock.calls[0]?.arguments, [PAGE_ID, { limit: 25 }])
+  })
+
+  test('an explicit limit is passed straight through, so the plate cap stays the caller’s', async () => {
+    await app.inject({ method: 'GET', url: `${WATCHERS_URL}?limit=3` })
+
+    assert.deepEqual(listForPageMock.mock.calls[0]?.arguments, [PAGE_ID, { limit: 3 }])
+  })
+
+  test('limit is bounded: 0 and 500 are both rejected rather than silently clamped', async () => {
+    const tooSmall = await app.inject({ method: 'GET', url: `${WATCHERS_URL}?limit=0` })
+    const tooLarge = await app.inject({ method: 'GET', url: `${WATCHERS_URL}?limit=500` })
+
+    assert.equal(tooSmall.statusCode, 400)
+    assert.equal(tooLarge.statusCode, 400)
+    assert.equal(listForPageMock.mock.calls.length, 0)
+  })
+
+  test('a signed-in caller is served by the same route, with no account check of its own', async () => {
+    session = {
+      authenticated: true,
+      user: { id: '88888888-8888-4888-8888-888888888888' },
+      permissions: []
+    }
+
+    const res = await app.inject({ method: 'GET', url: WATCHERS_URL })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().total, 7)
+  })
+})

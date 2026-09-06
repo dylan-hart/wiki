@@ -1236,7 +1236,13 @@ export const pageWatching = pgTable(
   (table) => [
     // -> Covers the site scoping too, being the leading column: this is the inbox's own query
     index('pageWatching_user_site_idx').on(table.userId, table.siteId),
-    // -> Watching a page twice is watching it once, so the second attempt is a no-op rather than a row
+    // -> Watching a page twice is watching it once, so the second attempt is a no-op rather than a row.
+    //    `pageId` leading also makes this the index for every by-page question — `listWatchers`'s
+    //    notification lookup and `listForPage`'s rail listing/count both filter on it alone. No
+    //    `(pageId, createdAt)` index was added for the latter's `ORDER BY createdAt`: the sort runs
+    //    over one page's watchers, a set bounded by how many people pressed the bell on a single page,
+    //    which a top-N sort handles without touching disk. Revisit if a page ever accumulates watchers
+    //    in the thousands.
     uniqueIndex('pageWatching_page_user_idx').on(table.pageId, table.userId)
   ]
 )
