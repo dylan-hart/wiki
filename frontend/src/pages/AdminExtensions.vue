@@ -240,7 +240,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.extensions.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

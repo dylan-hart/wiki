@@ -263,6 +263,7 @@ import { computed } from 'vue'
 import { confirm } from '@/composables/dialog'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 
@@ -567,7 +568,7 @@ async function importRules() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: t('admin.groups.importFailed') + ` [${err.message}]`
+      message: t('admin.groups.importFailed') + ` [${apiErrorMessage(err)}]`
     })
   }
 }

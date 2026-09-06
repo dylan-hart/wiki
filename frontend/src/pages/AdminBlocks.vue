@@ -524,7 +524,7 @@ async function copyCredentialId(id) {
     notify({
       type: 'negative',
       message: t('admin.blocks.credentialCopyFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }

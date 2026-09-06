@@ -261,7 +261,7 @@ async function refreshUsers() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.isLoadingUsers = false

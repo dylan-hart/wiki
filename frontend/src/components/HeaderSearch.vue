@@ -248,6 +248,7 @@ import { DEFAULT_PAGE_ICON } from '@/stores/page'
 import { orderBy } from 'es-toolkit/array'
 import { debounce } from 'es-toolkit/function'
 import { copyToClipboard } from '@/helpers/clipboard'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { log } from '@/helpers/log'
 import { isApplePlatform } from '@/helpers/platform'
@@ -517,7 +518,11 @@ async function copySearchLink() {
     await copyToClipboard(url)
     notify({ type: 'positive', message: t('common.clipboard.success') })
   } catch (err) {
-    notify({ type: 'negative', message: t('common.clipboard.failure'), caption: err.message })
+    notify({
+      type: 'negative',
+      message: t('common.clipboard.failure'),
+      caption: apiErrorMessage(err)
+    })
   }
 }
 
