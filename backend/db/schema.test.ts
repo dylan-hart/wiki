@@ -626,3 +626,156 @@ describe('schema.ts index redundancy', () => {
     assert.ok(tablesWithMultipleIndexes.length > 1)
   })
 })
+
+/**
+ * OpenProject #2598 (resolving Issues #2590/#2591/#2595): `20260905142836_main` converted
+ * `glossaryTerms.aliases` from `text[]` to `jsonb` with
+ * `ALTER COLUMN "aliases" SET DATA TYPE jsonb USING to_jsonb("aliases")`. `to_jsonb` on a `text[]`
+ * yields a JSON array of plain STRINGS -- `["USS","NASA"]` -- not the `GlossaryAliasRow[]`
+ * (`{ value, isAcronym }`) shape `db/schema.ts`'s `aliases` declares and `models/glossary.ts` reads,
+ * so every pre-existing term with a non-empty alias list came back the wrong shape and
+ * `assertNoSurfaceFormCollision`'s `row.aliases.map((a) => a.value.toLowerCase())` threw. The fix
+ * was to squash the column into the genesis `CREATE TABLE` so no conversion ever runs.
+ *
+ * This guards the general failure mode rather than only the one column that hit it:
+ * `to_jsonb(<a column>)` in a `SET DATA TYPE jsonb` is correct only when the source column already
+ * holds the target row shape, which for an array or a composite it does not. A future jsonb
+ * conversion that genuinely needs one writes the real per-row expression instead (a
+ * `jsonb_agg(jsonb_build_object(...))` over `unnest(...)`, say), and anything that legitimately
+ * does cast a whole column can be added to the allow-list with a note saying why its source shape
+ * is already right.
+ */
+
+const TO_JSONB_COLUMN_CAST_RE =
+  /SET\s+DATA\s+TYPE\s+jsonb\s+USING\s+to_jsonb\s*\(\s*"?[A-Za-z_][A-Za-z0-9_]*"?\s*\)/gi
+const TO_JSONB_COLUMN_CAST_ALLOWLIST = new Set<string>([])
+
+async function migrationsCastingAColumnWithToJsonb(): Promise<Map<string, string[]>> {
+  const offenders = new Map<string, string[]>()
+  const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const sqlPath = path.join(MIGRATIONS_DIR, entry.name, 'migration.sql')
+    let contents: string
+    try {
+      contents = await readFile(sqlPath, 'utf8')
+    } catch {
+      continue // not every folder necessarily has a migration.sql (none currently don't, but be safe)
+    }
+    const hits = [...contents.matchAll(TO_JSONB_COLUMN_CAST_RE)].map((m) => m[0])
+    if (hits.length > 0) offenders.set(entry.name, hits)
+  }
+  return offenders
+}
+
+describe('migration.sql jsonb conversions (OpenProject #2598)', () => {
+  test('no migration converts a column to jsonb with a bare to_jsonb(<column>)', async () => {
+    const offenders = await migrationsCastingAColumnWithToJsonb()
+    const unexpected = [...offenders.keys()].filter(
+      (folder) => !TO_JSONB_COLUMN_CAST_ALLOWLIST.has(folder)
+    )
+    assert.deepEqual(
+      unexpected,
+      [],
+      `migration(s) convert a column to jsonb with a bare to_jsonb(<column>), which preserves the ` +
+        `source column's own shape rather than producing the row shape the code reads: ` +
+        `${unexpected.join(', ')}. Write the real per-row expression, or squash the column into ` +
+        `the genesis CREATE TABLE so no conversion runs at all.`
+    )
+  })
+
+  test('the allow-list itself still names a real migration folder that actually needs it', async () => {
+    const offenders = await migrationsCastingAColumnWithToJsonb()
+    for (const folder of TO_JSONB_COLUMN_CAST_ALLOWLIST) {
+      assert.ok(
+        offenders.has(folder),
+        `${folder} is allow-listed but no longer casts a column with to_jsonb() -- remove it from ` +
+          `the allow-list`
+      )
+    }
+  })
+
+  test('the scan reads real migration SQL, so it cannot pass vacuously', async () => {
+    const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true })
+    const folders = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+    assert.ok(folders.length > 0)
+    const contents = await Promise.all(
+      folders.map((folder) => readFile(path.join(MIGRATIONS_DIR, folder, 'migration.sql'), 'utf8'))
+    )
+    assert.ok(contents.some((sql) => /jsonb/i.test(sql)))
+  })
+
+  test('the pattern matches the exact statement this guard was written for', () => {
+    const offending =
+      'ALTER TABLE "glossaryTerms" ALTER COLUMN "aliases" SET DATA TYPE jsonb USING to_jsonb("aliases");'
+    assert.equal([...offending.matchAll(TO_JSONB_COLUMN_CAST_RE)].length, 1)
+  })
+
+  test('the pattern leaves a real per-row jsonb conversion expression alone', () => {
+    const legitimate =
+      'ALTER TABLE "glossaryTerms" ALTER COLUMN "aliases" SET DATA TYPE jsonb USING ' +
+      "(SELECT coalesce(jsonb_agg(jsonb_build_object('value', a, 'isAcronym', false)), '[]'::jsonb) " +
+      'FROM unnest("aliases") AS a);'
+    assert.equal([...legitimate.matchAll(TO_JSONB_COLUMN_CAST_RE)].length, 0)
+  })
+})
+
+describe('glossaryTerms.aliases is jsonb in the genesis migration (OpenProject #2598)', () => {
+  async function genesisMigrationSql(): Promise<string> {
+    const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true })
+    const folders = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+    assert.ok(folders.length > 0, 'expected at least one migration folder')
+    return await readFile(path.join(MIGRATIONS_DIR, folders[0], 'migration.sql'), 'utf8')
+  }
+
+  function glossaryTermsCreateTable(sql: string): string {
+    const match = /CREATE TABLE "glossaryTerms" \(([\s\S]*?)\n\);/.exec(sql)
+    assert.ok(match, 'expected the genesis migration to CREATE TABLE "glossaryTerms"')
+    return match[1]
+  }
+
+  test('the genesis CREATE TABLE declares aliases as jsonb defaulting to an empty array', async () => {
+    const body = glossaryTermsCreateTable(await genesisMigrationSql())
+    const line = body.split('\n').find((l) => l.includes('"aliases"'))
+    assert.ok(line, 'expected an "aliases" column in the genesis CREATE TABLE')
+    assert.match(line, /"aliases" jsonb DEFAULT '\[\]' NOT NULL/)
+  })
+
+  test('the genesis CREATE TABLE also carries the isAcronym column squashed alongside it', async () => {
+    // -> `20260905142836_main` added BOTH columns in one migration, so deleting it squashes both,
+    //    not just `aliases` -- a squash that dropped `isAcronym` would leave a fresh install
+    //    missing a column `db/schema.ts` declares.
+    const body = glossaryTermsCreateTable(await genesisMigrationSql())
+    const line = body.split('\n').find((l) => l.includes('"isAcronym"'))
+    assert.ok(line, 'expected an "isAcronym" column in the genesis CREATE TABLE')
+    assert.match(line, /"isAcronym" boolean DEFAULT false NOT NULL/)
+  })
+
+  test('no migration is left ALTERing glossaryTerms.aliases at all', async () => {
+    const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true })
+    const offenders: string[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const sql = await readFile(path.join(MIGRATIONS_DIR, entry.name, 'migration.sql'), 'utf8')
+      if (/ALTER COLUMN "aliases"/i.test(sql)) offenders.push(entry.name)
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      `the aliases column is squashed into the genesis CREATE TABLE; nothing should ALTER it: ` +
+        `${offenders.join(', ')}`
+    )
+  })
+
+  test('the drizzle schema and the genesis migration agree that aliases is jsonb', () => {
+    const config = getTableConfig(schema.glossaryTerms)
+    const aliases = config.columns.find((col) => col.name === 'aliases')
+    assert.ok(aliases)
+    assert.equal(aliases.columnType, 'PgJsonb')
+    assert.equal(aliases.notNull, true)
+    assert.equal(aliases.hasDefault, true)
+  })
+})

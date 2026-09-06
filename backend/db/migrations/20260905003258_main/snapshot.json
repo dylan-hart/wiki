@@ -2138,14 +2138,27 @@
       "table": "glossaryTerms"
     },
     {
-      "type": "text",
+      "type": "jsonb",
       "typeSchema": null,
       "notNull": true,
-      "dimensions": 1,
-      "default": "ARRAY[]",
+      "dimensions": 0,
+      "default": "'[]'",
       "generated": null,
       "identity": null,
       "name": "aliases",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "glossaryTerms"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "isAcronym",
       "entityType": "columns",
       "schema": "public",
       "table": "glossaryTerms"
