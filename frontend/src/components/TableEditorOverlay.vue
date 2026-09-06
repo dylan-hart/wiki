@@ -201,13 +201,13 @@
           The markdown itself, because that is what gets inserted and it is worth seeing before it lands
           in the page. Headed the way the block picker heads its own markdown.
 
-          `-mx-4` gives back the page's own padding, so the band `w-section-header` trails reaches the
-          panel's edges instead of stopping short of them — and the class's own 16px leaves the heading
-          text at the same inset the rest of the page keeps.
+          The band reaches the panel's edges through `--w-section-bleed`, declared once on `.table-editor`
+          next to the `p-4` it cancels, rather than as a `-mx-4` here that restates that padding's value
+          from the far side of the file.
 
           `mt-4`, which is the 16px the design leaves between the grid and the band. It was `mt-6`.
         -->
-        <div class="w-section-header -mx-4 mt-4">{{ t('editor.tableEditor.markdown') }}</div>
+        <div class="w-section-header mt-4">{{ t('editor.tableEditor.markdown') }}</div>
         <!--
           Drawn as the page will draw it: `page-contents` is the content stylesheet, so the preview is
           a code block, not a panel of its own invention — one that follows the site's own code surface,
@@ -216,8 +216,8 @@
           No margin of its own: the band's own `margin-block-end` is the gap. The `mt-4` that used to be
           here was defending against a faint shadow the heading trailed 13px below itself, which it
           stopped drawing when Cardinal made it a bordered strip — with the `mt-4` still in place the gap
-          came to 28px where the design draws 16. The band's 12px is the closer of the two, and the
-          remaining 4px is `.w-section-header`'s own rhythm rather than this screen's (OpenProject #2631).
+          came to 28px where the design draws 16. The band's own trailing gap is that rhythm's share of
+          it (OpenProject #2631 settled it at 14px), and this screen states none of its own.
 
           The `pre` is the only child, which is what gives up the block margins content puts around a
           code block.
@@ -438,6 +438,12 @@ onBeforeUnmount(() => {
 
 <style lang="scss">
 .table-editor {
+  /*
+    The page pads itself 16px (`<w-page class="p-4">`); a section band is full-bleed, so it needs that
+    inset given back. Named here, beside the padding it cancels, so the two cannot drift apart.
+  */
+  --w-section-bleed: 16px;
+
   /*
     Nothing here sits on a `w-card`, and that is where the app's dark text colour comes from -- so the
     overlay has to state its own or everything that merely inherits `color` stays black on the dark

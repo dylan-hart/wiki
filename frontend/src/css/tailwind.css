@@ -685,17 +685,45 @@ html.theme-transition-suppress *::after {
     radial wash with two soft rules trailing off beneath it, which was elevation by another name and
     read as decoration rather than as structure.
 
-    Full-bleed by NOT having a margin of its own: it runs edge to edge inside whatever box holds it,
-    which for the two commonest cases -- a `WCard` (no padding of its own) and an overlay's content
-    column -- is exactly right. A negative inline margin was tried and is wrong: it assumes every
-    caller pads by the same 16px, and where one does not (the profile overlay's section column) the
-    band slides out under the rail beside it and loses its first character.
+    Full-bleed by default through NOT having a margin of its own: it runs edge to edge inside
+    whatever box holds it, which for the two commonest cases -- a `WCard` (no padding of its own) and
+    an overlay's content column -- is exactly right. A negative inline margin baked into the class
+    itself was tried and is wrong: it assumes every caller pads by the same 16px, and where one does
+    not (the profile overlay's section column) the band slides out under the rail beside it and loses
+    its first character. `--w-section-bleed` below is that same cancellation made opt-in and named by
+    the container instead of guessed at by the band.
+
+    The rhythm it opens: a 34px band, then `14px 16px` of body under it. The band's own trailing 14px
+    is the top half of that body inset, so a section that pads itself cancels the band's inset rather
+    than adding to it (`PagePropertiesDialog.vue` is the reference case for that shape).
   */
   .w-section-header {
     display: flex;
     align-items: center;
     min-height: 34px;
-    margin-block-end: 12px;
+    /*
+      The inset the band has to bleed back out through, named ONCE by whichever box holds it, and
+      `0px` for the common case of a box that does not pad (a `WCard`, an overlay's content column).
+
+      Every caller that puts a band inside a padded box needs the band to reach that box's edges, and
+      before this each one did the arithmetic itself, in its own spelling -- `-mx-4` here, `margin: 0
+      -16px` there, `margin: -14px -16px 14px` somewhere else -- so the value lived next to the band
+      rather than next to the padding it was cancelling, and drifted the moment either moved. A
+      container setting `--w-section-bleed` says what its own inset is and every band inside it
+      follows, which is the thing a fourth call site can reuse instead of inventing a fourth spelling.
+
+      Inline axis only, deliberately: the design's block and inline insets are not the same number
+      (14 vs 16), so a band that is ALSO the first thing inside a padded box still cancels that box's
+      top padding locally. One property cannot carry both honestly.
+    */
+    margin-inline: calc(-1 * var(--w-section-bleed, 0px));
+    /*
+      14px, not 12px: the design's section rhythm is a 34px band then `14px 16px` of body under it
+      (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`), and the trailing gap is the top half
+      of that body inset. `PagePropertiesDialog` was already hand-writing 14px here, which is what
+      made it the one caller on the rhythm and every other caller 2px off it.
+    */
+    margin-block-end: 14px;
     padding: 6px 16px;
     background-color: var(--color-tint);
     /*

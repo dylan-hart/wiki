@@ -29,6 +29,12 @@
  * (css/tailwind.css), because the profile pages and the side panels use the same band outside a
  * card -- a tinted strip in tracked uppercase Roboto Mono, ruled off underneath.
  *
+ * The band's metrics -- 34px tall, `6px 16px`, 14px of gap trailing it -- are that class's and
+ * nothing here or in a caller restates them. A caller that pads the box this sits in names its own
+ * inset once as `--w-section-bleed` on that box; it does not give this element a padding utility or
+ * a negative margin of its own, which is how eleven dialog headers came to be drawing the band at
+ * `px-4 py-2` before the second pass unwound them.
+ *
  *   <w-card-header>
  *     Site info
  *     <template #hint>Shown in the browser tab</template>
@@ -74,6 +80,12 @@ defineExpose({ headingId })
   It is a BAND now, not a heading with a wash behind it, so it starts at the card's top edge rather
   than needing an inset of its own -- the `padding-top: 16px` this replaces existed only because the
   old heading had no top edge to speak of.
+
+  Nothing here touches the band's padding or height. A header given a `#hint` is the one shape that
+  outgrows the 34px strip, because the hint is a second line INSIDE the band -- that is the slot's
+  own design rather than drift, and its nine callers are all admin settings cards (`AdminStorage`,
+  `AdminSearch`, `AdminIcons`, `AdminAuth`, `AdminLocale`), where the hint reads as part of the
+  setting it heads.
 */
 .w-card-header__row {
   display: flex;

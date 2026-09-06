@@ -2,8 +2,9 @@
   <w-page class="tags-browse">
     <!--
       No `padding` on the page: the design runs the section band edge to edge across the content
-      column and pads only the body beneath it. `w-page padding` inset the band by 16px on all four
-      sides, which made it read as a floating heading rather than as the column's own header strip.
+      column and pads only the body beneath it (`.tags-browse-body`). `w-page padding` inset the band
+      by 16px on all four sides, which made it read as a floating heading rather than as the column's
+      own header strip.
     -->
     <div class="w-section-header">{{ t('tags.title') }}</div>
 
@@ -627,15 +628,16 @@ onMounted(async () => {
   utility those components carry without `!important`.
 */
 .tags-browse {
+  /* The page's own inset, held here rather than on `w-page`, so the band above stays full-bleed. */
   &-body {
     display: flex;
     align-items: flex-start;
     /*
       The design pads the body `16px 20px` beneath a full-bleed section band. `.w-section-header`
-      already contributes its own 12px `margin-block-end`, so 4px here lands the first row on the
-      design's 16px -- rather than overriding the shared band, which #2631 owns.
+      already contributes the section rhythm's own 14px `margin-block-end` (#2631), so 2px here lands
+      the first row on the design's 16px -- rather than overriding the shared band, which #2631 owns.
     */
-    padding: 4px 20px 16px;
+    padding: 2px 20px 16px;
     gap: 1.5rem;
     /* The design wraps rather than squeezing: 280 + 24 + 320 is the point the two columns stack. */
     flex-wrap: wrap;
