@@ -85,6 +85,8 @@ const MESSAGES = {
       username: 'Username',
       password: 'Password',
       name: 'Name',
+      firstName: 'First Name',
+      lastName: 'Last Name',
       verifyPassword: 'Verify Password'
     },
     passkeys: { signin: 'Log In with a Passkey' },
@@ -242,16 +244,18 @@ describe('AuthLoginPanel — the login screen', () => {
 })
 
 describe('AuthRegisterScreen', () => {
-  it('draws four unlabelled 40px fields and a marked primary', () => {
+  it('draws five unlabelled 40px fields and a marked primary', () => {
     const wrapper = mountRegister('register')
 
+    // -> Five, not four: Task #2642 split the one name field into an authored first and last name.
     const fields = wrapper.findAllComponents({ name: 'WInput' })
-    expect(fields).toHaveLength(4)
+    expect(fields).toHaveLength(5)
     for (const field of fields) {
       expect(field.classes()).toContain('auth-field--sm')
       expect(field.props('label')).toBe(null)
     }
-    expect(wrapper.find('input[aria-label="Name"]').exists()).toBe(true)
+    expect(wrapper.find('input[aria-label="First Name"]').exists()).toBe(true)
+    expect(wrapper.find('input[aria-label="Last Name"]').exists()).toBe(true)
 
     const submit = btnByLabel(wrapper, 'Register')
     expect(submit.classes()).toContain('auth-marks')

@@ -44,7 +44,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       name: {
         type: 'string',
         minLength: 1,
+        maxLength: 255,
+        description:
+          'The display name. Derived from the two halves below on every write, unless a human has explicitly authored it — see Feature #2608.'
+      },
+      firstName: {
+        type: 'string',
         maxLength: 255
+      },
+      lastName: {
+        type: 'string',
+        maxLength: 255,
+        description: 'Empty for a mononym — nothing fabricates a surname.'
       },
       email: {
         type: 'string',
@@ -127,6 +138,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       name: {
         type: 'string'
       },
+      firstName: {
+        type: 'string'
+      },
+      lastName: {
+        type: 'string'
+      },
       email: {
         type: 'string',
         format: 'email'
@@ -181,7 +198,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       name: {
         type: 'string',
         minLength: 1,
+        maxLength: 255,
+        description:
+          'The display name, sent only to author it explicitly. Sending exactly what `firstName`/`lastName` derive to puts the account back on derivation rather than marking it authored.'
+      },
+      firstName: {
+        type: 'string',
         maxLength: 255
+      },
+      lastName: {
+        type: 'string',
+        maxLength: 255,
+        description: 'May be empty — a mononym derives its display name from `firstName` alone.'
       },
       location: {
         type: 'string',

@@ -68,6 +68,44 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.users.profile') }}</w-card-header>
                 <w-item>
+                  <blueprint-icon icon="tabler:user" />
+                  <w-item-section>
+                    <w-item-label>{{ t(`admin.users.firstName`) }}</w-item-label>
+                    <w-item-label caption>{{ t(`admin.users.firstNameHint`) }}</w-item-label>
+                  </w-item-section>
+                  <w-item-section>
+                    <w-input
+                      v-model="state.user.firstName"
+                      dense
+                      :rules="[requiredNameRule]"
+                      hide-bottom-space
+                      :aria-label="t(`admin.users.firstName`)" />
+                  </w-item-section>
+                </w-item>
+                <w-separator class="my-2" inset />
+                <w-item>
+                  <blueprint-icon icon="tabler:user" />
+                  <w-item-section>
+                    <w-item-label>{{ t(`admin.users.lastName`) }}</w-item-label>
+                    <w-item-label caption>{{ t(`admin.users.lastNameHint`) }}</w-item-label>
+                  </w-item-section>
+                  <w-item-section>
+                    <w-input
+                      v-model="state.user.lastName"
+                      dense
+                      :rules="[optionalNameRule]"
+                      hide-bottom-space
+                      :aria-label="t(`admin.users.lastName`)" />
+                  </w-item-section>
+                </w-item>
+                <w-separator class="my-2" inset />
+                <!--
+                  Shown, not hidden: the display name is derived from the two halves above on every
+                  save, and editing it here is the only way to reach the override Feature #2608
+                  grants. The server decides -- writing back exactly what the halves derive to puts
+                  the account on derivation again, anything else authors it.
+                -->
+                <w-item>
                   <blueprint-icon icon="tabler:address-book" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.name`) }}</w-item-label>
@@ -77,9 +115,7 @@
                     <w-input
                       v-model="state.user.name"
                       dense
-                      :rules="[
-                        (val) => invalidCharsRegex.test(val) || t('admin.users.nameInvalidChars')
-                      ]"
+                      :rules="[requiredNameRule]"
                       hide-bottom-space
                       :aria-label="t(`admin.users.name`)" />
                   </w-item-section>
@@ -672,6 +708,7 @@ import { computed, onMounted, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { confirm, dialog } from '@/composables/dialog'
+import { useDerivedDisplayName } from '@/composables/displayName'
 import { loading } from '@/composables/loading'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
@@ -736,6 +773,36 @@ const sections = [
 ]
 
 const timezones = Intl.supportedValuesOf('timeZone')
+
+/*
+  Keeps the display name in step with the two halves until an administrator overrides it. Without it,
+  editing a half alone would leave a stale `name` in the patch -- which the server reads as a
+  deliberate override and would freeze this user's display name for good. A getter because
+  `fetchUser()` REPLACES `state.user` wholesale. See the composable's own doc.
+*/
+const { syncFromStored: syncDisplayName } = useDerivedDisplayName(() => state.user)
+
+/**
+ * The first-name and display-name rule: a value must be there and must not contain the characters
+ * a name has always refused.
+ *
+ * A named function rather than the inline array both fields used to declare. That inline rule read
+ * a bare `invalidCharsRegex`, which is a `state` member and so resolved to `undefined` in the
+ * template -- the rule threw `Cannot read properties of undefined (reading 'test')` the moment it
+ * ran, which is any validation of the Overview tab's name field. Nothing covered that tab, so it
+ * went unnoticed; Task #2642's own coverage is what surfaced it.
+ */
+function requiredNameRule(val) {
+  return (val && state.invalidCharsRegex.test(val)) || t('admin.users.nameInvalidChars')
+}
+
+/**
+ * The last-name rule. Unlike the two above it accepts an empty value: a mononym has no surname and
+ * nothing fabricates one, so only a value that IS there is checked for the same characters.
+ */
+function optionalNameRule(val) {
+  return !val || state.invalidCharsRegex.test(val) || t('admin.users.nameInvalidChars')
+}
 
 // COMPUTED
 
@@ -812,6 +879,8 @@ async function fetchUser() {
       throw new Error(t('common.error.unexpected'))
     }
     state.user = user
+    // -> After the whole record is in the fields, not per-field: the answer depends on all three.
+    syncDisplayName()
     if (canManage.value) {
       await fetchPasskeys()
     }
@@ -896,7 +965,12 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
   loading.show()
   if (!patch) {
     patch = {
+      // -> All three go every time; `models/users.ts#updateUser` owns which of them wins. A `name`
+      //    equal to what the halves derive to reads as "keep deriving", so saving the form does not
+      //    mark an untouched account as having a hand-authored display name.
       name: state.user.name,
+      firstName: state.user.firstName,
+      lastName: state.user.lastName,
       email: state.user.email,
       isVerified: state.user.isVerified,
       isActive: state.user.isActive,

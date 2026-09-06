@@ -4,21 +4,36 @@
       <p class="auth-subtitle">{{ t('auth.registerSubTitle') }}</p>
       <w-form ref="form" @submit="register">
         <!--
-          Four 40px fields carrying their own name as a placeholder, no label above -- the shape
+          Five 40px fields carrying their own name as a placeholder, no label above -- the shape
           `Cardinal Wiki - Auth Screens 3x.dc.html` draws, and the same conversion the login form
           above it made. The chrome itself lives in `pages/Login.vue`'s `.auth` stylesheet, since
           this screen only ever renders inside that column.
+
+          The name is two authored halves rather than one to split: an account created here is this
+          instance's own, so the display name derives from them server-side (Feature #2608) and no
+          parsing is ever applied. The last name is optional, for a mononym.
         -->
         <w-input
           class="auth-field auth-field--sm"
-          ref="nameIpt"
-          v-model="state.newName"
-          :rules="nameValidation"
+          ref="firstNameIpt"
+          v-model="state.newFirstName"
+          :rules="firstNameValidation"
           lazy-rules="ondemand"
           hide-bottom-space
-          :placeholder="t(`auth.fields.name`)"
-          :aria-label="t(`auth.fields.name`)"
-          autocomplete="name">
+          :placeholder="t(`auth.fields.firstName`)"
+          :aria-label="t(`auth.fields.firstName`)"
+          autocomplete="given-name">
+          <template #prepend><w-icon name="tabler:user-circle" /></template>
+        </w-input>
+        <w-input
+          class="auth-field auth-field--sm mt-2"
+          v-model="state.newLastName"
+          :rules="lastNameValidation"
+          lazy-rules="ondemand"
+          hide-bottom-space
+          :placeholder="t(`auth.fields.lastName`)"
+          :aria-label="t(`auth.fields.lastName`)"
+          autocomplete="family-name">
           <template #prepend><w-icon name="tabler:user-circle" /></template>
         </w-input>
         <w-input
@@ -119,7 +134,13 @@ import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { emailRules, nameRules, passwordRules, passwordVerifyRules } from '@/helpers/authValidation'
+import {
+  emailRules,
+  firstNameRules,
+  lastNameRules,
+  passwordRules,
+  passwordVerifyRules
+} from '@/helpers/authValidation'
 import { localizeError } from '@/helpers/localization'
 import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 
@@ -129,7 +150,7 @@ import { useSiteStore } from '@/stores/site'
  * The self-registration screens of `AuthLoginPanel.vue`: the sign-up form, and the "check your
  * emails" screen a site with email validation on ends it at.
  *
- * Split out of the panel because the four fields it fills in are read by nothing else -- the panel's
+ * Split out of the panel because the five fields it fills in are read by nothing else -- the panel's
  * own reset and change-password screens ask for a password too, but their own -- so the only thing
  * it needs from the sign-in attempt is which strategy to register against.
  */
@@ -166,7 +187,8 @@ const emit = defineEmits(['registered', 'back-to-login'])
 // DATA
 
 const state = reactive({
-  newName: '',
+  newFirstName: '',
+  newLastName: '',
   newEmail: '',
   newPassword: '',
   newPasswordVerify: ''
@@ -174,7 +196,7 @@ const state = reactive({
 
 // REFS
 
-const nameIpt = ref(null)
+const firstNameIpt = ref(null)
 const form = ref(null)
 
 // COMPUTED
@@ -186,7 +208,8 @@ const chromeColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
 
 // VALIDATION RULES
 
-const nameValidation = nameRules(t)
+const firstNameValidation = firstNameRules(t)
+const lastNameValidation = lastNameRules(t)
 const emailValidation = emailRules(t)
 const passwordValidation = passwordRules(t)
 const passwordVerifyValidation = passwordVerifyRules(t, () => state.newPassword)
@@ -214,7 +237,8 @@ async function register() {
     const resp = await API_CLIENT.post(`sites/${siteStore.id}/auth/register`, {
       json: {
         strategyId: props.strategyId,
-        name: state.newName,
+        firstName: state.newFirstName,
+        lastName: state.newLastName,
         email: state.newEmail,
         password: state.newPassword
       }
@@ -245,6 +269,6 @@ async function register() {
   changed. Mounting IS that moment now -- this component exists only while the register screen is up.
 */
 onMounted(() => {
-  nameIpt.value?.focus()
+  firstNameIpt.value?.focus()
 })
 </script>

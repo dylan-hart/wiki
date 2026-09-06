@@ -256,7 +256,14 @@ async function routes(app: FastifyInstance) {
    */
   app.post<{
     Params: { siteId: string }
-    Body: { strategyId: string; name: string; email: string; password: string }
+    Body: {
+      strategyId: string
+      name?: string
+      firstName?: string
+      lastName?: string
+      email: string
+      password: string
+    }
   }>(
     '/sites/:siteId/auth/register',
     {
@@ -273,7 +280,7 @@ async function routes(app: FastifyInstance) {
         params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
-          required: ['strategyId', 'name', 'email', 'password'],
+          required: ['strategyId', 'email', 'password'],
           properties: {
             strategyId: {
               type: 'string',
@@ -282,7 +289,18 @@ async function routes(app: FastifyInstance) {
             name: {
               type: 'string',
               minLength: 1,
+              maxLength: 255,
+              description:
+                'An explicitly authored display name. The sign-up form sends the two halves below instead and lets one derive; at least one of the three must produce a non-empty name.'
+            },
+            firstName: {
+              type: 'string',
               maxLength: 255
+            },
+            lastName: {
+              type: 'string',
+              maxLength: 255,
+              description: 'May be empty - a mononym is a first name with no surname.'
             },
             email: {
               type: 'string',
@@ -308,6 +326,8 @@ async function routes(app: FastifyInstance) {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
             name: req.body.name,
+            firstName: req.body.firstName,
+            lastName: req.body.lastName,
             email: req.body.email,
             password: req.body.password,
             ip: req.ip
