@@ -325,6 +325,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           dark: {
             type: 'boolean'
           },
+          aesthetic: {
+            type: 'string',
+            enum: ['ledger', 'cobalt']
+          },
           codeBlocksTheme: {
             type: 'string',
             description: 'Name of a highlight.js stylesheet, e.g. `github-dark`.',

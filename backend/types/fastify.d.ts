@@ -46,6 +46,7 @@ declare module 'fastify' {
       dateFormat?: string
       timeFormat?: string
       appearance?: string
+      aesthetic?: string
       cvd?: string
       locale?: string
     }
