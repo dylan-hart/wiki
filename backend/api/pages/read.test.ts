@@ -69,6 +69,12 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
             countForPageCalls.push(pageId)
             return countForPageResult
           }
+        },
+        // -> `checkAccess` above grants everything, `read:history` included, so the page read reaches
+        //    the revision summary (OpenProject #2651). Its value is not what this suite is about;
+        //    `read.revision.test.ts` owns that.
+        pageHistory: {
+          revisionSummary: async () => ({ ordinal: 1 })
         }
       }
     })
@@ -213,6 +219,12 @@ describe('pages API — response schema completeness (task 602)', () => {
         },
         comments: {
           countForPage: async () => 0
+        },
+        // -> `checkAccess` above grants everything, `read:history` included, so the page read reaches
+        //    the revision summary (OpenProject #2651). Its value is not what this suite is about;
+        //    `read.revision.test.ts` owns that.
+        pageHistory: {
+          revisionSummary: async () => ({ ordinal: 1 })
         }
       },
       sites: {}

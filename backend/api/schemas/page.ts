@@ -273,6 +273,24 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       authorName: { type: 'string' },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
+      revision: {
+        type: 'object',
+        description:
+          "Where the page stands in its own history, for the metadata rail's Revision section — `rev 14 · 6 changes`. History data, so it is ABSENT (not null, and not zeroed) for a requester without `read:history` ON THIS PAGE, and absent from a page returned by a save. Present when a page is fetched on its own, so the rail costs the page view no second request.",
+        properties: {
+          ordinal: {
+            type: 'integer',
+            minimum: 1,
+            description:
+              'Which version this is: `count(*)` of the page’s history rows, computed per read rather than stored. A page with no history at all is still its own first version and reports 1.'
+          },
+          changeCount: {
+            type: 'integer',
+            description:
+              'Lines added plus lines removed between this version and the one before it — a count of changed diff lines, so a line that was edited counts twice. Absent, rather than zero, when there is nothing to compare against: a page whose only version is its creation, or one with no history. Zero is never sent.'
+          }
+        }
+      },
       viewer: {
         type: 'object',
         description:

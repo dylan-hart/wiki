@@ -1,3 +1,4 @@
+import { diffLines } from 'diff'
 import { isEqual } from 'es-toolkit/predicate'
 import { and, desc, eq, lt, notExists, or, sql, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
@@ -331,6 +332,43 @@ export type PageHistoryContributorCounts = {
 }
 
 /**
+ * Where a page stands in its own history, for the metadata rail's Revision section (OpenProject
+ * #2651): which version this is, and how much the change that produced it moved.
+ *
+ * `changeCount` is ABSENT rather than zero when there is nothing to compare against — a page whose
+ * only version is its creation, or one with no history at all. The two are rendered differently
+ * (`rev 1` alone, versus a `· 0 changes` clause that can never legitimately occur), so the shape has
+ * to keep absence distinguishable from a real zero all the way out to the response.
+ */
+export type PageRevisionSummary = {
+  /** 1-based, `count(*)` of this page's history rows -- and 1, not 0, for a page with none. */
+  ordinal: number
+  /** Lines added plus lines removed between the newest version and the one before it. */
+  changeCount?: number
+}
+
+/**
+ * Lines added plus lines removed going from `before` to `after` — what the rail calls "M changes".
+ *
+ * Counted off a line diff rather than off `changedFields`: the editor sends every field on every
+ * save, so that column reports one changed field for a typical content edit whether a comma moved
+ * or the page was rewritten, which says nothing about the size of the change.
+ *
+ * A line that was edited rather than added or removed appears in both halves of the diff — once
+ * removed, once added — and is counted twice, deliberately: this is a count of changed diff lines,
+ * the number a unified diff would show, not of distinct source lines touched.
+ */
+function countChangedLines(before: string, after: string): number {
+  let changed = 0
+  for (const part of diffLines(before, after)) {
+    if (part.added || part.removed) {
+      changed += part.count ?? 0
+    }
+  }
+  return changed
+}
+
+/**
  * Page history model
  *
  * Records a version of a page every time one changes, and reads those versions back for the history
@@ -545,6 +583,49 @@ class PageHistory {
       })
     }
     return result
+  }
+
+  /**
+   * Where a page stands in its own history: the `rev N · M changes` the page metadata rail draws
+   * (OpenProject #2651), answered as part of a page read rather than as a request of its own.
+   *
+   * Two narrow reads rather than one windowed query, both served by `pageHistory_pageId_idx`: a
+   * `count(*)` for the ordinal, and the two newest versions' sources for the diff. A single
+   * `count(*) over ()` would fold them into one statement, but a window is computed over every
+   * matching row before `LIMIT` applies — so a page with hundreds of versions would drag all of
+   * their bodies through the sort to answer a question about two of them.
+   *
+   * Ordered `(versionDate DESC, id DESC)`, the same tie-break {@link keysetAfter} pages in, so two
+   * versions written inside the same millisecond still order deterministically.
+   *
+   * Not site-scoped, unlike the reads around it: `pageId` is a uuid primary key, and every caller
+   * has already resolved the page within its site before it has an id to pass, so a `siteId`
+   * predicate here could only narrow a set of one.
+   */
+  async revisionSummary(pageId: string): Promise<PageRevisionSummary> {
+    const [totals, newest] = await Promise.all([
+      WIKI.db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, pageId)),
+      WIKI.db
+        .select({ content: pageHistoryTable.content })
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, pageId))
+        .orderBy(desc(pageHistoryTable.versionDate), desc(pageHistoryTable.id))
+        .limit(2)
+    ])
+    // -> A page with no history at all is still on its first version, so the floor is 1, not 0
+    const ordinal = Math.max(totals[0]?.total ?? 0, 1)
+    // -> Nothing before it to differ from: the clause is omitted, never sent as a zero
+    if (newest.length < 2) {
+      return { ordinal }
+    }
+    return {
+      ordinal,
+      // -> `content` is nullable, and a version that held no source contributes no lines
+      changeCount: countChangedLines(newest[1]!.content ?? '', newest[0]!.content ?? '')
+    }
   }
 
   /**

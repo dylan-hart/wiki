@@ -119,6 +119,12 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
         comments: {
           countForPage: async () => 0
         },
+        // -> `revision` (OpenProject #2651): this fixture's `checkAccess` grants every page
+        //    permission, `read:history` included, so the page read reaches the summary. A constant
+        //    stub -- `read.revision.test.ts` owns what the field actually carries.
+        pageHistory: {
+          revisionSummary: async () => ({ ordinal: 1 })
+        },
         // -> The route's best-effort pageview logging (OpenProject #1238) -- a no-op stub is all this
         //    fixture needs, since what's under test here is collab/search wiring, not pageviews.
         pageviews: {
