@@ -180,7 +180,7 @@ async function routes(app: FastifyInstance) {
     // -> Resolved by hostname independently of the page/shell hook, so a disabled site's robots
     //    directives stay reachable by direct URL until this stops them the same way
     if (guardSiteEnabled(site, reply)) {
-      return
+      return reply
     }
 
     const sitemapUrl = `${requestOrigin(req.protocol, req.hostname)}/sitemap.xml`
@@ -195,7 +195,7 @@ async function routes(app: FastifyInstance) {
     // -> A disabled site's sitemap still enumerates its page paths, which is exactly the kind of
     //    identifying content the other resolved-by-hostname controllers already refuse to leak
     if (guardSiteEnabled(site, reply)) {
-      return
+      return reply
     }
 
     const pages = await WIKI.models.pages.listPagesForSitemap(site.id)

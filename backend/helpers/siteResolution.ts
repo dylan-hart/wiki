@@ -175,7 +175,11 @@ export async function resolveSiteParam(
  * `:siteId` caller left, `siteEnabledPreHandler` below, has already answered that 404 itself before
  * it ever asks this function anything.
  *
- * Returns `true` once a reply has been sent, so the caller can `return` immediately after.
+ * Returns `true` once a reply has been sent, so the caller answers it with `return reply` — never a
+ * bare `return`, which in an `async` handler resolves the promise with `undefined` and makes Fastify
+ * write the same reply a second time. See `helpers/httpCache.ts#notModifiedOrPrepare` for the full
+ * mechanism (OpenProject #2644); it applies to every helper that sends a reply on its caller's
+ * behalf, not just that one.
  */
 export function guardSiteEnabled(
   site: { isEnabled?: boolean } | null | undefined,

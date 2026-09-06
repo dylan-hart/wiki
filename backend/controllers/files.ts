@@ -49,7 +49,7 @@ async function routes(app: FastifyInstance) {
     // -> Resolved by hostname independently of the page/shell hook, so a disabled site's files stay
     //    reachable by direct URL until this stops them the same way
     if (guardSiteEnabled(site, reply)) {
-      return
+      return reply
     }
 
     const asset = await WIKI.models.assetServing.resolveAssetPath(site.id, req.params['*'] ?? '')
@@ -73,7 +73,7 @@ async function routes(app: FastifyInstance) {
     //    interesting in them
     const etag = `"${asset.id}-${asset.updatedAt.getTime()}"`
     if (notModifiedOrPrepare(req, reply, { etag, cacheControl: FILE_CACHE })) {
-      return
+      return reply
     }
 
     const content = await WIKI.models.assetServing.readContent(asset, site.id)

@@ -47,7 +47,7 @@ async function routes(app: FastifyInstance) {
       //    route, not because a browser should go looking for another interpretation
       const etag = `"${crypto.createHash('sha1').update(code).digest('hex')}"`
       if (notModifiedOrPrepare(req, reply, { etag, cacheControl: CUSTOM_BLOCK_CACHE })) {
-        return
+        return reply
       }
 
       return reply.type('application/javascript; charset=utf-8').send(code)
