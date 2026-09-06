@@ -1,7 +1,19 @@
 <template>
   <w-layout class="page-history" container>
     <w-header class="card-header">
-      <w-icon name="tabler:history" left size="md" />
+      <!--
+        20px and accent-coloured, both straight off the design
+        (`ui-redesign/Cardinal Wiki - History 3x.dc.html`, whose header glyph is
+        `<svg width="20" height="20" ... stroke="#f08287">`). It was `size="md"` — 32px, per
+        `components/shared/metrics.js` — with no colour at all, so it inherited the header's white
+        and read as a third the header's height rather than as a mark beside the label.
+
+        `accent-dark`, not `accent`: this overlay is drawn on ink in BOTH themes (see the stylesheet
+        note below), so the accent that belongs here is the dark ramp's `#f08287` — which is what the
+        design sets — rather than the light `#e4676b`/`#c14a52` pair. Named, so the hex stays in
+        `css/tailwind.css` where the contrast table (`helpers/accessibility.test.js`) can see it.
+      -->
+      <w-icon name="tabler:history" left size="20px" color="accent-dark" />
       <span>{{ t('history.title') }}</span>
       <!--
         Centred on the header itself rather than on the space left between the two groups of
@@ -860,6 +872,14 @@ $timeline-turn: 16px;
     pointer-events: none;
     font-size: 0.8rem;
     opacity: 0.6;
+    /*
+      -> The page's OWN title, so it is set as the author wrote it. `.card-header` (`css/_base.scss`)
+         uppercases a dialog's title band, and this span sits inside that band, so it inherited the
+         transform and shouted the page name back. The design draws the two differently on purpose:
+         the `PAGE HISTORY` label beside it declares `text-transform: uppercase` explicitly, and this
+         span declares no transform at all.
+    */
+    text-transform: none;
   }
 
   /*

@@ -61,7 +61,37 @@ export function useMonacoDiff(containerRef, { isInline }) {
         'editor.foreground': '#c3cee2',
         'editor.lineHighlightBackground': '#171b24',
         'editorLineNumber.foreground': '#3f4a63',
-        'editorGutter.background': '#171b24'
+        /*
+          BELOW the text ground, not above it. This was `#171b24` -- `$dark-4`, the recessed rung,
+          which is a step LIGHTER than `editor.background`'s ink -- so the two line-number columns
+          read as a pair of pale bands framing the diff, the opposite of what the design draws. Every
+          gutter cell in `ui-redesign/Cardinal Wiki - History 3x.dc.html` is `background:#11141b`, a
+          hair above `$dark-6` (`#0f1219`) and below ink; it is the design's own literal rather than
+          a named rung, and is taken from there rather than darkened by eye.
+        */
+        'editorGutter.background': '#11141b',
+        /*
+          The cursor's line number. Left unset it falls through to `vs-dark`'s `#c6c6c6`, near-white
+          and far brighter than the content beside it -- the same "lighter than the markdown" reading
+          as the band above, one number at a time. The design distinguishes only CHANGED line numbers
+          (which it draws in the accent, and which Monaco colours from the diff decoration, not from
+          this token), so the active line gets the muted caption tone instead of a highlight.
+        */
+        'editorLineNumber.activeForeground': '#8792ab',
+        /*
+          The shadow bleeding off the B pane's line-number column. Monaco substitutes this token into
+          three shadows over this editor, and side by side the one that shows is
+          `.monaco-diff-editor.side-by-side .editor.modified { box-shadow: -6px 0 5px -5px … }` --
+          cast leftwards out of the modified pane, straight across its own gutter, and drawn
+          unconditionally rather than only while scrolled. (The other two are the `.scroll-decoration`
+          strips each pane fades in once it is scrolled.)
+
+          Fully transparent, so all three go. The `border-left: 1px solid var(--vscode-diffEditor-
+          border)` declared beside that rule stays and does the separating on its own, which is
+          exactly the substitution Cardinal makes everywhere: no elevation, a hairline where a shadow
+          used to be (`docs/cardinal-reskin-second-pass.md`).
+        */
+        'scrollbar.shadow': '#00000000'
       }
     })
 
