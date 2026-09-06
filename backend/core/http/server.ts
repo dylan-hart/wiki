@@ -2,14 +2,17 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import fastify, { LogController, type FastifyInstance } from 'fastify'
 import fastifyCompress from '@fastify/compress'
-import fastifyFavicon from 'fastify-favicon'
 import fastifySensible from '@fastify/sensible'
 import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
 import gracefulServer, { type IGracefulServer } from '@gquittet/graceful-server'
 import ajvFormats from 'ajv-formats'
 
-import { isHashedAssetFilename, isSameOriginWebSocketHandshake } from '../../helpers/common.ts'
+import {
+  isHashedAssetFilename,
+  isSameOriginWebSocketHandshake,
+  replyWithFile
+} from '../../helpers/common.ts'
 import { buildRequestLogContext } from '../../helpers/requestLogContext.ts'
 
 /**
@@ -317,18 +320,39 @@ export function registerShutdownLogging(server: Pick<IGracefulServer, 'on'>): vo
 }
 
 /**
- * The three static mounts served straight off disk: the root favicon, the frontend's build output
- * under `/_assets/`, and the compiled blocks under `/_blocks/`.
+ * The root `/favicon.ico` every browser requests unprompted, whatever `index.html`'s own
+ * `<link rel="icon" href="/_site/current/favicon">` says — see
+ * `frontend/scripts/generate-favicon.mjs`'s header comment for why that request exists at all.
+ * `'favicon.ico'` is in `core/http/siteRouting.ts`'s `RESERVED_ROOT_FILES`, so it never falls
+ * through to the app-shell fallback.
+ *
+ * A committed file under this backend's own `assets/branding/`, same as `controllers/site.ts`'s
+ * `SITE_ASSET_FALLBACKS` and for the same reason (OpenProject #2611): resolved against
+ * `WIKI.SERVERPATH`, not a `vite build` output directory that may be stale, missing, or (before this
+ * fix) buffered once at process boot by the `fastify-favicon` plugin this replaced — which meant a
+ * rebuilt icon needed a full restart to ever reach a request, on top of the same day-long,
+ * never-revalidated cache header `replyWithFile` fixes for the rest of the branding fallbacks
+ * (OpenProject #2724).
+ */
+export const ROOT_FAVICON_PATH = 'assets/branding/favicon.ico'
+
+/** Same reasoning, and the same value, as `controllers/site.ts`'s `SITE_ASSET_CACHE`. */
+const ROOT_FAVICON_CACHE = 'public, no-cache'
+
+/**
+ * The static surfaces served straight off disk: the root favicon, the frontend's build output under
+ * `/_assets/`, and the compiled blocks under `/_blocks/`.
  *
  * Registered between `registerSecurity` and `registerSession` — where the mounts already sat, and
  * where they have to stay: Fastify runs plugins in registration order, so moving this call is a
  * behaviour change rather than a tidy-up.
  */
 export function registerStaticAssets(app: FastifyInstance): void {
-  app.register(fastifyFavicon, {
-    path: path.join(WIKI.ROOTPATH, 'assets'),
-    name: 'favicon.ico'
-  })
+  app.get('/favicon.ico', async (req, reply) =>
+    replyWithFile(req, reply, path.join(WIKI.SERVERPATH, ROOT_FAVICON_PATH), {
+      cacheControl: ROOT_FAVICON_CACHE
+    })
+  )
   app.register(fastifyStatic, {
     prefix: '/_assets/',
     root: path.join(WIKI.ROOTPATH, 'assets/_assets'),
@@ -338,8 +362,8 @@ export function registerStaticAssets(app: FastifyInstance): void {
     // -> Most of what's under `assets/_assets` is a vite build output named `[name]-[hash].[ext]`,
     //    whose bytes can never change under a given URL — those get the same far-future immutable
     //    header `controllers/thumb.ts`'s THUMB_CACHE already uses. The handful of unhashed entries
-    //    (renderer.js, and the hand-authored fonts/icons/illustrations/logo-wikijs.svg/storage/svg
-    //    trees) fall through to the `maxAge: '7d'` default above instead.
+    //    (renderer.js, and the hand-authored fonts/icons/illustrations/storage/svg trees) fall
+    //    through to the `maxAge: '7d'` default above instead.
     setHeaders(reply, filePath) {
       if (isHashedAssetFilename(path.basename(filePath))) {
         reply.header('Cache-Control', 'public, max-age=31536000, immutable')

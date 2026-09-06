@@ -39,18 +39,14 @@ export const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
 }
 
 /**
- * An uploaded site image changes whenever an administrator replaces it, and the URL never carries a
- * version — so it is always revalidated, and the ETag turns that into an empty 304 rather than a
- * re-download.
- *
- * Only the uploaded branch below sends this constant (plus its own strong sha1 ETag) — the
- * `replyWithFile` fallback further down sends its own, longer-lived `Cache-Control` instead (see
- * `helpers/common.ts`). That split is intentional, not an oversight: the fallback's bytes are a
- * fixed path under this backend's own `assets/branding/`, which only ever changes via a redeploy (a
- * new deployment, a new process), not a request an administrator can make against a running instance
- * the way an upload is — so it can be cached long instead of always-revalidated, while
- * `replyWithFile` still gives it a validator for the rare revalidation (a forced reload, or the
- * cache window elapsing).
+ * Both branches below use this: an uploaded site image changes whenever an administrator replaces
+ * it, and the built-in fallback changes whenever a redeploy replaces the file on disk — either way
+ * the URL never carries a version, so it is always revalidated, and the ETag turns that into an
+ * empty 304 rather than a re-download. These used to diverge (the fallback shipped a day-long
+ * `max-age` instead), which is exactly why a rebrand's new fallback bytes stayed invisible to
+ * anyone who had loaded the old ones before the redeploy (OpenProject #2724) — the fallback's bytes
+ * genuinely only change via a redeploy, but that is the case FOR always revalidating, not against
+ * it, since a redeploy is precisely the moment an already-cached browser needs to be told.
  */
 const SITE_ASSET_CACHE = 'public, no-cache'
 
@@ -117,12 +113,15 @@ async function routes(app: FastifyInstance) {
         // -> No SVG_CSP here: this file's bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`),
         //    never by anything a request can influence, so the admin-upload risk that header guards
         //    against doesn't apply to it. Cache-Control/ETag/Last-Modified DO apply — `replyWithFile`
-        //    sends all three — since this is still a same-origin file every hard load would otherwise
-        //    re-download in full.
+        //    sends all three, `SITE_ASSET_CACHE` included — since this is still a same-origin file
+        //    every hard load would otherwise re-download in full, and a browser that already has an
+        //    older copy of a since-redeployed fallback would otherwise never learn that (#2724).
         // -> `SERVERPATH`, not `ROOTPATH`: the fallbacks are backend-owned committed files, so they
         //    are resolved inside `backend/` rather than against a build output directory that may not
         //    exist yet (OpenProject #2611).
-        return replyWithFile(req, reply, path.join(WIKI.SERVERPATH, fallback))
+        return replyWithFile(req, reply, path.join(WIKI.SERVERPATH, fallback), {
+          cacheControl: SITE_ASSET_CACHE
+        })
       }
 
       // -> Answered from the hash column alone whenever possible: a conditional request never has to
