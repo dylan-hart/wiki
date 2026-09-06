@@ -2,18 +2,13 @@
   <w-layout>
     <w-header><header-nav /></w-header>
     <w-page-container class="layout-search">
+      <!--
+        No floating Back control in the gutter beside this card. It was a shadowed circle -- the
+        opposite of Cardinal's flat hairline vocabulary -- and it was redundant: the header's own
+        search field is what brought the reader here and is still on screen above them, and the
+        browser has its own Back. Removed outright rather than restyled (OpenProject #2697).
+      -->
       <div class="layout-search-card">
-        <w-btn
-          class="layout-search-back"
-          icon="tabler:circle-arrow-left"
-          color="white"
-          flat
-          round
-          @click="goBack">
-          <w-tooltip labels anchor="center left" self="center right">{{
-            t('common.actions.goback')
-          }}</w-tooltip>
-        </w-btn>
         <!--
           Below 900px the sort and filter panel is a disclosure rather than a column: 300px of it beside a
           390px screen left the results a 210px strip, and being a column of form fields it cannot be
@@ -139,12 +134,12 @@
           </div>
         </div>
         <w-page>
-          <div class="section-header flex">
+          <div class="section-header">
             <span>{{ t('search.results') }}</span>
             <w-space />
             <transition name="slide-up" mode="out-in">
               <i18n-t
-                class="text-caption"
+                class="layout-search-count"
                 v-if="!siteStore.searchIsLoading"
                 :keypath="
                   state.totalApproximate ? `search.totalResultsApprox` : `search.totalResults`
@@ -166,45 +161,56 @@
               ><em>{{ t('search.emptyQuery') }}</em></span
             >
           </div>
-          <w-list separator>
-            <w-item
+          <!--
+            A result row, as the design draws it: a hairline icon plate, then the page itself --
+            title, description, mono path, the matched text -- then a fixed trailing column holding
+            when it was last touched and what it is tagged with.
+
+            Plain markup rather than `w-list`/`w-item`. Those rows are metric-driven by
+            `WItemSection` (a 56px leading avatar column, 16px of padding between sections, a 40px
+            avatar), and every measurement in this row -- the 34px plate, the 14px gutter, the 150px
+            trailing column -- is the design's own. Expressing them through the shared component
+            would mean overriding it from the outside at each of those three points, which is
+            fighting a component this screen does not own rather than laying out a row.
+          -->
+          <div class="layout-search-results">
+            <router-link
               v-for="item of formattedResults"
               :key="`${item.locale}:${item.path}`"
-              clickable
+              class="layout-search-row"
               :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)">
-              <w-item-section avatar>
-                <w-avatar color="primary" text-color="white" rounded>
-                  <w-icon :name="item.icon || defaultPageIcon" size="24px" />
-                </w-avatar>
-              </w-item-section>
-              <w-item-section>
-                <w-item-label>{{ item.title }}</w-item-label>
-                <w-item-label v-if="item.description" caption>{{ item.description }}</w-item-label>
-                <w-item-label class="text-grey" caption>/{{ item.path }}</w-item-label>
-                <w-item-label class="text-highlight" v-if="item.highlight" caption>
+              <div class="layout-search-plate">
+                <w-icon :name="item.icon || defaultPageIcon" size="18px" />
+              </div>
+              <div class="layout-search-rowbody">
+                <div class="layout-search-rowtitle">{{ item.title }}</div>
+                <div v-if="item.description" class="layout-search-rowdesc">
+                  {{ item.description }}
+                </div>
+                <div class="layout-search-rowpath">/{{ item.path }}</div>
+                <div class="layout-search-rowexcerpt text-highlight" v-if="item.highlight">
                   <span v-html="item.highlight" />
-                </w-item-label>
-              </w-item-section>
-              <w-item-section side>
-                <div class="text-caption text-right">{{ item.updatedAtFormatted }}</div>
+                </div>
+              </div>
+              <div class="layout-search-rowmeta">
+                <div class="layout-search-rowdate">{{ item.updatedAtFormatted }}</div>
                 <!--
-                  `layout-search-itemtags` was a class nothing defines -- a leftover the layout
-                  migration left behind -- so the row had no gap and the chips ran together.
+                  Only when there is something to draw: an empty wrapper would still take the
+                  column's 6px gap and leave the date sitting a row-height above the row's own
+                  baseline on every untagged page.
                 -->
-                <div class="mt-1 flex flex-wrap items-center justify-end gap-1">
+                <div v-if="item.tags?.length > 0" class="layout-search-rowtags">
                   <w-chip
                     v-for="tag of item.tags"
                     :key="`tag-` + tag"
-                    color="slate"
-                    text-color="white"
                     icon="tabler:hash"
                     size="sm"
                     >{{ tag }}</w-chip
                   >
                 </div>
-              </w-item-section>
-            </w-item>
-          </w-list>
+              </div>
+            </router-link>
+          </div>
           <div class="flex justify-center p-4" v-if="state.results.length < state.total">
             <w-btn
               flat
@@ -493,14 +499,6 @@ function loadMore() {
   return performSearch(true)
 }
 
-function goBack() {
-  if (history.length > 0) {
-    router.back()
-  } else {
-    router.push('/')
-  }
-}
-
 // MOUNTED
 
 onMounted(async () => {
@@ -538,45 +536,41 @@ onUnmounted(() => {
 $filters-collapse-max: 899.98px;
 $card-gutter-max: 1199.98px;
 
+/*
+  Row metrics, from the design (`docs/ui-redesign-supplementary/Cardinal Wiki - Search 3x.dc.html`).
+  Named because the below-600px stacking rule has to derive its inset from them rather than restate
+  a number: the date and tags wrap under the TITLE, which starts one plate plus one gutter in.
+*/
+$plate-size: 34px;
+$row-gutter: 14px;
+$row-inset: $plate-size + $row-gutter;
+
+/*
+  The trailing column: when the page was last touched, and what it is tagged with. Fixed rather than
+  content-sized so that every row's title ends on the same edge down the list -- a column that sized
+  itself would step in and out by a few pixels per row as the dates and tag counts varied.
+*/
+$row-meta-width: 150px;
+
+/*
+  A header strip's height. One value for all three (Sort by, Filters, Results) because Sort by and
+  Results start the two columns side by side and are read as a single ruled line across the card.
+*/
+$strip-height: 37px;
+
 .layout-search {
+  /*
+    The ordinary page ground. What used to be here was a dark radial band painted across the top
+    200px of the window with a hairline gradient under it -- elevation and 2.x chrome, on a screen
+    whose card is now held by a hairline like every other Cardinal surface. Both the `:before` band
+    and the `:after` gradient are gone, and with them the `$grey-3` ground they were washing over
+    (OpenProject #2697).
+  */
   @at-root .body--light & {
-    background-color: $grey-3;
+    background-color: $paper;
   }
   @at-root .body--dark & {
     background-color: $dark-6;
-  }
-
-  &:before {
-    content: '';
-    height: 200px;
-    position: fixed;
-    top: 0;
-    width: 100%;
-    background: radial-gradient(ellipse at bottom, $dark-3, $dark-6);
-    border-bottom: 1px solid #fff;
-
-    @at-root .body--dark & {
-      border-bottom-color: $dark-3;
-    }
-  }
-
-  &:after {
-    content: '';
-    height: 1px;
-    position: fixed;
-    top: 64px;
-    width: 100%;
-    background: linear-gradient(
-      to right,
-      transparent 0%,
-      rgba(255, 255, 255, 0.1) 50%,
-      transparent 100%
-    );
-  }
-
-  &-back {
-    position: absolute;
-    inset-inline-start: -50px;
   }
 
   &-card {
@@ -584,7 +578,6 @@ $card-gutter-max: 1199.98px;
     width: 90%;
     max-width: 1400px;
     margin: 50px auto;
-    box-shadow: $shadow-2;
     display: flex;
     align-items: stretch;
     /*
@@ -603,57 +596,102 @@ $card-gutter-max: 1199.98px;
       surface. With only the background set, everything inside inherited the document's black --
       headings, result titles, input and select values alike -- which is invisible on the dark one.
       The light value is the black it was already inheriting, so only dark mode changes.
+
+      Held by a hairline rather than by a shadow: Cardinal draws a card as a plate on paper, and the
+      `$shadow-2` that used to sit here was the other half of the dark band above.
     */
     @at-root .body--light & {
-      background-color: #fff;
-      color: var(--color-black);
+      background-color: $surface;
+      border: 1px solid $hairline;
+      color: $text-body;
     }
     @at-root .body--dark & {
       background-color: $dark-3;
-      color: var(--color-white);
+      border: 1px solid $hairline-dark;
+      color: $text-dark;
     }
   }
 
   &-sd {
     flex: 0 0 300px;
-    border-start-start-radius: 8px;
-    border-end-start-radius: 8px;
     overflow: hidden;
 
     @at-root .body--light & {
-      background-color: $grey-1;
-      border-inline-end: 1px solid rgba($dark-3, 0.1);
-      box-shadow: inset -1px 0 0 #fff;
+      background-color: $tint;
+      border-inline-end: 1px solid $hairline;
     }
     @at-root .body--dark & {
       background-color: $dark-4;
-      border-inline-end: 1px solid rgba(#fff, 0.12);
-      box-shadow: inset -1px 0 0 rgba($dark-6, 0.5);
+      border-inline-end: 1px solid $hairline-dark;
     }
   }
 
   /*
-    Primary, matching the section headers on the profile screen.
+    A header strip: Sort by, Filters, Results.
 
-    This class was `text-header` until the rename, which collided with a GENERATED Tailwind utility:
-    the palette carries a `header` colour, so `text-header` also meant `color: var(--color-header)` --
-    #000 in both themes -- and that beat the card's inherited white. Renamed rather than fought, so the
-    colour below is now a plain design choice instead of an override.
+    PINNED to a fixed height, with `line-height: 1`. The Results strip carries the result count
+    beside its label, and that count is the one thing on this screen whose length is not known in
+    advance -- "42 results", "At least 1,204 results", nothing at all while a search is in flight.
+    Left to size itself, the strip's height would follow the tallest line box inside it, and the
+    Results bar would stop lining up with the Sort by bar that starts the column beside it. Since
+    both are supposed to read as one ruled line across the top of the card, that is visible at a
+    glance. A fixed height plus a line-height of 1 makes a bar's height independent of what is
+    written in it.
   */
   .section-header {
-    padding: 0.75rem 1rem;
-    font-weight: 500;
-    color: $primary;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: $strip-height;
+    padding: 0 16px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
 
     @at-root .body--light & {
-      background-color: $grey-1;
-      border-bottom: 1px solid $grey-3;
+      color: $accent-strong;
+      background-color: $tint-alt;
+      border-bottom: 1px solid $hairline;
     }
     @at-root .body--dark & {
-      // -> Same lightened brand blue as `.w-section-header`; `$primary` on this surface is ~2.7:1
-      color: var(--color-primary-light);
-      background-color: $dark-3;
-      border-bottom: 1px solid $dark-2;
+      color: $accent-dark;
+      background-color: $dark-2;
+      border-bottom: 1px solid $hairline-dark;
+    }
+  }
+
+  /* -> A strip that follows content is ruled off from it as well as from what comes after */
+  .layout-search-sd .section-header:not(:first-child) {
+    @at-root .body--light & {
+      border-top: 1px solid $hairline;
+    }
+    @at-root .body--dark & {
+      border-top: 1px solid $hairline-dark;
+    }
+  }
+
+  /*
+    The result count, in the strip beside the Results label. Mono and `line-height: 1` for the same
+    reason the strip itself is: it is a number that changes length, and nothing about it may reach
+    the bar's height.
+  */
+  &-count {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: 0;
+    text-transform: none;
+
+    @at-root .body--light & {
+      color: $text-caption;
+    }
+    @at-root .body--dark & {
+      color: $text-caption-dark;
     }
   }
 
@@ -662,23 +700,153 @@ $card-gutter-max: 1199.98px;
 
   .w-page {
     flex: 1 1;
+    min-width: 0;
+  }
 
-    .section-header:first-child {
-      border-start-end-radius: 7px;
-    }
+  /* --- A result row ------------------------------------------------------------------------------ */
+
+  &-row {
+    display: flex;
+    gap: $row-gutter;
+    padding: 14px 16px;
+    text-decoration: none;
+    color: inherit;
 
     @at-root .body--light & {
-      border-inline-start: 1px solid #fff;
+      border-bottom: 1px solid $hairline;
     }
     @at-root .body--dark & {
-      border-inline-start: 1px solid rgba($dark-6, 0.75);
+      border-bottom: 1px solid $hairline-dark;
+    }
+
+    &:hover {
+      @at-root .body--light & {
+        background-color: $paper;
+      }
+      @at-root .body--dark & {
+        background-color: $dark-2;
+      }
     }
   }
 
-  &-itemtags {
-    .w-chip:last-child {
-      margin-inline-end: 0;
+  /*
+    The plate. The same square hairline frame `BlueprintIcon` draws for a settings row and at the
+    same 34px, but in the accent rather than the chrome tone -- what sits in it here is the page's
+    OWN icon, which is the thing the reader is looking for, not the label of a setting.
+  */
+  &-plate {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: $plate-size;
+    height: $plate-size;
+
+    @at-root .body--light & {
+      border: 1px solid $hairline;
+      background-color: $surface;
+      color: $primary;
     }
+    @at-root .body--dark & {
+      border: 1px solid $hairline-dark;
+      background-color: $dark-4;
+      color: $accent-dark;
+    }
+  }
+
+  /*
+    A ZERO basis, not `auto`, and `min-width: 0` beside it. Both are load-bearing below 600px, where
+    the row is `flex-wrap: wrap`: wrapping is decided from each item's hypothetical main size, so a
+    body whose basis is its own content (a title, a description and a path) does not fit beside the
+    plate and drops onto its own line -- putting the title hard against the card's edge instead of
+    beside the plate, and leaving the stacked date and tags inset under nothing. From zero it stays
+    on the plate's line and shrinks, which is what the design draws and what the `flex: 1 1 0%` on
+    `WItemSection`'s main section was quietly doing before this row stopped being a `w-item`.
+  */
+  &-rowbody {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  &-rowtitle {
+    font-size: 15px;
+    font-weight: 500;
+
+    @at-root .body--light & {
+      color: $ink;
+    }
+    @at-root .body--dark & {
+      color: $text-dark;
+    }
+  }
+
+  &-rowdesc {
+    padding-top: 1px;
+    font-size: 13px;
+    line-height: 1.5;
+
+    @at-root .body--light & {
+      color: $text-secondary;
+    }
+    @at-root .body--dark & {
+      color: $text-secondary-dark;
+    }
+  }
+
+  &-rowpath {
+    padding-top: 3px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+
+    @at-root .body--light & {
+      color: $text-caption;
+    }
+    @at-root .body--dark & {
+      color: $text-caption-dark;
+    }
+  }
+
+  &-rowexcerpt {
+    padding-top: 5px;
+    font-size: 12.5px;
+    line-height: 1.55;
+
+    @at-root .body--light & {
+      color: $text-body;
+    }
+    @at-root .body--dark & {
+      color: $text-dark;
+    }
+  }
+
+  &-rowmeta {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    width: $row-meta-width;
+  }
+
+  &-rowdate {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    text-align: end;
+
+    @at-root .body--light & {
+      color: $text-caption;
+    }
+    @at-root .body--dark & {
+      color: $text-caption-dark;
+    }
+  }
+
+  &-rowtags {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
   }
 
   /*
@@ -711,18 +879,6 @@ $card-gutter-max: 1199.98px;
       width: 95%;
       margin: 25px auto;
     }
-
-    /*
-      And the back button goes with them. It is positioned into the gutter beside the card
-      (`inset-inline-start: -50px`),
-      so it needs 50px of gutter to sit in -- which a 2.5% gutter is not at any width this rule covers, and
-      was not at 90% either much below 1000px: the circle was already being clipped by the left edge of the
-      window. Hidden rather than moved, because the header above still has the search field that brought
-      the reader here, and the browser still has its own Back.
-    */
-    &-back {
-      display: none;
-    }
   }
 
   /* --- Below 900px: the sidebar is a disclosure above the results --------------------------------- */
@@ -734,18 +890,18 @@ $card-gutter-max: 1199.98px;
     /*
       The disclosure's bar. Full width, so it reads as a strip of the card rather than as a button sitting
       on it -- `space-between` is what puts the chevron at the far end from the label, where a disclosure's
-      marker belongs -- and it takes the card's own top corners, being the top of the card now.
+      marker belongs.
     */
     &-filterbtn {
       justify-content: space-between;
 
       @at-root .body--light & {
-        background-color: $grey-1;
-        border-bottom: 1px solid $grey-3;
+        background-color: $tint-alt;
+        border-bottom: 1px solid $hairline;
       }
       @at-root .body--dark & {
-        background-color: $dark-4;
-        border-bottom: 1px solid $dark-2;
+        background-color: $dark-2;
+        border-bottom: 1px solid $hairline-dark;
       }
     }
 
@@ -772,35 +928,14 @@ $card-gutter-max: 1199.98px;
     &-sd {
       flex: none;
       width: 100%;
-      border-radius: 0;
 
       @at-root .body--light & {
         border-inline-end: 0;
-        border-bottom: 1px solid $grey-3;
-        box-shadow: none;
+        border-bottom: 1px solid $hairline;
       }
       @at-root .body--dark & {
         border-inline-end: 0;
-        border-bottom: 1px solid rgba(#fff, 0.12);
-        box-shadow: none;
-      }
-    }
-
-    /* -> The seam is the panel's bottom border now, and a leading one would draw down the card's own edge */
-    .w-page {
-      @at-root .body--light & {
-        border-inline-start: 0;
-      }
-      @at-root .body--dark & {
-        border-inline-start: 0;
-      }
-
-      /*
-        The results header is the top corner of the card no longer -- the disclosure bar above it is
-        the whole top edge, and rounds both corners itself.
-      */
-      .section-header:first-child {
-        border-start-end-radius: 0;
+        border-bottom: 1px solid $hairline-dark;
       }
     }
   }
@@ -810,56 +945,54 @@ $card-gutter-max: 1199.98px;
     &-card {
       width: 100%;
       margin: 0;
-      border-radius: 0;
-      box-shadow: none;
-    }
 
-    /* -> Nothing left to round: the card's own corners are square here */
-    &-filterbtn {
-      border-radius: 0;
+      @at-root .body--light & {
+        border-inline: 0;
+      }
+      @at-root .body--dark & {
+        border-inline: 0;
+      }
     }
 
     /*
-      A result stacks instead of reserving a column for its date and tags. That column is `shrink-0`, so
-      beside it a title had whatever was left -- and what was left of 390px, after an avatar and a date,
-      was a few words. Wrapped onto its own line the row reads as a card: icon and title, the path and the
-      matched text under it, then when it was touched and what it is tagged with.
+      A result stacks instead of reserving a column for its date and tags. That column is a fixed
+      150px, so beside it a title had whatever was left -- and what was left of 390px, after a plate
+      and a date, was a few words. Wrapped onto its own line the row reads as a card: plate and
+      title, the path and the matched text under it, then when it was touched and what it is tagged
+      with.
     */
-    .w-page .w-list .w-item {
+    &-row {
       flex-wrap: wrap;
     }
 
     /*
-      And the icon goes to the top of the row rather than the middle of it. The section centres its
-      content, which is right for a row two lines tall and leaves the icon stranded halfway down one that
-      is now six.
+      And the plate goes to the top of the row rather than the middle of it -- it is centred for a
+      row two lines tall, and would be stranded halfway down one that is now six.
     */
-    .w-page .w-list .w-item-section--avatar {
-      justify-content: flex-start;
+    &-plate {
+      align-self: flex-start;
     }
 
-    .w-page .w-list .w-item-section--side:not(.w-item-section--avatar) {
+    /*
+      Lined up under the title rather than under the plate. The inset is DERIVED from the row's own
+      metrics ($plate-size + $row-gutter) rather than restated as a number: change the plate and the
+      stacked line follows it, which is what the hand-written 56px it replaces did not do -- that
+      value was `WItemSection`'s avatar-column width, and stopped describing this row the moment the
+      row stopped being a `w-item`.
+    */
+    &-rowmeta {
       width: 100%;
       align-items: flex-start;
       margin-top: 0.25rem;
-      /*
-        Lined up under the title rather than under the icon: 56px is the avatar column's own width
-        (`min-width` on `.w-item-section--avatar` in `WItemSection`), and it replaces the 16px this
-        section carries as a TRAILING one -- which is a gutter between two columns, and there is only one
-        column now.
-      */
-      padding-inline-start: 56px;
+      padding-inline-start: $row-inset;
+    }
 
-      /*
-        Both were written for a right-hand column and are Tailwind utilities, so they are layered -- these
-        unlayered rules outrank them without `!important`.
-      */
-      .text-right {
-        text-align: start;
-      }
-      .justify-end {
-        justify-content: flex-start;
-      }
+    &-rowdate {
+      text-align: start;
+    }
+
+    &-rowtags {
+      justify-content: flex-start;
     }
   }
 }
