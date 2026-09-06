@@ -29,7 +29,7 @@ export class BlockTabsElement extends LitElement {
     block: 'tabs',
     name: 'Tabs',
     description: 'Groups content into tabbed panels.',
-    icon: 'resume-template',
+    icon: 'tabler:tabs',
     template: `::block-tab{label="First tab"}
 Content of the first tab.
 ::

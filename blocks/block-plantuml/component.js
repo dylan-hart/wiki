@@ -53,7 +53,7 @@ export class BlockPlantumlElement extends DiagramImageElement {
     name: 'PlantUML',
     description:
       'Draws a PlantUML diagram — sequence, class, state, activity, mindmap, gantt and the rest.',
-    icon: 'polyline',
+    icon: 'tabler:schema',
     /*
       Fenced, and named `plantuml` so the source is what it says it is. The fence is also what keeps
       markdown off it: `->` survives, but `--` becomes a dash, a line opening with `*` or `#` is read

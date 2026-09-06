@@ -76,7 +76,13 @@
       <w-card>
         <w-list separator>
           <w-item v-for="block of state.blocks" :key="block.id">
-            <blueprint-icon :icon="block.isCustom ? `plugin` : block.icon" />
+            <!--
+              A block's `icon` is an ordinary Iconify reference (`tabler:sitemap`), declared in its
+              own `static definition` and carried through the manifest -- so it is passed through
+              untouched here, exactly as `BlueprintIcon`'s contract asks for. A custom block brings
+              no in-repo definition to trust, so it draws the one fallback glyph instead.
+            -->
+            <blueprint-icon :icon="block.isCustom ? 'tabler:puzzle' : block.icon" />
             <w-item-section>
               <w-item-label
                 ><strong>{{ block.name }}</strong></w-item-label

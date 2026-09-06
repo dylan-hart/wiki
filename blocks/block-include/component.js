@@ -30,7 +30,7 @@ export class BlockIncludeElement extends LitElement {
     block: 'include',
     name: 'Include',
     description: 'Transclude the contents of another page inside this one.',
-    icon: 'duplicate',
+    icon: 'tabler:copy',
     props: [
       {
         name: 'path',

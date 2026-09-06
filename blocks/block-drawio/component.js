@@ -27,7 +27,7 @@ export class BlockDrawioElement extends LitElement {
     block: 'drawio',
     name: 'draw.io Diagram',
     description: 'Draws a draw.io/diagrams.net diagram from its XML, read-only.',
-    icon: 'genealogy',
+    icon: 'tabler:vector',
     /*
       Fenced for the same reason every diagram block here is: inside a fence the XML arrives exactly
       as it was typed, rather than having `--` turned into a dash or a `#`-led line read as a heading.

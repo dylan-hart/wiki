@@ -85,7 +85,7 @@ export class BlockLiveDataElement extends LitElement {
     name: 'Live Data',
     description:
       'Polls a REST/JSON endpoint on an interval and shows the resolved value, a trend sparkline, or a threshold-based status pill.',
-    icon: 'activity-feed',
+    icon: 'tabler:activity',
     props: [
       {
         name: 'url',

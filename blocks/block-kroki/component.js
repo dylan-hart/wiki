@@ -84,7 +84,7 @@ export class BlockKrokiElement extends DiagramImageElement {
     name: 'Kroki',
     description:
       'Draws a diagram through a Kroki server — Graphviz, D2, BPMN, Vega, Structurizr, TikZ and two dozen more.',
-    icon: 'tree-structure',
+    icon: 'tabler:topology-star',
     /*
       Fenced, and named `kroki` whatever the diagram language turns out to be, since that is the block
       reading it. The fence is also what keeps markdown off the source: `--` becomes a dash, a line

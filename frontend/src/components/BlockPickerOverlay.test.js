@@ -19,7 +19,7 @@ const BLOCK = {
   block: 'kroki',
   name: 'Kroki',
   description: 'Draws a diagram through a Kroki server.',
-  icon: 'tree-structure',
+  icon: 'tabler:topology-star',
   isEnabled: true,
   isCustom: false,
   config: { server: 'https://kroki.example.com' },
@@ -77,6 +77,32 @@ describe('BlockPickerOverlay', () => {
     await flushPromises()
 
     expect(wrapper.attributes('overlay-opts')).toBeUndefined()
+  })
+})
+
+/**
+ * OpenProject #2634. Every card used to draw its icon by concatenating the definition's bare name
+ * into `img:/_assets/icons/ultraviolet-<name>.svg` — which worked only for as long as those names
+ * stayed unprefixed, and so was the one thing standing in the way of the same value resolving on
+ * Admin Blocks and in the params dialog, where it drew nothing at all. Both halves are asserted
+ * here: the reference reaches `WIcon` untouched, and no path is assembled from it.
+ *
+ * `WIcon` stamps `data-icon` on all three of its branches, so this reads the same whether the
+ * reference happens to be in the inlined bundle or falls through to `iconify-icon` at runtime.
+ */
+describe('the block icon', () => {
+  it("renders the definition's own Iconify reference, unmodified", async () => {
+    const wrapper = await mountPicker([BLOCK])
+
+    expect(wrapper.find('[data-icon="tabler:topology-star"]').exists()).toBe(true)
+    expect(wrapper.html()).not.toContain('ultraviolet-')
+  })
+
+  it('draws the one fallback glyph for a custom block, whose definition it cannot vouch for', async () => {
+    const wrapper = await mountPicker([{ ...BLOCK, isCustom: true, icon: 'whatever-was-uploaded' }])
+
+    expect(wrapper.find('[data-icon="tabler:puzzle"]').exists()).toBe(true)
+    expect(wrapper.html()).not.toContain('whatever-was-uploaded')
   })
 })
 

@@ -23,7 +23,7 @@ export class BlockSpoilerElement extends LitElement {
     block: 'spoiler',
     name: 'Spoiler',
     description: 'Hides content behind a cover until it is clicked.',
-    icon: 'visualy-impaired',
+    icon: 'tabler:eye-off',
     template: 'The content to hide.',
     props: [
       {

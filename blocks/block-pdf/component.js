@@ -86,7 +86,7 @@ export class BlockPdfElement extends LitElement {
     block: 'pdf',
     name: 'PDF Viewer',
     description: 'Displays a PDF document in a viewer, page by page.',
-    icon: 'pdf',
+    icon: 'tabler:file-type-pdf',
     props: [
       {
         name: 'src',

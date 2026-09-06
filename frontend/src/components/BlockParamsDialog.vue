@@ -5,8 +5,9 @@
     @hide="onDialogHide">
     <w-card style="width: 550px">
       <w-card-section class="card-header">
+        <!-- -> The block's own Iconify reference, the same value the picker and Admin Blocks draw. -->
         <w-icon
-          :name="`img:/_assets/icons/ultraviolet-${definition.isCustom ? 'plugin' : definition.icon}.svg`"
+          :name="definition.isCustom ? 'tabler:puzzle' : definition.icon"
           size="sm"
           class="me-2" />
         <!-- -> The block is named in the title rather than over the form: one line of chrome above a

@@ -37,7 +37,7 @@ const KROKI_BLOCK = {
   block: 'kroki',
   name: 'Kroki',
   description: 'Draws a diagram through a Kroki server.',
-  icon: 'tree-structure',
+  icon: 'tabler:topology-star',
   isEnabled: true,
   isCustom: false,
   config: { server: 'https://kroki.example.com' },
@@ -53,7 +53,7 @@ const GALLERY_BLOCK = {
   block: 'gallery',
   name: 'Gallery',
   description: 'A gallery of images.',
-  icon: 'image',
+  icon: 'tabler:photo',
   isEnabled: true,
   isCustom: false,
   config: {},
@@ -165,7 +165,7 @@ function makeConfigureBlocks() {
       block: 'map',
       name: 'Map',
       description: 'An interactive map',
-      icon: 'map',
+      icon: 'tabler:map-2',
       isEnabled: true,
       isCustom: false,
       // -> Only `tileServerUrl` has been set by this site; `apiKey` has never been touched
@@ -186,7 +186,7 @@ function makeConfigureBlocks() {
       block: 'alert',
       name: 'Alert',
       description: 'A callout box',
-      icon: 'alert',
+      icon: 'tabler:alert-triangle',
       isEnabled: true,
       isCustom: false,
       config: {},
@@ -411,5 +411,33 @@ describe('AdminBlocks save()', () => {
         }
       })
     )
+  })
+})
+
+/**
+ * OpenProject #2634. `BlueprintIcon`'s contract is that `icon` is "an ordinary Iconify reference
+ * (`tabler:key`), not an asset name assembled here" — and all 26 in-repo blocks shipped bare,
+ * unprefixed names left behind by the Tabler migration (which scans `frontend/src` only), so every
+ * row on this page drew an empty plate. `blocks/definitions.test.js` guards the declarations; this
+ * guards the consumption, which is the half that also has an `isCustom` branch of its own.
+ *
+ * `WIcon` stamps `data-icon` on all three of its branches, so this reads the same whether the
+ * reference happens to be in the inlined bundle or falls through to `iconify-icon` at runtime.
+ */
+describe('the block icon', () => {
+  it("passes each block's own Iconify reference through to the row's plate", async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK, GALLERY_BLOCK])
+
+    expect(wrapper.find('.blueprint-icon [data-icon="tabler:topology-star"]').exists()).toBe(true)
+    expect(wrapper.find('.blueprint-icon [data-icon="tabler:photo"]').exists()).toBe(true)
+  })
+
+  it('draws the one fallback glyph for a custom block, whose definition it cannot vouch for', async () => {
+    const wrapper = await mountAdminBlocks([
+      { ...KROKI_BLOCK, isCustom: true, icon: 'whatever-was-uploaded' }
+    ])
+
+    expect(wrapper.find('.blueprint-icon [data-icon="tabler:puzzle"]').exists()).toBe(true)
+    expect(wrapper.html()).not.toContain('whatever-was-uploaded')
   })
 })
