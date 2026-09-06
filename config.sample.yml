@@ -116,16 +116,36 @@ bindIP: 0.0.0.0
 # ---------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------
-# Possible values: error, warn, info (default), debug
-# Case-sensitive, and enforced: anything else refuses to start rather than
-# quietly logging everything.
+# Every line is `<timestamp> <level> <scope>  <message>  <key=value ...>`;
+# `scope` names the subsystem (db, http, jobs, storage, ...) and is what makes
+# a grep useful. See docs/operations.md#logs for the full scope table.
+#
+# The threshold. Possible values: error, warn, info (default), debug
+#   error  something is broken and a person has to act
+#   warn   degraded, self-healing, or a configuration smell
+#   info   a state change worth having in the record
+#   debug  per-item, per-request, per-tick -- the access log, every job tick,
+#          and the sqlLog / authDebug firehoses
+# The 2.x levels `verbose` and `silly` do not exist here. Case-sensitive, and
+# enforced: anything else refuses to start rather than quietly logging
+# everything.
 
 logLevel: info
 
-# Output format for logging, possible values: text, json
+# Output format, possible values: text, json
+#   text  human-readable, coloured on a TTY -- for tailing one process
+#   json  one object per line, with the instance id on every record -- for a
+#         log shipper or an aggregator
+# (`default` was this value's old name; there is no alias for it.)
 # Enforced the same way as logLevel above.
 
 logFormat: text
+
+# There is no log FILE, by design: lines go to stdout and nowhere else, plus an
+# in-memory ring buffer of the last 500 replayed to the admin log view.
+# Capturing them durably is the operator's job. Per-scope thresholds
+# (`logScopes:`) are planned but NOT a config key yet -- setting one today is an
+# unknown key, not a quieter `http`.
 
 # ---------------------------------------------------------------------
 # Offline Mode
