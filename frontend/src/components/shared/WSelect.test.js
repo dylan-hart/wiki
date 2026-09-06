@@ -383,6 +383,30 @@ describe('WSelect', () => {
       expect(wrapper.find('input').attributes('name')).toBe('group')
       expect(wrapper.element.getAttribute('name')).toBeNull()
     })
+
+    // -> OpenProject #2715: the useInput branch used to bind $attrs raw onto the <input>, so a
+    //    caller's class landed there AND on the wrapper (via root-class), pushing the text off
+    //    centre. It must land on the wrapper only, same as the plain variant.
+    it('applies a caller class to the wrapper only, not the filter input, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
+        attrs: { class: 'mt-4' }
+      })
+
+      expect(wrapper.find('input').classes()).not.toContain('mt-4')
+      expect(wrapper.classes()).toContain('mt-4')
+    })
+
+    it('does not also land a forwarded attribute on the outer control div, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
+        attrs: { name: 'group' }
+      })
+
+      // -> The useInput control element is the <div> carrying `w-input-control`, distinct from the
+      //    <input> inside it that `control()` resolves via role="combobox"
+      expect(wrapper.find('.w-input-control').attributes('name')).toBeUndefined()
+    })
   })
 
   describe('validation message live region', () => {
