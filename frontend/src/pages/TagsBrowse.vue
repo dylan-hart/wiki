@@ -637,6 +637,12 @@ onMounted(async () => {
       The design pads the body `16px 20px` beneath a full-bleed section band. `.w-section-header`
       already contributes the section rhythm's own 14px `margin-block-end` (#2631), so 2px here lands
       the first row on the design's 16px -- rather than overriding the shared band, which #2631 owns.
+
+      Unrelated to the band's own HEIGHT (#2717 raised it 34px -> 38px to match the sidebar-actions
+      and breadcrumb bands beside it): this 2px reconciles the shared rhythm's fixed 14px trailing
+      margin against the design's fixed 16px total gap, and that arithmetic doesn't involve the
+      band's height at all -- `ui-redesign/Cardinal Wiki - Tags 3x.dc.html` draws the row below the
+      band at a flat `padding: 16px 20px` regardless of how tall the band above it is.
     */
     padding: 2px 20px 16px;
     gap: 1.5rem;
@@ -766,6 +772,29 @@ onMounted(async () => {
       min-width: 0;
     }
   }
+}
+
+/*
+  OpenProject #2717: this page's own top band (`.w-section-header`, "Browse by tags") sat at the
+  shared 34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 38px`)
+  beside it and `.page-breadcrumbs` (`Index.vue`, `min-height: 38px`, matched to `.sidebar-actions` by
+  #2613) sit at the same vertical position everywhere else -- so this band's own bottom hairline
+  landed 4px above theirs instead of on the same line.
+
+  The shared `.w-section-header` stays 34px (`#2631`'s own rhythm, guarded by
+  `sectionHeaderRhythm.test.js`, which scans for -- and this rule deliberately isn't -- a `padding`
+  override): raising it globally would move every section band in the app. This page pins its own
+  band locally instead, the same way `.tags-browse-plate` below overrides `WItem`'s metrics: two
+  classes for deterministic specificity over the shared, unscoped rule.
+
+  `min-height`, not `height`, for the same reason `.page-breadcrumbs` uses it: a long enough locale
+  name or a wrapped title still has to be able to grow past the band. Fill and border are left alone
+  -- the design (`ui-redesign/Cardinal Wiki - Tags 3x.dc.html`) already draws this band at the shared
+  class's own tint fill and hairline rule, just 38px tall, so nothing else needs to change for the
+  two bands to read as one strip.
+*/
+.tags-browse .w-section-header {
+  min-height: 38px;
 }
 
 /*
