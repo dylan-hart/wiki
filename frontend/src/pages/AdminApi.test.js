@@ -169,6 +169,35 @@ describe('AdminApi personal token note', () => {
 
     expect(wrapper.text()).toContain('Profile > API Access')
   })
+
+  // -> OpenProject #2744: this note is the actual credential MCP needs (an admin-issued key here
+  //    has no bearing on MCP page-authorship attribution), so it reads as a warning rather than a
+  //    neutral info note -- the unconditional `bg-warning-fill text-ink` pair `InboxReview.vue`'s
+  //    `w-banner` uses, plus the `tabler:alert-triangle` glyph `LocaleSelectorMenu.vue`'s staleness
+  //    badge uses, not the light/dark `bg-dark-5`/`bg-grey-3` info-card treatment.
+  it('styles the note as a warning, not a neutral info note', async () => {
+    stubApi({
+      'api-keys': [],
+      'system/api': { isEnabled: true },
+      groups: [],
+      sites: [],
+      'system/certificates': { generatedAt: null }
+    })
+
+    const wrapper = mountPageWithProfileNote()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    const cards = wrapper.findAll('.w-card')
+    const noteCard = cards.find((c) => c.text().includes('Profile > API Access'))
+
+    expect(noteCard.classes()).toContain('bg-warning-fill')
+    expect(noteCard.classes()).toContain('text-ink')
+    expect(noteCard.classes()).not.toContain('bg-dark-5')
+    expect(noteCard.classes()).not.toContain('bg-grey-3')
+    expect(noteCard.find('[data-icon="tabler:alert-triangle"]').exists()).toBe(true)
+    expect(noteCard.find('[data-icon="tabler:info-circle"]').exists()).toBe(false)
+  })
 })
 
 // -> OpenProject #1929: `/dev/api` names a concept this fork invented (there is no such upstream
