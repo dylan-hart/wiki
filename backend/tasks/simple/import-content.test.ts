@@ -78,7 +78,10 @@ describe('import-content.task', () => {
   test('reloads caches and queues a search rebuild exactly once after a successful import', async () => {
     const { deps, calls } = makeDeps()
 
-    await task(payload, 'job-1', deps)
+    // -> OpenProject #2672: the outcome is returned for the scheduler to log, and is a different
+    //    thing from the `setResult` write asserted below — that one is what a follow-up route reads.
+    const outcome = await task(payload, 'job-1', deps)
+    assert.deepEqual(outcome, { summary: 'imported site content', site: payload.targetSiteId })
 
     assert.equal(calls.importSite.length, 1)
     assert.deepEqual(calls.importSite[0], [

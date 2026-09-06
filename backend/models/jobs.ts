@@ -370,6 +370,13 @@ class Jobs {
    * `{ filePath, fileSize }` here so the download route can find the tarball without either side
    * knowing anything more specific about the other.
    *
+   * **Not the same thing as the summary a task returns.** A `tasks/simple/` task may hand back a
+   * `TaskResult` (`core/scheduler.ts`), and the scheduler turns that into this run's one `info` line
+   * — it never writes it here. The two carry different things to different readers: this column is
+   * machine-read by a follow-up route (and would be corrupted by a summary landing on top of a
+   * `{ filePath }` the download routes expect), while a summary is prose for the log. A task that
+   * needs both does both, as `export-content.ts` and `scan-page-problems.ts` do.
+   *
    * Fenced against `helpers/jobExecutionContext.ts`'s attempt number (OpenProject #2351): an
    * in-process task cannot actually be cancelled at its `taskTimeout` ceiling, so a stale,
    * already-abandoned task can still be running in the background and call this after a later

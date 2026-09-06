@@ -6,6 +6,7 @@ import { glossary } from '../../models/glossary.ts'
 import { assetServing } from '../../models/assetServing.ts'
 import { jobs } from '../../models/jobs.ts'
 import { runReplicationPostImport } from '../../helpers/replicationPostImport.ts'
+import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
  * Restore a whole-instance snapshot tarball uploaded through `POST
@@ -41,7 +42,7 @@ export async function task(
     jobs?: typeof jobs
     addJob?: typeof WIKI.scheduler.addJob
   } = {}
-): Promise<void> {
+): Promise<TaskResult> {
   const {
     replicationImport: replicationImportDep = replicationImport,
     sites: sitesDep = sites,
@@ -76,7 +77,9 @@ export async function task(
     if (jobId) {
       await jobsDep.setResult(jobId, result)
     }
-    WIKI.logger.info('storage', 'restored replication snapshot')
+    // -> Returned, not logged: the scheduler writes this run's one `info` line, with the job id and
+    //    the duration attached. The `finally` below still runs on the way out.
+    return { summary: 'restored replication snapshot' }
   } finally {
     await replicationImportDep.deleteUpload(payload.filePath)
   }

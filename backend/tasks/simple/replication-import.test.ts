@@ -105,7 +105,10 @@ describe('replication-import.task', () => {
   test('reloads every replicated cache and queues one search rebuild per restored site', async () => {
     const { deps, calls } = makeDeps()
 
-    await task(payload, 'job-1', deps)
+    // -> OpenProject #2672: the outcome is returned for the scheduler to log, separately from the
+    //    `setResult` write a follow-up route reads.
+    const outcome = await task(payload, 'job-1', deps)
+    assert.deepEqual(outcome, { summary: 'restored replication snapshot' })
 
     assert.equal(calls.importSnapshot.length, 1)
     assert.deepEqual(calls.importSnapshot[0], [payload.filePath])

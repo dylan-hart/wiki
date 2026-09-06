@@ -175,6 +175,70 @@ describe(
     })
 
     /**
+     * OpenProject #2672: the sweep's own two outcome lines. A job abandoned outright is the one thing
+     * here nothing will ever revisit, so it is named individually at `warn` — task, job id and the
+     * attempt it died on — while the roll-up says how many were found against how many made it back
+     * into the queue. Asserted on scope, level and fields rather than on rendered text.
+     */
+    test('an abandoned interrupted job is named at warn, with its attempt out of the total', async () => {
+      const row = await insertActiveHistory({ attempt: 3, maxRetries: 2 })
+      historyIds.push(row.id)
+      const warn = mock.fn()
+      const originalWarn = WIKI.logger.warn
+      WIKI.logger.warn = warn as any
+
+      try {
+        await scheduler.reapStaleJobs()
+      } finally {
+        WIKI.logger.warn = originalWarn
+      }
+
+      const abandoned = warn.mock.calls
+        .map((call) => call.arguments as any[])
+        .find((args) => args[1] === 'stuckTask interrupted, no attempts left')
+      assert.ok(abandoned, 'the abandoned job must be named individually, not only counted')
+      assert.equal(abandoned[0], 'jobs')
+      assert.deepEqual(abandoned[2], { job: row.id, attempt: '3/3' })
+
+      const roundUp = warn.mock.calls
+        .map((call) => call.arguments as any[])
+        .find((args) => args[1] === 'requeued interrupted jobs')
+      assert.ok(roundUp, 'the sweep still reports what it found')
+      assert.equal(roundUp[2].found, 1)
+      assert.equal(roundUp[2].requeued, 0, 'found is not requeued: this one was abandoned')
+    })
+
+    test('a sweep that found nothing says so at debug, and says nothing at warn', async () => {
+      const warn = mock.fn()
+      const debug = mock.fn()
+      const originalWarn = WIKI.logger.warn
+      const originalDebug = WIKI.logger.debug
+      WIKI.logger.warn = warn as any
+      WIKI.logger.debug = debug as any
+
+      try {
+        // -> Nothing inserted by this test, and every other test in this file cleans up its own rows
+        //    in `afterEach` against a schema of its own (`test/db.ts`), so this sweep genuinely has
+        //    nothing to find.
+        await scheduler.reapStaleJobs()
+      } finally {
+        WIKI.logger.warn = originalWarn
+        WIKI.logger.debug = originalDebug
+      }
+
+      const idle = debug.mock.calls
+        .map((call) => call.arguments as any[])
+        .find((args) => args[1] === 'no interrupted jobs found')
+      assert.ok(idle, 'the healthy, every-tick case is recorded at debug')
+      assert.equal(idle[0], 'jobs')
+      assert.equal(
+        warn.mock.calls.filter((call) => call.arguments[1] === 'requeued interrupted jobs').length,
+        0,
+        'an empty sweep must not reach an operator shipping warn'
+      )
+    })
+
+    /**
      * OpenProject #928: a job that is abandoned outright (no attempts left) is never picked up and run
      * again by anything, so `runJob()`'s own `jobCompleted` NOTIFY -- the ordinary way a completion
      * promise settles -- is never going to fire for it. `reapStaleJobs()` must send that NOTIFY itself
@@ -313,10 +377,13 @@ describe(
         }
       }
 
-      const warnCalls: string[] = []
+      // -> The whole call, not `String(msg)`: since the Phase 2 sweep (#2665) the job id and the
+      //    error are FIELDS on a scoped record, not text pasted into the message, so a stub that
+      //    keeps only the first argument keeps the scope (`'jobs'`) and can never match either.
+      const warnCalls: any[][] = []
       const originalWarn = WIKI.logger.warn
-      WIKI.logger.warn = ((msg: string) => {
-        warnCalls.push(String(msg))
+      WIKI.logger.warn = ((...args: any[]) => {
+        warnCalls.push(args)
       }) as any
 
       let requeued: number
@@ -336,10 +403,12 @@ describe(
       assert.equal(queuedB.length, 0, 'the failing job itself was never inserted')
       assert.equal(queuedC.length, 1, 'the job after the failure must not be stranded by it')
 
-      assert.ok(
-        warnCalls.some((msg) => msg.includes(rowB.id) && msg.includes('simulated insert failure')),
-        'the warning must name the failing job id'
-      )
+      const failedRequeue = warnCalls.find((args) => args[1] === 'failed to requeue job')
+      assert.ok(failedRequeue, 'the failing job must be reported')
+      assert.equal(failedRequeue[0], 'jobs')
+      assert.equal(failedRequeue[2].job, rowB.id, 'the warning must name the failing job id')
+      assert.equal(failedRequeue[2].task, 'reap2009TaskB')
+      assert.equal((failedRequeue[2].error as Error).message, 'simulated insert failure')
     })
 
     /**
