@@ -448,9 +448,10 @@ class Login {
       allowed = new RegExp(strategy.allowedEmailRegex).test(email)
     } catch (err: any) {
       // -> A pattern that will not compile allows nobody, rather than everybody
-      WIKI.logger.warn(
-        `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
-      )
+      WIKI.logger.warn('auth', 'strategy has an invalid email pattern, refusing', {
+        strategy: strategy.id,
+        error: err
+      })
     }
     if (!allowed) {
       throw new Error('ERR_EMAIL_NOT_ALLOWED')
@@ -704,9 +705,10 @@ class Login {
           locale: (existing.prefs as Record<string, any> | undefined)?.locale
         })
       } catch (err: any) {
-        WIKI.logger.warn(
-          `Failed to send the registration-attempt notice to ${existing.email}: ${err.message}`
-        )
+        WIKI.logger.warn('auth', 'sending the registration-attempt notice failed', {
+          user: existing.id,
+          error: err
+        })
       }
       return { nextAction: 'verify' }
     }
@@ -850,8 +852,12 @@ class Login {
             continuationToken: tfaToken,
             redirect
           }
-        } catch (errc) {
-          WIKI.logger.warn(errc)
+        } catch (errc: any) {
+          WIKI.logger.warn('auth', 'issuing the 2FA continuation failed', {
+            user: user.id,
+            strategy: strategyId,
+            error: errc
+          })
           throw new Error('ERR_TFA_FAILED')
         }
       } else if (str.config?.enforceTfa || authStr.tfaRequired) {
@@ -877,8 +883,12 @@ class Login {
             tfaQRImage,
             redirect
           }
-        } catch (errc) {
-          WIKI.logger.warn(errc)
+        } catch (errc: any) {
+          WIKI.logger.warn('auth', 'starting the 2FA setup failed', {
+            user: user.id,
+            strategy: strategyId,
+            error: errc
+          })
           throw new Error('ERR_TFA_FAILED')
         }
       }
@@ -903,8 +913,12 @@ class Login {
           continuationToken: pwdChangeToken,
           redirect
         }
-      } catch (errc) {
-        WIKI.logger.warn(errc)
+      } catch (errc: any) {
+        WIKI.logger.warn('auth', 'issuing the change-password continuation failed', {
+          user: user.id,
+          strategy: strategyId,
+          error: errc
+        })
         throw new Error('ERR_CHANGE_PASSWORD_FAILED')
       }
     }
@@ -1374,9 +1388,10 @@ class Login {
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a
       //    failed reset
-      WIKI.logger.warn(
-        `Failed to send the password-reset-confirmed notice to ${user.email}: ${err.message}`
-      )
+      WIKI.logger.warn('auth', 'sending the password-reset-confirmed notice failed', {
+        user: user.id,
+        error: err
+      })
     }
 
     return this.afterLoginChecks(user, strategyId, { ip, siteId }, { skipChangePwd: true }, req)

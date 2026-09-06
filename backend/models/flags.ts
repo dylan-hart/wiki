@@ -80,7 +80,7 @@ class Flags {
     }
 
     for (const [key, value] of Object.entries(patch)) {
-      WIKI.logger.info(`System flag ${key} is now ${value ? 'enabled' : 'disabled'}.`)
+      WIKI.logger.info('config', 'system flag changed', { key, enabled: Boolean(value) })
     }
     return true
   }
@@ -93,7 +93,7 @@ class Flags {
    */
   authDebug(message: string): void {
     if (this.isEnabled('authDebug')) {
-      WIKI.logger.info(`[AUTH] ${message}`)
+      WIKI.logger.info('auth', message)
     }
   }
 }

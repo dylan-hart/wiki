@@ -488,9 +488,10 @@ class Approvals {
       : await WIKI.db.insert(submissionsTable).values(values).returning()
 
     const stored = rows[0]
-    WIKI.logger.debug(
-      `Stored an edit suggestion for page ${page.id} from ${authorId ?? `guest <${guestEmail}>`}`
-    )
+    WIKI.logger.debug('pages', 'stored an edit suggestion', {
+      page: page.id,
+      author: authorId ?? 'guest'
+    })
 
     if (!hadOpenSubmission) {
       await WIKI.models.approvalNotifications.notifyReviewersOfSubmission(siteId, page, stored.id)
@@ -983,10 +984,11 @@ class Approvals {
     })
 
     if (!decision.finalized) {
-      WIKI.logger.debug(
-        `Recorded approval ${decision.approvalsCount}/${decision.approvalsRequired} for edit ` +
-          `suggestion ${submissionId} on page ${page.id}; waiting on more reviewers`
-      )
+      WIKI.logger.debug('pages', 'recorded an approval, waiting on more reviewers', {
+        submission: submissionId,
+        page: page.id,
+        approvals: `${decision.approvalsCount}/${decision.approvalsRequired}`
+      })
       return decision
     }
 
@@ -1034,12 +1036,16 @@ class Approvals {
     } catch (err: any) {
       await this.revertFailedFinalization(submissionId)
       WIKI.logger.warn(
-        `Failed to write approved edit suggestion ${submissionId} onto page ${page.id}; ` +
-          `reverted the submission back to open for retry: ${err.message}`
+        'pages',
+        'writing the approved edit suggestion failed, reverted it back to open for retry',
+        { submission: submissionId, page: page.id, error: err }
       )
       throw err
     }
-    WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
+    WIKI.logger.debug('pages', 'approved an edit suggestion', {
+      submission: submissionId,
+      page: page.id
+    })
 
     // -> `skipIfWatching: true` -- the `updatePage()` call above already queued its own generic
     //    "page updated by <reviewer>" notice to every watcher, this author included if they watch the

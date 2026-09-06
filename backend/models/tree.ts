@@ -1073,9 +1073,10 @@ class Tree {
       )
       // -> Shallowest first, so that each one's own parent is already there to be counted against
       for (const ancestor of missing) {
-        WIKI.logger.debug(
-          `Creating missing parent folder ${ancestor.fileName} at path /${decodeTreePath(ancestor.folderPath)}...`
-        )
+        WIKI.logger.debug('pages', 'creating a missing parent folder', {
+          folder: ancestor.fileName,
+          path: `/${decodeTreePath(ancestor.folderPath)}`
+        })
         try {
           await db.insert(treeTable).values({
             folderPath: ancestor.folderPath,
@@ -1127,7 +1128,7 @@ class Tree {
     //    ancestor `auto`/`mixed` menu's cached tree walk would return (OpenProject #1825)
     WIKI.models.navigation.invalidateCache(siteId)
 
-    WIKI.logger.debug(`Created folder ${inserted[0].id} successfully.`)
+    WIKI.logger.debug('pages', 'created folder', { folder: inserted[0].id })
     return inserted[0] as TreeRow
   }
 
@@ -1199,7 +1200,11 @@ class Tree {
     const oldPath = childPathOf(folder)
     const newPath = folder.folderPath ? `${folder.folderPath}.${name}` : name
 
-    WIKI.logger.debug(`Renaming folder ${folder.id} from ${oldPath} to ${newPath}...`)
+    WIKI.logger.debug('pages', 'renaming folder', {
+      folder: folder.id,
+      from: oldPath,
+      path: newPath
+    })
 
     // -> Populated inside the transaction below, fired after it resolves -- see
     //    `fireDescendantMoveSideEffects`'s own comment for why history/watchers stay out of this.
@@ -1264,7 +1269,7 @@ class Tree {
     //    the segment through every descendant's `target` too (OpenProject #1825)
     WIKI.models.navigation.invalidateCache(folder.siteId)
 
-    WIKI.logger.debug(`Renamed folder ${folder.id} successfully.`)
+    WIKI.logger.debug('pages', 'renamed folder', { folder: folder.id })
     return updated[0] as TreeRow
   }
 
@@ -1369,7 +1374,7 @@ class Tree {
     }
 
     if (rows.length > 0) {
-      WIKI.logger.debug(`Refreshed the path of ${rows.length} moved page(s).`)
+      WIKI.logger.debug('pages', 'refreshed the path of moved pages', { pages: rows.length })
     }
     return movedPages
   }
@@ -1487,7 +1492,7 @@ class Tree {
   ): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
     const folder = await this.requireFolderById(folderId, siteId)
     const path = childPathOf(folder)
-    WIKI.logger.debug(`Deleting folder ${folder.id} at path ${path}...`)
+    WIKI.logger.debug('pages', 'deleting folder', { folder: folder.id, path })
 
     // -> The two deletes and the parent's child-count update are one logical delete; wrapped in a
     //    transaction so a failure partway through cannot leave descendants gone but the folder row (or
@@ -1527,7 +1532,7 @@ class Tree {
       folder.id
     ])
 
-    WIKI.logger.debug(`Deleted folder ${folder.id} and ${deleted.length} descendant(s).`)
+    WIKI.logger.debug('pages', 'deleted folder', { folder: folder.id, descendants: deleted.length })
 
     const asEntry = (row: (typeof deleted)[number]): DeletedEntry => ({
       id: row.id,
@@ -1782,7 +1787,7 @@ class Tree {
     //    (OpenProject #1825), the same invalidation `deleteEntry`/`createFolder` already fire.
     WIKI.models.navigation.invalidateCache(siteId)
 
-    WIKI.logger.debug(`Moved entry ${entry.id} to folder "${newPath}" successfully.`)
+    WIKI.logger.debug('pages', 'moved entry', { entry: entry.id, path: newPath })
     return updated[0] as TreeRow
   }
 
@@ -1857,7 +1862,7 @@ class Tree {
     const name = await this.resolveName({ siteId, locale, path, type, fileName, onConflict, db })
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
 
-    WIKI.logger.debug(`Adding ${type} ${fullPath} to tree...`)
+    WIKI.logger.debug('pages', 'adding an entry to the tree', { type, path: fullPath })
 
     let inserted
     try {

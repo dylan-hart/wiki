@@ -130,7 +130,7 @@ class Sessions {
 
     const result = await WIKI.db.delete(sessionsTable)
     const ended = result.rowCount ?? 0
-    WIKI.logger.info(`Rotated the session secret and ended ${ended} session(s) [ OK ]`)
+    WIKI.logger.info('session', 'rotated the session secret', { ended })
     return ended
   }
 

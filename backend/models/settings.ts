@@ -70,10 +70,10 @@ class Settings {
    * @param ids Generated IDs
    */
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.info('Generating certificates...')
+    WIKI.logger.debug('config', 'generating the signing certificates')
     const certs = generateSigningCertificates()
 
-    WIKI.logger.info('Inserting default settings...')
+    WIKI.logger.debug('config', 'seeding the default settings')
     await WIKI.db.insert(settingsTable).values([
       {
         key: 'api',

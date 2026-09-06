@@ -1259,9 +1259,10 @@ class Users {
       (groupId) => !WIKI.models.groups.guestMembershipViolation(groupId, user)
     )
     if (allowed.length !== groupIds.length) {
-      WIKI.logger.warn(
-        `Dropped ${groupIds.length - allowed.length} group assignment(s) for user ${userId} that may not be granted.`
-      )
+      WIKI.logger.warn('auth', 'dropped group assignments that may not be granted', {
+        user: userId,
+        dropped: groupIds.length - allowed.length
+      })
     }
     /*
       The guest account keeps the membership it was seeded with whatever was asked for: it is the one
@@ -1443,7 +1444,7 @@ class Users {
   }
 
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.info('Inserting default users...')
+    WIKI.logger.debug('config', 'seeding the default users')
 
     await WIKI.db.insert(usersTable).values([
       localUserRow({
