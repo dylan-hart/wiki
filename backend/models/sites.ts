@@ -240,6 +240,7 @@ class Sites extends ClusterReloaded {
             },
             theme: {
               dark: false,
+              aesthetic: 'ledger',
               codeBlocksTheme: 'github-dark',
               ...DEFAULT_THEME_COLORS,
               injectCSS: '',
@@ -608,6 +609,7 @@ class Sites extends ClusterReloaded {
         editors: DEFAULT_SITE_EDITORS,
         theme: {
           dark: false,
+          aesthetic: 'ledger',
           codeBlocksTheme: 'github-dark',
           ...DEFAULT_THEME_COLORS,
           injectCSS: '',

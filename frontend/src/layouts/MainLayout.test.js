@@ -336,3 +336,38 @@ describe('MainLayout edit-nav control (OpenProject #2720)', () => {
     }
   })
 })
+
+/**
+ * OpenProject #2746: the reader-facing navbar's `<w-drawer>` never passed `bordered`, unlike
+ * `AdminLayout.vue`'s (`bordered` since before the Quasar-to-native-components migration), so the
+ * sidebar drew with no hairline separating it from the content column. `WDrawer.vue`'s `bordered`
+ * prop already resolves a side-aware class (`border-e` on the left-hand default, `border-s` when
+ * `siteStore.theme.sidebarPosition` flips the drawer to the right) plus its `dark:` counterpart onto
+ * the `<aside class="w-drawer">` element itself -- asserted there rather than on `.bg-sidebar` (the
+ * caller's own class), since `@vue/test-utils` stubs the drawer's root `<transition>` by default and
+ * fallthrough attrs land on that stub, not on the real element, under test.
+ */
+describe('MainLayout sidebar border (OpenProject #2746)', () => {
+  it('passes bordered through to the drawer, drawing the content-facing hairline on the default (left) side', async () => {
+    const { wrapper } = await mountLayout('/')
+
+    const drawer = wrapper.get('aside.w-drawer')
+    expect(drawer.classes()).toContain('border-e')
+    expect(drawer.classes()).toContain('border-black/12')
+    expect(drawer.classes()).toContain('dark:border-white/15')
+  })
+
+  it('flips to the logical opposite side when the site theme puts the sidebar on the right', async () => {
+    const { wrapper } = await mountLayout('/', {
+      stores: {
+        site: (siteStore) => {
+          siteStore.theme.sidebarPosition = 'right'
+        }
+      }
+    })
+
+    const drawer = wrapper.get('aside.w-drawer')
+    expect(drawer.classes()).toContain('border-s')
+    expect(drawer.classes()).not.toContain('border-e')
+  })
+})

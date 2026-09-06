@@ -460,6 +460,11 @@ function mountEditor() {
     different palette's. They are additive over the base, so if another call site redefines the
     theme while this overlay is open the surface falls back to `vs-dark`'s defaults for these four
     rather than to a mismatched ground.
+
+    Every value below is literal hex rather than a `var(--color-*)` reference on purpose: Monaco's
+    `defineTheme()` reads `colors` as plain hex/rgba strings and never resolves a CSS custom
+    property, so there is no token to move this onto -- it is re-typed against `css/tailwind.css`'s
+    values instead, and pinned by this file's own theme test.
   */
   monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',

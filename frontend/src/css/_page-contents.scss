@@ -188,13 +188,13 @@
     Each is the TEXT tone of its status, not the fill: these colour the bar, the icon and the alert's
     own title, and the prose under them stays at `--content-ink` either way.
   */
-  --content-info: #38465f;
+  --content-info: var(--color-info);
   --content-info-wash: rgba(56, 70, 95, 0.07);
   --content-success: #3f7a66;
   --content-success-wash: rgba(63, 122, 102, 0.08);
   --content-warning: #a8801f;
   --content-warning-wash: rgba(168, 128, 31, 0.09);
-  --content-danger: #c14a52;
+  --content-danger: var(--color-negative);
   --content-danger-wash: rgba(193, 74, 82, 0.08);
   /*
     A fifth tone, for `[!IMPORTANT]`: it sits between "worth knowing" and "watch out", which is
@@ -202,7 +202,7 @@
     to spend here, and the strongest tone in the language reads as the most emphatic thing on the page
     without inventing one.
   */
-  --content-important: #1c2233;
+  --content-important: var(--color-ink);
   --content-important-wash: rgba(28, 34, 51, 0.06);
 
   /*

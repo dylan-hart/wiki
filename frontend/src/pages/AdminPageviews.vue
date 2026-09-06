@@ -223,7 +223,7 @@ async function globalSwitch() {
   color: var(--color-text-caption);
 }
 
-:global(body.body--dark) .pageviews-stat-label {
+:global(body.body--dark .pageviews-stat-label) {
   color: var(--color-text-caption-dark);
 }
 

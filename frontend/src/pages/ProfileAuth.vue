@@ -90,11 +90,20 @@
                   The colours are literal classes rather than WIcon's `color` prop: that prop builds
                   `text-${color}` at runtime, and Tailwind only emits a utility it can see spelled out
                   in the source, so `color="blue-7"` would compile to a class that does not exist.
+
+                  OpenProject #2741: each colour carries its own `dark:` counterpart for the same
+                  reason -- a literal `dark:text-blue-4` / `dark:text-accent-dark` string, not a
+                  `dark.isActive ? … : …` conditional on the `color` prop, which would hit the exact
+                  same scanning gap this comment already describes. `blue-4` is the lighter rung of
+                  the same Material ramp `blue-7` sits on (`HeaderActionsMenu.vue` uses the same
+                  pairing for its own menu icons); `accent-dark` is Cardinal's own "brand red
+                  lightened for an ink ground" token, already used by `PageHistoryOverlay.vue`'s
+                  header icon for exactly that reason.
                 -->
                   <w-list dense padding style="min-width: 240px">
                     <w-item clickable @click="changePassword(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:key" class="text-blue-7" />
+                        <w-icon name="tabler:key" class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authChangePassword') }}</w-item-section>
                     </w-item>
@@ -103,13 +112,13 @@
                       clickable
                       @click="disableTfa(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:fingerprint" class="text-blue-7" />
+                        <w-icon name="tabler:fingerprint" class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authDisableTfa') }}</w-item-section>
                     </w-item>
                     <w-item v-else clickable @click="setupTfa(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:fingerprint" class="text-blue-7" />
+                        <w-icon name="tabler:fingerprint" class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authSetTfa') }}</w-item-section>
                     </w-item>
@@ -118,7 +127,7 @@
                       clickable
                       @click="regenerateRecoveryCodes(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:key" class="text-blue-7" />
+                        <w-icon name="tabler:key" class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.tfaRecoveryCodesRegenerate') }}</w-item-section>
                     </w-item>
@@ -129,7 +138,7 @@
                       :disabled="!auth.config.canDisablePasswordLogin"
                       @click="disablePasswordLogin(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:ban" class="text-negative" />
+                        <w-icon name="tabler:ban" class="text-negative dark:text-accent-dark" />
                       </w-item-section>
                       <w-item-section class="text-negative">
                         {{ t('profile.authDisablePasswordLogin') }}
@@ -137,7 +146,9 @@
                     </w-item>
                     <w-item v-else clickable @click="enablePasswordLogin(auth.authId)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:arrow-forward-up" class="text-blue-7" />
+                        <w-icon
+                          name="tabler:arrow-forward-up"
+                          class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('profile.authEnablePasswordLogin') }}</w-item-section>
                     </w-item>

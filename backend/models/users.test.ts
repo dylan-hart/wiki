@@ -73,6 +73,7 @@ describe('users.updateSession', () => {
         timezone: 'America/New_York',
         dateFormat: 'YYYY-MM-DD',
         appearance: 'dark',
+        aesthetic: 'cobalt',
         cvd: 'none',
         locale: 'fr'
       }
@@ -91,6 +92,7 @@ describe('users.updateSession', () => {
       dateFormat: 'YYYY-MM-DD',
       timeFormat: undefined,
       appearance: 'dark',
+      aesthetic: 'cobalt',
       cvd: 'none',
       locale: 'fr'
     })

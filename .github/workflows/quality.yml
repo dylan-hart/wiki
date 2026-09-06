@@ -25,6 +25,11 @@ jobs:
   production-boot-smoke-test:
     name: Production Install Smoke Boot
     runs-on: ubuntu-latest
+    # OpenProject #2736: GitHub Actions' default job timeout is 360 minutes, so a wedged runner
+    # would otherwise sit silent for up to 6 hours before anyone finds out. This job's own steps
+    # are bounded well under a minute in the normal case (its one potentially-slow step already
+    # carries its own `timeout 20s`), so 10 minutes is generous headroom, not a measured ceiling.
+    timeout-minutes: 10
     permissions:
       contents: read
 
@@ -89,6 +94,14 @@ jobs:
   quality:
     name: Typecheck, Lint, Format & Unit Tests
     runs-on: ubuntu-latest
+    # OpenProject #2736: no job in this file declared a timeout before this, so a wedged runner
+    # relied on GitHub's silent 360-minute default to ever get killed -- exactly what happened to
+    # PR #52's "Backend Tests" step (observed ~6-8 minute baseline vs. 65+ minutes stuck). 30
+    # minutes is comfortable headroom over the full job's real wall-clock time (backend
+    # typecheck/lint/tests, frontend tests + Playwright-Chromium install, blocks tests, the
+    # quarantine lane and the format check) without being anywhere near the 6-hour exposure this
+    # closes.
+    timeout-minutes: 30
     permissions:
       contents: read
 

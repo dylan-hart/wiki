@@ -220,6 +220,7 @@ import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
 import {
   attachZoom as attachGraphZoom,
   computeClusters as buildClusters,
+  linkDistanceFor,
   startSimulation as runSimulation
 } from './graphSimulation.js'
 
@@ -909,14 +910,46 @@ function toGraphSpace(clientX, clientY) {
   }
 }
 
-/** The `12`px hit radius is a starting point matched to the `5`px node-dot radius plus some slack
- *  for an imprecise click -- tune visually. */
+/** Hit-tests a click/hover point against each candidate's OWN rendered size
+ *  (`collideRadiusFor()` -- `radiusFor()` plus the same small padding the collision force already
+ *  uses, rather than a second flat constant) instead of one flat radius for every node (OpenProject
+ *  #2748) -- a node's hit area now actually tracks its drawn size across the full
+ *  `MIN_NODE_RADIUS`..`MAX_NODE_RADIUS` range instead of only being roughly right at the (small,
+ *  pre-#2594) end of it. `d3-quadtree#find(x, y, radius)` only supports a single flat search radius,
+ *  so this walks the tree by hand via `visit()`: a quadrant is pruned only when its bounding box
+ *  cannot contain a point within `MAX_NODE_RADIUS` of the click -- the largest any node's own hit
+ *  radius can be -- and every surviving candidate is then checked against its OWN radius, not the
+ *  search bound. The nearest candidate that actually contains the point wins, the same nearest-wins
+ *  tie-break `d3-quadtree#find()` itself used. A quadrant's leaf may chain more than one node via
+ *  `.next` (`d3-quadtree`'s representation for coincident points), so every node in that chain is
+ *  checked, not just the first. */
 function findNodeAt(clientX, clientY) {
   if (!nodeQuadtree) {
     return null
   }
   const { x, y } = toGraphSpace(clientX, clientY)
-  return nodeQuadtree.find(x, y, 12)
+  let best = null
+  let bestDist = Infinity
+  nodeQuadtree.visit((quad, x0, y0, x1, y1) => {
+    if (!quad.length) {
+      let leaf = quad
+      do {
+        const node = leaf.data
+        const dist = Math.hypot(node.x - x, node.y - y)
+        if (dist <= collideRadiusFor(node) && dist < bestDist) {
+          bestDist = dist
+          best = node
+        }
+      } while ((leaf = leaf.next))
+    }
+    return (
+      x0 > x + MAX_NODE_RADIUS ||
+      x1 < x - MAX_NODE_RADIUS ||
+      y0 > y + MAX_NODE_RADIUS ||
+      y1 < y - MAX_NODE_RADIUS
+    )
+  })
+  return best
 }
 
 /** A node's in-app link (its page path plus locale prefix, per the site's locale-prefix rules) --
@@ -1103,16 +1136,28 @@ watch(
 
 /** Re-attaching `collide` (rather than mutating it in place) is what makes `forceCollide` re-read
  *  every node's radius through `collideRadiusFor()` -- see that function's own doc comment on why a
- *  plain in-place change wouldn't be picked up. No `applyFilters()`/`syncSimulationToVisibleSet()`
- *  call needed: neither the visible node set nor any edge changes here, only how big each dot
- *  draws and how much room `collide` gives it. */
+ *  plain in-place change wouldn't be picked up. `forceLink`'s own target distance
+ *  (`linkDistanceFor()`, OpenProject #2562) needs the same treatment and used to be missed here
+ *  (OpenProject #2749): d3-force evaluates `.distance()` once, at attach time, exactly like
+ *  `collide`'s radius (see `graphSimulation.js`'s own doc comment), so leaving it untouched left
+ *  every link's resting distance frozen at whatever radii existed when the simulation last
+ *  (re)started -- a large node bumping into a small one after a live "size by" change, even though
+ *  `collide`'s own minimum separation was already tracking the new radii correctly. Calling
+ *  `.distance()` again on the ALREADY-attached link force (rather than re-attaching a brand new
+ *  `forceLink` instance, the way `collide` does) is enough: it re-runs d3-force's own
+ *  `initializeDistance()` synchronously against the current `edges.value`, with no need to
+ *  re-resolve `link.source`/`link.target` from ids the way a fresh attachment would. No
+ *  `applyFilters()`/`syncSimulationToVisibleSet()` call needed either way: neither the visible
+ *  node set nor the edge set changes here, only how big each dot draws and how much room
+ *  `collide`/`link` give it. */
 watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
-  // -> Refresh BEFORE re-attaching `collide` (OpenProject #2561): the new attachment snapshots
-  //    every node's radius immediately, off whichever metric/count-mode just became active, so the
-  //    range has to already reflect that switch -- `relayout()`'s own `computeClusters()` refresh
-  //    below runs too late for this specific force-initialize moment.
+  // -> Refresh BEFORE re-attaching `collide`/`link` (OpenProject #2561): the new attachment
+  //    snapshots every node's radius immediately, off whichever metric/count-mode just became
+  //    active, so the range has to already reflect that switch -- `relayout()`'s own
+  //    `computeClusters()` refresh below runs too late for this specific force-initialize moment.
   refreshMetricRange()
   simulation?.force('collide', forceCollide(collideRadiusFor))
+  simulation?.force('link')?.distance((link) => linkDistanceFor(link, collideRadiusFor))
   simulation?.alpha(0.3).restart()
   relayout()
   repaint()

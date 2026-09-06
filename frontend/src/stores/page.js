@@ -161,9 +161,10 @@ export const usePageStore = defineStore('page', {
     },
     updatedAt: '',
     /**
-     * Where this page stands in its own history -- `{ ordinal, changeCount }`, the metadata rail's
-     * Revision section (OpenProject #2652). Rides the page read rather than costing the rail a
-     * request of its own; see `Page#.revision` in `backend/api/schemas/page.ts`.
+     * Where this page stands in its own history -- `{ ordinal, changeCount, via }`, the metadata
+     * rail's Revision section (OpenProject #2652; `via` added by #2735). Rides the page read rather
+     * than costing the rail a request of its own; see `Page#.revision` in
+     * `backend/api/schemas/page.ts`.
      *
      * `null` means the server did not send one, which it does NOT do for a requester without
      * `read:history` on the page -- so null is "not allowed to know", not "no history", and the rail
@@ -171,7 +172,9 @@ export const usePageStore = defineStore('page', {
      * is likewise absent rather than zero when there is nothing to diff against (a page whose only
      * version is its creation), so neither is ever defaulted to a number here: `rev 1` with no
      * `· 0 changes` clause is a different rendering from `rev 1 · 0 changes`, and only the first
-     * of the two is a thing this section ever draws.
+     * of the two is a thing this section ever draws. `via` is `'editor'` or `'mcp'` and drives the
+     * same "via MCP" badge the history timeline draws (`PageHistoryOverlay.vue`) next to the author
+     * name.
      */
     revision: null,
     /**

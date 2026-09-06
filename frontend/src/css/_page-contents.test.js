@@ -179,6 +179,33 @@ describe('_page-contents.scss logical properties (whole file)', () => {
 })
 
 /**
+ * OpenProject #2783 ("Literal-color grep sweep"). `--content-info`, `--content-danger` and
+ * `--content-important` used to restate `--color-info`/`--color-negative`/`--color-ink`'s hex
+ * literally instead of referencing them, the one inconsistency in this block -- every sibling
+ * status/tick/code property beside them (`--content-tick`, `--content-code-ink`,
+ * `--content-code-edge`, ...) already resolves through `var(--color-*)`. A literal copy here would
+ * silently stop following a re-themed/re-skinned value the token itself would pick up.
+ *
+ * `--content-success`/`--content-warning` are the same shape and are NOT part of this fix (see
+ * OpenProject #2783's own comment log) -- left as a known, separately-tracked case rather than
+ * silently folded into this pass.
+ */
+describe('_page-contents.scss admonition tones resolve through the color token', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  it.each([
+    ['--content-info', '--color-info'],
+    ['--content-danger', '--color-negative'],
+    ['--content-important', '--color-ink']
+  ])('%s references var(%s), not a literal hex', (property, token) => {
+    const match = source.match(new RegExp(`${property}\\s*:\\s*([^;]+);`))
+    expect(match, `${property} declaration found`).toBeTruthy()
+    expect(match[1].trim()).toBe(`var(${token})`)
+  })
+})
+
+/**
  * OpenProject #2630 ("Rendered content beyond prose: task lists, footnotes, keyboard keys and the
  * code-token palette") -- item 6 of `docs/cardinal-reskin-second-pass.md`'s "Still to do" list.
  *

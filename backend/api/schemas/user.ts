@@ -174,6 +174,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       appearance: {
         type: 'string'
       },
+      aesthetic: {
+        type: 'string'
+      },
       cvd: {
         type: 'string',
         description: 'Color vision deficiency to adjust the palette for.'
@@ -240,6 +243,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       appearance: {
         type: 'string',
         enum: ['site', 'light', 'dark']
+      },
+      aesthetic: {
+        type: 'string',
+        enum: ['site', 'ledger', 'cobalt']
       },
       cvd: {
         type: 'string',

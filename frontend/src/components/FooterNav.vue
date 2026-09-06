@@ -129,7 +129,7 @@ const isCopyright = computed(() => {
   color: var(--color-accent-strong);
 }
 
-:global(body.body--dark) .site-footer-line a {
+:global(body.body--dark .site-footer-line a) {
   color: var(--color-accent-dark);
 }
 

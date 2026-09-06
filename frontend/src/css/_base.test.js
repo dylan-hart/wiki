@@ -67,3 +67,29 @@ describe('no dead Quasar q-* utility classes remain in templates', () => {
     expect(offenders).toEqual([])
   })
 })
+
+/**
+ * OpenProject #2783 ("Literal-color grep sweep"). `--q-header`/`--q-sidebar` are declared exactly
+ * once, in `css/tailwind.css`'s `:root` -- this file used to redeclare both, hex literal and all,
+ * immediately above the very rules that resolve them through `var()`. A re-themed/re-skinned value
+ * would have kept working (this file's `:root` wins the cascade, being the same specificity and
+ * loading after `tailwind.css`), but ONLY as long as nobody ever touched the copy here again -- a
+ * silent second source of truth is exactly what the token layer exists to prevent.
+ */
+describe('_base.scss chrome background resolves through the token only', () => {
+  const source = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+
+  it('declares no `--q-header`/`--q-sidebar` custom property of its own', () => {
+    expect(source).not.toMatch(/--q-header\s*:/)
+    expect(source).not.toMatch(/--q-sidebar\s*:/)
+  })
+
+  it('paints `.header`/`.bg-header` and `.sidebar`/`.bg-sidebar` with `var()` alone, no literal fallback', () => {
+    const headerRule = source.match(/\.header,\s*\n\s*\.bg-header\s*\{([^}]*)\}/)
+    const sidebarRule = source.match(/\.sidebar,\s*\n\s*\.bg-sidebar\s*\{([^}]*)\}/)
+    expect(headerRule, '.header/.bg-header rule found').toBeTruthy()
+    expect(sidebarRule, '.sidebar/.bg-sidebar rule found').toBeTruthy()
+    expect(headerRule[1].trim()).toBe('background: var(--q-header);')
+    expect(sidebarRule[1].trim()).toBe('background: var(--q-sidebar);')
+  })
+})

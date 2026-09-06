@@ -415,9 +415,9 @@
               `css/tailwind.css`'s own note beside the two faint slates).
             -->
             <w-btn
-              class="me-2"
+              class="fileman-new-btn me-2"
               outline
-              color="slate"
+              :color="dark.isActive ? `text-secondary-dark` : `slate`"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
               icon="tabler:plus">

@@ -47,6 +47,13 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    # OpenProject #2736: no timeout here previously meant GitHub's silent 360-minute default was
+    # the only backstop against a wedged runner -- see quality.yml's own timeout-minutes comment
+    # for the incident that exposed this gap across every workflow in the repo. 45 minutes matches
+    # build.yml's `build` job (this job's own heaviest leg is the same QEMU-emulated multi-arch
+    # Docker build/push/attest), with headroom over the lighter typecheck/lint/format gate and
+    # archive/changelog steps around it.
+    timeout-minutes: 45
     permissions:
       contents: write
       packages: write

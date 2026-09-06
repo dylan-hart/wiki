@@ -13,6 +13,8 @@ import { stubApi } from '../../test/mocks.js'
 /**
  * OpenProject #2652 -- the Revision section in the page metadata rail, the consumer half of Feature
  * #2607 (its producer half, #2651, puts `revision: { ordinal, changeCount }` on the page read).
+ * #2735 adds `revision.via` and the "via MCP" badge next to the author name, reusing the history
+ * timeline's own badge and locale keys (`PageHistoryOverlay.vue`).
  *
  * The section has three renderings and the difference between them is ABSENCE, never a zero, so
  * that is what these assert:
@@ -63,7 +65,10 @@ const MESSAGES = {
   'common.page.revisionChanges': '1 change | {count} changes',
   'common.page.revisionLine': '{revision} · {changes}',
   'common.page.contents': 'Contents',
-  'common.page.tags': 'Tags'
+  'common.page.tags': 'Tags',
+  'history.viaMcp': 'via MCP',
+  'history.viaMcpHint':
+    'This version was written by an MCP tool call acting as this author, not typed into the editor directly.'
 }
 
 const STUBS = {
@@ -238,6 +243,46 @@ describe('pageStore.revision across loads (#2652)', () => {
 })
 
 /**
+ * OpenProject #2735: the "via MCP" badge, reused verbatim from the history timeline
+ * (`PageHistoryOverlay.vue`) -- did the person actually type this revision, or did an MCP tool call
+ * acting as them? `revision.via` comes straight off `Page#.revision` (backend half: #2734).
+ */
+describe('Index.vue: the rail’s “via MCP” badge (#2735)', () => {
+  it('draws the badge after the author name for an MCP-authored revision', async () => {
+    const { section } = await mountWithPage(
+      pagePayload({ revision: { ordinal: 14, changeCount: 6, via: 'mcp' } })
+    )
+
+    expect(section.text()).toContain('Dylan Hart')
+    expect(section.text()).toContain('via MCP')
+  })
+
+  it('draws no badge for an editor-authored revision', async () => {
+    const { section } = await mountWithPage(
+      pagePayload({ revision: { ordinal: 14, changeCount: 6, via: 'editor' } })
+    )
+
+    expect(section.text()).toContain('Dylan Hart')
+    expect(section.text()).not.toContain('via MCP')
+  })
+
+  it('draws no badge when the reader has no `revision` at all', async () => {
+    const { section } = await mountWithPage(pagePayload())
+
+    expect(section.text()).toContain('Dylan Hart')
+    expect(section.text()).not.toContain('via MCP')
+  })
+
+  it('carries `via` from the page read into `pageStore.revision`, alongside ordinal and changeCount', async () => {
+    const { pageStore } = await mountWithPage(
+      pagePayload({ revision: { ordinal: 9, changeCount: 3, via: 'mcp' } })
+    )
+
+    expect(pageStore.revision).toEqual({ ordinal: 9, changeCount: 3, via: 'mcp' })
+  })
+})
+
+/**
  * And the strings themselves, read out of what the backend actually serves rather than out of the
  * table above: the component asks for four keys by name and interpolates three placeholders into
  * them, none of which the mounted tests can catch a typo in -- an unknown key renders as its own
@@ -260,6 +305,11 @@ describe('the Revision section’s locale keys (#2652)', () => {
     const forms = strings['common.page.revisionChanges'].split('|').map((form) => form.trim())
     expect(forms).toHaveLength(2)
     expect(forms[1]).toContain('{count}')
+  })
+
+  it('reuses the history timeline’s "via MCP" badge strings (#2735), no keys of its own', () => {
+    expect(strings['history.viaMcp']).toBe('via MCP')
+    expect(strings['history.viaMcpHint']).toContain('MCP tool call')
   })
 
   it('joins the two clauses through the line key, so the separator is a translator’s', () => {

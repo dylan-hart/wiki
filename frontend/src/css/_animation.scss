@@ -77,3 +77,15 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/*
+  OpenProject #2747/#2750: opts every same-origin document navigation into the browser's own default
+  cross-document crossfade. No element anywhere is opted into a shared, named transition -- this is
+  only the free default, not a shared-element morph (rejected in #2747's motivation as too
+  architecturally risky for the payoff). Chromium is the only engine that currently acts on it; Firefox
+  and Safari ignore the rule entirely and simply navigate as they always have, which is the documented,
+  acceptable fallback rather than a bug to chase.
+*/
+@view-transition {
+  navigation: auto;
+}

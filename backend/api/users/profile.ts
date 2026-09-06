@@ -217,6 +217,7 @@ async function routes(app: FastifyInstance) {
         'dateFormat',
         'timeFormat',
         'appearance',
+        'aesthetic',
         'cvd',
         'locale'
       ] as const) {
@@ -258,6 +259,7 @@ async function routes(app: FastifyInstance) {
         dateFormat: profile.dateFormat,
         timeFormat: profile.timeFormat,
         appearance: profile.appearance,
+        aesthetic: profile.aesthetic,
         cvd: profile.cvd,
         locale: profile.locale
       }

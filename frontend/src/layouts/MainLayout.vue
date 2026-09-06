@@ -16,6 +16,7 @@
     </w-header>
     <w-drawer
       class="bg-sidebar"
+      bordered
       v-model="isSidebarOpen"
       :width="sidebarWidth"
       :overlay-below="SIDEBAR_OVERLAY_BELOW"
@@ -36,7 +37,7 @@
           v-if="siteStore.locales.showMenu"
           class="py-4"
           flat
-          icon="tabler:world"
+          icon="tabler:language"
           color="slate"
           :aria-label="t('common.sidebar.switchLocale')">
           <locale-selector-menu anchor="top right" self="top left" />
@@ -97,7 +98,7 @@
               class="flex-1 px-2"
               flat
               dense
-              icon="tabler:world"
+              icon="tabler:language"
               :label="commonStore.locale"
               :aria-label="commonStore.locale"
               size="sm">

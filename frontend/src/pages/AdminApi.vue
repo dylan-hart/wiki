@@ -71,12 +71,10 @@
         applies whether or not admin keys already exist.
       -->
       <div class="col-span-12">
-        <w-card
-          class="rounded"
-          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+        <w-card class="rounded bg-warning-fill text-ink">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
-              <w-icon name="tabler:info-circle" size="sm" />
+              <w-icon name="tabler:alert-triangle" size="sm" />
             </w-card-section>
             <w-card-section class="text-caption">
               <i18n-t tag="span" keypath="admin.api.personalTokenNote" scope="global">

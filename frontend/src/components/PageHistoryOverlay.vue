@@ -132,30 +132,39 @@
                   <!--
                     `!min-w-0 !pe-2` on each icon section, and literal colour classes rather than
                     WIcon's `color` prop — both for the same reasons as the profile menu this copies.
+
+                    OpenProject #2741: each `text-blue-7` here carries a literal `dark:text-blue-4`
+                    counterpart for the same reason the profile menu's do — see that file's own note
+                    on why this has to be a literal string rather than a `dark.isActive ? … : …`
+                    conditional on the `color` prop.
                   -->
                   <w-list dense padding style="min-width: 260px">
                     <w-item clickable @click="pick(`a`, version.id)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:square-letter-a" class="text-blue-7" />
+                        <w-icon
+                          name="tabler:square-letter-a"
+                          class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="pick(`b`, version.id)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:square-letter-b" class="text-blue-7" />
+                        <w-icon
+                          name="tabler:square-letter-b"
+                          class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('history.setAsTarget') }}</w-item-section>
                     </w-item>
                     <w-separator class="my-1" />
                     <w-item clickable @click="viewSource(version)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:code" class="text-blue-7" />
+                        <w-icon name="tabler:code" class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('history.viewSource') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="downloadVersion(version)">
                       <w-item-section avatar class="!min-w-0 !pe-2">
-                        <w-icon name="tabler:download" class="text-blue-7" />
+                        <w-icon name="tabler:download" class="text-blue-7 dark:text-blue-4" />
                       </w-item-section>
                       <w-item-section>{{ t('history.downloadVersion') }}</w-item-section>
                     </w-item>
@@ -173,7 +182,7 @@
                       </w-item>
                       <w-item clickable @click="branchFrom(version)">
                         <w-item-section avatar class="!min-w-0 !pe-2">
-                          <w-icon name="tabler:git-branch" class="text-blue-7" />
+                          <w-icon name="tabler:git-branch" class="text-blue-7 dark:text-blue-4" />
                         </w-item-section>
                         <w-item-section>{{ t('history.branchOff') }}</w-item-section>
                       </w-item>
