@@ -10,6 +10,7 @@ import { computed, onMounted, provide, reactive, toRef } from 'vue'
 import { findKey } from 'es-toolkit/object'
 
 import TreeLevel from './TreeLevel.vue'
+import { useDark } from '@/composables/dark'
 
 // PROPS
 
@@ -48,45 +49,51 @@ const emit = defineEmits(['update:selected', 'lazyLoad', 'contextAction'])
 
 const { t } = useI18n()
 
+// DARK MODE
+
+const dark = useDark()
+
 // Context Actions
 
-const contextActions = {
+const contextActions = computed(() => ({
   newFolder: {
     icon: 'tabler:plus',
-    iconColor: 'blue',
+    iconColor: dark.isActive ? 'blue-4' : 'blue',
     label: t('common.actions.newFolder')
   },
   duplicate: {
     icon: 'tabler:copy',
-    iconColor: 'teal',
+    iconColor: dark.isActive ? 'teal-4' : 'teal',
     label: t('common.actions.duplicate') + '...'
   },
   rename: {
     icon: 'tabler:arrow-forward-up',
-    iconColor: 'teal',
+    iconColor: dark.isActive ? 'teal-4' : 'teal',
     label: t('common.actions.rename') + '...'
   },
   move: {
     icon: 'tabler:arrow-right',
-    iconColor: 'teal',
+    iconColor: dark.isActive ? 'teal-4' : 'teal',
     label: t('common.actions.moveTo') + '...'
   },
   del: {
     icon: 'tabler:trash',
-    iconColor: 'negative',
+    iconColor: dark.isActive ? 'negative-fill' : 'negative',
     label: t('common.actions.delete'),
     labelColor: 'negative'
   }
-}
+}))
 provide(
   'contextActionList',
-  props.contextActionList.map((key) => ({
-    key,
-    ...contextActions[key],
-    handler: (nodeId) => {
-      emit('contextAction', nodeId, key)
-    }
-  }))
+  computed(() =>
+    props.contextActionList.map((key) => ({
+      key,
+      ...contextActions.value[key],
+      handler: (nodeId) => {
+        emit('contextAction', nodeId, key)
+      }
+    }))
+  )
 )
 
 // DATA
