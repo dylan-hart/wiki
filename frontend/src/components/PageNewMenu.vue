@@ -287,7 +287,7 @@ function openImportBatch() {
   text-overflow: ellipsis;
 }
 
-:global(body.body--dark) .page-new-menu__target {
+:global(body.body--dark .page-new-menu__target) {
   color: var(--color-text-caption-dark);
 }
 
@@ -324,7 +324,7 @@ function openImportBatch() {
   color: var(--color-accent-strong);
 }
 
-:global(body.body--dark) .page-new-menu :deep(.w-item--clickable:hover .blueprint-icon) {
+:global(body.body--dark .page-new-menu .w-item--clickable:hover .blueprint-icon) {
   color: var(--color-accent-dark);
 }
 </style>

@@ -174,7 +174,7 @@ const controlClass = computed(() => `w-settings-row__control--${props.controlWid
   border-top: 1px solid var(--color-tint);
 }
 
-:global(body.body--dark) .w-settings-row + .w-settings-row {
+:global(body.body--dark .w-settings-row + .w-settings-row) {
   border-top-color: var(--color-hairline-dark);
 }
 
@@ -213,7 +213,7 @@ const controlClass = computed(() => `w-settings-row__control--${props.controlWid
   line-height: 1.2;
 }
 
-:global(body.body--dark) .w-settings-row__label {
+:global(body.body--dark .w-settings-row__label) {
   color: var(--color-text-dark);
 }
 
@@ -224,7 +224,7 @@ const controlClass = computed(() => `w-settings-row__control--${props.controlWid
   line-height: 1.45;
 }
 
-:global(body.body--dark) .w-settings-row__hint {
+:global(body.body--dark .w-settings-row__hint) {
   color: var(--color-text-secondary-dark);
 }
 

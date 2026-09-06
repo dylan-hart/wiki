@@ -317,12 +317,12 @@ async function finishSetupTFA() {
   border-color: $hairline;
 }
 
-:global(body.body--dark) .auth-otp :deep(.otp-input) {
+:global(body.body--dark .auth-otp .otp-input) {
   border-color: $hairline-dark;
   color: $text-dark;
 }
 
-:global(body.body--dark) .auth-otp :deep(.otp-input.is-complete) {
+:global(body.body--dark .auth-otp .otp-input.is-complete) {
   border-color: $hairline-dark;
 }
 
@@ -347,7 +347,7 @@ async function finishSetupTFA() {
   height: 100%;
 }
 
-:global(body.body--dark) .auth-qr {
+:global(body.body--dark .auth-qr) {
   border-color: $hairline-dark;
 }
 </style>
