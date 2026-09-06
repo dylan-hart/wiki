@@ -29,6 +29,10 @@ vi.mock('@/renderers/markdown', () => ({
   }
 }))
 
+// -> The stub declared above, imported so the design-conformance describe can read what the
+//    component asked Monaco for -- the theme colours and the diff editor's own options
+import * as monaco from 'monaco-editor'
+
 import InboxReview from './InboxReview.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
@@ -76,14 +80,20 @@ async function mountReview({ initialSubmissionId = SUBMISSION_ID, fromPage = fal
   return result
 }
 
-/** The approve button, found by its label rather than DOM position -- the only unique text on it. */
+/**
+ * The approve button, found by its accessible name rather than DOM position.
+ *
+ * `aria-label`, not visible text: the design draws the review toolbar's four controls as icon-only
+ * 32px squares, so the label these were once found by is not rendered any more -- and the accessible
+ * name is the thing a reviewer using a screen reader actually gets, which is worth asserting through.
+ */
 function approveButton(wrapper) {
-  return wrapper.findAll('button').find((btn) => btn.text().trim() === 'inbox.reviewApprove')
+  return wrapper.find('button[aria-label="inbox.reviewApprove"]')
 }
 
 /** The decline button, found the same way. */
 function rejectButton(wrapper) {
-  return wrapper.findAll('button').find((btn) => btn.text().trim() === 'inbox.reviewDecline')
+  return wrapper.find('button[aria-label="inbox.reviewDecline"]')
 }
 
 /** A queue row, as `getReviewableSubmissions` returns it -- no `content`/`patch`, unlike the detail. */
@@ -137,7 +147,7 @@ describe('InboxReview approveSubmission staleness (409)', () => {
     expect(getSubmissionCalls).toBe(1)
 
     const button = approveButton(wrapper)
-    expect(button).toBeTruthy()
+    expect(button.exists()).toBe(true)
     await button.trigger('click')
 
     // -> `approveSubmission()` opens a confirmation dialog rather than posting immediately; firing its
@@ -196,7 +206,7 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
     expect(submissionsCalls).toBe(1)
 
     const button = findActionButton(wrapper)
-    expect(button).toBeTruthy()
+    expect(button.exists()).toBe(true)
     await button.trigger('click')
 
     const confirmDialog = openDialogs.at(-1)
@@ -254,7 +264,7 @@ describe('InboxReview decline reason (OpenProject #2137)', () => {
     const { wrapper } = await mountReview()
 
     const button = rejectButton(wrapper)
-    expect(button).toBeTruthy()
+    expect(button.exists()).toBe(true)
     await button.trigger('click')
 
     const declineDialog = openDialogs.at(-1)
@@ -348,7 +358,7 @@ describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
 
     const { wrapper } = await mountReview()
     const button = approveButton(wrapper)
-    expect(button).toBeTruthy()
+    expect(button.exists()).toBe(true)
     await button.trigger('click')
 
     const confirmDialog = openDialogs.at(-1)
@@ -535,5 +545,144 @@ describe('InboxReview leaveReview (fromPage, OpenProject #2531)', () => {
 
     expect(pushSpy).toHaveBeenCalledWith('/docs/example')
     expect(siteStore.overlay).toBe('')
+  })
+})
+
+/*
+  OpenProject #2621 -- `Cardinal Wiki - Inbox Review 3x.dc.html`, which this screen had never been
+  compared against. Emitted attributes and options only: jsdom runs no layout engine, and Monaco is
+  stubbed at the top of this file, so anything claiming a rendered measurement here would be fiction.
+*/
+describe('InboxReview against its design file (#2621)', () => {
+  function stubSubmission() {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(submissionDetail()) }
+    })
+  }
+
+  it('draws the queue row plate as a 36px slate square', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([reviewableSubmission()]) }
+      }
+      return { json: () => Promise.resolve(submissionDetail()) }
+    })
+
+    // -> No `initialSubmissionId`, so the queue is what renders rather than one submission's diff
+    const { wrapper } = await mountReview({ initialSubmissionId: null })
+
+    const plate = wrapper.find('.w-avatar')
+    expect(plate.attributes('style')).toContain('width: 36px')
+    expect(plate.attributes('style')).toContain('font-size: 18px')
+    expect(plate.attributes('style')).toContain('var(--color-slate)')
+    expect(plate.classes()).toContain('rounded-none')
+  })
+
+  it('draws the four toolbar controls as icon-only squares named by aria-label', async () => {
+    stubSubmission()
+
+    const { wrapper } = await mountReview()
+
+    for (const key of [
+      'inbox.reviewBack',
+      'inbox.reviewViewPage',
+      'inbox.reviewDecline',
+      'inbox.reviewApprove'
+    ]) {
+      const control = wrapper.find(`[aria-label="${key}"]`)
+      expect(control.exists()).toBe(true)
+      expect(control.classes()).toContain('inbox-square-btn')
+      // -> Icon-only: the label the design drops must not still be rendered beside the glyph
+      expect(control.text().trim()).toBe('')
+      expect(control.classes()).not.toContain('rounded-full')
+    }
+
+    // Approve is the one filled control on the row; the other three are hairline-edged
+    expect(wrapper.find('[aria-label="inbox.reviewApprove"]').attributes('style')).toContain(
+      'var(--color-positive-fill)'
+    )
+    expect(wrapper.find('[aria-label="inbox.reviewDecline"]').classes()).toContain(
+      'inbox-square-btn--negative'
+    )
+  })
+
+  it('draws the approvals reading as the outlined mono chip, not a filled badge', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return {
+        json: () =>
+          Promise.resolve(
+            submissionDetail({ approvals: { approvalsCount: 1, approvalsRequired: 2 } })
+          )
+      }
+    })
+
+    const { wrapper } = await mountReview()
+
+    expect(wrapper.find('.inbox-review-count').exists()).toBe(true)
+    expect(wrapper.find('.inbox-review-count').text()).toContain('inbox.reviewApprovalProgress')
+    expect(wrapper.find('.w-badge').exists()).toBe(false)
+  })
+
+  it('names both diff panes and says which of them can be typed into', async () => {
+    stubSubmission()
+
+    const { wrapper } = await mountReview()
+
+    const heads = wrapper.find('.inbox-review-diff-heads')
+    expect(heads.exists()).toBe(true)
+    expect(heads.text()).toContain('inbox.reviewDiffCurrent')
+    expect(heads.text()).toContain('inbox.reviewDiffReadOnly')
+    expect(heads.text()).toContain('inbox.reviewDiffSuggestion')
+    expect(heads.text()).toContain('inbox.reviewDiffEditable')
+    // -> The accent marks the live edge; only the editable half takes it
+    expect(wrapper.findAll('.inbox-review-diff-state--editable')).toHaveLength(1)
+  })
+
+  it('carries the warning fill under ink on the stale banner, not pure black', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(submissionDetail({ isStale: true })) }
+    })
+
+    const { wrapper } = await mountReview()
+
+    const banner = wrapper.find('.w-banner')
+    expect(banner.classes()).toContain('bg-warning-fill')
+    expect(banner.classes()).toContain('text-ink')
+    expect(banner.classes()).not.toContain('text-black')
+  })
+
+  it("builds the diff on Cardinal's own ramp and the design's mono metrics", async () => {
+    stubSubmission()
+
+    await mountReview()
+
+    const theme = monaco.editor.defineTheme.mock.calls.at(-1)[1]
+    // -> The same five base tones every other `wikijs` definition in the app sets, since the theme
+    //    ID is shared and whichever call site defines it last wins for the whole process
+    expect(theme.colors['editor.background']).toBe('#14171f')
+    expect(theme.colors['editorLineNumber.foreground']).toBe('#3f4a63')
+    // -> Plus this screen's own four, which the other copies have no diff to colour
+    expect(theme.colors['editorCursor.foreground']).toBe('#e4676b')
+    expect(theme.colors['diffEditor.insertedLineBackground']).toBe('#5f9c862e')
+    expect(theme.colors['diffEditor.removedLineBackground']).toBe('#e4676b29')
+
+    const options = monaco.editor.createDiffEditor.mock.calls.at(-1)[1]
+    expect(options.fontSize).toBe(12.5)
+    expect(options.lineHeight).toBe(24)
+    expect(options.fontFamily).toContain('Roboto Mono')
+    // -> Fixed on, which is what lets the two pane headings line up with the halves they name
+    expect(options.renderSideBySide).toBe(true)
+    // -> Still the one editable side: the reviewer adjusts the suggestion before approving it
+    expect(options.originalEditable).toBe(false)
+    expect(options.readOnly).toBe(false)
   })
 })

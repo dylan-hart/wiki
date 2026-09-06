@@ -189,4 +189,38 @@ function close() {
     }
   }
 }
+
+/*
+  The inbox's own row action: a 32x32 hairline square holding a 15px glyph and nothing else, which is
+  how every action in both design files is drawn -- the notification's mark-read tick, the watched
+  page's preferences and stop-watching pair, and the review toolbar's back/view/decline/approve set.
+  Not the flat round `acrylic-btn` those all used to be: Cardinal separates a control from its ground
+  with a hairline, never with a tint, and a round button is the one shape the language does not draw.
+
+  Declared here rather than in either page because both of them use it and neither owns the other --
+  `InboxOverlay` is the only thing that ever renders `InboxWatching`/`InboxReview`, so this is the one
+  stylesheet guaranteed to be present wherever they are. It is deliberately NOT a `components/shared/`
+  member: nothing outside this overlay draws it yet, and a third caller is when it earns promotion.
+
+  `WBtn` writes its own `min-height`/`padding` as inline styles, so `padding="none"` is what actually
+  zeroes the padding; only the width is left for a class to set. The glyph is sized at the call site
+  (`<w-icon size="15px">`) for the same reason -- `WBtn`'s own `.w-icon` rule is scoped, and an inline
+  font-size is the one thing that reliably beats it.
+*/
+.inbox-square-btn.w-btn {
+  width: 32px;
+}
+
+/*
+  Decline, the one action whose edge is not the neutral hairline: the design gives it the accent fill
+  as a border with the darker accent as its glyph, so it reads as the refusal without being a filled
+  red button sitting beside a filled green one.
+*/
+.inbox-square-btn--negative.w-btn {
+  border-color: $accent-fill;
+
+  @at-root .body--dark & {
+    border-color: $accent-dark;
+  }
+}
 </style>

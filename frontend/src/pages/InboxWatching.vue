@@ -24,7 +24,21 @@
           clickable
           @click="openNotification(notification)">
           <w-item-section avatar>
-            <w-avatar color="primary" text-color="white" rounded>
+            <!--
+              The design's 36px accent plate. Three things it is not, and each was a real
+              disagreement with `Cardinal Wiki - Inbox 3x.dc.html`:
+
+              - not 40px. `WItemSection` sizes a flanking avatar at 40px for every list in the app;
+                the framed lists in this overlay are drawn at 36. `size` is `WAvatar`'s documented
+                way to say so per call site, and is the only one that works -- that 40px rule is a
+                scoped `:deep()` selector, which only an inline style can beat.
+              - not `primary`. The plate carries a glyph, not a label, so it takes the bright fill
+                `#e4676b` rather than the darkened `#c14a52` a white LABEL would need (see the
+                "one deliberate divergence" section of `docs/cardinal-reskin-second-pass.md`).
+              - not `rounded`. Every plate in the language is a square, and saying so is better than
+                relying on the zeroed `--radius-*` scale to flatten a corner nobody meant to draw.
+            -->
+            <w-avatar size="36px" font-size="18px" color="accent-fill" text-color="white" square>
               <w-icon name="tabler:bell" />
             </w-avatar>
           </w-item-section>
@@ -41,15 +55,16 @@
           </w-item-section>
           <w-item-section side>
             <!-- `@click.stop`, so marking read does not also follow the row to the page. -->
+            <!-- -> The design's hairline square; see `.inbox-square-btn` in `InboxOverlay.vue`. -->
             <w-btn
-              class="acrylic-btn"
-              flat
-              dense
-              icon="tabler:check"
-              color="grey"
+              class="inbox-square-btn"
+              outline
+              padding="none"
+              color="slate-soft"
               :aria-label="t(`inbox.notificationsMarkRead`)"
               :disabled="state.markingRead === notification.id"
               @click.stop="markRead(notification)">
+              <w-icon name="tabler:check" size="15px" />
               <w-tooltip>{{ t('inbox.notificationsMarkRead') }}</w-tooltip>
             </w-btn>
           </w-item-section>
@@ -78,7 +93,8 @@
               The page's own icon, which is what it is recognised by everywhere else. It is a reference
               a USER picked, so it resolves through `/_icons` rather than the bundled set — see WIcon.
             -->
-            <w-avatar color="slate" text-color="white" rounded>
+            <!-- -> The same 36px plate as a notification's, in the chrome tone; see there for why. -->
+            <w-avatar size="36px" font-size="18px" color="slate" text-color="white" square>
               <w-icon :name="page.icon || DEFAULT_PAGE_ICON" />
             </w-avatar>
           </w-item-section>
@@ -96,7 +112,8 @@
             </w-item-label>
           </w-item-section>
           <w-item-section side>
-            <div class="flex items-center gap-1">
+            <!-- -> `gap-1.5`: the design pairs the two row actions 6px apart, not 4. -->
+            <div class="flex items-center gap-1.5">
               <!--
                 Task 1895: the PATCH this menu calls already existed (`resolvePreference` /
                 `setPreference` in `models/pageWatching.ts`) with nothing in the UI to reach it -- the
@@ -105,13 +122,13 @@
                 also follow it to the page.
               -->
               <w-btn
-                class="acrylic-btn"
-                flat
-                dense
-                icon="tabler:adjustments"
-                color="grey"
+                class="inbox-square-btn"
+                outline
+                padding="none"
+                color="slate-soft"
                 :aria-label="t('inbox.watchingPreferences')"
                 @click.stop>
+                <w-icon name="tabler:adjustments" size="15px" />
                 <w-tooltip>{{ t('inbox.watchingPreferences') }}</w-tooltip>
                 <w-menu
                   class="translucent-menu"
@@ -162,16 +179,16 @@
                 `@click.stop`, so pressing Stop Watching does not also follow the row to the page it is
                 about — which would leave the reader on a page they just said they were done with.
               -->
-              <!-- -> `mdi`, to match the bell this is the undoing of; see the page header -->
+              <!-- -> The struck bell, matching the one this is the undoing of; see the page header -->
               <w-btn
-                class="acrylic-btn"
-                flat
-                dense
-                icon="tabler:bell-off"
-                color="grey"
+                class="inbox-square-btn"
+                outline
+                padding="none"
+                color="slate-soft"
                 :aria-label="t(`inbox.watchingUnwatch`)"
                 :disabled="state.unwatching === page.pageId"
                 @click.stop="unwatch(page)">
+                <w-icon name="tabler:bell-off" size="15px" />
                 <w-tooltip>{{ t('inbox.watchingUnwatch') }}</w-tooltip>
               </w-btn>
             </div>
