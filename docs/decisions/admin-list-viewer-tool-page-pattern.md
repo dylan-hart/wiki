@@ -17,13 +17,13 @@ Twenty-one settings pages adopt both (#2700), and five profile sections adopt th
 **Thirteen admin pages are not settings pages at all**, and the handoff never drew them:
 
 `AdminAuditLog`, `AdminClassification`, `AdminCluster`, `AdminExtensions`, `AdminGroups`,
-`AdminIcons`, `AdminPages`, `AdminScheduler`, `AdminSites`, `AdminTerminal`, `AdminUsers`,
+`AdminIcons`, `AdminLiveLog`, `AdminPages`, `AdminScheduler`, `AdminSites`, `AdminUsers`,
 `AdminUtilities`, `AdminWebhooks`.
 
 (21 + 13 + `AdminGeneral` + `AdminBlocks` + `AdminDashboard` = 37, which is every admin page.)
 
-`AdminUsers` is a table, `AdminAuditLog` a log viewer, `AdminTerminal` a terminal, `AdminScheduler`
-a job monitor. What, if anything, do they take from the pattern?
+`AdminUsers` is a table, `AdminAuditLog` a log viewer, `AdminLiveLog` a live log viewer,
+`AdminScheduler` a job monitor. What, if anything, do they take from the pattern?
 
 ## Decision
 
@@ -109,7 +109,7 @@ recording rather than the absence of a diff:
 
 - `AdminClassification` and `AdminIcons` already head their non-obvious cards with `WCardHeader`
   (Coverage; Sets and Storage) and leave their main list unheaded.
-- `AdminCluster`, `AdminExtensions`, `AdminGroups`, `AdminSites`, `AdminTerminal`, `AdminUsers` and
+- `AdminCluster`, `AdminExtensions`, `AdminGroups`, `AdminLiveLog`, `AdminSites`, `AdminUsers` and
   `AdminWebhooks` are each one card that IS the page.
 - `AdminScheduler`'s three cards are mutually exclusive by `displayMode`, each already named by the
   tab that selected it.
@@ -133,9 +133,9 @@ these thirteen, and four surfaces on them have no design to conform to:
    It wants one shared primitive and a drawn treatment; it has neither.
 3. **The stat readout.** `AdminIcons`' storage card, and anything like it: a label-over-value list
    with no plate and no control.
-4. **The terminal and the job monitor.** `AdminTerminal`'s xterm chrome (its own colours, its own
-   type) and `AdminScheduler`'s tab-plus-table monitor are the two surfaces furthest from anything
-   the design language has drawn.
+4. **The live log viewer and the job monitor.** `AdminLiveLog`'s monospace log stream (its own
+   per-level colours, its own type) and `AdminScheduler`'s tab-plus-table monitor are the two
+   surfaces furthest from anything the design language has drawn.
 
 Separately, 34 `bg-grey-2` / `bg-grey-3` / `bg-dark-5` card washes survive across 21 files —
 elevation-by-tint from before Cardinal, which separates a card from its ground with a hairline. It
