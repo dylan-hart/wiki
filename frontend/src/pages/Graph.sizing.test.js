@@ -182,19 +182,20 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.radiusFor(nodeB)).toBeGreaterThan(wrapper.vm.radiusFor(nodeA))
   })
 
-  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #2292, #1287/#1288)', async () => {
+  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #2593, #2292, #1287/#1288)', async () => {
     const wrapper = await mountGraph()
 
-    // -> `0.8` sits between the old `1.1` threshold and the new, lower one -- proving labels now
-    //    persist at a zoom level that used to hide them. Mount's own initial draw (at the default
-    //    `k = 1` zoom, itself above the new threshold) already logged fillText calls, so clear
-    //    those before asserting on the below-threshold case.
+    // -> `0.7` sits between the old `0.75` threshold (OpenProject #2292) and the new, lower `0.6`
+    //    (OpenProject #2593) -- proving labels now persist at a zoom level that used to hide them,
+    //    the same way `0.8` proved it against the `1.1` before that. Mount's own initial draw (at
+    //    the default `k = 1` zoom, itself above the threshold) already logged fillText calls, so
+    //    clear those before asserting on the below-threshold case.
     wrapper.vm.ctx.fillText.mockClear()
-    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.7)
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.5)
     expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
 
     wrapper.vm.ctx.fillText.mockClear()
-    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.8)
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.7)
     expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
   })
 

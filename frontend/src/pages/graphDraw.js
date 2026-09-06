@@ -124,32 +124,40 @@ export function drawNodes(ctx, nodes, radiusFor, highlightedIds) {
   }
 }
 
-/** Below this zoom level a label is unreadably small anyway; skipping the fillText calls entirely
- *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from `1.1`
- *  to `0.75` (OpenProject #2292, a follow-up to #1287/#1288) so labels persist further into a
- *  zoomed-out view: at the `10px` base font, `1.1` hid labels at 11px effective -- still
- *  comfortably readable -- while `0.75` now hides them at 7.5px effective. */
+/** Below this zoom level a label is unreadably small anyway; skipping the text calls entirely is
+ *  also what keeps a dense graph's label layer from becoming visual noise. Lowered again, from
+ *  `0.75` to `0.6` (OpenProject #2593; `1.1` -> `0.75` was #2292, itself a follow-up to
+ *  #1287/#1288). Labels now draw INSIDE the node rather than beside it, so a label no longer adds
+ *  any horizontal clutter to a zoomed-out view -- it is bounded by a circle that was going to be
+ *  drawn anyway, which removes most of what the higher threshold was protecting against. The
+ *  truncation cutoff below (`fitLabel()`) independently silences any node too small to hold text,
+ *  so the one job left for this threshold is "is `10px * k` readable at all": `0.6` hides labels
+ *  below 6px effective, against `0.75`'s 7.5px. */
 const LABEL_BASE_FONT_PX = 10
-const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.75
+const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.6
 
 /** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
  *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
  *  `LABEL_BASE_FONT_PX * k` uncapped, reaching 80px at the max zoom (`k = 8`, see `attachZoom()`'s
  *  `scaleExtent`). Raised from `24` to `32` (OpenProject #2562): a node's own drawn radius can now
- *  reach `110` (vs. the old `22`, OpenProject #2561), and at the old `24`px cap a label next to one
- *  of those large nodes read small relative to the circle it's labeling once zoomed in close enough
- *  to matter -- `32` keeps the label legibly proportionate at the new max node size. Exported (like
- *  `LABEL_GAP` below) so a test can assert against the live constant rather than a duplicated
- *  literal. */
+ *  reach `110` (vs. the old `22`, OpenProject #2561), and at the old `24`px cap a label read small
+ *  relative to the circle it labels once zoomed in close enough to matter -- `32` keeps it legibly
+ *  proportionate at the new max node size. Since OpenProject #2593 the cap also decides how much of
+ *  a title survives truncation at high zoom, not only how big the label looks: a smaller drawn font
+ *  fits more characters inside the same circle, so this constant now trades characters against
+ *  apparent size rather than only setting the latter. Exported (like `LABEL_GAP` below) so a test
+ *  can assert against the live constant rather than a duplicated literal. */
 export const LABEL_MAX_EFFECTIVE_FONT_PX = 32
 
-/** Breathing room between a node's edge and the start of its label, on top of the node's own
- *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
- *  smallest node (`MIN_NODE_RADIUS`, `5` -- one shared floor for both sizing metrics since
- *  OpenProject #2561), but now scales with the node so a label never overlaps a larger node's fill
- *  (OpenProject #2297). Raised from `3` to `6` (OpenProject #2562): the per-node radius term already
- *  does almost all the scaling work, but the flat top-up itself reads a little thin now that the
- *  radius it sits beside can be `5x` as large as before. */
+/** Breathing room between a node's edge and the start of its label, on top of the node's own drawn
+ *  radius (`radiusFor()`). Since OpenProject #2593 this applies to SYNTHETIC nodes only: a real
+ *  node's title now draws inside its own circle, so it has no gap beside it to leave. A synthetic
+ *  folder/root hub draws at a fixed radius of `3` (`Graph.vue`'s `radiusFor()`) and could never hold
+ *  text inside it, so it keeps the original beside-the-node placement rather than losing its label
+ *  -- see `drawLabels()`. Deliberately no longer restates `MIN_NODE_RADIUS`'s value: that constant
+ *  is a `Graph.vue`-local that has been retuned more than once, and a hand-copied value of it in a
+ *  comment over here is exactly the thing that goes stale. Raised from `3` to `6` in OpenProject
+ *  #2562, when the radius it once sat beside grew `5x`. */
 export const LABEL_GAP = 6
 
 /** Label fill color, light/dark (OpenProject #2412) -- the light value is the original hardcoded
@@ -161,7 +169,129 @@ const LABEL_COLOR = {
   dark: '#e8e8e8'
 }
 
-/** `highlightedIds` (OpenProject #2480), same optional-`Set` contract as `drawNodes` above: a
+/** Halo stroked behind the label fill (OpenProject #2593). A label now sits ON the node's own fill,
+ *  and that fill is not one known color: a real node is colored by its group out of the categorical
+ *  palette (anything from a pale yellow to a mid-tone blue), a synthetic one is flat gray, and both
+ *  palettes swap wholesale in dark mode. Switching the ink per node by luminance would mean a
+ *  contrast computation per node per frame AND would make one graph's label layer read as two
+ *  different signals; a halo instead keeps ONE ink color and puts a thin band of the surface color
+ *  between the glyphs and whatever is underneath, which is what makes the same ink legible over
+ *  every fill. The pair is `LABEL_COLOR`'s two surfaces inverted, so the halo always sits at the far
+ *  end of the contrast range from the ink it backs. */
+const LABEL_HALO_COLOR = {
+  light: '#ffffff',
+  dark: '#101010'
+}
+
+/** Halo thickness as a fraction of the drawn font size -- `lineWidth` is the FULL stroke width and a
+ *  stroked glyph is centered on its own outline, so only half of this lands outside the glyph.
+ *  Scaling it with the font rather than fixing it in px keeps the halo proportionate as the label
+ *  shrinks under `LABEL_MAX_EFFECTIVE_FONT_PX` at high zoom. */
+const LABEL_HALO_WIDTH_RATIO = 0.28
+
+/** How much of a node's inscribed text width a label may actually occupy. The chord
+ *  `insideNodeTextWidth()` computes is the exact widest a font-height box could be inside the
+ *  circle, which would put the first and last glyph flush against the edge -- this inset keeps a
+ *  little of the node's own fill visible around the text instead. */
+const LABEL_INSCRIBED_WIDTH_RATIO = 0.9
+
+const LABEL_ELLIPSIS = '…'
+
+/** The widest a line of `fontPx`-tall text can be and still sit inside a circle of `radius`,
+ *  centered on it: the chord at +/- half the text's own height, `2 * sqrt(r^2 - (fontPx / 2)^2)`,
+ *  inset by `LABEL_INSCRIBED_WIDTH_RATIO`. Exact circle geometry rather than a fraction-of-diameter
+ *  approximation because it costs one `sqrt` and is what makes the "too small to label at all" case
+ *  fall out for free: a node whose radius does not even exceed half the font height has no room for
+ *  a text box of that height at any width, and this answers `0` for it rather than needing a
+ *  separate floor constant to say so. */
+function insideNodeTextWidth(radius, fontPx) {
+  const halfHeight = fontPx / 2
+  const halfChordSquared = radius * radius - halfHeight * halfHeight
+  if (halfChordSquared <= 0) {
+    return 0
+  }
+  return 2 * Math.sqrt(halfChordSquared) * LABEL_INSCRIBED_WIDTH_RATIO
+}
+
+/** Memo for `fitLabel()` (OpenProject #2593). `ctx.measureText` is the one genuinely expensive call
+ *  in this layer, `drawLabels()` runs per node on every zoom/pan frame, and truncation measures
+ *  several times per node -- so a dense graph would otherwise re-derive, dozens of times a second, a
+ *  result that only changes when the title, the node's radius or the drawn font size does. Keyed on
+ *  exactly those three (the width floored to a whole px, so a continuously-varying zoom still hits),
+ *  and cleared wholesale rather than evicted entry-by-entry once past `LABEL_CACHE_MAX`: this is a
+ *  frame-rate cache, not a correctness one, so a cold rebuild costs one frame of measuring and
+ *  nothing else. `resetLabelCache()` is exported for a caller that wants to drop it outright on a
+ *  wholesale new graph, the same lifecycle `Graph.vue`'s `syntheticNodeCache` has. */
+const LABEL_CACHE_MAX = 4096
+const labelCache = new Map()
+
+export function resetLabelCache() {
+  labelCache.clear()
+}
+
+/** The largest prefix of `text` that fits `maxWidth` at the context's current font, with an ellipsis
+ *  appended when anything was cut -- or `null` when the node cannot hold even one character plus
+ *  that ellipsis, which is this layer's "draw no label at all" answer.
+ *
+ *  Deriving that cutoff from truncation rather than from a minimum-radius constant is deliberate:
+ *  the radius floor lives in `Graph.vue` as a non-exported `<script setup>` local
+ *  (`MIN_NODE_RADIUS`) and only the `radiusFor` FUNCTION crosses into this module, so a floor here
+ *  would be a hand-copied duplicate that silently stops agreeing the moment that constant is
+ *  retuned -- which it has been, more than once. "Does a character fit?" needs no such copy and
+ *  stays correct by construction. */
+function fitLabel(ctx, text, maxWidth, fontPx) {
+  if (!text || maxWidth <= 0) {
+    return null
+  }
+  const key = `${Math.round(fontPx * 100)}|${Math.floor(maxWidth)}|${text}`
+  const cached = labelCache.get(key)
+  if (cached !== undefined) {
+    return cached
+  }
+  const fitted = measureFit(ctx, text, maxWidth)
+  if (labelCache.size >= LABEL_CACHE_MAX) {
+    labelCache.clear()
+  }
+  labelCache.set(key, fitted)
+  return fitted
+}
+
+function measureFit(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) {
+    return text
+  }
+  if (ctx.measureText(`${text.slice(0, 1)}${LABEL_ELLIPSIS}`).width > maxWidth) {
+    return null
+  }
+  //    Binary-search the prefix length rather than walking it down a character at a time: a long
+  //    title in a small node would otherwise cost dozens of measurements for the one answer.
+  let low = 1
+  let high = text.length - 1
+  let best = 1
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    if (ctx.measureText(`${text.slice(0, mid)}${LABEL_ELLIPSIS}`).width <= maxWidth) {
+      best = mid
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  return `${text.slice(0, best)}${LABEL_ELLIPSIS}`
+}
+
+/** Draws each node's title -- since OpenProject #2593 INSIDE the node's own circle, centered and
+ *  truncated to fit, rather than unclipped to the right of its edge. The full, untruncated title is
+ *  still reachable through `Graph.vue`'s existing DOM hover tooltip, unchanged; this layer
+ *  deliberately introduces no second tooltip mechanism of its own.
+ *
+ *  A SYNTHETIC node keeps the original beside-the-node placement (`radius + LABEL_GAP`): it draws at
+ *  a fixed radius of `3`, so it has no inside to draw in, and silently dropping the folder-hub
+ *  basenames and the `(root)` marker from the static view would lose real structure -- the
+ *  folder-hierarchy edge mode fans the whole graph out from exactly those nodes, and #2563 just gave
+ *  the root its own ring to make it MORE identifiable, not less.
+ *
+ *  `highlightedIds` (OpenProject #2480), same optional-`Set` contract as `drawNodes` above: a
  *  non-matching label dims along with its node rather than staying full-strength while its dot
  *  fades, which would read as two disagreeing signals for the same node. */
 export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds) {
@@ -171,14 +301,34 @@ export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
   const fontPx = Math.min(LABEL_BASE_FONT_PX, LABEL_MAX_EFFECTIVE_FONT_PX / scale)
   ctx.font = `${fontPx}px sans-serif`
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = fontPx * LABEL_HALO_WIDTH_RATIO
   ctx.fillStyle = dark ? LABEL_COLOR.dark : LABEL_COLOR.light
+  ctx.strokeStyle = dark ? LABEL_HALO_COLOR.dark : LABEL_HALO_COLOR.light
   for (const node of nodes) {
     if (node.x === undefined) {
       continue
     }
+    const title = node.title ?? node.path
+    const radius = radiusFor(node)
+    let text = title
+    let x = node.x
+    if (node.synthetic) {
+      ctx.textAlign = 'left'
+      x = node.x + radius + LABEL_GAP
+    } else {
+      ctx.textAlign = 'center'
+      text = fitLabel(ctx, title, insideNodeTextWidth(radius, fontPx), fontPx)
+      if (text === null) {
+        continue
+      }
+    }
     const isMatch = hasHighlights && highlightedIds.has(nodeId(node))
     ctx.globalAlpha = hasHighlights && !isMatch ? DIMMED_ALPHA : 1
-    ctx.fillText(node.title ?? node.path, node.x + radiusFor(node) + LABEL_GAP, node.y + 3)
+    //    Halo first, fill second -- stroking after the fill would eat into the glyphs' own edges.
+    ctx.strokeText(text, x, node.y)
+    ctx.fillText(text, x, node.y)
   }
   ctx.globalAlpha = 1
 }
