@@ -58,14 +58,14 @@ class FakePool {
 }
 
 let wikiHandle: { restore(): void }
-let warnings: string[]
+let warnings: { scope: string; message: string; fields?: Record<string, unknown> }[]
 
 beforeEach(() => {
   warnings = []
   wikiHandle = installTestWiki({
     logger: {
-      warn: (msg: string) => {
-        warnings.push(msg)
+      warn: (scope: string, message: string, fields?: Record<string, unknown>) => {
+        warnings.push({ scope, message, fields })
       },
       info: () => {},
       debug: () => {}
@@ -136,7 +136,15 @@ describe('connectListener', () => {
     firstClient.emit('error', new Error('connection reset'))
     // -> setClient(null) happens synchronously inside the error handler
     assert.equal(stored, null)
-    assert.ok(warnings.some((w) => w.includes('connection reset')))
+    assert.ok(
+      warnings.some((w) => {
+        const error = w.fields?.error as Error | undefined
+        return (
+          w.message === 'lost the listener connection, reconnecting' &&
+          error?.message.includes('connection reset') === true
+        )
+      })
+    )
     // -> Regression for the leaked-pool-slot finding: the failed client must be released
     //    (destroy-on-release, since its connection is presumed dead) rather than simply dropped, or
     //    it stays checked out of the pool forever and counts against `_isFull()` on every future
@@ -190,7 +198,8 @@ describe('connectListener', () => {
     assert.equal(stored, recoveredClient)
     assert.equal(pool.connectCalls, 4) // initial + 2 failures + 1 success
     assert.ok(
-      warnings.filter((w) => w.includes('Failed to (re)connect')).length >= 2,
+      warnings.filter((w) => w.message === 'reconnecting the listener failed, retrying').length >=
+        2,
       'expected at least two retry warnings'
     )
 

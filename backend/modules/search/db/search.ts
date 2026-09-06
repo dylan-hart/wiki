@@ -162,7 +162,9 @@ class DbSearchModule implements SearchModule {
     }
     if (wanted) {
       WIKI.logger.warn(
-        `Text search dictionary "${wanted}" for locale ${locale} is not installed — falling back to ${FALLBACK_DICTIONARY}.`
+        'search',
+        `Text search dictionary "${wanted}" for locale ${locale} is not installed — falling back to ${FALLBACK_DICTIONARY}.`,
+        { engine: MODULE_KEY, locale, dictionary: wanted, fallback: FALLBACK_DICTIONARY }
       )
     }
     return FALLBACK_DICTIONARY
@@ -514,7 +516,11 @@ class DbSearchModule implements SearchModule {
     )
     const locales = (localeRows.rows as any[]).map((r) => r.locale as string)
 
-    WIKI.logger.info(`Rebuilding the search index for ${locales.length} locale(s)...`)
+    WIKI.logger.debug('search', 'rebuilding the index', {
+      engine: MODULE_KEY,
+      site: siteId,
+      locales: locales.length
+    })
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
@@ -531,12 +537,20 @@ class DbSearchModule implements SearchModule {
       const pages = updated.rowCount ?? 0
       result.pages += pages
       result.locales.push({ locale, dictionary, pages })
-      WIKI.logger.info(
-        `Reindexed ${pages} page(s) in ${locale} using the ${dictionary} dictionary.`
-      )
+      WIKI.logger.debug('search', 'locale reindexed', {
+        engine: MODULE_KEY,
+        locale,
+        dictionary,
+        pages
+      })
     }
 
-    WIKI.logger.info(`Search index rebuild completed: ${result.pages} page(s) [ OK ]`)
+    WIKI.logger.info('search', 'index rebuild completed', {
+      engine: MODULE_KEY,
+      site: siteId,
+      pages: result.pages,
+      locales: result.locales.length
+    })
     return result
   }
 
@@ -567,7 +581,11 @@ class DbSearchModule implements SearchModule {
         WHERE id = ${id}
       `)
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to update the search index for page ${id}: ${err.message}`)
+      WIKI.logger.warn('search', 'indexing a page failed', {
+        engine: MODULE_KEY,
+        page: id,
+        error: err
+      })
     }
   }
 }

@@ -170,6 +170,9 @@ describe('getPuppeteerLaunchArgs', () => {
     ;(globalThis as any).WIKI.config.security.allowPuppeteerNoSandbox = true
     getPuppeteerLaunchArgs()
     assert.equal(warnCalls.length, 1)
-    assert.match(warnCalls[0][0], /--no-sandbox/)
+    const [scope, message, fields] = warnCalls[0]!
+    assert.equal(scope, 'render')
+    assert.match(message, /--no-sandbox/)
+    assert.equal(fields.setting, 'security.allowPuppeteerNoSandbox')
   })
 })

@@ -18,7 +18,7 @@ import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
  *
  * What deliberately stays in each model rather than moving here:
  *  - **The `try`/`catch` around a disk scan, and every log line it writes.** The six differ in
- *    wording, in severity (extensions warns and calls it `[ SKIPPED ]`, the rest error), and in what
+ *    wording, in severity (extensions warns and carries on, the rest error), and in what
  *    they do with the definitions they had (most reset to `[]`, authentication/analytics keep
  *    whatever a failed `readdir` left behind) — encoding all of that as options would be longer than
  *    the four lines it would save each caller.
@@ -81,7 +81,7 @@ export async function readModuleDefinitions<T extends ModuleDefinitionRecord>(
     }
     definitions.push(opts.decorate ? await opts.decorate(parsed, dir) : (parsed as T))
     if (opts.logEach) {
-      WIKI.logger.debug(`Loaded ${opts.label} definition ${dir} [ OK ]`)
+      WIKI.logger.debug('ext', 'definition loaded', { kind: opts.label, module: dir })
     }
   }
   return definitions
@@ -245,11 +245,10 @@ export async function loadModule<M>(
   }
   try {
     cache[key] = (await importer()).default
-    WIKI.logger.debug(`Activated ${label} module ${key} [ OK ]`)
+    WIKI.logger.debug('ext', 'module activated', { kind: label, module: key })
     return cache[key]
   } catch (err: any) {
-    WIKI.logger.warn(`Failed to load ${label} module ${key} [ FAILED ]`)
-    WIKI.logger.warn(err)
+    WIKI.logger.warn('ext', 'loading a module failed', { kind: label, module: key, error: err })
     return null
   }
 }

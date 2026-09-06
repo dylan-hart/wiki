@@ -359,6 +359,7 @@ function compareRows(
  * AI Search emulator (Feature #381).
  */
 export class AzureSearchModule extends ExternalSearchModule {
+  protected readonly engine = MODULE_KEY
   private readonly clientFactory: (config: Record<string, any>) => AzureSearchIndexClient
   private readonly searchClientFactory: (config: Record<string, any>) => AzureSearchQueryClient
   private readonly pageSource: RebuildPageSource
@@ -451,9 +452,11 @@ export class AzureSearchModule extends ExternalSearchModule {
     const indexName = config.indexName
     const client = this.clientFor(siteId, config)
     await client.createOrUpdateIndex(buildIndexSchema(indexName))
-    WIKI.logger.info(
-      `Azure AI Search index "${indexName}" is provisioned for site ${siteId} [ OK ]`
-    )
+    WIKI.logger.info('search', 'index provisioned', {
+      engine: MODULE_KEY,
+      index: indexName,
+      site: siteId
+    })
   }
 
   /**
@@ -469,7 +472,8 @@ export class AzureSearchModule extends ExternalSearchModule {
         const client = this.queryClientFor(page.siteId, this.configFor(page.siteId))
         await client.mergeOrUploadDocuments([toIndexDocument(page)])
       },
-      (message) => `Failed to update the Azure AI Search index for page ${page.id}: ${message}`
+      'indexing a page failed',
+      { page: page.id }
     )
   }
 
@@ -480,7 +484,8 @@ export class AzureSearchModule extends ExternalSearchModule {
         const client = this.queryClientFor(siteId, this.configFor(siteId))
         await client.deleteDocuments('id', [pageId])
       },
-      (message) => `Failed to remove page ${pageId} from the Azure AI Search index: ${message}`
+      'removing a page from the index failed',
+      { page: pageId }
     )
   }
 
@@ -725,7 +730,11 @@ export class AzureSearchModule extends ExternalSearchModule {
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
-    WIKI.logger.info(`Rebuilding the Azure AI Search index for ${locales.length} locale(s)...`)
+    WIKI.logger.debug('search', 'rebuilding the index', {
+      engine: MODULE_KEY,
+      site: siteId,
+      locales: locales.length
+    })
     const client = this.queryClientFor(siteId, this.configFor(siteId))
     const existingIds = await this.fetchAllIds(client, siteId)
     const uploadedIds = new Set<string>()
@@ -743,7 +752,11 @@ export class AzureSearchModule extends ExternalSearchModule {
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })
-      WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
+      WIKI.logger.debug('search', 'locale reindexed', {
+        engine: MODULE_KEY,
+        locale,
+        pages: localePages
+      })
     }
 
     const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
@@ -751,12 +764,19 @@ export class AzureSearchModule extends ExternalSearchModule {
       for (const idBatch of chunk(staleIds, REBUILD_BATCH_SIZE)) {
         await client.deleteDocuments('id', idBatch)
       }
-      WIKI.logger.info(
-        `Purged ${staleIds.length} stale document(s) from the Azure AI Search index.`
-      )
+      WIKI.logger.info('search', 'purged stale documents', {
+        engine: MODULE_KEY,
+        site: siteId,
+        documents: staleIds.length
+      })
     }
 
-    WIKI.logger.info(`Azure AI Search index rebuild completed: ${result.pages} page(s) [ OK ]`)
+    WIKI.logger.info('search', 'index rebuild completed', {
+      engine: MODULE_KEY,
+      site: siteId,
+      pages: result.pages,
+      locales: result.locales.length
+    })
     return result
   }
 }

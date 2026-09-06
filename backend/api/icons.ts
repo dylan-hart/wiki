@@ -132,7 +132,8 @@ async function routes(app: FastifyInstance) {
           set
         }
       } catch (err: any) {
-        WIKI.logger.warn(err.message)
+        // -> No log line: this is an admin-only route whose reply already carries the whole reason,
+        //    and the caller is the person who typed the prefix that was rejected.
         return reply.badRequest(err.message)
       }
     }
@@ -293,7 +294,9 @@ async function routes(app: FastifyInstance) {
       try {
         return await WIKI.models.icons.getAvailableSets()
       } catch (err: any) {
-        WIKI.logger.warn(err.message)
+        WIKI.logger.warn('icons', 'could not list the available sets from the Iconify API', {
+          error: err
+        })
         return reply.badGateway(`Could not reach the Iconify API: ${err.message}`)
       }
     }
@@ -344,7 +347,7 @@ async function routes(app: FastifyInstance) {
           refreshed
         }
       } catch (err: any) {
-        WIKI.logger.warn(err.message)
+        WIKI.logger.warn('icons', 'could not refresh the sets from the Iconify API', { error: err })
         return reply.badGateway(`Could not reach the Iconify API: ${err.message}`)
       }
     }
@@ -415,7 +418,7 @@ async function routes(app: FastifyInstance) {
         })
         return { icons }
       } catch (err: any) {
-        WIKI.logger.warn(err.message)
+        WIKI.logger.warn('icons', 'could not search the Iconify API', { error: err })
         return reply.badGateway(`Could not reach the Iconify API: ${err.message}`)
       }
     }
@@ -473,7 +476,7 @@ async function routes(app: FastifyInstance) {
       try {
         return { prefix, icons: await WIKI.models.icons.listSetIcons(prefix) }
       } catch (err: any) {
-        WIKI.logger.warn(err.message)
+        // -> No log line, same as the add-set route above: admin-only, and the reply says why.
         return reply.badRequest(err.message)
       }
     }

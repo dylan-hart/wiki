@@ -164,9 +164,11 @@ export default class LdapAuthentication {
     try {
       tlsOptions = this.getTlsOptions()
     } catch (err: any) {
-      WIKI.logger.warn(
-        `LDAP strategy ${this.strategyId}: could not read its TLS certificate: ${err.message}`
-      )
+      WIKI.logger.warn('auth', 'could not read the LDAP strategy TLS certificate', {
+        module: 'ldap',
+        strategy: this.strategyId,
+        error: err
+      })
       throw new Error('ERR_STRATEGY_MISCONFIGURED')
     }
 

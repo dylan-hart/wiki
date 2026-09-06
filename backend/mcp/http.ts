@@ -95,7 +95,7 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
         return
       }
       Promise.resolve(session.transport.close()).catch((err: any) => {
-        WIKI.logger.debug(`Failed to close an evicted MCP session's transport: ${err.message}`)
+        WIKI.logger.debug('mcp', "closing an evicted session's transport failed", { error: err })
       })
     }
   })
@@ -118,7 +118,9 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     try {
       identity = await WIKI.models.apiKeys.verify(token)
     } catch (err: any) {
-      WIKI.logger.debug(`Rejected an MCP bearer token: ${err.message}`)
+      // -> `warn`, not `debug` (V8): a refused credential is security-relevant, and at `debug` an
+      //    operator could not see it at all in a production deployment.
+      WIKI.logger.warn('mcp', 'bearer token refused', { error: err })
       return reply.unauthorized(err.message)
     }
     // -> Same limiter `/_api/` applies to every bearer-token request; reused as-is rather than

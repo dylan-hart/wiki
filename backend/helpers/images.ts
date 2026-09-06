@@ -93,7 +93,7 @@ export async function resizeImageToSquareJpeg(data: Buffer, size: number): Promi
     //    recorded because Node will keep replaying it until the server restarts, so reinstalling Sharp
     //    from the admin area cannot help this process.
     WIKI.models.extensions.noteLoadFailure(specifier)
-    WIKI.logger.warn(`Could not resize an image with Sharp: ${err.message}`)
+    WIKI.logger.warn('assets', 'could not resize an image with Sharp', { error: err })
     return null
   }
 }
@@ -137,7 +137,7 @@ export async function normalizeImage(
     ;({ default: sharp } = await import(specifier))
   } catch (err: any) {
     WIKI.models.extensions.noteLoadFailure(specifier)
-    WIKI.logger.warn(`Could not load Sharp to re-encode an image: ${err.message}`)
+    WIKI.logger.warn('assets', 'could not load Sharp to re-encode an image', { error: err })
     return null
   }
   try {
@@ -150,7 +150,7 @@ export async function normalizeImage(
       format === 'png' ? resized.png({ compressionLevel: 9 }) : resized.webp({ quality: 80 })
     ).toBuffer()
   } catch (err: any) {
-    WIKI.logger.warn(`Could not re-encode an uploaded image: ${err.message}`)
+    WIKI.logger.warn('assets', 'could not re-encode an uploaded image', { error: err })
     return null
   }
 }
@@ -182,7 +182,7 @@ export async function makeImageThumbnail(
     ;({ default: sharp } = await import(specifier))
   } catch (err: any) {
     WIKI.models.extensions.noteLoadFailure(specifier)
-    WIKI.logger.warn(`Could not load Sharp to generate a thumbnail: ${err.message}`)
+    WIKI.logger.warn('assets', 'could not load Sharp to generate a thumbnail', { error: err })
     return null
   }
   try {
@@ -191,7 +191,7 @@ export async function makeImageThumbnail(
       .webp({ quality: 80 })
       .toBuffer()
   } catch (err: any) {
-    WIKI.logger.debug(`Could not generate a thumbnail for an upload: ${err.message}`)
+    WIKI.logger.debug('assets', 'could not generate a thumbnail for an upload', { error: err })
     return null
   }
 }

@@ -306,7 +306,10 @@ async function routes(app: FastifyInstance) {
         if (err instanceof CustomError) {
           throw err
         }
-        WIKI.logger.warn(err)
+        WIKI.logger.error('blocks', 'updating the blocks state failed', {
+          error: err,
+          reqId: req.id
+        })
         return reply.internalServerError()
       }
     }

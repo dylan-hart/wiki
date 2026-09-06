@@ -21,8 +21,10 @@ export function getPuppeteerLaunchArgs(): string[] {
   const args = ['--disable-dev-shm-usage']
   if (WIKI.config.security.allowPuppeteerNoSandbox) {
     WIKI.logger.warn(
-      'Launching Puppeteer with --no-sandbox (security.allowPuppeteerNoSandbox is enabled). This disables ' +
-        "Chromium's own process sandbox for every page render, PDF export and diagram render this instance performs."
+      'render',
+      "launching Puppeteer with --no-sandbox, which disables Chromium's own process sandbox for " +
+        'every page render, PDF export and diagram render this instance performs',
+      { setting: 'security.allowPuppeteerNoSandbox' }
     )
     args.push('--no-sandbox')
   }
@@ -220,6 +222,6 @@ export async function closeQuietly(
   try {
     await closable?.close()
   } catch (err: any) {
-    WIKI.logger.debug(`Could not close the ${label} cleanly: ${err.message}`)
+    WIKI.logger.debug('render', 'could not close cleanly', { subject: label, error: err })
   }
 }

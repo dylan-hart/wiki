@@ -28,7 +28,7 @@ import { ensureTemporal } from '../../../test/temporal.ts'
  * `helpers/pageSerialization.test.ts` and `core/scheduler.test.ts` already work around.
  */
 let wikiHandle: { restore(): void }
-let loggerCalls: string[]
+let loggerCalls: { level: string; scope: string; message: string }[]
 
 before(async () => {
   await ensureTemporal()
@@ -37,13 +37,28 @@ before(async () => {
 beforeEach(() => {
   loggerCalls = []
   wikiHandle = installTestWiki({
-    // -> Not the silent default: several tests assert on what the export run logged.
-    logger: {
-      info: mock.fn((message: string) => loggerCalls.push(message)),
-      warn: mock.fn((message: string) => loggerCalls.push(message)),
-      error: mock.fn(),
-      debug: mock.fn()
-    }
+    // -> Not the silent default: several tests assert on what the export run logged. `scope()` has to
+    //    be a real child here rather than `createSilentLogger`'s `() => stub`, since the module logs
+    //    only through one.
+    logger: (() => {
+      const at = (level: string, scope: string) => (message: string) => {
+        loggerCalls.push({ level, scope, message })
+      }
+      const scope = (name: string) => ({
+        info: mock.fn(at('info', name)),
+        warn: mock.fn(at('warn', name)),
+        error: mock.fn(),
+        debug: mock.fn(),
+        scope
+      })
+      return {
+        info: mock.fn(at('info', '')),
+        warn: mock.fn(at('warn', '')),
+        error: mock.fn(),
+        debug: mock.fn(),
+        scope
+      }
+    })()
   })
 })
 
@@ -300,7 +315,7 @@ describe('exportAll — full run against a seeded site (real server)', () => {
     )
 
     // -> `exportAll`'s own orchestration/logging ran too, over the real connection.
-    assert.ok(loggerCalls.some((m) => m.includes('Starting export')))
-    assert.ok(loggerCalls.some((m) => m.includes('completed successfully')))
+    assert.ok(loggerCalls.some((c) => c.scope === 'storage' && c.message === 'starting the export'))
+    assert.ok(loggerCalls.some((c) => c.scope === 'storage' && c.message === 'export completed'))
   })
 })

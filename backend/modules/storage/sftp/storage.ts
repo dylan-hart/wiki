@@ -13,11 +13,9 @@ import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
  * export (Task 522), and asset export (Task 523) — already exists as a sibling module. This file's
  * only job is orchestration: open the connection once, run both exports in sequence, log progress at
  * a granularity useful for a large export, and guarantee the connection closes no matter how the
- * export ends.
+ * export ends. Every line it writes goes through one `storage` child logger carrying `module=sftp`
+ * and the target's id, so a line says which target it came from without spelling it out.
  */
-
-/** How the export's progress gets logged: prefixes every line so it's greppable in a large log. */
-const LOG_PREFIX = '(STORAGE/SFTP)'
 
 /**
  * Run the `exportAll` action: write every eligible page and asset of the target's site to the remote
@@ -49,24 +47,27 @@ export async function exportAll(
   const runExportPages = deps.runExportPages ?? exportPages
   const runExportAssets = deps.runExportAssets ?? exportAssets
   const config = target.config as SftpTargetConfig
+  const log = WIKI.logger.scope('storage', { module: 'sftp', target: target.id })
 
-  WIKI.logger.info(
-    `${LOG_PREFIX} Starting export of site ${target.siteId} to ${config.host}:${config.basePath} ...`
-  )
+  log.info('starting the export', {
+    site: target.siteId,
+    host: config.host,
+    path: config.basePath
+  })
 
   const client = await connect(config)
   try {
     await runExportPages(client, target, {
       onProgress: (count) => {
-        WIKI.logger.info(`${LOG_PREFIX} Exported ${count} pages so far...`)
+        log.debug('exporting pages', { pages: count })
       }
     })
     await runExportAssets(client, target, {
       onProgress: (count) => {
-        WIKI.logger.info(`${LOG_PREFIX} Exported ${count} assets so far...`)
+        log.debug('exporting assets', { assets: count })
       }
     })
-    WIKI.logger.info(`${LOG_PREFIX} Export of site ${target.siteId} completed successfully.`)
+    log.info('export completed', { site: target.siteId })
   } finally {
     try {
       await client.end()
@@ -74,7 +75,7 @@ export async function exportAll(
       // -> Closing the connection failed after the export already succeeded or failed on its own
       //    terms — worth knowing about, but not worth masking whatever `try` above actually threw
       //    (or didn't) by throwing a second, unrelated error out of a `finally` block.
-      WIKI.logger.warn(`${LOG_PREFIX} Could not cleanly close the SFTP connection: ${err.message}`)
+      log.warn('could not cleanly close the SFTP connection', { error: err })
     }
   }
 }

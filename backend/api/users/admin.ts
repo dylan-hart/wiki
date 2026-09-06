@@ -586,9 +586,11 @@ async function routes(app: FastifyInstance) {
           } catch (err: any) {
             // -> The user already exists; a failed welcome email must not turn this into a failed
             //    creation, same as `resetPassword`'s own sendPasswordResetConfirmed catch.
-            WIKI.logger.warn(
-              `Failed to send the welcome email to ${req.body.email}: ${err.message}`
-            )
+            WIKI.logger.warn('mail', 'sending the welcome email failed', {
+              user: id,
+              site: req.body.sendWelcomeEmailFromSiteId,
+              error: err
+            })
           }
         }
         return {
@@ -597,7 +599,7 @@ async function routes(app: FastifyInstance) {
           id
         }
       } catch (err: any) {
-        WIKI.logger.warn(err)
+        WIKI.logger.error('http', 'creating a user failed', { error: err, reqId: req.id })
         return reply.internalServerError()
       }
     }
@@ -815,7 +817,11 @@ async function routes(app: FastifyInstance) {
           message: 'User updated successfully.'
         }
       } catch (err: any) {
-        WIKI.logger.warn(err)
+        WIKI.logger.error('http', 'updating a user failed', {
+          user: req.params.userId,
+          error: err,
+          reqId: req.id
+        })
         return reply.internalServerError()
       }
     }
@@ -1272,7 +1278,11 @@ async function routes(app: FastifyInstance) {
               : 'Cannot delete a user who still owns pages or assets. Reassign them first.'
           )
         }
-        WIKI.logger.warn(err)
+        WIKI.logger.error('http', 'deleting a user failed', {
+          user: req.params.userId,
+          error: err,
+          reqId: req.id
+        })
         return reply.internalServerError()
       }
     }

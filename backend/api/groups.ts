@@ -150,7 +150,7 @@ async function routes(app: FastifyInstance) {
           id
         }
       } catch (err: any) {
-        WIKI.logger.warn(err)
+        WIKI.logger.error('http', 'creating a group failed', { error: err, reqId: req.id })
         return reply.internalServerError()
       }
     }
@@ -395,7 +395,11 @@ async function routes(app: FastifyInstance) {
           message: 'Group updated successfully.'
         }
       } catch (err: any) {
-        WIKI.logger.warn(err)
+        WIKI.logger.error('http', 'updating a group failed', {
+          group: group.id,
+          error: err,
+          reqId: req.id
+        })
         return reply.internalServerError()
       }
     }
@@ -463,7 +467,11 @@ async function routes(app: FastifyInstance) {
         })
         return reply.code(204).send()
       } catch (err: any) {
-        WIKI.logger.warn(err)
+        WIKI.logger.error('http', 'deleting a group failed', {
+          group: group.id,
+          error: err,
+          reqId: req.id
+        })
         return reply.internalServerError()
       }
     }

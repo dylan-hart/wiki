@@ -248,8 +248,9 @@ export function createSchedulerStub(): WikiGlobal['scheduler'] {
     }) {
       if (!(task in USE_WORKER)) {
         WIKI.logger.warn(
-          `migrate-cli: cannot queue task "${task}" — this bootstrap's scheduler stub only supports ` +
-            '"renderPages".'
+          'migrate',
+          'cannot queue this task, the CLI scheduler stub only supports renderPages',
+          { task }
         )
         return undefined
       }
@@ -265,7 +266,7 @@ export function createSchedulerStub(): WikiGlobal['scheduler'] {
           createdBy: 'migrate-cli'
         })
       } catch (err: any) {
-        WIKI.logger.warn(`migrate-cli: failed to queue task "${task}": ${err.message}`)
+        WIKI.logger.warn('migrate', 'queueing a task failed', { task, error: err })
       }
       return undefined
     }

@@ -217,6 +217,7 @@ interface SiteClient {
  * spelled out here and is now in the base class's own doc comment.
  */
 export class AlgoliaSearchModule extends ExternalSearchModule {
+  protected readonly engine = MODULE_KEY
   private clients = new Map<string, SiteClient>()
 
   /**
@@ -298,7 +299,8 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
         const { client, indexName } = await this.getClient(page.siteId)
         await client.saveObject({ indexName, body: pageToDocument(page) })
       },
-      (message) => `(SEARCH/ALGOLIA) Failed to index page ${page.id}: ${message}`
+      'indexing a page failed',
+      { page: page.id }
     )
   }
 
@@ -308,7 +310,8 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
         const { client, indexName } = await this.getClient(siteId)
         await client.deleteObject({ indexName, objectID: pageId })
       },
-      (message) => `(SEARCH/ALGOLIA) Failed to remove page ${pageId} from the index: ${message}`
+      'removing a page from the index failed',
+      { page: pageId }
     )
   }
 
@@ -388,7 +391,7 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
     const PAGE_SIZE = 500
     const { client, indexName } = await this.getClient(siteId)
 
-    WIKI.logger.info('(SEARCH/ALGOLIA) Rebuilding index...')
+    WIKI.logger.debug('search', 'rebuilding the index', { engine: MODULE_KEY, site: siteId })
     await client.deleteBy({
       indexName,
       deleteByParams: { filters: `siteId:"${escapeFilterValue(siteId)}"` }
@@ -402,9 +405,12 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
       const docs = rows.map((row) => pageToDocument(row))
       const { batches, skipped } = batchDocuments(docs)
       for (const doc of skipped) {
-        WIKI.logger.warn(
-          `(SEARCH/ALGOLIA) Skipping page "${doc.path}" (${doc.bytes} bytes): exceeds Algolia's ${MAX_DOCUMENT_BYTES}-byte object size limit and was not indexed.`
-        )
+        WIKI.logger.warn('search', 'page skipped, over the object size limit', {
+          engine: MODULE_KEY,
+          path: doc.path,
+          bytes: doc.bytes,
+          limit: MAX_DOCUMENT_BYTES
+        })
       }
       skippedTotal.push(...skipped)
       for (const batch of batches) {
@@ -429,11 +435,16 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
     }
 
     if (skippedTotal.length > 0) {
-      WIKI.logger.warn(
-        `(SEARCH/ALGOLIA) Rebuild finished with ${skippedTotal.length} page(s) skipped for exceeding Algolia's object size limit -- see the warnings above for which.`
-      )
+      WIKI.logger.warn('search', 'rebuild finished with pages skipped for size', {
+        engine: MODULE_KEY,
+        skipped: skippedTotal.length
+      })
     }
-    WIKI.logger.info(`(SEARCH/ALGOLIA) Indexed ${total} page(s) [ OK ]`)
+    WIKI.logger.info('search', 'index rebuild completed', {
+      engine: MODULE_KEY,
+      site: siteId,
+      pages: total
+    })
     return {
       pages: total,
       // -> `dictionary` has no Algolia equivalent -- there is no text search dictionary to report --

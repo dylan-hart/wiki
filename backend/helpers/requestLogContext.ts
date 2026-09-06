@@ -20,7 +20,8 @@ export interface ErrorLogContextRequest {
 /**
  * Builds the structured context attached to an unhandled-error log line, so a 500 can be traced back
  * to the request that caused it purely from the log (OpenProject #1937) — `index.ts`'s
- * `setErrorHandler` passes this as `WIKI.logger.warn(error, buildErrorLogContext(req))`.
+ * `apiErrorHandler` spreads it into the fields of one
+ * `WIKI.logger.error('http', 'unhandled error, answered 500', { error, ... })` call.
  *
  * `siteId` is best-effort: `req.site` (set by `index.ts`'s site-resolution hook) is never populated
  * for an `/_api/*` request — `isPageUrl` excludes anything under a leading-underscore segment — so
