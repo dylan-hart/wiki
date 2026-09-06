@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import Search from './Search.vue'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
@@ -542,5 +543,44 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
     // -> No empty tag row left drawing a gap under the date
     expect(untagged.find('.layout-search-rowdate').exists()).toBe(true)
     expect(untagged.find('.layout-search-rowtags').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2716: `.layout-search-rowdate` used to go through `humanizeDate` (the legacy absolute
+ * `2026-08-25 at 14:32` form) no matter how recent a result's page was -- the same defect the page
+ * view's own "Last modified" line already avoided by going through `formatRecent`.
+ */
+describe('Search.vue "last updated" line (OpenProject #2716)', () => {
+  it('formats each result row through `userStore.formatRecent`, not the legacy absolute form', async () => {
+    // -> Inside the last week, which is the branch `formatRecent` exists for: a weekday and a time
+    //    rather than the full date `humanizeDate`/`formatDateTime` would give.
+    const recentUpdatedAt = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()
+    const { wrapper } = await mountSearchWithResponse({
+      results: [{ ...FIXTURE_RICH_RESULT, updatedAt: recentUpdatedAt }],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const expected = useUserStore().formatRecent(createSearchI18n().global.t, recentUpdatedAt)
+    expect(expected).not.toBe('')
+
+    const rowDate = wrapper.find('.layout-search-rowdate')
+    expect(rowDate.text()).toBe(expected)
+    // -> And not the raw stored value, which is what interpolating `updatedAt` directly (or the
+    //    legacy `humanizeDate` absolute form) would show.
+    expect(rowDate.text()).not.toContain(recentUpdatedAt)
+  })
+
+  it('renders the placeholder, not an empty date, when a result has no updatedAt', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [{ ...FIXTURE_RICH_RESULT, updatedAt: null }],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.find('.layout-search-rowdate').text()).toBe('---')
   })
 })

@@ -58,6 +58,8 @@ const messages = {
     watchingNone: 'You are not watching any page yet.',
     watchingHint: 'Open a page and press the bell in its header to start watching it.',
     watchingLoadFailed: 'Failed to load your watched pages.',
+    watchingUpdated: 'Updated {date}',
+    watchingSince: 'Watching since {date}',
     watchingUnwatch: 'Stop watching',
     watchingUnwatched: '{title} is no longer watched.',
     watchingUnwatchFailed: 'Could not stop watching this page.',
@@ -118,7 +120,7 @@ async function mountInboxWatching(sitePatch = {}) {
 function mountInboxWatchingUnsettled(sitePatch = {}) {
   const router = buildTestRouter(['/', '/:path(.*)'])
 
-  const { wrapper, siteStore } = mountWithApp(InboxWatching, {
+  const { wrapper, siteStore, userStore, i18n } = mountWithApp(InboxWatching, {
     messages,
     router,
     stores: {
@@ -131,7 +133,7 @@ function mountInboxWatchingUnsettled(sitePatch = {}) {
     stubs: {}
   })
 
-  return { wrapper, router, siteStore }
+  return { wrapper, router, siteStore, userStore, i18n }
 }
 
 async function flushLoads() {
@@ -360,6 +362,44 @@ describe('InboxWatching watching', () => {
     const lastNotification = notifyQueue[notifyQueue.length - 1]
     expect(lastNotification.type).toBe('negative')
     expect(lastNotification.caption).toBe('You are not watching this page.')
+  })
+})
+
+/**
+ * OpenProject #2716: `inbox.watchingUpdated`'s `{date}` used to go through `humanizeDate` (the
+ * legacy absolute `2026-08-25 at 14:32` form) no matter how recent the page's own update was -- the
+ * same defect the page view's own "Last modified" line already avoided by going through
+ * `formatRecent`. `watchingSince` (the page's `watchedAt`) deliberately stays out of scope and keeps
+ * `humanizeDate`.
+ */
+describe('InboxWatching watching -- last-updated line (OpenProject #2716)', () => {
+  it('formats the watched-page update time through `userStore.formatRecent`, not the legacy absolute form', async () => {
+    // -> Inside the last week, which is the branch `formatRecent` exists for: a weekday and a time
+    //    rather than the full date `humanizeDate`/`formatDateTime` would give.
+    const recentUpdatedAt = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()
+    stubApi(
+      { 'sites/site-1/watching': [{ ...WATCHED_PAGE, updatedAt: recentUpdatedAt }] },
+      { fallback: [] }
+    )
+
+    const { wrapper, userStore, i18n } = mountInboxWatchingUnsettled()
+    await flushLoads()
+
+    const expected = userStore.formatRecent(i18n.global.t, recentUpdatedAt)
+    expect(expected).not.toBe('')
+    expect(wrapper.text()).toContain(`Updated ${expected}`)
+    // -> And not the raw stored value, which is what interpolating `updatedAt` directly (or the
+    //    legacy `humanizeDate` absolute form) would show.
+    expect(wrapper.text()).not.toContain(recentUpdatedAt)
+  })
+
+  it('renders the placeholder, not an empty date, when a watched page has no updatedAt', async () => {
+    stubApi({ 'sites/site-1/watching': [{ ...WATCHED_PAGE, updatedAt: null }] }, { fallback: [] })
+
+    const { wrapper } = mountInboxWatchingUnsettled()
+    await flushLoads()
+
+    expect(wrapper.text()).toContain('Updated ---')
   })
 })
 

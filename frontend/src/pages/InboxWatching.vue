@@ -112,7 +112,11 @@
               localizedPagePath(page.path, page.locale, siteStore.localeRouting)
             }}</w-item-label>
             <w-item-label caption>
-              {{ t('inbox.watchingUpdated', { date: humanizeDate(t, page.updatedAt) }) }}
+              {{
+                t('inbox.watchingUpdated', {
+                  date: userStore.formatRecent(t, page.updatedAt) || '---'
+                })
+              }}
               &middot;
               {{ t('inbox.watchingSince', { date: humanizeDate(t, page.watchedAt) }) }}
             </w-item-label>
@@ -216,6 +220,7 @@ import { notify } from '@/composables/notify'
 
 import { DEFAULT_PAGE_ICON, usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
@@ -232,6 +237,7 @@ const router = useRouter()
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 

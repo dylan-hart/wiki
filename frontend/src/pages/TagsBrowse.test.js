@@ -651,6 +651,51 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
     expect(meta[0].text()).toBe('/some/page')
   })
 
+  /**
+   * OpenProject #2716: this line used to go through `humanizeDate` (the legacy absolute
+   * `2026-08-25 at 14:32` form) no matter how recent the page was -- the same defect the page view's
+   * "Last modified" line already avoided by going through `formatRecent`. `tags.pageLastUpdated`
+   * carries no default message in the shared empty-messages i18n every other test in this file
+   * relies on, so this test supplies its own, matching how it truly interpolates `{date}`.
+   */
+  it('formats the last-updated line through `userStore.formatRecent`, not the legacy absolute form', async () => {
+    // -> Inside the last week, which is the branch `formatRecent` exists for: a weekday and a time
+    //    rather than the full date `humanizeDate`/`formatDateTime` would give.
+    const recentUpdatedAt = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()
+    const { wrapper, userStore } = await mountTagsBrowse(
+      '/_tags?tags=equipment',
+      {
+        results: [{ ...FIXTURE_PAGE, updatedAt: recentUpdatedAt }],
+        totalHits: 1,
+        suggestion: null
+      },
+      [],
+      { tags: { pageLastUpdated: 'Updated {date}' } }
+    )
+
+    const t = createTagsBrowseI18n().global.t
+    const expected = userStore.formatRecent(t, recentUpdatedAt)
+    expect(expected).not.toBe('')
+
+    const meta = wrapper.findAll('.tags-browse-result-meta')
+    expect(meta[1].text()).toBe(`Updated ${expected}`)
+    // -> And not the raw stored value, which is what a template interpolating `updatedAt` directly
+    //    (or the legacy `humanizeDate` absolute form) would show.
+    expect(meta[1].text()).not.toContain(recentUpdatedAt)
+  })
+
+  it('renders the placeholder, not an empty date, when a result has no updatedAt', async () => {
+    const { wrapper } = await mountTagsBrowse(
+      '/_tags?tags=equipment',
+      { results: [{ ...FIXTURE_PAGE, updatedAt: null }], totalHits: 1, suggestion: null },
+      [],
+      { tags: { pageLastUpdated: 'Updated {date}' } }
+    )
+
+    const meta = wrapper.findAll('.tags-browse-result-meta')
+    expect(meta[1].text()).toBe('Updated ---')
+  })
+
   it("draws the result-row tags at the design's 11px, with the same mono `#`", async () => {
     const { wrapper } = await mountWithResults()
 
