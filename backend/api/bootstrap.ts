@@ -68,7 +68,7 @@ async function routes(app: FastifyInstance) {
       //    to stop a disabled site's content from ever reaching a browser, since every other entry
       //    point is reached through a page the shell itself decides whether to render.
       if (guardSiteEnabled(site, reply)) {
-        return
+        return reply
       }
       return {
         site: await buildSitePayload(site),

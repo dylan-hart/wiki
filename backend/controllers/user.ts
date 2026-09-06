@@ -45,7 +45,7 @@ async function routes(app: FastifyInstance) {
     //    user, so the browser must take the type at its word rather than looking for something more
     //    interesting in them
     if (notModifiedOrPrepare(req, reply, { etag: `"${hash}"`, cacheControl: AVATAR_CACHE })) {
-      return
+      return reply
     }
 
     const avatar = await WIKI.models.users.getAvatar(userId)

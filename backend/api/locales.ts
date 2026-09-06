@@ -116,7 +116,7 @@ async function routes(app: FastifyInstance) {
           nosniff: false
         })
       ) {
-        return
+        return reply
       }
       return strings
     }

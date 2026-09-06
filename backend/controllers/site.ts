@@ -78,7 +78,7 @@ async function routes(app: FastifyInstance) {
       //    that resolved the page around the `<img>` tag -- which is exactly the check this route
       //    never runs through, since it resolves its own siteId independently
       if (guardSiteEnabled(site, reply)) {
-        return
+        return reply
       }
 
       const kind = req.params.resource as SiteAssetKind
@@ -108,7 +108,7 @@ async function routes(app: FastifyInstance) {
       //    uploaded, so the browser must take the type at its word rather than looking for something
       //    more interesting in them
       if (notModifiedOrPrepare(req, reply, { etag: `"${hash}"`, cacheControl: SITE_ASSET_CACHE })) {
-        return
+        return reply
       }
 
       // -> Theoretical only (`hash` and `data` are written together by `setAsset` and removed

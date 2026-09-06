@@ -47,7 +47,7 @@ async function routes(app: FastifyInstance) {
       return reply.notFound('Thumbnail not found')
     }
     if (guardSiteEnabled(site, reply)) {
-      return
+      return reply
     }
 
     if (!mayOnAsset(req, 'read:assets', site.id, thumbnail)) {
@@ -56,7 +56,7 @@ async function routes(app: FastifyInstance) {
 
     const etag = `"${crypto.createHash('sha1').update(thumbnail.preview).digest('hex')}"`
     if (notModifiedOrPrepare(req, reply, { etag, cacheControl: THUMB_CACHE })) {
-      return
+      return reply
     }
 
     return reply.type('image/webp').send(thumbnail.preview)
