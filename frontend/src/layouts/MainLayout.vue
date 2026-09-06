@@ -560,8 +560,12 @@ function openSidebar() {
   38px band ruled off underneath -- the gradient it used to carry (a white sheen fading to a black
   wash) was relief, and read as a bevel on a tint that is four percent off white.
 
-  Two hairlines, not one: the sidebar's own column starts here, so this band needs an edge above it
-  as well as below, or it merges into the header band it sits under.
+  One hairline, not two: this band owns the seam below it, so `.sidebar-nav` (mounted directly
+  beneath, `NavSidebar.vue`) declares no `border-top` of its own -- stacking both would double the
+  rule where every other seam in the app draws it once. The edge ABOVE this band needs no rule
+  here either: it's `HeaderNav.vue`'s `.site-header { border-bottom }`. When this band isn't
+  rendered at all (`showSidebarActions` false), `.sidebar-nav` sits flush under that same header
+  border, so the line is never lost -- only ever drawn by whichever element is actually on top.
 */
 .sidebar-actions {
   height: 38px;
