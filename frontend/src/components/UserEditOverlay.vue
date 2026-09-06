@@ -887,7 +887,7 @@ async function fetchUser() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   loading.hide()

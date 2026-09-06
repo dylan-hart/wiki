@@ -626,7 +626,7 @@ async function applyRenameOrMove(renamedPageOpts, isMove) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
 }

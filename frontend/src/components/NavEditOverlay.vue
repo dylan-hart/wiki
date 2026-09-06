@@ -215,15 +215,15 @@ async function save() {
     await siteStore.fetchNavigation(resp.navigationId ?? navId.value, true)
     close()
   } catch (err) {
+    // -> `reconstructMenuItems()` (`helpers/navigation.js`) throws a plain error code, not a
+    //    translated string, so it stays testable with no i18n context -- translate its one thrown
+    //    code here, at the display boundary, same as every other message shown to the user.
+    const isNestedLinkError = err.message === 'ERR_NESTED_LINK_WITHOUT_PARENT'
     notify({
       type: 'negative',
-      // -> `reconstructMenuItems()` (`helpers/navigation.js`) throws a plain error code, not a
-      //    translated string, so it stays testable with no i18n context -- translate its one thrown
-      //    code here, at the display boundary, same as every other message shown to the user.
-      message:
-        err.message === 'ERR_NESTED_LINK_WITHOUT_PARENT'
-          ? t('navEdit.nestedItemWithoutParent')
-          : apiErrorMessage(err, t('common.error.unexpected'))
+      message: isNestedLinkError
+        ? t('navEdit.nestedItemWithoutParent')
+        : apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   loading.hide()

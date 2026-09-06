@@ -162,7 +162,7 @@ async function copySecret() {
     notify({
       type: 'negative',
       message: t('auth.tfaSetupKeyCopyFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }

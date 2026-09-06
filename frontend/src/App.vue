@@ -698,7 +698,7 @@ router.onError((err) => {
   notify({
     type: 'negative',
     message: i18n.t('common.error.navigationFailed'),
-    caption: err.message
+    caption: apiErrorMessage(err)
   })
 })
 </script>

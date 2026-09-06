@@ -702,7 +702,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.scheduler.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

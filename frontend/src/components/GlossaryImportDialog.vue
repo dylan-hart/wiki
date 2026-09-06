@@ -172,7 +172,7 @@ function submit() {
     return notify({
       type: 'negative',
       message: t('admin.glossary.importInvalidJson'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   if (!data || !Array.isArray(data.terms)) {

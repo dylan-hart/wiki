@@ -615,7 +615,11 @@ async function downloadVersion(version) {
   } catch (err) {
     // -> Dismissing the file picker is not a failure
     if (err.name !== 'AbortError') {
-      notify({ type: 'negative', message: t('history.downloadFailed'), caption: err.message })
+      notify({
+        type: 'negative',
+        message: t('history.downloadFailed'),
+        caption: apiErrorMessage(err)
+      })
     }
   }
 }

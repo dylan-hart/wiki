@@ -105,7 +105,7 @@ async function create() {
       type: 'negative',
       message: err.data
         ? t(`admin.groups.${err.data.error}`, apiErrorMessage(err, t('common.error.unexpected')))
-        : err.message
+        : apiErrorMessage(err)
     })
   }
   state.isLoading = false

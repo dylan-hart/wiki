@@ -672,7 +672,7 @@ async function createPage() {
       notify({
         type: 'negative',
         message: t('common.page.homepageCreateFailed'),
-        caption: err.message
+        caption: apiErrorMessage(err)
       })
     }
     loading.hide()
@@ -712,7 +712,7 @@ async function createPage() {
       notify({
         type: 'negative',
         message: t('common.page.createFailed'),
-        caption: err.message
+        caption: apiErrorMessage(err)
       })
     }
     loading.hide()
@@ -763,7 +763,7 @@ async function suggestEdits() {
     notify({
       type: 'negative',
       message: t('common.page.suggestFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -851,7 +851,7 @@ async function toggleWatch() {
     notify({
       type: 'negative',
       message: t(watching ? 'common.page.watchFailed' : 'common.page.unwatchFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }
