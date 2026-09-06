@@ -166,7 +166,7 @@ const mcpInstallScopeOptions = computed(() => [
  */
 const mcpInstallCommand = computed(() => {
   return (
-    `claude mcp add --transport http wikijs ${window.location.origin}/_mcp ` +
+    `claude mcp add --transport http cardinaljs ${window.location.origin}/_mcp ` +
     `--header "Authorization: Bearer ${props.keyValue}" --scope ${mcpInstallScope.value}`
   )
 })
