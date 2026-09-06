@@ -1186,24 +1186,38 @@ $toc-overlay-max: 749.98px;
   The masthead. A white plate with the page's icon in a hairline square beside its title, ruled off
   from the article -- the two-stop gradient and the white top edge it used to carry were the same
   bevel the trail above it had, and they are gone for the same reason.
-*/
-/*
-  The masthead. The design gives it `padding: 16px 16px 16px 0` around a 64px icon plate, which comes
-  out at 96px and grows with a wrapped title -- so it is stated as a MINIMUM here rather than a fixed
-  height, where a fixed 95px cropped the bottom padding off a two-line title.
+
+  120px, and the same 120px on every page. What it used to say here was a 96px MINIMUM around a 64px
+  icon plate, which sounds fixed and was not: the band was sized by whatever was in it, so a page with
+  a description came out at 130px and a page without at 109px, and moving between the two visibly
+  shifted the whole article under it. Neither number was the 96px, which is why reading the
+  declaration told you nothing -- `Index.pageHeaderHeight.test.js` measures the rendered band in a
+  real browser instead.
+
+  The 8px of block padding is what makes 120px reachable rather than aspirational. The text column
+  brings its own `p-4`, and 16px here on top of it left 87px for a title-plus-description block that
+  needs 96.8 -- the band would have grown past 120 on every page that had a description, which is the
+  defect over again. At 8px the budget is 103px and both pages land on exactly 120.
+
+  A MINIMUM still, for exactly one remaining case: a title long enough to wrap. 120px against a
+  36px/1.05 title, a description and the padding leaves about a line of slack -- enough for the
+  description, not for a second title line -- and a fixed height here is already recorded as having
+  cropped one (a fixed 95px, before the minimum replaced it). So the band takes the extra line rather
+  than hiding it. That is variance, but with a cause a reader can see in front of them, not one that
+  turns on whether an author happened to fill in a field. A description long enough to wrap grows it
+  the same way and for the same reason; a description of ordinary length never does.
 */
 .page-header {
-  min-height: 96px;
-  padding-block: 16px;
+  min-height: 120px;
+  padding-block: 8px;
 
   /*
-    Sized by its contents on a phone instead, which comes out around 70px: the 95px is pitched for a 64px
-    icon beside 34px display type, and holding it under the halved icon and title of the phone layout left
-    a band of empty gradient under the description.
+    Sized by its contents on a phone instead, which comes out around 96px: the 120px is pitched for a
+    64px icon beside 34px display type, and holding it under the halved icon and title of the phone
+    layout left a band of empty ground under the description.
 
-    `auto` rather than a smaller fixed height, because a fixed one is what the desktop bar can only just
-    afford: a title long enough to wrap has nowhere to go in it. Here the bar grows by a line instead, and
-    a page with no description gets a bar shorter still.
+    So the variance the desktop band just lost is deliberate down here -- there is no height worth
+    holding when everything that would fill it is half the size.
   */
   @media (max-width: $breakpoint-xs-max) {
     min-height: 0;
