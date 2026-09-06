@@ -54,6 +54,7 @@ export async function task(payload?: NotifyEventSubscribersPayload): Promise<voi
         event,
         siteId,
         data,
+        userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
     } catch (err: any) {

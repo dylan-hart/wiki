@@ -102,6 +102,8 @@ class ApprovalNotifications {
         const safePath = escapeHtml(page.path)
         await WIKI.models.mail.send({
           to: reviewer.email,
+          kind: 'approval',
+          userId: reviewerId,
           subject: `New edit suggestion waiting for review: ${page.path}`,
           text: `A new edit suggestion is waiting for your review on "${page.path}" — ${link}`,
           html: `<p>A new edit suggestion is waiting for your review on <strong>${safePath}</strong> — <a href="${link}">${link}</a></p>`

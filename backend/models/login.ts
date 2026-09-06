@@ -815,7 +815,12 @@ class Login {
           kind: 'verify',
           userId: existing.id
         })
-        await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+        await WIKI.models.mail.sendVerifyEmail({
+          to: existing.email,
+          name: existing.name,
+          token,
+          userId: existing.id
+        })
         return { nextAction: 'verify' }
       }
       // -> A verified account already sits at this address. Answering the same generic
@@ -829,6 +834,7 @@ class Login {
         await WIKI.models.mail.sendRegistrationAttemptNotice({
           to: existing.email,
           name: existing.name,
+          userId: existing.id,
           locale: (existing.prefs as Record<string, any> | undefined)?.locale
         })
       } catch (err: any) {
@@ -863,7 +869,12 @@ class Login {
 
     if (requiresVerification) {
       const token = await WIKI.models.userCredentials.generateToken({ kind: 'verify', userId })
-      await WIKI.models.mail.sendVerifyEmail({ to: normalizedEmail, name: displayName, token })
+      await WIKI.models.mail.sendVerifyEmail({
+        to: normalizedEmail,
+        name: displayName,
+        token,
+        userId
+      })
       return { nextAction: 'verify' }
     }
 
@@ -1490,6 +1501,7 @@ class Login {
       to: user.email,
       name: user.name,
       token,
+      userId: user.id,
       locale: (user.prefs as Record<string, any> | undefined)?.locale
     })
     WIKI.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
@@ -1556,6 +1568,7 @@ class Login {
       await WIKI.models.mail.sendPasswordResetConfirmed({
         to: user.email,
         name: user.name,
+        userId: user.id,
         locale: user.prefs?.locale
       })
     } catch (err: any) {

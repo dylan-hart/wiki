@@ -123,6 +123,7 @@ export async function task(): Promise<TaskResult | void> {
         to: recipient.email,
         siteId,
         items,
+        userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
       await WIKI.models.pageWatchEvents.markManyDelivered(readable.map((event) => event.id))
