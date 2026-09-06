@@ -1,5 +1,12 @@
 # Security Policy
 
+> **This policy is upstream Wiki.js's, inherited by the fork and not yet replaced.** Cardinal.js has
+> no security contact, advisory process or Huntr programme of its own, so every channel below still
+> reaches the upstream Wiki.js maintainers at Requarks — who do not maintain Cardinal.js and cannot
+> fix a vulnerability that only exists in this fork. Deliberately left naming Wiki.js rather than
+> renamed, because a renamed copy of this document would be false. Setting up Cardinal.js's own
+> channel is tracked separately (`docs/legal/README.md`, "What is not clean", item 2).
+
 Wiki.js is built with security in mind. We try our absolute best to deliver secure and robust applications. However, like any software, there can be security bugs, either introduced by an update or by using an attack vector that wasn't considered when designing the software.
 
 If you find such vulnerability, it's important to disclose it in a quick and secure manner to the developers. Follow the instructions below to report a vulnerability.

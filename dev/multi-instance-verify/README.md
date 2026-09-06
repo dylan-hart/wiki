@@ -79,6 +79,10 @@ SELECT application_name, backend_start FROM pg_stat_activity
 WHERE application_name LIKE 'Wiki.js%' ORDER BY application_name;
 ```
 
+(The `Wiki.js%` prefix is not a stale brand reference — it is the literal `application_name`
+`backend/core/db.ts` sets on every pg connection, which still carries the pre-fork name. Change this
+query only in the same commit that changes that literal.)
+
 Expect three rows per instance (`:SCHEDULER`, the pubsub/event-bus client, `:COLLAB`) — six total
 once both are up.
 

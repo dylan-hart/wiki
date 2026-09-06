@@ -1,7 +1,12 @@
-# Wiki.js 3.x
+# Cardinal.js 3.x
 
 Next-generation open source wiki. This is the **3.x development branch** — incomplete, unstable, and
 with no upgrade path from 2.x. AGPL-3.0.
+
+Cardinal.js is a fork of [Wiki.js](https://github.com/requarks/wiki), taken from its `scarlett`
+branch. Wherever this file says "Wiki.js" it means **upstream**, not this project — the 2.5.x
+importer under `backend/migration/` and `docs/migration/`, an upstream issue reference, or a
+verbatim string this codebase still emits. Everything else is Cardinal.js.
 
 **Nothing here has to stay compatible with an existing installation.** Nobody is expected to be
 running an earlier state of this branch, so do not write migration shims, legacy-value fallbacks,
@@ -434,6 +439,37 @@ Conventions established during the conversion, worth following in new code:
   rather than changing runtime behavior inline.
 
 ## Conventions
+
+### Product name
+
+This product is **Cardinal.js**. Upstream, which it forked, is **Wiki.js**. The two are never
+interchangeable, and the test for any given occurrence is: *does this sentence remain true after the
+rename?* If it describes upstream, it stays "Wiki.js".
+
+```sh
+grep -rI "Wiki\.js\|wiki\.js\|wikijs" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=assets .
+```
+
+That is expected to keep returning hits, and a reviewer should be able to account for every one of
+them under these five categories. This is a **reviewed expectation, not a CI gate** — encoding the
+exclusion list somewhere would just fail the moment a legitimate new upstream reference is written.
+
+1. **The 2.5.x importer** — `backend/migration/`, `docs/migration/`. It genuinely reads real Wiki.js
+   2.5.x databases; renaming would make the code and its field-mapping specs describe a product that
+   does not exist. `ImportPageDialog.vue` and `ImportBatchPageDialog.vue`'s "Wiki.js's own Markdown"
+   are the same case.
+2. **The AGPL-3.0 copyright and attribution notices**, and `README.md`'s modification notice, which
+   has to name what was modified.
+3. **Upstream's own URLs, repos, accounts and community** — `requarks/wiki` issue links,
+   `requarks/wiki-locales`, `opencollective.com/wikijs`, `js.wiki`, and the inherited
+   `.github/CONTRIBUTING.md` / `SECURITY.md` / `ISSUE_TEMPLATE*` / `FUNDING.yml`, each of which
+   carries a note saying so at its head.
+4. **Comparative and historical writing** that is *about* upstream — `docs/legal/`,
+   `docs/logging-reviews/`, `docs/variances.md`, `docs/auth-provider-audit.md`.
+5. **Verbatim runtime literals this codebase still emits**, quoted in docs so the doc matches what
+   the reader will actually see: the `Wiki.js - <id>` `application_name` on pg connections, the
+   `=== Wiki.js 3.0.0 ===` boot banner, `admin.security.trustProxyHint`. A doc quoting one changes
+   only in the same commit that changes the literal.
 
 ### Style, linting, formatting
 
@@ -1206,7 +1242,7 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
   on every keystroke until the path field itself is focused (`onPathFocus` sets `pathDirty`) — left
   alone, the dialog silently saves under a title-derived path instead of the one the test asked for.
 - **Multi-site (flow 3) resolves the second site by hostname, not a UI switcher** — there isn't one
-  yet; a Wiki.js 3.x site is addressed by the request's `Host` header
+  yet; a Cardinal.js 3.x site is addressed by the request's `Host` header
   (`WIKI.sitesMappings[req.hostname]`, `index.ts`), so "switching sites" here means navigating the
   browser to a different hostname. `*.localhost` resolves to the loopback address without any
   `/etc/hosts` entry (RFC 6761, honoured by Chromium and every major OS resolver), which is what

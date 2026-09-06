@@ -1,6 +1,6 @@
 # Markdown syntax reference: built-in attribute classes
 
-Wiki.js's markdown renderer (`frontend/src/renderers/markdown.js`) includes
+Cardinal.js's markdown renderer (`frontend/src/renderers/markdown.js`) includes
 [`markdown-it-attrs`](https://github.com/arve0/markdown-it-attrs), which lets an author attach
 attributes to a markdown element by writing a curly-brace block right after it (inline elements), on
 the line immediately under it (most block elements, such as a list), or two lines under it — with a

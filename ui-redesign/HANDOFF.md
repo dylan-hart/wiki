@@ -1,6 +1,6 @@
 # Cardinal wiki — design handoff
 
-Fifteen screens recreating and redesigning the Wiki.js 3.x UI (`dylan-hart/wiki`, branch `scarlett`) in the Cardinal language. Every file is a self-contained HTML document — open it in a browser, no build step.
+Fifteen screens recreating and redesigning the Cardinal.js 3.x UI (`dylan-hart/wiki`, branch `scarlett` — the Wiki.js 3.x fork) in the Cardinal language. Every file is a self-contained HTML document — open it in a browser, no build step.
 
 Read `CLAUDE.md` for the locked design decisions and `github.md` for the screen → source-file map.
 
