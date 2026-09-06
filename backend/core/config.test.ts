@@ -399,6 +399,112 @@ describe('the config loaded line', () => {
 })
 
 /**
+ * Regression coverage for OpenProject #2723: `init()`'s only sinks before `WIKI.logger` exists are
+ * meant to be `console.warn`/`console.error` for something actually worth an operator's attention
+ * (a mistyped key, an unreadable config file) -- never a boot-progress announcement. The
+ * "Loading configuration from ... OK" pair this replaces used a newline-less `process.stdout.write`
+ * plus a bare `console.info(..., 'OK')` even when nothing was silenced, and survived the logging
+ * conventions sweep precisely because neither call's receiver is `WIKI.logger` --
+ * `test/logging-conventions.test.ts` gained its own console-call scan in the same change to close
+ * that gap.
+ */
+describe('init() prints no boot-progress line (OpenProject #2723)', () => {
+  let progressDir: string
+  let previousProgressWiki: any
+  let previousProgressDbPassFile: string | undefined
+
+  before(async () => {
+    progressDir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-config-progress-test-'))
+    await writeFile(
+      path.join(progressDir, 'base.yml'),
+      'defaults:\n  config:\n    port: 80\n    db:\n      host: localhost\n      pass: basedefaultpass\n'
+    )
+    await writeFile(path.join(progressDir, 'config.yml'), 'port: 3000\n')
+    await writeFile(
+      path.join(progressDir, 'package.json'),
+      JSON.stringify({ version: '0.0.0-test', releaseDate: '2026-01-01', dev: true })
+    )
+
+    // -> The file-level `before()` above exports DB_PASS_FILE for the whole run, which would make
+    //    the (deliberately retained) `DB_PASS_FILE is defined...` console.info fire here too --
+    //    unrelated to what this describe is about. Cleared for the duration of these tests only.
+    previousProgressDbPassFile = process.env.DB_PASS_FILE
+    delete process.env.DB_PASS_FILE
+
+    previousProgressWiki = (globalThis as any).WIKI
+    installTestWiki({ ROOTPATH: progressDir, SERVERPATH: progressDir })
+  })
+
+  after(async () => {
+    if (previousProgressDbPassFile === undefined) {
+      delete process.env.DB_PASS_FILE
+    } else {
+      process.env.DB_PASS_FILE = previousProgressDbPassFile
+    }
+    ;(globalThis as any).WIKI = previousProgressWiki
+    await rm(progressDir, { recursive: true, force: true })
+  })
+
+  test('a successful, non-silent init() never writes to stdout or announces OK', async () => {
+    // -> `process.stdout.write` itself is not exclusively `init()`'s: `node --test`'s own IPC/reporter
+    //    frames land on the same real call while other tests progress concurrently, so this asserts
+    //    on the CONTENT of what was written rather than on the call count, which the test runner's
+    //    own traffic would make flaky.
+    const writes: string[] = []
+    const write = mock.method(process.stdout, 'write', (chunk: any) => {
+      writes.push(String(chunk))
+      return true
+    })
+    const info = mock.method(console, 'info', () => {})
+
+    try {
+      await configSvc.init()
+    } finally {
+      write.mock.restore()
+      info.mock.restore()
+    }
+
+    assert.ok(
+      !writes.some((w) => w.includes('Loading configuration')),
+      `init() must never write the removed boot-progress line to stdout: ${JSON.stringify(writes)}`
+    )
+    assert.equal(info.mock.callCount(), 0, 'init() must never announce success via console.info')
+  })
+
+  test('a failing init() reports the error message alone, with no "FAILED" tag, and still exits', async () => {
+    const missingConfigDir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-config-missing-test-'))
+    await writeFile(
+      path.join(missingConfigDir, 'base.yml'),
+      'defaults:\n  config:\n    port: 80\n    db:\n      host: localhost\n      pass: basedefaultpass\n'
+    )
+    // -> No config.yml written: fs.readFile() throws ENOENT, driving the catch branch.
+
+    const previous = (globalThis as any).WIKI
+    installTestWiki({ ROOTPATH: missingConfigDir, SERVERPATH: missingConfigDir })
+    const error = mock.method(console, 'error', () => {})
+
+    try {
+      // -> The file-level `before()` above stubs `process.exit` to throw rather than actually exit.
+      await assert.rejects(() => configSvc.init(), /process\.exit\(1\) called/)
+    } finally {
+      error.mock.restore()
+      ;(globalThis as any).WIKI = previous
+      await rm(missingConfigDir, { recursive: true, force: true })
+    }
+
+    const messages = error.mock.calls.map((call) => String(call.arguments[0]))
+    assert.ok(
+      !messages.some((m) => /^FAILED$/.test(m)),
+      `expected no bare "FAILED" status tag among: ${JSON.stringify(messages)}`
+    )
+    assert.ok(
+      messages.some((m) => /ENOENT/.test(m)),
+      `expected the real fs error message to be reported among: ${JSON.stringify(messages)}`
+    )
+  })
+})
+
+/**
  * DB-backed regression coverage for OpenProject #2044: `ensureSeeded()` holds one advisory lock
  * across the is-empty check plus `initDbValues()`, so two instances booting against the same fresh
  * database can never interleave — see `ensureSeeded()`'s own doc comment in `config.ts`.

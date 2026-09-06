@@ -521,6 +521,79 @@ function assertNoFailures(found: string[], remedy: string): void {
   )
 }
 
+/**
+ * OpenProject #2723: the four rules above only ever look at `WIKI.logger`/scoped-child receivers
+ * (`isLoggerReceiver`) -- a bare status word passed straight to `console.<level>()` is invisible to
+ * all of them, which is exactly how `core/config.ts`'s pre-logger boot window
+ * (`console.info(styleText(['green', 'bold'], 'OK'))`) survived every gate this file polices. A
+ * `console.*` call before `WIKI.logger` exists is a documented sink exception (CLAUDE.md's Logging
+ * section, `core/config.ts` named explicitly) -- that exception covers *where* the line goes, not
+ * the 2.x-style tag, which the conventions ban regardless of sink.
+ *
+ * Deliberately narrower than `messageShapeFailure`'s full battery: a `console.*` call is often
+ * genuine human-facing CLI text (a script's `Usage: ...` line, an interactive tool's status prose)
+ * that has no reason to read as a lowercase log fragment, so only the closed set of 2.x-style status
+ * words is refused here, not the whole shape. The check runs on the raw argument text rather than
+ * requiring the tag to be the direct argument, since the real shape wraps it in a styling call
+ * (`styleText([...], 'OK')`).
+ */
+const STATUS_TAG_WORDS = ['OK', 'FAILED', 'SKIPPED', 'COMPLETED'] as const
+const STATUS_TAG_LITERAL = new RegExp(String.raw`(['"])(${STATUS_TAG_WORDS.join('|')})\1`)
+const CONSOLE_CALL_PATTERN = /\bconsole\.(log|info|warn|error|debug)\s*\(/g
+
+interface ConsoleCall {
+  file: string
+  line: number
+  args: string[]
+}
+
+/** Every `console.<level>(...)` call in one file -- not filtered by `isLoggerReceiver`. */
+function collectConsoleCalls(file: string, source?: string): ConsoleCall[] {
+  const src = source ?? readFileSync(file, 'utf8')
+  const mask = classifySource(src)
+  const lineStarts: number[] = [0]
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] === '\n') {
+      lineStarts.push(i + 1)
+    }
+  }
+  const lineOf = (offset: number) => {
+    let lo = 0
+    let hi = lineStarts.length - 1
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      if (lineStarts[mid] <= offset) {
+        lo = mid
+      } else {
+        hi = mid - 1
+      }
+    }
+    return lo
+  }
+
+  const out: ConsoleCall[] = []
+  CONSOLE_CALL_PATTERN.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = CONSOLE_CALL_PATTERN.exec(src)) !== null) {
+    if (mask[match.index] !== CODE) {
+      continue
+    }
+    const open = match.index + match[0].length - 1
+    const args = splitArguments(src, mask, open)
+    if (args === null) {
+      continue
+    }
+    out.push({ file: path.relative(BACKEND_ROOT, file), line: lineOf(match.index) + 1, args })
+  }
+  return out
+}
+
+const ALL_CONSOLE_CALLS = listSourceFiles(BACKEND_ROOT, {
+  ext: ['.ts'],
+  skip: ['.test.ts', '.d.ts'],
+  skipDirs: SKIP_DIRS
+}).flatMap((file) => collectConsoleCalls(file))
+
 describe('logging conventions (OpenProject #2668)', () => {
   test('the scan actually found the logger call sites it is meant to police', () => {
     // -> A scanner that silently matches nothing passes every rule below. `backend/` had 339 direct
@@ -701,5 +774,34 @@ describe('logging conventions (OpenProject #2668)', () => {
     // -> A scoped child's message is its FIRST argument, so the rule has to read the right one.
     assert.equal(failing("log.info('Pulling From Origin.')", messageShapeFailure), 1)
     assert.equal(failing("log.info('pulling from origin')", messageShapeFailure), 0)
+  })
+
+  test('no raw console.<level> call anywhere in backend/ carries a 2.x-style status tag (OpenProject #2723)', () => {
+    const found = ALL_CONSOLE_CALLS.filter((call) =>
+      call.args.some((arg) => STATUS_TAG_LITERAL.test(arg))
+    )
+    assert.deepEqual(
+      found.map((call) => `${call.file}:${call.line}`),
+      [],
+      'A console call before WIKI.logger exists is a documented sink exception (CLAUDE.md), not an exemption from the tag-free convention -- write the fact into the message instead of a bare OK/FAILED/SKIPPED/COMPLETED.'
+    )
+  })
+
+  test('the console-call scan actually catches the shape it is meant to police', () => {
+    // -> The exact shape `core/config.ts` used to carry: the tag is a nested argument to a styling
+    //    call, not the direct argument, which is why this checks the raw argument text rather than
+    //    requiring the message itself to be the bare literal.
+    const calls = collectConsoleCalls(
+      'fixture.ts',
+      "console.info(styleText(['green', 'bold'], 'OK'))"
+    )
+    assert.equal(calls.length, 1)
+    assert.ok(calls[0]!.args.some((arg) => STATUS_TAG_LITERAL.test(arg)))
+    assert.equal(collectConsoleCalls('fixture.ts', "console.log('pulling from origin')").length, 1)
+    assert.ok(
+      !STATUS_TAG_LITERAL.test(
+        collectConsoleCalls('fixture.ts', "console.log('pulling from origin')")[0]!.args[0]!
+      )
+    )
   })
 })

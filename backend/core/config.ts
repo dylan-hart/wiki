@@ -98,10 +98,6 @@ export default {
       overrides.push('CONFIG_FILE')
     }
 
-    if (!silent) {
-      process.stdout.write(styleText('blue', `Loading configuration from ${confPaths.config}... `))
-    }
-
     let appconfig: ConfigObject = {}
     let appdata: ConfigObject = {}
 
@@ -110,11 +106,7 @@ export default {
         cfgHelper.parseConfigValue(await fs.readFile(confPaths.config, 'utf8'))
       ) as ConfigObject
       appdata = load(await fs.readFile(confPaths.data, 'utf8')) as ConfigObject
-      if (!silent) {
-        console.info(styleText(['green', 'bold'], 'OK'))
-      }
     } catch (err: any) {
-      console.error(styleText(['red', 'bold'], 'FAILED'))
       console.error(err.message)
 
       console.error(
@@ -160,6 +152,12 @@ export default {
 
     // Load DB Password from Docker Secret File
     if (process.env.DB_PASS_FILE) {
+      // -> `silent` now gates only this line: the "Loading configuration... OK" pair it used to
+      //    share the flag with was a raw status-tag line the logging sweep had missed (OpenProject
+      //    #2723) and has been removed outright. Worker threads (`worker.ts`) and the MCP stdio
+      //    transport (`mcp/bootstrap.ts` -- whose stdout must stay pure JSON-RPC, and which
+      //    `process.stdout.write` would bypass even after `mcp/stdio.ts` redirects `console.log`)
+      //    still need this one silenced.
       if (!silent) {
         console.info(styleText('blue', 'DB_PASS_FILE is defined. Will use secret from file.'))
       }
