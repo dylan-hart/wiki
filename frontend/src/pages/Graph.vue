@@ -220,6 +220,7 @@ import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
 import {
   attachZoom as attachGraphZoom,
   computeClusters as buildClusters,
+  linkDistanceFor,
   startSimulation as runSimulation
 } from './graphSimulation.js'
 
@@ -1103,16 +1104,28 @@ watch(
 
 /** Re-attaching `collide` (rather than mutating it in place) is what makes `forceCollide` re-read
  *  every node's radius through `collideRadiusFor()` -- see that function's own doc comment on why a
- *  plain in-place change wouldn't be picked up. No `applyFilters()`/`syncSimulationToVisibleSet()`
- *  call needed: neither the visible node set nor any edge changes here, only how big each dot
- *  draws and how much room `collide` gives it. */
+ *  plain in-place change wouldn't be picked up. `forceLink`'s own target distance
+ *  (`linkDistanceFor()`, OpenProject #2562) needs the same treatment and used to be missed here
+ *  (OpenProject #2749): d3-force evaluates `.distance()` once, at attach time, exactly like
+ *  `collide`'s radius (see `graphSimulation.js`'s own doc comment), so leaving it untouched left
+ *  every link's resting distance frozen at whatever radii existed when the simulation last
+ *  (re)started -- a large node bumping into a small one after a live "size by" change, even though
+ *  `collide`'s own minimum separation was already tracking the new radii correctly. Calling
+ *  `.distance()` again on the ALREADY-attached link force (rather than re-attaching a brand new
+ *  `forceLink` instance, the way `collide` does) is enough: it re-runs d3-force's own
+ *  `initializeDistance()` synchronously against the current `edges.value`, with no need to
+ *  re-resolve `link.source`/`link.target` from ids the way a fresh attachment would. No
+ *  `applyFilters()`/`syncSimulationToVisibleSet()` call needed either way: neither the visible
+ *  node set nor the edge set changes here, only how big each dot draws and how much room
+ *  `collide`/`link` give it. */
 watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
-  // -> Refresh BEFORE re-attaching `collide` (OpenProject #2561): the new attachment snapshots
-  //    every node's radius immediately, off whichever metric/count-mode just became active, so the
-  //    range has to already reflect that switch -- `relayout()`'s own `computeClusters()` refresh
-  //    below runs too late for this specific force-initialize moment.
+  // -> Refresh BEFORE re-attaching `collide`/`link` (OpenProject #2561): the new attachment
+  //    snapshots every node's radius immediately, off whichever metric/count-mode just became
+  //    active, so the range has to already reflect that switch -- `relayout()`'s own
+  //    `computeClusters()` refresh below runs too late for this specific force-initialize moment.
   refreshMetricRange()
   simulation?.force('collide', forceCollide(collideRadiusFor))
+  simulation?.force('link')?.distance((link) => linkDistanceFor(link, collideRadiusFor))
   simulation?.alpha(0.3).restart()
   relayout()
   repaint()

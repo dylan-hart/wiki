@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { drawLabels, LABEL_MAX_EFFECTIVE_FONT_PX } from './graphDraw.js'
+import { linkDistanceFor } from './graphSimulation.js'
 import { mountGraph } from './graphFixtures.js'
 
 /*
@@ -280,5 +281,40 @@ describe('Graph.vue node sizing and the control rail', () => {
     const [drawnFontPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
     expect(Number(drawnFontPx)).toBeLessThan(10)
     expect(Number(drawnFontPx) * 4).toBeLessThanOrEqual(LABEL_MAX_EFFECTIVE_FONT_PX)
+  })
+
+  it("re-attaches forceLink's own target distance (not just forceCollide) after a live sizing change, so link distances don't go stale (OpenProject #2749)", async () => {
+    const wrapper = await mountGraph()
+
+    // -> d3-force's `forceLink().distance(fn)` setter is the ONLY thing that makes it re-read
+    //    every link's endpoints' radii (it calls its own `initializeDistance()` synchronously, per
+    //    `node_modules/d3-force/src/link.js`) -- the same one-time-at-attach shape `collide` has,
+    //    and the pre-fix bug was that only `collide` got re-attached on a sizing change, never
+    //    this. Spying on the real, public d3-force accessor (the same object
+    //    `Graph.rendering.test.js` already reaches into via `.force('link').links()`) directly
+    //    tests the mechanism the fix adds, without depending on d3-force's private tick math.
+    const linkForce = wrapper.vm.simulation.force('link')
+    const distanceSpy = vi.spyOn(linkForce, 'distance')
+
+    wrapper.vm.sizeCountMode = 'total'
+    await flushPromises()
+
+    // -> Pre-fix, nothing on this watcher ever touches `forceLink` at all -- `distanceSpy` would
+    //    still show zero calls here.
+    expect(distanceSpy).toHaveBeenCalled()
+
+    // -> Must actually differ per-link off the CURRENT (post-toggle) radii, not just be "a
+    //    function" -- reproduces exactly what `linkDistanceFor()`/`collideRadiusFor()` compute
+    //    right now for a real resolved link between the fixture's two nodes.
+    const setterCall = distanceSpy.mock.calls.findLast((args) => args.length === 1)
+    expect(setterCall).toBeDefined()
+    const [newDistanceFn] = setterCall
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    const expected = linkDistanceFor(
+      { source: nodeA, target: nodeB },
+      (node) => wrapper.vm.radiusFor(node) + 2
+    )
+    expect(newDistanceFn({ source: nodeA, target: nodeB })).toBeCloseTo(expected, 5)
   })
 })
