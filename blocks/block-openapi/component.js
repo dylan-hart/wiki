@@ -94,7 +94,7 @@ export class BlockOpenapiElement extends LitElement {
     name: 'OpenAPI Spec',
     description:
       'Renders an OpenAPI (Swagger) spec — fetched from a URL, or written inline — into interactive API documentation.',
-    icon: 'api',
+    icon: 'tabler:api',
     /*
       Fenced, and not as a nicety: an inline spec is YAML or JSON, and both are full of characters
       markdown reads as its own — an unindented mapping key looks like a paragraph, `-` opens a list,

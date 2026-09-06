@@ -20,7 +20,7 @@ export class BlockAsciinemaElement extends LitElement {
     block: 'asciinema',
     name: 'Terminal Recording',
     description: 'Plays an asciinema recording — a .cast file — in a terminal player.',
-    icon: 'run-command',
+    icon: 'tabler:terminal-2',
     props: [
       {
         name: 'src',

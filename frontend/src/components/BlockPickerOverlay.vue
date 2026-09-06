@@ -44,9 +44,15 @@
                   class="block-picker-card"
                   :class="{ 'is-selected': state.selected?.id === block.id }"
                   @click="select(block)">
-                  <w-icon
-                    :name="`img:/_assets/icons/ultraviolet-${block.isCustom ? 'plugin' : block.icon}.svg`"
-                    size="40px" />
+                  <!--
+                    The block's own Iconify reference, read straight off the definition rather than
+                    assembled into an `img:/_assets/icons/ultraviolet-<name>.svg` path. The card is a
+                    line drawing, and the design file's own handoff says why the illustrated set
+                    cannot ride on one: "2.x drew a coloured glow, which a line-drawing card cannot
+                    wear." A custom block brings no in-repo definition to trust, so it draws the one
+                    fallback glyph instead.
+                  -->
+                  <w-icon :name="block.isCustom ? 'tabler:puzzle' : block.icon" size="40px" />
                   <div class="min-w-0 flex-1 text-left">
                     <div class="text-body2">
                       <strong>{{ block.name }}</strong>

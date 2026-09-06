@@ -48,7 +48,7 @@ export class BlockIndexElement extends LitElement {
     name: 'Index',
     description:
       "Lists a folder's pages -- set Depth above 0 to also pull in subfolders for a nested, book/chapter-style index or table of contents.",
-    icon: 'index',
+    icon: 'tabler:list-search',
     props: [
       {
         name: 'path',

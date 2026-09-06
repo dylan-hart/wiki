@@ -70,7 +70,7 @@ export class BlockM365VideoElement extends VideoEmbedElement {
     name: 'Microsoft 365 Video',
     description:
       'Embeds a Clipchamp or Stream-on-SharePoint video. Plays only for a viewer already signed into that Microsoft 365 tenant with access to the file — there is no public link for these.',
-    icon: 'microsoft',
+    icon: 'tabler:brand-office',
     props: [
       {
         name: 'embed',

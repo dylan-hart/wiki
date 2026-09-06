@@ -61,7 +61,7 @@ export class BlockDailymotionElement extends VideoEmbedElement {
     block: 'dailymotion',
     name: 'Dailymotion Player',
     description: 'Embeds a Dailymotion video.',
-    icon: 'widescreen',
+    icon: 'tabler:movie',
     props: [
       {
         name: 'url',
