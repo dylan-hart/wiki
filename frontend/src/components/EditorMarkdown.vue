@@ -1405,6 +1405,11 @@ onMounted(async () => {
       read as a different application's window sitting inside this one -- and the pair that replaced
       them had ground and gutter the wrong way round against what the Editor file actually draws (its
       `#14171f` is on the line-number cell, `#171b24` on the column behind the text).
+
+      Every value below is literal hex rather than a `var(--color-*)` reference on purpose: Monaco's
+      `defineTheme()` reads `colors` as plain hex/rgba strings and never resolves a CSS custom
+      property, so there is no token to move this onto -- it is re-typed against `css/tailwind.css`'s
+      values instead, and pinned by `EditorMarkdown.theme.test.js`.
     */
     colors: {
       'editor.background': '#171b24',
