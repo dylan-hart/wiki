@@ -385,7 +385,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a single page',
         description:
-          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Access is enforced per page against the requester's group rules (`mayOnPage()`), not against a group-wide permission list, so who may read a given page can differ path by path. `withContent` needs `read:source` ON THIS PAGE on top of `read:pages`, granted by a group rule.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester holds `write:pages` or `manage:pages` ON THIS PAGE, for whom the password is not a barrier.",
+          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Access is enforced per page against the requester's group rules (`mayOnPage()`), not against a group-wide permission list, so who may read a given page can differ path by path. `withContent` needs `read:source` ON THIS PAGE on top of `read:pages`, granted by a group rule.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester holds `write:pages` or `manage:pages` ON THIS PAGE, for whom the password is not a barrier.\n\n`revision` — where the page stands in its own history — needs `read:history` ON THIS PAGE, and is absent entirely without it.",
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -462,7 +462,19 @@ async function routes(app: FastifyInstance) {
         is what makes a page view one request instead of four.
       */
       const actorId = actor?.id ?? null
-      const [approvalState, isWatching, commentsCount] = await Promise.all([
+      /*
+        `rev N · M changes` for the metadata rail's Revision section (OpenProject #2651), carried back
+        with the page rather than fetched separately -- the history route is keyset-paginated over
+        whole versions, which is the wrong shape for "just where the newest one stands", and the rail
+        must not cost the page view a second round trip.
+
+        History data, so it is gated on `read:history` ON THIS PAGE, checked with `mayOnPage` like
+        every other permission here: `read:history` is a page rule permission, and a route-level
+        `config.permissions` reads the group-wide list only, so declaring it there would refuse
+        everybody. A reader without it gets no `revision` key at all (not a zeroed one), and pays for
+        no query either.
+      */
+      const [approvalState, isWatching, commentsCount, revision] = await Promise.all([
         WIKI.models.approvals.pageViewerState(req, req.params.siteId, {
           id: page.id,
           path: page.path,
@@ -473,7 +485,10 @@ async function routes(app: FastifyInstance) {
         }),
         // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
         WIKI.models.pageWatching.isWatching(page.id, actorId),
-        WIKI.models.comments.countForPage(page.id)
+        WIKI.models.comments.countForPage(page.id),
+        mayOnPage(req, 'read:history', req.params.siteId, page)
+          ? WIKI.models.pageHistory.revisionSummary(page.id)
+          : null
       ])
       /*
         Who else already has this page open, on this instance — a cheap "someone else has this open"
@@ -502,6 +517,9 @@ async function routes(app: FastifyInstance) {
       return {
         ...page,
         commentsCount,
+        // -> Spread, not `revision: revision ?? null`: absence is the answer for a reader without
+        //    `read:history`, and a null here would serialize as `{ ordinal: 0 }` against the schema
+        ...(revision ? { revision } : {}),
         viewer: {
           permissions: pagePermissionsFor(req, req.params.siteId, page),
           ...approvalState,
