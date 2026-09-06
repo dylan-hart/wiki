@@ -10,25 +10,15 @@
             contents would jump mid-slide. Long titles truncate instead. -->
     <div class="browse-menu-panel">
       <div class="browse-menu-header flex flex-nowrap items-center">
-        <!-- -> There is nowhere to go up to from the root, so the button is absent there rather than
-                sitting disabled. It slides in from the left as its own space opens up, and back out
-                the same way, so the title beside it moves with it instead of jumping. -->
-        <transition name="browse-menu-up">
-          <div v-if="!isRoot" class="browse-menu-up-slot">
-            <!-- -> The icon comes through the slot rather than the `icon` prop, which is the only way
-                    to size it: WBtn draws a prop icon at WIcon's own default of 24px -->
-            <w-btn
-              class="browse-menu-up acrylic-btn"
-              flat
-              dense
-              :disabled="state.isLoading"
-              :aria-label="t(`common.browse.upOneLevel`)"
-              @click="goUp">
-              <w-icon name="tabler:arrow-up" size="xs" />
-              <w-tooltip>{{ t('common.browse.upOneLevel') }}</w-tooltip>
-            </w-btn>
-          </div>
-        </transition>
+        <!-- -> The shared up-one-level plate (`UpOneLevelBtn.vue`), which owns the absent-at-the-root
+                rule and the slide-in that keeps the title beside it moving with it rather than
+                jumping. `acrylic-btn` is passed rather than baked in: this is the one of its three
+                call sites that sits on a translucent surface. -->
+        <up-one-level-btn
+          :show="!isRoot"
+          :disabled="state.isLoading"
+          plate-class="acrylic-btn"
+          @click="goUp" />
         <div class="min-w-0 flex-1">
           <!-- -> The root has no title of its own, and the site is already named in the sidebar
                   header directly above this, so there the path stands alone -->
@@ -109,6 +99,8 @@ import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import UpOneLevelBtn from './UpOneLevelBtn.vue'
 
 /**
  * The sidebar's Browse menu: one folder of the site at a time, as a reader walks it.
@@ -267,84 +259,13 @@ function goUp() {
   difference each time a level changed. 52px is the two lines it holds at most -- a 20px title and a
   20px path -- plus the space around them.
 
-  That leaves 12px above and below the 28px button, which is where the 12px beside it comes from: the
+  That leaves 12px above and below the 28px plate, which is where the 12px beside it comes from: the
   gap around it reads as even only if all four sides match. The left one is this padding, the right
-  one is the slot's own margin below.
+  one is the plate's own trailing margin, which `UpOneLevelBtn.vue` owns along with the rest of it.
 */
 .browse-menu-header {
   height: 52px;
   padding: 0 8px 0 12px;
-}
-
-/*
-  A square target. `dense` puts 4px around the 18px icon, and pinning the min-width to the 28px the
-  height comes to is what keeps the box from ending up wider or narrower than it is tall, rather than
-  leaving the square to be a coincidence of two component defaults.
-*/
-.browse-menu-up {
-  min-width: 28px;
-}
-
-/* -> Dimmed at rest: it is the one control up here, and it should not compete with the folder name
-      beside it. Full strength once the pointer is on it. */
-.browse-menu-up .w-icon {
-  opacity: 0.7;
-}
-
-.browse-menu-up:hover .w-icon {
-  opacity: 1;
-}
-
-/*
-  The button's footprint, as its own element: `width` is what animates, so the space closes up with
-  the button rather than after it. Sized to match the button, which fills it exactly, plus the gap
-  that separates it from the title -- which belongs to the button and so goes when it goes.
-*/
-.browse-menu-up-slot {
-  flex: none;
-  width: 28px;
-  margin-inline-end: 12px;
-}
-
-/*
-  Clipped only while it moves. At rest the slot must not clip, or it would cut off the focus ring
-  WBtn draws just outside its own box.
-*/
-.browse-menu-up-enter-active,
-.browse-menu-up-leave-active {
-  overflow: hidden;
-  transition:
-    width 0.18s var(--ease-standard),
-    margin-inline-end 0.18s var(--ease-standard),
-    opacity 0.18s var(--ease-standard);
-}
-
-/* -> The slide itself is on the button: a percentage transform on the slot would resolve against a
-      width that is zero at exactly that moment, and move nothing */
-.browse-menu-up-enter-active .browse-menu-up,
-.browse-menu-up-leave-active .browse-menu-up {
-  transition: transform 0.18s var(--ease-standard);
-}
-
-.browse-menu-up-enter-from,
-.browse-menu-up-leave-to {
-  width: 0;
-  margin-inline-end: 0;
-  opacity: 0;
-}
-
-.browse-menu-up-enter-from .browse-menu-up,
-.browse-menu-up-leave-to .browse-menu-up {
-  transform: translateX(-100%);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .browse-menu-up-enter-active,
-  .browse-menu-up-leave-active,
-  .browse-menu-up-enter-active .browse-menu-up,
-  .browse-menu-up-leave-active .browse-menu-up {
-    transition-duration: 0.01ms;
-  }
 }
 
 .browse-menu-target {
