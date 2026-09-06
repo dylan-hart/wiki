@@ -1,5 +1,10 @@
 <template>
-  <w-page padding class="tags-browse">
+  <w-page class="tags-browse">
+    <!--
+      No `padding` on the page: the design runs the section band edge to edge across the content
+      column and pads only the body beneath it. `w-page padding` inset the band by 16px on all four
+      sides, which made it read as a floating heading rather than as the column's own header strip.
+    -->
     <div class="w-section-header">{{ t('tags.title') }}</div>
 
     <div class="tags-browse-body">
@@ -7,33 +12,54 @@
         <template v-if="state.selectedTags.length > 0">
           <div class="tags-browse-subheader flex items-center justify-between">
             <span>{{ t('tags.currentSelection') }}</span>
-            <w-btn flat dense :label="t('tags.clearSelection')" @click="clearSelection" />
+            <!--
+              Plain secondary text flush to the column's own 8px edge, as the design draws it: the
+              dense button's 10px of horizontal padding pushed the label past every chip below it.
+            -->
+            <w-btn
+              flat
+              dense
+              size="12px"
+              padding="none"
+              text-color="text-secondary"
+              :label="t('tags.clearSelection')"
+              @click="clearSelection" />
           </div>
-          <div class="flex flex-wrap items-center gap-1 p-2">
+          <div class="tags-browse-chips flex flex-wrap items-center gap-[5px] p-2">
+            <!--
+              The `#` is a mono glyph, not a drawn icon: the design sets it in Roboto Mono ahead of
+              the label, exactly as the already-settled page tag plate (`PageTags.vue`) does.
+            -->
             <w-chip
               v-for="tag of state.selectedTags"
               :key="`selected-${tag}`"
               color="primary"
               text-color="white"
-              dense
+              size="11.5px"
               removable
               @remove="toggleTag(tag)">
-              <w-icon class="me-1" name="tabler:hash" size="14px" />
-              <span class="text-caption">{{ tag }}</span>
+              <span class="tags-browse-hash" aria-hidden="true">#</span>{{ tag }}
             </w-chip>
           </div>
         </template>
 
         <div class="tags-browse-subheader flex items-center justify-between">
           <span>{{ state.managementMode ? t('tags.manageTags') : t('editor.props.tags') }}</span>
+          <!--
+            A 24px box with a 14px glyph, per the design: `size="10px"` gives the box (WBtn's round
+            variant is 2.4em), and the glyph comes through the SLOT rather than the `icon` prop so
+            `WIcon`'s own `size` renders as an inline style -- the prop route would inherit WBtn's
+            1.715em and draw a 17px gear inside a 24px circle.
+          -->
           <w-btn
             v-if="canManageTags"
             flat
-            dense
             round
-            :icon="state.managementMode ? 'tabler:x' : 'tabler:settings'"
+            size="10px"
             :aria-label="state.managementMode ? t('common.actions.exit') : t('tags.manageTags')"
-            @click="toggleManagementMode" />
+            @click="toggleManagementMode">
+            <w-icon :name="state.managementMode ? 'tabler:x' : 'tabler:settings'" size="14px" />
+          </w-btn>
         </div>
 
         <div v-if="state.managementMode" class="flex flex-col gap-1 p-2">
@@ -92,17 +118,18 @@
             {{ t('tags.selectOneMoreTagsHint') }}
           </span>
         </div>
-        <div v-else class="flex flex-wrap items-center gap-1 p-2">
+        <div v-else class="tags-browse-chips flex flex-wrap items-center gap-[5px] p-2">
           <w-chip
             v-for="entry of availableTags"
             :key="`available-${entry.tag}`"
             color="slate"
             text-color="white"
-            dense
+            size="11.5px"
             clickable
             @click="toggleTag(entry.tag)">
-            <w-icon class="me-1" name="tabler:hash" size="14px" />
-            <span class="text-caption">{{ entry.tag }} ({{ entry.usageCount }})</span>
+            <span class="tags-browse-hash" aria-hidden="true">#</span>{{ entry.tag }} ({{
+              entry.usageCount
+            }})
           </w-chip>
           <span
             v-if="availableTags.length < 1 && state.loadingTags < 1"
@@ -112,9 +139,13 @@
         </div>
 
         <div class="tags-browse-subheader">{{ t('tags.locale') }}</div>
+        <!--
+          Not `dense`: the design's filter fields are the 34px frame with 10px of inset, which is
+          exactly what the DEFAULT field draws (`composables/fieldFrame.js`) -- `dense` is the 28px
+          one. `options-dense` is unrelated and stays: it compresses the dropped-open menu.
+        -->
         <div class="p-2">
           <w-select
-            dense
             options-dense
             emit-value
             map-options
@@ -122,21 +153,20 @@
             :model-value="state.filterLocale"
             :options="localeOptions"
             @update:model-value="setLocale">
-            <template #prepend><w-icon name="tabler:language" size="xs" /></template>
+            <template #prepend><w-icon name="tabler:language" size="14px" /></template>
           </w-select>
         </div>
 
         <div class="tags-browse-subheader">{{ t('tags.orderBy') }}</div>
         <div class="p-2">
           <w-select
-            dense
             options-dense
             emit-value
             map-options
             :aria-label="t(`tags.orderBy`)"
             v-model="state.orderBy"
             :options="orderByOptions">
-            <template #prepend><w-icon name="tabler:sort-descending" size="xs" /></template>
+            <template #prepend><w-icon name="tabler:sort-descending" size="14px" /></template>
           </w-select>
         </div>
       </div>
@@ -147,7 +177,7 @@
           v-if="state.selectedTags.length > 0">
           <span>{{ t('search.results') }}</span>
           <i18n-t
-            class="text-caption"
+            class="tags-browse-count text-caption"
             v-if="state.loading < 1"
             keypath="search.totalResults"
             tag="span"
@@ -157,12 +187,11 @@
         </div>
         <div class="p-2">
           <w-input
-            dense
             clearable
             v-model="state.filterQuery"
             :placeholder="t(`tags.searchWithinResultsPlaceholder`)"
             :disabled="state.selectedTags.length < 1">
-            <template #prepend><w-icon name="tabler:search" size="xs" /></template>
+            <template #prepend><w-icon name="tabler:search" size="14px" /></template>
           </w-input>
         </div>
 
@@ -176,46 +205,65 @@
         <div class="p-4" v-else-if="state.results.length < 1">
           <em>{{ hasResultFilters ? t('tags.noResultsWithFilter') : t('tags.noResults') }}</em>
         </div>
-        <w-list v-else separator>
-          <w-item
-            v-for="item of state.results"
-            :key="item.id"
-            clickable
-            :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)">
-            <w-item-section avatar>
-              <w-avatar color="primary" text-color="white" rounded>
-                <w-icon :name="item.icon || defaultPageIcon" size="24px" />
-              </w-avatar>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label>{{ item.title }}</w-item-label>
-              <w-item-label v-if="item.description" caption>{{ item.description }}</w-item-label>
-              <w-item-label class="text-grey" caption>/{{ item.path }}</w-item-label>
-              <w-item-label caption>{{
-                t('tags.pageLastUpdated', { date: humanizeDate(t, item.updatedAt) })
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <div class="flex flex-wrap items-center justify-end gap-1">
-                <w-chip
-                  v-for="tag of item.tags"
-                  :key="`${item.id}-${tag}`"
-                  color="slate"
-                  text-color="white"
-                  icon="tabler:hash"
-                  size="sm"
-                  >{{ tag }}</w-chip
+        <!--
+          The rows sit inside a hairline plate on the surface, not loose on the page ground -- the
+          design wraps them in a bordered white box inset 8px from the column. `separator` is off
+          because the rule the design draws between rows is the pale tint, not the list's own
+          black-at-12%; `.tags-browse-plate` draws it as a border instead.
+        -->
+        <div v-else class="tags-browse-plate">
+          <w-list>
+            <w-item
+              v-for="item of state.results"
+              :key="item.id"
+              clickable
+              :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)">
+              <w-item-section avatar top>
+                <w-avatar color="primary" text-color="white" square size="36px">
+                  <w-icon :name="item.icon || defaultPageIcon" size="20px" />
+                </w-avatar>
+              </w-item-section>
+              <w-item-section>
+                <w-item-label class="tags-browse-result-title">{{ item.title }}</w-item-label>
+                <w-item-label v-if="item.description" caption class="tags-browse-result-desc">{{
+                  item.description
+                }}</w-item-label>
+                <!--
+                  Path and last-updated are the design's mono metadata pair -- the same treatment,
+                  not a plain caption and a greyed one.
+                -->
+                <w-item-label caption class="tags-browse-result-meta"
+                  >/{{ item.path }}</w-item-label
                 >
-              </div>
-            </w-item-section>
-          </w-item>
-        </w-list>
+                <w-item-label caption class="tags-browse-result-meta">{{
+                  t('tags.pageLastUpdated', { date: humanizeDate(t, item.updatedAt) })
+                }}</w-item-label>
+              </w-item-section>
+              <w-item-section side top>
+                <div class="flex flex-wrap items-center justify-end gap-1">
+                  <w-chip
+                    v-for="tag of item.tags"
+                    :key="`${item.id}-${tag}`"
+                    color="slate"
+                    text-color="white"
+                    size="11px"
+                    dense>
+                    <span class="tags-browse-hash" aria-hidden="true">#</span>{{ tag }}
+                  </w-chip>
+                </div>
+              </w-item-section>
+            </w-item>
+          </w-list>
+        </div>
         <div
-          class="flex justify-center p-4"
+          class="tags-browse-more flex justify-center"
           v-if="state.results.length > 0 && state.results.length < state.total">
+          <!-- An outlined plate on the surface, as the design draws it -- not a flat accent label. -->
           <w-btn
-            flat
+            outline
             color="primary"
+            padding="none md"
+            class="bg-surface dark:bg-dark-3"
             :label="t('search.loadMore')"
             :loading="state.loading > 0"
             @click="loadMore" />
@@ -569,41 +617,191 @@ onMounted(async () => {
 </script>
 
 <style lang="scss">
+/*
+  `ui-redesign/Cardinal Wiki - Tags 3x.dc.html`, walked top to bottom (OpenProject #2626). Every
+  metric below is the design file's own; where a number here looks arbitrary it is quoted from it.
+
+  Deliberately NOT scoped. Several rules have to reach shared components the page mounts (`WChip`'s
+  padding, `WItem`'s row metrics, `WItemLabel`'s caption tone), and a scoped block cannot -- while an
+  SFC style block is emitted UNLAYERED, which is what lets a plain class here beat the Tailwind
+  utility those components carry without `!important`.
+*/
 .tags-browse {
   &-body {
     display: flex;
     align-items: flex-start;
+    /*
+      The design pads the body `16px 20px` beneath a full-bleed section band. `.w-section-header`
+      already contributes its own 12px `margin-block-end`, so 4px here lands the first row on the
+      design's 16px -- rather than overriding the shared band, which #2631 owns.
+    */
+    padding: 4px 20px 16px;
     gap: 1.5rem;
+    /* The design wraps rather than squeezing: 280 + 24 + 320 is the point the two columns stack. */
+    flex-wrap: wrap;
   }
 
   &-sidebar {
     flex: 0 0 280px;
+    min-width: 260px;
   }
 
   &-results {
     flex: 1 1 auto;
-    min-width: 0;
+    min-width: 320px;
   }
 
   &-subheader {
-    padding: 0.5rem 0.5rem 0;
+    /* 12px above every group, 8px above the column's first -- the design's own rhythm. */
+    padding: 12px 8px 0;
+    font-size: 13px;
     font-weight: 500;
     color: $primary;
+
+    &:first-child {
+      padding-block-start: 8px;
+    }
 
     @at-root .body--dark & {
       color: var(--color-primary-light);
     }
   }
 
+  /*
+    The `#` ahead of a chip's label, in the design's mono. Sized in `em` so one rule serves both the
+    11.5px sidebar chip (10px) and the 11px result-row chip (9.5px).
+  */
+  &-hash {
+    margin-inline-end: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.87em;
+    font-weight: 500;
+  }
+
+  /* Sidebar chips: `padding:3px 7px; gap:4px` -- neither the dense nor the default WChip box. */
+  &-chips .w-chip {
+    gap: 4px;
+    padding: 3px 7px;
+  }
+
+  &-count {
+    color: $text-secondary;
+
+    strong {
+      color: $ink;
+      font-weight: 700;
+    }
+
+    @at-root .body--dark & {
+      color: $text-secondary-dark;
+
+      strong {
+        color: $text-dark;
+      }
+    }
+  }
+
+  &-plate {
+    margin: 8px 8px 0;
+    border: 1px solid $hairline;
+    background-color: $surface;
+
+    @at-root .body--dark & {
+      border-color: $hairline-dark;
+      background-color: $dark-3;
+    }
+
+    .w-chip {
+      gap: 3px;
+    }
+  }
+
+  &-result-title {
+    font-size: 14.5px;
+    font-weight: 500;
+    color: $ink;
+
+    @at-root .body--dark & {
+      color: $text-dark;
+    }
+  }
+
+  &-result-desc {
+    font-size: 12.5px;
+    color: $text-secondary;
+
+    @at-root .body--dark & {
+      color: $text-secondary-dark;
+    }
+  }
+
+  &-result-meta {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: $text-caption;
+
+    @at-root .body--dark & {
+      color: $text-caption-dark;
+    }
+  }
+
+  &-more {
+    padding: 16px 8px 0;
+  }
+
   @media (max-width: $breakpoint-sm-max) {
     &-body {
       flex-direction: column;
+      /* The design's 20px inline padding is a desktop rhythm; a phone column takes the page's own. */
+      padding-inline: 16px;
     }
 
-    &-sidebar {
+    &-sidebar,
+    &-results {
       flex: none;
       width: 100%;
+      min-width: 0;
     }
+  }
+}
+
+/*
+  The result row's own box, at the design's metrics rather than `WItem`/`WItemSection`'s defaults.
+
+  Written with the page class stated a second time on purpose: the rules these override live in
+  those components' SCOPED style blocks, which are unlayered and carry a `[data-v-*]` attribute --
+  so `.w-item-section--main ~ .w-item-section--side` there scores the same as the two-class form
+  here would, and a tie is settled by whichever stylesheet Vite happens to emit last. The extra
+  class puts the outcome on specificity instead, where it is deterministic.
+*/
+.tags-browse .tags-browse-plate {
+  /* Row box: `padding:12px 14px`, top-aligned, no minimum band height of its own. */
+  .w-item {
+    align-items: flex-start;
+    min-height: 0;
+    padding: 12px 14px;
+  }
+
+  /*
+    The rule between rows is the pale tint, a step lighter than the plate's own hairline -- drawn
+    here rather than through `WList`'s `separator`, which paints black at 12%.
+  */
+  .w-item + .w-item {
+    border-block-start: 1px solid $tint;
+
+    @at-root .body--dark & {
+      border-block-start-color: $hairline-dark;
+    }
+  }
+
+  /* 14px between the plate, the body and the tag rail -- the design's gap, not WItemSection's 16. */
+  .w-item-section--avatar {
+    min-width: 0;
+    padding-inline-end: 14px;
+  }
+
+  .w-item-section--main ~ .w-item-section--side {
+    padding-inline-start: 14px;
   }
 }
 </style>
