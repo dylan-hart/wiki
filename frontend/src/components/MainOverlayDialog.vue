@@ -114,24 +114,33 @@ const HALF_SIZE = {
 const isHalfSized = computed(() => siteStore.overlay === 'Profile' || siteStore.overlay === 'Inbox')
 
 /**
- * Profile, Inbox and FileManager are all "browse/manage, then leave" surfaces with no risk of losing
- * unsaved work mid-action (a settings save, an inbox item, a file op each commit immediately) -- a
- * stray click on the blurred rest of the app dismisses them the way a reader would expect from any
- * ordinary modal. The remaining entries (BlockPicker, NavEdit, PageHistory, TableEditor, Welcome) can
- * sit mid-edit with real state to lose (a half-built block insert, an in-progress nav/table edit, the
- * first-run create-home-page flow) and keep the persistent, Close-button-only dismissal they already
- * had.
+ * Profile, Inbox, FileManager and PageHistory are all "browse/manage, then leave" surfaces with no
+ * risk of losing unsaved work mid-action (a settings save, an inbox item, a file op each commit
+ * immediately; page history is read-only browsing -- compare two versions, choose a rollback) -- a
+ * stray click on the blurred rest of the app, or an Escape, dismisses them the way a reader would
+ * expect from any ordinary modal. PageHistory joined them in OpenProject #2638: it was persistent
+ * only by omission from this set, which left its Close button the single way out of a dialog that
+ * discards nothing when it closes.
+ *
+ * The remaining entries (BlockPicker, NavEdit, TableEditor, Welcome) can sit mid-edit with real
+ * state to lose (a half-built block insert, an in-progress nav/table edit, the first-run
+ * create-home-page flow), and each stays persistent for that reason rather than by inheritance.
+ *
+ * A destructive confirmation opened ON TOP of a dismissible overlay -- PageHistory's rollback
+ * confirm is the one that matters -- still swallows the first Escape by itself: dismissal is routed
+ * through `composables/escapeStack.js`, a LIFO stack, so the confirm (pushed later) is the only
+ * handler that keypress reaches, and the overlay underneath needs a second Escape.
  */
-const DISMISSIBLE_OVERLAYS = new Set(['Profile', 'Inbox', 'FileManager'])
+const DISMISSIBLE_OVERLAYS = new Set(['Profile', 'Inbox', 'FileManager', 'PageHistory'])
 const isDismissible = computed(() => DISMISSIBLE_OVERLAYS.has(siteStore.overlay))
 
 /**
  * `siteStore.overlayIsShown` is a getter derived from `siteStore.overlay` (a Pinia getter has no
  * setter), so a plain `v-model` on `<w-dialog>` -- which assigns to it directly -- silently failed
  * a Vue `readonly` warning and never actually closed anything. Latent until now: every entry was
- * `persistent`, so `WDialog` never had a reason to emit `update:model-value` at all. Now that
- * Profile/Inbox/FileManager dismiss via backdrop click or Escape, this is reachable, and closing
- * needs the same `overlay: ''` `$patch` every overlay's own Close button already uses.
+ * `persistent`, so `WDialog` never had a reason to emit `update:model-value` at all. Now that every
+ * entry in `DISMISSIBLE_OVERLAYS` above dismisses via backdrop click or Escape, this is reachable,
+ * and closing needs the same `overlay: ''` `$patch` every overlay's own Close button already uses.
  */
 function onDialogModelUpdate(value) {
   if (!value) {
