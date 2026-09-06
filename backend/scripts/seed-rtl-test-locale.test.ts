@@ -110,6 +110,45 @@ describe('RTL_TEST_LOCALE', () => {
     }
   })
 
+  /**
+   * The mirror image of the case above, and the other half of OpenProject #2587's coverage: a Node
+   * build exposing ONLY the earlier draft's `.textInfo` getter, with no `getTextInfo()` method at
+   * all. Without it, `textDirection()`'s fallback branch is dead in every environment the suite
+   * actually runs in -- CI's Node is `getTextInfo()`-only so it never reaches the fallback, and a
+   * local Node that happens to expose BOTH shapes takes the `getTextInfo()` branch first and never
+   * reaches it either -- so deleting that fallback would go uncaught until someone ran on a
+   * getter-only build. Asserting both shapes here is what makes this file's protection independent
+   * of whichever `Intl.Locale` shape the running engine happens to ship.
+   */
+  it('still resolves RTL via the .textInfo getter on a Node build with no getTextInfo() method', () => {
+    const RealLocale = Intl.Locale
+    class TextInfoGetterOnlyLocale extends RealLocale {
+      get textInfo(): any {
+        // -> Delegates to a genuine, unpatched `RealLocale` through the same feature-detecting
+        //    helper (never a bare `.textInfo` read), for the same reason the getTextInfo()-only
+        //    case above does: the real `Intl.Locale` under this test may itself be either shape,
+        //    and only `textDirection()` resolves correctly against both. The answer is therefore
+        //    real CLDR data, not a stub -- this locks in the shape handling, nothing else.
+        return { direction: textDirection(new RealLocale(this.toString())) }
+      }
+    }
+    // -> `getTextInfo` is inherited from `RealLocale.prototype` on a build that has it, so merely
+    //    declining to declare it here would NOT produce a getter-only instance. Shadowing it with
+    //    `undefined` is what makes `typeof locale.getTextInfo === 'function'` genuinely false and
+    //    sends `textDirection()` down the fallback branch this test exists to exercise.
+    Object.defineProperty(TextInfoGetterOnlyLocale.prototype, 'getTextInfo', {
+      value: undefined,
+      writable: true,
+      configurable: true
+    })
+    ;(Intl as any).Locale = TextInfoGetterOnlyLocale
+    try {
+      assert.equal(textDirection(new Intl.Locale(RTL_TEST_LOCALE.code)), 'rtl')
+    } finally {
+      ;(Intl as any).Locale = RealLocale
+    }
+  })
+
   it('shares its code with a real, currently-vendored Localazy locale', async () => {
     // -> See `LTR_TEST_LOCALE`'s mirrored test below for why this collision is asserted rather than
     //    avoided (OpenProject #2371).
