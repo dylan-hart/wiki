@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DOMWrapper } from '@vue/test-utils'
 
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
-import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
+import {
+  CHROMIUM_TIMEOUT,
+  chromium,
+  hasChromium,
+  measureClassificationGrid
+} from '../../test/realGridLayout.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
@@ -225,7 +230,7 @@ describe('ApiKeyCreateDialog layout', () => {
   */
 describe(
   'ApiKeyCreateDialog classification grid — real layout',
-  { skip: !hasChromium(), timeout: 30000 },
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
   () => {
     let browser
 
@@ -260,7 +265,7 @@ describe(
       expect(items).toHaveLength(3)
       const rows = new Set(items.map((item) => Math.round(item.y)))
       expect(rows.size).toBe(1)
-    }, 20000) // -> real chromium layout via realGridLayout.js; the default 5s timeout is tight under full-suite parallelism
+    }) // -> real chromium layout via realGridLayout.js; the describe-level CHROMIUM_TIMEOUT covers this
   }
 )
 

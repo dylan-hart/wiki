@@ -52,6 +52,18 @@ export function hasChromium() {
 }
 
 /**
+ * The `describe`/`it` timeout every real-Chromium suite in this workspace passes, instead of each
+ * hardcoding its own literal. Launching Chromium plus `buildAppCss()`'s Tailwind compile is not a
+ * 5-second operation once the rest of the suite is running beside it -- `vitest` runs matched files
+ * across several workers, and vitest's own default `testTimeout` is 5000ms, tight enough that the
+ * first test in a real-Chromium file was seen failing on the timeout rather than on an assertion
+ * (OpenProject #2730). Pass this as the `timeout` option on the real-Chromium `describe` (it applies
+ * to every `it` inside unless a test overrides it) so a new real-Chromium suite gets the right budget
+ * by construction rather than needing to remember to copy a number.
+ */
+export const CHROMIUM_TIMEOUT = 30000
+
+/**
  * Real-browser CSS Grid layout measurement, for tests that need to know how many columns an
  * `auto-fit`/`minmax()` grid actually renders at a given width -- something neither `jsdom` nor
  * `happy-dom` can answer, since neither runs a layout engine: every element's
