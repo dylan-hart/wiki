@@ -2,7 +2,17 @@
   <div class="site-header bg-header text-ink dark:text-text-dark">
     <div class="flex flex-nowrap">
       <w-toolbar style="height: 64px">
-        <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
+        <!--
+          On the same `header-nav-btn` band as the five icon buttons at the far end of this 64px bar
+          (and `AccountMenu`'s avatar): a flush, squared 64x64 target whose hover lights the header's
+          full height, rather than the smaller rounded box `WBtn`'s own dense sizing draws around a
+          34px mark. `flat` alone, no `dense` -- `_base.scss`'s rule overrides both of `dense`'s
+          effects with `!important` anyway, so leaving it on would only misdescribe the button.
+
+          The mark stays 34px: that is what `ui-redesign/Cardinal Wiki - Ledger 3x.dc.html` draws it
+          at, so the 15px of inset on each side inside the square is the intended figure, not slack.
+        -->
+        <w-btn class="header-nav-btn" flat to="/" :aria-label="t(`common.header.home`)">
           <w-avatar v-if="siteStore.logoText" size="34px" square>
             <img :src="`/_site/current/logo`" alt="" />
           </w-avatar>
