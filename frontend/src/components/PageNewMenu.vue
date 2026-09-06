@@ -5,20 +5,45 @@
     auto-close
     anchor="bottom right"
     self="top right">
-    <w-list padding>
+    <w-list padding class="page-new-menu" :class="{ 'page-new-menu--compact': props.contextMenu }">
+      <!--
+        Corner marks: two opposite corners, because a menu is a light object -- the full four belong
+        to a dialog or a card. Decorative, so they are `aria-hidden` boxes rather than anything the
+        reader can reach, and logical properties throughout, so the diagonal mirrors under
+        `dir="rtl"` instead of pointing the wrong way.
+
+        Drawn just INSIDE the panel rather than overhanging it as the design sheet does: WMenu's
+        popup is `overflow-auto`, which clips anything past its padding edge, and opening that up is
+        a change to a shared component with some thirty call sites -- not something a decoration
+        should be asking for.
+      -->
+      <i class="page-new-menu__mark page-new-menu__mark--start" aria-hidden="true" />
+      <i class="page-new-menu__mark page-new-menu__mark--end" aria-hidden="true" />
+      <!--
+        Where the new page will land, named -- on the pointer-anchored menu only, which is the one
+        opened from a row whose own position is what decides the answer.
+
+        Right-clicking a FOLDER row creates inside it; right-clicking a PAGE row creates a SIBLING,
+        in the folder that page lives in (`NavSidebarItem.vue#basePathFor`, and `pageCreate`'s own
+        `${basePath}/new-page`). Nothing on screen said which of the two was about to happen, which
+        is the whole reason this line exists.
+      -->
+      <div v-if="props.contextMenu" class="page-new-menu__target">
+        {{ t('common.newPageMenu.targetFolder', { path: targetFolder }) }}
+      </div>
       <w-item
         clickable
         @click="create(`wysiwyg`)"
         v-if="siteStore.editors.wysiwyg && flagsStore.experimental">
-        <blueprint-icon icon="tabler:presentation" />
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:presentation" />
         <w-item-section class="pe-2">{{ t('common.actions.newPage') }}</w-item-section>
       </w-item>
       <w-item clickable @click="create(`markdown`)" v-if="siteStore.editors.markdown">
-        <blueprint-icon icon="tabler:markdown" />
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:markdown" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.markdown') }}</w-item-section>
       </w-item>
       <w-item clickable @click="create(`code`)" v-if="siteStore.editors.code">
-        <blueprint-icon icon="tabler:brand-html5" />
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:brand-html5" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.code') }}</w-item-section>
       </w-item>
       <!--
@@ -26,7 +51,7 @@
         (task 491: a real `EditorAsciidoc.vue` exists now, so this is no longer speculative).
       -->
       <w-item clickable @click="create(`asciidoc`)" v-if="siteStore.editors.asciidoc">
-        <blueprint-icon icon="tabler:file-text" />
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:file-text" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.asciidoc') }}</w-item-section>
       </w-item>
       <!--
@@ -39,7 +64,7 @@
       <!-- -> Not an editor the site can turn off, because it authors nothing: a redirection is a page
               with a target instead of a body -->
       <w-item clickable @click="create(`redirect`)">
-        <blueprint-icon icon="tabler:player-track-next" />
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:player-track-next" />
         <w-item-section class="pe-2">{{ t('common.newPageMenu.redirect') }}</w-item-section>
       </w-item>
       <!-- -> Always offered, not gated on an editor toggle or the Pandoc extension
@@ -48,24 +73,28 @@
               format. Formats that DO still need Pandoc stay gated at conversion time instead,
               inside the dialogs themselves, the same 503 they always answered without it. -->
       <w-item clickable @click="openImport">
-        <blueprint-icon icon="tabler:file-plus" />
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:file-plus" />
         <w-item-section class="pe-2">{{ t('pages.import.menuLabel') }}</w-item-section>
       </w-item>
-      <w-item clickable @click="openImportBatch">
-        <blueprint-icon icon="tabler:arrow-merge" />
+      <!-- -> Trimmed from the pointer-anchored menu: the imports thin out to one row there, so the
+              panel stays shorter than the tree it is covering. Batch import is the one that goes --
+              it opens a dialog that saves every page itself, which is the least "create one here"
+              of anything in this menu. -->
+      <w-item v-if="!props.contextMenu" clickable @click="openImportBatch">
+        <blueprint-icon :compact="props.contextMenu" icon="tabler:arrow-merge" />
         <w-item-section class="pe-2">{{ t('pages.importBatch.menuLabel') }}</w-item-section>
       </w-item>
       <template v-if="props.hideAssetBtn === false">
         <w-separator class="my-2" inset />
         <w-item clickable @click="openFileManager">
-          <blueprint-icon icon="tabler:photo-plus" />
+          <blueprint-icon :compact="props.contextMenu" icon="tabler:photo-plus" />
           <w-item-section class="pe-2">{{ t('common.newPageMenu.uploadAsset') }}</w-item-section>
         </w-item>
       </template>
       <template v-if="props.showNewFolder">
         <w-separator class="my-2" inset />
         <w-item clickable @click="newFolder">
-          <blueprint-icon icon="tabler:folder-plus" />
+          <blueprint-icon :compact="props.contextMenu" icon="tabler:folder-plus" />
           <w-item-section class="pe-2">{{ t('common.actions.newFolder') }}</w-item-section>
         </w-item>
       </template>
@@ -74,7 +103,7 @@
 </template>
 
 <script setup>
-import { defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
@@ -136,6 +165,18 @@ const siteStore = useSiteStore()
 
 const { t } = useI18n()
 
+// COMPUTED
+
+/**
+ * The folder the new page will land in, as the mono line above the rows spells it.
+ *
+ * `basePath` is the value `pageCreate` actually builds the new path from (`${basePath}/new-page`),
+ * so this names the real destination rather than a restatement of what was right-clicked. Rendered
+ * with a leading slash, and as a bare `/` at the site root, so the two cases read as the same kind
+ * of thing.
+ */
+const targetFolder = computed(() => `/${(props.basePath ?? '').replace(/^\/+/, '')}`)
+
 // METHODS
 
 async function create(editor) {
@@ -187,3 +228,103 @@ function openImportBatch() {
   })
 }
 </script>
+
+<style scoped>
+/*
+  The panel itself. `position: relative` is what the corner marks position against -- the popup
+  WMenu teleports is `position: fixed`, so without it they would anchor to that popup rather than to
+  the list, which is the same box only for as long as the menu happens not to scroll.
+*/
+.page-new-menu {
+  position: relative;
+}
+
+/*
+  One corner mark: a 7px square showing two of its four sides, so a pair of them draws the two
+  opposite corners the design asks a menu for.
+
+  Logical properties throughout (`inset-block-*`/`inset-inline-*`, `border-block-*`/`border-inline-*`)
+  so the diagonal mirrors with the reading direction rather than pointing the wrong way under
+  `dir="rtl"` -- and so this stays outside `logicalSpacing.test.js`'s physical-declaration scan
+  rather than needing an allowlist entry.
+*/
+.page-new-menu__mark {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  pointer-events: none;
+}
+
+.page-new-menu__mark--start {
+  inset-block-start: 3px;
+  inset-inline-start: 3px;
+  border-block-start: 1px solid var(--color-slate-faint);
+  border-inline-start: 1px solid var(--color-slate-faint);
+}
+
+.page-new-menu__mark--end {
+  inset-block-end: 3px;
+  inset-inline-end: 3px;
+  border-block-end: 1px solid var(--color-slate-faint);
+  border-inline-end: 1px solid var(--color-slate-faint);
+}
+
+/*
+  The target-folder line. Mono, because that is what Cardinal sets every path in, and sized as a
+  kicker rather than as a row: it labels the rows below it, it is not one of them.
+*/
+.page-new-menu__target {
+  padding: 2px 12px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-caption);
+  /* -> A path can be long and this panel is narrow; the rows below truncate, so this does too */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:global(body.body--dark) .page-new-menu__target {
+  color: var(--color-text-caption-dark);
+}
+
+/*
+  The compact variant, at the pointer.
+
+  The 28px plate itself comes from BlueprintIcon's own `compact`; what is left here is the space
+  around it. WItemSection's avatar column is sized for the 34px plate (56px wide, 16px of trailing
+  padding), which around a 28px plate reads as a gap wide enough to lose the pairing -- so the column
+  shrinks to its content and the design's own 10px is set explicitly. The rows tighten to match,
+  which is what keeps a menu at the finger shorter than the tree it is covering.
+*/
+.page-new-menu--compact :deep(.w-item) {
+  min-height: 0;
+  padding-block: 4px;
+  padding-inline: 12px;
+}
+
+.page-new-menu--compact :deep(.w-item-section--avatar) {
+  min-width: 0;
+  padding-inline-end: 10px;
+}
+
+.page-new-menu--compact :deep(.w-item-section--main) {
+  font-size: 13px;
+}
+
+/*
+  Hover: the accent is taken by the GLYPH, not by the row and not by the plate, which keeps its
+  hairline. A line-drawing menu has no fill to light up, so one coloured stroke is what says "this is
+  the row under the pointer" -- see the design sheet's own note on the Markdown row.
+*/
+.page-new-menu :deep(.w-item--clickable:hover .blueprint-icon) {
+  color: var(--color-accent-strong);
+}
+
+:global(body.body--dark) .page-new-menu :deep(.w-item--clickable:hover .blueprint-icon) {
+  color: var(--color-accent-dark);
+}
+</style>
