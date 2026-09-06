@@ -77,10 +77,98 @@ describe('SlackAuthentication', () => {
       assert.equal(authorizationUrlMock.mock.callCount(), 1)
 
       const profile = await slack.profile({ ...flow, currentUrl: 'https://wiki.example/cb?code=1' })
-      assert.deepEqual(profile, { id: 'U0123456', email: 'person@example.com', name: 'A Person' })
+      assert.deepEqual(profile, {
+        id: 'U0123456',
+        email: 'person@example.com',
+        name: 'A Person',
+        // -> the preset's own split of the one display string the OIDC mapping reports
+        firstName: 'A',
+        lastName: 'Person'
+      })
       assert.equal(profileMock.mock.callCount(), 1)
     } finally {
       authorizationUrlMock.mock.restore()
+      profileMock.mock.restore()
+    }
+  })
+
+  test('a one-word display name stays a mononym — no surname is invented for it', async () => {
+    const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
+      id: 'U0123456',
+      email: 'person@example.com',
+      name: 'Prince'
+    }))
+    try {
+      const slack = new SlackAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
+      const profile = await slack.profile({
+        redirectUri: 'https://wiki.example/cb',
+        state: 's',
+        nonce: 'n',
+        codeVerifier: 'v',
+        currentUrl: 'https://wiki.example/cb?code=1'
+      })
+      assert.equal(profile.firstName, 'Prince')
+      assert.equal(profile.lastName, '')
+    } finally {
+      profileMock.mock.restore()
+    }
+  })
+
+  test('name halves the OIDC mapping already established are kept, not re-guessed from the display string', async () => {
+    // -> Slack publishes given_name/family_name under the `profile` scope this preset requests. If the
+    //    shared OIDC mapping starts reading them, what the provider actually said has to survive this
+    //    preset untouched — the naive split is a fallback, never an overwrite.
+    const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
+      id: 'U0123456',
+      email: 'person@example.com',
+      name: 'Ada Lovelace',
+      firstName: 'Augusta',
+      lastName: 'King'
+    }))
+    try {
+      const slack = new SlackAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
+      const profile = await slack.profile({
+        redirectUri: 'https://wiki.example/cb',
+        state: 's',
+        nonce: 'n',
+        codeVerifier: 'v',
+        currentUrl: 'https://wiki.example/cb?code=1'
+      })
+      assert.equal(profile.firstName, 'Augusta')
+      assert.equal(profile.lastName, 'King')
+    } finally {
+      profileMock.mock.restore()
+    }
+  })
+
+  test("the display-name split is this preset's own, not something OidcPreset does for every preset", async () => {
+    /*
+      Blast-radius guard. `OidcPreset` is the shared base behind auth0, okta, microsoft, keycloak,
+      gitlab, twitch and slack. A display-name split placed on it would fire for the five providers
+      that do report real `given_name`/`family_name` claims and silently pre-empt them, so the
+      fallback belongs on the presets whose provider issues one string and nothing else.
+    */
+    const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
+      id: 'U0123456',
+      email: 'person@example.com',
+      name: 'A Person'
+    }))
+    try {
+      const bare = new OidcPreset(
+        'strategy-1',
+        { clientId: 'abc', clientSecret: 'xyz' },
+        { issuer: () => 'https://provider.example' }
+      )
+      const profile = await bare.profile({
+        redirectUri: 'https://wiki.example/cb',
+        state: 's',
+        nonce: 'n',
+        codeVerifier: 'v',
+        currentUrl: 'https://wiki.example/cb?code=1'
+      })
+      assert.ok(!profile.firstName, 'OidcPreset itself must not split the display name')
+      assert.ok(!profile.lastName, 'OidcPreset itself must not split the display name')
+    } finally {
       profileMock.mock.restore()
     }
   })

@@ -112,7 +112,11 @@ describe('DiscordAuthentication', () => {
       assert.deepEqual(profile, {
         id: '987654321098765432',
         email: 'octocat@example.com',
-        name: 'octocat'
+        name: 'octocat',
+        // -> Discord issues one display string and no separated halves, so a single-word username is
+        //    a mononym: nothing is invented for the surname.
+        firstName: 'octocat',
+        lastName: ''
       })
       // -> no guildId configured, so /users/@me/guilds must never be called
       assert.equal(
@@ -121,6 +125,67 @@ describe('DiscordAuthentication', () => {
         ),
         false
       )
+    })
+
+    test('splits a multi-word display string into first and last name', async () => {
+      // -> A Discord `username` is normally one token, which the mononym case above already covers.
+      //    This drives the other side of the split through the module's real mapping rather than the
+      //    helper's own suite, since `displayNameClaim` is fixed to `username` by this preset and a
+      //    display string with a space in it is the only shape that exercises it here.
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://discord.com/api/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'the-access-token' }), { status: 200 })
+        }
+        if (url === 'https://discord.com/api/users/@me') {
+          return new Response(
+            JSON.stringify({
+              id: '1',
+              username: 'Ada Lovelace',
+              email: 'ada@example.com',
+              verified: true
+            }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`unexpected fetch to ${url}`)
+      })
+      const discord = new DiscordAuthentication('strategy-1', {
+        clientId: 'client-abc',
+        clientSecret: 'secret-xyz'
+      })
+      const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.firstName, 'Ada')
+      assert.equal(profile.lastName, 'Lovelace')
+      // -> the display name itself is untouched by the split
+      assert.equal(profile.name, 'Ada Lovelace')
+    })
+
+    test("the display-name fallback is this preset's own, not the generic OAuth2 module's", () => {
+      /*
+        Blast-radius guard. `OAuth2Authentication` is the base class for any admin-configured plain
+        OAuth2 strategy, and a display-name split placed there would fire for every one of them —
+        including a provider that does report real name claims. The generic mapping is allowed to fill
+        the halves from claims it was configured to read; it must never manufacture them out of the
+        display string, which is what this asserts.
+      */
+      const generic = new OAuth2Authentication('strategy-2', {
+        clientId: 'client-abc',
+        clientSecret: 'secret-xyz',
+        authorizationURL: 'https://provider.example/authorize',
+        tokenURL: 'https://provider.example/token',
+        userInfoURL: 'https://provider.example/userinfo'
+      })
+      const mapProfile = (generic as unknown as { mapProfile(info: Record<string, any>): any })
+        .mapProfile
+      const profile = mapProfile.call(generic, {
+        id: '1',
+        displayName: 'Ada Lovelace',
+        email: 'ada@example.com'
+      })
+      assert.equal(profile.name, 'Ada Lovelace')
+      assert.ok(!profile.firstName, 'the generic OAuth2 mapping must not split the display name')
+      assert.ok(!profile.lastName, 'the generic OAuth2 mapping must not split the display name')
     })
 
     test('throws ERR_EMAIL_NOT_VERIFIED when /users/@me reports verified: false', async () => {

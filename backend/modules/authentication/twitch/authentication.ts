@@ -1,4 +1,6 @@
 import { OidcPreset } from '../oidc/preset.ts'
+import { fillNameHalves } from '../../../helpers/personName.ts'
+import type { AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
  * Twitch
@@ -30,5 +32,20 @@ export default class TwitchAuthentication extends OidcPreset {
         claims: JSON.stringify({ id_token: { email: null }, userinfo: { email: null } })
       }
     })
+  }
+
+  /**
+   * Twitch issues no name claims beyond `preferred_username` — its OIDC claim set is deliberately
+   * minimal (id, `preferred_username`, `picture`, and `email` only via the `claims` parameter above),
+   * with no `given_name`/`family_name` at all — so a Twitch account is a handle, and the split leaves
+   * it as a mononym rather than inventing a surname out of it. `fillNameHalves` still guards the
+   * claim-sourced case so this never overwrites a half something upstream did establish.
+   *
+   * An override here, not on `oidc/preset.ts`: the shared base is `#2640`'s and reaches five other
+   * presets whose providers do report real halves.
+   */
+  override async profile(flow: AuthFlowCallback): Promise<ProviderProfile> {
+    const profile = await super.profile(flow)
+    return { ...profile, ...fillNameHalves(profile.name, profile) }
   }
 }

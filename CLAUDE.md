@@ -737,6 +737,15 @@ regression the split existed to prevent.
   (`DEFAULT_CONTENT_TYPE_EXTENSION = 'txt'`), read through `fileExtensionForContentType` or the
   dotted `extensionForContentType`. `modules/storage/disk` overriding `redirect: 'json'` is the one
   documented divergence.
+- **Turning one provider display string into a first and last name**: `helpers/personName.ts` —
+  `splitDisplayName(display)` (first whitespace-separated part, whole remainder, two empty strings
+  for nothing) and `fillNameHalves(display, known)`, which applies that split ONLY where neither half
+  is already known. Deliberately naive and library-free by decision, so a wrong split reads as a
+  guess somebody can correct. The five single-string providers (`github`, `discord`, `slack`,
+  `twitch`, `cas`) each call it from their own module; it is never placed on `oauth2/authentication.ts`
+  or `oidc/preset.ts`, which would pre-empt every preset whose provider reports real name claims.
+  Nothing a person typed on this instance goes through it — local registration and the admin user
+  forms take both halves outright.
 - **`mcp/` shared bits**: `mcp/tools/shared.ts` holds `toResult` plus the shared `siteIdArg`/
   `localeArg` zod fields; a tool file declaring its own `toResult` is a regression.
 - **A `Date` column headed into a search index**:

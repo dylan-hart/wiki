@@ -1,4 +1,6 @@
 import { OidcPreset } from '../oidc/preset.ts'
+import { fillNameHalves } from '../../../helpers/personName.ts'
+import type { AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
  * Slack
@@ -26,5 +28,22 @@ export default class SlackAuthentication extends OidcPreset {
       scopes: 'openid email profile',
       extraAuthParams: (c) => (c.teamId ? { team: c.teamId } : undefined)
     })
+  }
+
+  /**
+   * Slack's userinfo response is one display string as far as this fork reads it — the generic OIDC
+   * mapping takes `name` and nothing else — so the two name fields this instance stores come from the
+   * naive split, applied only where nothing better was established. `fillNameHalves` is what makes
+   * that conditional: if the shared OIDC mapping later reads Slack's own `given_name`/`family_name`
+   * claims (it publishes them under the `profile` scope this preset already requests), what the
+   * provider actually said wins and nothing is re-guessed here.
+   *
+   * This is an override on the preset rather than an edit to `oidc/preset.ts`, so it reaches Slack
+   * alone: a fallback on the shared base would fire for auth0/okta/microsoft/keycloak/gitlab too and
+   * silently pre-empt whatever those read from real claims.
+   */
+  override async profile(flow: AuthFlowCallback): Promise<ProviderProfile> {
+    const profile = await super.profile(flow)
+    return { ...profile, ...fillNameHalves(profile.name, profile) }
   }
 }
