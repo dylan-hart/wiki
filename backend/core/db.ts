@@ -86,18 +86,24 @@ const LEGACY_TABLES = ['knex_migrations', 'searchEngines']
  * a secret — `models/settings.ts#updateConfig` binds a whole settings blob as one JSONB parameter, and
  * that blob can hold the API signing private key and its passphrase, the session secret, SMTP/LDAP/
  * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and this line reaches
- * `WIKI.logger.info` unconditionally whenever either trigger below is on: the container log pipeline
+ * the log unconditionally whenever either trigger below is on: the container log pipeline
  * for `sqlLog`/`dev.logQueries`, and every connected admin terminal client via
  * `controllers/terminal.ts`'s backlog replay. Redaction lives inside `logQuery` itself rather than
  * behind either trigger's `if`, so both are covered identically. See OpenProject #2205.
+ *
+ * The `sqlLog`/`dev.logQueries` gate stays in place on top of the `debug` level: until per-scope
+ * thresholds exist (OpenProject #2663), dropping it would either flood `logLevel: debug` with every
+ * query or leave the admin flag doing nothing at all.
  */
 export const queryLogger = {
   logQuery(query: string, params: unknown[]): void {
     if (!flags.isEnabled('sqlLog') && !WIKI.config.dev?.logQueries) {
       return
     }
-    WIKI.logger.info(
-      `[SQL] ${query}${params.length > 0 ? ` -- ${describeQueryParams(params)}` : ''}`
+    WIKI.logger.debug(
+      'sql',
+      query,
+      params.length > 0 ? { params: describeQueryParams(params) } : undefined
     )
   }
 }
@@ -209,7 +215,7 @@ export default {
    * Initialize DB
    */
   async init(workerMode = false): Promise<WikiDb> {
-    WIKI.logger.info('Checking DB configuration...')
+    const startedAt = Date.now()
 
     // Fetch DB Config
 
@@ -309,9 +315,11 @@ export default {
     //    returns so worker mode (`worker.ts`'s `ensureDb()`, which also calls `init(true)`) is
     //    covered too.
     this.pool.on('error', (err: any, client: any) => {
-      WIKI.logger.error(
-        `Postgres pool error${err.code ? ` [${err.code}]` : ''}${client?.processID ? ` (client pid ${client.processID})` : ''}: ${err.message}`
-      )
+      WIKI.logger.error('db', 'pool error', {
+        ...(err.code ? { code: err.code } : {}),
+        ...(client?.processID ? { pid: client.processID } : {}),
+        error: err
+      })
     })
 
     // -> Worker mode never opens a LISTEN/NOTIFY client (see `subscribeToNotifications`'s only
@@ -334,26 +342,57 @@ export default {
     const dbVersion = semver.coerce(resVersion.rows[0].server_version as string, { loose: true })!
     this.VERSION = dbVersion.version
     if (dbVersion.major < 16) {
-      WIKI.logger.error(
-        `Your PostgreSQL database version (${dbVersion.major}) is too old and unsupported by Wiki.js. Requires >= 16. Exiting...`
-      )
+      WIKI.logger.error('db', 'postgres version is unsupported', {
+        postgres: dbVersion.version,
+        minimum: '16'
+      })
       process.exit(1)
     }
-    WIKI.logger.info(`Using PostgreSQL v${dbVersion.version} [ OK ]`)
 
     // DEV - Drop schema
     await this.dropSchemaIfDev(db)
 
     // Run Migrations
+    let migrationsApplied = 0
     if (!workerMode) {
       // -> `syncSchemas()` hands back the still-held advisory lock rather than releasing it itself
       //    (see its own doc comment) so a wider boot sequence could keep holding it past this point —
       //    not done yet (task 2044), so it is released immediately here.
+      const before = await this.countAppliedMigrations(db)
       const migrationLock = await this.syncSchemas(db)
       await migrationLock.release()
+      migrationsApplied = (await this.countAppliedMigrations(db)) - before
     }
 
+    // -> One line for the whole of the above, rather than the seven progress announcements this
+    //    replaced (OpenProject #2665): connecting, the server version, the schema, the extensions and
+    //    the migrations are all just "did the database come up", and an operator wants the answer and
+    //    what it cost, not the commentary.
+    WIKI.logger.info('db', 'connected', {
+      postgres: this.VERSION,
+      schema: WIKI.config.db.schema,
+      ...(workerMode ? {} : { migrations: migrationsApplied }),
+      ms: Date.now() - startedAt
+    })
+
     return db
+  },
+  /**
+   * Rows in the migrations table, or 0 when there is no such table yet — which is exactly what a
+   * first-run database looks like on the way in, and is why this answers rather than throws.
+   *
+   * Read either side of `syncSchemas()` so `db connected` can say how many migrations THIS boot
+   * applied, rather than how many exist.
+   */
+  async countAppliedMigrations(db: WikiDb): Promise<number> {
+    try {
+      const res = await db.execute(
+        `SELECT count(*)::int AS total FROM ${WIKI.config.db.schema}.migrations`
+      )
+      return (res.rows[0]?.total as number) ?? 0
+    } catch {
+      return 0
+    }
   },
   /**
    * DEV - Drop schema, gated on `WIKI.IS_DEBUG` (OpenProject task 2270).
@@ -379,12 +418,12 @@ export default {
       return
     }
     if (!WIKI.IS_DEBUG) {
-      WIKI.logger.warn(
-        `DEV MODE - dev.dropSchema is set but was refused: WIKI.IS_DEBUG is false. Schema ${WIKI.config.db.schema} was NOT dropped.`
-      )
+      WIKI.logger.warn('db', 'dev.dropSchema refused, not a debug boot', {
+        schema: WIKI.config.db.schema
+      })
       return
     }
-    WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
+    WIKI.logger.warn('db', 'dev mode, dropping schema', { schema: WIKI.config.db.schema })
     await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
   },
   /**
@@ -451,9 +490,10 @@ export default {
         try {
           const decoded = JSON.parse(msg.payload!)
           if ('event' in decoded && decoded.source !== WIKI.INSTANCE_ID) {
-            WIKI.logger.info(
-              `Received event ${decoded.event} from instance ${decoded.source}: [ OK ]`
-            )
+            WIKI.logger.debug('cluster', 'event received', {
+              event: decoded.event,
+              instance: decoded.source
+            })
             WIKI.events.inbound.emit(decoded.event, decoded.value)
           }
         } catch {}
@@ -481,7 +521,7 @@ export default {
     WIKI.models.locales.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
-    WIKI.logger.info('Event Listener initialized successfully: [ OK ]')
+    WIKI.logger.debug('cluster', 'event listener subscribed')
   },
   /**
    * Unsubscribe from database LISTEN / NOTIFY
@@ -539,18 +579,16 @@ export default {
    */
   async connect(db: WikiDb): Promise<void> {
     try {
-      WIKI.logger.info('Connecting to database...')
       await db.execute('SELECT 1 + 1;')
-      WIKI.logger.info('Database connection successful [ OK ]')
     } catch (err: any) {
-      WIKI.logger.debug(err)
       if (this.connectAttempts < 10) {
-        if (err.code) {
-          WIKI.logger.error(`Database connection error: ${err.code} ${err.address}:${err.port}`)
-        } else {
-          WIKI.logger.error(`Database connection error: ${err.message}`)
-        }
-        WIKI.logger.warn(`Will retry in 3 seconds... [Attempt ${++this.connectAttempts} of 10]`)
+        // -> One record per failed attempt, at `warn`: this is the self-healing case, and the
+        //    `error` an operator has to act on is the throw below once the attempts run out.
+        WIKI.logger.warn('db', 'connection failed, retrying', {
+          attempt: `${++this.connectAttempts}/10`,
+          ...(err.code ? { code: err.code, address: `${err.address}:${err.port}` } : {}),
+          error: err
+        })
         await setTimeout(3000)
         await this.connect(db)
       } else {
@@ -573,9 +611,13 @@ export default {
       LIMIT 1
     `)
     if (res.rows.length > 0) {
-      WIKI.logger.error('ERROR: UPGRADING FROM A 2.x INSTALLATION IS NOT YET SUPPORTED. Exiting...')
       WIKI.logger.error(
-        `Found the Wiki.js 2.x table "${res.rows[0].table_name}" in schema "${WIKI.config.db.schema}".`
+        'db',
+        'refusing to boot, upgrading from a 2.x installation is unsupported',
+        {
+          table: res.rows[0].table_name,
+          schema: WIKI.config.db.schema
+        }
       )
       process.exit(1)
     }
@@ -599,7 +641,6 @@ export default {
     try {
       await this.checkForLegacyInstall(db)
 
-      WIKI.logger.info('Ensuring DB schema exists...')
       await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
 
       /*
@@ -613,12 +654,10 @@ export default {
 
         Idempotent, so a database whose extensions an administrator installed by hand is untouched.
       */
-      WIKI.logger.info('Ensuring required DB extensions are installed...')
       for (const extension of REQUIRED_EXTENSIONS) {
         await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
       }
 
-      WIKI.logger.info('Ensuring DB migrations have been applied...')
       await migrate(db, {
         migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
         migrationsSchema: WIKI.config.db.schema,

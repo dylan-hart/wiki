@@ -166,12 +166,11 @@ export default {
     if (this.maxWorkers < 1) {
       this.maxWorkers = 1
     }
-    WIKI.logger.info(`Initializing Worker Pool (Limit: ${this.maxWorkers})...`)
     const workerFile = path.join(WIKI.SERVERPATH, 'worker.ts')
     const poolOptions = {
-      errorHandler: (err: Error) => WIKI.logger.warn(err),
-      exitHandler: () => WIKI.logger.debug('A worker has gone offline.'),
-      onlineHandler: () => WIKI.logger.debug('New worker is online.')
+      errorHandler: (err: Error) => WIKI.logger.warn('worker', 'worker pool error', { error: err }),
+      exitHandler: () => WIKI.logger.debug('worker', 'worker offline'),
+      onlineHandler: () => WIKI.logger.debug('worker', 'worker online')
     }
     /*
       `DynamicThreadPool` refuses a minimum equal to its maximum (poolifier 5.x: "Use a fixed pool
@@ -212,8 +211,6 @@ export default {
     return this
   },
   async start(): Promise<void> {
-    WIKI.logger.info('Starting Scheduler...')
-
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
 
     // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
@@ -270,7 +267,7 @@ export default {
     }, WIKI.config.scheduler.scheduledCheck * 1000)
 
     // -> Add scheduled jobs on init
-    await this.addScheduled()
+    const planned = await this.addScheduled()
 
     /*
       Anything left claimed but unfinished, before this instance starts claiming more. Most often
@@ -284,7 +281,7 @@ export default {
       this.processJob()
     }, WIKI.config.scheduler.pollingCheck * 1000)
 
-    WIKI.logger.info('Scheduler: [ STARTED ]')
+    WIKI.logger.info('jobs', 'scheduler started', { workers: this.maxWorkers, planned })
   },
   /**
    * Add a job to the scheduler
@@ -340,7 +337,7 @@ export default {
         ...(promise && { promise: jobDefer.promise })
       }
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to add job to scheduler: ${err.message}`)
+      WIKI.logger.warn('jobs', 'failed to queue job', { task, error: err })
     }
   },
   /**
@@ -428,7 +425,7 @@ export default {
     //    reports how many rows it actually got.
     const availableWorkers = this.maxWorkers - this.activeWorkers
     if (availableWorkers < 1) {
-      WIKI.logger.debug('All workers are busy. Cannot process more jobs at the moment.')
+      WIKI.logger.debug('jobs', 'all workers busy, nothing claimed', { workers: this.maxWorkers })
       return
     }
     this.activeWorkers += availableWorkers
@@ -494,7 +491,7 @@ export default {
       // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued. Correct the
       //    up-front reservation back down to what was actually claimed (zero).
       this.activeWorkers -= availableWorkers
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('jobs', 'failed to claim jobs', { error: err })
       return
     }
 
@@ -579,7 +576,9 @@ export default {
    * scheduler's backoff, and its siblings in the batch are unaffected either way.
    */
   async runJob(job: any): Promise<void> {
-    WIKI.logger.info(`Processing new job ${job.id}: ${job.task}...`)
+    const attempt = job.retries + 1
+    const startedAt = Date.now()
+    WIKI.logger.debug('jobs', `${job.task} started`, { job: job.id, attempt })
     try {
       if (job.useWorker) {
         await this.executeOnWorker(job)
@@ -593,21 +592,28 @@ export default {
           completedAt: sql`now()`
         })
         .where(eq(jobHistoryTable.id, job.id))
-      WIKI.logger.info(`Completed job ${job.id}: ${job.task}`)
+      WIKI.logger.debug('jobs', `${job.task} finished`, {
+        job: job.id,
+        attempt,
+        ms: Date.now() - startedAt
+      })
       notifyJobCompleted(job.id, 'success')
     } catch (err: any) {
       // -> Only the terminal, retries-exhausted branch logs at `error`. A job that will still be
-      //    retried logs at `warn`, matching the "Rescheduling new attempt" line below it — an
-      //    operator shipping only `error` to alerting must see a storm of failing-and-retrying jobs,
-      //    not just the final give-up.
-      // -> `jobId`/`task`/`attempt` (OpenProject #1937) so a failure is traceable to the job that
-      //    caused it without cross-referencing `jobHistory` by timestamp. `attempt` is the one about
-      //    to be recorded below (`job.retries + 1`), not `job.retries` itself.
+      //    retried logs at `warn` — an operator shipping only `error` to alerting must see a storm
+      //    of failing-and-retrying jobs, not just the final give-up.
+      // -> One record, not two: the situation is the message and the error rides `fields.error`, so
+      //    the renderer puts the message inline and the stack under it rather than emitting a
+      //    second, contextless line. `job`/`attempt` (OpenProject #1937) keep it traceable without
+      //    cross-referencing `jobHistory` by timestamp; `attempt` is the one about to be recorded
+      //    below (`job.retries + 1`), not `job.retries` itself.
       const retriesExhausted = job.retries >= job.maxRetries
       const failureLog = retriesExhausted ? WIKI.logger.error : WIKI.logger.warn
-      const jobContext = { jobId: job.id, task: job.task, attempt: job.retries + 1 }
-      failureLog(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`, jobContext)
-      failureLog(err, jobContext)
+      failureLog(
+        'jobs',
+        `${job.task} failed${retriesExhausted ? ', no attempts left' : ', will retry'}`,
+        { job: job.id, attempt, ms: Date.now() - startedAt, error: err }
+      )
       try {
         await WIKI.db
           .update(jobHistoryTable)
@@ -629,12 +635,15 @@ export default {
             ),
             updatedAt: new Date()
           })
-          WIKI.logger.warn(`Rescheduling new attempt for job ${job.id}: ${job.task}...`)
         }
       } catch (recordErr: any) {
         // -> The task's failure is already logged; this is the database refusing to hear about it,
         //    which leaves the job looking active until `reapStaleJobs` picks it up
-        WIKI.logger.warn(`Could not record the failure of job ${job.id}: ${recordErr.message}`)
+        WIKI.logger.warn('jobs', 'failed to record job failure', {
+          job: job.id,
+          task: job.task,
+          error: recordErr
+        })
       }
     }
   },
@@ -674,7 +683,7 @@ export default {
     try {
       stranded = await claimStrandedJobs(cutoff, staleAfter)
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to requeue interrupted jobs: ${err.message}`)
+      WIKI.logger.warn('jobs', 'failed to requeue interrupted jobs', { error: err })
       return 0
     }
 
@@ -684,9 +693,10 @@ export default {
         // -> Its remaining attempts are what they were: being interrupted is a failed attempt, and a
         //    job that had already used them up is not owed another one
         if (job.attempt > job.maxRetries) {
-          WIKI.logger.warn(
-            `Job ${job.id}: ${job.task} was interrupted and has no attempts left [ SKIPPED ]`
-          )
+          WIKI.logger.warn('jobs', `${job.task} was interrupted with no attempts left`, {
+            job: job.id,
+            attempt: job.attempt
+          })
           notifyJobCompleted(job.id, 'failed', job.lastErrorMessage)
           continue
         }
@@ -729,7 +739,11 @@ export default {
         //    has its own `jobHistory` row marked `interrupted`, and without a per-job catch here, a
         //    single insert failure aborted the whole loop and left the rest permanently unrequeued —
         //    a later sweep only ever looks at `state = 'active'` rows, so it never revisits them.
-        WIKI.logger.warn(`Failed to requeue job ${job.id}: ${job.task}: ${err.message}`)
+        WIKI.logger.warn('jobs', 'failed to requeue job', {
+          job: job.id,
+          task: job.task,
+          error: err
+        })
       }
     }
 
@@ -741,13 +755,19 @@ export default {
     await notifier.drained()
 
     if (stranded.length > 0) {
-      WIKI.logger.warn(
-        `Found ${stranded.length} interrupted job(s), ${requeued} of them requeued [ OK ]`
-      )
+      WIKI.logger.warn('jobs', 'requeued interrupted jobs', {
+        found: stranded.length,
+        requeued
+      })
     }
     return requeued
   },
-  async addScheduled(): Promise<void> {
+  /**
+   * @returns How many future planned jobs this pass actually queued (0 when another instance held
+   *   the cron lock, or when every planned iteration was already scheduled).
+   */
+  async addScheduled(): Promise<number> {
+    let totalAdded = 0
     try {
       await WIKI.db.transaction(async (trx: any) => {
         // -> Acquire lock
@@ -765,7 +785,6 @@ export default {
           )
 
         if (jobLock.rowCount > 0) {
-          WIKI.logger.info('Scheduling future planned jobs...')
           // -> Both selects read through `trx`, the same physical connection the lock UPDATE just
           //    took, rather than the ambient `WIKI.db` pool handle. Under READ COMMITTED this does not
           //    change what rows are visible (a `trx.select()` after the lock UPDATE sees exactly the
@@ -779,7 +798,6 @@ export default {
               .select()
               .from(jobsTable)
               .where(eq(jobsTable.isScheduled, true))
-            let totalAdded = 0
             for (const job of scheduledJobs) {
               // -> Get next planned iterations
               const plannedIterations = CronExpressionParser.parse(job.cron, {
@@ -835,17 +853,14 @@ export default {
                 }
               }
             }
-            if (totalAdded > 0) {
-              WIKI.logger.info(`Scheduled ${totalAdded} new future planned jobs: [ OK ]`)
-            } else {
-              WIKI.logger.info('No new future planned jobs to schedule: [ OK ]')
-            }
+            WIKI.logger.debug('jobs', 'planned jobs reconciled', { added: totalAdded })
           }
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('jobs', 'failed to schedule future planned jobs', { error: err })
     }
+    return totalAdded
   },
   /**
    * Stop the scheduler.
@@ -861,7 +876,6 @@ export default {
    * holds (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
    */
   async stop(): Promise<void> {
-    WIKI.logger.info('Stopping Scheduler...')
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
     // -> Nulled synchronously, before anything below is awaited: no new job is claimed once shutdown
@@ -876,7 +890,7 @@ export default {
       await this.listenerHandle.close()
       this.listenerHandle = null
     }
-    WIKI.logger.info('Scheduler: [ STOPPED ]')
+    WIKI.logger.info('jobs', 'scheduler stopped')
   },
   /**
    * Waits for whatever `processJob` currently has in flight, bounded so a hung task cannot hold
@@ -894,9 +908,10 @@ export default {
     }
     const timeoutMs =
       (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000 + SHUTDOWN_DRAIN_GRACE
-    WIKI.logger.info(
-      `Waiting for ${this.inFlightJobs.size} in-flight job(s) to finish (up to ${timeoutMs}ms)...`
-    )
+    WIKI.logger.info('jobs', 'waiting for in-flight jobs', {
+      jobs: this.inFlightJobs.size,
+      timeout: timeoutMs
+    })
     // -> The bound expiring is this function doing its job, not a failure, so the rejection
     //    `withTimeout` signals it with is swallowed here — `Promise.allSettled` itself never rejects,
     //    so nothing else can reach this `catch`. `unref`, since this runs while the process is

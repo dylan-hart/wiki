@@ -7,6 +7,6 @@
 export async function task(): Promise<void> {
   const count = await WIKI.models.export.purgeExpired()
   if (count > 0) {
-    WIKI.logger.info(`Purged ${count} expired content export(s).`)
+    WIKI.logger.info('pages', 'purged expired content exports', { purged: count })
   }
 }

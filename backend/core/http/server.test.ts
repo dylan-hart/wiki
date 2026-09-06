@@ -244,10 +244,7 @@ describe('registerShutdownLogging', () => {
     test(`${signal} is an ordinary shutdown: one info line, no warning and no stack`, () => {
       const { info, warn } = emitShutdown(new Error(signal))
       assert.equal(info.mock.callCount(), 1)
-      assert.equal(
-        info.mock.calls[0].arguments[0],
-        `HTTP Server has exited: [ STOPPED ] (${signal})`
-      )
+      assert.deepEqual(info.mock.calls[0].arguments, ['http', 'stopping', { reason: signal }])
       assert.equal(warn.mock.callCount(), 0)
     })
   }
@@ -257,7 +254,9 @@ describe('registerShutdownLogging', () => {
     const { info, warn } = emitShutdown(boom)
     assert.equal(info.mock.callCount(), 1)
     assert.equal(warn.mock.callCount(), 1)
-    assert.equal(warn.mock.calls[0].arguments[0], boom)
+    assert.equal(warn.mock.calls[0].arguments[0], 'http')
+    // -> The `Error` itself under `fields.error`, so the renderer prints its message and its stack.
+    assert.equal((warn.mock.calls[0].arguments[2] as { error: Error }).error, boom)
   })
 
   test('a message merely containing a signal name is not exempted', () => {
@@ -267,15 +266,16 @@ describe('registerShutdownLogging', () => {
     assert.equal(warn.mock.callCount(), 1)
   })
 
-  test('the shutting-down event still logs its own line', () => {
+  test('the shutting-down event logs nothing of its own', () => {
+    // -> One line per shutdown, on SHUTDOWN, where the reason is: the earlier SHUTTING_DOWN
+    //    announcement carried no reason and preceded no work this handler does (OpenProject #2665).
     const info = mock.fn()
     const wiki = installTestWiki({ logger: { ...createSilentLogger(), info } })
     try {
       const server = new EventEmitter()
       registerShutdownLogging(server)
       server.emit(gracefulServer.SHUTTING_DOWN)
-      assert.equal(info.mock.callCount(), 1)
-      assert.equal(info.mock.calls[0].arguments[0], 'Shutting down HTTP Server... [ STOPPING ]')
+      assert.equal(info.mock.callCount(), 0)
     } finally {
       wiki.restore()
     }

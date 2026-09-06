@@ -39,9 +39,7 @@ async function main(): Promise<void> {
 
   const WIKI = await bootstrapMigrationRuntime('verify-migration-cli')
 
-  WIKI.logger.info('=========================================')
-  WIKI.logger.info('= Wiki.js 2.5.x -> 3.0 Migration Verify  =')
-  WIKI.logger.info('=========================================')
+  WIKI.logger.info('migrate', '2.5.x -> 3.0 migration verify', { site: args.siteId })
 
   try {
     await runVerification(WIKI, args)
@@ -66,7 +64,7 @@ async function loadDryRunReports(reportFile: string | undefined): Promise<PhaseR
 async function runVerification(WIKI: WikiGlobal, args: ParsedVerifyArgs): Promise<void> {
   const site = await WIKI.models.sites.getSiteById({ id: args.siteId, forceReload: true })
   if (!site) {
-    WIKI.logger.error(`Destination site "${args.siteId}" was not found. Exiting...`)
+    WIKI.logger.error('migrate', 'destination site was not found', { site: args.siteId })
     process.exitCode = 1
     return
   }
@@ -75,16 +73,17 @@ async function runVerification(WIKI: WikiGlobal, args: ParsedVerifyArgs): Promis
   await source.connect()
   try {
     const description = await source.describe()
-    WIKI.logger.info(
-      `Source: ${description.kind} at ${description.location}` +
-        (description.version ? ` (detected version ${description.version})` : '')
-    )
+    WIKI.logger.info('migrate', 'source connected', {
+      kind: description.kind,
+      location: description.location,
+      ...(description.version ? { detectedVersion: description.version } : {})
+    })
 
-    WIKI.logger.info('Counting source records...')
+    WIKI.logger.info('migrate', 'counting source records')
     const sourceCounts = await countSourceEntities(source)
     const phaseOnlyCounts = await countPhaseOnlySourceCounts(source)
 
-    WIKI.logger.info('Counting destination records...')
+    WIKI.logger.info('migrate', 'counting destination records')
     const destinationCounts = await countDestinationEntities(
       createDestinationCounter(WIKI.db),
       args.siteId
@@ -100,7 +99,9 @@ async function runVerification(WIKI: WikiGlobal, args: ParsedVerifyArgs): Promis
     )
 
     WIKI.logger.info(
-      `Running content spot-check (${args.samplePaths ? `${args.samplePaths.length} explicit path(s)` : `${args.sampleSize} random page(s)`})...`
+      'migrate',
+      'running content spot-check',
+      args.samplePaths ? { paths: args.samplePaths.length } : { sample: args.sampleSize }
     )
     const spotCheck = await runContentSpotCheck(source, createDestinationPageLookup(WIKI.db), {
       siteId: args.siteId,
@@ -110,7 +111,7 @@ async function runVerification(WIKI: WikiGlobal, args: ParsedVerifyArgs): Promis
 
     const summary = formatVerifySummary({ entityCounts, phaseComparisons, spotCheck })
     process.stdout.write(`\n${summary.text}\n`)
-    WIKI.logger.info(`Verification outcome: ${summary.outcome.toUpperCase()}`)
+    WIKI.logger.info('migrate', 'verification finished', { outcome: summary.outcome })
 
     process.exitCode = summary.outcome === 'fail' ? 1 : 0
   } finally {

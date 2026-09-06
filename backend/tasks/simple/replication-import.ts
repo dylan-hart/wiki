@@ -53,7 +53,10 @@ export async function task(
     addJob = (opts) => WIKI.scheduler.addJob(opts)
   } = deps
 
-  WIKI.logger.info('Restoring replication snapshot (wipe-and-replace)...')
+  // -> Announced at `debug` because a wipe-and-replace restore can take minutes. The `try` stays for
+  //    the `finally` that deletes the upload; the failure propagates and the scheduler writes the
+  //    one record for it.
+  WIKI.logger.debug('storage', 'restoring replication snapshot, wipe-and-replace')
   try {
     const result = await replicationImportDep.importSnapshot(payload.filePath)
 
@@ -73,11 +76,7 @@ export async function task(
     if (jobId) {
       await jobsDep.setResult(jobId, result)
     }
-    WIKI.logger.info('Restoring replication snapshot: [ COMPLETED ]')
-  } catch (err: any) {
-    WIKI.logger.error('Restoring replication snapshot: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+    WIKI.logger.info('storage', 'restored replication snapshot')
   } finally {
     await replicationImportDep.deleteUpload(payload.filePath)
   }

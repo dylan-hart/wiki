@@ -8,6 +8,6 @@
 export async function task(): Promise<void> {
   const count = await WIKI.models.userCredentials.purgeExpiredKeys()
   if (count > 0) {
-    WIKI.logger.info(`Purged ${count} expired user key(s).`)
+    WIKI.logger.info('auth', 'purged expired user keys', { purged: count })
   }
 }

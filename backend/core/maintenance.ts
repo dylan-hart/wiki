@@ -43,7 +43,7 @@ export default {
       client.close(1012, 'Disconnected by an administrator')
       count++
     }
-    WIKI.logger.info(`Closed ${count} websocket connection(s) [ OK ]`)
+    WIKI.logger.info('cluster', 'closed websocket connections', { connections: count })
     return count
   },
 
@@ -66,7 +66,7 @@ export default {
     await WIKI.models.approvalRules.reloadCache()
     await WIKI.models.classificationLevels.reloadCache()
 
-    WIKI.logger.info('Flushed all caches [ OK ]')
+    WIKI.logger.info('cluster', 'flushed all caches')
   },
 
   /**

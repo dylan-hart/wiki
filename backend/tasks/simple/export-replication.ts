@@ -8,16 +8,12 @@
  * it is what lets `GET /_api/system/replication/export/:jobId/download` find the finished file.
  */
 export async function task(_payload: unknown = {}, jobId?: string): Promise<void> {
-  WIKI.logger.info('Exporting instance-wide replication snapshot...')
-  try {
-    const result = await WIKI.models.replicationExport.buildSnapshot()
-    if (jobId) {
-      await WIKI.models.jobs.setResult(jobId, result)
-    }
-    WIKI.logger.info('Exporting instance-wide replication snapshot: [ COMPLETED ]')
-  } catch (err: any) {
-    WIKI.logger.error('Exporting instance-wide replication snapshot: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+  // -> Announced at `debug` because a whole instance's assets can take minutes; the failure
+  //    propagates to the scheduler, which writes the one record for it.
+  WIKI.logger.debug('storage', 'building instance-wide replication snapshot')
+  const result = await WIKI.models.replicationExport.buildSnapshot()
+  if (jobId) {
+    await WIKI.models.jobs.setResult(jobId, result)
   }
+  WIKI.logger.info('storage', 'built instance-wide replication snapshot')
 }

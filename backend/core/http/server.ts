@@ -171,7 +171,7 @@ export function createHttpApp(): FastifyInstance {
 const EXPECTED_SHUTDOWN_REASONS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP'])
 
 /**
- * The two graceful-shutdown listeners, which are logging only.
+ * The graceful-shutdown listener, which is logging only.
  *
  * Split out of `createHttpApp()` so the branch below is reachable from a test with a fake emitter
  * rather than only by signalling a real process. Called from where the block sat inline, since the
@@ -185,17 +185,14 @@ const EXPECTED_SHUTDOWN_REASONS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP'])
  * handler — keeps the `warn` with its stack.
  */
 export function registerShutdownLogging(server: Pick<IGracefulServer, 'on'>): void {
-  server.on(gracefulServer.SHUTTING_DOWN, () => {
-    // -> The actual teardown (scheduler drain, collab socket close, db unsubscribe + pool end) now
-    //    runs via `closePromises` above, awaited by the library before it closes the server — this
-    //    handler is logging only.
-    WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
-  })
-
+  // -> Only the SHUTDOWN event logs. The actual teardown (scheduler drain, collab socket close, db
+  //    unsubscribe + pool end) runs via `closePromises` above, awaited by the library before it
+  //    closes the server, so a separate "shutting down" announcement said nothing the line below
+  //    does not — and it said it one event earlier, with no reason attached.
   server.on(gracefulServer.SHUTDOWN, (err: Error) => {
-    WIKI.logger.info(`HTTP Server has exited: [ STOPPED ] (${err.message})`)
+    WIKI.logger.info('http', 'stopping', { reason: err.message })
     if (!EXPECTED_SHUTDOWN_REASONS.has(err.message)) {
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('http', 'shutdown reason was not an expected signal', { error: err })
     }
   })
 }

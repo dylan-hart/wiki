@@ -143,7 +143,6 @@ export default {
    * Load config from DB
    */
   async loadFromDb(): Promise<boolean> {
-    WIKI.logger.info('Loading settings from DB...')
     const conf = await WIKI.models.settings.getConfig()
     if (conf) {
       WIKI.config = toMerged(WIKI.config, conf)
@@ -171,7 +170,7 @@ export default {
         WIKI.events.outbound.emit('reloadConfig')
       }
     } catch (err: any) {
-      WIKI.logger.error(`Failed to save configuration to DB: ${err.message}`)
+      WIKI.logger.error('config', 'failed to save configuration', { keys, error: err })
       return false
     }
 
@@ -228,15 +227,15 @@ export default {
   async ensureSeeded(): Promise<boolean> {
     return withAdvisoryLock('wiki:migrate', async () => {
       if (await this.loadFromDb()) {
-        WIKI.logger.info('Settings merged with DB successfully [ OK ]')
+        WIKI.logger.info('config', 'loaded', { source: 'db' })
         return false
       }
 
-      WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
+      WIKI.logger.warn('config', 'no settings in db, seeding defaults')
       await this.initDbValues()
 
       if (!(await this.loadFromDb())) {
-        throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
+        throw new Error('Settings table is still empty after seeding defaults.')
       }
 
       return true

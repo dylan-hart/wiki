@@ -8,23 +8,18 @@
  * `GET /_api/system/pages/scan/:jobId` poll for it.
  */
 export async function task(_payload: unknown = {}, jobId?: string): Promise<void> {
-  WIKI.logger.info('Scanning for page problems...')
-  try {
-    const report = await WIKI.models.pageProblems.scan()
-    if (jobId) {
-      await WIKI.models.jobs.setResult(jobId, report as unknown as Record<string, any>)
-    }
-    WIKI.logger.info(
-      `Scanning for page problems: [ COMPLETED ] ` +
-        `${report.hashDrift.count} hash drift, ` +
-        `${report.treeDivergence.count} tree divergence, ` +
-        `${report.duplicatePaths.count} duplicate paths, ` +
-        `${report.localeCollisions.count} locale-code collisions, ` +
-        `${report.brokenRelations.count} broken relations`
-    )
-  } catch (err: any) {
-    WIKI.logger.error('Scanning for page problems: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+  // -> Announced at `debug` because a full scan of `pages` and `tree` is not instant on a large
+  //    wiki; the five counts are fields on the outcome line rather than a sentence built from them.
+  WIKI.logger.debug('pages', 'scanning for page problems')
+  const report = await WIKI.models.pageProblems.scan()
+  if (jobId) {
+    await WIKI.models.jobs.setResult(jobId, report as unknown as Record<string, any>)
   }
+  WIKI.logger.info('pages', 'scanned for page problems', {
+    hashDrift: report.hashDrift.count,
+    treeDivergence: report.treeDivergence.count,
+    duplicatePaths: report.duplicatePaths.count,
+    localeCollisions: report.localeCollisions.count,
+    brokenRelations: report.brokenRelations.count
+  })
 }
