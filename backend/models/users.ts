@@ -94,6 +94,8 @@ export interface UserPatch {
 export interface UserProfile {
   id: string
   name: string
+  firstName: string
+  lastName: string
   email: string
   hasAvatar: boolean
   location: string
@@ -110,6 +112,8 @@ export interface UserProfile {
 /** The fields a user may change on its own profile. Notably not the email, nor any admin flag. */
 export interface UserProfilePatch {
   name?: string
+  firstName?: string
+  lastName?: string
   location?: string
   jobTitle?: string
   pronouns?: string
@@ -128,6 +132,14 @@ export interface UserProfilePatch {
  * of names would need translating between the two at delivery time for no benefit.
  */
 export type NotificationSubscriptions = Record<HookEvent, boolean>
+
+/**
+ * The three name columns a profile save may carry. Unlike the two lists below they are real columns,
+ * not `meta`/`prefs` members, and they are passed straight through to {@link Users.updateUser} —
+ * which is the sole owner of the derive-unless-authored rule and is what decides what `name` ends up
+ * being (Feature #2608).
+ */
+const profileNameKeys = ['name', 'firstName', 'lastName'] as const
 
 /** The `meta` keys the profile owns, and the `prefs` keys it owns. */
 const profileMetaKeys = ['location', 'jobTitle', 'pronouns'] as const
@@ -288,6 +300,8 @@ function localUserRow(input: {
 export const userSelection = {
   id: usersTable.id,
   name: usersTable.name,
+  firstName: usersTable.firstName,
+  lastName: usersTable.lastName,
   email: usersTable.email,
   hasAvatar: usersTable.hasAvatar,
   isSystem: usersTable.isSystem,
@@ -467,6 +481,8 @@ class Users {
     return {
       id: user.id,
       name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
       hasAvatar: user.hasAvatar,
       isSystem: user.isSystem,
@@ -844,6 +860,8 @@ class Users {
     return {
       id: user.id,
       name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
       hasAvatar: user.hasAvatar,
       location: meta.location ?? '',
@@ -1090,9 +1108,14 @@ class Users {
       }
     }
 
+    // -> The three name fields are handed to `updateUser` untouched: it is the one owner of the
+    //    derive-unless-authored rule (Feature #2608), so this method neither derives nor decides
+    //    whether the profile's own display-name edit counts as authoring.
     const values: UserPatch = { meta, prefs }
-    if (patch.name !== undefined) {
-      values.name = patch.name
+    for (const key of profileNameKeys) {
+      if (patch[key] !== undefined) {
+        values[key] = patch[key]
+      }
     }
     await this.updateUser(id, values)
 

@@ -61,7 +61,8 @@ function httpError(message) {
 }
 
 async function fillValidForm(wrapper) {
-  wrapper.vm.state.userName = 'Jane Doe'
+  wrapper.vm.state.userFirstName = 'Jane'
+  wrapper.vm.state.userLastName = 'Doe'
   wrapper.vm.state.userEmail = 'jane@example.com'
   wrapper.vm.state.userPassword = 'a-strong-password'
   wrapper.vm.state.userGroups = ['group-1']
@@ -143,7 +144,8 @@ describe('UserCreateDialog: create() failure path', () => {
     const wrapper = mountDialog()
     await flushPromises()
 
-    wrapper.vm.state.userName = 'New User'
+    wrapper.vm.state.userFirstName = 'New'
+    wrapper.vm.state.userLastName = 'User'
     wrapper.vm.state.userEmail = 'new@example.com'
     wrapper.vm.state.userPassword = 'a-long-enough-password'
     wrapper.vm.state.userGroups = ['group-1']
@@ -171,5 +173,100 @@ describe('UserCreateDialog: create() failure path', () => {
       type: 'negative',
       message: 'A user with this email already exists.'
     })
+  })
+})
+
+/**
+ * Feature #2608, Task #2642: the dialog collects two authored halves instead of one display name.
+ * There is deliberately no display-name field here -- an account this instance creates derives one
+ * server-side (`models/users.ts#resolveNameFields`) and stays on derivation until somebody edits it
+ * in the user editor, which is where the override is reachable.
+ */
+describe('UserCreateDialog first/last name fields', () => {
+  it('renders a labelled first name and last name, and no display name field', async () => {
+    mountDialog()
+    await flushPromises()
+
+    // -> These fields carry a floating `label` rather than a bare `aria-label`, so `WFieldFrame`
+    //    renders a real `<label for>` and the accessible name comes from that association. The
+    //    label element is therefore what identifies the control, not an attribute on the `<input>`.
+    const labelled = [...document.body.querySelectorAll('label[for]')].map((el) => [
+      el.textContent.trim(),
+      document.getElementById(el.getAttribute('for'))?.tagName
+    ])
+    expect(labelled).toContainEqual(['admin.users.firstName', 'INPUT'])
+    expect(labelled).toContainEqual(['admin.users.lastName', 'INPUT'])
+    // -> No display name on a creation surface: it derives from the two halves server-side.
+    const texts = labelled.map(([text]) => text)
+    expect(texts).not.toContain('admin.users.name')
+    expect(texts).not.toContain('common.field.name')
+  })
+
+  it('sends firstName and lastName in the create payload, and no name at all', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    await fillValidForm(wrapper)
+
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ id: 'user-1' }) })
+
+    await wrapper.vm.create()
+
+    const [url, options] = API_CLIENT.post.mock.calls.at(-1)
+    expect(url).toBe('users')
+    expect(options.json).toMatchObject({ firstName: 'Jane', lastName: 'Doe' })
+    expect(options.json).not.toHaveProperty('name')
+  })
+
+  it('accepts a mononym: an empty last name passes validation and is still sent', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    wrapper.vm.state.userFirstName = 'Prince'
+    wrapper.vm.state.userLastName = ''
+    wrapper.vm.state.userEmail = 'prince@example.com'
+    wrapper.vm.state.userPassword = 'a-strong-password'
+    wrapper.vm.state.userGroups = ['group-1']
+    await flushPromises()
+
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ id: 'user-2' }) })
+
+    await wrapper.vm.create()
+
+    expect(notifyQueue.at(-1)?.type).toBe('positive')
+    expect(API_CLIENT.post.mock.calls.at(-1)[1].json).toMatchObject({
+      firstName: 'Prince',
+      lastName: ''
+    })
+  })
+
+  it('refuses a missing first name before any request is made', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    wrapper.vm.state.userFirstName = ''
+    wrapper.vm.state.userLastName = 'Doe'
+    wrapper.vm.state.userEmail = 'nobody@example.com'
+    wrapper.vm.state.userPassword = 'a-strong-password'
+    wrapper.vm.state.userGroups = ['group-1']
+    await flushPromises()
+
+    API_CLIENT.post.mockClear()
+    await wrapper.vm.create()
+
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+    expect(notifyQueue.at(-1)?.type).toBe('negative')
+  })
+
+  it('clears both halves when the dialog is kept open for the next account', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    await fillValidForm(wrapper)
+    wrapper.vm.state.keepOpened = true
+
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ id: 'user-1' }) })
+
+    await wrapper.vm.create()
+
+    expect(wrapper.vm.state.userFirstName).toBe('')
+    expect(wrapper.vm.state.userLastName).toBe('')
+    expect(wrapper.emitted('ok')).toBeUndefined()
   })
 })

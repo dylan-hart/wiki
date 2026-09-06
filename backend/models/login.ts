@@ -7,6 +7,7 @@ import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
 import { AccountRateLimitedError, consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
 import { isRecoveryCodeShape } from '../helpers/recoveryCodes.ts'
 import { ProvisionableLoginError } from './authentication.ts'
+import { deriveDisplayName } from './users.ts'
 import { countTfaFailure } from './userCredentials.ts'
 import type { AuthStrategy, ProviderProfile } from './authentication.ts'
 import type { RecoveryCodeEntry } from './userCredentials.ts'
@@ -546,13 +547,21 @@ class Login {
       siteId,
       strategyId,
       name,
+      firstName,
+      lastName,
       email,
       password,
       ip
     }: {
       siteId: string
       strategyId: string
-      name: string
+      /**
+       * An explicitly authored display name. The sign-up form sends the two halves instead and lets
+       * `models/users.ts#resolveNameFields` derive one (Feature #2608), so this is optional.
+       */
+      name?: string
+      firstName?: string
+      lastName?: string
       email: string
       password: string
       ip?: string
@@ -645,8 +654,16 @@ class Login {
 
     this.assertAllowedProviderEmail(strategy, normalizedEmail)
 
+    // -> What the account ends up being called, resolved here only so the verification email below
+    //    can address it. `createUser` still receives the raw three fields and lets
+    //    `resolveNameFields` decide what is stored -- this is not a second derivation, it is the
+    //    same one composer (`deriveDisplayName`) answering the same question.
+    const displayName = name ?? deriveDisplayName(firstName ?? '', lastName ?? '')
+
     const userId = await WIKI.models.users.createUser({
       name,
+      firstName,
+      lastName,
       email: normalizedEmail,
       password,
       groups: strategy.autoEnrollGroups ?? [],
@@ -658,7 +675,7 @@ class Login {
 
     if (requiresVerification) {
       const token = await WIKI.models.userCredentials.generateToken({ kind: 'verify', userId })
-      await WIKI.models.mail.sendVerifyEmail({ to: normalizedEmail, name, token })
+      await WIKI.models.mail.sendVerifyEmail({ to: normalizedEmail, name: displayName, token })
       return { nextAction: 'verify' }
     }
 

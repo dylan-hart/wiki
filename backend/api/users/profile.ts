@@ -203,7 +203,13 @@ async function routes(app: FastifyInstance) {
 
       const patch: UserProfilePatch = {}
       for (const key of [
+        // -> All three name fields are passed through untouched. `models/users.ts#updateUser` is the
+        //    one owner of the derive-unless-authored rule (Feature #2608): a save carrying only the
+        //    two halves re-derives the display name, and one carrying a `name` that differs from
+        //    what they derive to is what authors it.
         'name',
+        'firstName',
+        'lastName',
         'location',
         'jobTitle',
         'pronouns',
@@ -223,6 +229,14 @@ async function routes(app: FastifyInstance) {
       }
       if (patch.name !== undefined && !/^[^<>"]+$/.test(patch.name)) {
         throw new CustomError('userProfileInvalidName', 'Invalid User Name')
+      }
+      // -> An empty half is legitimate (a mononym has no surname, and clearing a first name is how a
+      //    user hands the display name back to an authored value), so only a non-empty one is checked
+      //    for the characters the display name has always refused.
+      for (const half of [patch.firstName, patch.lastName]) {
+        if (half !== undefined && half !== '' && !/^[^<>"]+$/.test(half)) {
+          throw new CustomError('userProfileInvalidName', 'Invalid User Name')
+        }
       }
 
       let profile: UserProfile | null

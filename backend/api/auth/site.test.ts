@@ -131,6 +131,41 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     assert.equal(arg.password, 'longenough1')
   })
 
+  /*
+    Feature #2608, Task #2642: the sign-up form sends two authored halves instead of one name, so the
+    body's `name` is optional and the two new fields must survive the schema and reach
+    `models/login.ts#register` untouched. Nothing in the route derives a display name -- that is
+    `models/users.ts#resolveNameFields`'s, once.
+  */
+  test('POST register: carries firstName/lastName through with no name at all', async () => {
+    const { name: _name, ...halves } = registerPayload()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/22222222-2222-2222-2222-222222222222/auth/register',
+      payload: { ...halves, firstName: 'Ada', lastName: 'Lovelace' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    const arg = registerMock.mock.calls[0].arguments[0] as any
+    assert.equal(arg.firstName, 'Ada')
+    assert.equal(arg.lastName, 'Lovelace')
+    assert.equal(arg.name, undefined)
+  })
+
+  test('POST register: a mononym registers with an empty last name, no surname invented', async () => {
+    const { name: _name, ...halves } = registerPayload()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/22222222-2222-2222-2222-222222222222/auth/register',
+      payload: { ...halves, firstName: 'Prince', lastName: '' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    const arg = registerMock.mock.calls[0].arguments[0] as any
+    assert.equal(arg.firstName, 'Prince')
+    assert.equal(arg.lastName, '')
+  })
+
   test('POST register: an emailValidation-off strategy logs straight in', async () => {
     registerMock = mock.fn(async () => ({
       authenticated: true,

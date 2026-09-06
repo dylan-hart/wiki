@@ -1,11 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { CustomError, rethrowAsBadRequest } from '../../helpers/common.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
-import type { UserPatch } from '../../models/users.ts'
+import { deriveDisplayName, type UserPatch } from '../../models/users.ts'
 import { sessionUserIdOrNull } from './profile.ts'
 
 interface UserUpdateBody {
   name?: string
+  firstName?: string
+  lastName?: string
   email?: string
   isActive?: boolean
   isVerified?: boolean
@@ -444,7 +446,9 @@ async function routes(app: FastifyInstance) {
    */
   app.post<{
     Body: {
-      name: string
+      name?: string
+      firstName?: string
+      lastName?: string
       email: string
       password: string
       groups?: string[]
@@ -461,16 +465,27 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Create a new user',
         description:
-          'Creates a user authenticated against the local strategy. When `sendWelcomeEmail` is set, the new user is emailed a link to set their own password instead of being told it directly — this requires a configured mail transport (Admin > Mail Configuration), or the request is refused before the user is created. `sendWelcomeEmailFromSiteId` picks which site the link is built against; omitted, it falls back to the instance-wide default base URL.',
+          'Creates a user authenticated against the local strategy. Send `firstName`/`lastName` — the two authored halves the admin-create form collects — and the display name derives from them; sending `name` instead authors it directly. At least one of the two must produce a non-empty display name. When `sendWelcomeEmail` is set, the new user is emailed a link to set their own password instead of being told it directly — this requires a configured mail transport (Admin > Mail Configuration), or the request is refused before the user is created. `sendWelcomeEmailFromSiteId` picks which site the link is built against; omitted, it falls back to the instance-wide default base URL.',
         tags: ['Users'],
         body: {
           type: 'object',
-          required: ['name', 'email', 'password'],
+          required: ['email', 'password'],
           properties: {
             name: {
               type: 'string',
               minLength: 1,
+              maxLength: 255,
+              description:
+                'An explicitly authored display name. Omit it to let one derive from the two halves below, which is what the admin-create form does.'
+            },
+            firstName: {
+              type: 'string',
               maxLength: 255
+            },
+            lastName: {
+              type: 'string',
+              maxLength: 255,
+              description: 'May be empty — a mononym is a first name with no surname.'
             },
             email: {
               type: 'string',
@@ -504,7 +519,8 @@ async function routes(app: FastifyInstance) {
           },
           examples: [
             {
-              name: 'Jane Doe',
+              firstName: 'Jane',
+              lastName: 'Doe',
               email: 'jane@example.com',
               password: 'a-long-password',
               groups: []
@@ -536,8 +552,21 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!/^[^<>"]+$/.test(req.body.name)) {
+      // -> Whatever the account will actually be called, resolved here so the refusal below and the
+      //    welcome email agree with what `createUser` is about to store. `deriveDisplayName` is the
+      //    ONE composer of a display name (`models/users.ts`), so this is not a second derivation --
+      //    an explicit `name` still wins, exactly as `resolveNameFields` treats it.
+      const displayName =
+        req.body.name ?? deriveDisplayName(req.body.firstName ?? '', req.body.lastName ?? '')
+      // -> A create carrying neither half nor a name would otherwise silently produce an account
+      //    called '', so the emptiness is refused with the same code an unusable name already used.
+      if (!/^[^<>"]+$/.test(displayName)) {
         throw new CustomError('userCreateInvalidName', 'Invalid User Name')
+      }
+      for (const half of [req.body.firstName, req.body.lastName]) {
+        if (half !== undefined && half !== '' && !/^[^<>"]+$/.test(half)) {
+          throw new CustomError('userCreateInvalidName', 'Invalid User Name')
+        }
       }
       if (await WIKI.models.users.getByEmail(req.body.email.toLowerCase())) {
         throw new CustomError('userCreateDuplicateEmail', 'A user with this email already exists.')
@@ -556,7 +585,11 @@ async function routes(app: FastifyInstance) {
 
       try {
         const id = await WIKI.models.users.createUser({
+          // -> Passed only when the caller authored one: omitting it is what lets
+          //    `resolveNameFields` derive and leave the account tracking later half edits.
           name: req.body.name,
+          firstName: req.body.firstName,
+          lastName: req.body.lastName,
           email: req.body.email,
           password: req.body.password,
           groups: req.body.groups ?? [],
@@ -579,7 +612,7 @@ async function routes(app: FastifyInstance) {
             })
             await WIKI.models.mail.sendWelcomeEmail({
               to: req.body.email,
-              name: req.body.name,
+              name: displayName,
               token,
               siteId: req.body.sendWelcomeEmailFromSiteId
             })
@@ -633,7 +666,19 @@ async function routes(app: FastifyInstance) {
             name: {
               type: 'string',
               minLength: 1,
+              maxLength: 255,
+              description:
+                'The display name. Sending it authors it, so it survives later half edits - unless it is exactly what `firstName`/`lastName` derive to, which puts the account back on derivation instead.'
+            },
+            firstName: {
+              type: 'string',
               maxLength: 255
+            },
+            lastName: {
+              type: 'string',
+              maxLength: 255,
+              description:
+                'May be empty - a mononym derives its display name from `firstName` alone.'
             },
             email: {
               type: 'string',
@@ -714,7 +759,18 @@ async function routes(app: FastifyInstance) {
 
       // -> Collect only the fields actually provided
       const patch: UserPatch = {}
-      for (const key of ['name', 'email', 'isActive', 'isVerified', 'meta', 'prefs'] as const) {
+      // -> The three name fields go through untouched: `updateUser` is the one owner of the
+      //    derive-unless-authored rule (Feature #2608) and decides what `name` ends up being.
+      for (const key of [
+        'name',
+        'firstName',
+        'lastName',
+        'email',
+        'isActive',
+        'isVerified',
+        'meta',
+        'prefs'
+      ] as const) {
         if (req.body[key] !== undefined) {
           ;(patch as Record<string, any>)[key] = req.body[key]
         }

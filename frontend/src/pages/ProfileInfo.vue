@@ -17,6 +17,44 @@
       </w-item-section>
     </w-item>
     <w-item>
+      <blueprint-icon icon="tabler:user" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.firstName`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.firstNameHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-input
+          v-model="state.config.firstName"
+          dense
+          hide-bottom-space
+          :aria-label="t(`profile.firstName`)"
+          :readonly="!canEdit" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset spaced="sm" />
+    <w-item>
+      <blueprint-icon icon="tabler:user" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.lastName`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.lastNameHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-input
+          v-model="state.config.lastName"
+          dense
+          hide-bottom-space
+          :aria-label="t(`profile.lastName`)"
+          :readonly="!canEdit" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset spaced="sm" />
+    <!--
+      The display name is derived from the two halves above on every save, and shown here rather
+      than hidden so the override Feature #2608 grants is actually reachable: typing something
+      else authors it, and the server then leaves it alone through later half edits. Typing back
+      exactly what the halves derive to hands it back to derivation.
+    -->
+    <w-item>
       <blueprint-icon icon="tabler:address-book" />
       <w-item-section>
         <w-item-label>{{ t(`profile.displayName`) }}</w-item-label>
@@ -198,6 +236,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { useDerivedDisplayName } from '@/composables/displayName'
 import { computed, onMounted, reactive } from 'vue'
 
 import { useCommonStore } from '@/stores/common'
@@ -225,6 +264,8 @@ useMeta(() => ({
 const state = reactive({
   config: {
     name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     location: '',
     jobTitle: '',
@@ -265,6 +306,13 @@ const timezones = Intl.supportedValuesOf('timeZone')
 
 const canEdit = computed(() => siteStore.features?.profile)
 
+/*
+  Keeps the display name in step with the two halves until the reader overrides it. Without it,
+  editing a half alone would leave a stale `name` in the payload -- which the server reads as a
+  deliberate override and would freeze the display name for good. See the composable's own doc.
+*/
+const { syncFromStored: syncDisplayName } = useDerivedDisplayName(() => state.config)
+
 // METHODS
 
 /**
@@ -289,6 +337,8 @@ async function fetchProfile() {
 
 function applyProfile(profile) {
   state.config.name = profile.name || ''
+  state.config.firstName = profile.firstName || ''
+  state.config.lastName = profile.lastName || ''
   state.config.email = profile.email || ''
   state.config.location = profile.location || ''
   state.config.jobTitle = profile.jobTitle || ''
@@ -299,6 +349,8 @@ function applyProfile(profile) {
   state.config.timeFormat = profile.timeFormat || '12h'
   state.config.appearance = profile.appearance || 'site'
   state.config.cvd = profile.cvd || 'none'
+  // -> After the whole record is in the fields, not per-field: the answer depends on all three.
+  syncDisplayName()
 }
 
 async function save() {
@@ -312,7 +364,13 @@ async function save() {
     //    downstream per-user mail can address this user in it.
     const resp = await API_CLIENT.put('users/profile', {
       json: {
+        // -> All three are sent every time. The server owns the derive-unless-authored rule
+        //    (`models/users.ts#updateUser`) and treats a `name` equal to what the halves derive to
+        //    as "keep deriving", so submitting the whole form does not silently author every
+        //    account it touches -- which is why nothing here tracks whether the field was typed in.
         name: state.config.name,
+        firstName: state.config.firstName,
+        lastName: state.config.lastName,
         location: state.config.location,
         jobTitle: state.config.jobTitle,
         pronouns: state.config.pronouns,
