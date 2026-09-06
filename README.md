@@ -88,6 +88,22 @@ This will launch the server and automatically restart upon modification of any s
 
 Only precompiled client assets are served in this mode. See the sections below on how to modify the frontend and run in SPA (Single Page Application) mode.
 
+### What the dev container is
+
+It is not merely a convenient place to work — it is built to be the same environment
+`.github/workflows/` runs the quality gate on, so that "it passes here" and "it passes in CI" mean
+the same thing. Concretely, it pins Node to a single exact patch (`.devcontainer/Dockerfile`'s
+`ARG NODE_VERSION`, the only place any Node version is named), runs the same `postgres:18`, and bakes
+in every tool a workflow installs onto its runner before it can run the gate: pandoc, git-cliff at
+the same pinned release, and the Chromium revision the `playwright` package expects — so neither
+`e2e/` nor `frontend/`'s two real-layout suites need a per-machine `npm run install-browsers`. Git is
+configured explicitly rather than inherited from your host, so a test can never pass here and fail in
+CI on an ambient `init.defaultBranch`.
+
+Bumping Node therefore means editing `.devcontainer/Dockerfile`'s `NODE_VERSION` *and*
+`NODE_IMAGE_DIGEST` *and* every `node-version:` in `.github/workflows/*.yml`, in one commit. The image
+build fails if the first two disagree, and `backend/test/devcontainerCiParity.test.ts` guards the rest.
+
 ### Backend Tests
 
 The `app` container's `DATABASE_URL` (set in `.devcontainer/docker-compose.yml`) points at the same
@@ -118,7 +134,14 @@ Any change you make to the frontend will not be reflected on port 3000 until you
 
 ### pgAdmin
 
-A web version of pgAdmin (a PostgreSQL administration tool) is available at `http://localhost:8000`. Use the login `dev@js.wiki` / `123123` to login.
+pgAdmin is **not started by default** — it sits behind the `tools` docker-compose profile, because
+the dev container is meant to be exactly what CI runs on and CI has no pgAdmin. Start it explicitly:
+
+```sh
+docker compose --profile tools up -d pgadmin   # from .devcontainer/
+```
+
+A web version of pgAdmin (a PostgreSQL administration tool) is then available at `http://localhost:8000`. Use the login `dev@js.wiki` / `123123` to login.
 
 Add a new server under **Servers** with the following settings:
 

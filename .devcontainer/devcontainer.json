@@ -1,6 +1,25 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.231.6/containers/javascript-node-postgres
-// Update the VARIANT arg in docker-compose.yml to pick a Node.js version
+//
+// The CI-parity development environment (OpenProject #2684, under Feature #2601). The Node version
+// is pinned in Dockerfile's `ARG NODE_VERSION` and nowhere else -- see that file's header for what
+// the pin is, why it is an exact patch, and what has to move with it.
+//
+// Two features that used to be here are deliberately gone, and both removals are load-bearing:
+//
+//   * `ghcr.io/devcontainers/features/node` -- it installed a SECOND, nvm-managed Node (at a
+//     floating `version: 26`) on top of the base image's pinned one, so the pinned Node was never
+//     the Node you actually got. Removing it is most of the point of this Task.
+//   * `ghcr.io/devcontainers/features/git` -- it builds git from source under /usr/local, whose
+//     system config is /usr/local/etc/gitconfig, which would silently orphan the explicit
+//     `git config --system` settings the Dockerfile writes to /etc/gitconfig. Those settings exist
+//     to close Bug #2586 (a suite that passed locally and failed in CI purely on an ambient
+//     `init.defaultBranch`), so they win over a newer git. The resulting git-version divergence from
+//     ubuntu-latest is recorded in docs/variances.md rather than left implicit.
+//
+// `common-utils` keeps `upgradePackages` OFF: an `apt upgrade` at container-create time resolves
+// against whatever the Debian archive holds that morning, which is unpinnable drift in an image
+// whose entire purpose is to be reproducible.
 {
 	"name": "Wiki.js Dev",
 	"dockerComposeFile": "docker-compose.yml",
@@ -31,6 +50,9 @@
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// This can be used to network with other containers or with the host.
+	// 8000 is pgAdmin's, which only exists when the compose `tools` profile is started -- forwarding
+	// a port nothing is listening on is harmless, and it means opting into the profile needs no
+	// second edit here.
 	"forwardPorts": [3000, 3001, 5432, 8000],
 
   "portsAttributes": {
@@ -47,7 +69,7 @@
       "onAutoForward": "silent"
     },
     "8000": {
-      "label": "PGAdmin",
+      "label": "PGAdmin (compose profile: tools)",
       "onAutoForward": "silent"
     }
   },
@@ -62,16 +84,8 @@
 			"installZsh": "true",
       "installOhMyZsh": "true",
 			"username": "node",
-			"upgradePackages": "true"
+			"upgradePackages": "false"
 		},
-    "ghcr.io/devcontainers/features/node:1": {
-      "nodeGypDependencies": true,
-      "version": "26",
-      "npmVersion": "none",
-      "pnpmVersion": "none",
-      "nvmVersion": "0.40.6"
-    },
-    "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/joedmck/devcontainer-features/cloudflared:1": {}
 	}
 }
