@@ -90,7 +90,7 @@ async function boot(): Promise<void> {
     //    timeout of its own. Reusing the same `pool` is fine here: this worker's own test scenarios
     //    have no reason to keep the two pools genuinely separate the way a real instance does.
     dbManager: { pool, listenerPool: pool },
-    logger: { error: noop, warn: noop, info: noop, debug: noop, verbose: noop, silly: noop },
+    logger: { error: noop, warn: noop, info: noop, debug: noop },
     cache: createCacheStub(),
     events: createEventsStub(),
     sites: { [siteId]: { id: siteId, config: { locales: { primary: 'en' } } } },

@@ -2,7 +2,7 @@ import { styleText } from 'node:util'
 import EventEmitter from 'node:events'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
-export type IgnoredLogLevel = 'verbose' | 'silly'
+export type LogFormat = 'default' | 'json'
 // -> In JSON mode, merged into the payload as siblings of `message` (see the `WIKI.config.logFormat
 //    === 'json'` branch below). Ignored entirely in text mode.
 export type LogContext = Record<string, unknown>
@@ -15,7 +15,7 @@ export type LogFn = (msg: unknown, context?: LogContext) => void
 const BACKLOG_SIZE = 100
 
 const LEVELS: LogLevel[] = ['error', 'warn', 'info', 'debug']
-const LEVELSIGNORED: IgnoredLogLevel[] = ['verbose', 'silly']
+const LOG_FORMATS: LogFormat[] = ['default', 'json']
 const LEVELCOLORS: Record<LogLevel, 'red' | 'yellow' | 'green' | 'cyan'> = {
   error: 'red',
   warn: 'yellow',
@@ -32,13 +32,57 @@ class Logger extends EventEmitter {
   declare warn: LogFn
   declare info: LogFn
   declare debug: LogFn
-  declare verbose: LogFn
-  declare silly: LogFn
+}
+
+export interface LoggerInitOptions {
+  /**
+   * How a rejected config value ends the process. Injected so a test can assert the refusal without
+   * killing the test runner; production hands it `process.exit`, which never returns.
+   */
+  exit?: (code: number) => void
+}
+
+/**
+ * Refuses a `logLevel` or `logFormat` this logger cannot honour, rather than quietly doing something
+ * else with it.
+ *
+ * The threshold below is picked by walking `LEVELS` until the configured name matches, so a value
+ * that never matches -- a typo (`Info`, `warning`, `trace`), an empty string, or the 2.x names
+ * (`verbose`, `silly`) this logger has never implemented -- used to leave every listener attached and
+ * log at `debug`, with nothing said about the config having been ignored. `logFormat` had the same
+ * shape of hole: anything but `json` silently took the text branch, so `jsno` looked like it worked.
+ *
+ * `console.error`, not `WIKI.logger.error`: this decides how `WIKI.logger` is built, so there is no
+ * logger to report through yet -- the same exception `core/config.ts#warnUnknownConfigKeys`
+ * documents for itself. One line per rejected value, naming the value and the valid set, then exit.
+ */
+function assertValidLogConfig(exit: (code: number) => void): void {
+  const { logLevel, logFormat } = WIKI.config
+  if (!LEVELS.includes(logLevel)) {
+    console.error(
+      styleText(
+        ['red', 'bold'],
+        `>>> Invalid \`logLevel\` value ${JSON.stringify(logLevel)} in config.yml — must be one of: ${LEVELS.join(', ')}.`
+      )
+    )
+    exit(1)
+  }
+  if (!LOG_FORMATS.includes(logFormat)) {
+    console.error(
+      styleText(
+        ['red', 'bold'],
+        `>>> Invalid \`logFormat\` value ${JSON.stringify(logFormat)} in config.yml — must be one of: ${LOG_FORMATS.join(', ')}.`
+      )
+    )
+    exit(1)
+  }
 }
 
 export default {
   loggers: {},
-  init(): Logger {
+  init({ exit = (code: number) => process.exit(code) }: LoggerInitOptions = {}): Logger {
+    assertValidLogConfig(exit)
+
     const primaryLogger = new Logger()
 
     let ignoreNextLevels = false
@@ -94,10 +138,6 @@ export default {
       if (lvl === WIKI.config.logLevel) {
         ignoreNextLevels = true
       }
-    })
-
-    LEVELSIGNORED.forEach((lvl) => {
-      primaryLogger[lvl] = () => {}
     })
 
     return primaryLogger

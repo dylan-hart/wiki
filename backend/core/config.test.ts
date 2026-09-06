@@ -289,9 +289,7 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
         error: () => {},
         warn: () => {},
         info: () => {},
-        debug: () => {},
-        verbose: () => {},
-        silly: () => {}
+        debug: () => {}
       },
       cache: createCacheStub(),
       events: createEventsStub(),
