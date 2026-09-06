@@ -7,6 +7,11 @@ import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
  * `Graph.vue`/Vue/d3 -- `Graph.vue`'s own `radiusFor()` is covered end-to-end through
  * `Graph.sizing.test.js` and `Graph.layout.test.js`; this suite is the range-tracking and
  * interpolation math those rely on.
+ *
+ * `lerpRadius` takes its bounds as parameters, so nothing here would break if `Graph.vue`'s
+ * constants moved -- but every case below still passes the real `MIN_NODE_RADIUS`/`MAX_NODE_RADIUS`
+ * pair (`10`/`110`, the floor doubled from `5` by OpenProject #2594) rather than arbitrary numbers,
+ * so the arithmetic in these comments describes radii the app actually draws.
  */
 describe('graphNodeSize', () => {
   describe('sqrtRangeOf', () => {
@@ -49,35 +54,35 @@ describe('graphNodeSize', () => {
   describe('lerpRadius', () => {
     it('maps the range minimum to minRadius and the range maximum to maxRadius', () => {
       const range = { min: 0, max: 10 }
-      expect(lerpRadius(0, range, 5, 110)).toBe(5)
+      expect(lerpRadius(0, range, 10, 110)).toBe(10)
       // -> count 100 -> sqrt(100) = 10 = range.max
-      expect(lerpRadius(100, range, 5, 110)).toBe(110)
+      expect(lerpRadius(100, range, 10, 110)).toBe(110)
     })
 
     it('interpolates linearly BETWEEN the two, in sqrt space', () => {
       const range = { min: 0, max: 10 }
-      // -> count 25 -> sqrt(25) = 5, the exact midpoint of [0, 10] -> exact midpoint of [5, 110]
-      expect(lerpRadius(25, range, 5, 110)).toBeCloseTo(57.5)
+      // -> count 25 -> sqrt(25) = 5, the exact midpoint of [0, 10] -> exact midpoint of [10, 110]
+      expect(lerpRadius(25, range, 10, 110)).toBeCloseTo(60)
     })
 
     it('never divides by zero on a zero-width range, drawing at the floor instead', () => {
       const zeroWidthRange = { min: 0, max: 0 }
-      expect(lerpRadius(0, zeroWidthRange, 5, 110)).toBe(5)
+      expect(lerpRadius(0, zeroWidthRange, 10, 110)).toBe(10)
       // -> Same floor even for a non-zero shared count -- the range came from sqrtRangeOf() folding
       //    every loaded node's identical count down to {min: 0, max: 0} regardless of what that
       //    shared count actually was, so a node's OWN count plays no role once the range is
       //    zero-width -- only the range shape decides.
-      expect(lerpRadius(999, zeroWidthRange, 5, 110)).toBe(5)
+      expect(lerpRadius(999, zeroWidthRange, 10, 110)).toBe(10)
     })
 
     it('a non-zero-min range still lerps correctly (min need not be 0)', () => {
       // -> sqrt(4) = 2 = range.min, sqrt(16) = 4 = range.max -- a node right at the graph's own
       //    observed floor (not the global floor of 0) still lands exactly at minRadius.
       const range = { min: 2, max: 4 }
-      expect(lerpRadius(4, range, 5, 110)).toBe(5)
-      expect(lerpRadius(16, range, 5, 110)).toBe(110)
-      // -> sqrt(9) = 3, the midpoint of [2, 4] -> midpoint of [5, 110]
-      expect(lerpRadius(9, range, 5, 110)).toBeCloseTo(57.5)
+      expect(lerpRadius(4, range, 10, 110)).toBe(10)
+      expect(lerpRadius(16, range, 10, 110)).toBe(110)
+      // -> sqrt(9) = 3, the midpoint of [2, 4] -> midpoint of [10, 110]
+      expect(lerpRadius(9, range, 10, 110)).toBeCloseTo(60)
     })
   })
 })
