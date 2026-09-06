@@ -267,9 +267,17 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     await page.goto(`/_admin/${siteId}/glossary`)
     await page.getByRole('button', { name: 'New Term', exact: true }).click()
 
+    // -> `getByLabel({ exact: true })` matches the label's raw TEXT CONTENT, which is NOT the same
+    //    thing as its accessible name -- `aria-hidden` removes an element from the accessibility
+    //    tree, not from `textContent`. `WFieldFrame.vue`'s asterisk span is real text ("Term" +
+    //    nbsp + "*"), so an exact-text match against bare "Term" never matched, on any browser,
+    //    from the day this test was written -- confirmed by actually running it against a real
+    //    stack (OpenProject #2733/#2739's investigation), which its own prior fix never did.
+    //    `getByRole('textbox', { name, exact: true })` uses real accessible-name computation,
+    //    which DOES exclude `aria-hidden` content, matching the "Term" the reader actually hears.
     const termField = page
       .locator('.w-input')
-      .filter({ has: page.getByLabel('Term', { exact: true }) })
+      .filter({ has: page.getByRole('textbox', { name: 'Term', exact: true }) })
     // -> The one asterisk `WFieldFrame.vue` renders for a required field, beside the label text --
     //    `aria-hidden` (the label's own text already says "Term"; the glyph is decorative), which
     //    does not affect Playwright's visibility check.
