@@ -1,6 +1,6 @@
 import { after, before, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { createCacheStub, createEventsStub } from '../test/mocks.ts'
@@ -487,6 +487,68 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
 
       const cached = await glossaryModel.getCachedTerms(fixtures.siteId, actor)
       assert.deepEqual(cached.find((t) => t.term === 'Aliased')?.aliases, [alias('AL')])
+    })
+
+    /**
+     * OpenProject #2598 (Issues #2590/#2591/#2595). `20260905142836_main` reached the jsonb column
+     * by `SET DATA TYPE jsonb USING to_jsonb("aliases")` over the old `text[]`, which produces an
+     * array of plain STRINGS rather than the `{ value, isAcronym }` rows everything above assumes,
+     * so a term saved before that migration came back the wrong shape and
+     * `assertNoSurfaceFormCollision`'s `a.value.toLowerCase()` threw on it. The column is now
+     * squashed into the genesis `CREATE TABLE` and no conversion runs at all — these two assert
+     * that against the REAL migrated database `setupTestDb()` stands up, which is the only place
+     * the migration SQL's actual effect (as opposed to `db/schema.ts`'s declaration of it) is
+     * observable.
+     */
+    test('the migrated column is physically jsonb, not text[]', async () => {
+      const result: any = await fixtures.db.execute(sql`
+        SELECT data_type, udt_name
+        FROM information_schema.columns
+        WHERE table_schema = ${fixtures.schema}
+          AND table_name = 'glossaryTerms'
+          AND column_name = 'aliases'
+      `)
+      const [row] = result.rows
+      assert.ok(row, 'expected glossaryTerms.aliases to exist in the migrated schema')
+      assert.equal(row.data_type, 'jsonb')
+      assert.equal(row.udt_name, 'jsonb')
+    })
+
+    test('a two-alias term round-trips as {value, isAcronym} rows and collides on re-save without throwing a TypeError', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'United States Ship',
+        definition: 'A commissioned vessel.',
+        aliases: [alias('USS', true), alias('US Ship')]
+      })
+
+      // -> Read back off the raw column, not just the model's return value: `to_jsonb(text[])`
+      //    would have stored `["USS","US Ship"]`, which a `.map((a) => a.value)` cannot survive.
+      const stored: any = await fixtures.db.execute(
+        sql`SELECT aliases FROM "glossaryTerms" WHERE id = ${created.id}`
+      )
+      assert.deepEqual(stored.rows[0].aliases, [
+        { value: 'USS', isAcronym: true },
+        { value: 'US Ship', isAcronym: false }
+      ])
+      assert.deepEqual(created.aliases, [alias('USS', true), alias('US Ship')])
+
+      // -> `assertNoSurfaceFormCollision` walks every existing row's `aliases` and reads
+      //    `a.value.toLowerCase()`. Against the wrong shape that is the reported
+      //    `TypeError: Cannot read properties of undefined (reading 'toLowerCase')`; against the
+      //    right one it is an ordinary 409.
+      await assert.rejects(
+        () =>
+          glossaryModel.createTerm(fixtures.siteId, {
+            term: 'Another Vessel',
+            definition: 'Collides on an alias.',
+            aliases: [alias('uss')]
+          }),
+        (err: any) => {
+          assert.equal(err.statusCode, 409)
+          assert.ok(!(err instanceof TypeError), `expected a 409, got a TypeError: ${err.message}`)
+          return true
+        }
+      )
     })
   })
 
