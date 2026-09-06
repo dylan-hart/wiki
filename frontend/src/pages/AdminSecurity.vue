@@ -47,115 +47,88 @@
         <!-- ----------------------- -->
         <!-- Security -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.security.title') }}</w-card-header>
-          <w-item class="pt-0">
-            <w-item-section>
-              <w-card class="bg-negative text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:alert-triangle" size="lg" />
-                  </w-card-section>
-                  <w-card-section class="text-caption">
-                    <div>{{ t('admin.security.warn') }}</div>
-                    <!-- These are read when the HTTP server builds its plugin chain, not per request -->
-                    <div class="mt-1">{{ t('admin.security.restartRequired') }}</div>
-                  </w-card-section>
+        <w-settings-card :title="t('admin.security.title')">
+          <div class="p-3">
+            <w-card class="bg-negative text-white rounded">
+              <w-card-section class="items-center" horizontal>
+                <w-card-section class="flex-none pe-0">
+                  <w-icon name="tabler:alert-triangle" size="lg" />
                 </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:maximize" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.disallowIframe`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.disallowIframeHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.disallowIframe"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.disallowIframe`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:hand-off" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.enforceSameOriginReferrerPolicy`) }}</w-item-label>
-              <w-item-label caption>{{
-                t(`admin.security.enforceSameOriginReferrerPolicyHint`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.enforceSameOriginReferrerPolicy"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.enforceSameOriginReferrerPolicy`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:arrow-back-up" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.disallowOpenRedirect`) }}</w-item-label>
-              <w-item-label caption>{{
-                t(`admin.security.disallowOpenRedirectHint`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.disallowOpenRedirect"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.disallowOpenRedirect`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:cloud-download" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.forceAssetDownload`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.forceAssetDownloadHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.forceAssetDownload"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.forceAssetDownload`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:door" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.trustProxy`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.trustProxyHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="trustProxyEnabled"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.trustProxy`)" />
-            </w-item-section>
-          </w-item>
+                <w-card-section class="text-caption">
+                  <div>{{ t('admin.security.warn') }}</div>
+                  <!-- These are read when the HTTP server builds its plugin chain, not per request -->
+                  <div class="mt-1">{{ t('admin.security.restartRequired') }}</div>
+                </w-card-section>
+              </w-card-section>
+            </w-card>
+          </div>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:maximize"
+            :label="t(`admin.security.disallowIframe`)"
+            :hint="t(`admin.security.disallowIframeHint`)">
+            <w-toggle
+              v-model="state.config.disallowIframe"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.disallowIframe`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:hand-off"
+            :label="t(`admin.security.enforceSameOriginReferrerPolicy`)"
+            :hint="t(`admin.security.enforceSameOriginReferrerPolicyHint`)">
+            <w-toggle
+              v-model="state.config.enforceSameOriginReferrerPolicy"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.enforceSameOriginReferrerPolicy`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:arrow-back-up"
+            :label="t(`admin.security.disallowOpenRedirect`)"
+            :hint="t(`admin.security.disallowOpenRedirectHint`)">
+            <w-toggle
+              v-model="state.config.disallowOpenRedirect"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.disallowOpenRedirect`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:cloud-download"
+            :label="t(`admin.security.forceAssetDownload`)"
+            :hint="t(`admin.security.forceAssetDownloadHint`)">
+            <w-toggle
+              v-model="state.config.forceAssetDownload"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.forceAssetDownload`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:door"
+            :label="t(`admin.security.trustProxy`)"
+            :hint="t(`admin.security.trustProxyHint`)">
+            <w-toggle
+              v-model="trustProxyEnabled"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.trustProxy`)" />
+          </w-settings-row>
           <template v-if="trustProxyEnabled">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:map-pin" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.trustProxyAddresses`) }}</w-item-label>
-                <w-item-label caption>{{
-                  t(`admin.security.trustProxyAddressesHint`)
-                }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 260px">
-                <w-input
-                  v-model="trustProxyAddresses"
-                  dense
-                  :placeholder="t(`admin.security.trustProxyAddressesPlaceholder`)"
-                  :aria-label="t(`admin.security.trustProxyAddresses`)" />
-              </w-item-section>
-            </w-item>
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:map-pin"
+              :label="t(`admin.security.trustProxyAddresses`)"
+              :hint="t(`admin.security.trustProxyAddressesHint`)">
+              <w-input
+                v-model="trustProxyAddresses"
+                dense
+                :placeholder="t(`admin.security.trustProxyAddressesPlaceholder`)"
+                :aria-label="t(`admin.security.trustProxyAddresses`)" />
+            </w-settings-row>
           </template>
           <!--
             Only shown once the backend has actually seen the misconfiguration on a live request
@@ -166,397 +139,322 @@
             warning immediately rather than waiting on a restart + reload to confirm it.
           -->
           <template v-if="state.config.insecureCookieRiskAt && !state.config.trustProxy">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <w-item-section>
-                <w-card class="bg-negative text-white rounded">
-                  <w-card-section class="items-center" horizontal>
-                    <w-card-section class="flex-none pe-0">
-                      <w-icon name="tabler:alert-triangle" size="lg" />
-                    </w-card-section>
-                    <w-card-section class="text-caption">
-                      <div>{{ t('admin.security.insecureCookieRiskWarn') }}</div>
-                      <div class="mt-1">
-                        {{
-                          t('admin.security.insecureCookieRiskWarnSince', {
-                            date: humanizeDate(t, state.config.insecureCookieRiskAt)
-                          })
-                        }}
-                      </div>
-                    </w-card-section>
+            <div class="p-3">
+              <w-card class="bg-negative text-white rounded">
+                <w-card-section class="items-center" horizontal>
+                  <w-card-section class="flex-none pe-0">
+                    <w-icon name="tabler:alert-triangle" size="lg" />
                   </w-card-section>
-                </w-card>
-              </w-item-section>
-            </w-item>
+                  <w-card-section class="text-caption">
+                    <div>{{ t('admin.security.insecureCookieRiskWarn') }}</div>
+                    <div class="mt-1">
+                      {{
+                        t('admin.security.insecureCookieRiskWarnSince', {
+                          date: humanizeDate(t, state.config.insecureCookieRiskAt)
+                        })
+                      }}
+                    </div>
+                  </w-card-section>
+                </w-card-section>
+              </w-card>
+            </div>
           </template>
-        </w-card>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- HSTS -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.security.hsts') }}</w-card-header>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:lock-square-rounded" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.enforceHsts`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.enforceHstsHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.enforceHsts"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.enforceHsts`)" />
-            </w-item-section>
-          </w-item>
+        <w-settings-card class="mt-4" :title="t('admin.security.hsts')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:lock-square-rounded"
+            :label="t(`admin.security.enforceHsts`)"
+            :hint="t(`admin.security.enforceHstsHint`)">
+            <w-toggle
+              v-model="state.config.enforceHsts"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.enforceHsts`)" />
+          </w-settings-row>
           <template v-if="state.config.enforceHsts">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:clock-play" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.hstsDuration`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.hstsDurationHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 200px">
-                <w-select
-                  v-model="state.config.hstsDuration"
-                  :options="hstsDurations"
-                  option-value="value"
-                  option-label="text"
-                  emit-value
-                  map-options
-                  dense
-                  :aria-label="t(`admin.security.hstsDuration`)" />
-              </w-item-section>
-            </w-item>
-          </template>
-        </w-card>
-        <!-- ----------------------- -->
-        <!-- Rate Limiting -->
-        <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.security.rateLimit') }}</w-card-header>
-          <!--
-            First thing in the card, and in the same red the security warning above uses: both say
-            something that decides whether the settings under them do what they look like they do.
-          -->
-          <w-item class="pt-0">
-            <w-item-section>
-              <w-card class="bg-negative text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:alert-triangle" size="lg" />
-                  </w-card-section>
-                  <w-card-section class="text-caption">
-                    <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
-                         address, so one visitor going over the limit takes everybody with them -->
-                    <div v-if="!state.config.trustProxy">
-                      {{ t('admin.security.rateLimitProxyWarn') }}
-                    </div>
-                    <div :class="{ 'mt-1': !state.config.trustProxy }">
-                      {{ t('admin.security.rateLimitRecommended') }}
-                    </div>
-                  </w-card-section>
-                </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:filter" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.rateLimitEnabled`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.rateLimitEnabledHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.authRateLimitEnabled"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.rateLimitEnabled`)" />
-            </w-item-section>
-          </w-item>
-          <template v-if="state.config.authRateLimitEnabled">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:grid-dots" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.rateLimitMax`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.rateLimitMaxHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 200px">
-                <w-input
-                  v-model.number="state.config.authRateLimitMax"
-                  dense
-                  :suffix="t(`admin.security.rateLimitMaxSuffix`)"
-                  :aria-label="t(`admin.security.rateLimitMax`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:clock-play" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.rateLimitWindow`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.rateLimitWindowHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 200px">
-                <w-input
-                  v-model="state.config.authRateLimitWindow"
-                  dense
-                  :placeholder="t(`admin.security.durationPlaceholder`)"
-                  :aria-label="t(`admin.security.rateLimitWindow`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:ban" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.rateLimitBan`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.rateLimitBanHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 200px">
-                <w-input
-                  v-model="state.config.authRateLimitBan"
-                  dense
-                  :placeholder="t(`admin.security.durationPlaceholder`)"
-                  :aria-label="t(`admin.security.rateLimitBan`)" />
-              </w-item-section>
-            </w-item>
-          </template>
-        </w-card>
-        <!-- ----------------------- -->
-        <!-- API Rate Limiting -->
-        <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.security.apiRateLimit') }}</w-card-header>
-          <!--
-            Same red warning-first layout as the authentication rate-limit card above: both say
-            something that decides whether the settings under them do what they look like they do.
-          -->
-          <w-item class="pt-0">
-            <w-item-section>
-              <w-card class="bg-negative text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:alert-triangle" size="lg" />
-                  </w-card-section>
-                  <w-card-section class="text-caption">
-                    <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
-                         address, so one caller going over the limit takes everybody with them -->
-                    <div v-if="!state.config.trustProxy">
-                      {{ t('admin.security.rateLimitProxyWarn') }}
-                    </div>
-                    <div :class="{ 'mt-1': !state.config.trustProxy }">
-                      {{ t('admin.security.apiRateLimitRecommended') }}
-                    </div>
-                  </w-card-section>
-                </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:filter" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.apiRateLimitEnabled`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.apiRateLimitEnabledHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.apiRateLimitEnabled"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.apiRateLimitEnabled`)" />
-            </w-item-section>
-          </w-item>
-          <template v-if="state.config.apiRateLimitEnabled">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:grid-dots" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.apiRateLimitMax`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.apiRateLimitMaxHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 200px">
-                <w-input
-                  v-model.number="state.config.apiRateLimitMax"
-                  dense
-                  :suffix="t(`admin.security.apiRateLimitMaxSuffix`)"
-                  :aria-label="t(`admin.security.apiRateLimitMax`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:clock-play" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.apiRateLimitWindow`) }}</w-item-label>
-                <w-item-label caption>{{
-                  t(`admin.security.apiRateLimitWindowHint`)
-                }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 200px">
-                <w-input
-                  v-model="state.config.apiRateLimitWindow"
-                  dense
-                  :placeholder="t(`admin.security.durationPlaceholder`)"
-                  :aria-label="t(`admin.security.apiRateLimitWindow`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:ban" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.apiRateLimitBan`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.apiRateLimitBanHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section style="flex: 0 0 200px">
-                <w-input
-                  v-model="state.config.apiRateLimitBan"
-                  dense
-                  :placeholder="t(`admin.security.durationPlaceholder`)"
-                  :aria-label="t(`admin.security.apiRateLimitBan`)" />
-              </w-item-section>
-            </w-item>
-          </template>
-        </w-card>
-      </div>
-      <div class="col-span-12 lg:col-span-6">
-        <!-- ----------------------- -->
-        <!-- Uploads -->
-        <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.security.uploads') }}</w-card-header>
-          <w-item class="pt-0">
-            <w-item-section>
-              <w-card class="bg-info text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:info-circle" size="lg" />
-                  </w-card-section>
-                  <w-card-section class="text-caption">
-                    <div>{{ t('admin.security.uploadsInfo') }}</div>
-                  </w-card-section>
-                </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:cloud-upload" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.maxUploadSize`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.maxUploadSizeHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section style="flex: 0 0 200px">
-              <w-input
-                v-model.number="state.humanUploadMaxFileSize"
-                dense
-                :aria-label="t(`admin.security.maxUploadSize`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:scan" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.scanSVG`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.scanSVGHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.uploadScanSVG"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.scanSVG`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
-        <!-- ----------------------- -->
-        <!-- CORS -->
-        <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.security.cors') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:wall" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.corsMode`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.corsModeHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:clock-play"
+              :label="t(`admin.security.hstsDuration`)"
+              :hint="t(`admin.security.hstsDurationHint`)">
               <w-select
-                v-model="state.config.corsMode"
-                :options="corsModes"
+                v-model="state.config.hstsDuration"
+                :options="hstsDurations"
                 option-value="value"
                 option-label="text"
                 emit-value
                 map-options
                 dense
-                :aria-label="t(`admin.security.corsMode`)" />
-            </w-item-section>
-          </w-item>
+                :aria-label="t(`admin.security.hstsDuration`)" />
+            </w-settings-row>
+          </template>
+        </w-settings-card>
+        <!-- ----------------------- -->
+        <!-- Rate Limiting -->
+        <!-- ----------------------- -->
+        <w-settings-card class="mt-4" :title="t('admin.security.rateLimit')">
+          <!--
+            First thing in the card, and in the same red the security warning above uses: both say
+            something that decides whether the settings under them do what they look like they do.
+          -->
+          <div class="p-3">
+            <w-card class="bg-negative text-white rounded">
+              <w-card-section class="items-center" horizontal>
+                <w-card-section class="flex-none pe-0">
+                  <w-icon name="tabler:alert-triangle" size="lg" />
+                </w-card-section>
+                <w-card-section class="text-caption">
+                  <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
+                       address, so one visitor going over the limit takes everybody with them -->
+                  <div v-if="!state.config.trustProxy">
+                    {{ t('admin.security.rateLimitProxyWarn') }}
+                  </div>
+                  <div :class="{ 'mt-1': !state.config.trustProxy }">
+                    {{ t('admin.security.rateLimitRecommended') }}
+                  </div>
+                </w-card-section>
+              </w-card-section>
+            </w-card>
+          </div>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:filter"
+            :label="t(`admin.security.rateLimitEnabled`)"
+            :hint="t(`admin.security.rateLimitEnabledHint`)">
+            <w-toggle
+              v-model="state.config.authRateLimitEnabled"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.rateLimitEnabled`)" />
+          </w-settings-row>
+          <template v-if="state.config.authRateLimitEnabled">
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:grid-dots"
+              :label="t(`admin.security.rateLimitMax`)"
+              :hint="t(`admin.security.rateLimitMaxHint`)">
+              <w-input
+                v-model.number="state.config.authRateLimitMax"
+                dense
+                :suffix="t(`admin.security.rateLimitMaxSuffix`)"
+                :aria-label="t(`admin.security.rateLimitMax`)" />
+            </w-settings-row>
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:clock-play"
+              :label="t(`admin.security.rateLimitWindow`)"
+              :hint="t(`admin.security.rateLimitWindowHint`)">
+              <w-input
+                v-model="state.config.authRateLimitWindow"
+                dense
+                :placeholder="t(`admin.security.durationPlaceholder`)"
+                :aria-label="t(`admin.security.rateLimitWindow`)" />
+            </w-settings-row>
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:ban"
+              :label="t(`admin.security.rateLimitBan`)"
+              :hint="t(`admin.security.rateLimitBanHint`)">
+              <w-input
+                v-model="state.config.authRateLimitBan"
+                dense
+                :placeholder="t(`admin.security.durationPlaceholder`)"
+                :aria-label="t(`admin.security.rateLimitBan`)" />
+            </w-settings-row>
+          </template>
+        </w-settings-card>
+        <!-- ----------------------- -->
+        <!-- API Rate Limiting -->
+        <!-- ----------------------- -->
+        <w-settings-card class="mt-4" :title="t('admin.security.apiRateLimit')">
+          <!--
+            Same red warning-first layout as the authentication rate-limit card above: both say
+            something that decides whether the settings under them do what they look like they do.
+          -->
+          <div class="p-3">
+            <w-card class="bg-negative text-white rounded">
+              <w-card-section class="items-center" horizontal>
+                <w-card-section class="flex-none pe-0">
+                  <w-icon name="tabler:alert-triangle" size="lg" />
+                </w-card-section>
+                <w-card-section class="text-caption">
+                  <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
+                       address, so one caller going over the limit takes everybody with them -->
+                  <div v-if="!state.config.trustProxy">
+                    {{ t('admin.security.rateLimitProxyWarn') }}
+                  </div>
+                  <div :class="{ 'mt-1': !state.config.trustProxy }">
+                    {{ t('admin.security.apiRateLimitRecommended') }}
+                  </div>
+                </w-card-section>
+              </w-card-section>
+            </w-card>
+          </div>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:filter"
+            :label="t(`admin.security.apiRateLimitEnabled`)"
+            :hint="t(`admin.security.apiRateLimitEnabledHint`)">
+            <w-toggle
+              v-model="state.config.apiRateLimitEnabled"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.apiRateLimitEnabled`)" />
+          </w-settings-row>
+          <template v-if="state.config.apiRateLimitEnabled">
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:grid-dots"
+              :label="t(`admin.security.apiRateLimitMax`)"
+              :hint="t(`admin.security.apiRateLimitMaxHint`)">
+              <w-input
+                v-model.number="state.config.apiRateLimitMax"
+                dense
+                :suffix="t(`admin.security.apiRateLimitMaxSuffix`)"
+                :aria-label="t(`admin.security.apiRateLimitMax`)" />
+            </w-settings-row>
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:clock-play"
+              :label="t(`admin.security.apiRateLimitWindow`)"
+              :hint="t(`admin.security.apiRateLimitWindowHint`)">
+              <w-input
+                v-model="state.config.apiRateLimitWindow"
+                dense
+                :placeholder="t(`admin.security.durationPlaceholder`)"
+                :aria-label="t(`admin.security.apiRateLimitWindow`)" />
+            </w-settings-row>
+            <w-settings-row
+              control-width="fixed"
+              icon="tabler:ban"
+              :label="t(`admin.security.apiRateLimitBan`)"
+              :hint="t(`admin.security.apiRateLimitBanHint`)">
+              <w-input
+                v-model="state.config.apiRateLimitBan"
+                dense
+                :placeholder="t(`admin.security.durationPlaceholder`)"
+                :aria-label="t(`admin.security.apiRateLimitBan`)" />
+            </w-settings-row>
+          </template>
+        </w-settings-card>
+      </div>
+      <div class="col-span-12 lg:col-span-6">
+        <!-- ----------------------- -->
+        <!-- Uploads -->
+        <!-- ----------------------- -->
+        <w-settings-card :title="t('admin.security.uploads')">
+          <div class="p-3">
+            <w-card class="bg-info text-white rounded">
+              <w-card-section class="items-center" horizontal>
+                <w-card-section class="flex-none pe-0">
+                  <w-icon name="tabler:info-circle" size="lg" />
+                </w-card-section>
+                <w-card-section class="text-caption">
+                  <div>{{ t('admin.security.uploadsInfo') }}</div>
+                </w-card-section>
+              </w-card-section>
+            </w-card>
+          </div>
+          <w-settings-row
+            control-width="fixed"
+            icon="tabler:cloud-upload"
+            :label="t(`admin.security.maxUploadSize`)"
+            :hint="t(`admin.security.maxUploadSizeHint`)">
+            <w-input
+              v-model.number="state.humanUploadMaxFileSize"
+              dense
+              :aria-label="t(`admin.security.maxUploadSize`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:scan"
+            :label="t(`admin.security.scanSVG`)"
+            :hint="t(`admin.security.scanSVGHint`)">
+            <w-toggle
+              v-model="state.config.uploadScanSVG"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.scanSVG`)" />
+          </w-settings-row>
+        </w-settings-card>
+        <!-- ----------------------- -->
+        <!-- CORS -->
+        <!-- ----------------------- -->
+        <w-settings-card class="mt-4" :title="t('admin.security.cors')">
+          <w-settings-row
+            icon="tabler:wall"
+            :label="t(`admin.security.corsMode`)"
+            :hint="t(`admin.security.corsModeHint`)">
+            <w-select
+              v-model="state.config.corsMode"
+              :options="corsModes"
+              option-value="value"
+              option-label="text"
+              emit-value
+              map-options
+              dense
+              :aria-label="t(`admin.security.corsMode`)" />
+          </w-settings-row>
           <template v-if="state.config.corsMode === `HOSTNAMES`">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:list-check" key="corsHostnames" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.corsHostnames`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.corsHostnamesHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-input
-                  v-model="state.config.corsConfig"
-                  dense
-                  type="textarea"
-                  :aria-label="t(`admin.security.corsHostnames`)" />
-              </w-item-section>
-            </w-item>
+            <w-settings-row
+              icon="tabler:list-check"
+              key="corsHostnames"
+              :label="t(`admin.security.corsHostnames`)"
+              :hint="t(`admin.security.corsHostnamesHint`)">
+              <w-input
+                v-model="state.config.corsConfig"
+                dense
+                type="textarea"
+                :aria-label="t(`admin.security.corsHostnames`)" />
+            </w-settings-row>
           </template>
           <template v-else-if="state.config.corsMode === `REGEX`">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:checkbox" key="corsRegex" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.corsRegex`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.corsRegexHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-input
-                  v-model="state.config.corsConfig"
-                  dense
-                  :aria-label="t(`admin.security.corsRegex`)" />
-              </w-item-section>
-            </w-item>
+            <w-settings-row
+              icon="tabler:checkbox"
+              key="corsRegex"
+              :label="t(`admin.security.corsRegex`)"
+              :hint="t(`admin.security.corsRegexHint`)">
+              <w-input
+                v-model="state.config.corsConfig"
+                dense
+                :aria-label="t(`admin.security.corsRegex`)" />
+            </w-settings-row>
           </template>
-        </w-card>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- CSP -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.security.csp') }}</w-card-header>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:shield-check" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.enforceCsp`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.enforceCspHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.enforceCsp"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.enforceCsp`)" />
-            </w-item-section>
-          </w-item>
+        <w-settings-card class="mt-4" :title="t('admin.security.csp')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:shield-check"
+            :label="t(`admin.security.enforceCsp`)"
+            :hint="t(`admin.security.enforceCspHint`)">
+            <w-toggle
+              v-model="state.config.enforceCsp"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.security.enforceCsp`)" />
+          </w-settings-row>
           <template v-if="state.config.enforceCsp">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:file-code" key="cspDirectives" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.security.cspDirectives`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.security.cspDirectivesHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-input
-                  v-model="state.config.cspDirectives"
-                  dense
-                  type="textarea"
-                  :placeholder="t(`admin.security.cspDirectivesPlaceholder`)"
-                  :aria-label="t(`admin.security.cspDirectives`)" />
-              </w-item-section>
-            </w-item>
+            <w-settings-row
+              icon="tabler:file-code"
+              key="cspDirectives"
+              :label="t(`admin.security.cspDirectives`)"
+              :hint="t(`admin.security.cspDirectivesHint`)">
+              <w-input
+                v-model="state.config.cspDirectives"
+                dense
+                type="textarea"
+                :placeholder="t(`admin.security.cspDirectivesPlaceholder`)"
+                :aria-label="t(`admin.security.cspDirectives`)" />
+            </w-settings-row>
           </template>
-        </w-card>
+        </w-settings-card>
       </div>
     </div>
   </w-page>
