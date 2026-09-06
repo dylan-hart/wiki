@@ -1833,7 +1833,8 @@ $fileman-hdr-wrap-max: 899.98px;
 
     /*
       The four corner marks. Outside the frame by 4px, drawn as two edges of a 7px square each, so
-      they read as registration ticks rather than as a second border.
+      they read as registration ticks rather than as a second border. Positioned with logical
+      insets, so each tick's two drawn edges stay on the corner it is named for under RTL.
     */
     &-tick {
       position: absolute;
@@ -1848,25 +1849,25 @@ $fileman-hdr-wrap-max: 899.98px;
 
       &--tl {
         top: -4px;
-        left: -4px;
+        inset-inline-start: -4px;
         border-block-start-width: 1px;
         border-inline-start-width: 1px;
       }
       &--tr {
         top: -4px;
-        right: -4px;
+        inset-inline-end: -4px;
         border-block-start-width: 1px;
         border-inline-end-width: 1px;
       }
       &--bl {
         bottom: -4px;
-        left: -4px;
+        inset-inline-start: -4px;
         border-block-end-width: 1px;
         border-inline-start-width: 1px;
       }
       &--br {
         bottom: -4px;
-        right: -4px;
+        inset-inline-end: -4px;
         border-block-end-width: 1px;
         border-inline-end-width: 1px;
       }
