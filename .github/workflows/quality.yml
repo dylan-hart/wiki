@@ -277,6 +277,30 @@ jobs:
         working-directory: blocks
         run: npm run test
 
+      # --- Quarantine lane (report-only) ------------------------------------------------------
+      # OpenProject #2692 (Feature #2603, Epic #2600). The `*.flaky.*` lane is every test that
+      # depends on real external state no care inside the test makes deterministic -- see
+      # docs/decisions/flaky-test-quarantine.md, which is the authority on what belongs in it. It
+      # runs here as its own step so a fragile test is visible without being a trunk-red generator.
+      #
+      # `continue-on-error: true` is what makes it report-only, and it is deliberate rather than
+      # incidental: every other step in this workflow relies on GitHub Actions' `false` default, so
+      # this is the one place the exception is stated. The script itself still exits non-zero on a
+      # red lane, which renders the step with the failed-but-continued marker rather than a plain
+      # green tick -- a step that cannot fail is a step nobody reads, which is exactly how a lane
+      # rots. It also writes a job summary table and one `::error::` annotation per failed lane, so
+      # a red lane is legible on the run page without opening a log.
+      #
+      # Covers backend/frontend/blocks -- the three workspaces whose dependencies this job installs.
+      # The `e2e/` lane runs in build.yml's `build` job instead, where e2e's own dependencies,
+      # browsers, postgres service and a real `assets/` build already exist; see the step there.
+      #
+      # Note this workflow is a `workflow_call:` target invoked by build.yml, so this step runs on
+      # every pull request AND every push to scarlett. Intended.
+      - name: Quarantine Lane (report-only)
+        continue-on-error: true
+        run: ./scripts/ci-quarantine-lane.sh backend frontend blocks
+
       # Run from backend's own already-installed, version-pinned oxfmt (see backend/package.json)
       # rather than a bare `npx oxfmt`, which would silently resolve whatever `latest` happens to be
       # at run time -- exactly the floating-tag drift CLAUDE.md's Currency section rules out. The

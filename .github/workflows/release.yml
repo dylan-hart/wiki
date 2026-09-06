@@ -184,6 +184,33 @@ jobs:
       - name: Format Check
         run: npx --prefix backend oxfmt --check backend frontend blocks
 
+      # --- Quarantine lane (report-only, on a release too) ------------------------------------
+      # OpenProject #2692 (Feature #2603, Epic #2600). Report-only here as well, and that is the
+      # decision rather than an oversight: Feature #2603's resolved scope says outright that "a lane
+      # that blocks releases is a blocking lane with extra steps and would recreate the trunk-red
+      # problem one gate later". So `continue-on-error: true` -- the one step in this workflow's
+      # otherwise entirely fail-closed gate section that deliberately does not stop the job.
+      #
+      # It sits at the END of that section, after Format Check, precisely so its exception cannot be
+      # misread as applying to anything above it. The script's own summary table and `::error::`
+      # annotations are what make a red lane on a release visible to the release manager, who has
+      # docs/release-checklist.md's manual items to work through on the same run page anyway.
+      #
+      # Covers backend/frontend/blocks, the three workspaces this workflow installs. It runs no e2e
+      # lane, for the same reason it runs no e2e suite: this workflow deliberately does not re-run
+      # what build.yml already ran for this exact commit (see the file header, and the two
+      # fail-closed guards that prove that run happened).
+      #
+      # One known limitation, stated rather than pre-solved: there is no postgres service in this
+      # job. Today's single lane member (backend/mcp/http.flaky.test.ts) needs no database, so the
+      # lane is accurate here. If a DB-backed test ever joins the lane, this step will report it red
+      # for a missing DATABASE_URL rather than for the test's own reason -- a visibly wrong
+      # report-only result, not a blocked release. Add the service container at that point, not
+      # speculatively now.
+      - name: Quarantine Lane (report-only)
+        continue-on-error: true
+        run: ./scripts/ci-quarantine-lane.sh backend frontend blocks
+
       # --- Version derivation, per docs/versioning.md "Docker tags on a release" -------------
       - name: Derive release version
         id: version
