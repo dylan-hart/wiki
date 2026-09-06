@@ -92,6 +92,20 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
     assert.equal(updated?.locale, 'fr')
     assert.equal(updated?.timezone, 'America/New_York')
   })
+
+  /** Feature #2753 / Task #2765: `aesthetic` follows the same pass-through path as `appearance`. */
+  test("defaults aesthetic to 'site' for a user who has never set one", async () => {
+    const profile = await usersModel.getProfile(fixtures.userId)
+    assert.equal(profile?.aesthetic, 'site')
+  })
+
+  test('persists an aesthetic preference and reads it back on reload', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, { aesthetic: 'cobalt' })
+    assert.equal(updated?.aesthetic, 'cobalt')
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.equal(reloaded?.aesthetic, 'cobalt')
+  })
 })
 
 /**

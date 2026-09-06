@@ -105,6 +105,7 @@ export interface UserProfile {
   dateFormat: string
   timeFormat: string
   appearance: string
+  aesthetic: string
   cvd: string
   locale: string
 }
@@ -121,6 +122,7 @@ export interface UserProfilePatch {
   dateFormat?: string
   timeFormat?: string
   appearance?: string
+  aesthetic?: string
   cvd?: string
   locale?: string
 }
@@ -148,6 +150,7 @@ const profilePrefsKeys = [
   'dateFormat',
   'timeFormat',
   'appearance',
+  'aesthetic',
   'cvd',
   'locale'
 ] as const
@@ -246,6 +249,7 @@ function localUserRow(input: {
     dateFormat?: string
     timeFormat?: string
     appearance?: string
+    aesthetic?: string
     cvd?: string
   }
   createdAt?: Date
@@ -282,6 +286,7 @@ function localUserRow(input: {
       dateFormat: prefs.dateFormat ?? WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
       timeFormat: prefs.timeFormat ?? WIKI.config.userDefaults?.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
+      aesthetic: prefs.aesthetic ?? 'site',
       cvd: prefs.cvd ?? 'none'
     },
     createdAt: input.createdAt,
@@ -873,6 +878,7 @@ class Users {
       dateFormat: prefs.dateFormat ?? '',
       timeFormat: prefs.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
+      aesthetic: prefs.aesthetic ?? 'site',
       cvd: prefs.cvd ?? 'none',
       // -> An empty locale means "no preference recorded" — mail resolves such a user's messages in
       //    `en`, the same fallback `models/locales.ts#resolveString`'s server-side string resolver
@@ -1476,6 +1482,7 @@ class Users {
           dateFormat: 'YYYY-MM-DD',
           timeFormat: '12h',
           appearance: 'site',
+          aesthetic: 'site',
           cvd: 'none'
         }
       }
@@ -1521,6 +1528,7 @@ class Users {
       dateFormat: user.prefs?.dateFormat,
       timeFormat: user.prefs?.timeFormat,
       appearance: user.prefs?.appearance,
+      aesthetic: user.prefs?.aesthetic,
       cvd: user.prefs?.cvd,
       locale: user.prefs?.locale
     }

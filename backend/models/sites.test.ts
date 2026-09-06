@@ -180,6 +180,125 @@ describe(
 )
 
 /**
+ * Feature #2753 / Task #2765: both `createSite()` and `init()` seed `theme.aesthetic: 'ledger'`
+ * alongside `theme.dark: false`, the same "seed a default new sites can change" shape as
+ * `analytics.providers` above. The describe block further below runs the sibling `jsonb_set`
+ * migration that back-fills this same key onto a row that predates it.
+ */
+describe(
+  'sites default config carries theme.aesthetic (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let sitesModel: typeof import('./sites.ts').sites
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ sites: sitesModel } = await import('./sites.ts'))
+      WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test("createSite() defaults config.theme.aesthetic to 'ledger'", async () => {
+      const site = await sitesModel.createSite('sites-aesthetic-test.localhost')
+      const [row] = await fixtures.db.select().from(sitesTable).where(eq(sitesTable.id, site.id))
+      assert.equal((row!.config as Record<string, any>).theme.aesthetic, 'ledger')
+    })
+
+    test("init() seeds the same theme.aesthetic: 'ledger' default as createSite()", async () => {
+      const seededSiteId = randomUUID()
+      await sitesModel.init({
+        groupAdminId: randomUUID(),
+        groupUserId: randomUUID(),
+        groupGuestId: randomUUID(),
+        siteId: seededSiteId,
+        authModuleId: randomUUID(),
+        userAdminId: randomUUID(),
+        userGuestId: randomUUID(),
+        classificationPublicId: randomUUID(),
+        classificationInternalId: randomUUID(),
+        classificationRestrictedId: randomUUID()
+      })
+      const [row] = await fixtures.db
+        .select()
+        .from(sitesTable)
+        .where(eq(sitesTable.id, seededSiteId))
+      assert.equal((row!.config as Record<string, any>).theme.aesthetic, 'ledger')
+    })
+  }
+)
+
+/**
+ * Task #2765's `jsonb_set` migration (`db/migrations/20260906224813_seed_theme_aesthetic/`), run for
+ * real against a row shaped like it predates `theme.aesthetic` entirely -- the exact situation an
+ * existing installation is in, not just an empty database (`setupTestDb()` already runs every
+ * migration, including this one, against an empty `sites` table before any test gets to insert a
+ * row). Reads the migration's own `.sql` file rather than retyping the statement, so a future edit to
+ * the migration cannot drift from what this asserts. Mirrors the two prior hand-written `jsonb_set`
+ * theme migrations in the same table this one sits beside.
+ */
+describe('seed_theme_aesthetic migration (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let migrationSql: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    migrationSql = await readFile(
+      path.join(
+        import.meta.dirname,
+        '../db/migrations/20260906224813_seed_theme_aesthetic/migration.sql'
+      ),
+      'utf8'
+    )
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test("back-fills 'ledger' onto a row with no theme.aesthetic key at all", async () => {
+    const [row] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'migration-aesthetic-missing.localhost',
+        isEnabled: true,
+        config: { theme: { dark: false } }
+      })
+      .returning({ id: sitesTable.id })
+
+    await fixtures.db.execute(migrationSql)
+
+    const [after] = await fixtures.db.select().from(sitesTable).where(eq(sitesTable.id, row!.id))
+    assert.equal((after!.config as Record<string, any>).theme.aesthetic, 'ledger')
+    // -> The rest of `theme` -- and any sibling config key -- is untouched by the back-fill.
+    assert.equal((after!.config as Record<string, any>).theme.dark, false)
+  })
+
+  test('leaves an already-explicit theme.aesthetic value alone', async () => {
+    const [row] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'migration-aesthetic-explicit.localhost',
+        isEnabled: true,
+        config: { theme: { dark: false, aesthetic: 'cobalt' } }
+      })
+      .returning({ id: sitesTable.id })
+
+    await fixtures.db.execute(migrationSql)
+
+    const [after] = await fixtures.db.select().from(sitesTable).where(eq(sitesTable.id, row!.id))
+    assert.equal(
+      (after!.config as Record<string, any>).theme.aesthetic,
+      'cobalt',
+      'a site already carrying an explicit aesthetic (a real choice, or a re-run) must not be overwritten'
+    )
+  })
+})
+
+/**
  * `setAsset`/`getAsset` coordinate an insert-or-update plus `updateSite`'s own
  * read-merge-update-and-reload-cache, so — per CLAUDE.md's DB-backed guidance — this runs the real
  * methods against a migrated database rather than re-describing that SQL with a query-builder mock.
