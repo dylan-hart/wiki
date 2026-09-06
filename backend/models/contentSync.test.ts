@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
   assets as assetsTable,
   contentSyncState as contentSyncStateTable,
@@ -298,24 +298,9 @@ test('countOutOfDate drops a page synced after its last update', { skip }, async
   assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), before - 1)
 })
 
-test('countOutOfDate counts a page updated after its last sync again', { skip }, async () => {
-  const targetId = await makeTarget('test-count-updated-after-sync')
-  const pageId = await makePage('updated-after-sync')
-  // -> Sync it first, then edit it, so `updatedAt` moves past `lastSyncedAt`.
-  await contentSync.recordSuccess({
-    contentType: 'page',
-    contentId: pageId,
-    targetId,
-    direction: 'push'
-  })
-  const whileSynced = await contentSync.countOutOfDate('page', targetId, { siteId })
-  await WIKI.db
-    .update(pagesTable)
-    .set({ title: 'edited after sync', updatedAt: sql`now() + interval '1 second'` })
-    .where(eq(pagesTable.id, pageId))
-
-  assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), whileSynced + 1)
-})
+// -> 'countOutOfDate counts a page updated after its last sync again' moved to
+//    contentSync.flaky.test.ts (OpenProject #2737): it raced this file's other tests over the
+//    site-wide count `countOutOfDate` computes, with no isolation between sibling tests.
 
 test('countOutOfDate applies the same logic to assets', { skip }, async () => {
   const targetId = await makeTarget('test-count-assets')
