@@ -1901,3 +1901,46 @@ without a written decision could otherwise look like an oversight rather than an
 **What actually happens:** every migrated comment is flat/top-level; 2.x reply chains are not
 reconstructed. Revisit only if comment-thread fidelity is ever actually requested for the migration
 importer specifically — the id-map-plus-second-pass shape above is the known path to it.
+
+## The CI-parity devcontainer ships Debian's git, not `ubuntu-latest`'s
+
+**Date:** 2026-09-06
+**Work package:** #2684 (Build the pinned CI-parity image), under Feature #2601 (Environment parity)
+
+**Decision:** `.devcontainer/`'s image keeps the git that comes with its pinned `node:*-bookworm`
+base (git 2.39.x) and no longer enables the `ghcr.io/devcontainers/features/git` feature, even though
+GitHub's `ubuntu-latest` runner ships a noticeably newer git (2.5x at time of writing). Feature #2601
+asks for an image that IS what CI runs on; on this one axis it is not.
+
+**Why this reads as a deviation:** every other tool the gate depends on is matched to CI exactly and
+deliberately — Node to a single patch, `postgres:18`, git-cliff to the same pinned release
+`quality.yml` downloads, Playwright's Chromium to the revision both workspaces' `playwright` version
+expects. git is the one where the image knowingly differs, so without this entry it would read as
+something nobody checked rather than something that was weighed.
+
+**Why it is the right trade here.** The reason is not "close enough": it is that the two properties
+are mutually exclusive, and the other one matters more. The devcontainers git feature builds git from
+source under `/usr/local`, and git reads its system config from `$prefix/etc/gitconfig` — so with that
+feature enabled, `/usr/local/etc/gitconfig` becomes the system config and the explicit
+`git config --system` block the Dockerfile writes to `/etc/gitconfig` is still on disk and silently
+never read again. That block exists to close Bug #2586, where a test fixture depended on an ambient
+`init.defaultBranch` and consequently passed on the developer's machine and failed on CI across
+fifteen subtests, unreproducible locally. Trading a *stated* git configuration for a newer git binary
+would reintroduce exactly the class of defect the parity work exists to eliminate, and would do it
+invisibly. A newer git is also not pinnable: the feature builds whatever is newest at container-create
+time, so it is itself a source of the drift being closed, while `ubuntu-latest`'s git moves on GitHub's
+schedule and cannot be matched by any fixed value.
+
+**What actually happens:** a git behaviour that changed between 2.39 and 2.5x could behave differently
+inside the container than on a runner. Nothing known depends on one: the git storage module
+(`backend/modules/storage/git/`) drives git through `simple-git` and sets its own per-repo branch and
+identity in `repo.ts#ensureRepo` rather than relying on ambient defaults, and its fixtures now pass
+`--initial-branch` explicitly (#2586's own fix). One related gap is deliberately *not* closed by the
+image and is worth knowing: a bare runner has no global `user.name`/`user.email` at all, whereas the
+image sets one, so a test that silently relies on an ambient identity would pass here and fail in CI —
+the inverse of #2586. `backend/test/devcontainerCiParity.test.ts` guards the settings themselves and
+that the git feature stays disabled.
+
+**Resolved when:** either the base image's distro ships a git contemporaneous with the runner's, or a
+way to install a *pinned* newer git that still writes to `/etc/gitconfig` (a versioned `.deb`, or a
+source build with `--prefix=/usr`) is added to the Dockerfile — at which point delete this entry.

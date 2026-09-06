@@ -1,13 +1,23 @@
+# The CI-parity development environment (OpenProject #2684, under Feature #2601).
+#
+# What `docker compose up` starts here is exactly what a CI job has: one Node container and one
+# postgres:18. Developer-only services -- currently just pgAdmin -- sit behind the `tools` profile
+# and are opted into explicitly, so the environment you work in by default is the environment that
+# gates, rather than a superset of it.
+#
+#   docker compose up                     # app + db      -- what CI has
+#   docker compose --profile tools up     # + pgAdmin     -- local convenience
+
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        # Update 'VARIANT' to pick a Node.js version (26+ required — see root CLAUDE.md).
-        # Append -bullseye or -buster to pin to an OS version.
-        # Use -bullseye variants on local arm64/Apple Silicon.
-        VARIANT: 26
+      # NOTHING is overridden here on purpose. The Dockerfile's own `ARG NODE_VERSION` is the single
+      # declaration of the pinned Node patch, and this file used to defeat it: it passed
+      # `VARIANT: 26` over a Dockerfile that carefully digest-pinned 26.7.0, so every rebuild
+      # silently resolved whatever `node:26` was newest that day and the pin was dead on arrival.
+      # To change the Node version, edit the Dockerfile (and .github/workflows/*.yml with it).
 
     volumes:
       - ..:/workspace
@@ -17,6 +27,8 @@ services:
     # container runs on `network_mode: service:db`) and config.sample.yml's db defaults exactly, so
     # `npm run dev` / `npm run start` keep connecting exactly as they always have -- as long as
     # config.yml's own `db:` block is left at its default values (see README.md's "Usage" steps).
+    # It is also character-for-character the DATABASE_URL every workflow sets, which is what makes
+    # a DB-backed run in here and a DB-backed run in CI the same run.
     # What this actually changes is backend/test/db.ts's `hasTestDatabase()` gate: with it set,
     # `npm run test` in backend/ runs the DB-backed suites instead of silently skipping them.
     # If you edit config.yml's `db:` block to point somewhere else, unset this in your own shell
@@ -37,6 +49,9 @@ services:
     # (Adding the "ports" property to this file will not forward from a Codespace.)
 
   db:
+    # Same tag the service containers in quality.yml, build.yml and e2e.yml use, and the one
+    # backend/test/db.ts documents. Deliberately the bare major rather than a digest: parity here
+    # means resolving the same way CI does, and CI resolves `postgres:18`.
     image: postgres:18
     restart: unless-stopped
     volumes:
@@ -49,6 +64,10 @@ services:
       POSTGRES_DB: postgres
 
   pgadmin:
+    # Developer convenience, not part of the gate: CI has no pgAdmin, so neither does the default
+    # environment here. Start it with `docker compose --profile tools up` when you actually want it.
+    profiles:
+      - tools
     image: dpage/pgadmin4:9.13.0
     environment:
       - PGADMIN_DEFAULT_EMAIL=dev@js.wiki
