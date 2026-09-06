@@ -1,5 +1,14 @@
 # Contribute
 
+> **Most of this file is upstream Wiki.js's, inherited by the fork and not yet replaced.** Every
+> community, funding and contact link below — the issue tracker, the feature-request board, the Open
+> Collective, the contributor/backer/sponsor rolls — belongs to upstream **Wiki.js**, not to
+> Cardinal.js, and is deliberately left naming Wiki.js rather than renamed: a renamed copy would
+> claim those are Cardinal.js's, which they are not. The one section written for this fork is
+> [Locale strings and translation sync](#locale-strings-and-translation-sync). Cardinal.js's own
+> contribution channels do not exist yet; that gap is tracked in `docs/legal/README.md`, "What is
+> not clean", item 2.
+
 ## Introduction
 
 First, thank you for considering contributing to Wiki.js! It's people like you that make the open source community such a great community! 😊
@@ -26,7 +35,7 @@ It is also always helpful to have some context for your pull request. What was t
 
 ## Locale strings and translation sync
 
-Wiki.js's locale pipeline is split across two independent, deliberately non-overlapping paths —
+Cardinal.js's locale pipeline is split across two independent, deliberately non-overlapping paths —
 easy to conflate, so the split is spelled out here:
 
 - **Upload (maintainer-only, source strings out).** `localazy.json` + the [Localazy

@@ -1,6 +1,6 @@
 # MCP: connecting an LLM agent to this wiki
 
-Wiki.js 3.x ships a real, built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP)
+Cardinal.js 3.x ships a real, built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP)
 server (`backend/mcp/`), running in-process inside the same server `node backend` already starts.
 It exposes a small set of tools — search, read, browse and (for a real user) create/edit wiki pages,
 plus a diagram renderer — to any MCP-speaking client: Claude Desktop, an IDE's agent mode, a

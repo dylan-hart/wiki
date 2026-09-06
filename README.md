@@ -1,21 +1,23 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://static.requarks.io/logo/wikijs-full-darktheme.svg">
-  <img alt="Wiki.js" src="https://static.requarks.io/logo/wikijs-full.svg" width="600">
-</picture>
+# Cardinal.js
 
-[![License](https://img.shields.io/badge/license-AGPLv3-blue.svg?style=flat)](https://github.com/requarks/wiki/blob/master/LICENSE)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue.svg?style=flat)](LICENSE)
 [![Standard - JavaScript Style Guide](https://img.shields.io/badge/code%20style-standard-green.svg?style=flat&logo=javascript&logoColor=white)](http://standardjs.com/)
-[![GitHub Sponsors](https://img.shields.io/github/sponsors/ngpixel?logo=github&color=ea4aaa)](https://github.com/users/NGPixel/sponsorship)
-[![Open Collective backers and sponsors](https://img.shields.io/opencollective/all/wikijs?label=backers&color=218bff&logo=opencollective&logoColor=white)](https://opencollective.com/wikijs)
 
 ##### Next Generation Open Source Wiki
 
 </div>
 
-- **[Official Website](https://beta.js.wiki)**
-- **[Documentation](https://beta.js.wiki/docs)**
+**Cardinal.js is a modified version of [Wiki.js](https://github.com/requarks/wiki)**, forked from its
+`scarlett` (3.x) branch at upstream commit `d0c5a8bfa` (2026-08-14). It has been modified
+continuously since 2026-08-16, and the full record of those modifications is this repository's own
+commit history. Cardinal.js is not affiliated with, nor endorsed by, Requarks or the Wiki.js
+maintainers, and "Wiki.js" below always means upstream. Like the code it forked, Cardinal.js is
+licensed under the [GNU Affero General Public License v3](LICENSE); the complete corresponding
+source for every running instance is this repository, at
+[github.com/dylan-hart/wiki](https://github.com/dylan-hart/wiki).
+
 - **[Operations Guide](docs/operations.md)** — backup/restore scope and container mounts
 - **[MCP Getting Started](docs/mcp-getting-started.md)** — connect an LLM agent via the built-in
   Model Context Protocol server
@@ -25,7 +27,8 @@
 **USE AT YOUR OWN RISK! THERE'S NO UPGRADE PATH FROM THIS BUILD AND NO SUPPORT IS PROVIDED!**  
 :red_square: :warning: :warning: :red_square:
 
-The current stable release (2.x) is available at https://js.wiki
+Upstream Wiki.js's current stable release (2.x) is available at https://js.wiki, along with its
+own [documentation](https://js.wiki/docs). Cardinal.js has no released build and no docs site.
 
 ---
 

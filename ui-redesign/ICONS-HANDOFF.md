@@ -116,7 +116,7 @@ in the app use each, for a sense of how much each one is carrying:
 | Name | What it means | Uses |
 | --- | --- | --- |
 | `cardinal:block-picker` | open the content-block picker | 1 |
-| `cardinal:check-update` | check for a new Wiki.js release | 1 |
+| `cardinal:check-update` | check for a new release (the checker really does poll upstream Wiki.js — `backend/tasks/simple/check-version.ts`) | 1 |
 | `cardinal:credential` | a block’s API credential | 2 |
 | `cardinal:defaults` | per-user default settings menu | 1 |
 | `cardinal:folder` | a folder in the page tree / nav browser | 4 |

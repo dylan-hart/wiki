@@ -2,7 +2,7 @@
 
 ## Source
 
-Built from the `scarlett` branch of `dylan-hart/wiki` (Wiki.js 3.x: Vue 3 + Vite + Tailwind, in-repo `W*` component library). See `github.md` for the screen map. The 2.x-based files (page-view options board, old Ledger, Admin, Editor) are reference only — do not extend them.
+Built from the `scarlett` branch of `dylan-hart/wiki` (Cardinal.js 3.x, the Wiki.js 3.x fork: Vue 3 + Vite + Tailwind, in-repo `W*` component library). See `github.md` for the screen map. The 2.x-based files (page-view options board, old Ledger, Admin, Editor) are reference only — do not extend them.
 
 ## Design decisions to keep
 

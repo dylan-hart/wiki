@@ -10,7 +10,7 @@ and what the common failure modes look like and mean.
 
 ## Backup scope
 
-A Wiki.js 3.x instance's durable state is split across three places. **All three** have to be backed
+A Cardinal.js 3.x instance's durable state is split across three places. **All three** have to be backed
 up together — any one alone is an incomplete backup:
 
 ### 1. The Postgres database
