@@ -4,7 +4,12 @@ import { nanoid } from 'nanoid'
 import { users as usersTable } from '../db/schema.ts'
 import { BCRYPT_ROUNDS } from '../helpers/common.ts'
 import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
-import { AccountRateLimitedError, consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
+import { coalesce } from '../helpers/logCoalesce.ts'
+import {
+  AccountRateLimitedError,
+  authRateLimitWindowMs,
+  consumeAccountAuthAttempt
+} from '../helpers/rateLimit.ts'
 import { isRecoveryCodeShape } from '../helpers/recoveryCodes.ts'
 import { ProvisionableLoginError } from './authentication.ts'
 import { countTfaFailure } from './userCredentials.ts'
@@ -49,6 +54,106 @@ export interface RegisterResult {
 }
 
 /**
+ * Every way a login can be refused, as one closed vocabulary.
+ *
+ * Closed rather than free text because this is what an operator greps and counts: `reason=` has to
+ * mean the same thing in every line that carries it, and a message assembled per branch would make
+ * "how many bad passwords last night" a question about wording. One member per refusal branch below
+ * — nothing speculative, nothing that no branch can produce.
+ *
+ * Note what is NOT here. `strategy-disabled` has no branch: a strategy that is turned off is simply
+ * absent from `WIKI.auth.strategies`, which is already `unknown-strategy`. And there is no reason
+ * distinguishing "no such account" from "wrong password" — both are `bad-credentials`, because the
+ * strategy module answers them identically on purpose and inventing the distinction here would
+ * publish an account-enumeration oracle into the log.
+ */
+export const LOGIN_REFUSAL_REASONS = [
+  /** A form-based strategy was given no password at all. */
+  'no-password',
+  /** No strategy by that id is loaded — unknown, or configured off. */
+  'unknown-strategy',
+  /** The account-keyed rate limiter refused the attempt before it was even tried. */
+  'account-rate-limited',
+  /** The strategy module rejected the credential. */
+  'bad-credentials',
+  /** A provider asserted an address belonging to a system account (the seeded Guest row). */
+  'system-account',
+  /** A provider login whose account carries no link to this strategy, or a mismatched one. */
+  'account-not-linked',
+  /** A provider login for an unknown address, by a strategy that does not accept new users. */
+  'registration-disabled',
+  /** The address is outside the strategy's allowed-email pattern. */
+  'email-not-allowed',
+  /** The credential was right, but the account is deactivated. */
+  'inactive-user',
+  /** The credential was right, but the account has never been verified. */
+  'user-not-verified',
+  /** The 2FA continuation could not be issued, or the required setup could not be started. */
+  'tfa-failed',
+  /** A wrong TOTP or recovery code. */
+  'tfa-incorrect-code',
+  /** Every recovery code on the account has already been used. */
+  'tfa-recovery-codes-exhausted',
+  /** The forced-password-change continuation could not be issued. */
+  'change-password-failed',
+  /** A 2FA continuation token that no longer resolves to an account. */
+  'unknown-user'
+] as const
+
+export type LoginRefusalReason = (typeof LOGIN_REFUSAL_REASONS)[number]
+
+/**
+ * What a refusal line says about the attempt, beyond its reason.
+ *
+ * Deliberately narrow: no e-mail address, no submitted username, no password. What the caller
+ * claimed to be is not evidence of anything and lands in the log verbatim from an unauthenticated
+ * request; `user` appears only where the account is already resolved and the credential already
+ * proven (the 2FA branches). The audit table keeps the fuller record — `login.failed` rows carry the
+ * submitted identifier — under access control this log has none of.
+ */
+interface LoginRefusalContext {
+  strategy?: string
+  site?: string
+  ip?: string
+  user?: string
+}
+
+/**
+ * The key one client's refusals are coalesced under. The address is what a guessing run repeats, so
+ * it is what a burst is counted per; an attempt with no address to key on (an internal call with no
+ * `ip`) shares one bucket rather than escaping coalescing entirely.
+ */
+function refusalLogKey(ip: string | undefined): string {
+  return `auth:login-refused:${ip ?? 'unknown'}`
+}
+
+/**
+ * The one place a refused login reaches the log.
+ *
+ * Every branch that throws calls this with a {@link LoginRefusalReason} rather than writing its own
+ * line, which is what keeps `reason=` a countable vocabulary instead of a sentence. The `authDebug`
+ * narration each branch already carries stays where it is: it is the flag-gated, human-readable
+ * story of one attempt, and this is the operator's countable record of the outcome.
+ *
+ * Coalesced over the authentication limiter's own window (`helpers/rateLimit.ts`): the first few
+ * refusals from an address are logged in full, and the rest fold into one summary line when the
+ * window closes. Twenty wrong passwords from one client is four lines, not twenty.
+ */
+function logLoginRefused(reason: LoginRefusalReason, context: LoginRefusalContext = {}): void {
+  const { ip, strategy } = context
+  const logInFull = coalesce(refusalLogKey(ip), authRateLimitWindowMs(), (summary) => {
+    WIKI.logger.warn(
+      'auth',
+      `login refused ${summary.total} times in ${Math.round(summary.windowMs / 1000)}s`,
+      { ip, strategy }
+    )
+  })
+  if (logInFull) {
+    WIKI.logger.warn('auth', 'login refused', { reason, ...context })
+  }
+}
+
+/**
  * Login model
  *
  * The flows that turn a credential into a session: password and provider login, registration, the
@@ -76,6 +181,7 @@ class Login {
         WIKI.models.flags.authDebug(
           `Login attempt on site ${siteId} using ${str.module} strategy ${strategyId} rejected: no password provided`
         )
+        logLoginRefused('no-password', { strategy: strategyId, site: siteId, ip })
         throw new Error('ERR_LOGIN_FAILED')
       }
 
@@ -107,6 +213,7 @@ class Login {
           WIKI.models.flags.authDebug(
             `Rate limit: refused login for account "${username}", ${verdict.retryAfter}s left of its ban.`
           )
+          logLoginRefused('account-rate-limited', { strategy: strategyId, site: siteId, ip })
           throw new AccountRateLimitedError(verdict.retryAfter)
         }
       }
@@ -137,6 +244,7 @@ class Login {
           WIKI.models.flags.authDebug(
             `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
           )
+          logLoginRefused('bad-credentials', { strategy: strategyId, site: siteId, ip })
           // -> Never the password, same as the debug line above. No user id either -- an attempt
           //    that failed authentication is not attributable to an account, only to whatever the
           //    caller claimed to be.
@@ -165,6 +273,7 @@ class Login {
       )
     } else {
       WIKI.models.flags.authDebug(`Login attempt using unknown strategy ${strategyId} from ${ip}`)
+      logLoginRefused('unknown-strategy', { strategy: strategyId, site: siteId, ip })
       throw new Error('Invalid Strategy ID')
     }
   }
@@ -251,6 +360,7 @@ class Login {
       WIKI.models.flags.authDebug(
         `Provider login for <${email}> refused: address belongs to a system account`
       )
+      logLoginRefused('system-account', { strategy: strategy.id })
       throw new Error('ERR_LOGIN_FAILED')
     }
 
@@ -268,6 +378,7 @@ class Login {
           WIKI.models.flags.authDebug(
             `Provider login for <${email}> refused: no stored account link for strategy ${strategy.id}, and trustEmailForLinking is off`
           )
+          logLoginRefused('account-not-linked', { strategy: strategy.id })
           throw new Error('ERR_ACCOUNT_NOT_LINKED')
         }
         justRelinkedViaTrustedEmail = true
@@ -275,19 +386,21 @@ class Login {
         WIKI.models.flags.authDebug(
           `Provider login for <${email}> refused: profile id does not match the account link stored for strategy ${strategy.id}`
         )
+        logLoginRefused('account-not-linked', { strategy: strategy.id })
         throw new Error('ERR_ACCOUNT_NOT_LINKED')
       }
       // -> Applied on every login, not only account creation: turning the pattern down after an
       //    account was linked under a looser one must not leave that account grandfathered in.
-      this.assertAllowedProviderEmail(strategy, email)
+      this.assertAllowedProviderEmail(strategy, email, { strategy: strategy.id })
     } else {
       if (!strategy.autoProvision) {
         WIKI.models.flags.authDebug(
           `Provider login for unknown address <${email}> refused: strategy ${strategy.id} does not accept new users`
         )
+        logLoginRefused('registration-disabled', { strategy: strategy.id })
         throw new Error('ERR_REGISTRATION_DISABLED')
       }
-      this.assertAllowedProviderEmail(strategy, email)
+      this.assertAllowedProviderEmail(strategy, email, { strategy: strategy.id })
       const userId = await WIKI.models.users.createUser({
         name: profile.name || email,
         email,
@@ -378,8 +491,19 @@ class Login {
     )
   }
 
-  /** @throws `ERR_EMAIL_NOT_ALLOWED` when the strategy has a pattern and the address does not match it. */
-  private assertAllowedProviderEmail(strategy: AuthStrategy, email: string): void {
+  /**
+   * @param refusalContext Present when this guard is running inside a LOGIN (its two
+   *   `findOrCreateProviderUser` call sites), in which case a refusal is a login outcome and gets a
+   *   `login refused` line. Absent for `register()`'s own use of it below: a self-registration
+   *   turned away for its address is not a login, and labelling it as one would put an event that
+   *   never had a session behind it into the count an operator reads as failed sign-ins.
+   * @throws `ERR_EMAIL_NOT_ALLOWED` when the strategy has a pattern and the address does not match it.
+   */
+  private assertAllowedProviderEmail(
+    strategy: AuthStrategy,
+    email: string,
+    refusalContext?: LoginRefusalContext
+  ): void {
     if (!strategy.allowedEmailRegex) {
       return
     }
@@ -393,6 +517,9 @@ class Login {
       )
     }
     if (!allowed) {
+      if (refusalContext) {
+        logLoginRefused('email-not-allowed', refusalContext)
+      }
       throw new Error('ERR_EMAIL_NOT_ALLOWED')
     }
   }
@@ -685,8 +812,18 @@ class Login {
     },
     req?: any
   ): Promise<AfterLoginResult> {
+    // -> The credential is already proven by the time anything reaches this method, so unlike the
+    //    refusals in `login()` this one can name the account it is about.
+    const refusalContext: LoginRefusalContext = {
+      strategy: strategyId,
+      site: context?.siteId,
+      ip: context?.ip,
+      user: user?.id
+    }
+
     const str = WIKI.auth.strategies[strategyId] as any
     if (!str) {
+      logLoginRefused('unknown-strategy', refusalContext)
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
@@ -697,9 +834,11 @@ class Login {
     //    `modules/authentication/local/authentication.ts#authenticate()` before a local login ever
     //    reaches this method, and by `forgotPassword()` before a reset token is minted.
     if (!user.isActive) {
+      logLoginRefused('inactive-user', refusalContext)
       throw new Error('ERR_INACTIVE_USER')
     }
     if (!user.isVerified) {
+      logLoginRefused('user-not-verified', refusalContext)
       throw new Error('ERR_USER_NOT_VERIFIED')
     }
 
@@ -776,6 +915,7 @@ class Login {
           }
         } catch (errc) {
           WIKI.logger.warn(errc)
+          logLoginRefused('tfa-failed', refusalContext)
           throw new Error('ERR_TFA_FAILED')
         }
       } else if (str.config?.enforceTfa || authStr.tfaRequired) {
@@ -803,6 +943,7 @@ class Login {
           }
         } catch (errc) {
           WIKI.logger.warn(errc)
+          logLoginRefused('tfa-failed', refusalContext)
           throw new Error('ERR_TFA_FAILED')
         }
       }
@@ -829,6 +970,7 @@ class Login {
         }
       } catch (errc) {
         WIKI.logger.warn(errc)
+        logLoginRefused('change-password-failed', refusalContext)
         throw new Error('ERR_CHANGE_PASSWORD_FAILED')
       }
     }
@@ -860,6 +1002,17 @@ class Login {
         name: user.name,
         email: user.email
       }
+    })
+
+    // -> The one line that says a session now exists, and it is `info`: it is the counterpart the
+    //    `warn auth login refused` lines are read against, and a log showing only the refusals
+    //    cannot answer "did they eventually get in". Never coalesced — a burst of SUCCESSFUL logins
+    //    is not noise, it is the thing an operator most wants to see all of. Ids only, as with a
+    //    refusal: the address and display name are the audit row's business, not the log's.
+    WIKI.logger.info('auth', 'login', {
+      user: user.id,
+      strategy: strategyId,
+      site: context.siteId ?? null
     })
 
     await WIKI.models.auditLog.record({
@@ -931,6 +1084,7 @@ class Login {
       skipDelete: true
     })
     if (!user) {
+      logLoginRefused('unknown-user', { strategy: strategyId, site: siteId, ip })
       throw new Error('ERR_INVALID_USER')
     }
     // -> Account-keyed bound on the second factor itself: a continuation token proves the password
@@ -945,9 +1099,16 @@ class Login {
       WIKI.models.flags.authDebug(
         `Rate limit: refused 2FA attempt for user ${user.id} <${user.email}>, ${verdict.retryAfter}s left of its ban.`
       )
+      logLoginRefused('account-rate-limited', {
+        strategy: strategyId,
+        site: siteId,
+        ip,
+        user: user.id
+      })
       throw new AccountRateLimitedError(verdict.retryAfter)
     }
     if (strategyId !== expectedStrategyId) {
+      logLoginRefused('unknown-strategy', { strategy: strategyId, site: siteId, ip, user: user.id })
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
@@ -969,6 +1130,12 @@ class Login {
       // -> Distinguished from a plain wrong code: the client's response to "you mistyped it" and
       //    "you have nothing left to try" should not be the same generic rejection.
       if (entries.every((entry) => entry.usedAt)) {
+        logLoginRefused('tfa-recovery-codes-exhausted', {
+          strategy: strategyId,
+          site: siteId,
+          ip,
+          user: user.id
+        })
         throw new Error('ERR_TFA_RECOVERY_CODES_EXHAUSTED')
       }
       verified = await WIKI.models.userCredentials.verifyAndConsumeRecoveryCode(
@@ -980,6 +1147,12 @@ class Login {
     if (!verified) {
       await countTfaFailure(continuationToken)
       WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> submitted an incorrect 2FA code`)
+      logLoginRefused('tfa-incorrect-code', {
+        strategy: strategyId,
+        site: siteId,
+        ip,
+        user: user.id
+      })
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
 
