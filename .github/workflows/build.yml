@@ -23,6 +23,12 @@ jobs:
     name: Build
     needs: quality
     runs-on: ubuntu-latest
+    # OpenProject #2736: this job has no timeout of its own to fall back on other than GitHub
+    # Actions' silent 360-minute default -- see quality.yml's own timeout-minutes comment for the
+    # wedged-runner incident that exposed the gap. 45 minutes gives this job's own heaviest legs
+    # (asset/blocks builds, the Playwright e2e smoke suite, and a QEMU-emulated multi-arch Docker
+    # build/push) comfortable headroom over their real wall-clock time.
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write

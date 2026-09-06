@@ -13,6 +13,12 @@ jobs:
   e2e:
     name: Playwright smoke suite
     runs-on: ubuntu-latest
+    # OpenProject #2736: no timeout here previously meant GitHub's silent 360-minute default was
+    # the only backstop against a wedged runner -- see quality.yml's own timeout-minutes comment
+    # for the incident that exposed this gap across every workflow in the repo. 30 minutes covers
+    # this job's own frontend/blocks builds, dependency installs, Playwright-Chromium install and
+    # the e2e suite itself with comfortable headroom.
+    timeout-minutes: 30
     permissions:
       contents: read
 
