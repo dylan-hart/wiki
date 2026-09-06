@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import AdminBlocks from './AdminBlocks.vue'
 import WBanner from '@/components/shared/WBanner.vue'
 import WBtn from '@/components/shared/WBtn.vue'
+import WChip from '@/components/shared/WChip.vue'
 import WInput from '@/components/shared/WInput.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
@@ -411,5 +412,184 @@ describe('AdminBlocks save()', () => {
         }
       })
     )
+  })
+})
+
+/**
+ * Task #2629: the first full comparison of this screen against
+ * `ui-redesign/Cardinal Wiki - Admin Blocks 3x.dc.html`.
+ *
+ * Everything asserted here is a colour, a typeface or a DOM order the design file states outright,
+ * and every one of them was previously drawn out of the Material ramp this app inherited from 2.x --
+ * `pink-1`/`pink-9` for a block's tag, `blue-grey-1`/`blue-grey-9` for a credential's id,
+ * `teal-7`/`purple` for the two origin marks, `grey-2`/`grey-9` for the note, `grey` for a caption.
+ * Cardinal names an exact token for each, so a Material class reappearing on this screen is the
+ * regression these guard.
+ *
+ * Nothing here asserts a height, a padding or a rhythm: jsdom runs no layout engine, and the design's
+ * measurement disagreements (the 40px icon plate, the 20/24/40 body padding) are recorded on the work
+ * package for the shared-component and cross-page passes that own them rather than changed here.
+ */
+const CUSTOM_BLOCK = {
+  id: 'fleet-id',
+  block: 'fleet-status',
+  name: 'Fleet status',
+  description: 'Uploaded by an administrator for this site.',
+  icon: 'plugin',
+  isEnabled: true,
+  isCustom: true,
+  config: {},
+  configFields: [],
+  props: [],
+  template: ''
+}
+
+const CREDENTIAL_WITH_ORIGINS = {
+  id: 'cred_7f3a91c2',
+  siteId: 'site-1',
+  name: 'Weather API',
+  allowedOrigins: ['https://wiki.internal', 'https://status.internal'],
+  createdAt: '',
+  updatedAt: ''
+}
+
+const CREDENTIAL_WITHOUT_ORIGINS = {
+  id: 'cred_20b84de1',
+  siteId: 'site-1',
+  name: 'Fleet telemetry',
+  allowedOrigins: [],
+  createdAt: '',
+  updatedAt: ''
+}
+
+describe('AdminBlocks: Cardinal design conformance (Task #2629)', () => {
+  it('draws the self-hosted server note as the informational banner -- a hairline box on the tint', async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK])
+
+    const classes = wrapper.findComponent(WBanner).classes()
+
+    expect(classes).toContain('border-hairline')
+    expect(classes).toContain('bg-tint')
+    expect(classes).toContain('text-slate')
+    // -> The Material pair it used to paint itself with
+    expect(classes).not.toContain('bg-grey-2')
+    expect(classes).not.toContain('text-grey-7')
+  })
+
+  it("sets a block's tag in mono on the accent wash, not in the caption face on a Material pink", async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK])
+
+    const tagChip = wrapper
+      .findAllComponents(WChip)
+      .find((chip) => chip.text().includes('<block-kroki>'))
+    expect(tagChip).toBeTruthy()
+
+    expect(tagChip.classes()).toContain('font-mono')
+    expect(tagChip.attributes('style')).toContain('var(--color-accent-wash)')
+    expect(tagChip.attributes('style')).toContain('var(--color-accent)')
+    expect(tagChip.attributes('style')).not.toContain('var(--color-pink-1)')
+  })
+
+  it("marks a built-in block with --color-positive and a custom one with the design's own purple", async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK, CUSTOM_BLOCK])
+
+    const builtin = wrapper.findAll('em').find((el) => el.text() === 'admin.blocks.builtin')
+    const custom = wrapper.findAll('em').find((el) => el.text() === 'admin.blocks.custom')
+
+    expect(builtin.classes()).toContain('text-positive')
+    expect(builtin.classes()).not.toContain('text-teal-7')
+    expect(custom.classes()).toContain('block-origin--custom')
+    expect(custom.classes()).not.toContain('text-purple')
+  })
+
+  it('reads the word "Enabled" before the switch, as this screen draws it', async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK])
+
+    const toggle = wrapper.find('.w-toggle')
+    expect(toggle.exists()).toBe(true)
+
+    const row = toggle.element.parentElement
+    expect(row.firstElementChild.tagName).toBe('SPAN')
+    expect(row.firstElementChild.textContent.trim()).toBe('admin.blocks.isEnabled')
+    expect(row.lastElementChild.classList.contains('w-toggle')).toBe(true)
+
+    // -> The switch loses its own visible label but keeps its accessible name
+    expect(toggle.attributes('aria-label')).toBe('admin.blocks.isEnabled')
+  })
+
+  it('sets the credentials sub-heading in the display face rather than the Material h6 step', async () => {
+    const wrapper = await mountAdminBlocks([], [CREDENTIAL_WITH_ORIGINS])
+
+    const heading = wrapper.find('.admin-subsection-title')
+    expect(heading.exists()).toBe(true)
+    expect(heading.text()).toBe('admin.blocks.credentialsTitle')
+    expect(heading.classes()).not.toContain('text-h6')
+  })
+
+  it("sets a credential's id in mono on the plain tint, and its copy target as a square", async () => {
+    const wrapper = await mountAdminBlocks([], [CREDENTIAL_WITH_ORIGINS])
+
+    const idChip = wrapper
+      .findAllComponents(WChip)
+      .find((chip) => chip.text().includes('cred_7f3a91c2'))
+    expect(idChip).toBeTruthy()
+    expect(idChip.classes()).toContain('font-mono')
+    expect(idChip.attributes('style')).toContain('var(--color-tint)')
+    expect(idChip.attributes('style')).toContain('var(--color-slate)')
+
+    const copyBtn = wrapper.find('[aria-label="admin.blocks.credentialCopyId"]')
+    expect(copyBtn.exists()).toBe(true)
+    expect(copyBtn.classes()).not.toContain('rounded-full')
+    expect(copyBtn.classes()).toContain('rounded-none')
+  })
+
+  it('sets the allowed origins in mono, and turns the globe accent alongside the message when there are none', async () => {
+    const wrapper = await mountAdminBlocks(
+      [],
+      [CREDENTIAL_WITH_ORIGINS, CREDENTIAL_WITHOUT_ORIGINS]
+    )
+
+    const globes = wrapper
+      .findAll('.w-icon')
+      .filter((icon) => icon.attributes('style')?.includes('13px'))
+    expect(globes).toHaveLength(2)
+
+    // -> Populated: a neutral chrome glyph beside secondary-tier mono text
+    expect(globes[0].classes()).toContain('text-slate-soft')
+    // -> Empty: an unusable credential, so the glyph reddens with the line rather than staying neutral
+    expect(globes[1].classes()).toContain('text-negative')
+
+    // -> `span.font-mono` rather than any span: `WItemLabel` renders a span of its own around this
+    //    one, and it is the inner one that has to carry the face
+    const originsLine = wrapper
+      .findAll('span.font-mono')
+      .find((el) => el.text() === 'https://wiki.internal, https://status.internal')
+    expect(originsLine).toBeTruthy()
+  })
+
+  it('paints the credentials empty state in the Cardinal secondary tier, not the Material grey', async () => {
+    const wrapper = await mountAdminBlocks([], [])
+
+    const empty = wrapper
+      .findAll('div')
+      .find((el) => el.text() === 'admin.blocks.credentialsEmpty' && el.classes().includes('p-4'))
+    expect(empty).toBeTruthy()
+    expect(empty.classes()).toContain('text-text-secondary')
+    expect(empty.classes()).not.toContain('text-grey')
+  })
+
+  it("leaves no Material blue-grey on any of the list's outlined actions", async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK], [CREDENTIAL_WITH_ORIGINS])
+
+    const outlined = wrapper
+      .findAllComponents(WBtn)
+      .filter((btn) => btn.props('outline'))
+      .map((btn) => btn.props('color'))
+
+    expect(outlined.length).toBeGreaterThan(0)
+    for (const color of outlined) {
+      expect(color).not.toMatch(/^blue-grey/)
+    }
+    expect(outlined).toContain('slate')
   })
 })

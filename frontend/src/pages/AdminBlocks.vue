@@ -67,10 +67,15 @@
         the diagram source itself is sensitive. Shown once, above the whole list, rather than
         repeated per block: both blocks share the exact same story.
       -->
+      <!--
+        The design draws this note as Cardinal's informational banner and nothing else: a hairline
+        box on `--color-tint`, slate text, no fill of its own. That is exactly the variant
+        `WBanner`'s own header describes, so it is written as utilities here rather than as the
+        Material `grey-2`/`grey-9` pair this page was still painting it with.
+      -->
       <w-banner
         v-if="hasServerConfigurableBlocks"
-        class="mb-4"
-        :class="dark.isActive ? `bg-grey-9 text-white` : `bg-grey-2 text-grey-7`">
+        class="mb-4 border border-hairline bg-tint text-slate dark:border-hairline-dark dark:bg-dark-2 dark:text-text-secondary-dark">
         {{ t('admin.blocks.selfHostedServerNote') }}
       </w-banner>
       <w-card>
@@ -83,16 +88,23 @@
               >
               <w-item-label caption>{{ block.description }}</w-item-label>
               <w-item-label class="flex items-center" caption>
+                <!--
+                  A block's tag is a code, so Cardinal sets it in Roboto Mono on the accent wash --
+                  not in the proportional caption face on a Material pink, which is what it wore.
+                -->
                 <w-chip
-                  class="m-0"
+                  class="m-0 font-mono"
                   dense
-                  :color="dark.isActive ? `pink-8` : `pink-1`"
-                  :text-color="dark.isActive ? `white` : `pink-9`">
-                  <span class="text-caption">&lt;block-{{ block.block }}&gt;</span>
+                  size="11px"
+                  :color="dark.isActive ? `accent-wash-dark` : `accent-wash`"
+                  :text-color="dark.isActive ? `accent-dark` : `accent`">
+                  &lt;block-{{ block.block }}&gt;
                 </w-chip>
                 <w-separator class="mx-2 my-1" vertical />
-                <em class="text-purple" v-if="block.isCustom">{{ t('admin.blocks.custom') }}</em>
-                <em class="text-teal-7" v-else>{{ t('admin.blocks.builtin') }}</em>
+                <em class="block-origin--custom" v-if="block.isCustom">{{
+                  t('admin.blocks.custom')
+                }}</em>
+                <em class="text-positive" v-else>{{ t('admin.blocks.builtin') }}</em>
               </w-item-label>
             </w-item-section>
             <template v-if="hasServerProp(block)">
@@ -132,19 +144,27 @@
                 <w-btn
                   icon="tabler:settings"
                   :label="t(`admin.blocks.configure`)"
-                  :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                  :color="dark.isActive ? `slate-light` : `slate`"
                   outline
                   padding="xs md"
                   @click="openConfig(block)" />
               </w-item-section>
               <w-separator class="ms-4" vertical />
             </template>
+            <!--
+              This screen puts the word before the switch, where `WToggle`'s own `label` -- and the
+              primitives sheet's switch specimen -- put it after. Drawn as a sibling caption rather
+              than by reordering the shared control, since every other toggle in the app follows the
+              primitives sheet. The toggle keeps its `aria-label`, so its accessible name is
+              unchanged either way.
+            -->
             <w-item-section side>
-              <w-toggle
-                class="pe-2"
-                v-model="block.isEnabled"
-                :label="t(`admin.blocks.isEnabled`)"
-                :aria-label="t(`admin.blocks.isEnabled`)" />
+              <div class="flex flex-nowrap items-center gap-2 pe-2">
+                <span class="text-caption text-slate dark:text-text-secondary-dark">{{
+                  t('admin.blocks.isEnabled')
+                }}</span>
+                <w-toggle v-model="block.isEnabled" :aria-label="t(`admin.blocks.isEnabled`)" />
+              </div>
             </w-item-section>
           </w-item>
         </w-list>
@@ -152,8 +172,10 @@
 
       <div class="flex flex-wrap items-center mt-6 mb-2">
         <div class="min-w-0 flex-1">
-          <div class="text-h6">{{ t('admin.blocks.credentialsTitle') }}</div>
-          <div class="text-body2 text-grey">{{ t('admin.blocks.credentialsSubtitle') }}</div>
+          <div class="admin-subsection-title">{{ t('admin.blocks.credentialsTitle') }}</div>
+          <div class="text-[13px] text-text-secondary dark:text-text-secondary-dark">
+            {{ t('admin.blocks.credentialsSubtitle') }}
+          </div>
         </div>
         <w-btn
           class="acrylic-btn"
@@ -170,31 +192,54 @@
                 ><strong>{{ credential.name }}</strong></w-item-label
               >
               <w-item-label caption class="flex items-center">
+                <!--
+                  The id is a code too, and the design sets it on the plain tint rather than on the
+                  accent wash the block tag above wears -- the wash is reserved for the thing an
+                  author types into a page. `round` goes with it: Cardinal keeps `rounded-full` for
+                  genuinely round shapes, and a copy target is a small square.
+                -->
                 <w-chip
-                  class="m-0"
+                  class="m-0 font-mono"
                   dense
-                  :color="dark.isActive ? `blue-grey-8` : `blue-grey-1`"
-                  :text-color="dark.isActive ? `white` : `blue-grey-9`">
-                  <span class="text-caption">{{ credential.id }}</span>
+                  size="11px"
+                  :color="dark.isActive ? `dark-2` : `tint`"
+                  :text-color="dark.isActive ? `text-secondary-dark` : `slate`">
+                  {{ credential.id }}
                 </w-chip>
                 <w-btn
                   class="ms-1"
                   icon="tabler:copy"
                   flat
-                  round
                   dense
                   size="sm"
+                  padding="none xs"
+                  :color="dark.isActive ? `slate-light` : `slate-soft`"
                   :aria-label="t(`admin.blocks.credentialCopyId`)"
                   @click="copyCredentialId(credential.id)">
                   <w-tooltip>{{ t(`admin.blocks.credentialCopyId`) }}</w-tooltip>
                 </w-btn>
               </w-item-label>
+              <!--
+                Origins are hostnames, so the design sets them in mono. The globe goes accent WITH
+                the message when there are none: an empty allow-list means the credential can never
+                be used by anything, and a neutral glyph beside a red line understates that.
+              -->
               <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
-                <w-icon name="tabler:world" size="14px" class="me-1" />
-                <span v-if="credential.allowedOrigins?.length" class="text-caption">
+                <w-icon
+                  name="tabler:world"
+                  size="13px"
+                  class="me-1"
+                  :class="
+                    credential.allowedOrigins?.length
+                      ? `text-slate-soft dark:text-slate-light`
+                      : `text-negative`
+                  " />
+                <span
+                  v-if="credential.allowedOrigins?.length"
+                  class="font-mono text-[11.5px] text-text-secondary dark:text-text-secondary-dark">
                   {{ credential.allowedOrigins.join(', ') }}
                 </span>
-                <span v-else class="text-caption text-negative">{{
+                <span v-else class="font-mono text-[11.5px] text-negative">{{
                   t('admin.blocks.credentialAllowedDomainsEmpty')
                 }}</span>
               </w-item-label>
@@ -204,7 +249,7 @@
                 class="me-2"
                 icon="tabler:world"
                 :label="t(`admin.blocks.credentialDomains`)"
-                :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                :color="dark.isActive ? `slate-light` : `slate`"
                 outline
                 padding="xs md"
                 @click="editDomains(credential)" />
@@ -214,7 +259,7 @@
                 class="me-2"
                 icon="tabler:refresh"
                 :label="t(`admin.blocks.credentialRotate`)"
-                :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                :color="dark.isActive ? `slate-light` : `slate`"
                 outline
                 padding="xs md"
                 @click="rotateCredential(credential)" />
@@ -230,7 +275,9 @@
             </w-item-section>
           </w-item>
         </w-list>
-        <div class="p-4 text-grey" v-else>{{ t('admin.blocks.credentialsEmpty') }}</div>
+        <div class="p-4 text-text-secondary dark:text-text-secondary-dark" v-else>
+          {{ t('admin.blocks.credentialsEmpty') }}
+        </div>
       </w-card>
     </div>
     <w-dialog
@@ -544,4 +591,52 @@ function saveConfig() {
 }
 </script>
 
-<style lang="scss"></style>
+<style scoped>
+/*
+  The heading over a second block of content on an admin page -- here "Block credentials", under the
+  card of blocks itself.
+
+  Cardinal sets it in Barlow Condensed at 20/600, uppercase and lightly tracked: the same display
+  face as the page title above it, one step down and in the chrome's own casing, so it reads as a
+  division of this page rather than as a second page title. `.text-h6`, which it replaces, is a
+  Material step -- Roboto metrics, sentence case, no tracking -- and drew the two headings on one
+  screen in two unrelated typefaces.
+
+  Scoped to this page rather than added to `AdminLayout.vue`'s unscoped admin-page rules: this is the
+  first screen compared against a design that draws a sub-heading at all, so there is exactly one
+  caller today. It belongs beside `.admin-page-title` the moment a second screen needs it.
+*/
+.admin-subsection-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+}
+
+:global(body.body--dark) .admin-subsection-title {
+  color: var(--color-text-dark);
+}
+
+/*
+  A custom block's origin mark, in the muted purple the design draws it in (#7a4a86).
+
+  Written as a literal rather than as a token: `--color-purple` is Material's #9c27b0, a different
+  and far more saturated colour, and the token block in `css/tailwind.css` is read by every frontend
+  surface -- a one-caller colour has not earned a place in it. Tokenise it if a second surface ever
+  needs to mark something as custom or third-party.
+*/
+.block-origin--custom {
+  color: #7a4a86;
+}
+
+/*
+  Lightened for an ink ground the same way `--color-primary-light` is, rather than picking a second
+  hex out of the air for a tone none of the dark design sheets happen to draw.
+*/
+:global(body.body--dark) .block-origin--custom {
+  color: color-mix(in srgb, #7a4a86 55%, white);
+}
+</style>
