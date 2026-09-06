@@ -46,8 +46,12 @@ filter_unconventional = true
 require_conventional = false
 split_commits = false
 commit_preprocessors = [
-  # Turn a trailing `(#123)` PR-number suffix into a markdown link to the PR.
-  { pattern = '\((#[0-9]+)\)$', replace = "([${1}](<REPO>/pull/${1}))" }
+  # Turn a trailing `(#123)` PR-number suffix into a markdown link to the PR. The capture group
+  # deliberately excludes the `#` (`\(#([0-9]+)\)` rather than `\((#[0-9]+)\)`) so the same group
+  # can serve both halves: `#123` as the link TEXT, bare `123` in the link TARGET. Capturing the
+  # `#` too produced `/pull/#123`, a 404 — every squash-merged PR's link in the generated
+  # changelog was broken, this fork's own `Cycle: ... (#46)` merge commits included.
+  { pattern = '\(#([0-9]+)\)$', replace = "([#${1}](<REPO>/pull/${1}))" }
 ]
 protect_breaking_commits = false
 

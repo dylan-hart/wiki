@@ -205,13 +205,29 @@ version of this list silently dropped any type it didn't name — the exact fail
 #2567 tracked, where a squash-merged commit could disappear from the changelog with a "grouping
 error" instead of being categorized.
 
-Each entry links to its commit. A commit that doesn't parse as `type[(scope)]: description` at all
+Each entry links to its commit, and a trailing `(#123)` PR-number suffix additionally becomes a
+link to that pull request. A commit that doesn't parse as `type[(scope)]: description` at all
 (pre-fork upstream history has plenty — plain "Update README.md", merge commits) is dropped rather
-than shown unclassified; `backend/test/changelog.test.ts` runs the tool against this repo's actual
-history and asserts that whichever sections come out are in the documented order and non-empty,
-and cross-checks each entry's commit hash against `git log`'s real subject line to confirm it
-landed in the section its actual type says it should — deliberately without hardcoding any
-specific commit, since which commits are in `--unreleased` range keeps changing as history moves.
+than shown unclassified.
+
+`backend/test/changelog.test.ts` guards all of the above from two directions (OpenProject #2567),
+and hardcodes no commit subject or hash in either:
+
+- **Against this repo's real history** — it asserts whichever sections come out are in the
+  documented order and non-empty, and cross-checks each entry's commit hash against `git log`'s
+  real subject line to confirm it landed in the section its actual type says it should. It runs
+  git-cliff over the **full** history rather than `--unreleased`, because `--unreleased` is exactly
+  the window a release tag can empty out; `--unreleased` gets its own test making only the narrow
+  claim that it renders cleanly, which stays true when the range is empty.
+- **Against a synthetic fixture repo** — a throwaway repo with a known commit set, which is the
+  only way to pin the specific shapes that motivated #2567 (a `Cycle: ...` squash-merge commit, a
+  capitalized `Fix:`, ad-hoc `audit:`/`polish:` types) without waiting for one to organically turn
+  up in range, and the only way to exercise the tagged-release cases at all while this repo has no
+  tags. Revert the Chores catch-all and it reproduces the original bug verbatim — "3 commit(s) were
+  skipped due to grouping error(s)", naming which commits vanished.
+
+The suite is gated on the `git-cliff` binary being installed and skips cleanly without it, the same
+way the DB-backed model suites gate on `DATABASE_URL`.
 
 Since no `vX.Y.Z` tag has been pushed yet (see [Channel 2](#channel-2-real-releases) above),
 `--unreleased` today walks the _entire_ history rather than "since the last release" — there is no
