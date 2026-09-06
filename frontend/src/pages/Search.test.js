@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import Search from './Search.vue'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
@@ -251,13 +252,15 @@ async function mountSearchWithResponse(searchResponse) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
+  const userStore = useUserStore()
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(searchResponse) })
 
   const router = await createSearchRouter('/_search?q=onboarding')
+  const i18n = createSearchI18n()
   const wrapper = mount(Search, {
     global: {
-      plugins: [router, createSearchI18n()],
+      plugins: [router, i18n],
       // -> Real HeaderNav/FooterNav/MainOverlayDialog pull in more stores and API calls than this
       //    test cares about; stubbed by name so the page around them still renders for real.
       stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
@@ -265,7 +268,7 @@ async function mountSearchWithResponse(searchResponse) {
   })
   activeWrapper = wrapper
   await flushPromises()
-  return { wrapper, siteStore }
+  return { wrapper, siteStore, userStore, i18n }
 }
 
 /**
@@ -494,7 +497,7 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
   })
 
   it('renders each result as a link carrying plate, title, description, path and highlight', async () => {
-    const { wrapper } = await mountSearchWithResponse({
+    const { wrapper, userStore, i18n } = await mountSearchWithResponse({
       results: [FIXTURE_RICH_RESULT],
       totalHits: 1,
       totalHitsApproximate: false,
@@ -514,10 +517,47 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
     )
     expect(row.find('.layout-search-rowpath').text()).toBe('/docs/ingest/credentials')
 
+    /*
+      OpenProject #2716: this date used to go through `humanizeDate` (the long absolute form), the
+      same as tag results and Inbox Watching, while the page view's own "Last modified" line already
+      used the short recent form -- so the same fact about the same page read differently depending
+      on which list it was found in. `FIXTURE_RICH_RESULT.updatedAt` is a fixed 2026-08-01 date, well
+      beyond `formatRecent`'s 7-day window, so this asserts against `formatRecent`'s own (fallback)
+      output rather than a hand-written absolute string.
+    */
+    expect(row.find('.layout-search-rowdate').text()).toBe(
+      userStore.formatRecent(i18n.global.t, FIXTURE_RICH_RESULT.updatedAt)
+    )
+
     // -> The matched-term treatment is the shared `.text-highlight`, not a Search-only class
     const excerpt = row.find('.layout-search-rowexcerpt')
     expect(excerpt.classes()).toContain('text-highlight')
     expect(excerpt.find('b').text()).toBe('credentials')
+  })
+
+  it('shows the recent form, not the legacy absolute one, for a page updated within the last week', async () => {
+    const recentUpdatedAt = Temporal.Now.instant().subtract({ hours: 26 }).toString()
+    const { wrapper, userStore, i18n } = await mountSearchWithResponse({
+      results: [{ ...FIXTURE_RICH_RESULT, updatedAt: recentUpdatedAt }],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.find('.layout-search-rowdate').text()).toBe(
+      userStore.formatRecent(i18n.global.t, recentUpdatedAt)
+    )
+  })
+
+  it('renders the placeholder, not an empty date, for a result with no updatedAt', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [{ ...FIXTURE_RICH_RESULT, updatedAt: null }],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.find('.layout-search-rowdate').text()).toBe('---')
   })
 
   it('puts the tags in the trailing column, and renders none of it when a page has no tags', async () => {

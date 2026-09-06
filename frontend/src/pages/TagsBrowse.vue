@@ -237,7 +237,9 @@
                   >/{{ item.path }}</w-item-label
                 >
                 <w-item-label caption class="tags-browse-result-meta">{{
-                  t('tags.pageLastUpdated', { date: humanizeDate(t, item.updatedAt) })
+                  t('tags.pageLastUpdated', {
+                    date: userStore.formatRecent(t, item.updatedAt) || '---'
+                  })
                 }}</w-item-label>
               </w-item-section>
               <w-item-section side top>
@@ -286,7 +288,6 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { DEFAULT_PAGE_ICON } from '@/stores/page'
