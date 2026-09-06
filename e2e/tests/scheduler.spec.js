@@ -337,9 +337,22 @@ test.describe('admin scheduler', () => {
     )
 
     await page.getByRole('radio', { name: 'Failed' }).click()
-    await page.getByRole('button', { name: 'Refresh' }).click()
+
+    // -> Refreshed inside `toPass` rather than clicked once (OpenProject #2589, matching the
+    //    "Run Now" test's own loop above): switching tabs and clicking Refresh fire two overlapping
+    //    `scheduler/jobs` fetches, and this assertion used to hang off whichever render happened to
+    //    be on screen 5s after the second click. This test has been reported red in CI twice with
+    //    no reproduction against a real backend -- the app's rule itself is now pinned
+    //    deterministically in `frontend/src/pages/AdminScheduler.test.js`, so what is left here is
+    //    the round trip, and a round trip is worth retrying rather than sampling once.
     const row = page.locator('table tbody tr', { hasText: jobId })
-    await expect(row).toContainText('Interrupted')
+    await expect(async () => {
+      await page.getByRole('button', { name: 'Refresh' }).click()
+      await expect(row).toContainText('Interrupted')
+    }).toPass({ timeout: 15_000 })
+
+    // -> Still owes an automatic attempt (attempt 1 <= maxRetries 2), so the manual button is
+    //    rendered but withheld -- the same rule `failed` gets, which is the whole point of the case.
     await expect(row.getByRole('button', { name: 'Retry Job' })).toBeDisabled()
   })
 
@@ -379,7 +392,6 @@ test.describe('admin scheduler', () => {
     await withDb((db) => seedCompletedHistory(db, 110, `e2eBulkHistoryProbe-${uniqueSlug()}`))
 
     await page.getByRole('radio', { name: 'Completed' }).click()
-    await page.getByRole('button', { name: 'Refresh' }).click()
 
     // -> `HISTORY_LIMIT` (100) caps what the tab REQUESTS regardless of how many actually match, but
     //    it does not pin the rendered `<tr>` count at exactly 100: a task that completed more than
@@ -392,11 +404,22 @@ test.describe('admin scheduler', () => {
     //    below 100 even though the API cap held. Deriving the expected row count from the same
     //    grouping logic `AdminScheduler.vue` renders through -- fed the same capped response it
     //    fetches -- is what keeps this assertion honest about that instead of pinning a bare `100`.
-    const rawJobs = await page.request
-      .get('/_api/scheduler/jobs?states=completed&limit=100')
-      .then((r) => r.json())
-    const expectedRowCount = flattenJobHistoryRows(rawJobs.jobs, new Set()).length
-    await expect(page.locator('table tbody tr')).toHaveCount(expectedRowCount)
+    // -> Refresh, derive and assert together inside `toPass` rather than once through (OpenProject
+    //    #2589): the UI's own fetch and this fetch are two separate reads of a list the running
+    //    system is still writing to, and every `storageSyncTick` completion displaces the oldest
+    //    bulk-seeded row out of the top-100 window -- changing how many of those 100 share a task
+    //    name, and so the grouped row count, by one. A tick landing between the two reads is
+    //    therefore an off-by-one against a UI that is not wrong, just a moment behind; retrying the
+    //    whole triple converges on a tick-free window instead. The timeout is bounded, so a real
+    //    off-by-N still fails rather than spinning.
+    await expect(async () => {
+      await page.getByRole('button', { name: 'Refresh' }).click()
+      const rawJobs = await page.request
+        .get('/_api/scheduler/jobs?states=completed&limit=100')
+        .then((r) => r.json())
+      const expectedRowCount = flattenJobHistoryRows(rawJobs.jobs, new Set()).length
+      await expect(page.locator('table tbody tr')).toHaveCount(expectedRowCount)
+    }).toPass({ timeout: 15_000 })
 
     // -> The exact total is not asserted: the same live `storageSyncTick` cron deposits its own
     // `completed` rows for the whole duration of the run (see `backend/models/jobs.ts`), so the

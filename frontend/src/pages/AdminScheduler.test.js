@@ -172,3 +172,126 @@ describe('AdminScheduler history grouping', () => {
     expect(wrapper.vm.historyRows[0].groupExpanded).toBe(true)
   })
 })
+
+/**
+ * OpenProject #2589: the "Retry Job" button's disable rule was, until now, guarded only by
+ * `e2e/tests/scheduler.spec.js`'s two Failed-tab cases -- which run against a real backend whose
+ * `storageSyncTick` cron is depositing rows throughout, and which have been reported red without
+ * anyone being able to reproduce them. Pinning the rule here makes the two answerable apart: a red
+ * e2e run against a green suite here is timing, a red run here is a real regression.
+ *
+ * The rule itself (`AdminScheduler.vue`'s `body-cell-actions` template): the button is withheld
+ * entirely from an `active` row (nothing to retry yet) and from a collapsed group's summary row
+ * (its `id` is `group:<task>`, not a real job id), and it is rendered-but-disabled while the
+ * scheduler still owes the job an automatic attempt -- which `reapStaleJobs` decides by
+ * `attempt <= maxRetries` for `interrupted` exactly as `runJob` does for `failed`, so both states
+ * are withheld the same way.
+ */
+function historyJob(overrides) {
+  return {
+    id: 'job-1',
+    task: 'someTask',
+    state: 'failed',
+    attempt: 1,
+    maxRetries: 2,
+    useWorker: false,
+    executedBy: 'instance-1',
+    startedAt: '2026-08-31T00:01:00.000Z',
+    completedAt: null,
+    lastErrorMessage: 'Synthetic failure',
+    ...overrides
+  }
+}
+
+/** Mounts the page with `jobs` already loaded into the Failed tab, and returns its rendered rows. */
+async function mountFailedTab(jobs) {
+  API_CLIENT.get.mockImplementation((url) => {
+    if (url === 'scheduler/jobs') {
+      return { json: () => Promise.resolve({ total: jobs.length, jobs }) }
+    }
+    return { json: () => Promise.resolve(undefined) }
+  })
+
+  const wrapper = mountWithApp(AdminScheduler, {
+    messages: {
+      'admin.scheduler.title': 'Scheduler',
+      'admin.scheduler.retryJob': 'Retry Job',
+      'admin.scheduler.error': 'Error',
+      'admin.scheduler.interrupted': 'Interrupted',
+      'admin.scheduler.pending': 'Pending',
+      'admin.scheduler.groupRuns': '1 run | {count} runs',
+      'admin.scheduler.groupExpand': 'Show individual runs of {task}',
+      'admin.scheduler.groupCollapse': 'Hide individual runs of {task}'
+    }
+  }).wrapper
+  await flush(wrapper)
+
+  wrapper.vm.state.displayMode = 'failed'
+  await flush(wrapper)
+
+  return { wrapper, rows: wrapper.findAll('table tbody tr') }
+}
+
+/** `null` when the row renders no retry button at all, otherwise whether it renders disabled. */
+function retryButtonDisabled(row) {
+  const btn = row.find('button[aria-label="Retry Job"]')
+  return btn.exists() ? btn.attributes('disabled') !== undefined : null
+}
+
+describe('AdminScheduler Retry Job availability (OpenProject #2589)', () => {
+  it.each([
+    // -> `attempt` counts from 1 and `maxRetries` is how many EXTRA attempts the job gets, so
+    //    `attempt <= maxRetries` is "the scheduler is still going to try this again on its own".
+    { state: 'failed', attempt: 1, maxRetries: 2, expected: true },
+    { state: 'interrupted', attempt: 1, maxRetries: 2, expected: true },
+    // -> The boundary: the last automatic attempt is still owed at `attempt === maxRetries`, and
+    //    the button only comes live once `attempt` has passed it.
+    { state: 'failed', attempt: 2, maxRetries: 2, expected: true },
+    { state: 'interrupted', attempt: 2, maxRetries: 2, expected: true },
+    { state: 'failed', attempt: 3, maxRetries: 2, expected: false },
+    { state: 'interrupted', attempt: 3, maxRetries: 2, expected: false },
+    // -> Nothing is owed when no retries were budgeted at all.
+    { state: 'failed', attempt: 1, maxRetries: 0, expected: false },
+    { state: 'interrupted', attempt: 1, maxRetries: 0, expected: false }
+  ])(
+    'a $state job at attempt $attempt/$maxRetries renders Retry Job disabled=$expected',
+    async ({ state, attempt, maxRetries, expected }) => {
+      const { rows } = await mountFailedTab([historyJob({ state, attempt, maxRetries })])
+
+      expect(rows).toHaveLength(1)
+      expect(retryButtonDisabled(rows[0])).toBe(expected)
+    }
+  )
+
+  it('renders no Retry Job button at all on an active row', async () => {
+    const { rows } = await mountFailedTab([
+      historyJob({ state: 'active', attempt: 1, maxRetries: 2, lastErrorMessage: null })
+    ])
+
+    expect(rows).toHaveLength(1)
+    expect(retryButtonDisabled(rows[0])).toBeNull()
+  })
+
+  it("renders no Retry Job button on a collapsed group's summary row, only on its expanded children", async () => {
+    // -> Same task name twice, so #2337's grouping collapses them into one summary row whose `id`
+    //    is `group:<task>` -- there is no real job behind it to retry.
+    const jobs = [
+      historyJob({ id: 'interrupted-2', task: 'repeatedTask', state: 'interrupted', attempt: 3 }),
+      historyJob({ id: 'interrupted-1', task: 'repeatedTask', state: 'interrupted', attempt: 3 })
+    ]
+    const { wrapper, rows } = await mountFailedTab(jobs)
+
+    expect(rows).toHaveLength(1)
+    expect(wrapper.vm.historyRows[0].id).toBe('group:repeatedTask')
+    expect(retryButtonDisabled(rows[0])).toBeNull()
+
+    wrapper.vm.toggleGroup('repeatedTask')
+    await flush(wrapper)
+
+    // -> Expanded: the summary row still withholds it, while each child row -- a real,
+    //    individually-actionable entry, exhausted at 3/2 -- offers it live.
+    const expandedRows = wrapper.findAll('table tbody tr')
+    expect(expandedRows).toHaveLength(3)
+    expect(expandedRows.map((row) => retryButtonDisabled(row))).toEqual([null, false, false])
+  })
+})
