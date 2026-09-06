@@ -21,7 +21,7 @@
       <w-btn
         class="aspect-square"
         flat
-        icon="tabler:pencil"
+        icon="tabler:tag"
         :color="editorStore.isActive ? `white` : `accent-fill`"
         :disabled="isRedirect"
         :aria-label="t('pageActions.pageProperties')"
