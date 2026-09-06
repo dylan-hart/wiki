@@ -33,6 +33,18 @@ import type { AccessActor } from './groups.ts'
 const ADMIN_ACTOR = { groupIds: [] as string[], permissions: ['manage:system'] }
 
 /**
+ * Forces a navigation row's mode to `static` directly, bypassing the schema's own default (`auto`,
+ * since OpenProject #2745 -- `static` before it). Several tests in this file exist to verify raw
+ * item storage/retrieval mechanics (`setNavItems`, `copyNav`, `updateNavigation`'s write side, ...)
+ * independently of the mode-generation feature -- they assert that `getNav` echoes back exactly what
+ * was stored, which only holds for a `static` menu. The mode axis itself has its own dedicated
+ * describe block further down this file.
+ */
+async function forceStaticMode(navId: string): Promise<void> {
+  await WIKI.db.update(navigationTable).set({ mode: 'static' }).where(eq(navigationTable.id, navId))
+}
+
+/**
  * OpenProject #2208 §3: pure unit coverage of the item-target validation `setNavItems`,
  * `updateNavigation` and `copyNav` all now call before writing — no `WIKI` global and no database
  * needed, per this repo's own preference for a pure test over a DB-backed one wherever the thing
@@ -298,6 +310,7 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     // -> The row is a real, freshly-generated id -- not the site id it belongs to
     assert.notEqual(siteNavId, fixtures.siteId)
+    await forceStaticMode(siteNavId)
 
     await navigationModel.setNavItems(fixtures.siteId, siteNavId, items)
 
@@ -324,6 +337,7 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
       pageId: page.id,
       mode: 'override'
     })
+    await forceStaticMode(page.id)
 
     const items = [{ id: 'b', type: 'header' as const, label: 'Section' }]
     await navigationModel.setNavItems(fixtures.siteId, page.id, items)
@@ -399,6 +413,7 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
 
   test('accepts a rooted path, a complete https:// URL, a mailto: and a tel: target', async () => {
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'da')
+    await forceStaticMode(siteNavId)
     const items = [
       { id: 'a', type: 'link' as const, label: 'Home', target: '/' },
       { id: 'b', type: 'link' as const, label: 'Ext', target: 'https://example.com' },
@@ -435,6 +450,8 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('replace overwrites the target items with clones of the source, each with a fresh id', async () => {
     const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'fr')
+    await forceStaticMode(sourceId)
+    await forceStaticMode(targetId)
 
     const sourceItems = [
       {
@@ -483,6 +500,8 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('append pushes clones onto the target existing items rather than replacing them', async () => {
     const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'de')
     const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'es')
+    await forceStaticMode(sourceId)
+    await forceStaticMode(targetId)
 
     await navigationModel.setNavItems(fixtures.siteId, sourceId, [
       { id: 'append-source', type: 'link' as const, label: 'From Source', target: '/x' }
@@ -524,6 +543,8 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('drops an unsafe target instead of duplicating it onto the target menu', async () => {
     const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ja')
     const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ko')
+    await forceStaticMode(sourceId)
+    await forceStaticMode(targetId)
 
     await WIKI.db
       .update(navigationTable)
@@ -671,12 +692,14 @@ describe(
         siteId: fixtures.siteId,
         pageId: enHome.id,
         mode: 'override',
+        menuMode: 'static',
         items: [{ id: 'en-item', type: 'link', label: 'EN', target: '/' }]
       })
       const frResult = await navigationModel.updateNavigation({
         siteId: fixtures.siteId,
         pageId: frHome.id,
         mode: 'override',
+        menuMode: 'static',
         items: [{ id: 'fr-item', type: 'link', label: 'FR', target: '/' }]
       })
 
@@ -899,7 +922,7 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
     await teardownTestDb()
   })
 
-  test('ensureSiteNav creates a row defaulting to static', async () => {
+  test('ensureSiteNav creates a row defaulting to auto (OpenProject #2745)', async () => {
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
 
     const rows = await WIKI.db
@@ -908,7 +931,7 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
       .where(eq(navigationTable.id, navId))
       .limit(1)
 
-    assert.equal(rows[0]?.mode, 'static')
+    assert.equal(rows[0]?.mode, 'auto')
   })
 
   test('mode accepts auto and mixed', async () => {
@@ -2017,6 +2040,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('ensureSiteNav creates an empty menu once, idempotently', async () => {
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await forceStaticMode(siteNavId)
     assert.deepEqual(
       await navigationModel.getNav(fixtures.siteId, siteNavId, {
         actor: ADMIN_ACTOR,
@@ -2054,6 +2078,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       siteId: fixtures.siteId,
       pageId: page.id,
       mode: 'override',
+      menuMode: 'static',
       items
     })
     assert.equal(navigationId, page.id)
@@ -2088,6 +2113,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .returning({ id: sitesTable.id })
     const otherSiteId = otherSite!.id
     const otherNavId = await navigationModel.ensureSiteNav(otherSiteId, 'en')
+    await forceStaticMode(otherNavId)
     const secretItems: NavigationItem[] = [
       { id: 'secret', type: 'link', label: 'Secret', target: '/secret' }
     ]
@@ -2782,6 +2808,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId,
         pageId: page.id,
         mode: 'inherit',
+        menuMode: 'static',
         items
       })
 
@@ -2821,6 +2848,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId,
         pageId: page.id,
         mode: 'override',
+        menuMode: 'static',
         items
       })
 
@@ -2928,6 +2956,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId,
         pageId: home.id,
         mode: 'override',
+        menuMode: 'static',
         items
       })
 
@@ -2960,6 +2989,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId,
         pageId: home.id,
         mode: 'override',
+        menuMode: 'static',
         items: originalItems
       })
       const enSiteNavId = await navigationModel.ensureSiteNav(siteId, 'en')

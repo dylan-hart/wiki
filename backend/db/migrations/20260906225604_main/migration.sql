@@ -1,0 +1,1 @@
+ALTER TABLE "navigation" ALTER COLUMN "mode" SET DEFAULT 'auto'::"treeNavigationSource";
