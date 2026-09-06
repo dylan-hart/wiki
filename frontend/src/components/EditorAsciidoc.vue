@@ -206,7 +206,7 @@ onMounted(() => {
 
   // -> Same theme `EditorMarkdown.vue`/`EditorCode.vue` define, redefined here rather than shared: only
   //    one editor component is ever mounted at a time, so there is nothing to deduplicate against.
-  monaco.editor.defineTheme('wikijs', {
+  monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -228,7 +228,7 @@ onMounted(() => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'wikijs',
+    theme: 'cardinaljs',
     value: pageStore.content,
     wordWrap: 'on'
   })

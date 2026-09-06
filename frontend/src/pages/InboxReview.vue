@@ -454,7 +454,7 @@ function mountEditor() {
     theme while this overlay is open the surface falls back to `vs-dark`'s defaults for these four
     rather than to a mismatched ground.
   */
-  monaco.editor.defineTheme('wikijs', {
+  monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -487,7 +487,7 @@ function mountEditor() {
     originalEditable: false,
     readOnly: false,
     scrollBeyondLastLine: false,
-    theme: 'wikijs',
+    theme: 'cardinaljs',
     wordWrap: 'on'
   })
   diffEditor.setModel({ original: originalModel, modified: modifiedModel })

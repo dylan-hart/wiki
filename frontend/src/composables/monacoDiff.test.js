@@ -48,7 +48,7 @@ beforeEach(() => {
  * hands `monaco.editor.defineTheme` -- which is also the only thing standing between the design file
  * and what a reader sees, since nothing else in the app restyles this editor.
  */
-describe('useMonacoDiff: the wikijs diff theme (OpenProject #2637)', () => {
+describe('useMonacoDiff: the cardinaljs diff theme (OpenProject #2637)', () => {
   it('paints the line-number gutter BELOW the text ground, not above it', async () => {
     const { colors } = await definedTheme()
 
@@ -99,7 +99,7 @@ describe('useMonacoDiff: the wikijs diff theme (OpenProject #2637)', () => {
     expect(options).toMatchObject({
       renderSideBySide: true,
       readOnly: true,
-      theme: 'wikijs',
+      theme: 'cardinaljs',
       fontSize: 12.5
     })
   })

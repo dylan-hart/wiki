@@ -666,7 +666,7 @@ describe('InboxReview against its design file (#2621)', () => {
     await mountReview()
 
     const theme = monaco.editor.defineTheme.mock.calls.at(-1)[1]
-    // -> The same five base tones every other `wikijs` definition in the app sets, since the theme
+    // -> The same five base tones every other `cardinaljs` definition in the app sets, since the theme
     //    ID is shared and whichever call site defines it last wins for the whole process
     expect(theme.colors['editor.background']).toBe('#14171f')
     expect(theme.colors['editorLineNumber.foreground']).toBe('#3f4a63')

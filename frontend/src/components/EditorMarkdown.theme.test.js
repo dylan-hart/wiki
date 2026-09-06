@@ -33,7 +33,7 @@ describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html
 
   it('registers itself under the name the editor is then created with', async () => {
     const { name, theme } = await definedTheme()
-    expect(name).toBe('wikijs')
+    expect(name).toBe('cardinaljs')
     expect(theme.base).toBe('vs-dark')
     expect(monaco.editor.create.mock.calls[0][1].theme).toBe(name)
   })
