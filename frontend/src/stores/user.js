@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { getAccessibleColor } from '@/helpers/accessibility'
+import { log } from '@/helpers/log'
 import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 
 import { useSiteStore } from './site'
@@ -191,7 +192,7 @@ export const useUserStore = defineStore('user', {
       } catch (err) {
         // -> Clear the client either way. Whatever went wrong, someone who clicked Logout must not be
         //    left looking at a page that still says they are signed in.
-        console.warn(err)
+        log.warn('auth', 'could not sign out on the server', err)
       }
       this.setToGuest()
       /*
@@ -279,7 +280,7 @@ export const useUserStore = defineStore('user', {
         //    already guarded against above.
         this.pagePermissions = Array.isArray(permissions) ? permissions : []
       } catch (err) {
-        console.warn(`Failed to fetch page permissions at path ${path}!`)
+        log.warn('auth', `could not read this session's permissions on ${path}`, err)
       }
     },
     /**
@@ -305,7 +306,7 @@ export const useUserStore = defineStore('user', {
         this.sitePermissions = Array.isArray(permissions) ? permissions : []
         this.sitePermissionsSiteId = siteId
       } catch (err) {
-        console.warn(`Failed to fetch site permissions for site ${siteId}!`)
+        log.warn('auth', `could not read this session's permissions on site ${siteId}`, err)
       }
     },
     /**

@@ -202,7 +202,7 @@ import { forceCenter, forceCollide } from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { zoomIdentity } from 'd3-zoom'
 import { debounce } from 'es-toolkit/function'
-import { apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { useSiteStore } from '@/stores/site'
@@ -501,7 +501,7 @@ async function searchKeyword(query) {
       return
     }
     keywordMatches.value = []
-    console.warn(apiErrorMessage(err))
+    log.warn('graph', 'could not run the keyword search behind the graph filter', err)
   }
 }
 

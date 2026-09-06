@@ -7,5 +7,22 @@
   "categories": {
     "correctness": "error"
   },
-  "ignorePatterns": ["node_modules/**", "compiled/**"]
+  "rules": {
+    // A warning, not an error, unlike `frontend/`'s: a block is standalone by design -- there is no
+    // shared log helper to funnel it through, and its console line is the only diagnostic surface it
+    // has. What IS required is that the line names the block (`block-<name>: ...`), so a reader with
+    // several blocks on a page can tell which one spoke. See OpenProject #2682.
+    "no-console": "warn"
+  },
+  "ignorePatterns": ["node_modules/**", "compiled/**"],
+  "overrides": [
+    {
+      // `scripts/` is not a block -- these are build-time CLIs whose console output IS their user
+      // interface, with no page to speak to instead.
+      "files": ["scripts/**"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }

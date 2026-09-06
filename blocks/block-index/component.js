@@ -449,7 +449,8 @@ export class BlockIndexElement extends LitElement {
         await this._loadIcons()
       }
     } catch (err) {
-      console.warn(err)
+      // oxlint-disable-next-line no-console -- the listing renders empty on failure, so the console is the only account of why
+      console.warn(`block-index: the page listing could not be loaded — ${err?.message ?? err}`)
     }
     this._loading = false
   }

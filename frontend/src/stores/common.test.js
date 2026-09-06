@@ -147,6 +147,10 @@ describe('common store: loadBlocks()', () => {
       // -> Nothing under /_blocks/ exists in this test environment, so every import attempt
       //    rejects and logs one console.warn -- a 1:1 stand-in for "one real import() attempt
       //    was made", which is what these tests are actually asserting: not zero, not two.
+      //    The store writes that line through `helpers/log.js` rather than `console` directly
+      //    (OpenProject #2682), and the helper reaches `console.warn` whenever
+      //    `import.meta.env.DEV` is true -- which it is under Vitest -- so this spy still counts
+      //    exactly the attempts it always did.
       warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     })
 

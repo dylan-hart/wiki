@@ -8,6 +8,7 @@ import { useEditorStore } from './editor'
 import { useUserStore } from './user'
 import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
 import { apiErrorBody, apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
 import { usePathDisplay } from '@/composables/pathDisplay'
 
 /**
@@ -311,7 +312,7 @@ export const usePageStore = defineStore('page', {
         if (err.response?.status === 403) {
           throw new Error('ERR_PAGE_UNAUTHORIZED')
         }
-        console.warn(err)
+        log.warn('page', 'could not load the page', err)
         throw err
       }
     },
@@ -359,7 +360,7 @@ export const usePageStore = defineStore('page', {
         await (watching ? API_CLIENT.put(url) : API_CLIENT.delete(url))
       } catch (err) {
         this.isWatching = previous
-        console.warn(err)
+        log.warn('page', 'could not change whether this page is being watched', err)
         throw err
       }
     },
@@ -446,7 +447,7 @@ export const usePageStore = defineStore('page', {
         if (err.response?.status === 404) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
-        console.warn(err)
+        log.warn('page', 'could not resolve the page alias', err)
         throw err
       }
     },
@@ -588,7 +589,7 @@ export const usePageStore = defineStore('page', {
           description: pageData.description
         })
       } catch (err) {
-        console.warn(err)
+        log.warn('page', 'could not duplicate the page', err)
         throw err
       }
     },
@@ -713,7 +714,7 @@ export const usePageStore = defineStore('page', {
           contentLoaded: true
         })
       } catch (err) {
-        console.warn(err)
+        log.warn('page', 'could not load the page source', err)
         throw err
       }
     },
@@ -859,7 +860,7 @@ export const usePageStore = defineStore('page', {
         */
         if (!this.contentLoaded) {
           delete body.content
-          console.warn('Page source was never loaded; saving without touching the stored content.')
+          log.warn('page', 'the page source was never loaded; saving without touching it')
         }
         /*
           OpenProject #1079: an unset classification on create means "let the server pick the
@@ -958,7 +959,7 @@ export const usePageStore = defineStore('page', {
           editorStore.saveConflict = apiErrorBody(err)?.page ?? null
           throw new Error('ERR_SAVE_CONFLICT')
         }
-        console.warn(err)
+        log.warn('page', 'could not save the page', err)
         /*
           A refused write (ky's `HTTPError`, identified the same way the 409 branch above does --
           via `.response`) carries the server's real message under `.data.message`, not in `.message`
