@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import NavSidebar from './NavSidebar.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
@@ -11,6 +11,7 @@ import BlueprintIcon from './BlueprintIcon.vue'
 import routes from '@/router/routes'
 import { useSiteStore } from '@/stores/site'
 import { usePageStore } from '@/stores/page'
+import { useDark } from '@/composables/dark'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { openDialogs } from '@/composables/dialog'
@@ -1079,5 +1080,56 @@ describe('NavSidebar', () => {
 
     expect(lightBlock).not.toMatch(/border-top\s*:/)
     expect(darkBlock).not.toMatch(/border-top-color\s*:/)
+  })
+})
+
+/**
+ * OpenProject #2726: `.sidebar-nav` used to declare its own `border-top` (light and dark), stacked
+ * directly underneath `.sidebar-actions`' `border-bottom` (`MainLayout.vue`) -- doubling the seam
+ * between the sidebar's action band and its nav list to 2px, versus the 1px hairline everywhere
+ * else in the app draws the equivalent seam (e.g. `.page-breadcrumbs`/`.page-header`). Triage
+ * direction: the upper band owns the line, so `.sidebar-nav` carries no `border-top` of its own any
+ * more, in either theme.
+ *
+ * Mounted attached to `document.body` (this file's `<style>` block is unscoped, and the dark case's
+ * `.body--dark &` ancestor combinator needs a real body ancestor to match) and read back through the
+ * real, compiled `getComputedStyle`, following `EditorWysiwyg.darkMode.test.js`'s established
+ * pattern for this exact kind of assertion -- a source-text grep could not tell "no rule" apart from
+ * "a rule that resolves to 0", and the second is what several other zero-value CSS properties in this
+ * codebase legitimately look like.
+ *
+ * `Number.parseFloat(...) || 0` rather than a bare string comparison to `'0px'`: happy-dom (this
+ * workspace's `vitest.config.js` environment) reports an EMPTY string for `borderTopWidth` when no
+ * `border-top`/`border` rule applies at all, rather than resolving it to `'0px'` the way a real
+ * browser does (`AdminDashboard.test.js`'s own border read uses the same fallback for the same
+ * reason). Either reading means "no border actually drawn", which is what this asserts.
+ */
+describe('NavSidebar sidebar-nav border-top (OpenProject #2726)', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark', 'body--light')
+  })
+
+  async function mountAttached(theme) {
+    useDark().set(theme === 'dark')
+    const router = await createTestRouter(['/'])
+    return mountWithApp(NavSidebar, {
+      messages: { common: { sidebar: { browse: 'Browse' } } },
+      router,
+      attachTo: document.body
+    }).wrapper
+  }
+
+  it('draws no top border on .sidebar-nav in light mode', async () => {
+    const wrapper = await mountAttached('light')
+    const el = wrapper.find('.sidebar-nav').element
+    expect(Number.parseFloat(getComputedStyle(el).borderTopWidth) || 0).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('draws no top border on .sidebar-nav in dark mode either', async () => {
+    const wrapper = await mountAttached('dark')
+    const el = wrapper.find('.sidebar-nav').element
+    expect(Number.parseFloat(getComputedStyle(el).borderTopWidth) || 0).toBe(0)
+    wrapper.unmount()
   })
 })
