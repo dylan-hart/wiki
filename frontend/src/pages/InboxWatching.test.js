@@ -481,3 +481,72 @@ describe('InboxWatching notification preferences', () => {
     expect(API_CLIENT.patch).not.toHaveBeenCalled()
   })
 })
+
+/*
+  OpenProject #2621 -- `Cardinal Wiki - Inbox 3x.dc.html`. The design draws both framed lists' leading
+  plate at 36x36 with an 18px glyph, and every row action as a hairline 32px square rather than the
+  flat round tinted button they all used to be. These assert the emitted sizes and classes, not
+  computed geometry: jsdom runs no layout engine, so a rendered-height claim here would be fiction.
+*/
+describe('InboxWatching against its design file (#2621)', () => {
+  /*
+    A `WAvatar` renders `.w-avatar` with its `size` as an inline style, which is what beats the
+    shared 40px flanking-avatar rule -- so the inline style IS the assertion.
+  */
+  function plates(wrapper) {
+    return wrapper.findAll('.w-avatar')
+  }
+
+  it("draws a notification's plate as a 36px accent square, not a 40px primary one", async () => {
+    stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
+
+    const { wrapper } = await mountInboxWatching()
+
+    const plate = plates(wrapper)[0]
+    expect(plate.attributes('style')).toContain('width: 36px')
+    expect(plate.attributes('style')).toContain('height: 36px')
+    expect(plate.attributes('style')).toContain('font-size: 18px')
+    expect(plate.attributes('style')).toContain('var(--color-accent-fill)')
+    // -> Square, per the design; `rounded` would be a corner treatment the language never draws
+    expect(plate.classes()).toContain('rounded-none')
+  })
+
+  it("draws a watched page's plate as a 36px slate square", async () => {
+    stubApi({ 'sites/site-1/watching': [WATCHED_PAGE] }, { fallback: [] })
+
+    const { wrapper } = await mountInboxWatching()
+
+    const plate = plates(wrapper)[0]
+    expect(plate.attributes('style')).toContain('width: 36px')
+    expect(plate.attributes('style')).toContain('var(--color-slate)')
+    expect(plate.classes()).toContain('rounded-none')
+  })
+
+  it('draws every row action as a hairline square rather than a round tinted button', async () => {
+    stubApi(
+      {
+        'sites/site-1/notifications': [NOTIFICATION],
+        'sites/site-1/watching': [WATCHED_PAGE]
+      },
+      { fallback: [] }
+    )
+
+    const { wrapper } = await mountInboxWatching()
+
+    const actions = [
+      wrapper.find('[aria-label="Mark as read"]'),
+      wrapper.find('[aria-label="Notification preferences"]'),
+      wrapper.find('[aria-label="Stop watching"]')
+    ]
+    for (const action of actions) {
+      expect(action.exists()).toBe(true)
+      expect(action.classes()).toContain('inbox-square-btn')
+      // -> `outline` is what draws the hairline; `rounded-full` is what `round` used to draw
+      expect(action.classes()).toContain('border-hairline')
+      expect(action.classes()).not.toContain('rounded-full')
+      expect(action.classes()).not.toContain('acrylic-btn')
+      // -> `padding="none"` is the only thing that can zero WBtn's own inline padding
+      expect(action.attributes('style')).toContain('padding: 0px')
+    }
+  })
+})

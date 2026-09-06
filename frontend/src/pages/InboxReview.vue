@@ -25,7 +25,8 @@
             clickable
             @click="openSubmission(submission)">
             <w-item-section avatar>
-              <w-avatar color="slate" text-color="white" rounded>
+              <!-- -> The framed list's 36px plate; see `InboxWatching.vue` for why it is set here. -->
+              <w-avatar size="36px" font-size="18px" color="slate" text-color="white" square>
                 <w-icon name="tabler:file-text" />
               </w-avatar>
             </w-item-section>
@@ -76,23 +77,29 @@
     <!-- ONE SUBMISSION -->
     <!-- ----------------------------------------------------- -->
     <template v-else>
-      <div class="flex flex-none flex-wrap items-center gap-2 p-4">
+      <!--
+        The design's toolbar: `14px 16px`, an 8px gap, and every control on it an icon-only 32px
+        square. The four buttons used to be a round flat back arrow followed by three LABELLED
+        buttons, which is a different row — three labels at three different widths push the title
+        and the count chip around as the wording changes, and the labelled Approve/Decline pair read
+        as a form's footer rather than as a reviewer's toolbar. The labels move to `aria-label` plus
+        a tooltip, which is exactly what the design's own `title=` attributes are.
+      -->
+      <div class="flex flex-none flex-wrap items-center gap-2 px-4 py-3.5">
         <w-btn
-          class="acrylic-btn"
-          flat
-          dense
-          round
-          icon="tabler:arrow-left"
-          color="grey"
+          class="inbox-square-btn"
+          outline
+          padding="none"
+          color="slate-soft"
           :aria-label="t(`inbox.reviewBack`)"
           @click="closeSubmission">
+          <w-icon name="tabler:arrow-left" size="15px" />
           <w-tooltip>{{ t(`inbox.reviewBack`) }}</w-tooltip>
         </w-btn>
-        <div class="min-w-0 flex-1">
-          <div class="text-subtitle1">
-            <strong>{{ state.selected.page.title }}</strong>
-          </div>
-          <div class="text-caption text-grey">
+        <!-- -> `min-w-[180px]`, as the design has it: below that the byline wraps to three lines. -->
+        <div class="min-w-[180px] flex-1">
+          <div class="inbox-review-title">{{ state.selected.page.title }}</div>
+          <div class="inbox-review-byline">
             <i18n-t keypath="inbox.reviewSubmittedBy" scope="global">
               <template #author>
                 <strong>{{ state.selected.author.name || t('inbox.reviewUnknownAuthor') }}</strong>
@@ -104,45 +111,90 @@
             </template>
           </div>
         </div>
-        <w-badge v-if="state.selected.approvals?.approvalsRequired > 1" color="slate" rounded>
+        <!--
+          The approval count is an OUTLINED mono chip in the design, not a filled badge: it is a
+          reading of where this submission stands, and a filled slate pill beside four hairline
+          squares reads as a fifth control.
+        -->
+        <span v-if="state.selected.approvals?.approvalsRequired > 1" class="inbox-review-count">
           {{
             t('inbox.reviewApprovalProgress', {
               count: state.selected.approvals.approvalsCount,
               required: state.selected.approvals.approvalsRequired
             })
           }}
-        </w-badge>
+        </span>
         <w-btn
-          class="acrylic-btn"
-          flat
-          icon="tabler:external-link"
-          color="grey"
-          :label="t(`inbox.reviewViewPage`)"
+          class="inbox-square-btn"
+          outline
+          padding="none"
+          color="slate-soft"
+          :aria-label="t(`inbox.reviewViewPage`)"
           :href="`/` + state.selected.page.path"
-          target="_blank" />
+          target="_blank">
+          <w-icon name="tabler:external-link" size="15px" />
+          <w-tooltip>{{ t(`inbox.reviewViewPage`) }}</w-tooltip>
+        </w-btn>
         <w-btn
-          class="acrylic-btn"
-          flat
-          icon="tabler:x"
-          color="negative"
-          :label="t(`inbox.reviewDecline`)"
-          @click="rejectSubmission" />
+          class="inbox-square-btn inbox-square-btn--negative"
+          outline
+          padding="none"
+          color="accent"
+          :aria-label="t(`inbox.reviewDecline`)"
+          @click="rejectSubmission">
+          <w-icon name="tabler:x" size="15px" />
+          <w-tooltip>{{ t(`inbox.reviewDecline`) }}</w-tooltip>
+        </w-btn>
+        <!--
+          The one filled control on the row, and the only one the design fills: approving is what
+          this screen is for. `positive-fill` under a white GLYPH -- not `positive` under a white
+          label -- is the same fill/text split the accent takes; there is no text on it to measure.
+        -->
         <w-btn
-          icon="tabler:check"
-          color="positive"
-          :label="t(`inbox.reviewApprove`)"
-          @click="approveSubmission" />
+          class="inbox-square-btn"
+          padding="none"
+          color="positive-fill"
+          text-color="white"
+          :aria-label="t(`inbox.reviewApprove`)"
+          @click="approveSubmission">
+          <w-icon name="tabler:check" size="15px" />
+          <w-tooltip>{{ t(`inbox.reviewApprove`) }}</w-tooltip>
+        </w-btn>
       </div>
       <!--
         A warning rather than a block: the reviewer can see both sides in the diff below and edit the
         result before accepting, which is exactly what a stale suggestion needs.
       -->
-      <!-- Literal colour classes: WBanner has no `color` prop, so one would be silently dropped. -->
-      <w-banner v-if="state.selected.isStale" class="mx-4 mb-2 flex-none bg-warning text-black">
+      <!--
+        Literal colour classes: WBanner has no `color` prop, so one would be silently dropped.
+        `warning-fill` under `ink`, which is the pair the language actually names -- `bg-warning
+        text-black` happened to resolve to the same amber but put pure black on it, and black is not
+        a foreground Cardinal uses anywhere.
+      -->
+      <w-banner v-if="state.selected.isStale" class="mx-4 mb-2 flex-none bg-warning-fill text-ink">
         {{ t('inbox.reviewStaleHint') }}
       </w-banner>
-      <div class="flex-none px-4 pb-2 text-caption text-grey">
+      <div class="inbox-review-hint flex-none px-4 pb-2">
         {{ t('inbox.reviewDiffHint') }}
+      </div>
+      <!--
+        The two sides, named above the diff they label. Monaco draws no header of its own over its
+        panes, so a reader had nothing on screen saying which half was the page and which the
+        suggestion, or that only one of them could be typed into -- which is the single most
+        load-bearing fact about this screen. Two equal cells over an editor whose
+        `renderSideBySide` is fixed on, so they line up with the halves they name.
+      -->
+      <div class="inbox-review-diff-heads flex-none">
+        <div class="inbox-review-diff-head">
+          <span>{{ t('inbox.reviewDiffCurrent') }}</span>
+          <span class="inbox-review-diff-state">{{ t('inbox.reviewDiffReadOnly') }}</span>
+        </div>
+        <div class="inbox-review-diff-head">
+          <span>{{ t('inbox.reviewDiffSuggestion') }}</span>
+          <span class="inbox-review-diff-state inbox-review-diff-state--editable">{{
+            t('inbox.reviewDiffEditable')
+          }}</span>
+        </div>
       </div>
       <!-- The diff itself: current page on the left, the suggestion on the right and editable. -->
       <div ref="diffEl" class="inbox-review-diff" />
@@ -384,16 +436,38 @@ function mountEditor() {
   }
   disposeEditor()
 
-  // -> The markdown editor's theme, defined again here because that component may never have mounted
+  /*
+    The markdown editor's theme, defined again here because that component may never have mounted.
+
+    The five base tones are `EditorMarkdown.vue`/`EditorCode.vue`/`composables/monacoDiff.js`'s
+    values, not the `#070a0d`/`#0d1117`/`#546e7a` this file used to carry: those were a step darker
+    than anything in Cardinal's ramp and predate the re-skin, so the one code surface a reviewer sees
+    read as a different application's window sitting inside this one. Sharing the tones also matters
+    because the theme ID is shared -- whichever call site defines it last wins for the whole process,
+    so the copies must not disagree.
+
+    The four beneath them are this screen's own, from `ui-redesign/Cardinal Wiki - Inbox Review
+    3x.dc.html`: a gutter one rung below the text ground, the accent as the caret (the design draws
+    the cursor in the suggestion pane in `#e4676b`), and the two change tints. Those tints are the
+    status FILLS at the design's own alpha rather than Monaco's default green/red, which are a
+    different palette's. They are additive over the base, so if another call site redefines the
+    theme while this overlay is open the surface falls back to `vs-dark`'s defaults for these four
+    rather than to a mismatched ground.
+  */
   monaco.editor.defineTheme('wikijs', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
     colors: {
-      'editor.background': '#070a0d',
-      'editor.lineHighlightBackground': '#0d1117',
-      'editorLineNumber.foreground': '#546e7a',
-      'editorGutter.background': '#0d1117'
+      'editor.background': '#14171f',
+      'editor.foreground': '#c3cee2',
+      'editor.lineHighlightBackground': '#171b24',
+      'editorLineNumber.foreground': '#3f4a63',
+      'editorGutter.background': '#171b24',
+      'editorCursor.foreground': '#e4676b',
+      'diffEditor.insertedLineBackground': '#5f9c862e',
+      'diffEditor.removedLineBackground': '#e4676b29',
+      'diffEditor.border': '#ffffff1f'
     }
   })
 
@@ -402,9 +476,13 @@ function mountEditor() {
 
   diffEditor = monaco.editor.createDiffEditor(diffEl.value, {
     automaticLayout: true,
-    fontSize: 14,
+    // -> The design's own diff metrics -- 12.5px Roboto Mono on a 1.9 line -- which is what fits two
+    //    readable columns into half an overlay each. 14px in the browser default face was neither.
+    fontSize: 12.5,
+    lineHeight: 24,
+    fontFamily: "'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace",
     // -> Side by side: this screen exists to compare the two, and an inline diff of prose reads as a
-    //    jumble of half-lines
+    //    jumble of half-lines. Fixed on, which is what lets the two pane headings above line up.
     renderSideBySide: true,
     originalEditable: false,
     readOnly: false,
@@ -573,16 +651,143 @@ onBeforeUnmount(disposeEditor)
 </script>
 
 <style lang="scss">
+/*
+  `Cardinal Wiki - Inbox Review 3x.dc.html`, which this screen had never been compared against.
+
+  The type here is written out rather than taken from the Material ramp `text-subtitle1`/
+  `text-caption` supply: the design sets the title at 15px/600 and the byline in Roboto Mono at
+  11.5px, and neither rung of that ramp is either of those. The mono byline is the point -- who
+  suggested this and when is metadata, and metadata is mono everywhere in the language.
+*/
 .inbox-review {
+  &-title {
+    color: $ink;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+
+    @at-root .body--dark & {
+      color: $text-dark;
+    }
+  }
+
+  &-byline {
+    color: $text-caption;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+
+    // -> The author's name lifts to the chrome tone; everything around it stays caption-weight
+    strong {
+      color: $slate;
+      font-weight: 500;
+    }
+
+    @at-root .body--dark & {
+      color: $text-caption-dark;
+
+      strong {
+        color: $slate-light;
+      }
+    }
+  }
+
+  &-hint {
+    color: $text-caption;
+    font-size: 11.5px;
+    line-height: 1.5;
+
+    @at-root .body--dark & {
+      color: $text-caption-dark;
+    }
+  }
+
+  /*
+    The approvals reading. `#5f78a8` is the design's own edge for this chip and is a hair off
+    `$slate-soft`; the design file wins on a colour, so it goes in as written rather than being
+    rounded to the nearest token -- and it stays a literal here rather than becoming a new token,
+    since one chip on one screen is not a palette entry.
+  */
+  &-count {
+    border: 1px solid #5f78a8;
+    color: $slate;
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    padding: 3px 7px;
+    text-transform: uppercase;
+    white-space: nowrap;
+
+    @at-root .body--dark & {
+      border-color: $border-dark;
+      color: $slate-light;
+    }
+  }
+
+  /*
+    The strip naming Monaco's two panes. On the diff's own ground rather than the page's, because it
+    belongs to the dark surface below it and not to the light toolbar above -- the design draws it as
+    the top row of the code well, ruled off from the code by the same hairline the panes are split
+    by.
+  */
+  &-diff-heads {
+    background-color: $dark-4;
+    border-top: 1px solid $hairline;
+    display: flex;
+
+    @at-root .body--dark & {
+      border-top-color: $hairline-dark;
+    }
+  }
+
+  &-diff-head {
+    align-items: center;
+    border-bottom: 1px solid rgba(#fff, 0.12);
+    color: $slate-light;
+    display: flex;
+    flex: 1 1 0;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    gap: 12px;
+    justify-content: space-between;
+    letter-spacing: 0.18em;
+    min-width: 0;
+    padding: 6px 12px;
+    text-transform: uppercase;
+
+    // -> The panes are split by a rule, so only the first of the two draws one on its trailing edge
+    &:first-child {
+      border-inline-end: 1px solid rgba(#fff, 0.12);
+    }
+  }
+
+  /*
+    "read only" / "editable". Tighter tracking than the pane's own name and a tone down from it: it
+    qualifies the heading beside it rather than competing with it. The editable half takes the accent,
+    which is the language's mark for the live edge -- here, the one pane a reviewer can type into.
+  */
+  &-diff-state {
+    color: $text-caption-dark;
+    letter-spacing: 0.14em;
+    white-space: nowrap;
+
+    &--editable {
+      color: $accent-dark;
+    }
+  }
+
   /*
     The diff takes whatever is left under the header rather than a fixed height: this page sits in a
     card that already fills the viewport, so a height in pixels would either overflow it or leave a
-    gap under it.
+    gap under it. The floor is the design's 260px, not 400 -- at half a short viewport, 400px was
+    taller than the space the overlay has to give it.
   */
   &-diff {
     flex: 1 1 auto;
-    min-height: 400px;
-    border-top: 1px solid rgba(#fff, 0.1);
+    min-height: 260px;
   }
 }
 </style>
