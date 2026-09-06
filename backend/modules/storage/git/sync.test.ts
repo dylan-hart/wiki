@@ -156,8 +156,61 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
   })
 }
 
-/** A bare repo standing in for "origin", plus a working copy already pushed to it (`seedPath`). */
-async function makeOrigin(): Promise<{ originPath: string; seedPath: string }> {
+/**
+ * Git-config environment overrides for one fixture repo's own `git` invocations, injected as
+ * `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` rather than written to any config file
+ * something else could read. Git applies these with `-c` precedence, so they beat the developer's
+ * own `~/.gitconfig` — which is what lets a test stand this machine's git up as a differently
+ * configured CI runner's without touching anything outside the child process.
+ */
+type GitConfigEnv = Record<string, string>
+
+/** `GitConfigEnv` forcing the ambient `git init` default branch (what `init()` picks with no flag). */
+function ambientInitBranchEnv(branch: string): GitConfigEnv {
+  return {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'init.defaultBranch',
+    GIT_CONFIG_VALUE_0: branch
+  }
+}
+
+/**
+ * A `simpleGit()` instance for a fixture repo, optionally under git-config environment overrides.
+ *
+ * `.env()` REPLACES the spawned child's whole environment rather than merging into it (simple-git
+ * assigns the object straight onto its executor), so `process.env` is spread back underneath the
+ * overrides — without that, git would run with no `PATH` and survive only on `execvp`'s built-in
+ * `/usr/bin:/bin` fallback, which is precisely the kind of ambient-environment dependency this
+ * suite is being hardened against.
+ *
+ * Every ambient `GIT_*` variable is dropped on the way through, for two reasons: this fixture is
+ * meant to model a *stated* git environment rather than inherit the developer's (a `GIT_DIR` or
+ * `GIT_CONFIG_COUNT` already in the shell would otherwise silently fight the overrides), and
+ * simple-git refuses several of them outright — a shell exporting `GIT_EDITOR`, as an interactive
+ * one commonly does, makes every call throw "Use of GIT_EDITOR is not permitted" before git even
+ * runs. `allowUnsafeConfigEnvCount` is simple-git's opt-in for passing `GIT_CONFIG_COUNT` at all;
+ * the values here are literals in this file, never request input.
+ */
+function fixtureGit(repoPath: string, env?: GitConfigEnv): ReturnType<typeof simpleGit> {
+  if (!env) {
+    return simpleGit(repoPath)
+  }
+  const ambient = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+  )
+  return simpleGit(repoPath, { unsafe: { allowUnsafeConfigEnvCount: true } }).env({
+    ...ambient,
+    ...env
+  })
+}
+
+/**
+ * A bare repo standing in for "origin", plus a working copy already pushed to it (`seedPath`).
+ *
+ * `env` exists for this file's own fixture regression tests, which re-run this helper against a
+ * hostile ambient `init.defaultBranch`; every real test leaves it unset.
+ */
+async function makeOrigin(env?: GitConfigEnv): Promise<{ originPath: string; seedPath: string }> {
   const originPath = await makeTempDir('wiki-git-sync-origin-')
   // -> OpenProject #2586 follow-up: the bare origin's own advertised HEAD (what `git clone`
   //    checks out by default) also defers to the ambient default absent `--initial-branch`, same
@@ -166,10 +219,10 @@ async function makeOrigin(): Promise<{ originPath: string; seedPath: string }> {
   //    created (only `main` ever does, via the seed's push below), so a peer clone lands on an
   //    unborn, wrong-named local branch — exactly the "src refspec main does not match any" this
   //    suite kept failing with on CI, where the ambient default isn't `main`.
-  await simpleGit(originPath).init(true, ['--initial-branch=main'])
+  await fixtureGit(originPath, env).init(true, ['--initial-branch=main'])
 
   const seedPath = await makeTempDir('wiki-git-sync-seed-')
-  const seed = simpleGit(seedPath)
+  const seed = fixtureGit(seedPath, env)
   // -> OpenProject #2586: this suite always pushes/pulls a branch literally named `main` — a
   //    bare `init()` instead defers to the git binary's own compiled-in default (still `master`
   //    absent an `init.defaultBranch` override), which is not guaranteed to match across
@@ -189,52 +242,83 @@ async function makeOrigin(): Promise<{ originPath: string; seedPath: string }> {
   return { originPath, seedPath }
 }
 
-/** A second working copy of `originPath`, standing in for an outside collaborator. */
+/**
+ * A second working copy of `originPath`, standing in for an outside collaborator.
+ *
+ * `env` is the same fixture-regression escape hatch `makeOrigin()` takes, and is unset everywhere
+ * except those tests.
+ */
 async function makePeer(
-  originPath: string
+  originPath: string,
+  env?: GitConfigEnv
 ): Promise<{ peerPath: string; peer: ReturnType<typeof simpleGit> }> {
   const peerPath = await makeTempDir('wiki-git-sync-peer-')
-  const peer = simpleGit(peerPath)
+  const peer = fixtureGit(peerPath, env)
   await peer.clone(originPath, '.')
   await peer.addConfig('user.name', 'Peer')
   await peer.addConfig('user.email', 'peer@example.com')
   return { peerPath, peer }
 }
 
+/** The branch HEAD points at, including an unborn one — `branchLocal()` cannot answer that. */
+async function headBranch(git: ReturnType<typeof simpleGit>): Promise<string> {
+  return (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
+}
+
+/**
+ * OpenProject #2586. Every one of the `git storage: sync` subtests below failed on CI because these
+ * two fixture helpers assumed the branch a bare `git init` produces is named `main` — true on a
+ * machine with `init.defaultBranch=main` configured, not true of git's own compiled-in default, and
+ * so not true of a stock CI runner. Both halves are now pinned explicitly, and these tests are what
+ * hold them pinned.
+ *
+ * They deliberately drive the REAL `makeOrigin()`/`makePeer()` rather than an inline copy of their
+ * bodies: the first attempt at this guard was such a copy, which is exactly why the bare origin's
+ * own HEAD stayed broken (and CI stayed red) with a green "#2586 regression test" sitting beside
+ * it — the copy had drifted from the helper it was supposed to be protecting before it was even
+ * committed.
+ */
 describe('git storage: sync test fixtures', () => {
-  test(
-    "makeOrigin's seed repo ends up on `main` even when the git binary's own default init " +
-      'branch is something else (OpenProject #2586 — CI failed here because the suite assumed ' +
-      '`main` while relying on an unspecified ambient default)',
-    async () => {
-      const originPath = await makeTempDir('wiki-git-sync-origin-')
-      await simpleGit(originPath).init(true)
+  // -> Not `master`: a name neither git nor this repo would ever pick by accident, so a passing
+  //    assertion below cannot be the ambient default coincidentally agreeing with the fixture.
+  const hostileEnv = ambientInitBranchEnv('trunk')
 
-      const seedPath = await makeTempDir('wiki-git-sync-seed-')
-      // -> Hijack the ambient default init branch away from `main`, for this repo's own git
-      //    invocations only (via env-injected config, not a file anything else could read) — this
-      //    is what a CI runner's git looks like from this suite's point of view if its compiled-in
-      //    default (or lack of an `init.defaultBranch` override) ever differs from this machine's.
-      const seed = simpleGit(seedPath, { unsafe: { allowUnsafeConfigEnvCount: true } }).env({
-        GIT_CONFIG_COUNT: '1',
-        GIT_CONFIG_KEY_0: 'init.defaultBranch',
-        GIT_CONFIG_VALUE_0: 'trunk'
-      })
-      await seed.init(false, ['--initial-branch=main'])
-      await seed.addConfig('user.name', 'Seed')
-      await seed.addConfig('user.email', 'seed@example.com')
-      await fs.writeFile(path.join(seedPath, '.keep'), '')
-      await seed.add('.keep')
-      await seed.commit('initial')
-      await seed.addRemote('origin', originPath)
-      // -> The assertion that actually matters: this must not reject with "src refspec main does
-      //    not match any" the way it would without the explicit `--initial-branch` flag.
-      await seed.push('origin', 'main')
+  test('the hostile-default control: git really does honor the injected init.defaultBranch', async () => {
+    // -> Precondition for every assertion in this describe. If the env injection silently stopped
+    //    applying (a simple-git change to `.env()`, a git change to `GIT_CONFIG_*` precedence), the
+    //    tests below would keep passing while testing nothing at all — this is what turns that into
+    //    a visible failure rather than a vacuous green.
+    const controlPath = await makeTempDir('wiki-git-sync-control-')
+    await fixtureGit(controlPath, hostileEnv).init()
+    assert.equal(await headBranch(fixtureGit(controlPath, hostileEnv)), 'trunk')
+  })
 
-      const branch = (await seed.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
-      assert.equal(branch, 'main')
-    }
-  )
+  test("makeOrigin() pins the seed working copy to `main` regardless of the git binary's own default", async () => {
+    const { seedPath } = await makeOrigin(hostileEnv)
+    assert.equal(await headBranch(fixtureGit(seedPath, hostileEnv)), 'main')
+  })
+
+  test("makeOrigin() pins the bare origin's advertised HEAD to `main`, and the seed push really lands there", async () => {
+    const { originPath } = await makeOrigin(hostileEnv)
+    const origin = fixtureGit(originPath, hostileEnv)
+    // -> The advertised HEAD is what a plain `git clone` of this path checks out. Pointing it at a
+    //    branch the seed never creates is what left `makePeer()` on an unborn local branch.
+    assert.equal(await headBranch(origin), 'main')
+    // -> ...and `main` must be a branch that actually exists here, not just the one HEAD names:
+    //    `seed.push('origin', 'main')` is the only thing that ever creates a ref in this repo, so
+    //    this is also the assertion that the push in `makeOrigin()` did not silently fail.
+    assert.deepEqual((await origin.branchLocal()).all, ['main'])
+  })
+
+  test('makePeer() clones onto `main` with the seed commit checked out', async () => {
+    const { originPath } = await makeOrigin(hostileEnv)
+    const { peer } = await makePeer(originPath, hostileEnv)
+    assert.equal(await headBranch(peer), 'main')
+    // -> A clone that followed a wrong-named advertised HEAD still "succeeds", just with an unborn
+    //    branch and an empty working copy — so the checked-out commit is the real proof, not the
+    //    branch name alone.
+    assert.equal((await peer.log()).latest?.message, 'initial')
+  })
 })
 
 describe('git storage: parseRenamedPaths', () => {
