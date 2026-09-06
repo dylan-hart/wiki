@@ -361,7 +361,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           },
           contentWidth: {
             type: 'string',
-            enum: ['centered', 'full']
+            enum: ['measured', 'full']
           },
           sidebarPosition: {
             type: 'string',
