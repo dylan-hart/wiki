@@ -35,6 +35,7 @@ type WorkflowStep = {
   run?: string
   uses?: string
   'working-directory'?: string
+  'continue-on-error'?: boolean
 }
 
 type Workflow = { jobs: Record<string, { steps: WorkflowStep[] }> }
@@ -46,18 +47,25 @@ const BUILD: Workflow = load(read('.github/workflows/build.yml')) as Workflow
 type Command = string
 
 /**
- * Every shell command a job runs, one per line, keyed by the directory it runs in. A `run:` block
- * may be multi-line (`build.yml`'s "Build Assets" is `npm ci` then `npm run build`), and a step with
- * no `working-directory:` runs at the repo root, which the script spells `.`.
+ * Every shell command a job runs AS A GATE, one per line, keyed by the directory it runs in. A
+ * `run:` block may be multi-line (`build.yml`'s "Build Assets" is `npm ci` then `npm run build`),
+ * and a step with no `working-directory:` runs at the repo root, which the script spells `.`.
  *
  * Continuation lines (a trailing `\`) and shell-script bodies are folded away rather than split:
  * `quality.yml`'s git-cliff install and its boot smoke test are multi-line programs, not lists of
  * commands, and are matched below by their first line alone.
+ *
+ * A `continue-on-error: true` step is skipped, because it is not a gate: it cannot turn the CI run
+ * red, so a green `verify-ci` that did not run it still predicts a green CI run, which is the whole
+ * claim this file guards. The quarantine lane (OpenProject #2692) is the only such step today, and
+ * `verify-ci` does run it -- report-only on both sides, asserted in its own describe below rather
+ * than through this list, since a report-only step has no place in a gate-parity comparison.
  */
 function commandsOf(job: { steps: WorkflowStep[] }): Command[] {
   const out: Command[] = []
   for (const step of job.steps) {
     if (typeof step.run !== 'string') continue
+    if (step['continue-on-error'] === true) continue
     const dir = step['working-directory'] ?? '.'
     const folded = step.run.replace(/\\\n\s*/g, ' ')
     for (const raw of folded.split('\n')) {
