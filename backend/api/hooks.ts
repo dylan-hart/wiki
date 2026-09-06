@@ -284,7 +284,9 @@ async function routes(app: FastifyInstance) {
         event: 'hook:test',
         sentAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
         instance: WIKI.INSTANCE_ID,
-        data: { message: 'This is a test event sent by Wiki.js to verify your webhook endpoint.' }
+        data: {
+          message: 'This is a test event sent by Cardinal.js to verify your webhook endpoint.'
+        }
       })
 
       try {

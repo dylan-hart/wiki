@@ -11,7 +11,7 @@ import type { FastifyInstance } from 'fastify'
  * `WIKI.dbManager.pool`), so the exposition writer is hand-rolled in `helpers/metrics.ts` rather
  * than pulling in `prom-client` — there are no counters, histograms or multi-metric registries here
  * to justify a client library's bookkeeping. Task 1939 added the failed-job and db-pool gauges but
- * reaffirmed this call: every new series is still a plain gauge (including `wikijs_jobs_failed_total`,
+ * reaffirmed this call: every new series is still a plain gauge (including `cardinaljs_jobs_failed_total`,
  * despite the `_total` suffix — see its help text), so the original rationale still holds.
  *
  * Deliberately not under `/_api`: Prometheus scrapes a fixed path with no session, and its own

@@ -88,7 +88,7 @@ describe('connectListener', () => {
 
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:EVENTS',
+      applicationName: 'Cardinal.js - test:EVENTS',
       channels: ['wiki', 'wiki_collab'],
       label: 'test listener',
       onNotification: (msg) => notifications.push(msg),
@@ -100,7 +100,7 @@ describe('connectListener', () => {
 
     assert.equal(stored, client)
     assert.deepEqual(client.queries, [
-      "SET application_name = 'Wiki.js - test:EVENTS'",
+      "SET application_name = 'Cardinal.js - test:EVENTS'",
       'LISTEN wiki',
       'LISTEN wiki_collab'
     ])
@@ -121,7 +121,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:SCHEDULER',
+      applicationName: 'Cardinal.js - test:SCHEDULER',
       channels: ['scheduler'],
       label: 'scheduler',
       onNotification: () => {},
@@ -149,7 +149,7 @@ describe('connectListener', () => {
 
     assert.equal(stored, secondClient)
     assert.deepEqual(secondClient.queries, [
-      "SET application_name = 'Wiki.js - test:SCHEDULER'",
+      "SET application_name = 'Cardinal.js - test:SCHEDULER'",
       'LISTEN scheduler'
     ])
     assert.equal(pool.connectCalls, 2)
@@ -169,7 +169,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:COLLAB',
+      applicationName: 'Cardinal.js - test:COLLAB',
       channels: ['wiki_collab'],
       label: 'collaboration relay',
       onNotification: () => {},
@@ -205,7 +205,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:EVENTS',
+      applicationName: 'Cardinal.js - test:EVENTS',
       channels: ['wiki'],
       label: 'test listener',
       onNotification: () => {},
@@ -241,7 +241,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: listenerPool as any,
-      applicationName: 'Wiki.js - test:EVENTS',
+      applicationName: 'Cardinal.js - test:EVENTS',
       channels: ['wiki'],
       label: 'test listener',
       onNotification: () => {},

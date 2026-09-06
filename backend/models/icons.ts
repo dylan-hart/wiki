@@ -828,7 +828,7 @@ class Icons {
   async apiFetch(pathname: string): Promise<any> {
     if (WIKI.config.offline) {
       return Promise.reject(
-        new Error('Wiki.js is in offline mode and cannot reach the Iconify API.')
+        new Error('Cardinal.js is in offline mode and cannot reach the Iconify API.')
       )
     }
     const url = `${this.apiUrl}${pathname}`

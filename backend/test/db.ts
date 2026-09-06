@@ -11,7 +11,7 @@
  * afterwards, which is what makes it safe to point at either a throwaway container or a schema carved
  * out of a long-lived instance (e.g. `.devcontainer/docker-compose.yml`'s postgres). It then seeds
  * exactly the fixture `models/pages.ts`/`groups.ts`/`users.ts` tests need to exist before anything
- * else runs: one site, one user, one group — matching how a fresh Wiki.js installation seeds itself
+ * else runs: one site, one user, one group — matching how a fresh Cardinal.js installation seeds itself
  * (`core/config.ts#initDbValues`), just without the rest of that sequence (no default admin/guest
  * accounts, no settings rows) that these tests have no use for. `seedTreeEntry()` seeds additional
  * `tree` rows (pages/folders/assets) on top of that base fixture, for suites — `models/navigation.ts`

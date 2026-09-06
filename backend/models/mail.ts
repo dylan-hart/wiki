@@ -230,7 +230,7 @@ class MailModel {
    * `WIKI.config.mail.defaultBaseURL` when there is no site to ask (no `siteId`, an unresolvable
    * one) or the site is the `*` catch-all, which has no hostname of its own to link at. No per-site
    * override setting exists for scheme/port (v1 scope decision, OpenProject #1023) — `https://` is
-   * assumed, matching how every other Wiki.js 3.x site link is built.
+   * assumed, matching how every other Cardinal.js 3.x site link is built.
    */
   resolveMailBaseURL(siteId?: string): string {
     const hostname = siteId ? WIKI.sites[siteId]?.hostname : null

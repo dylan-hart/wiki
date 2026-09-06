@@ -145,7 +145,7 @@ function getLockPool(): Pool {
     lockPool = WIKI.dbManager?.config
       ? new Pool({
           ...(WIKI.dbManager.config as PoolConfig),
-          application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:LOCKS`,
+          application_name: `Cardinal.js - ${WIKI.INSTANCE_ID}:LOCKS`,
           max: LOCK_POOL_MAX
         })
       : (WIKI.db.$client as Pool)

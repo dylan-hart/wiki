@@ -293,7 +293,7 @@ export default {
     //    leaving it to run unbounded once a connection is checked out.
     const poolConfig = WIKI.config.pool ?? {}
     this.pool = new Pool({
-      application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
+      application_name: `Cardinal.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
       ...this.config,
       connectionTimeoutMillis: poolConfig.connectionTimeoutMillis,
       ...resolvePoolSizeOptions(workerMode, WIKI.config.pool),
@@ -335,7 +335,7 @@ export default {
     this.VERSION = dbVersion.version
     if (dbVersion.major < 16) {
       WIKI.logger.error(
-        `Your PostgreSQL database version (${dbVersion.major}) is too old and unsupported by Wiki.js. Requires >= 16. Exiting...`
+        `Your PostgreSQL database version (${dbVersion.major}) is too old and unsupported by Cardinal.js. Requires >= 16. Exiting...`
       )
       process.exit(1)
     }
@@ -434,7 +434,7 @@ export default {
    *    the belt for — see its own doc comment.
    */
   async subscribeToNotifications(): Promise<void> {
-    const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:EVENTS`
+    const connectionAppName = `Cardinal.js - ${WIKI.INSTANCE_ID}:EVENTS`
 
     // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on

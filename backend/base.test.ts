@@ -28,7 +28,7 @@ test('base.yml declares an auditLog.retentionDays default matching DEFAULT_AUDIT
  * (2026-08-24 audit, operability-devex.md §15): `ssl.enabled`, `channel`, `maintainerEmail`. None
  * of the three had a reader anywhere in `backend` or `frontend` -- `ssl.enabled` in particular is
  * actively harmful to keep around, since it reads like the switch for the wiki's own HTTPS listener
- * (which Wiki.js never terminates) even though nothing ever consulted it, right next to the
+ * (which Cardinal.js never terminates) even though nothing ever consulted it, right next to the
  * genuinely-read, doc-commented `db.ssl` that configures the Postgres connection's TLS instead.
  * This locks their removal so none of the three reappears in `base.yml`.
  */

@@ -412,7 +412,7 @@ export const blockCredentials = pgTable(
  * The admin-configurable sensitivity levels a page may carry (OpenProject #1079), same pattern as
  * `groups`: seeded with three defaults (`public` / `internal` / `restricted`, at the fixed
  * `systemIds` below) that an administrator may rename, reorder, add to, or remove -- no pluggable
- * external classification provider, plain Wiki.js data.
+ * external classification provider, plain Cardinal.js data.
  *
  * Instance-wide, not per-site, mirroring `groups` itself.
  */

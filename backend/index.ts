@@ -1,5 +1,5 @@
 // ===========================================
-// Wiki.js Server
+// Cardinal.js Server
 // Licensed under AGPLv3
 // ===========================================
 
@@ -95,7 +95,7 @@ registerUnhandledRejectionHandler(WIKI.logger, {
 // ----------------------------------------
 
 WIKI.logger.info('=======================================')
-WIKI.logger.info(`= Wiki.js ${(WIKI.version + ' ').padEnd(29, '=')}`)
+WIKI.logger.info(`= Cardinal.js ${(WIKI.version + ' ').padEnd(25, '=')}`)
 WIKI.logger.info('=======================================')
 WIKI.logger.info('Initializing...')
 WIKI.logger.info(`Running node.js ${process.version} [ OK ]`)

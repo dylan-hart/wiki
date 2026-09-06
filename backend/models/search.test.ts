@@ -129,7 +129,7 @@ describe('SearchEngineDefinition', () => {
       key: 'db',
       title: 'Database',
       description: 'PostgreSQL full-text search.',
-      vendor: 'Wiki.js',
+      vendor: 'Cardinal.js',
       website: 'https://js.wiki',
       props: {
         termHighlighting: {
@@ -171,7 +171,7 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
   let previousWiki: any
 
   before(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'wikijs-search-model-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-search-model-test-'))
 
     await mkdir(path.join(dir, 'modules/search/db'), { recursive: true })
     await writeFile(
@@ -179,7 +179,7 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
       [
         'title: Database',
         'description: PostgreSQL full-text search.',
-        'vendor: Wiki.js',
+        'vendor: Cardinal.js',
         'website: https://js.wiki',
         'props:',
         '  termHighlighting:',
@@ -499,7 +499,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     key: 'db',
     title: 'Database',
     description: 'PostgreSQL full-text search.',
-    vendor: 'Wiki.js',
+    vendor: 'Cardinal.js',
     website: 'https://js.wiki',
     props: {
       termHighlighting: fakeProp()

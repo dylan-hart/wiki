@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 /**
  * Minimal RS256 JWT signing and verification.
  *
- * Wiki.js generates an RSA keypair during installation and keeps it in `config.auth.certs`, so
+ * Cardinal.js generates an RSA keypair during installation and keeps it in `config.auth.certs`, so
  * tokens are signed with that key rather than with a shared secret. Only the RS256 algorithm is
  * accepted on the way in — a token asking for `none`, or for an HMAC algorithm that would turn the
  * public key into a signing secret, is rejected outright.
