@@ -156,10 +156,15 @@ describe('useFieldFrame — bottom line', () => {
     expect(setup().showsBottom.value).toBeFalsy()
   })
 
-  // -> Truthiness, not a literal `true`: this feeds a `v-if`, and the hint is its own reason to show
+  /*
+    A literal `true`, not merely truthy. `WFieldFrame` declares `showsBottom` as `type: Boolean`, and
+    the expression behind it once short-circuited to the hint STRING -- which every assertion here
+    passed while Vue warned on the prop type at every mount that had a hint. Asserting the type is
+    what closes that gap.
+  */
   it('opens for a hint, and for a field that has rules to fail', () => {
-    expect(setup({ hint: 'Helpful' }).showsBottom.value).toBeTruthy()
-    expect(setup({ rules: [() => true] }).showsBottom.value).toBeTruthy()
+    expect(setup({ hint: 'Helpful' }).showsBottom.value).toBe(true)
+    expect(setup({ rules: [() => true] }).showsBottom.value).toBe(true)
   })
 
   it('stays closed when the caller asked for no reserved space', () => {

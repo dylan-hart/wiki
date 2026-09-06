@@ -1,19 +1,48 @@
 <template>
   <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card class="page-save-dialog" style="width: 860px; max-width: 90vw">
+      <!--
+        Corner marks. The handoff's rule is two opposite corners on a menu -- a light object -- and
+        all four on a dialog, which this is. Four separate elements rather than two pseudo-elements
+        on the card, because a box has only `::before` and `::after` to give and the marks have to
+        be four independent boxes sitting OUTSIDE the card's own edge.
+
+        Marked `aria-hidden`: they are the frame, not content.
+      -->
+      <span aria-hidden="true" class="page-save-dialog-corner page-save-dialog-corner--ss" />
+      <span aria-hidden="true" class="page-save-dialog-corner page-save-dialog-corner--se" />
+      <span aria-hidden="true" class="page-save-dialog-corner page-save-dialog-corner--es" />
+      <span aria-hidden="true" class="page-save-dialog-corner page-save-dialog-corner--ee" />
       <w-card-section v-if="props.mode === `savePage`" class="card-header">
         <w-icon name="tabler:file-plus" size="sm" class="me-2" />
         <span>{{ t('pageSaveDialog.title') }}</span>
       </w-card-section>
+      <!--
+        `tabler:copy`, not the `img:/_assets/icons/color-documents.svg` this replaces: Cardinal's
+        chrome is monochrome line work, and a full-colour raster-style asset in a dialog's own title
+        band was the last of the 2.x artwork on this sheet. It is also a literal Iconify reference,
+        so `scripts/generate-icons.mjs` inlines it rather than leaving it to resolve through
+        `/_icons` at runtime.
+      -->
       <w-card-section v-else-if="props.mode === `duplicatePage`" class="card-header">
-        <w-icon name="img:/_assets/icons/color-documents.svg" size="sm" class="me-2" />
+        <w-icon name="tabler:copy" size="sm" class="me-2" />
         <span>{{ t('pageDuplicateDialog.title') }}</span>
       </w-card-section>
       <w-card-section v-else-if="props.mode === `renamePage`" class="card-header">
         <w-icon name="tabler:cursor-text" size="sm" class="me-2" />
         <span>{{ t('pageRenameDialog.title') }}</span>
       </w-card-section>
-      <div class="page-save-dialog-browser flex flex-nowrap">
+      <!--
+        The fixed 300px is stated here as an inline style as well as in the stylesheet below. Both
+        columns scroll INSIDE it, so the dialog does not grow with a deep tree or a crowded folder --
+        which is a geometry claim, and `TreeBrowserDialog.test.js` measures it in a real headless
+        Chromium page off this markup. That measurement reads the compiled `tailwind.css` plus
+        whatever the test document's own <style> elements carry; stating the height on the element
+        keeps the claim answerable regardless of how the SFC's styles reach the page.
+      -->
+      <div
+        class="page-save-dialog-browser flex flex-nowrap"
+        style="height: 300px; overflow: hidden">
         <div class="page-save-dialog-tree w-1/3">
           <w-scroll-area style="height: 300px">
             <!-- -> No side padding: the rows carry their own 12px and span the column, as in the
@@ -59,8 +88,13 @@
         </div>
       </div>
       <div class="page-save-dialog-hint">{{ t('pageSaveDialog.newFolderHint') }}</div>
-      <div class="page-save-dialog-path font-robotomono">{{ currentFolderPath }}</div>
-      <w-list class="py-2">
+      <!--
+        What the tree selection and the leaf field add up to -- the path that will actually be
+        written, not the folder alone. It is the same string `save()` assembles, so the bar cannot
+        disagree with the button beside it.
+      -->
+      <div class="page-save-dialog-path font-robotomono">{{ assembledPath }}</div>
+      <w-list class="page-save-dialog-fields">
         <w-item>
           <blueprint-icon icon="tabler:file-plus" />
           <w-item-section>
@@ -76,10 +110,20 @@
         <w-item>
           <blueprint-icon icon="tabler:file-symlink" />
           <w-item-section>
+            <!--
+              `label` stays exactly as it is: `e2e/helpers/admin.js#savePage` resolves this field by
+              `getByLabel('Path Name')` and depends on the focus its `fill()` fires reaching
+              `onPathFocus`, which is what sets `pathDirty` and stops the title watcher overwriting
+              what was typed. `hint` adds an `aria-describedby`, never an accessible name, so the
+              locator is unaffected -- asserted in this component's own suite so a future edit fails
+              as itself rather than as three e2e specs.
+            -->
             <w-input
               v-model="state.path"
               :label="t(`pageSaveDialog.pathName`)"
+              :hint="t(`pageSaveDialog.pathNameHint`)"
               :rules="pathRules"
+              monospaced
               dense
               @focus="onPathFocus"
               @keyup:enter="onPathEnter" />
@@ -90,7 +134,9 @@
           to cascade, since translations are found by path -- see the model-side comment in
           `movePage`.
         -->
-        <w-item v-if="props.mode === `renamePage` && state.translationsCount > 0">
+        <w-item
+          v-if="props.mode === `renamePage` && state.translationsCount > 0"
+          class="page-save-dialog-translations">
           <w-item-section>
             <w-checkbox
               v-model="state.includeTranslations"
@@ -136,6 +182,14 @@
             </w-card>
           </w-menu>
         </w-btn>
+        <!--
+          The plate says nothing on its own, and a tooltip is not readable without a pointer. The
+          design puts the sentence beside it instead; the tooltip stays as the button's accessible
+          name.
+        -->
+        <span class="page-save-dialog-display-hint">{{
+          t('pageSaveDialog.displayOptionsHint')
+        }}</span>
         <w-space />
         <w-btn
           class="acrylic-btn"
@@ -299,6 +353,16 @@ const currentFolderPath = computed(() => {
 })
 
 const pathHasSlash = computed(() => state.path.includes('/'))
+
+/**
+ * What the path bar shows: the folder the tree has selected plus the leaf the field holds.
+ *
+ * The design's own note is that the bar "always shows what the two add up to" -- the path that will
+ * be written, rather than only the half the tree contributes. Deliberately the same concatenation
+ * `save()` performs, so the bar and the button cannot disagree; `currentFolderPath` already carries
+ * its trailing slash, so an empty leaf leaves the folder reading as a folder.
+ */
+const assembledPath = computed(() => `${currentFolderPath.value}${state.path}`)
 
 // -> The Save button's `:disabled="pathHasSlash"` only blocks a click -- the Path Name field's own
 //    `@keyup:enter` used to call `save()` directly regardless, so pressing Enter with a slash still
@@ -588,9 +652,78 @@ onMounted(async () => {
 </script>
 
 <style lang="scss">
-@use 'sass:color';
-
 .page-save-dialog {
+  /*
+    The stronger of the two Cardinal edges. A dialog is laid over the app rather than sitting in it,
+    so it takes `$rule` where a card in the page takes `$hairline` -- `WCard`'s own hairline border
+    is what this overrides.
+  */
+  border-color: $rule;
+  /*
+    Room for the corner marks. They sit 5px outside the card's edge, and `WDialog`'s panel scrolls
+    its own overflow (`.w-dialog-panel` is `overflow-auto`), so without the margin every one of them
+    would be clipped away by the box that holds the card.
+  */
+  margin: 5px;
+
+  @at-root .body--dark & {
+    border-color: $border-dark;
+  }
+
+  /*
+    A crop mark: two 1px edges meeting at a 9px corner, drawn in the ground the dialog is laid over
+    rather than in the card's own edge colour, so it reads as registration around the sheet instead
+    of as a thickening of its border. Over the backdrop's scrim in dark mode the paper tone
+    disappears, so it takes the faint slate there instead.
+  */
+  &-corner {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border-color: $paper;
+    border-style: solid;
+    border-width: 0;
+    pointer-events: none;
+
+    @at-root .body--dark & {
+      border-color: $slate-faint;
+    }
+  }
+
+  /*
+    Named for CSS's own logical corners (`border-start-start-radius` and friends): block-start /
+    inline-start, block-start / inline-end, and so on. Logical rather than top-left/top-right so the
+    set still frames the card under RTL -- all four are present and the shape is symmetric, so each
+    one simply becomes the corner it is drawing.
+  */
+  &-corner--ss {
+    inset-block-start: -5px;
+    inset-inline-start: -5px;
+    border-block-start-width: 1px;
+    border-inline-start-width: 1px;
+  }
+
+  &-corner--se {
+    inset-block-start: -5px;
+    inset-inline-end: -5px;
+    border-block-start-width: 1px;
+    border-inline-end-width: 1px;
+  }
+
+  &-corner--es {
+    inset-block-end: -5px;
+    inset-inline-start: -5px;
+    border-block-end-width: 1px;
+    border-inline-start-width: 1px;
+  }
+
+  &-corner--ee {
+    inset-block-end: -5px;
+    inset-inline-end: -5px;
+    border-block-end-width: 1px;
+    border-inline-end-width: 1px;
+  }
+
   /*
     The header draws its separator as an OUTSET box-shadow, which is painted with the header's own
     background -- and a later sibling's background is painted after it. So the tinted tree column
@@ -602,6 +735,15 @@ onMounted(async () => {
   */
   .card-header {
     position: relative;
+
+    /*
+      The one accent on the title band. `.card-header` is the near-black raised tone, on which the
+      accent's own text tone is too dark to read -- `$accent-dark` is the tone Cardinal lightens it
+      to for an ink ground.
+    */
+    > .w-icon {
+      color: $accent-dark;
+    }
   }
 
   &-browser {
@@ -610,28 +752,49 @@ onMounted(async () => {
     /* -> Belt and braces with the scroll areas inside: whatever either column ends up holding, the
           browser cannot spill over the fields and buttons below it */
     overflow: hidden;
-    border-bottom: 1px solid #fff;
+    border-bottom: 1px solid $hairline;
 
-    @at-root .body--light & {
-      border-bottom-color: $blue-grey-1;
-    }
     @at-root .body--dark & {
-      border-bottom-color: $dark-3;
+      border-bottom-color: $hairline-dark;
     }
   }
 
   /*
-    Tinted so the tree reads as a column of its own rather than running into the file list beside it.
+    Tinted so the tree reads as a column of its own rather than running into the file list beside it,
+    and ruled off along its trailing edge -- the tint alone leaves the two columns sharing an edge
+    that nothing draws, which at this width reads as a gradient rather than as a division.
 
     This was a `> .col-4` rule, which the layout migration left pointing at a class that no longer
     exists -- the columns are Tailwind fractions now -- so the pane had been plain white since.
   */
   &-tree {
-    @at-root .body--light & {
-      background-color: $blue-grey-1;
-    }
+    background-color: $tint;
+    border-inline-end: 1px solid $hairline;
+
     @at-root .body--dark & {
       background-color: $dark-4;
+      border-inline-end-color: $hairline-dark;
+    }
+  }
+
+  /*
+    The one accent FILL on the sheet: the folder being saved into, and nothing else.
+
+    `TreeNav` draws its own `.active` row as a faint wash of the ground, which is right everywhere
+    else it is mounted (the File Manager, the link picker) and is not this dialog's to change. Scoped
+    under the tree column and prefixed with the theme class so it out-specifies that rule on
+    specificity rather than on which stylesheet happens to be written out last.
+  */
+  @at-root .body--light &-tree .treeview-label.active,
+    .body--light &-tree .treeview-label.active:hover,
+    .body--dark &-tree .treeview-label.active,
+    .body--dark &-tree .treeview-label.active:hover {
+    background-color: $accent-fill;
+    color: #fff;
+
+    .w-icon,
+    .treeview-label-text {
+      color: #fff;
     }
   }
 
@@ -641,16 +804,30 @@ onMounted(async () => {
     > .w-item {
       padding: 4px 6px;
 
+      /*
+        NOT a fill. The tree's selected folder is the sheet's only filled surface, so the selected
+        file -- which is an offer to overwrite, not the destination -- is drawn as a tinted row with
+        an accent edge at its leading side instead. `box-shadow` rather than a border, so the row
+        does not change width as the selection moves down the list.
+      */
       &.active {
-        background-color: var(--color-primary);
-        color: #fff;
+        background-color: $tint;
+        box-shadow: inset 2px 0 0 0 $accent-fill;
+        color: $accent-strong;
 
-        .fileman-filelist-label .w-item-label--caption {
-          color: rgba(255, 255, 255, 0.7);
+        .fileman-filelist-label .w-item-label--caption,
+        .fileman-filelist-side .text-caption {
+          color: $text-caption;
         }
 
-        .fileman-filelist-side .text-caption {
-          color: rgba(255, 255, 255, 0.7);
+        @at-root .body--dark & {
+          background-color: $dark-4;
+          color: $accent-dark;
+
+          .fileman-filelist-label .w-item-label--caption,
+          .fileman-filelist-side .text-caption {
+            color: $text-caption-dark;
+          }
         }
       }
     }
@@ -660,29 +837,55 @@ onMounted(async () => {
     padding: 6px 16px 0;
     font-size: 12px;
     font-style: italic;
+    color: $text-caption;
 
-    @at-root .body--light & {
-      color: $blue-grey-5;
-    }
     @at-root .body--dark & {
-      color: $blue-grey-4;
+      color: $text-caption-dark;
     }
   }
 
+  /*
+    The path bar. The cooler of the two tints, ruled off underneath, in mono -- it is a path, and
+    every path in Cardinal is mono.
+  */
   &-path {
     padding: 5px 16px;
     font-size: 12px;
-    border-bottom: 1px solid #fff;
+    background-color: $tint-alt;
+    border-bottom: 1px solid $hairline;
+    color: $slate;
 
-    @at-root .body--light & {
-      background-color: color.adjust($blue-grey-1, $lightness: 4%);
-      border-bottom-color: $blue-grey-1;
-      color: $blue-grey-9;
-    }
     @at-root .body--dark & {
-      background-color: color.adjust($dark-4, $lightness: -1%);
-      border-bottom-color: $dark-1;
-      color: $blue-grey-3;
+      background-color: $dark-4;
+      border-bottom-color: $hairline-dark;
+      color: $slate-light;
+    }
+  }
+
+  /*
+    Block padding only. Each `w-item` already carries the 16px inline inset the path bar and the hint
+    above it use, so adding it here as well would inset the plates by 32px and break the one vertical
+    line those three share.
+  */
+  &-fields {
+    padding-block: 14px;
+  }
+
+  /*
+    Aligned onto the fields' own text column rather than under their plates: the checkbox is a
+    qualifier on the move the two fields describe, not a third field. The row's own 16px, plus the
+    34px plate and the 14px gap beside it.
+  */
+  &-translations {
+    padding-inline-start: 64px;
+  }
+
+  &-display-hint {
+    font-size: 11.5px;
+    color: $text-caption;
+
+    @at-root .body--dark & {
+      color: $text-caption-dark;
     }
   }
 }
