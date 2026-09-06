@@ -126,17 +126,23 @@ export function startSimulation(
 
 /*
   `24`px (raised from `16`, OpenProject #2562) is a starting point sized against what was then a
-  `5`px minimum node-dot radius in `drawNodes()` (`MIN_NODE_RADIUS`, `10` since OpenProject #2594 --
-  which is part of why #2562's own spacing retune is still open) -- tune visually so the hull clearly
-  contains the dots without ballooning
-  past neighboring clusters. It's a floor added on top of each node's own `radiusFor()` (OpenProject
-  #2296), not the whole gap any more -- see `padHull()` and `computeClusters()`'s circle case below,
-  both of which used to pad by this constant alone and let a large node (up to `MAX_NODE_RADIUS`,
-  `110` as of OpenProject #2561's min/max lerp rework -- one shared ceiling for both sizing metrics,
-  was `22`) poke through its own group tint. The flat term itself was raised too: with a node's own
-  radius now reaching `110` (vs. the old `22`), the same flat floor reads proportionally thinner
-  next to a large node's fill than it used to, so it gets a modest bump on top of the per-vertex
-  radius term it already adds.
+  `5`px minimum node-dot radius in `drawNodes()` -- tune visually so the hull clearly contains the
+  dots without ballooning past neighboring clusters. It's a floor added on top of each node's own
+  `radiusFor()` (OpenProject #2296), not the whole gap any more -- see `padHull()` and
+  `computeClusters()`'s circle case below, both of which used to pad by this constant alone and let
+  a large node (up to `MAX_NODE_RADIUS`, `110` as of OpenProject #2561's min/max lerp rework -- one
+  shared ceiling for both sizing metrics, was `22`) poke through its own group tint. The flat term
+  itself was raised too: with a node's own radius now reaching `110` (vs. the old `22`), the same
+  flat floor reads proportionally thinner next to a large node's fill than it used to, so it gets a
+  modest bump on top of the per-vertex radius term it already adds.
+
+  `MIN_NODE_RADIUS` doubling 5 -> 10 (OpenProject #2594) needs no matching bump here, re-checked by
+  OpenProject #2562's own spacing retune once #2594 and #2593 had both landed: this constant is a
+  flat term ADDED ON TOP of `radiusFor(node)` per vertex (see `padHull()` and the circle case
+  below), so a floor-sized node's total clearance already grew from `29` to `34` through the radius
+  term alone the moment the floor doubled -- no separate retuning of the flat term itself is needed.
+  Contrast `MAX_NODE_RADIUS`, above: that ceiling is what this constant's own `16` -> `24` bump was
+  actually compensating for, and #2594 left it untouched.
 */
 const HULL_PADDING = 24
 /** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
