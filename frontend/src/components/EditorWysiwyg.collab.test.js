@@ -76,7 +76,7 @@ function paragraphDoc(text) {
   return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }
 }
 
-async function mountEditor(initialContent = 'Hello from Wiki.js') {
+async function mountEditor(initialContent = 'Hello from Cardinal.js') {
   setActivePinia(createPinia())
   const pageStore = usePageStore()
   pageStore.content = initialContent
@@ -174,7 +174,7 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
 
   describe('binding to the shared document', () => {
     it('replaces the interim editor with a collaborative one, editable, once synced', async () => {
-      const { wrapper, collabStore } = await mountEditor('Hello from Wiki.js')
+      const { wrapper, collabStore } = await mountEditor('Hello from Cardinal.js')
       const interimEditor = wrapper.vm.editor
 
       expect(interimEditor.isEditable).toBe(false)
@@ -198,7 +198,7 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
     })
 
     it('seeds the shared fragment from the page content when nobody has written to it yet, once the seed claim is granted', async () => {
-      const { wrapper, collabStore } = await mountEditor('Hello from Wiki.js')
+      const { wrapper, collabStore } = await mountEditor('Hello from Cardinal.js')
 
       collabStore.status = 'connected'
       collabStore.hasSynced = true
@@ -215,17 +215,17 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       await flushPromises()
 
       expect(claimWysiwygSeed).toHaveBeenCalledWith({ siteId: null, pageId: 'page-1' })
-      expect(wrapper.vm.editor.getText()).toContain('Hello from Wiki.js')
+      expect(wrapper.vm.editor.getText()).toContain('Hello from Cardinal.js')
       // -> Not just the local editor: the seed was written through a real transaction, so the shared
       //    fragment itself now carries it too, for the next person who joins the room.
-      expect(doc.getXmlFragment('wysiwygBody').toString()).toContain('Hello from Wiki.js')
+      expect(doc.getXmlFragment('wysiwygBody').toString()).toContain('Hello from Cardinal.js')
 
       wrapper.unmount()
     })
 
     it('does not seed the fragment when the seed claim is denied', async () => {
       claimWysiwygSeed.mockResolvedValueOnce(false)
-      const { wrapper, collabStore } = await mountEditor('Hello from Wiki.js')
+      const { wrapper, collabStore } = await mountEditor('Hello from Cardinal.js')
 
       collabStore.status = 'connected'
       collabStore.hasSynced = true
@@ -238,14 +238,14 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       factory(ytext, fakeAwareness())
       await flushPromises()
 
-      expect(wrapper.vm.editor.getText()).not.toContain('Hello from Wiki.js')
+      expect(wrapper.vm.editor.getText()).not.toContain('Hello from Cardinal.js')
       expect(doc.getXmlFragment('wysiwygBody').toString()).toBe('')
 
       wrapper.unmount()
     })
 
     it('does not seed when the claim resolves granted but a peer already seeded the fragment meanwhile', async () => {
-      const { wrapper, collabStore } = await mountEditor('Hello from Wiki.js')
+      const { wrapper, collabStore } = await mountEditor('Hello from Cardinal.js')
 
       collabStore.status = 'connected'
       collabStore.hasSynced = true
@@ -271,7 +271,7 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       await flushPromises()
 
       expect(wrapper.vm.editor.getText()).toContain('A peer got there first')
-      expect(wrapper.vm.editor.getText()).not.toContain('Hello from Wiki.js')
+      expect(wrapper.vm.editor.getText()).not.toContain('Hello from Cardinal.js')
 
       wrapper.unmount()
     })

@@ -132,5 +132,5 @@
   "engines": {
     "node": ">= 26.0"
   },
-  "productName": "Wiki.js"
+  "productName": "Cardinal.js"
 }

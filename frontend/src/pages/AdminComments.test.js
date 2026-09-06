@@ -124,7 +124,7 @@ const PROVIDERS = [
     title: 'Default',
     description: 'Built-in comments, no configuration required.',
     icon: '',
-    vendor: 'Wiki.js',
+    vendor: 'Cardinal.js',
     website: '',
     isAvailable: true,
     codeTemplate: false,

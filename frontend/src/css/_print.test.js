@@ -16,9 +16,9 @@ import { describe, expect, it } from 'vitest'
  * verified here is the CONTRACT between the stylesheet and the templates it targets: that every
  * class `_print.scss` hides is still the class the corresponding component actually renders
  * (catching a rename that would silently stop hiding it), and that the one thing print is required
- * to keep -- `FooterNav`'s copyright/license line and "Powered by Wiki.js" credit, the attribution
- * requarks/wiki#1593 (upstream) asks a print layout to retain -- is neither in the hidden-selector
- * list nor nested inside anything that is.
+ * to keep -- `FooterNav`'s copyright/license line and "Powered by Cardinal.js" credit, the
+ * attribution requarks/wiki#1593 (upstream) asks a print layout to retain -- is neither in the
+ * hidden-selector list nor nested inside anything that is.
  */
 
 const cssDir = dirname(fileURLToPath(import.meta.url))

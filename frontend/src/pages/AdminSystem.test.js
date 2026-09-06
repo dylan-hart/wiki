@@ -13,7 +13,7 @@ import { mountWithApp } from '../../test/mount.js'
  * which turned out to already be covered by `AdminDashboard.vue`'s stat tiles) on any other admin page
  * either. Both are genuine dashboard-worthy signals — a scheduler that stopped renewing its cron lock is
  * an operational problem, and whether an update companion is present belongs right next to the
- * version/upgrade card — so they were added to the "Wiki.js" card here instead of being left as
+ * version/upgrade card — so they were added to the "Cardinal.js" card here instead of being left as
  * response-schema dead weight.
  */
 function mountPage() {

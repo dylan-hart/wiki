@@ -25,7 +25,7 @@ function engine(overrides = {}) {
     title: 'Database',
     description: 'PostgreSQL full-text search.',
     icon: '/_assets/icons/ultraviolet-database.svg',
-    vendor: 'Wiki.js',
+    vendor: 'Cardinal.js',
     website: 'https://js.wiki',
     props: {
       termHighlighting: {

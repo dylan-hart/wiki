@@ -557,8 +557,8 @@ const { t } = useI18n()
 
 // META
 
-// -> The site's own name rather than the literal `Wiki.js`, as the page view does. A getter, so the
-//    template is recomputed when the site config arrives -- see the note in `MainLayout`.
+// -> The site's own name rather than the literal `Cardinal.js`, as the page view does. A getter, so
+//    the template is recomputed when the site config arrives -- see the note in `MainLayout`.
 useMeta(() => {
   const siteTitle = siteStore.title
   return {

@@ -18,10 +18,10 @@
 
   What is deliberately NOT hidden: the page's own title and description (`PageHeader`'s icon and text
   -- just not its action row of buttons/badges beside them), and `FooterNav`'s copyright/license line
-  and "Powered by Wiki.js" credit. That credit is what requarks/wiki#1593 (upstream) asks a print
-  layout to retain; it already sits inside the scrolling article column rather than the shell being
-  hidden here (`pages/Index.vue` mounts it as the last thing in `.page-container-scrl`), so nothing
-  below has to single it out -- it survives simply by never being chrome to begin with.
+  and "Powered by Cardinal.js" credit. That credit is what requarks/wiki#1593 (upstream) asks a
+  print layout to retain; it already sits inside the scrolling article column rather than the shell
+  being hidden here (`pages/Index.vue` mounts it as the last thing in `.page-container-scrl`), so
+  nothing below has to single it out -- it survives simply by never being chrome to begin with.
 */
 @media print {
   // -> Chrome: never part of the article, always hidden
