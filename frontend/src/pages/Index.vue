@@ -311,7 +311,19 @@
           <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
           <div class="page-sidebar-revision">
             <div v-if="revisionLine">{{ revisionLine }}</div>
-            <div v-if="pageStore.authorName">{{ pageStore.authorName }}</div>
+            <div v-if="pageStore.authorName" class="flex flex-wrap items-center gap-1">
+              <span>{{ pageStore.authorName }}</span>
+              <!--
+                #2735: provenance -- did the person actually type this, or did an MCP tool call
+                acting as them? Same badge, same strings, as `PageHistoryOverlay.vue`'s history
+                timeline; `flex-wrap` on the row is what lets the badge drop under the name on a
+                narrow column rather than truncating either.
+              -->
+              <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="slate-pale">
+                {{ t('history.viaMcp') }}
+                <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
+              </w-badge>
+            </div>
             <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
                  `userStore` has: the two are the same fact about the same page and must not drift -->
             <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
