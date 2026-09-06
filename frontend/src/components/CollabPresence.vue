@@ -77,6 +77,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { initials } from '@/helpers/initials'
 import { useCollabStore } from '@/stores/collab'
 
 /**
@@ -134,21 +135,6 @@ watch(nonSelfIds, (ids) => {
 /** A participant's name, or `You` for the reader's own face. */
 function personLabel(person) {
   return person.isSelf ? t('editor.collab.you') : person.name
-}
-
-/**
- * Up to two letters, from the first and last word of the name — `Ada Lovelace` gives `AL`, and a
- * mononym gives its first letter. Falls back to a neutral glyph rather than an empty circle for an
- * account with no name on it.
- */
-function initials(name) {
-  const words = (name ?? '').trim().split(/\s+/).filter(Boolean)
-  if (words.length < 1) {
-    return '?'
-  }
-  const first = words[0][0]
-  const last = words.length > 1 ? words.at(-1)[0] : ''
-  return `${first}${last}`.toUpperCase()
 }
 </script>
 

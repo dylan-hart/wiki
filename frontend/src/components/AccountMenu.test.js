@@ -30,3 +30,35 @@ describe('AccountMenu profile button', () => {
     expect(siteStore.overlay).toBe('Profile')
   })
 })
+
+/**
+ * OpenProject #2609: the rule itself is `helpers/initials.js`'s and is unit-tested there; this is the
+ * wiring — that the plate a signed-in reader sees is drawn from the shared derivation and not from a
+ * fourth private copy of it.
+ */
+describe('AccountMenu initials plate', () => {
+  function mountFor(name) {
+    const { wrapper } = mountWithApp(AccountMenu, {
+      messages: {
+        common: { header: { profile: 'Profile', logout: 'Log Out', account: 'Account' } }
+      },
+      stores: {
+        user: (store) => store.$patch({ authenticated: true, name, email: 'r@example.com' })
+      }
+    })
+    return wrapper.find('.account-initials')
+  }
+
+  it('draws the first and last initial of a multi-part name', () => {
+    expect(mountFor('Dylan James Hart').text()).toBe('DH')
+    expect(mountFor('Ada Lovelace').text()).toBe('AL')
+  })
+
+  it('draws a single letter for a mononym', () => {
+    expect(mountFor('Prince').text()).toBe('P')
+  })
+
+  it('falls back to a neutral glyph for an account with no name on it', () => {
+    expect(mountFor('').text()).toBe('?')
+  })
+})
