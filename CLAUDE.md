@@ -358,6 +358,44 @@ npm run build          # rollup → blocks/compiled/
 The API is browsable via Swagger UI at `http://localhost:3000/_api` in a running instance. Default
 admin login is `admin@example.com` / `12345678`.
 
+### What "verified" means
+
+**A change is verified when the gate is green _inside the pinned dev container_, not when it is
+green on your host.** Run it:
+
+```sh
+./scripts/verify-ci.sh            # from anywhere in the repo
+npm --prefix backend run verify:ci -- --help    # the same thing, npm-shaped, plus its own docs
+```
+
+This is an instruction, not a suggestion. It exists because fixes were repeatedly marked resolved
+after passing on a Node 25.9 host and then failing on CI's Node 26 — a whole class of "fixed" work
+that was never fixed. `.devcontainer/` (`ARG NODE_VERSION`, the one declaration of the pin) is built
+to _be_ what the workflows run on; `scripts/verify-ci.sh` runs, inside it, every command
+`.github/workflows/quality.yml`'s gate job runs, in the same order, stopping at the first failure the
+way the job does. `backend/test/verifyCi.test.ts` parses that workflow and fails when a gate command
+exists there and not in the script, so the two cannot drift apart quietly.
+
+Four things worth knowing before you rely on it:
+
+- **It refuses to run outside the image.** The running Node must equal the Dockerfile's pin, pandoc
+  and git-cliff must be on `PATH`, a Playwright browser must exist, and `DATABASE_URL` must be set —
+  every one of those, missing, turns real coverage into a silent skip rather than a failure.
+  `VERIFY_CI_ALLOW_HOST=1` downgrades the refusal to a banner; a run with it set is not a
+  verification and must not be reported as one.
+- **Green is not the same as "everything ran."** The command prints the backend suite's skipped
+  count beside its verdict for exactly this reason. Read it.
+- **The e2e suite is opt-in (`--e2e`)** — it is not part of `quality.yml` at all (it lives in
+  `build.yml`'s `build` job), so running it by default would itself be a divergence from the gate
+  being mirrored. `--smoke-boot` likewise adds `quality.yml`'s separate production-install boot job,
+  opt-in because it swaps `backend/node_modules` for the production tree.
+- **The flaky-test quarantine lane runs report-only** and never changes the exit code, matching the
+  report-only lane step in `quality.yml` — see `docs/decisions/flaky-test-quarantine.md`.
+- `release.yml` needs no separate command: its gate is a strict subset of `quality.yml`'s.
+
+`./scripts/verify-ci.sh --help` is the authority on the flags and on what each one does and does not
+cover.
+
 ## TypeScript (backend)
 
 The backend is entirely **TypeScript 7** (the native Go compiler — `tsc` is a platform binary, not a
