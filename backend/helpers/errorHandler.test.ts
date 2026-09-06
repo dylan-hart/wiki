@@ -85,12 +85,12 @@ describe('sendNonApiError', () => {
     assert.ok(!res.body.includes('secret-path'))
     assert.ok(!res.body.includes('ENOENT'))
     assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 1)
-    assert.equal(
-      (globalThis as any).WIKI.logger.error.mock.calls[0].arguments[0].message.includes(
-        'secret-path'
-      ),
-      true
-    )
+    const [scope, message, fields] = (globalThis as any).WIKI.logger.error.mock.calls[0].arguments
+    assert.equal(scope, 'http')
+    assert.equal(message, 'unhandled error outside /_api')
+    // -> The error rides `fields.error`, not the message: the renderer is what turns it into
+    //    `error="…"` plus a stack, so the sentence stays a sentence.
+    assert.ok((fields.error as Error).message.includes('secret-path'))
     // -> Bug #2650: this used to be `warn`, one level below the threshold an operator alerts on, so
     //    a crashed request was invisible to them. Asserted as a level, not merely as "something was
     //    logged".
@@ -176,11 +176,15 @@ describe('apiErrorHandler', () => {
     assert.equal(calls.length, 1)
     // -> Bug #2650: at `error`, never at `warn`.
     assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
-    const [error, context] = calls[0].arguments
-    assert.match(error.message, /relation "pages" does not exist/)
-    assert.equal(context.method, 'GET')
-    assert.equal(context.url, '/_api/boom-generic')
-    assert.equal(typeof context.reqId, 'string')
-    assert.equal(context.userId, undefined)
+    const [scope, message, fields] = calls[0].arguments
+    assert.equal(scope, 'http')
+    assert.equal(message, 'unhandled error, answered 500')
+    assert.match((fields.error as Error).message, /relation "pages" does not exist/)
+    // -> `buildErrorLogContext`'s keys are spread into the same fields object as the error, so one
+    //    record carries both the cause and the request that produced it.
+    assert.equal(fields.method, 'GET')
+    assert.equal(fields.url, '/_api/boom-generic')
+    assert.equal(typeof fields.reqId, 'string')
+    assert.equal(fields.userId, undefined)
   })
 })

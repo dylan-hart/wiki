@@ -326,7 +326,9 @@ export function corsOrigin(security: {
         return new RegExp(`^(?:${pattern})$`)
       } catch (err: any) {
         WIKI.logger.warn(
-          `The CORS regex pattern is invalid (${err.message}) — falling back to same-origin only.`
+          'config',
+          'the CORS regex pattern is invalid, falling back to same-origin only',
+          { error: err }
         )
         return false
       }

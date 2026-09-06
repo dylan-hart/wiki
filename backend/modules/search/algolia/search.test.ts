@@ -434,9 +434,13 @@ describe('AlgoliaSearchModule', () => {
         }),
         fakePage({ id: 'p2', path: 'docs/small-two', locale: 'fr' })
       ])
-      const warnings: string[] = []
+      const warnings: { scope: string; message: string; fields?: Record<string, any> }[] = []
       const previousWarn = (globalThis as any).WIKI.logger.warn
-      ;(globalThis as any).WIKI.logger.warn = (msg: string) => warnings.push(msg)
+      ;(globalThis as any).WIKI.logger.warn = (
+        scope: string,
+        message: string,
+        fields?: Record<string, any>
+      ) => warnings.push({ scope, message, fields })
 
       let result
       try {
@@ -462,8 +466,9 @@ describe('AlgoliaSearchModule', () => {
         ]
       )
 
-      // -> Admin-visible: a warning names the skipped page, and the result itself records it too.
-      assert.ok(warnings.some((w) => w.includes('docs/huge-page')))
+      // -> Admin-visible: a warning names the skipped page in its fields (`path=`, since the sweep
+      //    moved every fact out of the sentence), and the result itself records it too.
+      assert.ok(warnings.some((w) => w.scope === 'search' && w.fields?.path === 'docs/huge-page'))
       assert.equal(result.warnings?.length, 1)
       assert.ok(result.warnings![0]!.includes('docs/huge-page'))
     })

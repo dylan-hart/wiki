@@ -279,9 +279,12 @@ export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply)
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.debug(
-    `Rate limit: refused ${req.method} ${req.url} from ${key}, ${verdict.retryAfter}s left of its ban.`
-  )
+  WIKI.logger.warn('auth', 'rate limit refused', {
+    method: req.method,
+    url: req.url,
+    key,
+    retryAfter: verdict.retryAfter
+  })
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -331,9 +334,12 @@ export async function limitPublicRequests(req: FastifyRequest, reply: FastifyRep
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.debug(
-    `Rate limit: refused ${req.method} ${req.url} from ${key}, ${verdict.retryAfter}s left of its ban.`
-  )
+  WIKI.logger.warn('auth', 'rate limit refused', {
+    method: req.method,
+    url: req.url,
+    key,
+    retryAfter: verdict.retryAfter
+  })
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -377,9 +383,12 @@ export async function limitRenders(req: FastifyRequest, reply: FastifyReply): Pr
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.debug(
-    `Rate limit: refused ${req.method} ${req.url} from ${req.ip}, ${verdict.retryAfter}s left of its ban.`
-  )
+  WIKI.logger.warn('auth', 'rate limit refused', {
+    method: req.method,
+    url: req.url,
+    ip: req.ip,
+    retryAfter: verdict.retryAfter
+  })
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many render requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -433,9 +442,12 @@ export async function limitApiKey(req: FastifyRequest, reply: FastifyReply): Pro
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.debug(
-    `Rate limit: refused ${req.method} ${req.url} for API key ${req.apiKey.id}, ${verdict.retryAfter}s left of its ban.`
-  )
+  WIKI.logger.warn('auth', 'rate limit refused', {
+    method: req.method,
+    url: req.url,
+    apiKey: req.apiKey.id,
+    retryAfter: verdict.retryAfter
+  })
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many requests for this API key. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -478,9 +490,12 @@ export async function limitGuestComments(req: FastifyRequest, reply: FastifyRepl
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.debug(
-    `Rate limit: refused guest comment from ${req.ip}, ${verdict.retryAfter}s left of its ban.`
-  )
+  WIKI.logger.warn('auth', 'rate limit refused a guest comment', {
+    method: req.method,
+    url: req.url,
+    ip: req.ip,
+    retryAfter: verdict.retryAfter
+  })
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many comments. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`

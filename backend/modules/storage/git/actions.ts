@@ -32,7 +32,7 @@ import { belongsInTarget } from '../../../helpers/blobTarget.ts'
 import { assetRelPath, authorOption, covers, pageRelPath, resolveAuthor } from './content.ts'
 import { processDiffEntry, resolveImportActor } from './sync.ts'
 import type { DiffEntry } from './sync.ts'
-import { ensureRepo, resolveRepoPath } from './repo.ts'
+import { ensureRepo, gitLog, resolveRepoPath } from './repo.ts'
 
 /**
  * Write `content` to `relPath` if it is missing or its bytes differ from what is already there, and
@@ -75,6 +75,7 @@ async function writeIfChanged(
  * error, not a no-op, so this only calls it when at least one file was actually staged.
  */
 export async function syncUntracked(target: StorageTarget): Promise<void> {
+  const log = gitLog(target)
   const { git, repoPath } = await ensureRepo(target)
   let staged = false
 
@@ -93,8 +94,7 @@ export async function syncUntracked(target: StorageTarget): Promise<void> {
           staged = true
         }
       } catch (err: any) {
-        WIKI.logger.warn(`(STORAGE/GIT) Failed to add untracked page ${page.path}:`)
-        WIKI.logger.warn(err)
+        log.warn('adding an untracked page failed', { page: page.path, error: err })
       }
     }
   }
@@ -110,13 +110,12 @@ export async function syncUntracked(target: StorageTarget): Promise<void> {
         staged = true
       }
     } catch (err: any) {
-      WIKI.logger.warn(`(STORAGE/GIT) Failed to add untracked asset ${asset.fileName}:`)
-      WIKI.logger.warn(err)
+      log.warn('adding an untracked asset failed', { asset: asset.fileName, error: err })
     }
   }
 
   if (!staged) {
-    WIKI.logger.info('(STORAGE/GIT) No untracked content found — nothing to commit.')
+    log.info('no untracked content found, nothing to commit')
     return
   }
 
@@ -124,7 +123,7 @@ export async function syncUntracked(target: StorageTarget): Promise<void> {
   //    already handles for an asset rename/delete dispatch payload that carries no `authorId`.
   const author = await resolveAuthor(target, undefined)
   await git.commit('docs: add all untracked content', authorOption(author))
-  WIKI.logger.info('(STORAGE/GIT) All content is now tracked.')
+  log.info('all content is now tracked')
 }
 
 /** Every regular file under `dir`, relative to `root`, skipping `.git` and any other dotfile/dotdir (an inline SSH key included) and zero-byte files. */
@@ -166,17 +165,16 @@ async function walkFiles(root: string, dir: string = root): Promise<string[]> {
  * runs first so a target that has never been used at all gets an initialized repo to walk.
  */
 export async function importAll(target: StorageTarget): Promise<void> {
+  const log = gitLog(target)
   const { repoPath } = await ensureRepo(target)
 
   const actor = await resolveImportActor(target)
   if (!actor) {
-    WIKI.logger.warn(
-      `(STORAGE/GIT) No user matches target's configured Default Author Email — skipping import.`
-    )
+    log.warn('no user matches the configured default author email, skipping the import')
     return
   }
 
-  WIKI.logger.info('(STORAGE/GIT) Importing all content from local Git repo to the DB...')
+  log.info('importing all content from the local repo')
   const relPaths = await walkFiles(repoPath)
   for (const relPath of relPaths) {
     const entry: DiffEntry = {
@@ -191,11 +189,10 @@ export async function importAll(target: StorageTarget): Promise<void> {
     try {
       await processDiffEntry(target, actor, entry)
     } catch (err: any) {
-      WIKI.logger.warn(`(STORAGE/GIT) Failed to import ${relPath}:`)
-      WIKI.logger.warn(err)
+      log.warn('importing a file failed', { path: relPath, error: err })
     }
   }
-  WIKI.logger.info('(STORAGE/GIT) Import completed.')
+  log.info('import completed', { files: relPaths.length })
 }
 
 /**
@@ -211,6 +208,7 @@ export async function importAll(target: StorageTarget): Promise<void> {
  * install".
  */
 export async function purge(target: StorageTarget): Promise<void> {
+  const log = gitLog(target)
   const repoPath = resolveRepoPath(target.config?.localRepoPath)
   const parsedRoot = path.parse(repoPath).root
   if (!repoPath || repoPath === WIKI.ROOTPATH || repoPath === parsedRoot) {
@@ -219,9 +217,8 @@ export async function purge(target: StorageTarget): Promise<void> {
     )
   }
 
-  WIKI.logger.info(`(STORAGE/GIT) Purging local repository at ${repoPath}...`)
+  log.debug('purging the local repository', { path: repoPath })
   await fs.rm(repoPath, { recursive: true, force: true })
-  WIKI.logger.info('(STORAGE/GIT) Local repository is now empty. Reinitializing...')
   await ensureRepo(target)
-  WIKI.logger.info('(STORAGE/GIT) Local repository purged and reinitialized.')
+  log.info('local repository purged and reinitialized', { path: repoPath })
 }

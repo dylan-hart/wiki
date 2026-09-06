@@ -275,8 +275,19 @@ describe('blobBase / exportAll', () => {
 
     await module.exportAll(target)
 
-    const logged = (WIKI.logger.info as any).mock.calls.at(-1)!.arguments[0] as string
-    assert.equal(logged, `(STORAGE/${target.title}) Exported 1 asset(s) to Fake Blob Store.`)
+    const logged = (WIKI.logger.info as any).mock.calls.at(-1)!.arguments as [
+      string,
+      string,
+      Record<string, unknown>
+    ]
+    assert.deepEqual(logged[0], 'storage')
+    assert.deepEqual(logged[1], 'exported every asset')
+    assert.deepEqual(logged[2], {
+      module: target.module,
+      target: target.id,
+      assets: 1,
+      driver: 'Fake Blob Store'
+    })
   })
 })
 

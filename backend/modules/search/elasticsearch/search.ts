@@ -221,6 +221,7 @@ interface SiteClient {
  * run first.
  */
 export class ElasticsearchSearchModule extends ExternalSearchModule {
+  protected readonly engine = MODULE_KEY
   private clients = new Map<string, SiteClient>()
 
   /**
@@ -247,7 +248,10 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
     if (exists) {
       return
     }
-    WIKI.logger.info(`(SEARCH/ELASTICSEARCH) Creating index ${indexName}...`)
+    WIKI.logger.info('search', 'creating the index', {
+      engine: MODULE_KEY,
+      index: indexName
+    })
     await client.indices.create({
       index: indexName,
       mappings: INDEX_MAPPINGS as any,
@@ -307,7 +311,8 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
           refresh: true
         })
       },
-      (message) => `(SEARCH/ELASTICSEARCH) Failed to index page ${page.id}: ${message}`
+      'indexing a page failed',
+      { page: page.id }
     )
   }
 
@@ -317,8 +322,8 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
         const { client, indexName } = await this.getClient(siteId)
         await client.delete({ index: indexName, id: pageId, refresh: true })
       },
-      (message) =>
-        `(SEARCH/ELASTICSEARCH) Failed to remove page ${pageId} from the index: ${message}`
+      'removing a page from the index failed',
+      { page: pageId }
     )
   }
 
@@ -400,7 +405,7 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
     const PAGE_SIZE = 500
     const { client, indexName } = await this.getClient(siteId)
 
-    WIKI.logger.info('(SEARCH/ELASTICSEARCH) Rebuilding index...')
+    WIKI.logger.debug('search', 'rebuilding the index', { engine: MODULE_KEY, site: siteId })
     await client.deleteByQuery({
       index: indexName,
       query: { term: { siteId } },
@@ -432,7 +437,11 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
       }
     }
 
-    WIKI.logger.info(`(SEARCH/ELASTICSEARCH) Indexed ${total} page(s) [ OK ]`)
+    WIKI.logger.info('search', 'index rebuild completed', {
+      engine: MODULE_KEY,
+      site: siteId,
+      pages: total
+    })
     return {
       pages: total,
       // -> `dictionary` has no Elasticsearch equivalent -- there is no text search dictionary to

@@ -1,3 +1,4 @@
+import type { LogFields } from '../../core/logger.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -24,6 +25,13 @@ import type {
  * shared is what is genuinely identical.
  */
 export abstract class ExternalSearchModule implements SearchModule {
+  /**
+   * The `modules/search/<key>` directory name — each engine's own `MODULE_KEY`. Rides every line
+   * this class logs as `engine=`, which is what tells four engines' lines apart now that none of
+   * them names its vendor in the sentence.
+   */
+  protected abstract readonly engine: string
+
   abstract init(siteId: string, config: Record<string, any>): Promise<void>
   abstract query(params: SearchPagesParams): Promise<SearchPagesResult>
   abstract rebuild(siteId: string): Promise<RebuildResult>
@@ -68,19 +76,22 @@ export abstract class ExternalSearchModule implements SearchModule {
    * reached — the contract `indexPage`/`removePage` give `models/search.ts`'s dispatcher, and the
    * reason a later `rebuild()` exists to put a missed write right.
    *
-   * The message is the caller's, not a template built here: each engine names its own service in its
-   * own words, and four engines' operators grep four different strings.
+   * The message is the caller's, since only it knows which write was attempted; the error itself is
+   * never interpolated into it — it rides `fields.error`, where the renderer puts it (and its stack,
+   * at `logLevel: debug`) in one record. `engine=` is added here rather than by each caller.
    *
-   * @param describeFailure Given the error's `message`, returns the line to warn with.
+   * @param message What the failed write was trying to do, as a lowercase fragment.
+   * @param fields Anything else that identifies it — the page id, chiefly.
    */
   protected async neverThrows(
     work: () => Promise<void>,
-    describeFailure: (message: string) => string
+    message: string,
+    fields: LogFields = {}
   ): Promise<void> {
     try {
       await work()
     } catch (err: any) {
-      WIKI.logger.warn(describeFailure(err.message))
+      WIKI.logger.warn('search', message, { engine: this.engine, ...fields, error: err })
     }
   }
 }

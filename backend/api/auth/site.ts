@@ -241,9 +241,11 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          // -> An unexpected failure, reported to the client as a generic one. The detail is behind
-          //    the authDebug flag rather than logged on every failed login.
-          WIKI.logger.debug(err)
+          // -> An unexpected failure, reported to the client as a generic one — so the cause exists
+          //    nowhere but here. `error`, not `debug` (V8): a 400 the client cannot act on, whose
+          //    reason an operator could not see even at `logLevel: debug`, is something a person
+          //    has to look at. The `authDebug` line stays: it is the admin flag's own firehose.
+          WIKI.logger.error('auth', 'login failed unexpectedly', { error: err, reqId: req.id })
           WIKI.models.flags.authDebug(`Login failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_LOGIN_FAILED')
         }
@@ -342,8 +344,12 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          // -> An unexpected failure, reported to the client as a generic one, matching the login route
-          WIKI.logger.debug(err)
+          // -> An unexpected failure, reported to the client as a generic one, matching the login
+          //    route — logged at `error` for the same reason (V8)
+          WIKI.logger.error('auth', 'registration failed unexpectedly', {
+            error: err,
+            reqId: req.id
+          })
           WIKI.models.flags.authDebug(`Registration failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_REGISTRATION_FAILED')
         }
@@ -422,7 +428,10 @@ async function routes(app: FastifyInstance) {
           WIKI.models.flags.authDebug(`Password change from login rejected: ${err.message}`)
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.debug(err)
+          WIKI.logger.error('auth', 'password change from login failed unexpectedly', {
+            error: err,
+            reqId: req.id
+          })
           WIKI.models.flags.authDebug(`Password change from login failed: ${err.message}`)
           return reply.badRequest('ERR_CHANGE_PASSWORD_FAILED')
         }
@@ -486,7 +495,10 @@ async function routes(app: FastifyInstance) {
         // -> Swallowed rather than reported: even an unexpected failure here must not produce a
         //    response distinguishable from the success case, or it becomes the oracle this route
         //    exists to avoid being.
-        WIKI.logger.debug(err)
+        WIKI.logger.error('auth', 'forgot-password request failed unexpectedly', {
+          error: err,
+          reqId: req.id
+        })
         WIKI.models.flags.authDebug(`Forgot-password request failed unexpectedly: ${err.message}`)
       }
       return {
@@ -572,7 +584,10 @@ async function routes(app: FastifyInstance) {
           WIKI.models.flags.authDebug(`Password reset rejected: ${err.message}`)
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.debug(err)
+          WIKI.logger.error('auth', 'password reset failed unexpectedly', {
+            error: err,
+            reqId: req.id
+          })
           WIKI.models.flags.authDebug(`Password reset failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_RESET_PASSWORD_FAILED')
         }
@@ -680,7 +695,10 @@ async function routes(app: FastifyInstance) {
           WIKI.models.flags.authDebug(`2FA verification rejected: ${err.message}`)
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.debug(err)
+          WIKI.logger.error('auth', '2FA verification failed unexpectedly', {
+            error: err,
+            reqId: req.id
+          })
           WIKI.models.flags.authDebug(`2FA verification failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_TFA_FAILED')
         }
@@ -740,7 +758,10 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.debug(err)
+          WIKI.logger.error('auth', 'passkey login options failed unexpectedly', {
+            error: err,
+            reqId: req.id
+          })
           return reply.badRequest('ERR_LOGIN_FAILED')
         }
       }
@@ -799,7 +820,10 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.debug(err)
+          WIKI.logger.error('auth', 'passkey login failed unexpectedly', {
+            error: err,
+            reqId: req.id
+          })
           WIKI.models.flags.authDebug(`Passkey login failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_LOGIN_FAILED')
         }

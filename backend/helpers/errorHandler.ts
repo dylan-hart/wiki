@@ -68,7 +68,7 @@ export function buildNonApiErrorResponse(error: any): NonApiErrorResponse {
  * crashed request sat one level below a routine version check.
  */
 export function sendNonApiError(error: any, reply: FastifyReply): void {
-  WIKI.logger.error(error)
+  WIKI.logger.error('http', 'unhandled error outside /_api', { error })
   const { statusCode, body } = buildNonApiErrorResponse(error)
   reply.code(statusCode).type('application/json').send(body)
 }
@@ -91,14 +91,17 @@ export function apiErrorHandler(error: any, req: FastifyRequest, reply: FastifyR
       message: error.message
     })
   } else {
-    // -> A bare `WIKI.logger.error(error)` gave an operator no way to trace a 500 back to the
+    // -> A bare `WIKI.logger.error(error)` with no fields gave an operator no way to trace a 500 back to the
     //    request that caused it. `req.id` is the same correlation id Fastify's own access log
     //    carries for this request (`genReqId`, in `index.ts`), so the two lines join in an
     //    aggregator.
     // -> `error`, not `warn` (Bug #2650). This branch's own comment already calls an error with no
     //    `statusCode` a bug; a bug that answered a client 500 is exactly what an operator alerting
     //    on `error` must be woken by.
-    WIKI.logger.error(error, buildErrorLogContext(req))
+    WIKI.logger.error('http', 'unhandled error, answered 500', {
+      error,
+      ...buildErrorLogContext(req)
+    })
     reply.code(500).type('application/json').send({
       ok: false,
       error: 'Internal Server Error',

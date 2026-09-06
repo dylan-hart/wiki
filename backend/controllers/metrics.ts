@@ -58,7 +58,7 @@ async function routes(app: FastifyInstance) {
     } catch (err: any) {
       // -> Say why, same as the `/_api/*` bearer hook: the caller holds the credential and can act
       //    on "revoked" or "expired".
-      WIKI.logger.debug(`Rejected an API key on /metrics: ${err.message}`)
+      WIKI.logger.warn('auth', 'API key refused on /metrics', { error: err })
       return reply.unauthorized(err.message)
     }
 

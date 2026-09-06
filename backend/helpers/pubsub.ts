@@ -53,7 +53,10 @@ export function createNotifier(client: () => PoolClient | null, label: string): 
         try {
           await client()?.query('SELECT pg_notify($1, $2)', [channel, payload])
         } catch (err: any) {
-          WIKI.logger.warn(`Failed to publish a ${label} notification: ${err.message}`)
+          WIKI.logger.warn('db', 'publishing a notification failed', {
+            channel: label,
+            error: err
+          })
         }
       })
     },
@@ -174,7 +177,10 @@ export async function connectListener(opts: ListenerOptions): Promise<ListenerHa
       if (closed) {
         return
       }
-      WIKI.logger.warn(`Lost the ${label} listener connection, reconnecting: ${err.message}`)
+      WIKI.logger.warn('db', 'lost the listener connection, reconnecting', {
+        channel: label,
+        error: err
+      })
       client.release(true)
       setClient(null)
       client.release(true)
@@ -204,9 +210,11 @@ export async function connectListener(opts: ListenerOptions): Promise<ListenerHa
         setClient(client)
         return
       } catch (err: any) {
-        WIKI.logger.warn(
-          `Failed to (re)connect the ${label} listener, retrying in ${retryDelayMs}ms: ${err.message}`
-        )
+        WIKI.logger.warn('db', 'reconnecting the listener failed, retrying', {
+          channel: label,
+          retryIn: retryDelayMs,
+          error: err
+        })
         await delay(retryDelayMs)
       }
     }

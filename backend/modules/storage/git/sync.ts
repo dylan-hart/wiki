@@ -31,7 +31,7 @@ import { stripLocalePrefix } from '../../../helpers/localeRouting.ts'
 import { getContentTypeFromExtension } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { getEditorForContentType } from '../../../models/pages.ts'
-import { ensureRepo } from './repo.ts'
+import { ensureRepo, gitLog } from './repo.ts'
 import { covers, fileExists } from './content.ts'
 
 /**
@@ -435,6 +435,7 @@ export async function processDiffEntry(
  *   `api/storage.ts`).
  */
 export async function sync(target: StorageTarget, data: Record<string, any> = {}): Promise<void> {
+  const log = gitLog(target)
   const { git, repoPath } = await ensureRepo(target)
   const branch = target.config?.branch || 'main'
   const mode = target.sync.mode
@@ -445,17 +446,17 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
 
   if (pulls) {
     if (beforeHash) {
-      WIKI.logger.info(`(STORAGE/GIT) Performing pull rebase from origin on branch ${branch}...`)
+      log.debug('pulling from origin with rebase', { branch })
       await git.pull('origin', branch, ['--rebase'])
     } else {
       // -> Nothing local to rebase yet — a plain pull is enough to bring the branch into existence.
-      WIKI.logger.info(`(STORAGE/GIT) Performing initial pull from origin on branch ${branch}...`)
+      log.debug('performing the initial pull from origin', { branch })
       await git.pull('origin', branch)
     }
   }
 
   if (pushes) {
-    WIKI.logger.info(`(STORAGE/GIT) Performing push to origin on branch ${branch}...`)
+    log.debug('pushing to origin', { branch })
     await git.push('origin', branch, ['--signed=if-asked'])
   }
 
@@ -474,8 +475,8 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
 
   const actor = await resolveImportActor(target)
   if (!actor) {
-    WIKI.logger.warn(
-      `(STORAGE/GIT) No user matches target's configured Default Author Email — skipping DB import for this sync.`
+    log.warn(
+      'no user matches the configured default author email, skipping the DB import for this sync'
     )
     return
   }
@@ -507,11 +508,16 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
       const percentDeleted = (deletedPageCount / totalPages) * 100
       if (percentDeleted >= maxDeletePercentFor(target)) {
         holdBackDeletions = true
-        WIKI.logger.warn(
-          `(STORAGE/GIT) This sync's diff would delete ${deletedPageCount} of ${totalPages} pages ` +
+        log.warn(
+          `This sync's diff would delete ${deletedPageCount} of ${totalPages} pages ` +
             `(~${Math.round(percentDeleted)}%), at or above the configured safety threshold of ` +
             `${maxDeletePercentFor(target)}%. Skipping the deletions (everything else in the diff ` +
-            `still applies) — re-run "Force Sync" with confirmation to apply them anyway.`
+            `still applies) — re-run "Force Sync" with confirmation to apply them anyway.`,
+          {
+            deleted: deletedPageCount,
+            total: totalPages,
+            threshold: maxDeletePercentFor(target)
+          }
         )
       }
     }
@@ -524,8 +530,10 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
     try {
       await processDiffEntry(target, actor, entry)
     } catch (err: any) {
-      WIKI.logger.warn(`(STORAGE/GIT) Failed to import ${entry.relPath} from the remote change:`)
-      WIKI.logger.warn(err)
+      log.warn('importing a file from the remote change failed', {
+        path: entry.relPath,
+        error: err
+      })
     }
   }
 }

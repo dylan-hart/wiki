@@ -417,10 +417,12 @@ test('an unexpected createSite failure reaches the shared error handler and is l
   assert.equal(res.body.includes('relation'), false)
   const errorCalls = (globalThis as any).WIKI.logger.error.mock.calls
   assert.equal(errorCalls.length, 1)
-  assert.match(errorCalls[0].arguments[0].message, /relation "sites" does not exist/)
-  // -> The request context `apiErrorHandler` attaches is exactly what the swallowed catch lost.
-  assert.equal(errorCalls[0].arguments[1].method, 'POST')
-  assert.equal(typeof errorCalls[0].arguments[1].reqId, 'string')
+  assert.equal(errorCalls[0].arguments[0], 'http')
+  assert.match(errorCalls[0].arguments[2].error.message, /relation "sites" does not exist/)
+  // -> The request context `apiErrorHandler` attaches is exactly what the swallowed catch lost, and
+  //    since #2667 it is spread into the same fields object as the error itself.
+  assert.equal(errorCalls[0].arguments[2].method, 'POST')
+  assert.equal(typeof errorCalls[0].arguments[2].reqId, 'string')
   assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
 })
 
@@ -468,8 +470,9 @@ test('an unexpected updateSite failure reaches the shared error handler and is l
   assert.equal(res.json().error, 'Internal Server Error')
   const errorCalls = (globalThis as any).WIKI.logger.error.mock.calls
   assert.equal(errorCalls.length, 1)
-  assert.match(errorCalls[0].arguments[0].message, /deadlock detected/)
-  assert.equal(errorCalls[0].arguments[1].method, 'PUT')
+  assert.equal(errorCalls[0].arguments[0], 'http')
+  assert.match(errorCalls[0].arguments[2].error.message, /deadlock detected/)
+  assert.equal(errorCalls[0].arguments[2].method, 'PUT')
   assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
 })
 
