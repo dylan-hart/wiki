@@ -705,7 +705,9 @@ async function routes(app: FastifyInstance) {
       // -> The tree entries are gone; these are the rows behind them, which is where a page and an
       //    asset actually live
       await WIKI.models.pages.deleteOrphaned(req.params.siteId, removed.pages, actor)
-      await WIKI.models.assets.deleteOrphaned(req.params.siteId, removed.assets)
+      await WIKI.models.assets.deleteOrphaned(req.params.siteId, removed.assets, {
+        authorId: actor.id
+      })
       return reply.code(204).send()
     }
   )

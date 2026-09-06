@@ -17,6 +17,25 @@ import {
 import type { TreeItemType } from './tree.ts'
 import type { AccessActor } from './groups.ts'
 
+/**
+ * Who a menu rewrite is attributed to in the content lifecycle log (OpenProject #2674).
+ *
+ * An optional field rather than a required argument, deliberately: an unswept caller is then a line
+ * reading `user=system` rather than a compile error, and the write itself never depended on knowing
+ * who asked for it. `authorId` is the actor's own id, never an e-mail address.
+ */
+export interface NavigationWriteActor {
+  authorId?: string | null
+}
+
+/**
+ * The `user=` field every `nav` lifecycle line carries. `system` stands in for a write with no actor
+ * behind it.
+ */
+function actorFields(authorId?: string | null): { user: string } {
+  return { user: authorId || 'system' }
+}
+
 export const NAVIGATION_MODES = [
   'inherit',
   'override',
@@ -946,11 +965,20 @@ class Navigation {
    *
    * @param navId The row to write to — a site-wide default's own id, or a tree entry id belonging to
    *              this site
+   * @param authorId Who asked for it, for the lifecycle log line alone — see `NavigationWriteActor`.
    */
-  async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
+  async setNavItems(
+    siteId: string,
+    navId: string,
+    items: NavigationItem[],
+    { authorId }: NavigationWriteActor = {}
+  ): Promise<void> {
     assertValidNavItems(items)
+    // -> `locale` comes along on a select this method already makes: it is set only for a site-wide
+    //    default row (null for a tree-entry override — see `db/schema.ts`), which is exactly the
+    //    distinction the log line wants to draw, and reading it here costs nothing.
     const existing = await WIKI.db
-      .select({ id: navigationTable.id })
+      .select({ id: navigationTable.id, locale: navigationTable.locale })
       .from(navigationTable)
       .where(and(eq(navigationTable.id, navId), eq(navigationTable.siteId, siteId)))
       .limit(1)
@@ -966,6 +994,18 @@ class Navigation {
       .values({ id: navId, siteId, items })
       .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
     this.invalidateCache(siteId)
+
+    // -> The content lifecycle line (OpenProject #2674). A menu is what the whole site navigates by,
+    //    so a rewrite of one is worth an `info` line even though it is not a page — and it is
+    //    emitted from the model so the admin menu editor and the page-context editor
+    //    (`updateNavigation` below) read the same in the log.
+    WIKI.logger.info('nav', 'updated', {
+      site: siteId,
+      nav: navId,
+      ...(existing[0]?.locale ? { locale: existing[0].locale } : {}),
+      items: items.length,
+      ...actorFields(authorId)
+    })
   }
 
   /**
@@ -999,14 +1039,15 @@ class Navigation {
     sourceId,
     targetSiteId,
     targetId,
-    mode
+    mode,
+    authorId
   }: {
     sourceSiteId: string
     sourceId: string
     targetSiteId: string
     targetId: string
     mode: NavCopyMode
-  }): Promise<void> {
+  } & NavigationWriteActor): Promise<void> {
     const sourceRows = await WIKI.db
       .select({ items: navigationTable.items })
       .from(navigationTable)
@@ -1036,6 +1077,19 @@ class Navigation {
         : clonedItems
 
     await WIKI.db.update(navigationTable).set({ items }).where(eq(navigationTable.id, targetId))
+
+    // -> The third way a menu gets rewritten, and the same line the other two emit (OpenProject
+    //    #2674) -- the target really does navigate differently afterwards, so it must not be the one
+    //    rewrite invisible in the log. `from` names where the items came from, which is the whole of
+    //    what distinguishes this from an ordinary save.
+    WIKI.logger.info('nav', 'updated', {
+      site: targetSiteId,
+      nav: targetId,
+      from: sourceId,
+      items: items.length,
+      copy: mode,
+      ...actorFields(authorId)
+    })
   }
 
   /** The tree entry a navigation change is addressed to. */
@@ -1119,20 +1173,22 @@ class Navigation {
    *                 replacing whatever it already had — set on the same target row `items` would
    *                 write to (`ancestorId` under `inherit`, `ownNavId` otherwise), independent of
    *                 whether `items` is also given.
+   * @param authorId Who asked for it, for the lifecycle log line alone — see `NavigationWriteActor`.
    */
   async updateNavigation({
     siteId,
     pageId,
     mode,
     items,
-    menuMode
+    menuMode,
+    authorId
   }: {
     siteId: string
     pageId: string
     mode: NavigationMode
     items?: NavigationItem[]
     menuMode?: NavigationSourceMode
-  }): Promise<UpdateNavigationResult> {
+  } & NavigationWriteActor): Promise<UpdateNavigationResult> {
     const entry = await this.getEntry(siteId, pageId)
 
     // -> Whatever this change resolves to, `inherit` ultimately falls back to this entry's locale's
@@ -1283,6 +1339,20 @@ class Navigation {
     //    `generateFromTree` treats this entry as a boundary, hidden, or an ordinary walked node), so
     //    every cached menu for the site is dropped rather than trying to name just the affected ones
     this.invalidateCache(siteId)
+
+    // -> Same line `setNavItems` emits (OpenProject #2674), from the other editor. `page` and `mode`
+    //    are what this path knows and that one does not: the sidebar was edited from a page, and the
+    //    page's own cascade setting may have moved with it. `items` is absent for a bare mode switch,
+    //    which writes no items at all.
+    WIKI.logger.info('nav', 'updated', {
+      site: siteId,
+      ...(navId ? { nav: navId } : {}),
+      locale: entry.locale,
+      page: pageId,
+      mode,
+      ...(items ? { items: items.length } : {}),
+      ...actorFields(authorId)
+    })
 
     return { navigationMode: mode, navigationId: navId, ...(menuMode && { mode: menuMode }) }
   }
