@@ -950,7 +950,9 @@ LTR. Reasoning:
   document-wide direction control point and one `commonStore.locale`" — that premise turned out to
   be wrong (`docs/decisions/lang-dir-contract.md`): the server has stamped `<html lang>`/`dir` from
   the _content_ locale since before this note was written (`backend/helpers/appShell.ts`), and the
-  client now matches it (#1660) rather than overwriting it from the interface locale. The
+  client matches it on a locale-prefixed URL (#2596; #1660 was closed against an implementation that
+  never reached the tree — see `lang-dir-contract.md` §6) rather than overwriting it from the
+  interface locale. The
   conclusion is unchanged — admin chrome still inherits `dir` off `<html>` like everything else
   that isn't `.page-contents`-scoped — but the reasoning is: the document's direction is the
   _content_ locale's direction, and there is no separate "admin chrome direction" to hang off a
@@ -963,9 +965,12 @@ LTR. Reasoning:
   a UI-only interface locale picked here reverted on the very next navigation, direction included.
   The guard now also accepts any locale from the instance's installed catalogue
   (`adminStore.locales`), which is what makes this bullet's claim actually true today. This switcher
-  still drives `commonStore.locale` — the _interface_ locale — and does not, by itself, change
-  `<html dir>`; see `lang-dir-contract.md` §5 for the mechanism that keeps admin chrome's direction
-  meaningful for readers whose interface locale differs from a page's content locale.)
+  still drives `commonStore.locale` — the _interface_ locale — and, on a `/_admin` route, that IS
+  what `<html dir>` follows: `App.vue#applyDocumentLocale` reads the URL's own locale segment where
+  there is one and the interface locale where there is not, and an admin route never carries one.
+  See `lang-dir-contract.md` §6, which records that resolution and why a `/_` route deliberately
+  does not fall back to the site's primary locale instead — doing so would render LTR chrome around
+  the RTL `admin.*` text this bullet is about.)
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
   Arabic once `ar` is the active locale, per the same `t()` mechanism as everywhere else) would
   produce mismatched, not merely conservative, layout — worse than mirroring, not safer.
