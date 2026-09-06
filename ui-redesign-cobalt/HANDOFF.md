@@ -24,9 +24,10 @@ the short form of this document.
      block of each option on the Aesthetic Setting board.
 2. **Resolution** mirrors `appearance` exactly: `user.aesthetic === 'site' ? site.theme.aesthetic :
    user.aesthetic`. Guests get the site value.
-3. **Dark mode is orthogonal.** Cobalt has no dark token set yet (see "Not yet designed"), so
-   `cobalt + dark` renders Cobalt light for now — never Ledger dark. The two axes stay independent
-   in the data model and the class model so the dark set can be added later without a migration.
+3. **Dark mode is orthogonal.** Both aesthetics have a light and a dark token set, so the four
+   combinations are `body--ledger`/`body--cobalt` × `body--light`/`body--dark`. The Cobalt dark
+   values are a third block of the same custom properties scoped to `body.body--cobalt.body--dark`
+   (see "Cobalt dark tokens"). The two axes stay independent in the data model and the class model.
 
 ## Architecture — keep it to one class and one token layer
 
@@ -67,7 +68,8 @@ token layer with Ledger values of `0` / `none` / the hairline so Ledger renders 
 | `--radius-card` | `0` | `8px` |
 | `--radius-control` (buttons, inputs, segments, plates) | `0` | `6px` |
 | `--radius-dialog` | `0` | `12px` |
-| `--radius-pill` (tags, count badges, avatars) | `0` | `12px` / `50%` |
+| `--radius-pill` (tags, count badges, avatars, toggles) | `0` | `12px` / `50%` |
+| `--radius-mark` (status badges, checkboxes, inline code, count marks) | `0` | `4px` (checkboxes 3px) |
 | `--shadow-card` | `none` | `0 2px 10px rgba(16,25,74,.08)` |
 | `--shadow-primary` (the one filled button) | `none` | `0 4px 14px rgba(200,48,60,.35)` |
 | `--shadow-dialog` | `0 0 30px rgba(0,0,0,.4)` | same |
@@ -154,6 +156,61 @@ card (card shadow, 8px radius) 64px wide, top-aligned with the TOC and content c
 28px offset, primary action as a 40px `#c8303c` rounded plate with the primary shadow, other actions
 as cobalt strokes. Same buttons, same order, same more-menu contents.
 
+**Radii sweep** — the derived Cobalt screens in this folder were re-swept so nothing square-cornered
+remains: cards and fields 8px, buttons, toasts, banners and callouts 6px, chips, tags and toggles
+pill, badges, checkboxes and code marks 3–4px. Segmented controls round only their outer edges
+(`6px 0 0 6px` / `0 6px 6px 0`). In the token model these are `--radius-card`, `--radius-control`,
+`--radius-pill` and a new `--radius-mark` (`0` in Ledger, `4px` in Cobalt).
+
+## Cobalt dark tokens
+
+Scoped to `body.body--cobalt.body--dark`. Mockups: `Cardinal Wiki - Page View Dark 3x - Cobalt.dc.html`
+(authoritative, drawn by hand) and `Cardinal Wiki - Primitives Dark 3x - Cobalt.dc.html`. Shape tokens
+(radii, corner marks, header banner geometry) do not change between Cobalt light and dark; only the
+values below do. Ledger dark is beside each for the mapping.
+
+**Surfaces**
+
+| Role | Ledger dark | Cobalt dark | Notes |
+| --- | --- | --- | --- |
+| App ground | `#14171f` | `#0a0f2c` | |
+| Sidebar | `#1b1f2a` | `#0e1540` | Hairline right edge `rgba(255,255,255,.06)`. |
+| Card / raised | `#242b3a` | `#141c4f` | Shadow `0 2px 12px rgba(0,0,0,.4)`. |
+| Code block, footer, read-only field | `#14171f` | `#070b22` | Code block gets a `rgba(255,255,255,.06)` hairline. |
+| Hairline / inner rule | `#2a3040` | `rgba(255,255,255,.08)` / `.06` | Outlined controls use `.14`. |
+| Header bar | `#1b1f2a` | `#1a43bd` | One step deeper than light (`#1f4fd6`) to cut glare; badge ring follows. |
+| Page header banner, sidebar active item | — | unchanged from Cobalt light | The gradient, `#1f4fd6` active fill and `#ff4d5a` inset bar stay. |
+| Confirm dialog header band | `#242b3a` | `#1a43bd` | |
+
+**Text**
+
+| Role | Ledger dark | Cobalt dark |
+| --- | --- | --- |
+| Body / headings | `#e6eaf2` | `#e8ecff` |
+| Secondary | `#9aa6bd` | `#a7b3ea` |
+| Faint / caption / kicker | `#8792ab` | `#8b98d6` |
+| Labels on tinted rows (toggles, marks) | `#e6eaf2` | `#c9d6ff` |
+| Breadcrumb separators, disabled, off-state | `#2a3040` | `#3a4680` |
+| Unchecked box / 1-of-2 mark border | `#8792ab` | `#5a6699` |
+
+**Cobalt on dark ground** — cobalt lightens wherever it carries text or a stroke; the fills stay.
+
+| Role | Cobalt light | Cobalt dark |
+| --- | --- | --- |
+| h2, rail icons, breadcrumb current, focused field border, icon-button strokes | `#1f4fd6` | `#8fb0ff` |
+| Body links | `#1f4fd6` | `#7fa0ff` (hover `#a3bbff`) |
+| Numbered steps, callout rule, "Commit" / "Save changes" / selected-tag fills | `#1f4fd6` / `#1e2a5e` | `#3d6df7` (white text, 4.6:1) |
+| Callout / info banner fill + text | `#e6edff` / `#1a2f7a` | `rgba(61,109,247,.16)` / `#c9d6ff` |
+| Cobalt tag chip | `#dbe5ff` / `#1a3fb0` | `rgba(61,109,247,.22)` / `#a3bbff` |
+| Info toast | `#1e2a5e` | `#1f2a6b` + `rgba(255,255,255,.08)` hairline |
+
+**Accent on dark ground** — white-text fills (`#c8303c`: Edit, Draft, avatar, rail primary, count badge)
+and the untexted `#ff4d5a` (toggles, checkboxes, inset bars, status bars) are unchanged. Accent TEXT
+lightens to `#ff8f97` (5.9:1 on `#141c4f`) on `rgba(255,77,90,.16)` washes: inline code, active
+TOC entry, on-call tag, section kickers, field error copy, flat-link buttons. Footer link `#ff7a84`.
+Filled toasts darken rather than lighten, as in Ledger dark: positive `#1f7a5f`, negative
+`#a8262f`; the amber warning keeps `#d9a441` with dark ink. Positive status bar stays `#22a37f`.
+
 ## Data and migration
 
 - `backend/api/schemas/site.ts` — add `theme.aesthetic: enum('ledger','cobalt')` beside `dark`.
@@ -181,8 +238,10 @@ Every Cobalt screen has a Ledger twin with the identical filename minus the suff
 1. Render the real app in both aesthetics and set the Cobalt render beside the Cobalt mockup at the
    same width. The Ledger feedback said several screens were never diffed against their mockup
    until a later pass; do the diff in this pass, per screen, and record it.
-2. Flip dark mode on under Cobalt and confirm it renders Cobalt light, not Ledger dark and not a
-   broken hybrid.
+2. Flip dark mode on under Cobalt and diff `Page View` and `Primitives` against their
+   `… Dark 3x - Cobalt` mockups. The other Cobalt screens have no dark mockup; they must render
+   from the Cobalt dark token block alone, so any screen that looks wrong in Cobalt dark is a
+   literal bypassing the tokens, not a missing design.
 3. Run the contrast check the codebase already has (`helpers/accessibility.js`, `WCAG_AA_CONTRAST`)
    over the Cobalt token block programmatically — every text token against every surface it is
    specified for in the tables above. Add it as a test beside `accessibility.test.js` so the floor
@@ -199,7 +258,7 @@ are included as the diff baseline; they are unchanged except Profile (the new Ap
 
 | Screen | Ledger | Cobalt | Source |
 | --- | --- | --- | --- |
-| Page view (canonical) | `Cardinal Wiki - Page View 3x - Ledger.dc.html` | `… - Cobalt.dc.html` | MainLayout, HeaderNav, NavSidebar, PageHeader, PageToc, PageTags, PageActionsCol, FooterNav, Index.vue |
+| Page view (canonical) | `Cardinal Wiki - Page View 3x - Ledger.dc.html`, `… Page View Dark 3x - Ledger` | `… - Cobalt.dc.html`, `… Page View Dark 3x - Cobalt` | MainLayout, HeaderNav, NavSidebar, PageHeader, PageToc, PageTags, PageActionsCol, FooterNav, Index.vue |
 | Editor | `… Editor 3x - Ledger` | `… Editor 3x - Cobalt` | EditorMarkdown, PageHeader (edit), CollabPresence, PageActionsCol |
 | History | `… History 3x - Ledger` | `… History 3x - Cobalt` | PageHistoryOverlay, MainOverlayDialog |
 | File manager | `… File Manager 3x - Ledger` | `… File Manager 3x - Cobalt` | FileManager |
@@ -214,7 +273,7 @@ are included as the diff baseline; they are unchanged except Profile (the new Ap
 | Table editor | `… Table Editor 3x - Ledger` | `… - Cobalt` | TableEditorOverlay |
 | Block picker | `… Block Picker 3x - Ledger` | `… - Cobalt` | BlockPickerOverlay, BlockPropsForm |
 | Menus | `… Menus 3x - Ledger` | `… - Cobalt` | PageNewMenu, NavBrowseMenu, NavSidebarItem, TreeBrowserDialog |
-| Primitives | `… Primitives 3x - Ledger` | `… Primitives 3x - Cobalt` | shared/W*, notify.js |
+| Primitives | `… Primitives 3x - Ledger`, `… Primitives Dark 3x - Ledger` | `… Primitives 3x - Cobalt`, `… Primitives Dark 3x - Cobalt` | shared/W*, notify.js |
 | Aesthetic setting | `Cardinal Wiki - Aesthetic Setting 3x.dc.html` (1a Ledger, 1b Cobalt) | | AdminTheme.vue Appearance card; ProfileInfo / UserEditOverlay Appearance row |
 
 The Cobalt page view is the authoritative Cobalt screen (it was designed by hand). The other Cobalt
@@ -225,7 +284,7 @@ wins. Log the disagreement rather than guessing.
 
 ## Not yet designed
 
-- **Cobalt dark.** `Page View Dark` and `Primitives Dark` exist for Ledger only. Until a Cobalt dark
-  set is drawn, `cobalt + dark` resolves to Cobalt light (see above). Do not synthesise one.
+- **Cobalt dark beyond Page View and Primitives.** Those two are the whole dark mockup set for both
+  aesthetics, by design; the remaining screens follow from the token block.
 - **Cobalt on the public site** (`Cardinal Site - *`). The marketing pages stay Ledger; the
   aesthetic is a product setting, not a brand change.
