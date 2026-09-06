@@ -70,6 +70,9 @@ const BLANK_PAGE = {
   // -> The server resolves the default (the parent page's own level, or the most-open configured
   //    one) when a create request omits it; blank here so neither reset shows the last page's level
   classification: '',
+  // -> Nor the previously-open page's place in ITS history: neither reset is showing a stored page,
+  //    and a stale ordinal is a number that reads as this page's own
+  revision: null,
   // -> Nothing here should carry the previously-open page's typed-but-unsaved password value
   password: '',
   hasPassword: false,
@@ -156,6 +159,20 @@ export const usePageStore = defineStore('page', {
       max: 2
     },
     updatedAt: '',
+    /**
+     * Where this page stands in its own history -- `{ ordinal, changeCount }`, the metadata rail's
+     * Revision section (OpenProject #2652). Rides the page read rather than costing the rail a
+     * request of its own; see `Page#.revision` in `backend/api/schemas/page.ts`.
+     *
+     * `null` means the server did not send one, which it does NOT do for a requester without
+     * `read:history` on the page -- so null is "not allowed to know", not "no history", and the rail
+     * draws the author and the time alone for it. Within a revision that IS present, `changeCount`
+     * is likewise absent rather than zero when there is nothing to diff against (a page whose only
+     * version is its creation), so neither is ever defaulted to a number here: `rev 1` with no
+     * `· 0 changes` clause is a different rendering from `rev 1 · 0 changes`, and only the first
+     * of the two is a thing this section ever draws.
+     */
+    revision: null,
     /**
      * Whether this reader may suggest edits to this page, i.e. an enabled approval rule covers it and
      * names a group they are in. Answered by the server, since neither the rules nor the reader's
@@ -292,7 +309,15 @@ export const usePageStore = defineStore('page', {
           ...pagePatch(pageData),
           // -> The field is present exactly when the source came with the page, which is what makes
           //    the copy in this store safe to save; a view-mode load leaves the previous one in place
-          contentLoaded: Object.hasOwn(pageData, 'content')
+          contentLoaded: Object.hasOwn(pageData, 'content'),
+          /*
+            Stated rather than left to the spread above, because the server OMITS this key for a
+            reader without `read:history` on the page -- and a spread of a payload that does not
+            carry it leaves the PREVIOUS page's ordinal standing. Navigating from a page whose
+            history this reader may see to one whose history they may not would otherwise keep
+            drawing `rev 14` in the rail, against a page it says nothing about.
+          */
+          revision: pageData.revision ?? null
         })
         this.applyViewerState(pageData.viewer)
         // -> Nothing has been typed into this freshly-loaded page yet
@@ -910,7 +935,19 @@ export const usePageStore = defineStore('page', {
 
         // -> Whatever was just sent has already been written, so `pagePatch`'s password reset is
         //    what stops a plaintext secret sitting there, pending, past the save it was for
-        this.$patch(pagePatch(pageData))
+        this.$patch({
+          ...pagePatch(pageData),
+          /*
+            A save is exactly the thing that moves a page along its own history, and the save
+            response deliberately carries no `revision` (it is history data, present only on a page
+            fetched on its own). So what this store holds is one version out of date the moment the
+            write lands -- and cleared is the honest answer rather than the stale one: absence is
+            what the wire format means by "unknown", and the rail's Revision section falls back to
+            the author and the time until the next real load, instead of reporting the version
+            count from before this save as though it were current.
+          */
+          revision: null
+        })
 
         /*
           OpenProject #1012: a newly created page can change what an `auto`/`mixed` menu generates

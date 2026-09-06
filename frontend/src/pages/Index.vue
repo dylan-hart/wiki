@@ -294,6 +294,31 @@
             <page-tags :edit="state.tagEditMode" />
           </div>
         </template>
+        <!-- Revision -->
+        <!--
+          Where the page stands in its own history: `rev 14 &middot; 6 changes`, who last wrote it, and when.
+          Three lines of text and no controls -- the history itself is a page of its own, reached from
+          the actions column, and a link here would be a fourth way to the same place.
+
+          Unlike Contents and Tags this is not gated on the page having volunteered anything: every
+          page has an author and a last-saved moment, so the section is always at least those two
+          lines. What varies is how much of the first line there is (see `revisionLine`), and the
+          guard below is only for the store before a page has actually landed in it -- drawing a
+          heading over three empty lines during a load is what it prevents, not any real page.
+        -->
+        <template v-if="showRevision">
+          <w-separator v-if="showToc || showTags" />
+          <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
+          <div class="page-sidebar-revision">
+            <div v-if="revisionLine">{{ revisionLine }}</div>
+            <div v-if="pageStore.authorName">{{ pageStore.authorName }}</div>
+            <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
+                 `userStore` has: the two are the same fact about the same page and must not drift -->
+            <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
+              {{ lastModified }}
+            </div>
+          </div>
+        </template>
         <!--
           Watching (OpenProject #2649) -- who else is following this page, as a run of initial plates
           with a `+N` remainder for everybody past the third.
@@ -307,12 +332,10 @@
         <template v-if="showWatching">
           <!--
             Each rail section owns the rule ABOVE it, conditioned on there being anything above it to
-            separate from -- the pattern Tags follows for Contents. `pageStore.revision` is the
-            Revision section's own state (Task #2652, which inserts between Tags and this): reading
-            the state rather than naming that section's computed keeps this correct both before and
-            after it lands, and leaves nothing for the two to collide on.
+            separate from -- the pattern Tags follows for Contents. Revision (Task #2652) sits between
+            Tags and this, so its own `showRevision` is the third thing there can be something above.
           -->
-          <w-separator v-if="showToc || showTags || Boolean(pageStore.revision)" />
+          <w-separator v-if="showToc || showTags || showRevision" />
           <div class="page-sidebar-heading">{{ t('common.page.watching') }}</div>
           <div class="page-watchers">
             <!--
@@ -640,7 +663,49 @@ const showTags = computed(() => {
   return pageStore.showTags && (pageStore.tags?.length > 0 || state.tagEditMode)
 })
 /*
-  And the same question a third time for the watchers, with one fewer half to it: there is nothing a
+  Whether there is a Revision section. On a loaded page this is always true -- an author and a
+  last-saved moment are facts about every stored page -- so this is not the "did the page volunteer
+  one" question `showToc` and `showTags` ask. It is the guard against drawing the heading with
+  nothing under it at all: the store before a page has landed in it, and the moment between one
+  page's route and the next page's reply.
+*/
+const showRevision = computed(() =>
+  Boolean(pageStore.revision || pageStore.authorName || pageStore.updatedAt)
+)
+/**
+ * The rail's first Revision line -- `rev 14 · 6 changes`, `rev 1`, or nothing at all.
+ *
+ * Three renderings, and the difference between them is ABSENCE, never a zero (see `Page#.revision`
+ * in the API schema, and `stores/page.js`):
+ *
+ *  - no `revision` at all -- this reader has no `read:history` on the page, so there is no line;
+ *    the author and the time below still render, since those come from the page itself.
+ *  - a `revision` with no `changeCount` -- there is nothing to have diffed against (a page whose
+ *    only version is its creation), so it is `rev 1` alone, with neither the interpunct nor a
+ *    `0 changes` clause after it.
+ *  - both -- the full line, assembled through a locale key rather than by joining two strings with
+ *    a hardcoded `·`, so the separator and the order of the two clauses stay a translator's.
+ *
+ * The `> 0` is defensive rather than expected: the server never sends a zero here. It is written
+ * that way so a zero that somehow arrives renders as the second case above -- which is what it
+ * means -- rather than as `rev 1 · 0 changes`, which is a thing this section never draws.
+ */
+const revisionLine = computed(() => {
+  const revision = pageStore.revision
+  if (!revision?.ordinal) {
+    return ''
+  }
+  const ordinal = t('common.page.revisionOrdinal', { ordinal: revision.ordinal })
+  if (!(revision.changeCount > 0)) {
+    return ordinal
+  }
+  return t('common.page.revisionLine', {
+    revision: ordinal,
+    changes: t('common.page.revisionChanges', { count: revision.changeCount }, revision.changeCount)
+  })
+})
+/*
+  And the same question again for the watchers, with one fewer half to it: there is nothing a
   page can ASK for here, so having somebody to draw is the whole test. A page nobody watches, a page
   whose watchers have not come back yet, and a page whose watchers could not be read all answer false
   -- a "Watching" heading over nothing is the very thing `showTags` above exists to avoid.
@@ -1642,6 +1707,33 @@ $toc-overlay-max: 749.98px;
 }
 
 .body--dark .page-sidebar-heading {
+  color: $text-caption-dark;
+}
+
+/*
+  The Revision section's three lines (OpenProject #2652). One type size and one leading for all
+  three -- 13px/1.7 in the body face, as the design draws them -- because they are one statement
+  about the page read top to bottom, not a list of three fields: the version, who wrote it, and
+  when. Only the last is toned down, and only by one tier.
+
+  No margin of its own: the heading above it owns the gap under itself, the same way the contents
+  list and the tag row are spaced from theirs.
+*/
+.page-sidebar-revision {
+  color: $slate;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.page-sidebar-revision-time {
+  color: $text-caption;
+}
+
+.body--dark .page-sidebar-revision {
+  color: $text-dark;
+}
+
+.body--dark .page-sidebar-revision-time {
   color: $text-caption-dark;
 }
 
