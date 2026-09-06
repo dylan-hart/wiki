@@ -46,6 +46,7 @@
         <w-btn
           class="self-start rounded -mt-2"
           :label="t(`editor.pageRel.selectIcon`)"
+          icon="tabler:search"
           color="primary"
           outline>
           <w-tooltip>{{ t('iconPicker.open') }}</w-tooltip>

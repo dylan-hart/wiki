@@ -457,3 +457,20 @@ describe('NavItemEditor "Add" icon (OpenProject #2074)', () => {
     expect(wrapper.find('[data-icon="tabler:circle-plus"]').exists()).toBe(false)
   })
 })
+
+/**
+ * OpenProject #2725: the "Open Icon Picker" button drew `tabler:icons` -- the icon for the
+ * picker's own "Icons" tab, not the action of opening a search/pick UI. Settled on `tabler:search`,
+ * matching the same button in PagePropertiesDialog and PageRelationDialog.
+ */
+describe('NavItemEditor "Open Icon Picker" icon (OpenProject #2725)', () => {
+  it('uses the search icon, not tabler:icons, for the icon-field picker button', async () => {
+    const wrapper = mountEditor()
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    await wrapper.find('.nav-edit-item-link').trigger('click')
+
+    expect(wrapper.find('[data-icon="tabler:search"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="tabler:icons"]').exists()).toBe(false)
+  })
+})
