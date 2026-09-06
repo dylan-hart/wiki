@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { after, before, describe, test } from 'node:test'
+import { EventEmitter } from 'node:events'
+import { after, before, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import { createHttpApp, registerStaticAssets } from './server.ts'
-import { installTestWiki } from '../../test/mocks.ts'
+import gracefulServer from '@gquittet/graceful-server'
+import { createHttpApp, registerShutdownLogging, registerStaticAssets } from './server.ts'
+import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 
 /**
  * The Fastify instance itself was built inline in `index.ts` until this split, which is why none of
@@ -215,5 +217,67 @@ describe('registerStaticAssets', () => {
     const res = await app.inject({ method: 'GET', url: '/_blocks/block-map.js' })
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['cache-control'], 'public, max-age=3600')
+  })
+})
+
+describe('registerShutdownLogging', () => {
+  /**
+   * Drives the real event names against a bare `EventEmitter` — `IGracefulServer.on` is
+   * `(name, callback) => EventEmitter`, so an emitter satisfies the parameter structurally and the
+   * handler runs exactly as the library calls it, with no process signalling involved.
+   */
+  function emitShutdown(reason: Error) {
+    const info = mock.fn()
+    const warn = mock.fn()
+    const wiki = installTestWiki({ logger: { ...createSilentLogger(), info, warn } })
+    try {
+      const server = new EventEmitter()
+      registerShutdownLogging(server)
+      server.emit(gracefulServer.SHUTDOWN, reason)
+      return { info, warn }
+    } finally {
+      wiki.restore()
+    }
+  }
+
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    test(`${signal} is an ordinary shutdown: one info line, no warning and no stack`, () => {
+      const { info, warn } = emitShutdown(new Error(signal))
+      assert.equal(info.mock.callCount(), 1)
+      assert.equal(
+        info.mock.calls[0].arguments[0],
+        `HTTP Server has exited: [ STOPPED ] (${signal})`
+      )
+      assert.equal(warn.mock.callCount(), 0)
+    })
+  }
+
+  test('any other reason still warns with the error itself, stack included', () => {
+    const boom = new Error('boom')
+    const { info, warn } = emitShutdown(boom)
+    assert.equal(info.mock.callCount(), 1)
+    assert.equal(warn.mock.callCount(), 1)
+    assert.equal(warn.mock.calls[0].arguments[0], boom)
+  })
+
+  test('a message merely containing a signal name is not exempted', () => {
+    // -> The reason is matched exactly, not by prefix or substring: graceful-server sets
+    //    `new Error(<signal>)`, so a longer message is a real fault rather than a clean exit.
+    const { warn } = emitShutdown(new Error('SIGTERM handler failed'))
+    assert.equal(warn.mock.callCount(), 1)
+  })
+
+  test('the shutting-down event still logs its own line', () => {
+    const info = mock.fn()
+    const wiki = installTestWiki({ logger: { ...createSilentLogger(), info } })
+    try {
+      const server = new EventEmitter()
+      registerShutdownLogging(server)
+      server.emit(gracefulServer.SHUTTING_DOWN)
+      assert.equal(info.mock.callCount(), 1)
+      assert.equal(info.mock.calls[0].arguments[0], 'Shutting down HTTP Server... [ STOPPING ]')
+    } finally {
+      wiki.restore()
+    }
   })
 })
