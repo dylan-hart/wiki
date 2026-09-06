@@ -183,6 +183,48 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
   })
 })
 
+/**
+ * OpenProject #2718: `is-focused` used to live on `.header-search-field` alone, so the focus ring
+ * could only darken the field's own edges -- the docked tags button, which supplies the shared
+ * right edge (`.header-search-field--docked` drops the field's own `border-inline-end`), kept its
+ * static hairline and the ring visibly broke at the seam. The class now lives on the row wrapping
+ * both controls, so it should land on `.header-search-row-inline` and never directly on the field,
+ * with both the field and the tags button reachable as descendants of that same focused row.
+ */
+describe('HeaderSearch focus ring spans the field and the docked tags button (OpenProject #2718)', () => {
+  it('puts is-focused on the row, not on the field, once the input is focused', async () => {
+    const router = await createTestRouter(['/'])
+    const { wrapper } = mountWithApp(HeaderSearch, {
+      router,
+      stores: {
+        site: (store) => {
+          store.features.search = true
+        }
+      }
+    })
+
+    const row = wrapper.find('.header-search-row-inline')
+    const field = wrapper.find('.header-search-field')
+    expect(row.classes()).not.toContain('is-focused')
+    expect(field.classes()).not.toContain('is-focused')
+
+    await wrapper.find('.header-search-input').trigger('focus')
+
+    expect(row.classes()).toContain('is-focused')
+    expect(field.classes()).not.toContain('is-focused')
+  })
+
+  it('keeps both the field and the docked tags button as descendants of the focused row', async () => {
+    const wrapper = await mountWithTags([])
+    await wrapper.find('.header-search-input').trigger('focus')
+
+    const focusedRow = wrapper.find('.header-search-row-inline.is-focused')
+    expect(focusedRow.exists()).toBe(true)
+    expect(focusedRow.find('.header-search-field').exists()).toBe(true)
+    expect(focusedRow.find('.header-search-tags-btn').exists()).toBe(true)
+  })
+})
+
 describe('HeaderSearch popularTags', () => {
   it('sorts tags by usage count descending, most-used first', async () => {
     const wrapper = await mountWithTags([
