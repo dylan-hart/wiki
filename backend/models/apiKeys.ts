@@ -18,7 +18,7 @@ import type { AuditActor } from './auditLog.ts'
  * section went — a section whose other two fields nothing read — and all changing it ever did was
  * invalidate every key already issued.
  */
-const TOKEN_AUDIENCE = 'urn:wiki.js'
+const TOKEN_AUDIENCE = 'urn:cardinal.js'
 
 /** An API key signing keypair, with the passphrase its private half is encrypted under. */
 interface SigningCertificates {

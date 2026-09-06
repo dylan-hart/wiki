@@ -397,7 +397,7 @@ describe('modules/comments/default', () => {
       assert.ok(parsed.title.length > 0)
       assert.equal(typeof parsed.description, 'string')
       assert.ok(parsed.description.length > 0)
-      assert.equal(parsed.vendor, 'Wiki.js')
+      assert.equal(parsed.vendor, 'Cardinal.js')
       assert.equal(parsed.website, 'https://js.wiki')
 
       const props = parseModuleProps(parsed.props ?? {})

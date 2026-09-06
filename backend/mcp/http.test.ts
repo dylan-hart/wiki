@@ -217,7 +217,7 @@ describe('mcp/http', () => {
     assert.equal(res.statusCode, 200)
     assert.ok(res.headers['mcp-session-id'])
     const message = sseResult(res.body)
-    assert.equal(message.result.serverInfo.name, 'wikijs-mcp')
+    assert.equal(message.result.serverInfo.name, 'cardinaljs-mcp')
     assert.equal(message.result.serverInfo.version, '3.0.0-test')
   })
 

@@ -42,7 +42,7 @@ export default class GitHubAuthentication {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'Wiki.js'
+        'User-Agent': 'Cardinal.js'
       }
     })
     if (!resp.ok) {
@@ -80,7 +80,7 @@ export default class GitHubAuthentication {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        'User-Agent': 'Wiki.js'
+        'User-Agent': 'Cardinal.js'
       },
       body: JSON.stringify({
         client_id: this.conf.clientId,
@@ -119,7 +119,7 @@ export default class GitHubAuthentication {
             Authorization: `Bearer ${token.access_token}`,
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': 'Wiki.js'
+            'User-Agent': 'Cardinal.js'
           }
         }
       )

@@ -187,7 +187,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
 
     assert.deepEqual(
       initialClient.queries.map((q) => q.text),
-      ["SET application_name = 'Wiki.js - instance-a:EVENTS'", 'LISTEN wiki'],
+      ["SET application_name = 'Cardinal.js - instance-a:EVENTS'", 'LISTEN wiki'],
       'nothing beyond the initial connect/LISTEN was ever sent on the client that existed before the drop'
     )
 

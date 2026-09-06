@@ -133,10 +133,10 @@ export function pandocCwd(): string {
 
 /**
  * Every format this endpoint accepts: the Pandoc-backed formats above, plus `markdown` (OpenProject
- * #1092) — Wiki.js's own native page format needs no conversion at all, so it is a pass-through read
+ * #1092) — Cardinal.js's own native page format needs no conversion at all, so it is a pass-through read
  * of the file's UTF-8 bytes rather than another `-f` value handed to pandoc. This is what makes bulk
  * import possible on an instance with no Pandoc extension installed at all: migrating from another
- * Wiki.js instance, an Obsidian vault, or any docs-as-markdown repo needs none of it.
+ * Cardinal.js instance, an Obsidian vault, or any docs-as-markdown repo needs none of it.
  */
 export const SUPPORTED_IMPORT_FORMATS = [...PANDOC_IMPORT_FORMATS, 'markdown'] as const
 

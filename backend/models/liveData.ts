@@ -204,7 +204,7 @@ class LiveData {
     if (WIKI.config.offline) {
       throw new CustomError(
         'liveDataOffline',
-        'Wiki.js is in offline mode and cannot reach this endpoint to resolve live data.',
+        'Cardinal.js is in offline mode and cannot reach this endpoint to resolve live data.',
         503
       )
     }

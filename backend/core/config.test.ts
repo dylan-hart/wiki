@@ -51,7 +51,7 @@ let previousDbPassFile: string | undefined
 let previousExit: typeof process.exit
 
 before(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), 'wikijs-config-test-'))
+  dir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-config-test-'))
 
   await writeFile(
     path.join(dir, 'base.yml'),
@@ -132,7 +132,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
   let previousPoolWiki: any
 
   before(async () => {
-    poolDir = await mkdtemp(path.join(tmpdir(), 'wikijs-config-pool-test-'))
+    poolDir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-config-pool-test-'))
     await writeFile(
       path.join(poolDir, 'base.yml'),
       'defaults:\n  config:\n    port: 80\n    db:\n      host: localhost\n      pass: basedefaultpass\n    pool:\n      min: 1\n      max: 33\n'
@@ -178,7 +178,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     'defaults:\n  config:\n    port: 80\n    logLevel: info\n    db:\n      host: localhost\n      pass: basedefaultpass\n      sslOptions:\n        auto: true\n'
 
   async function setupFixture(configYml: string) {
-    const fixtureDir = await mkdtemp(path.join(tmpdir(), 'wikijs-config-unknown-keys-test-'))
+    const fixtureDir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-config-unknown-keys-test-'))
     await writeFile(path.join(fixtureDir, 'base.yml'), baseYml)
     await writeFile(path.join(fixtureDir, 'config.yml'), configYml)
     await writeFile(

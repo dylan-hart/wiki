@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 /**
  * Guards task #701's decision — multi-hostname TLS termination is a reverse-proxy
- * responsibility, not something Wiki.js terminates itself — so it can't quietly regress:
+ * responsibility, not something Cardinal.js terminates itself — so it can't quietly regress:
  *
  * - The dead 2.5.x `AdminSsl.vue` stub (GraphQL/Apollo, Vuetify pug, direct `lodash`) and its
  *   orphaned `admin.ssl.*` locale strings stay gone.
@@ -63,7 +63,7 @@ describe('TLS/SSL story (task #701)', () => {
   test('the TLS-termination decision is documented under docs/', async () => {
     const doc = await readFile(DOC_PATH, 'utf8')
     // -> The load-bearing claims: a reverse proxy does SNI-based per-hostname termination and
-    //    forwards plain HTTP, and `trustProxy` is what makes Wiki.js trust the resulting
+    //    forwards plain HTTP, and `trustProxy` is what makes Cardinal.js trust the resulting
     //    X-Forwarded-* headers rather than the proxy's own connection.
     for (const term of ['reverse proxy', 'SNI', 'trustProxy', 'X-Forwarded']) {
       assert.ok(doc.includes(term), `docs/tls-termination.md is missing "${term}"`)
@@ -114,7 +114,7 @@ describe('TLS/SSL story (task #701)', () => {
   test('does not instruct setting trustProxy in config.yml, since the DB-seeded security row overwrites it on every boot (#1976)', async () => {
     const doc = await readFile(DOC_PATH, 'utf8')
     assert.ok(
-      !/set\s+`?security\.trustProxy[^`]*`?\s+in\s+Wiki\.js's own config/i.test(doc),
+      !/set\s+`?security\.trustProxy[^`]*`?\s+in\s+Cardinal\.js's own config/i.test(doc),
       'docs/tls-termination.md still tells the operator to set trustProxy in config.yml, which the DB-seeded security row overwrites on every boot'
     )
     assert.ok(

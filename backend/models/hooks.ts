@@ -158,7 +158,7 @@ export function postJson(
         headers: {
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(body),
-          'user-agent': `Wiki.js/${WIKI.version}`,
+          'user-agent': `Cardinal.js/${WIKI.version}`,
           ...(authHeader ? { authorization: authHeader } : {})
         },
         timeout: DELIVERY_TIMEOUT,

@@ -116,7 +116,7 @@ export const RTL_TEST_LOCALE_STRINGS: Record<string, string> = {
   'auth.actions.login': 'تسجيل الدخول',
   'auth.enterCredentials': 'أدخل بيانات الاعتماد الخاصة بك',
   // -> welcome: first-run chrome
-  'welcome.title': 'مرحباً بك في Wiki.js!',
+  'welcome.title': 'مرحباً بك في Cardinal.js!',
   'welcome.subtitle': 'لنبدأ...'
 }
 

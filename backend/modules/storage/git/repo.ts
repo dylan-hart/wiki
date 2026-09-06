@@ -230,7 +230,7 @@ export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise
   // -> A commit always needs a committer identity, regardless of the `--author` override the
   //    write-path handlers pass per-commit (see `content.ts`) — git refuses to commit with neither
   //    set, and this must never depend on whatever happens to be in the host's global git config.
-  await git.addConfig('user.name', config.defaultName || 'Wiki.js')
+  await git.addConfig('user.name', config.defaultName || 'Cardinal.js')
   await git.addConfig('user.email', config.defaultEmail || 'noreply@example.com')
 
   if (config.authType === 'ssh') {

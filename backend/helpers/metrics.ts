@@ -24,54 +24,54 @@ export interface MetricsSnapshot {
 const METRIC_DEFS: { key: keyof MetricsSnapshot; name: string; help: string }[] = [
   {
     key: 'activeWorkers',
-    name: 'wikijs_active_workers',
+    name: 'cardinaljs_active_workers',
     help: 'Jobs currently executing, across every instance connected to this database.'
   },
   {
     key: 'pagesTotal',
-    name: 'wikijs_pages_total',
+    name: 'cardinaljs_pages_total',
     help: 'Total number of pages.'
   },
   {
     key: 'usersTotal',
-    name: 'wikijs_users_total',
+    name: 'cardinaljs_users_total',
     help: 'Total number of user accounts.'
   },
   {
     key: 'groupsTotal',
-    name: 'wikijs_groups_total',
+    name: 'cardinaljs_groups_total',
     help: 'Total number of groups.'
   },
   {
     key: 'instancesTotal',
-    name: 'wikijs_instances_total',
+    name: 'cardinaljs_instances_total',
     help: 'Instances currently connected to this database.'
   },
   {
     key: 'jobsQueued',
-    name: 'wikijs_jobs_queued',
+    name: 'cardinaljs_jobs_queued',
     help: 'Jobs waiting in the queue, not yet claimed by a worker.'
   },
   {
     key: 'jobsFailed',
-    name: 'wikijs_jobs_failed_total',
+    name: 'cardinaljs_jobs_failed_total',
     help:
       'Failed jobs currently retained in job history. Not a lifetime total: rows age out under the ' +
       'configured job history retention window, so this can decrease as well as increase between scrapes.'
   },
   {
     key: 'dbPoolTotal',
-    name: 'wikijs_db_pool_total',
+    name: 'cardinaljs_db_pool_total',
     help: 'Total clients (idle + in use) in the database connection pool.'
   },
   {
     key: 'dbPoolIdle',
-    name: 'wikijs_db_pool_idle',
+    name: 'cardinaljs_db_pool_idle',
     help: 'Idle clients in the database connection pool, available to be checked out.'
   },
   {
     key: 'dbPoolWaiting',
-    name: 'wikijs_db_pool_waiting',
+    name: 'cardinaljs_db_pool_waiting',
     help: 'Queries currently waiting for a client to become available in the database connection pool.'
   }
 ]

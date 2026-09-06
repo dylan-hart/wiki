@@ -67,7 +67,7 @@ export async function bootstrapPromoteAdminRuntime(): Promise<WikiGlobal> {
   if (!(await WIKI.configSvc.loadFromDb())) {
     throw new Error(
       'No settings found in this database. This command promotes a user on an existing, ' +
-        'previously-booted Wiki.js 3.0 install -- boot the server against this database at least ' +
+        'previously-booted Cardinal.js 3.0 install -- boot the server against this database at least ' +
         'once first.'
     )
   }

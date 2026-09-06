@@ -109,7 +109,7 @@ export async function bootstrapMcpRuntime(instanceId: string): Promise<WikiGloba
 
   if (!(await WIKI.configSvc.loadFromDb())) {
     throw new Error(
-      'No settings found in the database. Run the main Wiki.js server at least once before starting the MCP server.'
+      'No settings found in the database. Run the main Cardinal.js server at least once before starting the MCP server.'
     )
   }
 

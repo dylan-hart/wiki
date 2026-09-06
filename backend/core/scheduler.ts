@@ -211,7 +211,7 @@ export default {
     return this
   },
   async start(): Promise<void> {
-    const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
+    const connectionAppName = `Cardinal.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
 
     // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on

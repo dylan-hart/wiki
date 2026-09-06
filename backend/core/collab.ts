@@ -376,7 +376,7 @@ export default {
     //    an unhandled 'error' and taking the process down with it.
     this.listenerHandle = await connectListener({
       pool: WIKI.dbManager.listenerPool!,
-      applicationName: `Wiki.js - ${WIKI.INSTANCE_ID}:COLLAB`,
+      applicationName: `Cardinal.js - ${WIKI.INSTANCE_ID}:COLLAB`,
       channels: [NOTIFY_CHANNEL],
       label: 'collaboration relay',
       onNotification: (msg) => {
@@ -463,11 +463,11 @@ export default {
     if (now - this.peerPresence.checkedAt < PEER_PRESENCE_TTL) {
       return this.peerPresence.known
     }
-    const ownName = `Wiki.js - ${WIKI.INSTANCE_ID}:COLLAB`
+    const ownName = `Cardinal.js - ${WIKI.INSTANCE_ID}:COLLAB`
     try {
       const result = await WIKI.db.execute(
         sql`SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
-              AND application_name LIKE 'Wiki.js - %:COLLAB'
+              AND application_name LIKE 'Cardinal.js - %:COLLAB'
               AND application_name <> ${ownName} LIMIT 1`
       )
       this.peerPresence = { known: result.rows.length > 0, checkedAt: now }

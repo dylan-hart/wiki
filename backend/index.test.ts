@@ -282,7 +282,7 @@ let configDir: string
 let configFile: string
 
 before(async () => {
-  configDir = await mkdtemp(path.join(tmpdir(), 'wikijs-preboot-test-'))
+  configDir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-preboot-test-'))
   configFile = path.join(configDir, 'config.yml')
   // -> Everything else preBoot needs (db.schema, pool.min, ...) comes from the real backend/base.yml
   //    defaults; DATABASE_URL below overrides every db.* connection field regardless of what's here.

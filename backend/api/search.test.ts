@@ -26,7 +26,7 @@ function makeDbEngine() {
     key: 'db',
     title: 'Database',
     description: 'PostgreSQL full-text search.',
-    vendor: 'Wiki.js',
+    vendor: 'Cardinal.js',
     website: 'https://js.wiki',
     props: { termHighlighting: { type: 'boolean', title: 'Term Highlighting', default: false } },
     hasImplementation: false,

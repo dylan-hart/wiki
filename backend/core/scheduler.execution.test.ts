@@ -89,7 +89,7 @@ describe('processJob claim ordering (fake WIKI)', () => {
 
 /**
  * OpenProject #1931: `runJob()`'s terminal, retries-exhausted failure must log at `error` so an
- * operator shipping only `error` to alerting actually sees it -- `wikijs_jobs_queued` counts
+ * operator shipping only `error` to alerting actually sees it -- `cardinaljs_jobs_queued` counts
  * *pending* jobs, so a storm of failing-and-retrying jobs looks identical to a healthy queue from
  * that metric alone. A still-retryable failure must keep logging at `warn`, and says so in its own
  * message (`, will retry`) rather than in a second line.

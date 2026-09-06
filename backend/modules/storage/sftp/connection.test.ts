@@ -217,7 +217,7 @@ describe('connectSftp', () => {
     const putPath = client.put.mock.calls[0].arguments[1]
     const deletePath = client.delete.mock.calls[0].arguments[0]
     assert.equal(putPath, deletePath)
-    assert.match(putPath, /^\/srv\/wiki\/\.wikijs-write-test-/)
+    assert.match(putPath, /^\/srv\/wiki\/\.cardinaljs-write-test-/)
   })
 })
 

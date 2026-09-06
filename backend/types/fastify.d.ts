@@ -2,7 +2,7 @@
  * Module augmentations for Fastify.
  *
  * `@fastify/session` exposes `interface Session` inside the `fastify` module as the extension point
- * for application session data; everything Wiki.js stores on the session is declared here.
+ * for application session data; everything Cardinal.js stores on the session is declared here.
  */
 
 import 'fastify'

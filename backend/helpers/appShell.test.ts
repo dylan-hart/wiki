@@ -28,9 +28,9 @@ describe('templateAppShell', () => {
 
   test('only rewrites the opening <html> tag, leaving the rest of the document untouched', () => {
     const html =
-      '<!DOCTYPE html>\n<html lang="en">\n<head><title>Wiki.js</title></head>\n<body class="wiki-root"><div id="app"></div></body>\n</html>'
+      '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title></head>\n<body class="wiki-root"><div id="app"></div></body>\n</html>'
     const result = templateAppShell(html, { lang: 'de', isRTL: false })
-    assert.match(result, /<title>Wiki\.js<\/title>/)
+    assert.match(result, /<title>Cardinal\.js<\/title>/)
     assert.match(result, /<body class="wiki-root"><div id="app"><\/div><\/body>/)
   })
 

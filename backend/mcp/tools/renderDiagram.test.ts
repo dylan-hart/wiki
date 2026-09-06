@@ -132,7 +132,7 @@ test('handleRenderDiagram: maps the offline PlantUML CustomError onto a usable M
     render: async () => {
       throw new CustomError(
         'diagramRenderOffline',
-        'Wiki.js is in offline mode and cannot reach a PlantUML server to render this diagram.',
+        'Cardinal.js is in offline mode and cannot reach a PlantUML server to render this diagram.',
         503
       )
     }
@@ -143,7 +143,7 @@ test('handleRenderDiagram: maps the offline PlantUML CustomError onto a usable M
       assert.ok(err instanceof McpToolError)
       assert.equal(
         err.message,
-        'Wiki.js is in offline mode and cannot reach a PlantUML server to render this diagram.'
+        'Cardinal.js is in offline mode and cannot reach a PlantUML server to render this diagram.'
       )
       return true
     }
