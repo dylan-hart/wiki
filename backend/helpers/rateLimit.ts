@@ -63,6 +63,41 @@ async function consumeWithBanMemo(key: string, policy: RateLimitPolicy): Promise
 }
 
 /**
+ * Coalesce one limiter's "refused" warn line so a banned client hammering an endpoint produces one
+ * summarised warn per window instead of one per request — the same treatment {@link limitAuthAttempts}
+ * gives its own ban line below, generalised for the other limiters in this file (OpenProject #2731).
+ *
+ * The first `DEFAULT_COALESCE_THRESHOLD` refusals in a window are logged individually via the
+ * caller's `logIndividual` callback (unchanged from what each call site already did); the rest fold
+ * into one summary emitted when the window closes, carrying the window's total refused count both in
+ * the message text (matching `limitAuthAttempts`'s own "N times in Ws" wording) and as a `count`
+ * field, since a fact worth saying is worth putting in a field too.
+ *
+ * `coalesceKey` must already be namespaced per limiter AND per client (callers pass their own
+ * `consume()`/`consumeWithBanMemo()` key straight through, prefixed further below) so one client
+ * hitting two different limiters at once never shares a single summary window, and two different
+ * clients under the same limiter never share one either.
+ */
+function logRefusal(
+  coalesceKey: string,
+  windowMs: number,
+  message: string,
+  clientFields: Record<string, unknown>,
+  logIndividual: () => void
+): void {
+  const logInFull = coalesce(coalesceKey, windowMs, (summary) => {
+    WIKI.logger.warn(
+      'auth',
+      `${message} ${summary.total} times in ${Math.round(summary.windowMs / 1000)}s`,
+      { ...clientFields, count: summary.total }
+    )
+  })
+  if (logInFull) {
+    logIndividual()
+  }
+}
+
+/**
  * Defaults for the limit on the authentication endpoints, used until an administrator saves their own
  * and whenever a stored value is missing or unusable. Ten attempts in five minutes is far more than a
  * person signing in needs and far less than guessing a password takes.
@@ -322,16 +357,25 @@ export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply)
     : req.session?.authenticated
       ? `user:${req.session.user!.id}`
       : `ip:${req.ip}`
-  const verdict = await consumeWithBanMemo(`api:${key}`, apiPolicy())
+  const policy = apiPolicy()
+  const verdict = await consumeWithBanMemo(`api:${key}`, policy)
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.warn('auth', 'rate limit refused', {
-    method: req.method,
-    url: req.url,
-    key,
-    retryAfter: verdict.retryAfter
-  })
+  logRefusal(
+    `api:refused:${key}`,
+    policy.windowSeconds * 1000,
+    'rate limit refused',
+    { key },
+    () => {
+      WIKI.logger.warn('auth', 'rate limit refused', {
+        method: req.method,
+        url: req.url,
+        key,
+        retryAfter: verdict.retryAfter
+      })
+    }
+  )
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -381,12 +425,20 @@ export async function limitPublicRequests(req: FastifyRequest, reply: FastifyRep
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.warn('auth', 'rate limit refused', {
-    method: req.method,
-    url: req.url,
-    key,
-    retryAfter: verdict.retryAfter
-  })
+  logRefusal(
+    `public:refused:${key}`,
+    PUBLIC_DEFAULTS.windowSeconds * 1000,
+    'rate limit refused',
+    { key },
+    () => {
+      WIKI.logger.warn('auth', 'rate limit refused', {
+        method: req.method,
+        url: req.url,
+        key,
+        retryAfter: verdict.retryAfter
+      })
+    }
+  )
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -423,19 +475,25 @@ export async function limitRenders(req: FastifyRequest, reply: FastifyReply): Pr
   if (req.session?.permissions?.includes('manage:system')) {
     return
   }
-  const verdict = await consumeWithBanMemo(
-    `render:${req.session?.user?.id ?? req.ip}`,
-    RENDER_LIMIT
-  )
+  const renderKey = req.session?.user?.id ?? req.ip
+  const verdict = await consumeWithBanMemo(`render:${renderKey}`, RENDER_LIMIT)
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.warn('auth', 'rate limit refused', {
-    method: req.method,
-    url: req.url,
-    ip: req.ip,
-    retryAfter: verdict.retryAfter
-  })
+  logRefusal(
+    `render:refused:${renderKey}`,
+    RENDER_LIMIT.windowSeconds * 1000,
+    'rate limit refused',
+    { ip: req.ip },
+    () => {
+      WIKI.logger.warn('auth', 'rate limit refused', {
+        method: req.method,
+        url: req.url,
+        ip: req.ip,
+        retryAfter: verdict.retryAfter
+      })
+    }
+  )
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many render requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -485,16 +543,25 @@ export async function limitApiKey(req: FastifyRequest, reply: FastifyReply): Pro
   if (!req.apiKey) {
     return
   }
-  const verdict = await consumeWithBanMemo(`apikey:${req.apiKey.id}`, API_KEY_LIMIT)
+  const apiKeyId = req.apiKey.id
+  const verdict = await consumeWithBanMemo(`apikey:${apiKeyId}`, API_KEY_LIMIT)
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.warn('auth', 'rate limit refused', {
-    method: req.method,
-    url: req.url,
-    apiKey: req.apiKey.id,
-    retryAfter: verdict.retryAfter
-  })
+  logRefusal(
+    `apikey:refused:${apiKeyId}`,
+    API_KEY_LIMIT.windowSeconds * 1000,
+    'rate limit refused',
+    { apiKey: apiKeyId },
+    () => {
+      WIKI.logger.warn('auth', 'rate limit refused', {
+        method: req.method,
+        url: req.url,
+        apiKey: apiKeyId,
+        retryAfter: verdict.retryAfter
+      })
+    }
+  )
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many requests for this API key. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -537,12 +604,20 @@ export async function limitGuestComments(req: FastifyRequest, reply: FastifyRepl
   if (verdict.allowed) {
     return
   }
-  WIKI.logger.warn('auth', 'rate limit refused a guest comment', {
-    method: req.method,
-    url: req.url,
-    ip: req.ip,
-    retryAfter: verdict.retryAfter
-  })
+  logRefusal(
+    `comment-guest:refused:${req.ip}`,
+    COMMENT_GUEST_LIMIT.windowSeconds * 1000,
+    'rate limit refused a guest comment',
+    { ip: req.ip },
+    () => {
+      WIKI.logger.warn('auth', 'rate limit refused a guest comment', {
+        method: req.method,
+        url: req.url,
+        ip: req.ip,
+        retryAfter: verdict.retryAfter
+      })
+    }
+  )
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many comments. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
