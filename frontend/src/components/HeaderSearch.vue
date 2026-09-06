@@ -15,11 +15,12 @@
       `top: 100%` on the panel lands on the bottom edge of the header instead of 12px above it.
     -->
     <div class="header-search relative flex h-full min-w-0 flex-1 flex-col justify-center">
-      <div class="header-search-row-inline flex items-stretch">
+      <div
+        class="header-search-row-inline flex items-stretch"
+        :class="{ 'is-focused': state.searchIsFocused }">
         <div
           class="header-search-field"
           :class="{
-            'is-focused': state.searchIsFocused,
             'header-search-field--row': row,
             'header-search-field--docked': !row
           }">
@@ -594,19 +595,6 @@ defineExpose({ focus, state })
     border-inline-end: 0;
   }
 
-  /*
-    Driven by a class rather than `:focus-within` so the field stays marked while the panel below is
-    being used -- clicking a tag in there moves focus out of the input, and the border flicking back
-    mid-interaction reads as a glitch.
-
-    Two classes, so this outranks the `--row` rule above whichever order they end up in.
-  */
-  &-field.is-focused {
-    background-color: $surface;
-    border-color: $slate;
-    color: $ink;
-  }
-
   &-lead {
     flex-shrink: 0;
     font-size: 17px;
@@ -662,17 +650,32 @@ defineExpose({ focus, state })
   }
 }
 
+/*
+  Driven by a class on the row rather than `:focus-within` so the ring stays lit while the panel
+  below is being used -- clicking a tag in there moves focus out of the input, and the border
+  flicking back mid-interaction reads as a glitch.
+
+  The class lands on `.header-search-row-inline`, the flex parent of both the field and the docked
+  tags button, so both controls' shared right edge darkens together instead of the ring stopping at
+  the button (OpenProject #2718). The button's own left edge is absent (the field's `--docked`
+  border-inline-end: 0 leaves that seam to the button), so darkening all four of its sides is fine --
+  the pair still reads as one continuous ring.
+*/
+.header-search-row-inline.is-focused .header-search-field {
+  background-color: $surface;
+  border-color: $slate;
+  color: $ink;
+}
+
+.header-search-row-inline.is-focused .header-search-tags-btn {
+  border-color: $slate;
+}
+
 .body--dark .header-search {
   &-field {
     background-color: $dark-4;
     border-color: $hairline-dark;
     color: $text-caption-dark;
-  }
-
-  &-field.is-focused {
-    background-color: $dark-3;
-    border-color: $slate-light;
-    color: $text-dark;
   }
 
   &-lead {
@@ -688,6 +691,16 @@ defineExpose({ focus, state })
     border-color: $hairline-dark;
     color: $text-caption-dark;
   }
+}
+
+.body--dark .header-search-row-inline.is-focused .header-search-field {
+  background-color: $dark-3;
+  border-color: $slate-light;
+  color: $text-dark;
+}
+
+.body--dark .header-search-row-inline.is-focused .header-search-tags-btn {
+  border-color: $slate-light;
 }
 
 /*

@@ -213,3 +213,44 @@ describe('HeaderSearch autofill', () => {
     expect(wrapper.find('.header-search-input').attributes('autocomplete')).toBe('off')
   })
 })
+
+/**
+ * OpenProject #2718: `is-focused` used to land on `.header-search-field` alone, so the focus ring's
+ * `border-color` only reached the field's own edges -- the docked tags button, an immediate sibling
+ * sharing the field's right edge, stayed on its static hairline and the ring visibly broke where the
+ * two controls meet. The class now lands on `.header-search-row-inline`, the flex parent of both, so
+ * a single ancestor styles both children's shared border together.
+ */
+describe('HeaderSearch focus ring (OpenProject #2718)', () => {
+  it('puts is-focused on the row, not on the field, once the input is focused', async () => {
+    const wrapper = await mountWithTags([])
+
+    const row = wrapper.find('.header-search-row-inline')
+    expect(row.classes()).toContain('is-focused')
+    expect(wrapper.find('.header-search-field').classes()).not.toContain('is-focused')
+  })
+
+  it('keeps both the field and the docked tags button as descendants of the focused row', async () => {
+    const wrapper = await mountWithTags([])
+
+    const row = wrapper.find('.header-search-row-inline.is-focused')
+    expect(row.exists()).toBe(true)
+    expect(row.find('.header-search-field').exists()).toBe(true)
+    expect(row.find('.header-search-tags-btn').exists()).toBe(true)
+  })
+
+  it('does not carry is-focused on the row before the input is focused', async () => {
+    const router = await createTestRouter(['/'])
+
+    const { wrapper } = mountWithApp(HeaderSearch, {
+      router,
+      stores: {
+        site: (store) => {
+          store.features.search = true
+        }
+      }
+    })
+
+    expect(wrapper.find('.header-search-row-inline').classes()).not.toContain('is-focused')
+  })
+})
