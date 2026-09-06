@@ -52,6 +52,7 @@ export async function task(payload?: NotifyEventSubscriptionSubscribersPayload):
       await WIKI.models.mail.sendEventSubscriptionNotification({
         to: recipient.email,
         event,
+        userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
     } catch (err: any) {

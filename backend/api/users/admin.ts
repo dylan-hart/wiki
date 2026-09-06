@@ -614,7 +614,8 @@ async function routes(app: FastifyInstance) {
               to: req.body.email,
               name: displayName,
               token,
-              siteId: req.body.sendWelcomeEmailFromSiteId
+              siteId: req.body.sendWelcomeEmailFromSiteId,
+              userId: id
             })
           } catch (err: any) {
             // -> The user already exists; a failed welcome email must not turn this into a failed

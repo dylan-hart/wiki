@@ -1,7 +1,15 @@
 import { readFileSync } from 'node:fs'
-import { describe, test, before, after, beforeEach, mock } from 'node:test'
+import { describe, test, before, after, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { mail, classifyMailError } from './mail.ts'
+import type { MailKind } from './mail.ts'
+import {
+  mail,
+  classifyMailError,
+  mailFailureLevel,
+  recipientRef,
+  MAIL_UNCONFIGURED_LOG_WINDOW_MS
+} from './mail.ts'
+import { resetCoalesce } from '../helpers/logCoalesce.ts'
 import { interpolate } from './locales.ts'
 import { HOOK_EVENTS } from './hooks.ts'
 
@@ -106,6 +114,19 @@ beforeEach(() => {
   ;(mail as any).transporterSnapshot = null
   mail.getTransporter = originalGetTransporter
   mail.send = originalSend
+  // -> `helpers/logCoalesce.ts`'s window map and the model's own per-window kind set are both
+  //    module/instance state shared by every case in this file, so a refused send in one test
+  //    would otherwise be counted into the next test's summary.
+  resetCoalesce()
+  ;(mail as any).unconfiguredKinds.clear()
+})
+
+afterEach(() => {
+  // -> `mock.timers.reset()` is a no-op when a test never enabled them, so this is safe for the
+  //    whole file rather than only the coalescing describe.
+  mock.timers.reset()
+  resetCoalesce()
+  ;(mail as any).unconfiguredKinds.clear()
 })
 
 describe('mail.isConfigured', () => {
@@ -195,15 +216,109 @@ describe('mail.buildTransportOptions', () => {
 })
 
 describe('mail.getTransporter', () => {
-  test('throws ERR_MAIL_NOT_CONFIGURED and logs when no host is set', () => {
+  test('throws ERR_MAIL_NOT_CONFIGURED when no host is set', () => {
     setMailConfig({ host: '' })
     assert.throws(() => mail.getTransporter(), /ERR_MAIL_NOT_CONFIGURED/)
-    assert.equal((WIKI.logger.warn as any).mock.calls.length, 1)
+  })
+
+  test('logs nothing at the moment of the refusal, only when the window closes', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    setMailConfig({ host: '' })
+    assert.throws(() => mail.getTransporter('digest'), /ERR_MAIL_NOT_CONFIGURED/)
+    // -> The whole point of coalescing: an unconfigured instance refuses EVERY send, so the
+    //    per-attempt line is the noise, not the signal.
+    assert.equal((WIKI.logger.warn as any).mock.calls.length, 0)
   })
 
   test('does not throw once a host is set', () => {
     setMailConfig({ host: 'smtp.example.com' })
     assert.doesNotThrow(() => mail.getTransporter())
+  })
+
+  test('logs the settings actually in force when it builds a transport', () => {
+    setMailConfig({ host: 'smtp.example.com', port: 2525, secure: false })
+    mail.getTransporter('test')
+    const debugCalls = (WIKI.logger.debug as any).mock.calls
+    assert.equal(debugCalls.length, 1)
+    const [scope, , fields] = debugCalls[0].arguments
+    assert.equal(scope, 'mail')
+    assert.deepEqual(fields, { host: 'smtp.example.com', port: 2525, secure: false })
+  })
+
+  test('does not re-log when the config is unchanged, and does when it changes', () => {
+    setMailConfig({ host: 'smtp.example.com', port: 2525, secure: false })
+    mail.getTransporter('test')
+    mail.getTransporter('test')
+    assert.equal((WIKI.logger.debug as any).mock.calls.length, 1)
+
+    // -> A live config edit through the admin area rebuilds the transport, and the new settings
+    //    are exactly what an operator diagnosing the edit wants to see.
+    WIKI.config.mail.port = 587
+    mail.getTransporter('test')
+    const debugCalls = (WIKI.logger.debug as any).mock.calls
+    assert.equal(debugCalls.length, 2)
+    assert.equal(debugCalls[1].arguments[2].port, 587)
+  })
+})
+
+describe('mail unconfigured coalescing', () => {
+  test('folds a burst of refused sends into one summary carrying the total', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    setMailConfig({ host: '' })
+
+    for (let i = 0; i < 5; i++) {
+      assert.throws(() => mail.getTransporter('digest'), /ERR_MAIL_NOT_CONFIGURED/)
+    }
+    assert.equal((WIKI.logger.warn as any).mock.calls.length, 0)
+
+    mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
+
+    const warnCalls = (WIKI.logger.warn as any).mock.calls
+    assert.equal(warnCalls.length, 1)
+    const [scope, , fields] = warnCalls[0].arguments
+    assert.equal(scope, 'mail')
+    assert.equal(fields.dropped, 5)
+  })
+
+  test('names every kind dropped in the window, deduplicated', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    setMailConfig({ host: '' })
+
+    for (const kind of ['digest', 'digest', 'watch', 'verify'] as const) {
+      assert.throws(() => mail.getTransporter(kind))
+    }
+    mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
+
+    const [, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.equal(fields.kinds, 'digest,watch,verify')
+    assert.equal(fields.dropped, 4)
+  })
+
+  test('a single refusal still reports itself once the window closes', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    setMailConfig({ host: '' })
+    assert.throws(() => mail.getTransporter('test'))
+    mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
+
+    const [, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.equal(fields.dropped, 1)
+    assert.equal(fields.kinds, 'test')
+  })
+
+  test("a second window starts fresh rather than carrying the first window's kinds", () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    setMailConfig({ host: '' })
+
+    assert.throws(() => mail.getTransporter('digest'))
+    mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
+    assert.throws(() => mail.getTransporter('verify'))
+    mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
+
+    const warnCalls = (WIKI.logger.warn as any).mock.calls
+    assert.equal(warnCalls.length, 2)
+    assert.equal(warnCalls[0].arguments[2].kinds, 'digest')
+    assert.equal(warnCalls[1].arguments[2].kinds, 'verify')
+    assert.equal(warnCalls[1].arguments[2].dropped, 1)
   })
 })
 
@@ -211,7 +326,14 @@ describe('mail.send', () => {
   test('throws ERR_MAIL_NOT_CONFIGURED without calling sendMail when unconfigured', async () => {
     setMailConfig({ host: '' })
     await assert.rejects(
-      () => mail.send({ to: 'ada@example.com', subject: 'x', html: '<p>x</p>', text: 'x' }),
+      () =>
+        mail.send({
+          to: 'ada@example.com',
+          subject: 'x',
+          html: '<p>x</p>',
+          text: 'x',
+          kind: 'test'
+        }),
       /ERR_MAIL_NOT_CONFIGURED/
     )
   })
@@ -221,7 +343,13 @@ describe('mail.send', () => {
     const sendMail = mock.fn(async (_mailOptions: any) => ({ messageId: '1' }))
     mail.getTransporter = () => ({ sendMail }) as any
 
-    await mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    await mail.send({
+      to: 'ada@example.com',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      kind: 'test'
+    })
 
     assert.equal(sendMail.mock.calls.length, 1)
     const arg = sendMail.mock.calls[0].arguments[0]
@@ -239,7 +367,13 @@ describe('mail.send', () => {
     const sendMail = mock.fn(async (_mailOptions: any) => ({ messageId: '1' }))
     mail.getTransporter = () => ({ sendMail }) as any
 
-    await mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    await mail.send({
+      to: 'ada@example.com',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      kind: 'test'
+    })
 
     const arg = sendMail.mock.calls[0].arguments[0]
     assert.deepEqual(arg.from, { name: 'My Wiki', address: 'wiki@example.com' })
@@ -253,10 +387,19 @@ describe('mail.send', () => {
     mail.getTransporter = () => ({ sendMail }) as any
 
     await assert.rejects(
-      () => mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' }),
+      () =>
+        mail.send({
+          to: 'ada@example.com',
+          subject: 'Hi',
+          html: '<p>Hi</p>',
+          text: 'Hi',
+          kind: 'test'
+        }),
       /connection refused/
     )
-    assert.equal((WIKI.logger.warn as any).mock.calls.length, 1)
+    // -> An uncoded error classifies as `unknown`, which a retry cannot help, so it is an `error`.
+    assert.equal((WIKI.logger.error as any).mock.calls.length, 1)
+    assert.equal((WIKI.logger.info as any).mock.calls.length, 0)
   })
 
   test('logs a connection-classified message when sendMail fails with a transport-level code', async () => {
@@ -269,11 +412,19 @@ describe('mail.send', () => {
     mail.getTransporter = () => ({ sendMail }) as any
 
     await assert.rejects(() =>
-      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+      mail.send({
+        to: 'ada@example.com',
+        subject: 'Hi',
+        html: '<p>Hi</p>',
+        text: 'Hi',
+        kind: 'test'
+      })
     )
     const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
-    assert.equal(fields.kind, 'connection')
+    assert.equal(fields.failure, 'connection')
+    // -> `warn`, not `error`: a refused socket may well answer on the scheduler's next attempt.
+    assert.equal((WIKI.logger.error as any).mock.calls.length, 0)
   })
 
   test('logs an auth-classified message when sendMail fails with EAUTH', async () => {
@@ -286,11 +437,17 @@ describe('mail.send', () => {
     mail.getTransporter = () => ({ sendMail }) as any
 
     await assert.rejects(() =>
-      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+      mail.send({
+        to: 'ada@example.com',
+        subject: 'Hi',
+        html: '<p>Hi</p>',
+        text: 'Hi',
+        kind: 'test'
+      })
     )
-    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    const [scope, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
-    assert.equal(fields.kind, 'auth')
+    assert.equal(fields.failure, 'auth')
   })
 
   test('logs a send-classified message when sendMail fails with an envelope/message code', async () => {
@@ -303,11 +460,17 @@ describe('mail.send', () => {
     mail.getTransporter = () => ({ sendMail }) as any
 
     await assert.rejects(() =>
-      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+      mail.send({
+        to: 'ada@example.com',
+        subject: 'Hi',
+        html: '<p>Hi</p>',
+        text: 'Hi',
+        kind: 'test'
+      })
     )
-    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    const [scope, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
-    assert.equal(fields.kind, 'send')
+    assert.equal(fields.failure, 'send')
   })
 
   test('logs a tls-classified message when sendMail fails with a certificate error', async () => {
@@ -320,11 +483,138 @@ describe('mail.send', () => {
     mail.getTransporter = () => ({ sendMail }) as any
 
     await assert.rejects(() =>
-      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+      mail.send({
+        to: 'ada@example.com',
+        subject: 'Hi',
+        html: '<p>Hi</p>',
+        text: 'Hi',
+        kind: 'test'
+      })
     )
-    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    const [scope, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
-    assert.equal(fields.kind, 'tls')
+    assert.equal(fields.failure, 'tls')
+  })
+
+  test('passes the Error itself, not a formatted message', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    const err: any = new Error('Invalid login')
+    err.code = 'EAUTH'
+    mail.getTransporter = () =>
+      ({
+        sendMail: async () => {
+          throw err
+        }
+      }) as any
+
+    await assert.rejects(() =>
+      mail.send({
+        to: 'ada@example.com',
+        subject: 'Hi',
+        html: '<p>Hi</p>',
+        text: 'Hi',
+        kind: 'test'
+      })
+    )
+    // -> `core/logger.ts` renders the message inline and the stack on following lines; handing it a
+    //    string would throw both of those away.
+    const [, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
+    assert.equal(fields.error, err)
+  })
+
+  test('logs one info line naming the kind and the recipient user id on success', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    mail.getTransporter = () => ({ sendMail: async () => ({ messageId: '1' }) }) as any
+
+    await mail.send({
+      to: 'ada@example.com',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      kind: 'digest',
+      userId: 'user-42'
+    })
+
+    const infoCalls = (WIKI.logger.info as any).mock.calls
+    assert.equal(infoCalls.length, 1)
+    const [scope, , fields] = infoCalls[0].arguments
+    assert.equal(scope, 'mail')
+    assert.deepEqual(fields, { kind: 'digest', to: 'user-42' })
+  })
+
+  test('falls back to an address hash, never the address, when there is no user id', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    mail.getTransporter = () => ({ sendMail: async () => ({ messageId: '1' }) }) as any
+
+    await mail.send({
+      to: 'ada@example.com',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      kind: 'test'
+    })
+
+    const [, , fields] = (WIKI.logger.info as any).mock.calls[0].arguments
+    assert.equal(fields.to, recipientRef('ada@example.com'))
+    assert.doesNotMatch(JSON.stringify(fields), /ada@example\.com/)
+  })
+
+  test('a failed send names the same recipient reference the success line would have', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    const err: any = new Error('Invalid login')
+    err.code = 'EAUTH'
+    mail.getTransporter = () =>
+      ({
+        sendMail: async () => {
+          throw err
+        }
+      }) as any
+
+    await assert.rejects(() =>
+      mail.send({
+        to: 'ada@example.com',
+        subject: 'Hi',
+        html: '<p>Hi</p>',
+        text: 'Hi',
+        kind: 'welcome',
+        userId: 'user-7'
+      })
+    )
+    const [, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
+    assert.equal(fields.kind, 'welcome')
+    assert.equal(fields.to, 'user-7')
+  })
+})
+
+describe('recipientRef', () => {
+  test('prefers the user id when one was threaded', () => {
+    assert.equal(recipientRef('ada@example.com', 'user-42'), 'user-42')
+  })
+
+  test('is stable across case and surrounding whitespace', () => {
+    assert.equal(recipientRef('  Ada@Example.COM '), recipientRef('ada@example.com'))
+  })
+
+  test('never contains the address it stands for', () => {
+    const ref = recipientRef('ada@example.com')
+    assert.doesNotMatch(ref, /ada|example|@/)
+    assert.match(ref, /^[0-9a-f]{12}$/)
+  })
+
+  test('distinguishes two different addresses', () => {
+    assert.notEqual(recipientRef('ada@example.com'), recipientRef('grace@example.com'))
+  })
+})
+
+describe('mailFailureLevel', () => {
+  test('warns for a connection failure the scheduler will retry into', () => {
+    assert.equal(mailFailureLevel('connection'), 'warn')
+  })
+
+  test('errors for every standing fault a retry cannot clear', () => {
+    for (const failure of ['tls', 'auth', 'send', 'unknown'] as const) {
+      assert.equal(mailFailureLevel(failure), 'error', failure)
+    }
   })
 })
 
@@ -1209,5 +1499,162 @@ describe('mail.notificationEvent.<event>.label completeness', () => {
       assert.notEqual(value, key, `"${key}" resolves to its own key -- no label is defined`)
       assert.ok(value.length > 0, `"${key}" must not be empty`)
     }
+  })
+})
+
+/**
+ * Every `send*` wrapper has to name its own `MailKind` — that is the whole mechanism behind `kind=`
+ * on the mail log lines (OpenProject #2675), and a wrapper that forgot to set one would log
+ * `kind=undefined` rather than fail anywhere. A table rather than one test per wrapper: the claim is
+ * identical for all of them, and a new template added without a `kind` should fail here by omission
+ * from this table, not pass by nobody having written its test.
+ */
+describe('mail send wrappers set their own kind', () => {
+  let sendCalls: any[]
+
+  beforeEach(() => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    sendCalls = []
+    mail.send = (async (msg: any) => {
+      sendCalls.push(msg)
+    }) as any
+  })
+
+  const cases: [string, MailKind, () => Promise<void>][] = [
+    [
+      'sendVerifyEmail',
+      'verify',
+      () => mail.sendVerifyEmail({ to: 'a@example.com', name: 'A', token: 't', userId: 'u1' })
+    ],
+    [
+      'sendForgotPassword',
+      'forgotPassword',
+      () => mail.sendForgotPassword({ to: 'a@example.com', name: 'A', token: 't', userId: 'u1' })
+    ],
+    [
+      'sendWelcomeEmail',
+      'welcome',
+      () => mail.sendWelcomeEmail({ to: 'a@example.com', name: 'A', token: 't', userId: 'u1' })
+    ],
+    [
+      'sendPasswordResetConfirmed',
+      'passwordChanged',
+      () => mail.sendPasswordResetConfirmed({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
+    [
+      'sendRegistrationAttemptNotice',
+      'registrationAttempt',
+      () => mail.sendRegistrationAttemptNotice({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
+    ['sendTestEmail', 'test', () => mail.sendTestEmail({ to: 'a@example.com' })],
+    [
+      'sendEventSubscriptionNotification',
+      'eventSubscription',
+      () =>
+        mail.sendEventSubscriptionNotification({
+          to: 'a@example.com',
+          event: 'page:edit',
+          userId: 'u1'
+        })
+    ],
+    [
+      'sendPageWatchNotification',
+      'watch',
+      () =>
+        mail.sendPageWatchNotification({
+          to: 'a@example.com',
+          siteId: DEFAULT_SITE_ID,
+          page: { title: 'T', path: 'a/b', locale: 'en' },
+          action: 'updated',
+          changedFields: ['content'],
+          actorName: 'Ada',
+          userId: 'u1'
+        })
+    ],
+    [
+      'sendPageWatchDigest',
+      'digest',
+      () =>
+        mail.sendPageWatchDigest({
+          to: 'a@example.com',
+          siteId: DEFAULT_SITE_ID,
+          items: [
+            {
+              page: { title: 'T', path: 'a/b', locale: 'en' },
+              action: 'updated',
+              changedFields: ['content'],
+              actorName: 'Ada'
+            }
+          ],
+          userId: 'u1'
+        })
+    ],
+    [
+      'sendEventNotification',
+      'notificationEvent',
+      () =>
+        mail.sendEventNotification({
+          to: 'a@example.com',
+          event: 'page:edit',
+          siteId: DEFAULT_SITE_ID,
+          data: {},
+          userId: 'u1'
+        })
+    ],
+    [
+      'sendNotificationEvent',
+      'notificationEventTemplate',
+      () =>
+        mail.sendNotificationEvent({
+          to: 'a@example.com',
+          event: 'page:edit',
+          siteId: DEFAULT_SITE_ID,
+          userId: 'u1'
+        })
+    ]
+  ]
+
+  for (const [name, kind, run] of cases) {
+    test(`${name} sends kind=${kind}`, async () => {
+      await run()
+      assert.equal(sendCalls.length, 1)
+      assert.equal(sendCalls[0].kind, kind)
+    })
+  }
+
+  test('every MailKind but approval is covered by a wrapper above', () => {
+    // -> `approval` is the one kind composed outside this model (`models/approvalNotifications.ts`
+    //    builds its own body and calls `mail.send` directly), so it has no wrapper to table here.
+    const covered = new Set(cases.map(([, kind]) => kind))
+    const all: MailKind[] = [
+      'verify',
+      'forgotPassword',
+      'welcome',
+      'passwordChanged',
+      'registrationAttempt',
+      'test',
+      'eventSubscription',
+      'watch',
+      'digest',
+      'notificationEvent',
+      'notificationEventTemplate'
+    ]
+    for (const kind of all) {
+      assert.ok(covered.has(kind), `MailKind "${kind}" has no wrapper case above`)
+    }
+  })
+
+  test('a wrapper forwards the userId it was given', async () => {
+    await mail.sendVerifyEmail({ to: 'a@example.com', name: 'A', token: 't', userId: 'u-99' })
+    assert.equal(sendCalls[0].userId, 'u-99')
+  })
+
+  test('a wrapper called without a userId leaves it absent rather than inventing one', async () => {
+    await mail.sendTestEmail({ to: 'a@example.com' })
+    assert.equal(sendCalls[0].userId, undefined)
   })
 })
