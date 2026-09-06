@@ -56,7 +56,11 @@ Page view, against `Cardinal Wiki - Ledger 3x.dc.html`:
   section headings.
 - The footer reads the design's colophon and links to this project.
 - Header and sidebar glyphs matched to the design; nav section headings take the chrome overline.
-- Page-actions rail glyphs matched (pencil, history, export, more).
+- Page-actions rail glyphs matched against the design: history, export and more (the three dots)
+  all still draw what `Cardinal Wiki - Ledger 3x.dc.html` draws. The rail's primary square is the
+  exception, and no longer a match on purpose: the design draws a pencil there, and #2618 replaced
+  it with `tabler:tag` on Dylan's call, since the panel it opens is Page Properties — contents,
+  tags, ratings, comments — not an edit action. A deliberate departure from the mockup, not drift.
 
 Admin, against `Cardinal Wiki - Admin 3x.dc.html`:
 
