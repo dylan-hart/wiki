@@ -660,7 +660,10 @@ describe('logger scopes', () => {
     assert.equal(grandchild!.engine, 'db')
     assert.equal(child!.scope, 'storage')
     assert.equal(child!.engine, undefined)
-    assert.equal(parent!.scope, undefined)
+    // -> `legacy`, not absent: the parent call above is the pre-scope `(msg, context?)` shape, which
+    //    the renderer files under its own sentinel. What matters here is that it is NOT `storage` —
+    //    the child never wrote its scope or its fields back onto the logger it was built from.
+    assert.equal(parent!.scope, 'legacy')
     assert.equal(parent!.target, undefined)
   })
 
@@ -703,9 +706,12 @@ describe('logger scopes', () => {
     primaryLogger.scope('icons', { prefix: 'mdi' }).info('icon set enabled')
 
     assert.equal(logSpy.mock.calls.length, 1)
-    // -> Text mode ignores `context` wholesale today, so the child's fields are not rendered here —
-    //    the text formatter is Task 1's (#2660), not this one's. What matters at this point is only
-    //    that a scoped call goes through the same single renderer and is not dropped.
-    assert.match(logSpy.mock.calls[0]!.arguments[0] as string, /icon set enabled$/)
+    // -> The child's scope lands in the scope column and its fields in the `key=value` tail, which is
+    //    the point: a scoped call goes through the one renderer and comes out indistinguishable from
+    //    the same call written out in full.
+    assert.match(
+      stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string),
+      /\binfo\s+icons\s+icon set enabled {2}prefix=mdi$/
+    )
   })
 })
