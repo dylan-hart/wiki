@@ -8,6 +8,7 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { queue as notifyQueue } from '@/composables/notify'
 import { closeDialog, openDialogs } from '@/composables/dialog'
+import { useDark } from '@/composables/dark'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { buildTestRouter } from '../../test/router.js'
@@ -940,6 +941,41 @@ describe('FileManager design conformance (WP #2625)', () => {
     const path = wrapper.find('.fileman-path')
     expect(path.exists()).toBe(true)
     expect(path.html()).not.toContain('text-grey-7')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2742: the "+ New" trigger's `color` prop was a flat `slate`, with no dark-mode
+ * counterpart -- unlike `.fileman-left` two sections up in this same file, which swaps `$slate` for
+ * `$text-secondary-dark` under `.body--dark`. Because this is an OUTLINE `w-btn`, `WBtn.vue` turns a
+ * non-solid `color` into a bare `color: var(--color-<name>)` inline style with nothing else drawing
+ * a foreground, so `--color-slate` (`#38465f`, no dark override) is what both the label text and the
+ * `tabler:plus` icon (inheriting `currentColor`) rendered in against a dark toolbar.
+ */
+describe('FileManager "+ New" trigger dark mode (OpenProject #2742)', () => {
+  afterEach(() => {
+    useDark().set(false)
+  })
+
+  it('resolves to slate in light mode', async () => {
+    const { wrapper } = await mountFileManager()
+
+    const style = wrapper.find('.fileman-new-btn').attributes('style') ?? ''
+    expect(style).toContain('var(--color-slate)')
+    expect(style).not.toContain('var(--color-text-secondary-dark)')
+
+    wrapper.unmount()
+  })
+
+  it('swaps to a dark-aware tone in dark mode, matching .fileman-left', async () => {
+    useDark().set(true)
+    const { wrapper } = await mountFileManager()
+
+    const style = wrapper.find('.fileman-new-btn').attributes('style') ?? ''
+    expect(style).toContain('var(--color-text-secondary-dark)')
+    expect(style).not.toContain('var(--color-slate)')
 
     wrapper.unmount()
   })

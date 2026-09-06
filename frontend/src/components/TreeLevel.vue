@@ -78,7 +78,7 @@ const rootContextActionList = computed(() => {
   if (props.parentId) {
     return []
   }
-  return contextActionList.filter((c) => c.key === 'newFolder')
+  return contextActionList.value.filter((c) => c.key === 'newFolder')
 })
 
 const level = computed(() => {
