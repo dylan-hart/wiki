@@ -136,7 +136,7 @@ const indicatorDot = computed(() => {
   font-size: 15px;
 }
 
-:global(body.body--dark) .blueprint-icon {
+:global(body.body--dark .blueprint-icon) {
   border-color: var(--color-hairline-dark);
   background-color: var(--color-dark-4);
   color: var(--color-slate-light);

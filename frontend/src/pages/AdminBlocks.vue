@@ -622,7 +622,7 @@ function saveConfig() {
   color: var(--color-ink);
 }
 
-:global(body.body--dark) .admin-subsection-title {
+:global(body.body--dark .admin-subsection-title) {
   color: var(--color-text-dark);
 }
 
@@ -642,7 +642,7 @@ function saveConfig() {
   Lightened for an ink ground the same way `--color-primary-light` is, rather than picking a second
   hex out of the air for a tone none of the dark design sheets happen to draw.
 */
-:global(body.body--dark) .block-origin--custom {
+:global(body.body--dark .block-origin--custom) {
   color: color-mix(in srgb, #7a4a86 55%, white);
 }
 </style>

@@ -122,7 +122,7 @@ defineExpose({ headingId })
   text-transform: none;
 }
 
-:global(body.body--dark) .w-settings-card__hint {
+:global(body.body--dark .w-settings-card__hint) {
   color: var(--color-text-caption-dark);
 }
 
@@ -136,7 +136,7 @@ defineExpose({ headingId })
   text-transform: none;
 }
 
-:global(body.body--dark) .w-settings-card__action {
+:global(body.body--dark .w-settings-card__action) {
   color: var(--color-text-dark);
 }
 
@@ -154,7 +154,7 @@ defineExpose({ headingId })
   text-transform: uppercase;
 }
 
-:global(body.body--dark) .w-settings-card__header {
+:global(body.body--dark .w-settings-card__header) {
   background-color: var(--color-dark-2);
   border-bottom-color: var(--color-hairline-dark);
   color: var(--color-slate-light);
