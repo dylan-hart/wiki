@@ -171,11 +171,21 @@
         viewer (audit entries + filters) with settings embedded in it, not itself a settings form,
         and its filter card above already commits locally the same way -- see
         `docs/decisions/embedded-setting-save-affordance.md`.
+
+        The setting itself is drawn as a settings row -- a plate, the name over its sentence, the
+        control at the trailing edge -- rather than as the hand-written `text-subtitle1` + caption
+        pair it was: it is a fixed, design-time named setting, which is exactly the case the row
+        applies to, while the log table above it is not and keeps its own shape. No tint under it
+        either; a settings row sits on paper, held by the card's hairline. Which of these pages'
+        surfaces take the pattern and which do not is
+        `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
       -->
-      <w-card class="rounded" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
-        <w-card-section>
-          <div class="text-subtitle1">{{ t('admin.audit.retentionTitle') }}</div>
-          <div class="text-caption text-grey mb-2">{{ t('admin.audit.retentionSubtitle') }}</div>
+      <w-card>
+        <w-settings-row
+          icon="tabler:calendar-time"
+          control-width="auto"
+          :label="t('admin.audit.retentionTitle')"
+          :hint="t('admin.audit.retentionSubtitle')">
           <!--
             The days input carries `:rules`, so without `hide-bottom-space` `w-input` reserves a
             hint/error row below its visible box even while empty (see WInput.vue's
@@ -211,7 +221,7 @@
               :loading="state.savingRetention"
               @click="saveRetention" />
           </div>
-        </w-card-section>
+        </w-settings-row>
       </w-card>
     </div>
   </w-page>

@@ -15,6 +15,8 @@ function mountPage() {
       'admin.audit.title': 'Audit Log',
       'admin.audit.event.user.created': 'User Created',
       'admin.audit.none': 'No audit events recorded yet.',
+      'admin.audit.retentionTitle': 'Retention',
+      'admin.audit.retentionSubtitle': 'Entries older than this are trimmed automatically.',
       'common.actions.save': 'Save'
     }
   }).wrapper
@@ -210,6 +212,50 @@ describe('AdminAuditLog', () => {
     expect(row.exists()).toBe(true)
     expect(row.classes()).toContain('items-center')
     expect(row.classes()).not.toContain('items-end')
+
+    wrapper.unmount()
+  })
+
+  /**
+   * The Cardinal settings pattern, as it reaches a VIEWER page —
+   * `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
+   *
+   * The retention setting is a fixed, design-time named setting with one control at the trailing
+   * edge, so it takes the settings row. The log table above it is a data-driven collection and
+   * takes nothing: its rows carry an event, an actor, a target, a detail blob and a date, none of
+   * which fit a label/hint/control triple.
+   */
+  it('draws the retention setting as a settings row and leaves the log table alone', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'audit-log/settings') {
+        return { json: () => Promise.resolve({ retentionDays: 180 }) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const wrapper = mountPage()
+    await flush(wrapper)
+
+    const rows = wrapper.findAll('.w-settings-row')
+    expect(rows).toHaveLength(1)
+
+    const retention = rows[0]
+    expect(retention.find('.blueprint-icon').exists()).toBe(true)
+    expect(retention.find('.w-settings-row__label').text()).toBe('Retention')
+    expect(retention.find('.w-settings-row__hint').text()).toBe(
+      'Entries older than this are trimmed automatically.'
+    )
+    // -> Both controls stay in the one trailing slot, and the card-local Save stays card-local
+    //    (`docs/decisions/embedded-setting-save-affordance.md`).
+    const control = retention.find('.w-settings-row__control')
+    expect(control.find('input[type="number"]').exists()).toBe(true)
+    expect(control.text()).toContain('Save')
+    expect(wrapper.find('.retention-actions').exists()).toBe(true)
+
+    // -> The old hand-written heading is gone, and no band replaced it: a single-purpose card whose
+    //    one row names itself needs no strip repeating the same word above it.
+    expect(wrapper.find('.text-subtitle1').exists()).toBe(false)
+    expect(wrapper.findAll('.w-section-header')).toHaveLength(0)
 
     wrapper.unmount()
   })
