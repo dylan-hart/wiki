@@ -1,28 +1,26 @@
 <template>
   <w-page class="profile-api">
-    <div class="flex items-center p-4">
-      <div class="min-w-0 flex-1">
-        <h1 class="w-section-header">{{ t('profile.api.title') }}</h1>
-        <div class="text-body2 text-grey">{{ t('profile.api.subtitle') }}</div>
-      </div>
-      <div class="flex-none">
-        <w-btn
-          class="acrylic-btn me-2"
-          icon="tabler:refresh"
-          flat
-          color="slate"
-          :loading="state.loading > 0"
-          :aria-label="t(`common.actions.refresh`)"
-          @click="refresh">
-          <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          icon="tabler:plus"
-          :label="t(`profile.api.newKeyButton`)"
-          color="primary"
-          @click="newKey"
-          :disabled="state.loading > 0" />
-      </div>
+    <h1 class="w-section-header">{{ t('profile.api.title') }}</h1>
+    <div class="p-4 pb-0">
+      <div class="text-body2 text-grey">{{ t('profile.api.subtitle') }}</div>
+    </div>
+    <div class="actions-bar">
+      <w-btn
+        class="acrylic-btn me-2"
+        icon="tabler:refresh"
+        flat
+        color="slate"
+        :loading="state.loading > 0"
+        :aria-label="t(`common.actions.refresh`)"
+        @click="refresh">
+        <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
+      </w-btn>
+      <w-btn
+        icon="tabler:plus"
+        :label="t(`profile.api.newKeyButton`)"
+        color="primary"
+        @click="newKey"
+        :disabled="state.loading > 0" />
     </div>
     <w-separator inset />
     <div class="p-4">
