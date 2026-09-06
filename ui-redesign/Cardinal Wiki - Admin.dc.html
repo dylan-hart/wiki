@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;font-family:Barlow,system-ui,sans-serif}
+a{color:#c14a52;text-decoration:none}a:hover{color:#e4676b}
+@keyframes cwdraw{from{stroke-dasharray:0 420}to{stroke-dasharray:420 0}}
+@keyframes cwpop{0%{opacity:0;transform:scale(.55)}70%{opacity:1;transform:scale(1.08)}100%{opacity:1;transform:scale(1)}}
+@keyframes cwrise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes cwsweep{from{transform:translateX(-14px)}to{transform:translateX(14px)}}
+@keyframes cwspin{to{transform:rotate(360deg)}}
+</style></helmet>
+<div style="background:#f5f6f9;min-height:100vh" data-screen-label="Admin — Dashboard">
+  <div style="height:58px;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 18px;gap:18px;position:sticky;top:0;z-index:5">
+    <div style="display:flex;align-items:center;gap:10px;flex:none;min-width:200px">
+      <svg width="30" height="30" viewBox="0 0 32 32"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg>
+      <div>
+        <div style="font:700 20px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div>
+        <div style="font:500 8.5px/1.2 'Roboto Mono',monospace;letter-spacing:.22em;color:#64789f;text-transform:uppercase">Platform wiki</div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:0;overflow:hidden;display:flex;justify-content:center">
+      <span style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.24em;color:#8a99b8;text-transform:uppercase;border:1px solid #dbe1ec;padding:5px 12px;white-space:nowrap">Admin area</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:20px;color:#64789f;flex:none">
+      <div style="height:32px;border:1px solid #dbe1ec;color:#38465f;display:flex;align-items:center;gap:8px;padding:0 14px;font:500 12.5px Barlow;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.5" style="flex:none"><path d="M15 4l5 8-5 8"></path><path d="M20 12H4"></path></svg>Exit admin</div>
+      <div style="width:28px;height:28px;background:#38465f;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px 'Barlow Condensed',sans-serif">DH</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:stretch">
+    <div style="flex:0 0 288px;background:#fff;border-right:1px solid #dbe1ec;padding:18px 0">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 18px;background:#f5f6f9;border-left:2px solid #e4676b;font:500 13.5px Barlow;color:#1c2233">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e4676b" stroke-width="1.5"><rect x="3" y="4" width="18" height="16"></rect><path d="M3 9h18M11 9v11"></path></svg>Dashboard
+      </div>
+      <div style="height:1px;background:#dbe1ec;margin:14px 0"></div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase;padding:0 18px 8px">Site</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg>General</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"></path></svg>Locale</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M4 4l16 6-7 3-3 7z"></path></svg>Navigation</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M6 3h8l4 4v14H6z"></path><path d="M9 11h6M9 15h6"></path></svg>Pages<span style="flex:1"></span><span style="font:500 10.5px 'Roboto Mono',monospace;color:#8a99b8;border:1px solid #dbe1ec;padding:1px 6px">248</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M3 12l9-9h9v9l-9 9z"></path><circle cx="16.5" cy="7.5" r="1.3"></circle></svg>Tags<span style="flex:1"></span><span style="font:500 10.5px 'Roboto Mono',monospace;color:#8a99b8;border:1px solid #dbe1ec;padding:1px 6px">37</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><rect x="3" y="3" width="18" height="18"></rect><path d="M3 15h18"></path><circle cx="7.5" cy="18" r="1.2"></circle><circle cx="12" cy="18" r="1.2"></circle></svg>Theme</div>
+      </div>
+      <div style="height:1px;background:#dbe1ec;margin:14px 0"></div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase;padding:0 18px 8px">Users</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><circle cx="9" cy="8" r="3"></circle><path d="M3 20a6 6 0 0 1 12 0"></path><path d="M16 6a3 3 0 0 1 0 6M18 20a6 6 0 0 0-3-5.2"></path></svg>Groups<span style="flex:1"></span><span style="font:500 10.5px 'Roboto Mono',monospace;color:#8a99b8;border:1px solid #dbe1ec;padding:1px 6px">9</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><rect x="3" y="4" width="18" height="16"></rect><circle cx="9" cy="11" r="2.4"></circle><path d="M5.5 17a4 4 0 0 1 7 0M15 10h4M15 14h4"></path></svg>Users<span style="flex:1"></span><span style="font:500 10.5px 'Roboto Mono',monospace;color:#8a99b8;border:1px solid #dbe1ec;padding:1px 6px">1,204</span></div>
+      </div>
+      <div style="height:1px;background:#dbe1ec;margin:14px 0"></div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase;padding:0 18px 8px">Modules</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M4 4v16h16"></path><path d="M7 15l4-5 3 3 5-7"></path></svg>Analytics</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><rect x="4" y="10" width="16" height="11"></rect><path d="M8 10V7a4 4 0 0 1 8 0"></path></svg>Authentication</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M4 5h16v11H9l-5 4z"></path><path d="M8 9h8M8 12h5"></path></svg>Comments</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><rect x="3" y="4" width="6" height="6"></rect><rect x="15" y="14" width="6" height="6"></rect><path d="M9 7h6v10"></path></svg>Rendering</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5L21 21"></path></svg>Search Engine</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><rect x="3" y="4" width="18" height="6"></rect><rect x="3" y="14" width="18" height="6"></rect><path d="M7 7h.01M7 17h.01"></path></svg>Storage</div>
+      </div>
+      <div style="height:1px;background:#dbe1ec;margin:14px 0"></div>
+      <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase;padding:0 18px 8px">System</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M6 3v7a4 4 0 0 0 4 4h8"></path><path d="M6 21v-7"></path><path d="M15 11l3 3-3 3"></path></svg>API Access</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><rect x="3" y="5" width="18" height="14"></rect><path d="M3 7l9 6 9-6"></path></svg>Mail</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path><path d="M9 12l2.2 2.2L15.5 10"></path></svg>Security</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M4 15a4 4 0 0 1 1-7.9A5.5 5.5 0 0 1 16 7a4 4 0 0 1 3 8"></path><rect x="9" y="14" width="7" height="6"></rect></svg>SSL</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M4 7h16M4 12h16M4 17h16"></path><circle cx="9" cy="7" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="7" cy="17" r="1.6"></circle></svg>System Info</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M14 4a4.5 4.5 0 0 0 6 6L11 19a3 3 0 1 1-4-4z"></path></svg>Utilities</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"></path></svg>Developer Tools</div>
+      </div>
+      <div style="height:1px;background:#dbe1ec;margin:14px 0"></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e4676b" stroke-width="1.5"><path d="M12 20S4 15 4 9.5A4 4 0 0 1 12 7a4 4 0 0 1 8 2.5C20 15 12 20 12 20z"></path></svg>Contribute</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="background:#fff;border-bottom:1px solid #dbe1ec;padding:28px 28px 24px;display:flex;align-items:center;gap:22px;flex-wrap:wrap">
+        <div style="width:76px;height:76px;border:1px solid #dbe1ec;background:#f5f6f9;display:flex;align-items:center;justify-content:center;position:relative;flex:none">
+          <svg width="46" height="46" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards">
+              <rect x="6" y="10" width="52" height="44"></rect>
+              <path d="M6 22h52M26 22v32"></path>
+            </g>
+            <g fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center">
+              <rect x="32" y="38" width="5" height="10"></rect>
+              <rect x="41" y="31" width="5" height="17"></rect>
+              <rect x="50" y="35" width="5" height="13"></rect>
+            </g>
+          </svg>
+          <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+          <i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-top:1px solid #64789f"></i>
+          <i style="position:absolute;bottom:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+          <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#e4676b;text-transform:uppercase;padding-bottom:8px">Admin &middot; overview</div>
+          <h1 style="font:700 36px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin:0">Dashboard</h1>
+          <div style="font:400 15px/1.5 Barlow;color:#64789f;margin-top:6px">System status and recent activity for this instance.</div>
+        </div>
+        <div style="display:flex;gap:8px;flex:none">
+          <div style="height:32px;width:34px;border:1px solid #dbe1ec;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.6"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v4h-4"></path></svg></div>
+          <div style="height:32px;background:#e4676b;color:#fff;display:flex;align-items:center;gap:8px;padding:0 14px;font:500 12.5px Barlow;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" style="flex:none"><path d="M5 12l4.5 4.5L19 7"></path></svg>Save changes</div>
+        </div>
+      </div>
+      <div style="padding:26px 28px 44px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
+          <div style="background:#fff;border:1px solid #dbe1ec;padding:18px;position:relative;animation:cwrise .5s ease both">
+            <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase">Pages</div>
+            <div style="font:700 44px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin-top:10px">248</div>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:#64789f">+6 this week</div>
+            <div style="position:absolute;top:14px;right:14px;opacity:.5"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M6 3h8l4 4v14H6z"></path><path d="M9 11h6M9 15h6"></path></svg></div>
+          </div>
+          <div style="background:#fff;border:1px solid #dbe1ec;padding:18px;position:relative;animation:cwrise .5s .08s ease both">
+            <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase">Users</div>
+            <div style="font:700 44px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin-top:10px">1,204</div>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:#64789f">41 active today</div>
+            <div style="position:absolute;top:14px;right:14px;opacity:.5"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><circle cx="12" cy="9" r="3"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg></div>
+          </div>
+          <div style="background:#fff;border:1px solid #dbe1ec;padding:18px;position:relative;animation:cwrise .5s .16s ease both">
+            <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase">Groups</div>
+            <div style="font:700 44px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin-top:10px">9</div>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:#64789f">3 with write access</div>
+            <div style="position:absolute;top:14px;right:14px;opacity:.5"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><circle cx="9" cy="8" r="3"></circle><path d="M3 20a6 6 0 0 1 12 0"></path><path d="M16 6a3 3 0 0 1 0 6"></path></svg></div>
+          </div>
+          <div style="background:#1c2233;border:1px solid #1c2233;border-left:2px solid #e4676b;padding:18px;position:relative;animation:cwrise .5s .24s ease both">
+            <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#8a99b8;text-transform:uppercase">Version</div>
+            <div style="font:700 30px/1.1 'Barlow Condensed',sans-serif;color:#fff;margin-top:10px">Cardinal 1.0.0</div>
+            <div style="font:400 12px 'Roboto Mono',monospace;color:#8ea6cf;margin-top:4px">Up to date</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-top:16px">
+          <div style="background:#fff;border:1px solid #dbe1ec">
+            <div style="border-bottom:1px solid #dbe1ec;background:#eef1f7;padding:10px 16px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#38465f;text-transform:uppercase">Recent pages</div>
+            <div style="display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #eef1f7"><span style="font:500 14px Barlow;color:#1c2233;flex:1;min-width:0">Deploying the ingest workers</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#8a99b8">/docs/ingest/workers</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f;flex:none">Tue 4:12 PM</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #eef1f7"><span style="font:500 14px Barlow;color:#1c2233;flex:1;min-width:0">Dead-letter policy</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#8a99b8">/docs/ingest/dlq</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f;flex:none">Tue 9:03 AM</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #eef1f7"><span style="font:500 14px Barlow;color:#1c2233;flex:1;min-width:0">On-call rotation</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#8a99b8">/team/on-call</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f;flex:none">Mon 6:40 PM</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px"><span style="font:500 14px Barlow;color:#1c2233;flex:1;min-width:0">Style guide</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#8a99b8">/docs/style</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f;flex:none">Sun 1:22 PM</span></div>
+            </div>
+          </div>
+          <div style="background:#fff;border:1px solid #dbe1ec">
+            <div style="border-bottom:1px solid #dbe1ec;background:#eef1f7;padding:10px 16px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#38465f;text-transform:uppercase">Last logins</div>
+            <div style="display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #eef1f7"><span style="font:500 14px Barlow;color:#1c2233;flex:1">Dylan Hart</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f">Today 8:02 AM</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #eef1f7"><span style="font:500 14px Barlow;color:#1c2233;flex:1">Maya Reyes</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f">Today 7:41 AM</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #eef1f7"><span style="font:500 14px Barlow;color:#1c2233;flex:1">Sam Okafor</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f">Yesterday 11:15 PM</span></div>
+              <div style="display:flex;align-items:center;gap:12px;padding:11px 16px"><span style="font:500 14px Barlow;color:#1c2233;flex:1">Priya Nair</span><span style="font:400 11.5px 'Roboto Mono',monospace;color:#64789f">Yesterday 5:58 PM</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="border-top:1px solid #dbe1ec;background:#fff;padding:16px 28px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font:400 11.5px 'Roboto Mono',monospace;color:#8a99b8">
+        <span>Cardinal wiki &middot; admin</span><span>&copy; 2026</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid #dbe1ec;background:#eef0f5;padding:34px 28px 48px" data-screen-label="Admin icon sheet">
+    <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;padding-bottom:22px">
+      <div style="flex:1;min-width:260px">
+        <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#e4676b;text-transform:uppercase;padding-bottom:8px">Specimen sheet &middot; 01</div>
+        <h2 style="font:700 32px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin:0">Admin section icons</h2>
+        <div style="font:400 14.5px/1.55 Barlow;color:#64789f;margin-top:6px;max-width:620px">Replacements for the 80px Icons8 gradient headers. Drafted at 64&nbsp;units: slate hairline construction, one red element per icon, corner registration on the plate. Each draws itself on mount — press replay to watch the set again.</div>
+      </div>
+      <div onClick="{{ replay }}" style="height:34px;border:1px solid #38465f;background:#fff;color:#1c2233;display:flex;align-items:center;gap:8px;padding:0 14px;font:500 12.5px Barlow;cursor:pointer;flex:none" style-hover="background:#38465f;color:#ffffff">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v4h-4"></path></svg>Replay animation
+      </div>
+    </div>
+    <sc-if value="{{ iconsShown }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:14px">
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px;position:relative">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><rect x="6" y="10" width="52" height="44"></rect><path d="M6 22h52M26 22v32"></path></g>
+            <g fill="#e4676b" style="animation:cwpop .5s .6s ease both;transform-box:fill-box;transform-origin:center"><rect x="32" y="38" width="5" height="10"></rect><rect x="41" y="31" width="5" height="17"></rect><rect x="50" y="35" width="5" height="13"></rect></g>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Dashboard</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s .05s ease forwards"><rect x="8" y="8" width="20" height="20"></rect><rect x="36" y="8" width="20" height="20"></rect><rect x="8" y="36" width="20" height="20"></rect></g>
+            <rect x="36" y="36" width="20" height="20" fill="#e4676b" style="animation:cwpop .5s .65s ease both;transform-box:fill-box;transform-origin:center"></rect>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">General</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.4s ease forwards"><circle cx="32" cy="32" r="24"></circle><path d="M8 32h48M32 8c8 8 8 40 0 48M32 8c-8 8-8 40 0 48"></path></g>
+            <circle cx="44" cy="21" r="4" fill="#e4676b" style="animation:cwpop .5s .8s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Locale</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><path d="M10 10l44 17-19 8-8 19z"></path></g>
+            <path d="M35 35l19 19" stroke="#e4676b" stroke-width="3" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Navigation</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><path d="M14 6h26l12 12v40H14z"></path><path d="M24 30h20M24 38h20M24 46h12"></path></g>
+            <path d="M40 6l12 12H40z" fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Pages</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><path d="M6 32L32 6h26v26L32 58z"></path></g>
+            <circle cx="45" cy="19" r="4.5" fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Tags</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><rect x="6" y="8" width="52" height="48"></rect><path d="M6 40h52"></path></g>
+            <g style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"><rect x="12" y="45" width="8" height="6" fill="#e4676b"></rect><rect x="24" y="45" width="8" height="6" fill="#64789f"></rect><rect x="36" y="45" width="8" height="6" fill="#a9b7d0"></rect></g>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Theme</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><circle cx="24" cy="22" r="9"></circle><path d="M8 54a16 16 0 0 1 32 0"></path><path d="M42 15a9 9 0 0 1 0 16M48 54a16 16 0 0 0-8-13.9"></path></g>
+            <circle cx="46" cy="23" r="3.5" fill="#e4676b" style="animation:cwpop .5s .75s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Groups</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><rect x="6" y="10" width="52" height="44"></rect><circle cx="24" cy="27" r="7"></circle><path d="M13 46a11 11 0 0 1 22 0M42 24h10M42 32h10"></path></g>
+            <path d="M42 40h10" stroke="#e4676b" stroke-width="3" style="animation:cwpop .5s .75s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Users</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><path d="M10 8v48h48"></path><path d="M18 42l12-14 9 8 15-20"></path></g>
+            <g fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"><circle cx="30" cy="28" r="3.6"></circle><circle cx="54" cy="16" r="3.6"></circle></g>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Analytics</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><rect x="12" y="28" width="40" height="28"></rect><path d="M22 28V18a10 10 0 0 1 20 0v10"></path></g>
+            <rect x="29" y="38" width="6" height="10" fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></rect>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Auth</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><path d="M8 10h48v32H24L8 56z"></path><path d="M18 22h28M18 32h18"></path></g>
+            <circle cx="50" cy="32" r="4" fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Comments</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><rect x="6" y="8" width="20" height="18"></rect><rect x="38" y="38" width="20" height="18"></rect><path d="M26 17h22v21"></path></g>
+            <path d="M48 30l-5 8h10z" fill="#e4676b" style="animation:cwpop .5s .75s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Rendering</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><circle cx="27" cy="27" r="18"></circle><path d="M20 27a7 7 0 0 1 7-7"></path></g>
+            <path d="M40 40l14 14" stroke="#e4676b" stroke-width="4" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Search</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><rect x="8" y="10" width="48" height="16"></rect><rect x="8" y="38" width="48" height="16"></rect><path d="M40 18h8M40 46h8"></path></g>
+            <g fill="#e4676b" style="animation:cwpop .5s .75s ease both;transform-box:fill-box;transform-origin:center"><circle cx="18" cy="18" r="3.4"></circle><circle cx="18" cy="46" r="3.4"></circle></g>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Storage</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><path d="M16 6v16a10 10 0 0 0 10 10h22"></path><path d="M16 58V38"></path><path d="M40 24l10 8-10 8"></path></g>
+            <circle cx="16" cy="58" r="4" fill="#e4676b" style="animation:cwpop .5s .75s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">API</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><rect x="6" y="14" width="52" height="36"></rect><path d="M6 20l26 18 26-18"></path></g>
+            <circle cx="48" cy="44" r="5" fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Mail</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><path d="M32 6l22 8v18c0 14-10 22-22 26C20 54 10 46 10 32V14z"></path></g>
+            <path d="M22 32l7 7 14-15" stroke="#e4676b" stroke-width="3.4" style="animation:cwpop .55s .8s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Security</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><path d="M14 34a11 11 0 0 1 3-21 15 15 0 0 1 29 2 11 11 0 0 1 6 20"></path><rect x="24" y="34" width="18" height="18"></rect></g>
+            <path d="M33 40v6" stroke="#e4676b" stroke-width="3.4" style="animation:cwpop .5s .8s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">SSL</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><path d="M8 18h48M8 32h48M8 46h48"></path><circle cx="24" cy="18" r="5"></circle><circle cx="40" cy="46" r="5"></circle></g>
+            <circle cx="34" cy="32" r="5.5" fill="#e4676b" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">System</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.3s ease forwards"><path d="M38 8a12 12 0 0 0 16 16L26 52a8 8 0 1 1-11-11z"></path></g>
+            <circle cx="20" cy="46" r="3.4" fill="#e4676b" style="animation:cwpop .5s .8s ease both;transform-box:fill-box;transform-origin:center"></circle>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Utilities</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#38465f" stroke-width="2.2" style="animation:cwdraw 1.2s ease forwards"><path d="M22 12l-8 8 8 8M42 12l8 8-8 8"></path><path d="M8 52h48"></path></g>
+            <path d="M28 40h8" stroke="#e4676b" stroke-width="3.4" style="animation:cwpop .5s .7s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Developer</div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:12px">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <g stroke="#e4676b" stroke-width="2.6" style="animation:cwdraw 1.3s ease forwards"><path d="M32 54S8 40 8 24A11 11 0 0 1 32 17a11 11 0 0 1 24 7c0 16-24 30-24 30z"></path></g>
+            <path d="M14 30h10l4-7 5 14 4-7h11" stroke="#38465f" stroke-width="2.4" style="animation:cwpop .6s .8s ease both;transform-box:fill-box;transform-origin:center"></path>
+          </svg>
+          <div style="font:500 11px 'Roboto Mono',monospace;letter-spacing:.12em;color:#38465f;text-transform:uppercase">Contribute</div>
+        </div>
+
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440}}">
+class Component extends DCLogic {
+  state = { iconsShown: true };
+  renderVals() {
+    return {
+      iconsShown: this.state.iconsShown,
+      replay: () => {
+        this.setState({ iconsShown: false })
+        requestAnimationFrame(() => this.setState({ iconsShown: true }))
+      }
+    }
+  }
+}
+</script>
+</body>
+</html>
