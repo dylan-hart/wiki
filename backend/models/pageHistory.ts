@@ -333,7 +333,8 @@ export type PageHistoryContributorCounts = {
 
 /**
  * Where a page stands in its own history, for the metadata rail's Revision section (OpenProject
- * #2651): which version this is, and how much the change that produced it moved.
+ * #2651, and its `via` for #2719's MCP provenance badge): which version this is, how much the
+ * change that produced it moved, and what actually wrote it.
  *
  * `changeCount` is ABSENT rather than zero when there is nothing to compare against — a page whose
  * only version is its creation, or one with no history at all. The two are rendered differently
@@ -345,6 +346,12 @@ export type PageRevisionSummary = {
   ordinal: number
   /** Lines added plus lines removed between the newest version and the one before it. */
   changeCount?: number
+  /**
+   * What actually made the newest version: `editor` for the standard editor (every REST-API-driven
+   * save), `mcp` for an MCP tool call. Falls back to the column's own default, `editor`, on a page
+   * whose history has been purged out from under it -- there is no row left to answer from.
+   */
+  via: PageHistoryVia
 }
 
 /**
@@ -611,7 +618,7 @@ class PageHistory {
         .from(pageHistoryTable)
         .where(eq(pageHistoryTable.pageId, pageId)),
       WIKI.db
-        .select({ content: pageHistoryTable.content })
+        .select({ content: pageHistoryTable.content, via: pageHistoryTable.via })
         .from(pageHistoryTable)
         .where(eq(pageHistoryTable.pageId, pageId))
         .orderBy(desc(pageHistoryTable.versionDate), desc(pageHistoryTable.id))
@@ -619,12 +626,16 @@ class PageHistory {
     ])
     // -> A page with no history at all is still on its first version, so the floor is 1, not 0
     const ordinal = Math.max(totals[0]?.total ?? 0, 1)
+    // -> No row to read a `via` off of (history purged out from under a still-existing page): the
+    //    column's own default, rather than leaving the newest version's provenance unanswered
+    const via = (newest[0]?.via ?? 'editor') as PageHistoryVia
     // -> Nothing before it to differ from: the clause is omitted, never sent as a zero
     if (newest.length < 2) {
-      return { ordinal }
+      return { ordinal, via }
     }
     return {
       ordinal,
+      via,
       // -> `content` is nullable, and a version that held no source contributes no lines
       changeCount: countChangedLines(newest[1]!.content ?? '', newest[0]!.content ?? '')
     }
