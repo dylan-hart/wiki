@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DOMWrapper } from '@vue/test-utils'
 
 import ProfileApiKeyCreateDialog from './ProfileApiKeyCreateDialog.vue'
-import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
+import {
+  CHROMIUM_TIMEOUT,
+  chromium,
+  hasChromium,
+  measureClassificationGrid
+} from '../../test/realGridLayout.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
@@ -200,10 +205,12 @@ describe('ProfileApiKeyCreateDialog layout', () => {
   browser launch, a page and a stylesheet build while seven other files are transforming. The 5s
   default timed this out intermittently -- a scheduling fact about the whole run, not anything about
   the layout being measured, which passes in well under a second once the browser is up.
+  `CHROMIUM_TIMEOUT` (`test/realGridLayout.js`) is the one constant every real-Chromium suite passes
+  for this, rather than each carrying its own literal (OpenProject #2730).
 */
 describe(
   'ProfileApiKeyCreateDialog classification grid — real layout',
-  { skip: !hasChromium(), timeout: 30000 },
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
   () => {
     let browser
 
