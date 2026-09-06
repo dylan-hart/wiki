@@ -24,6 +24,7 @@ e2e/
 .devcontainer/
 .vscode/
 .github/
+scripts/
 
 # Docs and local working notes: never read by the running app.
 docs/

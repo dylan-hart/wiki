@@ -35,6 +35,7 @@
     "typecheck:watch": "tsc --watch",
     "test": "node --test '**/!(*.flaky).test.ts'",
     "test:flaky": "node --test '**/*.flaky.test.ts'",
+    "verify:ci": "bash ../scripts/verify-ci.sh",
     "seed-rtl-test-locale": "node scripts/seed-rtl-test-locale.ts",
     "block-locale-keys": "node scripts/blockLocaleKeys.ts",
     "block-locale-keys:check": "node scripts/blockLocaleKeys.ts --check",
