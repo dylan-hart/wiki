@@ -18,16 +18,6 @@ function headersFor(permissions: string[]) {
   }
 }
 
-/**
- * Regression test for the two `response` schema gaps on `GET /` and `GET /:code/strings`: with no
- * `response` block, the generated OpenAPI document has no concrete schema for the 200 response
- * (Swagger UI then renders the empty-body fallback instead of an example). The primary assertions
- * below inspect the generated document itself, since that is literally what the task is about; the
- * injection tests underneath additionally guard against a schema that is present but wrong — narrower
- * than the real shape, which fast-json-stringify would silently enforce by dropping fields rather than
- * throwing.
- */
-
 const sampleLocale = {
   code: 'en',
   isRTL: false,
@@ -55,7 +45,6 @@ let currentEnStrings: Record<string, string> = sampleStrings
 before(async () => {
   app = await buildTestApp({
     routes: localesRoutes,
-    swagger: true,
     session: 'header',
     permissions: true,
     wiki: {
@@ -72,34 +61,11 @@ before(async () => {
 
 after(() => closeTestApp(app))
 
-test('GET / documents a concrete 200 response schema', () => {
-  const doc: any = app.swagger()
-  const responseSchema = doc.paths['/'].get.responses['200'].content['application/json'].schema
-  assert.equal(responseSchema.type, 'array')
-  assert.equal(responseSchema.items.type, 'object')
-  assert.deepEqual(Object.keys(responseSchema.items.properties).sort(), [
-    'code',
-    'completeness',
-    'createdAt',
-    'isRTL',
-    'language',
-    'name',
-    'nativeName',
-    'updatedAt'
-  ])
-})
-
-test('GET /:code/strings documents a concrete 200 response schema', () => {
-  const doc: any = app.swagger()
-  const responseSchema =
-    doc.paths['/{code}/strings'].get.responses['200'].content['application/json'].schema
-  // -> Either shape the handler can actually return: the strings map, or `[]` for an unknown code.
-  const alternatives = responseSchema.oneOf ?? responseSchema.anyOf
-  assert.ok(Array.isArray(alternatives) && alternatives.length === 2)
-  assert.ok(alternatives.some((s: any) => s.type === 'object'))
-  assert.ok(alternatives.some((s: any) => s.type === 'array'))
-})
-
+// -> The "documents a concrete 200 response schema" pair (`GET /` and `GET /:code/strings`) was
+//    removed by OpenProject #2690 (`docs/testing-audit/backend.md`'s `api/locales.test.ts` row):
+//    they restated the route file's own schema declaration and lost nothing —
+//    `api/responseErrors.test.ts` covers the error-response half of this structurally, and the
+//    serialization tests below already exercise the 200 body for real.
 test('GET / serializes every field of a locale row', async () => {
   const res = await app.inject({ method: 'GET', url: '/' })
   assert.equal(res.statusCode, 200)

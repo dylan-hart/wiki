@@ -4,43 +4,12 @@ import Fastify from 'fastify'
 
 import { registerSchemas } from './security.ts'
 
-/**
- * Task 636: the `SecurityConfig` shared schema must declare the four `apiRateLimit*` properties
- * (added to `models/security.ts`'s `SECURITY_FIELDS` by task 635) with the same shape as the
- * `authRateLimit*` block just above them -- otherwise a value the admin area PUTs would be
- * silently stripped by Fastify's schema validation before it ever reaches the route handler.
- */
-describe('SecurityConfig schema apiRateLimit* properties', () => {
-  it('declares apiRateLimitEnabled/Max/Window/Ban with the same shape as authRateLimit*', async () => {
-    const app = Fastify()
-    await registerSchemas(app)
-
-    const schema = app.getSchema('SecurityConfig') as { properties: Record<string, any> }
-    const props = schema.properties
-
-    for (const key of [
-      'authRateLimitEnabled',
-      'authRateLimitMax',
-      'authRateLimitWindow',
-      'authRateLimitBan'
-    ]) {
-      assert.ok(props[key], `expected the existing ${key} property to be present`)
-    }
-
-    assert.equal(props.apiRateLimitEnabled?.type, 'boolean')
-
-    assert.equal(props.apiRateLimitMax?.type, 'integer')
-    assert.equal(props.apiRateLimitMax?.minimum, 1)
-
-    assert.equal(props.apiRateLimitWindow?.type, 'string')
-    assert.equal(props.apiRateLimitWindow?.maxLength, 16)
-
-    assert.equal(props.apiRateLimitBan?.type, 'string')
-    assert.equal(props.apiRateLimitBan?.maxLength, 16)
-
-    await app.close()
-  })
-})
+// -> The `apiRateLimit*` shape-declaration describe (Task 636) was removed by OpenProject #2690
+//    (`docs/testing-audit/backend.md`'s `api/schemas/security.test.ts` row): it restated the
+//    schema's own property list with nothing lost by its removal — a drift here surfaces as a 400
+//    the first time an admin saves the new rate-limit fields, not silently. The `trustProxy`
+//    describe below is the one with independent value: a genuine shipped bug (#2366), not a shape
+//    restatement.
 
 /**
  * OpenProject #2366: `trustProxy`'s `anyOf: [{ type: 'boolean' }, { type: 'string' }]` must accept a
