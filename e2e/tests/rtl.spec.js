@@ -104,12 +104,47 @@ async function activateTestLocales(page, testLocales) {
   return siteId
 }
 
+/**
+ * Switches the READER'S interface language via `AdminLayout.vue`'s own switcher -- the only place
+ * `commonStore.locale` is ever set. `LocaleSelectorMenu.vue`'s reading-view switcher (used below,
+ * and by `activateTestLocales`'s own caller) deliberately does NOT touch it: its own header comment
+ * calls that "a separate concern this menu does not touch", and
+ * `docs/decisions/lang-dir-contract.md` §6 records why -- it navigates the CONTENT locale instead
+ * (OpenProject #2596).
+ *
+ * Two things depend on the INTERFACE locale specifically, and neither is covered by #2596's
+ * URL-based `dir`/`lang` resolution: a `/_`-prefixed route (the admin area, the markdown/wysiwyg
+ * editors) has no locale segment of its own to resolve `dir`/`lang` from and falls back to
+ * `commonStore.locale` (`App.vue#applyDocumentLocale`); and every chrome string rendered through
+ * `t()` -- the reading view's own sidebar "Browse" button among them -- is keyed off
+ * `i18n.locale.value`, which only an interface-locale change ever moves. Without this, the checks
+ * below that reach a `/_` route or read translated chrome would still be running under the
+ * untouched English interface locale.
+ *
+ * Selects by the raw, un-re-derived `nativeName` this menu shows (`adminStore.locales`, straight
+ * off `GET /_api/locales`) rather than the reading view's generic CLDR spelling -- the one place
+ * this file checks that the seed's own custom name ("العربية (اختبار)") actually reaches the
+ * screen, per `activateTestLocales`'s own header comment above.
+ *
+ * `/_admin/dashboard` (not a `:siteid`-scoped admin page): the switcher lives in `AdminLayout.vue`'s
+ * header, common to every admin route regardless of which site it addresses, so this needs no
+ * `siteId` of its own.
+ */
+async function switchInterfaceLocale(page, testLocale) {
+  await page.goto('/_admin/dashboard')
+  await page.getByRole('button', { name: 'EN', exact: true }).click()
+  await page.getByText(testLocale.nativeName, { exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('dir', testLocale.isRTL ? 'rtl' : 'ltr')
+  await expect(page.locator('html')).toHaveAttribute('lang', testLocale.code)
+}
+
 test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
   test('activating the synthetic RTL locale via AdminLocale.vue flips dir/lang across the reading view, both editors, and the admin area', async ({
     page
   }) => {
     await loginAsAdmin(page)
     await activateTestLocales(page, [RTL_TEST_LOCALE])
+    await switchInterfaceLocale(page, RTL_TEST_LOCALE)
 
     // -> Not `/`: a brand new site has no home page yet, and `Index.vue`'s route watcher sends an
     //    unauthenticated visitor straight to `/login` in that case -- irrelevant here since this
@@ -129,7 +164,8 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     //    deliberately re-derives both from `Intl.DisplayNames` off the bare code instead (see its own
     //    header comment), so it shows the generic CLDR spelling ("العربية") rather than this seed's
     //    custom one ("العربية (اختبار)"). The admin's OWN language-switcher (`AdminLayout.vue`,
-    //    checked later) reads the raw API response and does show the custom name.
+    //    already used above via `switchInterfaceLocale`) reads the raw API response and does show
+    //    the custom name.
     await page.getByRole('button', { name: 'Switch Locale' }).click()
     await page.getByText('العربية', { exact: true }).click()
 
@@ -187,9 +223,10 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
    * form, proving the asterisk gutter actually follows reading direction rather than merely
    * asserting against source text (the way `frontend/src/logicalSpacing.test.js` does for every
    * other declaration this epic converted). `WFieldFrame.vue`'s required-field asterisk
-   * (`<span class="text-negative pe-1">`, beside the glossary "Term" field's floated label) is the
-   * one live example of `padding-inline-end` in the shared field chrome every `w-input`/`w-select`
-   * in the app renders through.
+   * (`<span class="text-negative pe-1" aria-hidden="true">`, beside the glossary "Term" field's
+   * top-of-field label -- Cardinal's re-skin dropped the Material floating label entirely, see that
+   * component's own header comment) is the one live example of `padding-inline-end` in the shared
+   * field chrome every `w-input`/`w-select` in the app renders through.
    *
    * `padding-inline-end` resolves against the DOCUMENT's own `dir` at render time, not anything
    * this test controls directly -- under `dir="rtl"` it computes as a physical `padding-left`, not
@@ -206,16 +243,22 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
   }) => {
     await loginAsAdmin(page)
     const siteId = await activateTestLocales(page, [RTL_TEST_LOCALE])
+    // -> The glossary dialog lives under `/_admin/<siteId>/glossary`, a `/_`-prefixed route with no
+    //    locale segment of its own -- its `dir` falls back to the INTERFACE locale
+    //    (`App.vue#applyDocumentLocale`), not to whatever the reading-view switch below does. See
+    //    `switchInterfaceLocale`'s own header comment.
+    await switchInterfaceLocale(page, RTL_TEST_LOCALE)
 
-    // -> Same reader-facing switch as the test above -- flips `dir` on `<html>` for the whole
-    //    document, admin area included.
+    // -> Same reader-facing switch as the test above -- exercises the content-locale navigation
+    //    path (OpenProject #2596) on top of the interface-locale switch just above; `dir` is
+    //    already `rtl` either way once the interface locale is active.
     await page.goto('/e2e-rtl-required-field-check')
     await page.getByRole('button', { name: 'Switch Locale' }).click()
     await page.getByText('العربية', { exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
 
-    // -> The glossary's "New Term" dialog: an outlined, floating-label `w-input` with `required`
-    //    set (`GlossaryTermDialog.vue`), the same field chrome every other required `w-input`/
+    // -> The glossary's "New Term" dialog: an outlined `w-input` with `required` set
+    //    (`GlossaryTermDialog.vue`), the same field chrome every other required `w-input`/
     //    `w-select` in the app shares via `WFieldFrame.vue`. `admin.glossary.*` isn't among the
     //    curated keys `backend/scripts/seed-rtl-test-locale.ts` seeds for `ar` (see its own header
     //    comment), so both the button and the field label render their English fallback text
@@ -227,9 +270,10 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     const termField = page
       .locator('.w-input')
       .filter({ has: page.getByLabel('Term', { exact: true }) })
-    // -> The VISIBLE floated label's own asterisk, not the `aria-hidden` copy inside the outline's
-    //    notch-cutting `<legend>` (`WFieldFrame.vue` renders the same `pe-1` span in both places).
-    const asterisk = termField.locator('.w-input-float .text-negative')
+    // -> The one asterisk `WFieldFrame.vue` renders for a required field, beside the label text --
+    //    `aria-hidden` (the label's own text already says "Term"; the glyph is decorative), which
+    //    does not affect Playwright's visibility check.
+    const asterisk = termField.locator('label .text-negative')
     await expect(asterisk).toBeVisible()
 
     const padding = await asterisk.evaluate((el) => {
