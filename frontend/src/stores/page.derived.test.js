@@ -99,15 +99,17 @@ describe('page store: pageWatch()', () => {
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
     const pageStore = usePageStore()
-    pageStore.$patch({ id: 'page-1', isWatching: false })
+    pageStore.$patch({ id: 'page-1', isWatching: false, watchersRevision: 0 })
 
     const refusal = { data: { message: 'You may not watch this page.' } }
-    API_CLIENT.put.mockReturnValueOnce(Promise.reject(refusal))
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(refusal) })
 
     await expect(pageStore.pageWatch(true)).rejects.toBe(refusal)
 
     expect(pageStore.isWatching).toBe(false)
     expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/watch')
+    // -> Nothing changed server-side, so there is nothing for the rail to re-fetch (OpenProject #2722).
+    expect(pageStore.watchersRevision).toBe(0)
   })
 
   it('sets isWatching optimistically and keeps it on success', async () => {
@@ -116,10 +118,62 @@ describe('page store: pageWatch()', () => {
     const pageStore = usePageStore()
     pageStore.$patch({ id: 'page-1', isWatching: false })
 
-    API_CLIENT.put.mockReturnValueOnce(Promise.resolve({ ok: true }))
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, isWatching: true })
+    })
 
     await pageStore.pageWatch(true)
 
     expect(pageStore.isWatching).toBe(true)
+  })
+
+  /**
+   * OpenProject #2722: the bug was the rail's watcher-list re-fetch racing ahead of this very write,
+   * because it used to key off `isWatching`, which this action flips optimistically and synchronously
+   * -- well before the PUT/DELETE below has actually resolved. `watchersRevision` is what the rail
+   * keys off instead, and it must only move once the request has genuinely settled.
+   */
+  it('bumps watchersRevision only once the request resolves, and reads isWatching back from it', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', isWatching: false, watchersRevision: 5 })
+
+    let resolveJson
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () =>
+        new Promise((resolve) => {
+          resolveJson = resolve
+        })
+    })
+
+    const pending = pageStore.pageWatch(true)
+    // -> Flipped instantly, ahead of the request settling -- the bell must not wait on a round trip.
+    expect(pageStore.isWatching).toBe(true)
+    // -> But the revision has not moved yet: nothing has actually committed on the server.
+    expect(pageStore.watchersRevision).toBe(5)
+
+    resolveJson({ ok: true, isWatching: true })
+    await pending
+
+    expect(pageStore.isWatching).toBe(true)
+    expect(pageStore.watchersRevision).toBe(6)
+  })
+
+  it('unwatches through DELETE, reading isWatching back as false', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', isWatching: true, watchersRevision: 0 })
+
+    API_CLIENT.delete.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, isWatching: false })
+    })
+
+    await pageStore.pageWatch(false)
+
+    expect(API_CLIENT.delete).toHaveBeenCalledWith('sites/site-1/pages/page-1/watch')
+    expect(pageStore.isWatching).toBe(false)
+    expect(pageStore.watchersRevision).toBe(1)
   })
 })

@@ -94,7 +94,7 @@ async function mountIndex({ payload, sidebar = true } = {}) {
 
   const router = await createTestRouter(['/'])
 
-  const { wrapper, pageStore, siteStore } = mountWithApp(Index, {
+  const { wrapper, pageStore, siteStore, userStore } = mountWithApp(Index, {
     router,
     messages: { common: { page: { watching: 'Watching', watchingMore: '{count} more' } } },
     global: {
@@ -121,7 +121,7 @@ async function mountIndex({ payload, sidebar = true } = {}) {
 
   await settle(wrapper)
 
-  return { wrapper, pageStore, siteStore, api }
+  return { wrapper, pageStore, siteStore, userStore, api }
 }
 
 function plates(wrapper) {
@@ -208,15 +208,85 @@ describe('Index.vue: the rail Watching section (OpenProject #2649)', () => {
     expect(call[1]).toEqual({ searchParams: { limit: 3 } })
   })
 
-  it('asks again when the reader starts watching, so their own plate appears', async () => {
-    const { wrapper, pageStore } = await mountIndex({ payload: { watchers: [], total: 0 } })
+  /**
+   * OpenProject #2722. `pageStore.isWatching` flips synchronously, well before the PUT it kicks off
+   * has resolved -- a re-fetch keyed on it (as this suite used to seed directly, bypassing the real
+   * write entirely) asks the server for the watcher list while that write is still in flight and gets
+   * back the state from before the click. Driving the real `pageStore.pageWatch()` with a deferred PUT
+   * is what actually exercises the ordering: no GET may fire until the write resolves.
+   */
+  it('re-fetches the watchers only after the write resolves, not on the optimistic isWatching flip', async () => {
+    let answer = { watchers: [], total: 0 }
+    const { wrapper, pageStore, api } = await mountIndex({ payload: () => answer })
     expect(wrapper.find('.page-watchers').exists()).toBe(false)
+    const callsBeforeToggle = api.calls.length
 
-    stubApi({ [WATCHERS_URL]: { watchers: makeWatchers(1), total: 1 } })
+    let resolvePut
+    globalThis.API_CLIENT.put.mockReturnValueOnce({
+      json: () =>
+        new Promise((resolve) => {
+          resolvePut = resolve
+        })
+    })
+
+    const pending = pageStore.pageWatch(true)
+    await settle(wrapper)
+
+    // -> The bell has already flipped, but the write has not resolved -- no new GET must have fired.
+    expect(pageStore.isWatching).toBe(true)
+    expect(api.calls.length).toBe(callsBeforeToggle)
+    expect(plates(wrapper)).toHaveLength(0)
+
+    // -> Only now does the server actually have the row, so only now may the fetch see it.
+    answer = { watchers: makeWatchers(1), total: 1 }
+    resolvePut({ ok: true, isWatching: true })
+    await pending
+    await settle(wrapper)
+
+    expect(api.calls.length).toBeGreaterThan(callsBeforeToggle)
+    expect(plates(wrapper)).toHaveLength(1)
+  })
+
+  /**
+   * OpenProject #2722's second, independent cause: the route returns only the oldest
+   * `WATCHER_PLATE_CAP` watchers, so on a page that already has that many the reader's own,
+   * freshly-added row -- always the newest -- falls outside the slice entirely. The rail must show it
+   * anyway whenever the reader is watching, never a "watching" bell beside a plate row they are absent
+   * from.
+   */
+  it("pins the reader's own plate first even when the fetch's oldest-N slice would drop them", async () => {
+    const { wrapper, pageStore, userStore } = await mountIndex({
+      payload: { watchers: makeWatchers(3), total: 4 }
+    })
+    expect(plates(wrapper)).toHaveLength(3)
+
+    userStore.authenticated = true
+    userStore.id = 'self-id'
+    userStore.name = 'Self Reader'
     pageStore.isWatching = true
     await settle(wrapper)
 
-    expect(plates(wrapper)).toHaveLength(1)
+    const rows = plates(wrapper)
+    expect(rows).toHaveLength(3)
+    expect(rows[0].attributes('title')).toBe('Self Reader')
+    // -> Still 3 plates (self plus two of the three fetched) against a total of 4 -> a +1 remainder,
+    //    not +0: the reader being pinned in did not shrink how many watchers still go uncounted.
+    expect(wrapper.find('.page-watchers-remainder').text()).toBe('+1')
+  })
+
+  it('does not pin a plate for a guest, who cannot watch a page at all', async () => {
+    const { wrapper, pageStore, userStore } = await mountIndex({
+      payload: { watchers: makeWatchers(3), total: 3 }
+    })
+    userStore.authenticated = false
+    pageStore.isWatching = false
+    await settle(wrapper)
+
+    expect(plates(wrapper).map((plate) => plate.attributes('title'))).toEqual([
+      'Dylan Hart',
+      'Mira Rossi',
+      'Sam Okonkwo'
+    ])
   })
 
   it('does not ask at all while the rail itself is switched off', async () => {

@@ -200,6 +200,16 @@ export const usePageStore = defineStore('page', {
      */
     isWatching: false,
     /**
+     * Bumped once a `pageWatch()` request has actually resolved -- never on the optimistic flip that
+     * happens synchronously ahead of it, and never on a failed request, which reverted `isWatching`
+     * with nothing having changed server-side. This, not `isWatching` itself, is what
+     * `pages/Index.vue`'s rail watches to know when to re-fetch the page's watchers: `isWatching`
+     * changes before the write commits, so a watcher keyed on it asks the server for the watcher list
+     * while the PUT/DELETE that would change it is still in flight and gets back the state from
+     * before the click (OpenProject #2722).
+     */
+    watchersRevision: 0,
+    /**
      * Who else already has this page open in a live collaboration room, on the instance that answered
      * this request — a same-instance approximation, not a cluster-wide count. What lets the editor say
      * "N other people have this page open" before a collab session of its own has even started; see
@@ -374,6 +384,13 @@ export const usePageStore = defineStore('page', {
      * before it rings is a bell that feels broken, and the request behind it either succeeds or is
      * worth an error — there is no third outcome to leave the button guessing at.
      *
+     * `isWatching` is set again, from the response, once the request actually resolves -- normally a
+     * no-op since it already matches what was asked for, but it is what makes the response the
+     * authoritative word rather than the optimistic guess. `watchersRevision` bumps in that same
+     * place and nowhere else: it is what `pages/Index.vue`'s watcher-list rail keys its re-fetch off
+     * of instead of `isWatching` itself, so that re-fetch is ordered strictly after the write commits
+     * rather than racing it (OpenProject #2722).
+     *
      * @throws Whatever the request failed with, for the caller to report.
      */
     async pageWatch(watching) {
@@ -382,7 +399,9 @@ export const usePageStore = defineStore('page', {
       this.isWatching = watching
       try {
         const url = `sites/${siteStore.id}/pages/${this.id}/watch`
-        await (watching ? API_CLIENT.put(url) : API_CLIENT.delete(url))
+        const resp = await (watching ? API_CLIENT.put(url) : API_CLIENT.delete(url)).json()
+        this.isWatching = resp?.isWatching ?? watching
+        this.watchersRevision++
       } catch (err) {
         this.isWatching = previous
         log.warn('page', 'could not change whether this page is being watched', err)
