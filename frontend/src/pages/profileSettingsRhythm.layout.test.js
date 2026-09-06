@@ -9,7 +9,7 @@ import ProfileNotifications from './ProfileNotifications.vue'
 
 import { mountWithApp } from '../../test/mount.js'
 import { createApiClientStub, stubApi } from '../../test/mocks.js'
-import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
+import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
  * OpenProject #2701 -- the five profile sections that had no design of their own (avatar,
@@ -253,7 +253,7 @@ function readPage() {
 
 describe(
   'profile sections: the settings rhythm, in a real browser',
-  { skip: !hasChromium() },
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
   () => {
     let browser
     /** @type {Record<string, ReturnType<typeof readPage>>} */

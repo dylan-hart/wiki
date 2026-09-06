@@ -8,7 +8,12 @@ import WInput from './WInput.vue'
 import WSelect from './WSelect.vue'
 import WToggle from './WToggle.vue'
 
-import { buildAppCss, chromium, hasChromium } from '../../../test/realGridLayout.js'
+import {
+  CHROMIUM_TIMEOUT,
+  buildAppCss,
+  chromium,
+  hasChromium
+} from '../../../test/realGridLayout.js'
 
 /**
  * The settings row's whole claim is a RHYTHM -- every row the same height, every control on the same
@@ -71,168 +76,181 @@ function collectMountedStyles() {
   return [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')
 }
 
-describe('WSettingsRow real-browser rhythm', { skip: !hasChromium() }, () => {
-  let browser
-  let measured
+describe(
+  'WSettingsRow real-browser rhythm',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    let browser
+    let measured
 
-  beforeAll(async () => {
-    browser = await chromium.launch()
+    beforeAll(async () => {
+      browser = await chromium.launch()
 
-    const wrapper = mountFixture()
-    const html = wrapper.html()
-    const scopedCss = collectMountedStyles()
+      const wrapper = mountFixture()
+      const html = wrapper.html()
+      const scopedCss = collectMountedStyles()
 
-    // -> The precondition, asserted rather than assumed: no scoped CSS means no plate, no padding
-    //    and no rule, and every number below would be measuring a bare DOM.
-    expect(scopedCss).toContain('w-settings-row')
+      // -> The precondition, asserted rather than assumed: no scoped CSS means no plate, no padding
+      //    and no rule, and every number below would be measuring a bare DOM.
+      expect(scopedCss).toContain('w-settings-row')
 
-    const appCss = await buildAppCss()
-    const page = await browser.newPage()
-    try {
-      await page.setContent(
-        `<!doctype html><html><head><style>${appCss}</style><style>${scopedCss}</style></head>` +
-          `<body style="margin:0"><div style="width:${CARD_WIDTH}px">${html}</div></body></html>`
-      )
-      measured = await page.evaluate(() => {
-        const card = document.querySelector('.w-settings-card')
-        const read = (el) => {
-          const rect = el.getBoundingClientRect()
-          const style = getComputedStyle(el)
-          return {
-            top: rect.top,
-            bottom: rect.bottom,
-            left: rect.left,
-            right: rect.right,
-            width: rect.width,
-            height: rect.height,
-            borderTopWidth: Number.parseFloat(style.borderTopWidth),
-            borderBottomWidth: Number.parseFloat(style.borderBottomWidth),
-            borderTopColor: style.borderTopColor
+      const appCss = await buildAppCss()
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${scopedCss}</style></head>` +
+            `<body style="margin:0"><div style="width:${CARD_WIDTH}px">${html}</div></body></html>`
+        )
+        measured = await page.evaluate(() => {
+          const card = document.querySelector('.w-settings-card')
+          const read = (el) => {
+            const rect = el.getBoundingClientRect()
+            const style = getComputedStyle(el)
+            return {
+              top: rect.top,
+              bottom: rect.bottom,
+              left: rect.left,
+              right: rect.right,
+              width: rect.width,
+              height: rect.height,
+              borderTopWidth: Number.parseFloat(style.borderTopWidth),
+              borderBottomWidth: Number.parseFloat(style.borderBottomWidth),
+              borderTopColor: style.borderTopColor
+            }
           }
-        }
-        return {
-          card: read(card),
-          header: read(card.querySelector('.w-settings-card__header')),
-          rows: [...card.querySelectorAll('.w-settings-row')].map((row) => ({
-            ...read(row),
-            label: row.querySelector('.w-settings-row__label').textContent.trim(),
-            plate: read(row.querySelector('.blueprint-icon')),
-            text: read(row.querySelector('.w-settings-row__text')),
-            control: read(row.querySelector('.w-settings-row__control'))
-          }))
-        }
-      })
-    } finally {
-      await page.close()
-    }
-    wrapper.unmount()
-  }, 120000)
+          return {
+            card: read(card),
+            header: read(card.querySelector('.w-settings-card__header')),
+            rows: [...card.querySelectorAll('.w-settings-row')].map((row) => ({
+              ...read(row),
+              label: row.querySelector('.w-settings-row__label').textContent.trim(),
+              plate: read(row.querySelector('.blueprint-icon')),
+              text: read(row.querySelector('.w-settings-row__text')),
+              control: read(row.querySelector('.w-settings-row__control'))
+            }))
+          }
+        })
+      } finally {
+        await page.close()
+      }
+      wrapper.unmount()
+    }, 120000)
 
-  afterAll(async () => {
-    await browser?.close()
-  })
+    afterAll(async () => {
+      await browser?.close()
+    })
 
-  it('renders all five rows, each one line tall', () => {
-    expect(measured.rows).toHaveLength(5)
+    it('renders all five rows, each one line tall', () => {
+      expect(measured.rows).toHaveLength(5)
 
-    for (const row of measured.rows) {
-      // -> Minus the rule, which every row but the first also carries in its border box.
-      expect(row.height - row.borderTopWidth, `row "${row.label}" height`).toBe(EXPECTED_ROW_HEIGHT)
-    }
-  })
+      for (const row of measured.rows) {
+        // -> Minus the rule, which every row but the first also carries in its border box.
+        expect(row.height - row.borderTopWidth, `row "${row.label}" height`).toBe(
+          EXPECTED_ROW_HEIGHT
+        )
+      }
+    })
 
-  it('gives every row the same height as every other', () => {
-    const heights = new Set(measured.rows.map((row) => row.height - row.borderTopWidth))
-    expect(heights.size).toBe(1)
-  })
+    it('gives every row the same height as every other', () => {
+      const heights = new Set(measured.rows.map((row) => row.height - row.borderTopWidth))
+      expect(heights.size).toBe(1)
+    })
 
-  /**
-   * The plate, not the text, is what sets a row's height -- which is what makes the rhythm hold for
-   * a row with no hint, a row whose control is 18px tall and a row whose control is 30px alike. If
-   * the text column ever outgrows the plate (it did, at the app's inherited `line-height: 1.5`),
-   * every row starts measuring itself off its own wording instead.
-   */
-  it('lets the 34px plate, not the wording, set the height', () => {
-    for (const row of measured.rows) {
-      expect(row.text.height, `text column of "${row.label}"`).toBeLessThanOrEqual(row.plate.height)
-      expect(row.control.height, `control of "${row.label}"`).toBeLessThanOrEqual(row.plate.height)
-    }
-  })
+    /**
+     * The plate, not the text, is what sets a row's height -- which is what makes the rhythm hold for
+     * a row with no hint, a row whose control is 18px tall and a row whose control is 30px alike. If
+     * the text column ever outgrows the plate (it did, at the app's inherited `line-height: 1.5`),
+     * every row starts measuring itself off its own wording instead.
+     */
+    it('lets the 34px plate, not the wording, set the height', () => {
+      for (const row of measured.rows) {
+        expect(row.text.height, `text column of "${row.label}"`).toBeLessThanOrEqual(
+          row.plate.height
+        )
+        expect(row.control.height, `control of "${row.label}"`).toBeLessThanOrEqual(
+          row.plate.height
+        )
+      }
+    })
 
-  it('draws the 34px plate on every row, at the same inset', () => {
-    for (const row of measured.rows) {
-      expect(row.plate.width, `plate on "${row.label}"`).toBe(34)
-      expect(row.plate.height, `plate on "${row.label}"`).toBe(34)
-      expect(row.plate.left - row.left).toBe(ROW_INLINE_PADDING)
-    }
-  })
+    it('draws the 34px plate on every row, at the same inset', () => {
+      for (const row of measured.rows) {
+        expect(row.plate.width, `plate on "${row.label}"`).toBe(34)
+        expect(row.plate.height, `plate on "${row.label}"`).toBe(34)
+        expect(row.plate.left - row.left).toBe(ROW_INLINE_PADDING)
+      }
+    })
 
-  it('leaves a 14px gap between the plate and the label on every row', () => {
-    for (const row of measured.rows) {
-      expect(row.text.left - row.plate.right, `gap on "${row.label}"`).toBe(14)
-    }
-  })
+    it('leaves a 14px gap between the plate and the label on every row', () => {
+      for (const row of measured.rows) {
+        expect(row.text.left - row.plate.right, `gap on "${row.label}"`).toBe(14)
+      }
+    })
 
-  it('lands every control on the same trailing edge, whatever its width', () => {
-    // -> `- 1` for the card's own hairline edge, which the row sits inside.
-    const trailingEdge = measured.card.right - 1 - ROW_INLINE_PADDING
+    it('lands every control on the same trailing edge, whatever its width', () => {
+      // -> `- 1` for the card's own hairline edge, which the row sits inside.
+      const trailingEdge = measured.card.right - 1 - ROW_INLINE_PADDING
 
-    for (const row of measured.rows) {
-      expect(row.control.right, `trailing edge of "${row.label}"`).toBeCloseTo(trailingEdge, 1)
-    }
-  })
+      for (const row of measured.rows) {
+        expect(row.control.right, `trailing edge of "${row.label}"`).toBeCloseTo(trailingEdge, 1)
+      }
+    })
 
-  it('rules BETWEEN rows: no rule above the first, one above each of the rest, none below any', () => {
-    const [first, ...rest] = measured.rows
+    it('rules BETWEEN rows: no rule above the first, one above each of the rest, none below any', () => {
+      const [first, ...rest] = measured.rows
 
-    expect(first.borderTopWidth).toBe(0)
-    for (const row of rest) {
-      expect(row.borderTopWidth, `rule above "${row.label}"`).toBe(1)
-    }
-    for (const row of measured.rows) {
-      expect(row.borderBottomWidth, `rule below "${row.label}"`).toBe(0)
-    }
-  })
+      expect(first.borderTopWidth).toBe(0)
+      for (const row of rest) {
+        expect(row.borderTopWidth, `rule above "${row.label}"`).toBe(1)
+      }
+      for (const row of measured.rows) {
+        expect(row.borderBottomWidth, `rule below "${row.label}"`).toBe(0)
+      }
+    })
 
-  it('paints that rule in the tint, not the hairline the card edge uses', () => {
-    // -> `--color-tint` (#eef1f7). The card's own edge is `--color-hairline` (#dbe1ec); a rule as
-    //    strong as the edge would read as the card splitting into several.
-    for (const row of measured.rows.slice(1)) {
-      expect(row.borderTopColor).toBe('rgb(238, 241, 247)')
-    }
-  })
+    it('paints that rule in the tint, not the hairline the card edge uses', () => {
+      // -> `--color-tint` (#eef1f7). The card's own edge is `--color-hairline` (#dbe1ec); a rule as
+      //    strong as the edge would read as the card splitting into several.
+      for (const row of measured.rows.slice(1)) {
+        expect(row.borderTopColor).toBe('rgb(238, 241, 247)')
+      }
+    })
 
-  it('stacks the rows immediately under the header strip, with no gap', () => {
-    expect(measured.rows[0].top).toBeCloseTo(measured.header.bottom, 1)
+    it('stacks the rows immediately under the header strip, with no gap', () => {
+      expect(measured.rows[0].top).toBeCloseTo(measured.header.bottom, 1)
 
-    for (let i = 1; i < measured.rows.length; i += 1) {
-      expect(measured.rows[i].top, `row ${i} follows row ${i - 1}`).toBeCloseTo(
-        measured.rows[i - 1].bottom,
-        1
-      )
-    }
-  })
+      for (let i = 1; i < measured.rows.length; i += 1) {
+        expect(measured.rows[i].top, `row ${i} follows row ${i - 1}`).toBeCloseTo(
+          measured.rows[i - 1].bottom,
+          1
+        )
+      }
+    })
 
-  it('runs every row edge to edge inside the card', () => {
-    for (const row of measured.rows) {
-      expect(row.left).toBeCloseTo(measured.card.left + 1, 1)
-      expect(row.right).toBeCloseTo(measured.card.right - 1, 1)
-    }
-  })
-})
+    it('runs every row edge to edge inside the card', () => {
+      for (const row of measured.rows) {
+        expect(row.left).toBeCloseTo(measured.card.left + 1, 1)
+        expect(row.right).toBeCloseTo(measured.card.right - 1, 1)
+      }
+    })
+  }
+)
 
-describe('WSettingsRow real-browser stacked preview', { skip: !hasChromium() }, () => {
-  let browser
-  let measured
+describe(
+  'WSettingsRow real-browser stacked preview',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    let browser
+    let measured
 
-  beforeAll(async () => {
-    browser = await chromium.launch()
+    beforeAll(async () => {
+      browser = await chromium.launch()
 
-    const wrapper = mount(WSettingsCard, {
-      props: { title: 'Logo' },
-      global: { components: { WSettingsRow, WToggle } },
-      slots: {
-        default: `
+      const wrapper = mount(WSettingsCard, {
+        props: { title: 'Logo' },
+        global: { components: { WSettingsRow, WToggle } },
+        slots: {
+          default: `
           <w-settings-row control-width="auto" icon="tabler:photo" label="Site logo" hint="PNG or SVG.">
             <button class="upload" style="height:30px;width:80px">Upload</button>
             <template #preview>
@@ -243,55 +261,56 @@ describe('WSettingsRow real-browser stacked preview', { skip: !hasChromium() }, 
             <w-toggle :model-value="true" aria-label="Show the site title" />
           </w-settings-row>
         `
-      }
-    })
-    const html = wrapper.html()
-    const scopedCss = collectMountedStyles()
-    expect(scopedCss).toContain('w-settings-row__preview')
-
-    const appCss = await buildAppCss()
-    const page = await browser.newPage()
-    try {
-      await page.setContent(
-        `<!doctype html><html><head><style>${appCss}</style><style>${scopedCss}</style></head>` +
-          `<body style="margin:0"><div style="width:${CARD_WIDTH}px">${html}</div></body></html>`
-      )
-      measured = await page.evaluate(() => {
-        const read = (el) => {
-          const rect = el.getBoundingClientRect()
-          return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
-        }
-        const row = document.querySelector('.w-settings-row')
-        return {
-          row: read(row),
-          plate: read(row.querySelector('.blueprint-icon')),
-          text: read(row.querySelector('.w-settings-row__text')),
-          control: read(row.querySelector('.w-settings-row__control')),
-          preview: read(row.querySelector('.w-settings-row__preview'))
         }
       })
-    } finally {
-      await page.close()
-    }
-    wrapper.unmount()
-  }, 120000)
+      const html = wrapper.html()
+      const scopedCss = collectMountedStyles()
+      expect(scopedCss).toContain('w-settings-row__preview')
 
-  afterAll(async () => {
-    await browser?.close()
-  })
+      const appCss = await buildAppCss()
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${scopedCss}</style></head>` +
+            `<body style="margin:0"><div style="width:${CARD_WIDTH}px">${html}</div></body></html>`
+        )
+        measured = await page.evaluate(() => {
+          const read = (el) => {
+            const rect = el.getBoundingClientRect()
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }
+          }
+          const row = document.querySelector('.w-settings-row')
+          return {
+            row: read(row),
+            plate: read(row.querySelector('.blueprint-icon')),
+            text: read(row.querySelector('.w-settings-row__text')),
+            control: read(row.querySelector('.w-settings-row__control')),
+            preview: read(row.querySelector('.w-settings-row__preview'))
+          }
+        })
+      } finally {
+        await page.close()
+      }
+      wrapper.unmount()
+    }, 120000)
 
-  it('stacks the preview UNDER the row rather than beside it', () => {
-    expect(measured.preview.top).toBeGreaterThanOrEqual(measured.text.bottom)
-    expect(measured.preview.top).toBeGreaterThanOrEqual(measured.control.bottom)
-  })
+    afterAll(async () => {
+      await browser?.close()
+    })
 
-  it('spans the preview across the label and the control alike, clear of the plate', () => {
-    expect(measured.preview.left).toBeCloseTo(measured.text.left, 1)
-    expect(measured.preview.right).toBeCloseTo(measured.control.right, 1)
-    expect(measured.preview.left).toBeGreaterThan(measured.plate.right)
-  })
+    it('stacks the preview UNDER the row rather than beside it', () => {
+      expect(measured.preview.top).toBeGreaterThanOrEqual(measured.text.bottom)
+      expect(measured.preview.top).toBeGreaterThanOrEqual(measured.control.bottom)
+    })
 
-  it('top-aligns the plate with the label rather than centring it against the whole stack', () => {
-    expect(measured.plate.top).toBeCloseTo(measured.text.top, 1)
-  })
-})
+    it('spans the preview across the label and the control alike, clear of the plate', () => {
+      expect(measured.preview.left).toBeCloseTo(measured.text.left, 1)
+      expect(measured.preview.right).toBeCloseTo(measured.control.right, 1)
+      expect(measured.preview.left).toBeGreaterThan(measured.plate.right)
+    })
+
+    it('top-aligns the plate with the label rather than centring it against the whole stack', () => {
+      expect(measured.plate.top).toBeCloseTo(measured.text.top, 1)
+    })
+  }
+)

@@ -7,7 +7,7 @@ import { useSiteStore } from '@/stores/site'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
-import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
+import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
  * OpenProject #2697 -- the parts of handoff 2's Search screen that are claims about LAYOUT, and so
@@ -147,171 +147,175 @@ async function measure({ html, viewport, probe }) {
   }
 }
 
-describe('Search.vue real layout (OpenProject #2697)', { skip: !hasChromium() }, () => {
-  beforeAll(async () => {
-    /*
-     * `composables/screen.js` caches one `matchMedia` query per breakpoint for the life of the
-     * module, and the very first mount here is what populates it -- so the answer has to be settled
-     * before then. Pinned true so the sidebar renders as a column rather than as the below-900px
-     * disclosure (which is `v-show`-hidden, and would leave the Sort by strip un-measurable). The
-     * NARROW cases below are still real: the markup is identical either way at this breakpoint, and
-     * what the 390px page actually exercises is the stylesheet's own `max-width` rules.
-     */
-    window.matchMedia = (query) => ({
-      matches: true,
-      media: query,
-      addEventListener() {},
-      removeEventListener() {}
-    })
-    browser = await chromium.launch()
-    appCss = await buildAppCss()
-  }, 120_000)
+describe(
+  'Search.vue real layout (OpenProject #2697)',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    beforeAll(async () => {
+      /*
+       * `composables/screen.js` caches one `matchMedia` query per breakpoint for the life of the
+       * module, and the very first mount here is what populates it -- so the answer has to be settled
+       * before then. Pinned true so the sidebar renders as a column rather than as the below-900px
+       * disclosure (which is `v-show`-hidden, and would leave the Sort by strip un-measurable). The
+       * NARROW cases below are still real: the markup is identical either way at this breakpoint, and
+       * what the 390px page actually exercises is the stylesheet's own `max-width` rules.
+       */
+      window.matchMedia = (query) => ({
+        matches: true,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {}
+      })
+      browser = await chromium.launch()
+      appCss = await buildAppCss()
+    }, 120_000)
 
-  afterAll(async () => {
-    await browser?.close()
-  })
-
-  it('pins the Sort by and Results strips to the same height, whatever the count says', async () => {
-    const probe = () => {
-      const strips = [...document.querySelectorAll('.layout-search .section-header')]
-      return {
-        heights: strips.map((el) => el.getBoundingClientRect().height),
-        lineHeights: strips.map((el) => getComputedStyle(el).lineHeight),
-        countText: document.querySelector('.layout-search-count')?.textContent.trim() ?? ''
-      }
-    }
-    const viewport = { width: 1400, height: 900 }
-
-    const short = await measure({ html: await renderSearch({ total: 1 }), viewport, probe })
-    const long = await measure({
-      html: await renderSearch({ approximate: true, total: 1234567 }),
-      viewport,
-      probe
+    afterAll(async () => {
+      await browser?.close()
     })
 
-    // -> Sort by, Filters, Results: three strips, and every one of them the same pinned height
-    expect(short.heights).toHaveLength(3)
-    expect(short.heights.every((h) => h === 37)).toBe(true)
-    expect(short.lineHeights.every((lh) => lh === 'normal' || Number.parseFloat(lh) === 10)).toBe(
-      true
-    )
-
-    // -> The count really is much longer in the second render, and the bars did not move
-    expect(long.countText.length).toBeGreaterThan(short.countText.length + 40)
-    expect(long.heights).toEqual(short.heights)
-  })
-
-  it('gives the date and tags a 150px trailing column beside the result body', async () => {
-    const html = await renderSearch()
-    const measured = await measure({
-      html,
-      viewport: { width: 1400, height: 900 },
-      probe: () => {
-        const row = document.querySelector('.layout-search-row')
-        const meta = document.querySelector('.layout-search-rowmeta')
-        const body = document.querySelector('.layout-search-rowbody')
-        const plate = document.querySelector('.layout-search-plate')
+    it('pins the Sort by and Results strips to the same height, whatever the count says', async () => {
+      const probe = () => {
+        const strips = [...document.querySelectorAll('.layout-search .section-header')]
         return {
-          metaWidth: meta.getBoundingClientRect().width,
-          plateWidth: plate.getBoundingClientRect().width,
-          plateHeight: plate.getBoundingClientRect().height,
-          // -> The trailing column is a column: the body ends before it starts
-          bodyEndsBeforeMeta:
-            body.getBoundingClientRect().right <= meta.getBoundingClientRect().left + 0.5,
-          rowIsOneLine:
-            Math.abs(row.getBoundingClientRect().top - meta.getBoundingClientRect().top) < 40
+          heights: strips.map((el) => el.getBoundingClientRect().height),
+          lineHeights: strips.map((el) => getComputedStyle(el).lineHeight),
+          countText: document.querySelector('.layout-search-count')?.textContent.trim() ?? ''
         }
       }
+      const viewport = { width: 1400, height: 900 }
+
+      const short = await measure({ html: await renderSearch({ total: 1 }), viewport, probe })
+      const long = await measure({
+        html: await renderSearch({ approximate: true, total: 1234567 }),
+        viewport,
+        probe
+      })
+
+      // -> Sort by, Filters, Results: three strips, and every one of them the same pinned height
+      expect(short.heights).toHaveLength(3)
+      expect(short.heights.every((h) => h === 37)).toBe(true)
+      expect(short.lineHeights.every((lh) => lh === 'normal' || Number.parseFloat(lh) === 10)).toBe(
+        true
+      )
+
+      // -> The count really is much longer in the second render, and the bars did not move
+      expect(long.countText.length).toBeGreaterThan(short.countText.length + 40)
+      expect(long.heights).toEqual(short.heights)
     })
 
-    expect(measured.metaWidth).toBe(150)
-    expect(measured.plateWidth).toBe(34)
-    expect(measured.plateHeight).toBe(34)
-    expect(measured.bodyEndsBeforeMeta).toBe(true)
-    expect(measured.rowIsOneLine).toBe(true)
-  })
-
-  it('wraps the date and tags under the title below 600px, inset by exactly the plate and its gutter', async () => {
-    const html = await renderSearch()
-    const measured = await measure({
-      html,
-      viewport: { width: 390, height: 800 },
-      probe: () => {
-        const title = document.querySelector('.layout-search-rowtitle').getBoundingClientRect()
-        const date = document.querySelector('.layout-search-rowdate').getBoundingClientRect()
-        const tags = document.querySelector('.layout-search-rowtags').getBoundingClientRect()
-        const plate = document.querySelector('.layout-search-plate').getBoundingClientRect()
-        const meta = document.querySelector('.layout-search-rowmeta').getBoundingClientRect()
-        return {
-          // -> Wrapped: the trailing column is now BELOW the title, not beside it
-          metaIsBelowTitle: meta.top >= title.bottom,
-          dateLeft: date.left,
-          tagsLeft: tags.left,
-          titleLeft: title.left,
-          // -> "inset to clear the plate": one plate plus one 14px row gutter
-          insetFromPlate: date.left - plate.left,
-          metaWidthExceeds150: meta.width > 150
+    it('gives the date and tags a 150px trailing column beside the result body', async () => {
+      const html = await renderSearch()
+      const measured = await measure({
+        html,
+        viewport: { width: 1400, height: 900 },
+        probe: () => {
+          const row = document.querySelector('.layout-search-row')
+          const meta = document.querySelector('.layout-search-rowmeta')
+          const body = document.querySelector('.layout-search-rowbody')
+          const plate = document.querySelector('.layout-search-plate')
+          return {
+            metaWidth: meta.getBoundingClientRect().width,
+            plateWidth: plate.getBoundingClientRect().width,
+            plateHeight: plate.getBoundingClientRect().height,
+            // -> The trailing column is a column: the body ends before it starts
+            bodyEndsBeforeMeta:
+              body.getBoundingClientRect().right <= meta.getBoundingClientRect().left + 0.5,
+            rowIsOneLine:
+              Math.abs(row.getBoundingClientRect().top - meta.getBoundingClientRect().top) < 40
+          }
         }
-      }
+      })
+
+      expect(measured.metaWidth).toBe(150)
+      expect(measured.plateWidth).toBe(34)
+      expect(measured.plateHeight).toBe(34)
+      expect(measured.bodyEndsBeforeMeta).toBe(true)
+      expect(measured.rowIsOneLine).toBe(true)
     })
 
-    expect(measured.metaIsBelowTitle).toBe(true)
-    expect(measured.dateLeft).toBe(measured.titleLeft)
-    expect(measured.tagsLeft).toBe(measured.titleLeft)
-    expect(measured.insetFromPlate).toBe(48)
-    expect(measured.metaWidthExceeds150).toBe(true)
-  })
-
-  it('draws no radial band behind the card and no shadow under it, on the ordinary paper ground', async () => {
-    const html = await renderSearch()
-    const measured = await measure({
-      html,
-      viewport: { width: 1400, height: 900 },
-      probe: () => {
-        const screen = document.querySelector('.layout-search')
-        const card = document.querySelector('.layout-search-card')
-        const cardStyle = getComputedStyle(card)
-        return {
-          ground: getComputedStyle(screen).backgroundColor,
-          bandContent: getComputedStyle(screen, '::before').content,
-          ruleContent: getComputedStyle(screen, '::after').content,
-          cardShadow: cardStyle.boxShadow,
-          cardBorder: `${cardStyle.borderTopWidth} ${cardStyle.borderTopStyle} ${cardStyle.borderTopColor}`,
-          backButtons: document.querySelectorAll('.layout-search-back').length
+    it('wraps the date and tags under the title below 600px, inset by exactly the plate and its gutter', async () => {
+      const html = await renderSearch()
+      const measured = await measure({
+        html,
+        viewport: { width: 390, height: 800 },
+        probe: () => {
+          const title = document.querySelector('.layout-search-rowtitle').getBoundingClientRect()
+          const date = document.querySelector('.layout-search-rowdate').getBoundingClientRect()
+          const tags = document.querySelector('.layout-search-rowtags').getBoundingClientRect()
+          const plate = document.querySelector('.layout-search-plate').getBoundingClientRect()
+          const meta = document.querySelector('.layout-search-rowmeta').getBoundingClientRect()
+          return {
+            // -> Wrapped: the trailing column is now BELOW the title, not beside it
+            metaIsBelowTitle: meta.top >= title.bottom,
+            dateLeft: date.left,
+            tagsLeft: tags.left,
+            titleLeft: title.left,
+            // -> "inset to clear the plate": one plate plus one 14px row gutter
+            insetFromPlate: date.left - plate.left,
+            metaWidthExceeds150: meta.width > 150
+          }
         }
-      }
+      })
+
+      expect(measured.metaIsBelowTitle).toBe(true)
+      expect(measured.dateLeft).toBe(measured.titleLeft)
+      expect(measured.tagsLeft).toBe(measured.titleLeft)
+      expect(measured.insetFromPlate).toBe(48)
+      expect(measured.metaWidthExceeds150).toBe(true)
     })
 
-    expect(measured.ground).toBe('rgb(245, 246, 249)')
-    expect(measured.bandContent).toBe('none')
-    expect(measured.ruleContent).toBe('none')
-    expect(measured.cardShadow).toBe('none')
-    expect(measured.cardBorder).toBe('1px solid rgb(219, 225, 236)')
-    expect(measured.backButtons).toBe(0)
-  })
-
-  it('marks a matched term with the accent wash, the same treatment the header preview panel uses', async () => {
-    const html = await renderSearch()
-    const measured = await measure({
-      html,
-      viewport: { width: 1400, height: 900 },
-      probe: () => {
-        const mark = document.querySelector('.layout-search-rowexcerpt b')
-        const excerpt = document.querySelector('.layout-search-rowexcerpt')
-        const style = getComputedStyle(mark)
-        return {
-          background: style.backgroundColor,
-          color: style.color,
-          weight: style.fontWeight,
-          // -> Upright: the mark is what distinguishes the matched words now, not a line of italics
-          excerptStyle: getComputedStyle(excerpt).fontStyle
+    it('draws no radial band behind the card and no shadow under it, on the ordinary paper ground', async () => {
+      const html = await renderSearch()
+      const measured = await measure({
+        html,
+        viewport: { width: 1400, height: 900 },
+        probe: () => {
+          const screen = document.querySelector('.layout-search')
+          const card = document.querySelector('.layout-search-card')
+          const cardStyle = getComputedStyle(card)
+          return {
+            ground: getComputedStyle(screen).backgroundColor,
+            bandContent: getComputedStyle(screen, '::before').content,
+            ruleContent: getComputedStyle(screen, '::after').content,
+            cardShadow: cardStyle.boxShadow,
+            cardBorder: `${cardStyle.borderTopWidth} ${cardStyle.borderTopStyle} ${cardStyle.borderTopColor}`,
+            backButtons: document.querySelectorAll('.layout-search-back').length
+          }
         }
-      }
+      })
+
+      expect(measured.ground).toBe('rgb(245, 246, 249)')
+      expect(measured.bandContent).toBe('none')
+      expect(measured.ruleContent).toBe('none')
+      expect(measured.cardShadow).toBe('none')
+      expect(measured.cardBorder).toBe('1px solid rgb(219, 225, 236)')
+      expect(measured.backButtons).toBe(0)
     })
 
-    expect(measured.background).toBe('rgb(253, 236, 237)')
-    expect(measured.color).toBe('rgb(168, 63, 69)')
-    expect(measured.weight).toBe('600')
-    expect(measured.excerptStyle).toBe('normal')
-  })
-})
+    it('marks a matched term with the accent wash, the same treatment the header preview panel uses', async () => {
+      const html = await renderSearch()
+      const measured = await measure({
+        html,
+        viewport: { width: 1400, height: 900 },
+        probe: () => {
+          const mark = document.querySelector('.layout-search-rowexcerpt b')
+          const excerpt = document.querySelector('.layout-search-rowexcerpt')
+          const style = getComputedStyle(mark)
+          return {
+            background: style.backgroundColor,
+            color: style.color,
+            weight: style.fontWeight,
+            // -> Upright: the mark is what distinguishes the matched words now, not a line of italics
+            excerptStyle: getComputedStyle(excerpt).fontStyle
+          }
+        }
+      })
+
+      expect(measured.background).toBe('rgb(253, 236, 237)')
+      expect(measured.color).toBe('rgb(168, 63, 69)')
+      expect(measured.weight).toBe('600')
+      expect(measured.excerptStyle).toBe('normal')
+    })
+  }
+)
