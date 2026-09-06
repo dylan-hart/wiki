@@ -13,6 +13,7 @@
     "icons": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/generate-icons.mjs --check",
     "test": "vitest run",
+    "test:flaky": "vitest run --config vitest.flaky.config.js",
     "i18n:check": "vitest run src/i18nSourceGate.test.js",
     "install-browsers": "playwright install --with-deps chromium",
     "emoji": "node scripts/generate-emoji.mjs",

@@ -9,6 +9,7 @@
   "scripts": {
     "build": "rollup -c",
     "test": "vitest run",
+    "test:flaky": "vitest run --config vitest.flaky.config.js",
     "locale-keys:check": "node scripts/check-locale-keys.mjs",
     "ncu": "ncu -i",
     "ncu-u": "ncu -u"
