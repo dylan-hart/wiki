@@ -170,7 +170,14 @@ export default {
     const poolOptions = {
       errorHandler: (err: Error) => WIKI.logger.warn('worker', 'worker pool error', { error: err }),
       exitHandler: () => WIKI.logger.debug('worker', 'worker offline'),
-      onlineHandler: () => WIKI.logger.debug('worker', 'worker online')
+      onlineHandler: () => WIKI.logger.debug('worker', 'worker online'),
+      // -> Forwarded verbatim to `new Worker(file, options)`, so this is what `worker.ts` reads out
+      //    of `node:worker_threads`' `workerData` to build its own `INSTANCE_ID` before its logger
+      //    exists. One object for the whole pool — the per-worker half of the id is the thread's own
+      //    `threadId`, not anything sent from here.
+      workerOptions: {
+        workerData: { parentInstanceId: WIKI.INSTANCE_ID }
+      }
     }
     /*
       `DynamicThreadPool` refuses a minimum equal to its maximum (poolifier 5.x: "Use a fixed pool
@@ -385,11 +392,10 @@ export default {
   async executeOnWorker(job: { task: string; payload?: any }): Promise<void> {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     await withTimeout(
-      this.workerPool!.execute(
-        { ...job, INSTANCE_ID: `${WIKI.INSTANCE_ID}:WKR` },
-        undefined,
-        AbortSignal.timeout(timeoutMs)
-      ),
+      // -> No `INSTANCE_ID` rider on the payload any more: a worker settles its own id from
+      //    `workerData` at boot (see `poolOptions` above), so sending one per job only ever
+      //    overwrote a correct value with the same information a job later.
+      this.workerPool!.execute({ ...job }, undefined, AbortSignal.timeout(timeoutMs)),
       timeoutMs + TASK_TIMEOUT_GRACE,
       () =>
         new Error(
@@ -890,7 +896,10 @@ export default {
       await this.listenerHandle.close()
       this.listenerHandle = null
     }
-    WIKI.logger.info('jobs', 'scheduler stopped')
+    // -> `debug`, not `info`: `core/http/server.ts`'s `boot stopping` / `boot stopped  ms=` pair is
+    //    the shutdown narrative now, and this runs inside it as one of the graceful server's own
+    //    `closePromises`. An operator wanting to see which teardown step is slow turns on `debug`.
+    WIKI.logger.debug('jobs', 'scheduler stopped')
   },
   /**
    * Waits for whatever `processJob` currently has in flight, bounded so a hung task cannot hold
@@ -908,7 +917,9 @@ export default {
     }
     const timeoutMs =
       (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000 + SHUTDOWN_DRAIN_GRACE
-    WIKI.logger.info('jobs', 'waiting for in-flight jobs', {
+    // -> `debug jobs`, for the same reason as `scheduler stopped` above: the drain's cost is already
+    //    reported by `boot stopped  ms=`, and this is the detail behind that number.
+    WIKI.logger.debug('jobs', 'waiting for in-flight jobs', {
       jobs: this.inFlightJobs.size,
       timeout: timeoutMs
     })
