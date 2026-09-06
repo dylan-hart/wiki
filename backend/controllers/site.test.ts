@@ -7,7 +7,7 @@ import { after, afterEach, before, describe, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import siteRoutes from './site.ts'
+import siteRoutes, { SITE_ASSET_FALLBACKS } from './site.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import { SVG_CSP } from '../helpers/security.ts'
 import { installTestWiki } from '../test/mocks.ts'
@@ -158,7 +158,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
 
     let localApp: FastifyInstance
     let wikiHandle: { restore(): void }
-    let rootDir: string
+    let serverDir: string
     /** What `getAsset` returns for the current test; null reproduces "nothing uploaded". */
     let currentAsset: { data: Buffer; mime: string } | null = null
     /**
@@ -168,18 +168,18 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     let getAsset: ReturnType<typeof mock.fn>
 
     before(async () => {
-      rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-site-fallback-'))
-      // -> Mirrors `SITE_ASSET_FALLBACKS['logo']` in controllers/site.ts exactly, so the real
-      //    `replyWithFile` fallback branch has a real file to stream.
-      await fs.mkdir(path.join(rootDir, 'assets', '_assets'), { recursive: true })
-      await fs.writeFile(
-        path.join(rootDir, 'assets', '_assets', 'logo-cardinal.svg'),
-        '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg>'
-      )
+      serverDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-site-fallback-'))
+      // -> Staged from `SITE_ASSET_FALLBACKS['logo']` itself rather than a second copy of the
+      //    literal, so the real `replyWithFile` fallback branch has a real file to stream and this
+      //    setup cannot drift from the table it is standing in for. The fallbacks are resolved
+      //    against `SERVERPATH` now, not `ROOTPATH` (OpenProject #2611).
+      const stagedLogo = path.join(serverDir, SITE_ASSET_FALLBACKS.logo)
+      await fs.mkdir(path.dirname(stagedLogo), { recursive: true })
+      await fs.writeFile(stagedLogo, '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg>')
 
       getAsset = mock.fn(async () => currentAsset)
       wikiHandle = installTestWiki({
-        ROOTPATH: rootDir,
+        SERVERPATH: serverDir,
         models: {
           sites: {
             getSiteByHostname: async () => SITE,
@@ -200,7 +200,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
 
     after(async () => {
       await localApp.close()
-      await fs.rm(rootDir, { recursive: true, force: true })
+      await fs.rm(serverDir, { recursive: true, force: true })
       wikiHandle.restore()
     })
 
@@ -516,5 +516,58 @@ describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201
   test('lets a key pinned to site A through when it requests site A by UUID', async () => {
     const res = await app.inject({ method: 'GET', url: `/${SITE_A.id}/logo` })
     assert.equal(res.statusCode, 200)
+  })
+})
+
+/**
+ * The branding fallbacks used to point at `assets/_assets/`, which is `frontend/`'s `vite build`
+ * output and is gitignored — so `node backend` against an unbuilt or merely stale `assets/` served
+ * the wrong mark, or nothing at all, and nothing distinguished that from "no logo configured"
+ * (OpenProject #2611). They are backend-owned committed files now, which is what makes asserting
+ * that they exist a deterministic check rather than one that only holds after somebody has run a
+ * build.
+ *
+ * This iterates `SITE_ASSET_FALLBACKS` rather than re-listing the paths, so a fourth asset kind is
+ * covered the moment it is added.
+ */
+describe('SITE_ASSET_FALLBACKS — the backend owns its branding fallback files', () => {
+  /** The real `backend/`, i.e. what `WIKI.SERVERPATH` resolves to in a running instance. */
+  const serverPath = path.join(import.meta.dirname, '..')
+
+  for (const [kind, relativePath] of Object.entries(SITE_ASSET_FALLBACKS)) {
+    test(`the ${kind} fallback resolves to a real file inside backend/`, async () => {
+      const resolved = path.join(serverPath, relativePath)
+      const stats = await fs.stat(resolved)
+      assert.equal(stats.isFile(), true, `${resolved} is not a file`)
+    })
+
+    test(`the ${kind} fallback stays inside backend/ rather than pointing at build output`, () => {
+      const fromServerPath = path.relative(serverPath, path.resolve(serverPath, relativePath))
+      assert.equal(
+        path.isAbsolute(relativePath) || fromServerPath.startsWith('..'),
+        false,
+        `the ${kind} fallback escapes backend/: ${relativePath}`
+      )
+    })
+  }
+
+  /**
+   * `frontend/public/_assets/logo-cardinal.svg` is a deliberate second copy — the Vite dev server
+   * and the built bundle answer `/_assets/logo-cardinal.svg` for `AdminLayout.vue` and
+   * `WelcomeOverlay.vue` out of `public/`, a different path space from the backend's own fallback
+   * table, and the two are deliberately not unified. Two copies can drift, though, and a drifted
+   * pair reproduces the exact symptom #2611 was filed for: the admin area showing one mark while
+   * every other surface shows another. This is what stops that.
+   */
+  test('the backend logo fallback is byte-identical to the frontend public copy', async () => {
+    const backendCopy = await fs.readFile(path.join(serverPath, SITE_ASSET_FALLBACKS.logo))
+    const frontendCopy = await fs.readFile(
+      path.join(serverPath, '..', 'frontend', 'public', '_assets', 'logo-cardinal.svg')
+    )
+    assert.equal(
+      backendCopy.equals(frontendCopy),
+      true,
+      'backend/assets/branding/logo-cardinal.svg and frontend/public/_assets/logo-cardinal.svg have drifted apart'
+    )
   })
 })
