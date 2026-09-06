@@ -4,9 +4,11 @@ import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
   groups as groupsTable,
+  pageWatching as watchingTable,
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import { initialsFor } from './pageWatching.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 
@@ -286,5 +288,204 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
     assert.equal(wantsAction(preference, 'updated'), true)
     assert.equal(wantsAction(preference, 'moved'), false)
     assert.equal(wantsAction(preference, 'deleted'), true)
+  })
+
+  /**
+   * OpenProject #2646: `listForPage`, the page metadata rail's Watching section.
+   *
+   * DB-backed for the same reason the rest of this file is: what is interesting here is the SQL — an
+   * `ORDER BY createdAt` the rows are deliberately NOT inserted in, a `LIMIT` that must not reach the
+   * `COUNT(*)`, and a join to `users` — none of which a stubbed query builder would verify.
+   *
+   * Rows are inserted straight into the table with explicit `createdAt` values rather than through
+   * `watch()`: `watch()` stamps `defaultNow()`, so ordering would rest on how fast three statements
+   * ran, which is not a property worth asserting on.
+   */
+  describe('listForPage', () => {
+    let listPageId: string
+    /** Insertion order is deliberately not watch order — the query has to do the sorting. */
+    const NAMES = ['Grace Hopper', 'Ada Lovelace', 'Prince', '']
+    /** `watchedAt` per name, so oldest-first is Ada, Prince, Grace, then the nameless account. */
+    const WATCHED_AT: Record<string, Date> = {
+      'Ada Lovelace': new Date('2026-01-01T00:00:00.000Z'),
+      Prince: new Date('2026-02-01T00:00:00.000Z'),
+      'Grace Hopper': new Date('2026-03-01T00:00:00.000Z'),
+      '': new Date('2026-04-01T00:00:00.000Z')
+    }
+
+    before(async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'list-for-page-fixture',
+          title: 'List For Page Fixture',
+          editor: 'markdown',
+          content: '# Hi'
+        } as PageInput,
+        actor
+      )
+      listPageId = page.id
+
+      for (const [index, name] of NAMES.entries()) {
+        const [user] = await fixtures.db
+          .insert(usersTable)
+          .values({
+            email: `list-for-page-${index}@example.com`,
+            name,
+            isActive: true,
+            isVerified: true
+          })
+          .returning({ id: usersTable.id })
+        await fixtures.db.insert(watchingTable).values({
+          siteId: fixtures.siteId,
+          pageId: listPageId,
+          userId: user!.id,
+          createdAt: WATCHED_AT[name]!
+        })
+      }
+    })
+
+    test('returns watchers oldest first, with the name and initials of each', async () => {
+      const { watchers } = await pageWatchingModel.listForPage(listPageId, { limit: 10 })
+
+      assert.deepEqual(
+        watchers.map((w) => w.name),
+        ['Ada Lovelace', 'Prince', 'Grace Hopper', ''],
+        'earliest to have started watching comes first, not most recent'
+      )
+      assert.deepEqual(
+        watchers.map((w) => w.initials),
+        ['AL', 'P', 'GH', '?'],
+        'two letters for a full name, one for a mononym, and a neutral glyph for a nameless account'
+      )
+      assert.deepEqual(
+        watchers.map((w) => w.watchedAt.toISOString()),
+        [
+          '2026-01-01T00:00:00.000Z',
+          '2026-02-01T00:00:00.000Z',
+          '2026-03-01T00:00:00.000Z',
+          '2026-04-01T00:00:00.000Z'
+        ]
+      )
+    })
+
+    test('total counts every watcher, not the ones the limit returned', async () => {
+      const { watchers, total } = await pageWatchingModel.listForPage(listPageId, { limit: 3 })
+
+      assert.equal(watchers.length, 3, 'the limit truncates the returned rows')
+      assert.equal(
+        total,
+        4,
+        'and leaves the total alone, which is what a `+N` remainder counts from'
+      )
+      assert.deepEqual(
+        watchers.map((w) => w.initials),
+        ['AL', 'P', 'GH'],
+        'the three returned are the three OLDEST, not an arbitrary three'
+      )
+    })
+
+    test('a page nobody watches answers an empty list and a zero total', async () => {
+      const unwatched = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'list-for-page-unwatched',
+          title: 'Unwatched',
+          editor: 'markdown',
+          content: '# Hi'
+        } as PageInput,
+        actor
+      )
+
+      assert.deepEqual(await pageWatchingModel.listForPage(unwatched.id, { limit: 10 }), {
+        watchers: [],
+        total: 0
+      })
+    })
+
+    test('another page’s watchers are not counted into this one', async () => {
+      // -> The one thing a `WHERE pageId` typo would not otherwise show up as: `pageId` is the whole
+      //    of the filter here (no `siteId`), so a missing predicate would total the entire table.
+      const other = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'list-for-page-other',
+          title: 'Other',
+          editor: 'markdown',
+          content: '# Hi'
+        } as PageInput,
+        actor
+      )
+      await pageWatchingModel.watch({
+        siteId: fixtures.siteId,
+        pageId: other.id,
+        userId: fixtures.userId
+      })
+
+      assert.equal((await pageWatchingModel.listForPage(listPageId, { limit: 10 })).total, 4)
+      assert.equal((await pageWatchingModel.listForPage(other.id, { limit: 10 })).total, 1)
+    })
+
+    test('a watcher who lost read:pages is still listed — this answers about the page, not about them', async () => {
+      /*
+        The deliberate difference from `listForUser`/`listWatchers`, which both drop such a watcher
+        (OpenProject #2173). Those answer "what should this person see / be mailed"; this answers "who
+        watches this page", asked by somebody else whose OWN read:pages the route has already checked.
+        Asserted rather than left implicit, so a later "consistency" change has to argue with a test.
+      */
+      const [outsider] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'list-for-page-outsider@example.com',
+          name: 'Out Sider',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      // -> In no group at all, so no rule grants them `read:pages` anywhere.
+      await fixtures.db.insert(watchingTable).values({
+        siteId: fixtures.siteId,
+        pageId: listPageId,
+        userId: outsider!.id,
+        createdAt: new Date('2026-05-01T00:00:00.000Z')
+      })
+
+      const { watchers, total } = await pageWatchingModel.listForPage(listPageId, { limit: 10 })
+      assert.equal(total, 5)
+      assert.equal(watchers.at(-1)?.name, 'Out Sider')
+
+      await pageWatchingModel.unwatch({ pageId: listPageId, userId: outsider!.id })
+    })
+  })
+})
+
+/**
+ * `initialsFor` is a pure function over a name, so it is tested without a database — the plate the
+ * rail draws is exactly two letters, one letter, or a neutral glyph, and nothing else.
+ */
+describe('initialsFor (OpenProject #2646)', () => {
+  test('takes the first and last word, uppercased', () => {
+    assert.equal(initialsFor('Ada Lovelace'), 'AL')
+    assert.equal(initialsFor('ada lovelace'), 'AL')
+  })
+
+  test('uses the FIRST and LAST word of a longer name, not the first two', () => {
+    assert.equal(initialsFor('Ada King Lovelace'), 'AL')
+  })
+
+  test('gives a mononym its single letter', () => {
+    assert.equal(initialsFor('Prince'), 'P')
+  })
+
+  test('collapses surrounding and interior whitespace rather than reading it as a word', () => {
+    assert.equal(initialsFor('  Ada   Lovelace  '), 'AL')
+    assert.equal(initialsFor('\tAda\nLovelace'), 'AL')
+  })
+
+  test('answers a neutral glyph for an empty, whitespace-only, null or undefined name', () => {
+    assert.equal(initialsFor(''), '?')
+    assert.equal(initialsFor('   '), '?')
+    assert.equal(initialsFor(null), '?')
+    assert.equal(initialsFor(undefined), '?')
   })
 })

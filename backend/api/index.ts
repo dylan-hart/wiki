@@ -47,6 +47,7 @@ export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/storage.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/tree.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/user.ts').then((m) => m.registerSchemas(app))
+  await import('./schemas/watcher.ts').then((m) => m.registerSchemas(app))
 }
 
 /**
