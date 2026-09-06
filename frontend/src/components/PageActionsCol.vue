@@ -40,11 +40,16 @@
         :aria-label="t('pageActions.pendingAssetUploads')">
         <!-- Outside the icon for the same reason as the review badge above -->
         <w-icon name="tabler:photo-cog" />
+        <!--
+          A white counter carrying the rail's own red, which is what the design draws on the filled
+          rail. `orange-9` was Material's amber and belonged to no Cardinal tone at all -- and now
+          sits over a red ground, where it reads as a third colour that means nothing.
+        -->
         <w-badge
           class="page-actions-pending-badge"
           v-if="hasPendingAssets"
           color="white"
-          text-color="orange-9"
+          text-color="accent"
           rounded
           floating>
           <strong>{{ editorStore.pendingAssets.length * 1 }}</strong>
@@ -780,18 +785,50 @@ $action-btn-height: 3rem;
   }
 
   /*
-    Editing turns the rail's own edge accent rather than filling the whole column: a 56px block of
-    saturated red down the side of an article is the loudest thing on the screen, and what it has to
-    say ("you are editing") is already said by the header, the toolbar and the save button. The strip
-    marks the same state without competing with the work.
+    Editing fills the rail, which is what `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` draws: the
+    whole 56px column in the accent, white glyphs on it, the dividers and the mode overline in white
+    at reduced alpha, and the primary cell at the head marked by a wash rather than by a colour of its
+    own. This rail is where the two things only an author can do live, so it is a live edge in
+    Cardinal's own sense, and the header, toolbar and save button all change with it.
+
+    `$primary` (#c14a52), not the `#e4676b` the design file paints. Both are the same hue; which one a
+    surface takes is decided by what rides on it, and this one carries white glyphs AND a white 10px
+    overline. `docs/cardinal-reskin-second-pass.md`'s "One deliberate divergence" settles that case:
+    a fill under white text resolves to the darker tone, which clears 4.5:1 where #e4676b is 3.26:1.
+
+    Before this, the rail stayed on the light tint with a 2px accent edge while every button on it
+    still switched to `color="white"` -- so an author editing a page was looking at white glyphs on
+    #eef1f7, i.e. at an empty strip.
   */
   &.is-editor {
-    border-inline-start: 2px solid $accent-fill;
+    /*
+      Both theme scopes, spelled out, because the rail's resting ground just above is itself written
+      as `.body--light &` / `.body--dark &` -- a bare `&.is-editor` would be one class short of those
+      and lose the cascade to them, leaving the fill off entirely.
+    */
+    @at-root .body--light &,
+      .body--dark & {
+      background-color: $primary;
+      border-inline-start: 1px solid $primary;
+      color: #fff;
+    }
+
+    /*
+      The design's own dividers: the rail's white, held back so they rule without cutting. Through
+      `--w-hairline-color`, not `background-color`: `.w-hairline` is transparent itself and paints the
+      line on an `::after` that reads that property (`css/tailwind.css`), so a colour set on the
+      element paints nothing at all.
+    */
+    .w-separator {
+      --w-hairline-color: rgb(255 255 255 / 0.3);
+    }
   }
 
   /*
     The rail's first cell -- page properties, its primary action -- lifted onto the article column's
-    own white so it reads as the head of the rail rather than as the first of a row of equals.
+    own white so it reads as the head of the rail rather than as the first of a row of equals. While
+    the rail is filled there is no white to lift it onto, so the design marks it the only way a solid
+    ground can be marked from within: a wash of its own foreground.
   */
   > .aspect-square:first-child {
     @at-root .body--light & {
@@ -804,16 +841,37 @@ $action-btn-height: 3rem;
     }
   }
 
+  /*
+    Written with `.body--light`/`.body--dark` spelled out rather than relying on source order: the
+    two rules just above are themselves theme-scoped, so an unscoped override would tie on
+    specificity and win only by position -- which the next edit to this file could quietly undo.
+  */
+  @at-root .body--light &.is-editor > .aspect-square:first-child {
+    background-color: rgb(255 255 255 / 0.14);
+    border-block-end: 0;
+  }
+  @at-root .body--dark &.is-editor > .aspect-square:first-child {
+    background-color: rgb(255 255 255 / 0.14);
+    border-block-end: 0;
+  }
+
   /* -> Taller than the shell only on a very short window, and then it scrolls rather than clipping */
   overflow-y: auto;
   scrollbar-width: none;
 
-  /* -> Set down the rail in Cardinal's chrome overline: tracked uppercase Roboto Mono */
+  /*
+    Set down the rail in Cardinal's chrome overline: tracked uppercase Roboto Mono.
+
+    White, because this only ever renders while the editor is open and the rail beneath it is
+    therefore filled (see `.is-editor`). The design writes it at 85% alpha; at full opacity it clears
+    4.5:1 on `$primary` where the softened version does not, and there is nothing else on the rail for
+    it to be held back from.
+  */
   &-mode {
     writing-mode: vertical-rl;
     text-orientation: mixed;
     padding: 1.75rem 1rem 1.75rem 0;
-    color: $accent-text;
+    color: #fff;
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 600;
