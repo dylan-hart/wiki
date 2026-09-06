@@ -16,6 +16,7 @@
     </w-header>
     <w-drawer
       class="bg-sidebar"
+      bordered
       v-model="isSidebarOpen"
       :width="sidebarWidth"
       :overlay-below="SIDEBAR_OVERLAY_BELOW"
