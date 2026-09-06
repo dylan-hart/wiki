@@ -1,5 +1,5 @@
 <template>
-  <w-page class="py-4">
+  <w-page>
     <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item v-if="!canEdit">
       <w-item-section>
@@ -17,7 +17,7 @@
       </w-item-section>
     </w-item>
     <w-item>
-      <blueprint-icon icon="tabler:address-book" />
+      <blueprint-icon icon="tabler:id" />
       <w-item-section>
         <w-item-label>{{ t(`profile.displayName`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.displayNameHint`) }}</w-item-label>
@@ -25,13 +25,12 @@
       <w-item-section>
         <w-input
           v-model="state.config.name"
-          dense
           hide-bottom-space
           :aria-label="t(`profile.displayName`)"
           :readonly="!canEdit" />
       </w-item-section>
     </w-item>
-    <w-separator inset spaced="sm" />
+    <w-separator inset />
     <w-item>
       <blueprint-icon icon="tabler:mail" />
       <w-item-section>
@@ -39,10 +38,14 @@
         <w-item-label caption>{{ t(`profile.emailHint`) }}</w-item-label>
       </w-item-section>
       <w-item-section>
-        <w-input v-model="state.config.email" dense :aria-label="t(`profile.email`)" readonly />
+        <w-input
+          v-model="state.config.email"
+          monospaced
+          :aria-label="t(`profile.email`)"
+          readonly />
       </w-item-section>
     </w-item>
-    <w-separator inset spaced="sm" />
+    <w-separator inset />
     <w-item>
       <blueprint-icon icon="tabler:map-pin" />
       <w-item-section>
@@ -52,13 +55,12 @@
       <w-item-section>
         <w-input
           v-model="state.config.location"
-          dense
           hide-bottom-space
           :aria-label="t(`profile.location`)"
           :readonly="!canEdit" />
       </w-item-section>
     </w-item>
-    <w-separator inset spaced="sm" />
+    <w-separator inset />
     <w-item>
       <blueprint-icon icon="tabler:briefcase" />
       <w-item-section>
@@ -68,13 +70,12 @@
       <w-item-section>
         <w-input
           v-model="state.config.jobTitle"
-          dense
           hide-bottom-space
           :aria-label="t(`profile.jobTitle`)"
           :readonly="!canEdit" />
       </w-item-section>
     </w-item>
-    <w-separator inset spaced="sm" />
+    <w-separator inset />
     <w-item>
       <blueprint-icon icon="tabler:gender-bigender" />
       <w-item-section>
@@ -84,13 +85,12 @@
       <w-item-section>
         <w-input
           v-model="state.config.pronouns"
-          dense
           hide-bottom-space
           :aria-label="t(`profile.pronouns`)"
           :readonly="!canEdit" />
       </w-item-section>
     </w-item>
-    <h2 class="w-section-header mt-6">{{ t('profile.preferences') }}</h2>
+    <h2 class="w-section-header">{{ t('profile.preferences') }}</h2>
     <w-item>
       <blueprint-icon icon="tabler:clock-hour-4" />
       <w-item-section>
@@ -106,14 +106,13 @@
         <w-select
           v-model="state.config.timezone"
           :options="timezones"
-          dense
           options-dense
           hide-bottom-space
           :aria-label="t(`admin.general.defaultTimezone`)"
           :readonly="!canEdit" />
       </w-item-section>
     </w-item>
-    <w-separator inset spaced="sm" />
+    <w-separator inset />
     <w-item>
       <blueprint-icon icon="tabler:calendar" />
       <w-item-section>
@@ -125,14 +124,13 @@
           v-model="state.config.dateFormat"
           emit-value
           map-options
-          dense
           hide-bottom-space
           :aria-label="t(`admin.general.defaultDateFormat`)"
           :options="dateFormats"
           :readonly="!canEdit" />
       </w-item-section>
     </w-item>
-    <w-separator inset spaced="sm" />
+    <w-separator inset />
     <w-item>
       <blueprint-icon icon="tabler:clock" />
       <w-item-section>
@@ -148,9 +146,9 @@
           :aria-label="t(`profile.timeFormat`)" />
       </w-item-section>
     </w-item>
-    <w-separator inset spaced="sm" />
+    <w-separator inset />
     <w-item>
-      <blueprint-icon icon="tabler:bulb" />
+      <blueprint-icon icon="tabler:sun" />
       <w-item-section>
         <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
@@ -164,9 +162,9 @@
           :aria-label="t(`profile.appearance`)" />
       </w-item-section>
     </w-item>
-    <h2 class="w-section-header mt-6">{{ t('profile.accessibility') }}</h2>
+    <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
     <w-item>
-      <blueprint-icon icon="tabler:eye-off" />
+      <blueprint-icon icon="tabler:eye" />
       <w-item-section>
         <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
@@ -180,7 +178,7 @@
           :aria-label="t(`profile.cvd`)" />
       </w-item-section>
     </w-item>
-    <div v-if="canEdit" class="actions-bar mt-6">
+    <div v-if="canEdit" class="actions-bar">
       <w-btn
         icon="tabler:check"
         :label="t(`common.actions.saveChanges`)"

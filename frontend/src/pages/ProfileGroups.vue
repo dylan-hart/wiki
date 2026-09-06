@@ -1,5 +1,5 @@
 <template>
-  <w-page class="py-4">
+  <w-page>
     <h1 class="w-section-header">{{ t('profile.groups') }}</h1>
     <div class="p-4">
       <div class="text-body2">{{ t('profile.groupsInfo') }}</div>

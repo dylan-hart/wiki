@@ -381,25 +381,87 @@ $nav-shrink-max: 1199.98px;
   overflow-y: auto;
 
   // -> The rail already draws the seam between the two columns; a second line here doubled it
+
+  /*
+    The content column has NO padding of its own at the top: `Cardinal Wiki - Profile 3x.dc.html`
+    runs the first section band flush against the top of the column, edge to edge, which is what
+    makes it read as the head of the column rather than as a card floating inside it. The six
+    section pages therefore carry no `py-*` of their own -- this is the single owner of the
+    column's padding.
+
+    The 24px at the foot is the design's own trailing space below the save bar (its bar is
+    `16px 20px 24px`; here the bar keeps `16px 20px` and this supplies the last 24px), and it is
+    also what gives the sections that have no save bar at all a foot to stand on.
+  */
+  padding-block-end: 24px;
 }
 
 /*
-  The save bar at the foot of a section. A hairline above it and the page tint behind it, which is
-  how every other action bar in the language is drawn (`WCardActions`, the dialogs' own footers).
+  THE SETTINGS-ROW RHYTHM
+  ========================
+
+  `Cardinal Wiki - Profile 3x.dc.html` draws a row as `padding: 14px 20px` with a 14px gutter
+  between the icon plate and the label block, and rules them off with a 1px tint line inset by the
+  same 20px and carrying no vertical space of its own.
+
+  Scoped to this overlay's content column rather than applied to `.w-item` / `.w-separator`
+  themselves: both are shared library components with dozens of callers, and the 16px/8px they draw
+  elsewhere is the app's own rhythm, not something this one screen gets to move. Direct children
+  only (`>`), so a nested list inside a section -- ProfileAuth's provider menu, say -- keeps the
+  library metrics.
+*/
+.layout-profile-body .w-page > .w-item {
+  padding: 14px 20px;
+}
+
+/*
+  The plate's gutter, stated rather than inherited: the library's avatar section is a 56px column
+  with a 16px trailing pad, which centres a 34px plate and leaves ~3px of slack on each side. The
+  design measures from the row's edge to the plate (20px) and from the plate to the label (14px),
+  so the column is collapsed onto the plate and the trailing pad is the whole gutter.
+*/
+.layout-profile-body .w-page > .w-item > .w-item-section--avatar {
+  min-width: 0;
+  padding-inline-end: 14px;
+}
+
+/*
+  The rule between two rows. `--w-hairline-color` rather than a background, because WSeparator
+  paints its line through a scaled pseudo-element (`helpers/hairline.js`) so that it stays one
+  device pixel under fractional display scaling -- setting `background-color` here would paint a
+  second, unscaled line behind it.
+*/
+.layout-profile-body .w-page > .w-separator {
+  margin-inline: 20px;
+  --w-hairline-color: #{$tint};
+
+  @at-root .body--dark & {
+    --w-hairline-color: #{$hairline-dark};
+  }
+}
+
+/*
+  The save bar at the foot of a section: one rule above it, and nothing else.
 
   What this replaces was four stacked gradients across three elements -- a white-to-transparent wash
   crossed with a green one, a 10px band above it, and a fading rule -- to suggest the bar lifting off
   the content. One rule says the same thing.
+
+  No fill: `Cardinal Wiki - Profile 3x.dc.html` leaves the bar on the column's own ground and marks
+  it with a tint rule alone. A paper fill was a panel by another name -- the same relief this
+  language does without -- and it also disagreed with the rule above it, which the design draws in
+  the LIGHTER `$tint`, not the `$hairline` that separates two structural blocks.
+
+  `16px 20px` here rather than the design's `16px 20px 24px`: the trailing 24px is the content
+  column's own `padding-block-end` above, so that a section with no save bar gets the same foot.
 */
 .layout-profile-body .actions-bar {
   display: flex;
   justify-content: flex-end;
-  padding: 12px 16px;
-  background-color: $paper;
-  border-top: 1px solid $hairline;
+  padding: 16px 20px;
+  border-top: 1px solid $tint;
 
   @at-root .body--dark & {
-    background-color: $dark-4;
     border-top-color: $hairline-dark;
   }
 }
