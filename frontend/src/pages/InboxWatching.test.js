@@ -58,6 +58,7 @@ const messages = {
     watchingNone: 'You are not watching any page yet.',
     watchingHint: 'Open a page and press the bell in its header to start watching it.',
     watchingLoadFailed: 'Failed to load your watched pages.',
+    watchingUpdated: 'Last updated {date}',
     watchingUnwatch: 'Stop watching',
     watchingUnwatched: '{title} is no longer watched.',
     watchingUnwatchFailed: 'Could not stop watching this page.',
@@ -103,10 +104,10 @@ function findButtonByText(text) {
 }
 
 async function mountInboxWatching(sitePatch = {}) {
-  const { wrapper, router, siteStore } = mountInboxWatchingUnsettled(sitePatch)
+  const { wrapper, router, siteStore, userStore, i18n } = mountInboxWatchingUnsettled(sitePatch)
   await flushLoads()
   notifyQueue.splice(0, notifyQueue.length)
-  return { wrapper, router, siteStore }
+  return { wrapper, router, siteStore, userStore, i18n }
 }
 
 /**
@@ -118,7 +119,7 @@ async function mountInboxWatching(sitePatch = {}) {
 function mountInboxWatchingUnsettled(sitePatch = {}) {
   const router = buildTestRouter(['/', '/:path(.*)'])
 
-  const { wrapper, siteStore } = mountWithApp(InboxWatching, {
+  const { wrapper, siteStore, userStore, i18n } = mountWithApp(InboxWatching, {
     messages,
     router,
     stores: {
@@ -131,7 +132,7 @@ function mountInboxWatchingUnsettled(sitePatch = {}) {
     stubs: {}
   })
 
-  return { wrapper, router, siteStore }
+  return { wrapper, router, siteStore, userStore, i18n }
 }
 
 async function flushLoads() {
@@ -341,6 +342,33 @@ describe('InboxWatching watching', () => {
 
     expect(pushSpy).toHaveBeenCalledWith('/watched/page')
     expect(siteStore.overlay).toBe('')
+  })
+
+  /**
+   * OpenProject #2716: this "last updated" line used to go through `humanizeDate` (the long
+   * absolute form) like the tag/search results did, while the page view's own "Last modified" line
+   * already used the short recent form -- so the same fact about the same page read differently
+   * depending on where it was seen. `updatedAt` is computed relative to "now" rather than a fixed
+   * calendar string, since `formatRecent`'s abbreviated form only applies within the last 7 days.
+   */
+  it('shows "last updated" in the recent form, not the legacy absolute one', async () => {
+    const recentUpdatedAt = Temporal.Now.instant().subtract({ hours: 26 }).toString()
+    stubApi(
+      { 'sites/site-1/watching': [{ ...WATCHED_PAGE, updatedAt: recentUpdatedAt }] },
+      { fallback: [] }
+    )
+
+    const { wrapper, userStore, i18n } = await mountInboxWatching()
+
+    expect(wrapper.text()).toContain(userStore.formatRecent(i18n.global.t, recentUpdatedAt))
+  })
+
+  it('renders the placeholder, not an empty date, when a watched page has no updatedAt', async () => {
+    stubApi({ 'sites/site-1/watching': [{ ...WATCHED_PAGE, updatedAt: null }] }, { fallback: [] })
+
+    const { wrapper } = await mountInboxWatching()
+
+    expect(wrapper.text()).toContain('Last updated ---')
   })
 
   it('shows the server message and keeps the row when unwatching is refused', async () => {

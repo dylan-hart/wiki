@@ -118,11 +118,12 @@ async function mountTagsBrowse(
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_TAGS) })
 
   const router = await createTagsRouter(initialPath)
+  const i18n = createTagsBrowseI18n(i18nMessages)
   const wrapper = mount(TagsBrowse, {
-    global: { plugins: [router, createTagsBrowseI18n(i18nMessages)] }
+    global: { plugins: [router, i18n] }
   })
   await flushPromises()
-  return { wrapper, router, siteStore, userStore }
+  return { wrapper, router, siteStore, userStore, i18n }
 }
 
 beforeEach(() => {
@@ -649,6 +650,49 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
     const meta = section.findAll('.tags-browse-result-meta')
     expect(meta).toHaveLength(2)
     expect(meta[0].text()).toBe('/some/page')
+  })
+
+  /**
+   * OpenProject #2716: this line used to go through `humanizeDate` (the long absolute form), the
+   * same as search results and Inbox Watching, while the page view's own "Last modified" line
+   * already used the short recent form -- so the same fact about the same page read differently
+   * depending on which list it was found in. `updatedAt` is computed relative to "now" rather than
+   * a fixed calendar string, since `formatRecent`'s abbreviated form only applies within the last 7
+   * days.
+   */
+  it('shows the last-updated line in the recent form, not the legacy absolute one', async () => {
+    const recentUpdatedAt = Temporal.Now.instant().subtract({ hours: 26 }).toString()
+    const { wrapper, userStore, i18n } = await mountTagsBrowse(
+      '/_tags?tags=equipment',
+      {
+        results: [{ ...FIXTURE_PAGE, updatedAt: recentUpdatedAt }],
+        totalHits: 1,
+        suggestion: null
+      },
+      [],
+      { tags: { pageLastUpdated: 'Last updated {date}' } }
+    )
+
+    const meta = wrapper
+      .find('.tags-browse-plate .w-item-section--main')
+      .findAll('.tags-browse-result-meta')
+    expect(meta[1].text()).toBe(
+      `Last updated ${userStore.formatRecent(i18n.global.t, recentUpdatedAt)}`
+    )
+  })
+
+  it('renders the placeholder, not an empty date, for a page with no updatedAt', async () => {
+    const { wrapper } = await mountTagsBrowse(
+      '/_tags?tags=equipment',
+      { results: [{ ...FIXTURE_PAGE, updatedAt: null }], totalHits: 1, suggestion: null },
+      [],
+      { tags: { pageLastUpdated: 'Last updated {date}' } }
+    )
+
+    const meta = wrapper
+      .find('.tags-browse-plate .w-item-section--main')
+      .findAll('.tags-browse-result-meta')
+    expect(meta[1].text()).toBe('Last updated ---')
   })
 
   it("draws the result-row tags at the design's 11px, with the same mono `#`", async () => {
