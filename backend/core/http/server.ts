@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import fastify, { type FastifyInstance } from 'fastify'
+import fastify, { LogController, type FastifyInstance } from 'fastify'
 import fastifyCompress from '@fastify/compress'
 import fastifyFavicon from 'fastify-favicon'
 import fastifySensible from '@fastify/sensible'
@@ -10,6 +10,7 @@ import gracefulServer, { type IGracefulServer } from '@gquittet/graceful-server'
 import ajvFormats from 'ajv-formats'
 
 import { isHashedAssetFilename, isSameOriginWebSocketHandshake } from '../../helpers/common.ts'
+import { buildRequestLogContext } from '../../helpers/requestLogContext.ts'
 
 /**
  * The Fastify instance itself, everything wrapped around it that is not routing, and the static
@@ -46,27 +47,27 @@ export function createHttpApp(): FastifyInstance {
       }
     },
     bodyLimit: WIKI.config.bodyParserLimit || 5242880, // 5mb
-    // -> `level: 'error'` used to suppress pino's own request/response logging entirely (emitted at
-    //    `info`) — no access log, no per-request latency, no status code, no correlation id
-    //    (OpenProject #1937). `genReqId` gives every request one; in `logFormat: 'json'` mode the
-    //    `formatters`/`messageKey`/`timestamp`/`base` options below reshape pino's own JSON line into
-    //    the exact `{ timestamp, instance, level, message, ... }` shape `core/logger.ts`'s JSON branch
-    //    already emits, so an aggregator sees one format across both loggers instead of two. Text mode
-    //    is left as Fastify's own default pino output — the audit note this WP implements only scopes
-    //    shape-matching to JSON mode.
+    // -> Fastify's own `incoming request` / `request completed` pair is off: `registerAccessLogging`
+    //    below emits ONE `http` line per request through `WIKI.logger` instead, so the access log has
+    //    the same scope, shape and destination as everything else the instance says. Pino used to
+    //    write that pair straight to stdout as raw JSON in text mode — two lines a request, reaching
+    //    neither the terminal backlog nor an aggregator's one format (4,761 pino lines against 14,266
+    //    app lines in the reference container). `genReqId` stays: `req.id` is what correlates the
+    //    access line with `helpers/errorHandler.ts`'s 500 (OpenProject #1937/#2662).
+    //
+    // -> Set through `logController` rather than the top-level `disableRequestLogging`, which
+    //    Fastify 5 deprecates (FSTDEP023) and removes in 6.
+    logController: new LogController({ disableRequestLogging: true }),
+    // -> What is left of pino is Fastify's own diagnostics — `Reply was already sent`, an `FST_ERR_*`
+    //    raised outside a handler — which have no other way out. `level: 'warn'` keeps exactly those,
+    //    and `pinoStreamToWikiLogger` re-emits each one through `WIKI.logger`, so there is one stream
+    //    and one format. The `logFormat: 'json'` reshaping this option block used to carry is gone
+    //    with the volume it existed for: nothing reaches stdout as pino any more, so there is no
+    //    second producer's envelope left to match.
     logger: {
-      level: 'info',
+      level: 'warn',
       genReqId: () => randomUUID(),
-      ...(WIKI.config.logFormat === 'json'
-        ? {
-            messageKey: 'message',
-            timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
-            base: { instance: WIKI.INSTANCE_ID },
-            formatters: {
-              level: (label: string) => ({ level: label })
-            }
-          }
-        : {})
+      stream: pinoStreamToWikiLogger()
     },
     // -> `securityTrustProxy` was the 2.x name: the setting is `trustProxy`, so this read never
     //    matched and the option was permanently off no matter what the admin area showed.
@@ -87,6 +88,7 @@ export function createHttpApp(): FastifyInstance {
     }
   })
   WIKI.app = app
+  registerAccessLogging(app)
   WIKI.server = gracefulServer(app.server, {
     livenessEndpoint: '/_live',
     readinessEndpoint: '/_ready',
@@ -159,6 +161,94 @@ export function createHttpApp(): FastifyInstance {
   registerShutdownLogging(WIKI.server)
 
   return app
+}
+
+/**
+ * The pino record shape this module reads. Everything else pino writes is passed over.
+ */
+interface PinoRecord {
+  level?: number
+  msg?: string
+  reqId?: string
+  err?: { message?: string; type?: string }
+}
+
+/**
+ * The sidecar stream Fastify's own pino writes to, so its diagnostics land on `WIKI.logger` rather
+ * than as raw JSON on stdout.
+ *
+ * With `disableRequestLogging` on and pino at `level: 'warn'`, what still comes through here is only
+ * Fastify's own: `Reply was already sent`, an `FST_ERR_*` raised outside a handler, a serializer
+ * fault. Those have no other way out of the framework, so they are translated rather than dropped —
+ * the `http` scope, the record's own `msg`, and `reqId`/`error` when the record carries them.
+ *
+ * Two properties this has to keep:
+ *
+ * - **It cannot recurse.** `WIKI.logger` writes with `console.log`; it never re-enters pino, so a
+ *   line emitted here cannot produce another record to translate.
+ * - **`write` is total.** A malformed or non-JSON record is dropped, never thrown: pino writes from
+ *   inside Fastify's own error path, where a throw would replace the fault being reported with this
+ *   one.
+ */
+export function pinoStreamToWikiLogger(): { write: (line: string) => void } {
+  return {
+    write(line: string) {
+      try {
+        const record = JSON.parse(line) as PinoRecord
+        const message = typeof record.msg === 'string' ? record.msg : ''
+        if (!message) {
+          return
+        }
+
+        const fields: Record<string, unknown> = {}
+        if (typeof record.reqId === 'string') {
+          fields.reqId = record.reqId
+        }
+        if (record.err?.message) {
+          // -> A serialized pino error, not an `Error` instance — rebuilt as one so the renderer's
+          //    `error` handling (name, message, stack where the level warrants it) applies to it the
+          //    same way it does to every other line.
+          const error = new Error(record.err.message)
+          error.name = record.err.type ?? 'Error'
+          fields.error = error
+        }
+
+        // -> Pino's numeric levels: 60 fatal, 50 error, 40 warn. Nothing below 40 reaches this
+        //    stream, and severity is carried across rather than flattened to one level — an
+        //    `FST_ERR_*` reported as a warning would read as less than it is.
+        const level = (record.level ?? 40) >= 50 ? 'error' : 'warn'
+        WIKI.logger[level]('http', message, fields)
+      } catch {
+        // -> Deliberately silent: see the "write is total" note above.
+      }
+    }
+  }
+}
+
+/**
+ * The one access line per request, replacing pino's `incoming request` / `request completed` pair.
+ *
+ * `debug` for anything the server considered a success, `warn` for a 4xx, `error` for a 5xx — so the
+ * refusals and faults stay visible at the default `logLevel: info` while the ordinary traffic does
+ * not. **At that default there is therefore no access log at all**, which is the intended shape:
+ * `logScopes: { http: info }` is how an operator turns one on for as long as they want it, without a
+ * setting of its own and without restarting into a different global level.
+ *
+ * A 500 is consequently logged twice, on purpose: once here as the access record, and once by
+ * `helpers/errorHandler.ts` with the exception and its stack. They are two different facts about one
+ * request and they share `reqId`, which is what lets an operator put them back together.
+ */
+export function registerAccessLogging(app: FastifyInstance): void {
+  app.addHook('onResponse', async (req, reply) => {
+    const status = reply.statusCode
+    const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'debug'
+
+    WIKI.logger[level]('http', `${req.method} ${req.url} → ${status}`, {
+      ...buildRequestLogContext(req),
+      ms: reply.elapsedTime,
+      ip: req.ip
+    })
+  })
 }
 
 /**

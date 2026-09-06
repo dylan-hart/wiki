@@ -6,7 +6,13 @@ import { EventEmitter } from 'node:events'
 import { after, before, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import gracefulServer from '@gquittet/graceful-server'
-import { createHttpApp, registerShutdownLogging, registerStaticAssets } from './server.ts'
+import {
+  createHttpApp,
+  pinoStreamToWikiLogger,
+  registerShutdownLogging,
+  registerStaticAssets
+} from './server.ts'
+import { registerErrorHandler } from './errors.ts'
 import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 
 /**
@@ -27,13 +33,15 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 /** The minimum `WIKI` global `createHttpApp()` and `registerStaticAssets()` actually read. */
 function installWikiStub({
   rootPath = process.cwd(),
+  logger,
   ...config
-}: { rootPath?: string } & Record<string, any> = {}) {
+}: { rootPath?: string; logger?: any } & Record<string, any> = {}) {
   const previous = (globalThis as any).WIKI
   installTestWiki({
     INSTANCE_ID: 'test-instance',
     ROOTPATH: rootPath,
     sitesMappings: {},
+    ...(logger ? { logger } : {}),
     config: {
       bodyParserLimit: 0,
       logFormat: 'text',
@@ -44,6 +52,39 @@ function installWikiStub({
   return () => {
     ;(globalThis as any).WIKI = previous
   }
+}
+
+/** One captured `WIKI.logger` call, in whichever of the two shapes the caller used. */
+interface RecordedLine {
+  level: 'error' | 'warn' | 'info' | 'debug'
+  /** The new shape's scope — or, for a legacy `(msg, context?)` call, the message itself. */
+  scope: unknown
+  /** The new shape's message — or, for a legacy call, the context object. */
+  message: unknown
+  fields: Record<string, unknown>
+}
+
+/**
+ * A `WIKI.logger` that keeps what it was told rather than printing it.
+ *
+ * `createSilentLogger()` throws each call away, which is right for a suite that only needs the
+ * logger to exist; the access line IS what is under test here, so it has to be readable back.
+ */
+function createRecordingLogger(): { lines: RecordedLine[]; logger: any } {
+  const lines: RecordedLine[] = []
+  const at =
+    (level: RecordedLine['level']) =>
+    (scope: unknown, message?: unknown, fields?: Record<string, unknown>) => {
+      lines.push({ level, scope, message, fields: fields ?? {} })
+    }
+  const logger: any = { error: at('error'), warn: at('warn'), info: at('info'), debug: at('debug') }
+  logger.scope = () => logger
+  return { lines, logger }
+}
+
+/** The `http`-scoped lines a recording logger captured, in order. */
+function httpLines(lines: RecordedLine[]): RecordedLine[] {
+  return lines.filter((line) => line.scope === 'http')
 }
 
 describe('createHttpApp', () => {
@@ -136,32 +177,195 @@ describe("createHttpApp: the ajv 'hexcolor' format", () => {
   })
 })
 
-describe('createHttpApp: logger shaping', () => {
-  test('json log format binds the instance id, matching core/logger.ts JSON envelope', async () => {
-    const restoreWiki = installWikiStub({ logFormat: 'json' })
+/**
+ * The access log (OpenProject #2662).
+ *
+ * Pino used to write `incoming request` / `request completed` per request straight to stdout, in its
+ * own JSON shape, reaching neither the terminal backlog nor the app's own format. `createHttpApp()`
+ * now sets `disableRequestLogging` and registers one `onResponse` hook instead, so every request
+ * produces exactly one `http`-scoped line on `WIKI.logger` — and pino keeps only Fastify's own
+ * diagnostics, re-emitted through the same logger by the sidecar stream below.
+ */
+describe('createHttpApp: the http access line', () => {
+  /** Boots an app with a recording logger and a handful of routes covering each status band. */
+  async function withApp(
+    run: (app: FastifyInstance, lines: RecordedLine[]) => Promise<void>
+  ): Promise<void> {
+    const { lines, logger } = createRecordingLogger()
+    const restoreWiki = installWikiStub({ logger })
     const app = createHttpApp()
+    // -> The real error handler, not a replica: the 500 case below asserts that its line and the
+    //    access line carry the same `reqId`, which is only meaningful against the production one.
+    registerErrorHandler(app)
+    app.get('/_api/ok', async () => ({ ok: true }))
+    app.get('/_api/missing', async (_req, reply) => reply.notFound('nope'))
+    app.get('/_api/boom', async () => {
+      throw new Error('handler exploded')
+    })
     await app.ready()
     try {
-      // -> `formatters.level` and `base` are the two options that decide the envelope, and both are
-      //    only set on the json branch — so the presence of the `instance` binding is what
-      //    distinguishes the two modes from outside.
-      const bindings = (app.log as unknown as { bindings(): Record<string, unknown> }).bindings()
-      assert.equal(bindings.instance, 'test-instance')
+      await run(app, lines)
+    } finally {
+      await app.close()
+      restoreWiki()
+    }
+  }
+
+  test('a 200 emits exactly one debug http line, carrying reqId, ms and ip', async () => {
+    await withApp(async (app, lines) => {
+      const res = await app.inject({ method: 'GET', url: '/_api/ok' })
+      assert.equal(res.statusCode, 200)
+
+      const access = httpLines(lines)
+      assert.equal(access.length, 1, 'one line per request, not pino’s incoming/completed pair')
+      assert.equal(access[0].level, 'debug')
+      assert.equal(access[0].message, 'GET /_api/ok → 200')
+      assert.equal(typeof access[0].fields.reqId, 'string')
+      assert.equal(typeof access[0].fields.ms, 'number', 'ms is a number, not a formatted string')
+      assert.equal(typeof access[0].fields.ip, 'string')
+    })
+  })
+
+  test('a 404 is a warn, so a refusal stays visible above the debug traffic', async () => {
+    await withApp(async (app, lines) => {
+      const res = await app.inject({ method: 'GET', url: '/_api/missing' })
+      assert.equal(res.statusCode, 404)
+
+      const access = httpLines(lines)
+      assert.equal(access.length, 1)
+      assert.equal(access[0].level, 'warn')
+      assert.equal(access[0].message, 'GET /_api/missing → 404')
+    })
+  })
+
+  test('a thrown handler emits the access line at error, sharing reqId with the 500', async () => {
+    await withApp(async (app, lines) => {
+      const res = await app.inject({ method: 'GET', url: '/_api/boom' })
+      assert.equal(res.statusCode, 500)
+
+      const access = httpLines(lines)
+      assert.equal(access.length, 1)
+      assert.equal(access[0].level, 'error')
+      assert.equal(access[0].message, 'GET /_api/boom → 500')
+
+      // -> Two lines for one request, deliberately: the access record here, and the exception with
+      //    its stack from `helpers/errorHandler.ts`. `reqId` is what joins them.
+      const fromErrorHandler = lines.find((line) => line.scope instanceof Error)
+      assert.ok(fromErrorHandler, 'the error handler logged the exception itself')
+      assert.equal(
+        (fromErrorHandler.message as Record<string, unknown>).reqId,
+        access[0].fields.reqId
+      )
+    })
+  })
+
+  test('carries the authenticated userId, and the site a site-scoped route resolved', async () => {
+    const { lines, logger } = createRecordingLogger()
+    const restoreWiki = installWikiStub({ logger })
+    const app = createHttpApp()
+    app.get('/_api/sites/:siteId/thing', async (req) => {
+      req.session = { authenticated: true, user: { id: 'user-9' } } as any
+      return { ok: true }
+    })
+    await app.ready()
+    try {
+      await app.inject({ method: 'GET', url: '/_api/sites/site-7/thing' })
+      const access = httpLines(lines)
+      assert.equal(access.length, 1)
+      assert.equal(access[0].fields.siteId, 'site-7')
+      assert.equal(access[0].fields.userId, 'user-9')
+    } finally {
+      await app.close()
+      restoreWiki()
+    }
+  })
+})
+
+describe('createHttpApp: pino no longer reaches stdout', () => {
+  /**
+   * Captures `process.stdout.write` while still forwarding it, so the runner's own output survives.
+   *
+   * "Nothing reaches stdout" would be false — `WIKI.logger` itself prints there. What the acceptance
+   * criterion actually means is that no PINO record does, which is what the `{"level":<n>` prefix
+   * of pino's default JSON line identifies.
+   */
+  async function captureStdout(run: () => Promise<void>): Promise<string[]> {
+    const captured: string[] = []
+    const original = process.stdout.write.bind(process.stdout)
+    ;(process.stdout as any).write = (chunk: any, ...rest: any[]) => {
+      captured.push(String(chunk))
+      return (original as any)(chunk, ...rest)
+    }
+    try {
+      await run()
+    } finally {
+      ;(process.stdout as any).write = original
+    }
+    return captured
+  }
+
+  const PINO_RECORD = /^\{"level":\d/
+
+  test('a served request writes no pino record to stdout', async () => {
+    const { logger } = createRecordingLogger()
+    const restoreWiki = installWikiStub({ logger })
+    const app = createHttpApp()
+    app.get('/echo', async () => ({ ok: true }))
+    await app.ready()
+    try {
+      const captured = await captureStdout(async () => {
+        await app.inject({ method: 'GET', url: '/echo' })
+      })
+      assert.ok(
+        !captured.some((chunk) => PINO_RECORD.test(chunk)),
+        `expected no pino record on stdout, saw: ${JSON.stringify(captured)}`
+      )
     } finally {
       await app.close()
       restoreWiki()
     }
   })
 
-  test('text log format leaves pino at its Fastify default, with no instance binding', async () => {
-    const restoreWiki = installWikiStub({ logFormat: 'text' })
+  test("Fastify's own diagnostics are re-emitted as http lines instead of printed", async () => {
+    const { lines, logger } = createRecordingLogger()
+    const restoreWiki = installWikiStub({ logger })
     const app = createHttpApp()
     await app.ready()
     try {
-      const bindings = (app.log as unknown as { bindings(): Record<string, unknown> }).bindings()
-      assert.equal(bindings.instance, undefined)
+      const captured = await captureStdout(async () => {
+        app.log.warn({ reqId: 'req-42' }, 'Reply was already sent')
+        app.log.error({ err: new Error('boom') }, 'FST_ERR_SEND_INSIDE_ONERR')
+      })
+
+      assert.ok(!captured.some((chunk) => PINO_RECORD.test(chunk)))
+
+      const [warned, errored] = httpLines(lines)
+      assert.equal(warned.level, 'warn')
+      assert.equal(warned.message, 'Reply was already sent')
+      assert.equal(warned.fields.reqId, 'req-42')
+
+      // -> Severity is carried across rather than flattened: an FST_ERR_* stays an error.
+      assert.equal(errored.level, 'error')
+      assert.equal(errored.message, 'FST_ERR_SEND_INSIDE_ONERR')
+      assert.ok(errored.fields.error instanceof Error)
+      assert.equal((errored.fields.error as Error).message, 'boom')
     } finally {
       await app.close()
+      restoreWiki()
+    }
+  })
+})
+
+describe('pinoStreamToWikiLogger', () => {
+  test('drops a malformed record rather than throwing inside Fastify’s error path', () => {
+    const { lines, logger } = createRecordingLogger()
+    const restoreWiki = installWikiStub({ logger })
+    try {
+      const stream = pinoStreamToWikiLogger()
+      assert.doesNotThrow(() => stream.write('not json at all'))
+      assert.doesNotThrow(() => stream.write('{"level":40}'))
+      assert.equal(lines.length, 0, 'a record with no msg says nothing worth emitting')
+    } finally {
       restoreWiki()
     }
   })
