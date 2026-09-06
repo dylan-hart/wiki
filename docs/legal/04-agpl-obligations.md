@@ -34,9 +34,9 @@ which is easier to satisfy honestly if the notice says "Cardinal is a modified v
 **Can the fork ever change license?** Not without the consent of every copyright holder of code
 still in the tree: Requarks/Giard and ~235 upstream contributors, none of whom signed a CLA. The
 fork's own additions could in theory be dual-licensed by their author, but as a combined work the
-program stays AGPL-3.0. Anything built on Cardinal — plugins loaded in-process, custom blocks
-bundled into the image, an MCP client is *not* in scope — inherits the same obligation when
-conveyed or run as a service.
+program stays AGPL-3.0. Anything built into Cardinal — a module loaded in-process, a custom block bundled into the
+image — inherits the same obligation when conveyed or run as a service. A separate MCP client
+talking to the server over HTTP does not.
 
 ## What this fork does *not* owe upstream
 
