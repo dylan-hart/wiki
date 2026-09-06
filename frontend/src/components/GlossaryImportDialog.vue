@@ -77,7 +77,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
  * picker (`browser-fs-access`'s `fileOpen()`) with a dialog the admin can actually see and edit
  * before committing to it -- a Monaco JSON editor that is directly editable/pasteable AND accepts a
  * dropped or browsed-for `.json` file, matching `ImportBatchPageDialog.vue`'s dropzone convention and
- * `EditorCode.vue`'s Monaco boot pattern (the `wikijs` theme, `monaco.editor.create`).
+ * `EditorCode.vue`'s Monaco boot pattern (the `cardinaljs` theme, `monaco.editor.create`).
  *
  * The whole-glossary replace semantics are unchanged from the old flow: submitting still POSTs
  * straight to `sites/:siteId/glossary/import`, which replaces the ENTIRE live glossary immediately
@@ -229,7 +229,7 @@ function submit() {
 onMounted(() => {
   // -> Same theme `EditorCode.vue` defines, redefined here rather than shared: only one editor
   //    instance is ever mounted at a time, so there is nothing to deduplicate against.
-  monaco.editor.defineTheme('wikijs', {
+  monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -249,7 +249,7 @@ onMounted(() => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'wikijs',
+    theme: 'cardinaljs',
     value: '',
     wordWrap: 'on'
   })

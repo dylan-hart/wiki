@@ -51,7 +51,7 @@ export function useMonacoDiff(containerRef, { isInline }) {
     }
 
     // -> The markdown editor's theme, defined again here because that component may never have mounted
-    monaco.editor.defineTheme('wikijs', {
+    monaco.editor.defineTheme('cardinaljs', {
       base: 'vs-dark',
       inherit: true,
       rules: [],
@@ -79,7 +79,7 @@ export function useMonacoDiff(containerRef, { isInline }) {
       // -> A reader, not an editor. Restoring a version is its own action, and is not implemented yet.
       readOnly: true,
       scrollBeyondLastLine: false,
-      theme: 'wikijs',
+      theme: 'cardinaljs',
       wordWrap: 'on',
       // -> Written out rather than left to Monaco's own defaults (which happen to be these same two
       //    values today): the diff computation itself runs off the main thread in a worker, so a huge

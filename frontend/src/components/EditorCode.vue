@@ -59,7 +59,7 @@ import { Range } from 'monaco-editor'
  * stored page — the same pass the WYSIWYG editor's HTML output already goes through — so nothing here
  * needs to sanitize or otherwise transform what is typed.
  *
- * Reuses the Monaco boot/setup pattern `EditorMarkdown.vue` established (the `wikijs` theme, the same
+ * Reuses the Monaco boot/setup pattern `EditorMarkdown.vue` established (the `cardinaljs` theme, the same
  * editor options) rather than a second code-editing library, just with the language mode swapped to
  * `html` and every markdown-only feature (the formatting toolbar, the table/block code lenses, the
  * scroll-synced preview, collaborative editing) left out — none of them has anything to attach to in
@@ -179,7 +179,7 @@ onMounted(() => {
 
   // -> Same theme `EditorMarkdown.vue` defines, redefined here rather than shared: only one editor
   //    component is ever mounted at a time, so there is nothing to deduplicate against.
-  monaco.editor.defineTheme('wikijs', {
+  monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -201,7 +201,7 @@ onMounted(() => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'wikijs',
+    theme: 'cardinaljs',
     value: pageStore.content,
     wordWrap: 'on'
   })

@@ -1364,7 +1364,7 @@ onMounted(async () => {
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
   // -> Define Monaco Theme
-  monaco.editor.defineTheme('wikijs', {
+  monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -1403,7 +1403,7 @@ onMounted(async () => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'wikijs',
+    theme: 'cardinaljs',
     value: pageStore.content,
     wordWrap: 'on'
   })

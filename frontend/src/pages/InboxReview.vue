@@ -385,7 +385,7 @@ function mountEditor() {
   disposeEditor()
 
   // -> The markdown editor's theme, defined again here because that component may never have mounted
-  monaco.editor.defineTheme('wikijs', {
+  monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -409,7 +409,7 @@ function mountEditor() {
     originalEditable: false,
     readOnly: false,
     scrollBeyondLastLine: false,
-    theme: 'wikijs',
+    theme: 'cardinaljs',
     wordWrap: 'on'
   })
   diffEditor.setModel({ original: originalModel, modified: modifiedModel })
