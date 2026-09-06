@@ -1,3 +1,8 @@
+# Inherited from upstream Wiki.js and not yet replaced: every contact link below goes to the
+# upstream Requarks/wiki project, not to Cardinal.js. Deliberately left naming upstream rather
+# than renamed -- a renamed copy would claim these are Cardinal.js's channels, which they are
+# not. Tracked in docs/legal/README.md, "What is not clean", item 2.
+
 blank_issues_enabled: false
 contact_links:
   - name: Help / Questions

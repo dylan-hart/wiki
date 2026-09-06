@@ -23,6 +23,16 @@ import path from 'node:path'
 import { simpleGit } from 'simple-git'
 import type { SimpleGit, SimpleGitOptions } from 'simple-git'
 import type { StorageTarget } from '../../../models/storage.ts'
+import type { ScopedLogger } from '../../../core/logger.ts'
+
+/**
+ * The `storage` logger every line this module writes goes through, already carrying the two fields
+ * that say which target it is talking about. Built per call rather than once at import time: `WIKI`
+ * does not exist yet when this module is loaded, and a target's identity is per-invocation anyway.
+ */
+export function gitLog(target: StorageTarget): ScopedLogger {
+  return WIKI.logger.scope('storage', { module: 'git', target: target.id })
+}
 
 /** Key of the `git` extension in `modules/extensions/`, used for the pre-flight detection check. */
 const GIT_EXTENSION_KEY = 'git'
@@ -220,7 +230,7 @@ export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise
   // -> A commit always needs a committer identity, regardless of the `--author` override the
   //    write-path handlers pass per-commit (see `content.ts`) — git refuses to commit with neither
   //    set, and this must never depend on whatever happens to be in the host's global git config.
-  await git.addConfig('user.name', config.defaultName || 'Wiki.js')
+  await git.addConfig('user.name', config.defaultName || 'Cardinal.js')
   await git.addConfig('user.email', config.defaultEmail || 'noreply@example.com')
 
   if (config.authType === 'ssh') {

@@ -246,9 +246,9 @@ import { DEFAULT_PAGE_ICON } from '@/stores/page'
 
 import { orderBy } from 'es-toolkit/array'
 import { debounce } from 'es-toolkit/function'
-import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { localizedPagePath } from '@/helpers/pagePaths'
+import { log } from '@/helpers/log'
 import { isApplePlatform } from '@/helpers/platform'
 import { notify } from '@/composables/notify'
 
@@ -489,7 +489,7 @@ async function fetchPreview(query) {
     state.previewResults = []
     state.previewTotal = 0
     state.previewSuggestion = null
-    console.warn(apiErrorMessage(err))
+    log.warn('search', 'could not load the search preview results', err)
   } finally {
     if (token === previewRequestToken) {
       state.previewLoading = false

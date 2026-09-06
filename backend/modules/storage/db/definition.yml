@@ -3,7 +3,7 @@ title: 'Database'
 icon: '/_assets/icons/ultraviolet-database.svg'
 banner: '/_assets/storage/database.jpg'
 description: 'The local PostgreSQL database can store any assets. It is however not recommended to store large files directly in the database as this can cause performance issues.'
-vendor: 'Wiki.js'
+vendor: 'Cardinal.js'
 website: 'https://js.wiki'
 assetDelivery:
   isStreamingSupported: true

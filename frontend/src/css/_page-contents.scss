@@ -165,10 +165,20 @@
   */
   --content-links-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
 
-  /* The box behind the tick of a done task-list item; the tick itself is white in both themes */
-  --content-tick: #5b616b;
-  /* -> And the empty box of an item still to do, white whatever surface the content sits on */
-  --content-tick-empty: #fff;
+  /*
+    A task-list checkbox, exactly as the primitives sheet draws one: a done item is the ACCENT fill
+    carrying a tick, and an item still to do is a bare hairline square with nothing in it.
+
+    Both halves used to disagree with that sheet. The box was a neutral grey (`#5b616b`), a tone the
+    language does not have, so the one place a rendered page says "done" said it in a colour nothing
+    else on screen uses; and the empty box was filled white, which on the article column makes an
+    unticked item read as a lit square rather than as an outline waiting to be filled.
+  */
+  --content-tick: var(--color-accent-fill);
+  /* -> The empty box is its outline and nothing else, on whichever surface the content sits on */
+  --content-tick-empty: transparent;
+  /* -> The edge of that outline: `--color-slate-pale` is the tone Cardinal draws an OFF control in */
+  --content-tick-edge: var(--color-slate-pale);
 
   /*
     Admonition hues: the bar and the wash behind it, per severity, in the language's own status tones
@@ -196,25 +206,77 @@
   --content-important-wash: rgba(28, 34, 51, 0.06);
 
   /*
-    Code tokens, after GitHub's syntax themes.
+    The ink of an inline code chip and of a `<kbd>` plate -- the two small mono marks that sit IN
+    prose, on the tint rather than in the code block. `--color-slate` on `--color-tint` is what the
+    design draws; the dark block moves both onto the lightened chrome tone, because the same literal
+    slate on the dark theme's own chip is 1.09:1 and was simply unreadable.
+  */
+  --content-code-ink: var(--color-slate);
+  /*
+    And the ink of the code BLOCK, which is a different question: the block is drawn on ink in both
+    themes, so its text is the dark ramp's own. It is a token rather than a literal so the print
+    block can put it back to black -- printing draws the block on white, where near-white text is
+    nothing at all.
+  */
+  --content-code-block-ink: var(--color-text-dark);
+  /*
+    And the block's two edges. The accent runs down its leading edge in both themes -- lightened in
+    the dark one, because `--color-accent-fill` on the deepest well is the same too-loud red every
+    other dark surface stopped using. The frame is drawn only on a dark page: the light Ledger sets
+    the block on a white column, where ink against paper IS the edge, and the dark Ledger frames it
+    in a hairline because a near-black block on a dark page has nothing else to end it.
+  */
+  --content-code-edge: var(--color-accent-fill);
+  --content-code-frame: transparent;
+
+  /*
+    -- Code tokens -----------------------------------------------------------
 
     The FALLBACK, for a site that has chosen no code theme: `App.vue` injects the highlight.js theme
     picked under Admin → Theme, scoped to this same element, and being injected later it takes
     precedence over everything below at equal weight. Without either, a code block would render as
     uncoloured monospace, which is what it did before both halves existed.
+
+    THESE ARE LIGHT-ON-DARK, AND THAT IS NOT A MISTAKE. The second pass moved the code block onto
+    `--color-ink` in both themes -- "an ink code block with an accent edge", as the design draws it
+    -- but left this palette at GitHub's LIGHT theme, which is a set of dark inks meant for a white
+    ground. Measured against the ground they actually landed on (`#1c2233`), every one of the eight
+    was under the 4.5:1 floor this work set for itself: comment 3.29, keyword 2.96, number and attr
+    2.09, type 2.14, title 2.78, meta 2.48, and `string` (`#0a3069`) at 1.24, which is to say
+    invisible. The retired set is not gone -- it is exactly right for a white ground, so the print
+    block below is where it now lives.
+
+    The replacements are Cardinal's own hues rather than another vendor theme's, one per token
+    class, so a code block is coloured out of the same box as everything around it: the accent for
+    keywords, positive for strings, warning for numbers and attributes, the lightened chrome slate
+    for titles, the custom-block purple lightened for types, and the two dark text tiers for the two
+    things that are commentary rather than code. `helpers/accessibility.test.js` pins every one of
+    them against the ground it is drawn on.
   */
-  --content-code-comment: #6a737d;
-  --content-code-keyword: #cf222e;
-  --content-code-string: #0a3069;
-  --content-code-number: #0550ae;
-  --content-code-title: #7c3aed;
-  --content-code-type: #953800;
-  --content-code-attr: #0550ae;
-  --content-code-meta: #57606a;
-  --content-code-addition: #1a7f37;
-  --content-code-addition-wash: rgba(26, 127, 55, 0.12);
-  --content-code-deletion: #cf222e;
-  --content-code-deletion-wash: rgba(207, 34, 46, 0.12);
+  --content-code-comment: var(--color-text-caption-dark);
+  --content-code-keyword: var(--color-accent-dark);
+  --content-code-string: #7fc4a8;
+  --content-code-number: #e0b86a;
+  --content-code-title: var(--color-slate-light);
+  /* -> `#7a4a86`, the language's custom-block purple, lifted onto an ink ground */
+  --content-code-type: #c79ad2;
+  /* -> An attribute is a name with a value, which is the same shape a number is; GitHub pairs them
+        too, and Cardinal has no seventh hue to spend separating them */
+  --content-code-attr: #e0b86a;
+  --content-code-meta: var(--color-text-secondary-dark);
+  --content-code-addition: #7fc4a8;
+  --content-code-addition-wash: rgba(127, 196, 168, 0.16);
+  --content-code-deletion: var(--color-accent-dark);
+  --content-code-deletion-wash: rgba(240, 130, 135, 0.16);
+
+  /*
+    A footnote the reader was just sent to. Cardinal's highlight is the accent wash, not the yellow
+    this used to draw -- `#fdf1a0` appears nowhere else in the app, and a rendered page was the only
+    surface putting it on screen. `<mark>` keeps its own yellow (`--content-mark`): an author's
+    highlighter and "here is the note you asked for" are different statements.
+  */
+  --content-landed-wash: var(--color-accent-wash);
+  --content-landed-edge: var(--color-accent-fill);
 
   color: var(--content-ink);
   /*
@@ -292,12 +354,12 @@
     --content-links-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 
     /*
-      Lighter than the light theme's, because the box has to be seen against a dark page -- but held
-      well below the white of the tick on it, which is what makes the tick readable.
+      The accent lightens on ink and its fill then carries DARK ink rather than white -- the locked
+      dark-theme rule, and what the dark primitives sheet draws this exact box as. The empty box's
+      edge moves to the dark ramp's own off-control tone.
     */
-    --content-tick: rgba(255, 255, 255, 0.38);
-    /* -> A white box would be a lit square on a dark page; the empty one is just its outline */
-    --content-tick-empty: transparent;
+    --content-tick: var(--color-accent-dark);
+    --content-tick-edge: var(--color-disabled-dark);
 
     /* -> The same five, lightened for ink: `$slate-light`, and the dark ramp's own status tones */
     --content-info: #8ea6cf;
@@ -311,18 +373,38 @@
     --content-important: #e6eaf2;
     --content-important-wash: rgba(230, 234, 242, 0.08);
 
-    --content-code-comment: #8b949e;
-    --content-code-keyword: #ff7b72;
-    --content-code-string: #a5d6ff;
-    --content-code-number: #79c0ff;
-    --content-code-title: #d2a8ff;
-    --content-code-type: #ffa657;
-    --content-code-attr: #79c0ff;
-    --content-code-meta: #8b949e;
-    --content-code-addition: #56d364;
-    --content-code-addition-wash: rgba(46, 160, 67, 0.15);
-    --content-code-deletion: #ffa198;
-    --content-code-deletion-wash: rgba(248, 81, 73, 0.15);
+    /* -> Both small mono marks move onto the lightened chrome tone, as the dark Ledger draws them */
+    --content-code-ink: var(--color-slate-light);
+    --content-code-edge: var(--color-accent-dark);
+    --content-code-frame: var(--color-hairline-dark);
+
+    /*
+      The second code palette, and a genuinely second one rather than the light theme's set reused.
+
+      On a light page the code block is a dark ISLAND, and the tones above are held where they are so
+      the island does not glare out of a white column. Here the block is the deepest well of an
+      already-dark page (`--color-dark-6`, a step below the page ground), and the same tones would
+      repeat the chrome's own accent, positive and warning at the same strength -- so a code block
+      would be coloured in exactly the language of the panels around it rather than reading as its
+      own place. Each is therefore lifted a step, which the deeper ground has the room for: the
+      floor here is 7.46:1 against 5.08:1 in the light theme.
+    */
+    --content-code-comment: #98a4bb;
+    --content-code-keyword: #ff9ba0;
+    --content-code-string: #95d9bd;
+    --content-code-number: #f0cc84;
+    --content-code-title: #a5bde0;
+    --content-code-type: #d8afe2;
+    --content-code-attr: #f0cc84;
+    --content-code-meta: #adb8cd;
+    --content-code-addition: #95d9bd;
+    --content-code-addition-wash: rgba(149, 217, 189, 0.16);
+    --content-code-deletion: #ff9ba0;
+    --content-code-deletion-wash: rgba(255, 155, 160, 0.16);
+
+    /* -> The accent's own dark wash, and the lightened accent for the edge that marks the item */
+    --content-landed-wash: var(--color-accent-wash-dark);
+    --content-landed-edge: var(--color-accent-dark);
   }
 
   /* -> The page's own margins are the container's business; the first and last block give theirs up */
@@ -635,20 +717,48 @@
     line-height: 0;
   }
 
-  /* Inserted by the editor's keyboard-key button, and by hand in HTML */
+  /*
+    A keyboard key, inserted by the editor's keyboard-key button or written by hand in HTML.
+
+    A square hairline plate, which is the one shape Cardinal has for a small framed mark -- the same
+    box the tag chips, the state marks and the inline code chip are drawn as. It used to be a key
+    CAP: a heavier bottom edge (`border-bottom-width: 2px`) faking the lip of a physical key, drawn
+    over a faint slate that is a separator tone rather than an edge. Neither exists in this language;
+    the design has no bevelled, weighted or rounded object anywhere on it.
+
+    It sits alongside inline code deliberately, one tone apart rather than one shape apart: both are
+    mono on the tint inside a hairline, and the key is the one that is a little tighter, a little
+    more tracked, and a step stronger in weight -- because a key is a thing you press, not a thing
+    you read.
+  */
   kbd {
     display: inline-block;
-    min-width: 1.6em;
-    padding: 0.1em 0.4em;
-    border: 1px solid var(--content-rule-strong);
-    border-bottom-width: 2px;
+    min-width: 1.75em;
+    padding: 1px 6px;
+    border: 1px solid var(--content-rule);
     background-color: var(--content-surface-alt);
-    color: var(--content-ink);
+    color: var(--content-code-ink);
     font-family: var(--font-mono);
     font-size: 0.8125em;
+    font-weight: 500;
     line-height: 1.5;
+    letter-spacing: 0.04em;
     text-align: center;
     white-space: nowrap;
+  }
+
+  /* -> A key inside a heading drops the plate, the same way an inline code span does */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    kbd {
+      padding: 0;
+      border: 0;
+      background: none;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -799,8 +909,8 @@
     /* -> Firefox gives a checkbox 3px of its own margin, Chrome 3px 3px 3px 4px */
     margin: 0 0.5em 0 0;
     padding: 0;
-    border: 1px solid var(--content-rule-strong);
-    /* -> White rather than the surface behind it, so the box reads as empty and not as unfilled */
+    border: 1px solid var(--content-tick-edge);
+    /* -> Nothing behind it: an empty box in this language is its outline, not a white square */
     background-color: var(--content-tick-empty);
     /* -> Disabled by the renderer, so it must not read as something to try to click */
     cursor: default;
@@ -809,19 +919,30 @@
     vertical-align: -0.1em;
 
     /*
-      A done item: a filled box with the tick laid over it. White in both themes -- the dark theme
-      lightens the box rather than the tick, so this one mark works on either.
+      A done item: the accent fill with a tick laid over it, edge included -- the primitives sheet
+      draws the box's border in the fill's own colour rather than dropping it, so a ticked and an
+      unticked box measure the same and a run of them does not shift by a pixel down the list.
+
+      The tick is a data URI per theme, and it has to be: the light theme's accent fill carries a
+      WHITE mark and the dark theme's lightened accent carries INK, which is the locked rule for
+      every accent fill in the app, and a stroke colour inside a data URI cannot be a custom
+      property. Two literals is the honest form of "the dark theme is a second palette, not a
+      filter" -- the alternative, one URI recoloured by a filter, is exactly what that rule forbids.
     */
     &:checked {
-      border-color: transparent;
       background-color: var(--content-tick);
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5l4.5 4.5L19 7'/%3E%3C/svg%3E");
+      border-color: var(--content-tick);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='square' stroke-linejoin='miter' d='M5 12l4.5 4.5L19 7'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: center;
-      background-size: 0.8em 0.8em;
+      background-size: 0.75em 0.75em;
       /* -> Print drops background fills, and a done item that prints as an empty box says the opposite */
       print-color-adjust: exact;
       -webkit-print-color-adjust: exact;
+
+      @at-root .body--dark & {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%2314171f' stroke-width='3' stroke-linecap='square' stroke-linejoin='miter' d='M5 12l4.5 4.5L19 7'/%3E%3C/svg%3E");
+      }
     }
   }
 
@@ -1184,7 +1305,7 @@
     padding: 1px 5px;
     border: 1px solid var(--content-rule);
     background-color: var(--content-surface-alt);
-    color: var(--color-slate);
+    color: var(--content-code-ink);
     font-family: var(--font-mono);
     font-size: 0.875em;
   }
@@ -1221,10 +1342,10 @@
       one place a rendered page goes dark. It replaces a rounded, hairline-bordered tint: a code block
       is the one thing on a page that is not prose, and the ground change is what says so.
     */
-    border: 0;
-    border-inline-start: 2px solid var(--color-accent-fill);
+    border: 1px solid var(--content-code-frame);
+    border-inline-start: 2px solid var(--content-code-edge);
     background-color: var(--content-surface-code);
-    color: var(--color-text-dark);
+    color: var(--content-code-block-ink);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
     /* -> Tracks the body's leading; code at 13px needs a little more of it, not much */
@@ -1780,23 +1901,59 @@
   // FOOTNOTES
   // ---------------------------------------------------------------------------
 
-  /* The reference in the text: a superscript number that does not need underlining to be seen */
+  /*
+    The reference in the text. `markdown-it-footnote` emits it already bracketed -- `[1]` -- so the
+    mark is a small mono figure rather than a bare number in the body face, which is how every other
+    count, code and index in Cardinal is set. It does not need underlining to be seen.
+  */
   .footnote-ref > a {
     padding: 0 0.15em;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
     font-weight: 500;
     text-decoration: none;
   }
 
+  /*
+    The rule between the article and its notes, and the one rule on the page that is genuinely
+    structural rather than decorative: everything above it is what the author wrote, everything below
+    is apparatus. It therefore reaches back through the container's padding the same way the title's
+    own rule does, using the same `--content-bleed` the surface sets, so the two rules that divide
+    the article start at the same place instead of one being inset by whatever the padding happens
+    to be.
+  */
   .footnotes-sep {
-    margin-top: 2.5em;
+    margin-top: 3em;
+    margin-inline: calc(-1 * var(--content-bleed));
   }
 
   .footnotes {
     color: var(--content-ink-muted);
     font-size: 0.875em;
 
+    /*
+      Ruled rows with a mono accent marker, which is how the Ledger draws its own numbered list: the
+      figure is the small mono kicker the language uses for an index, and the hairline under each
+      note is what lets a reader's eye find the boundary between two of them at this size. The list
+      keeps its own decimal numbering -- these are the numbers the references point at, so they are
+      content, not a marker style.
+    */
     .footnotes-list {
-      padding-inline-start: 1.4em;
+      padding-inline-start: 1.9em;
+      border-top: 1px solid var(--content-rule);
+    }
+
+    .footnote-item {
+      margin-top: 0;
+      padding: 0.7em 0;
+      border-bottom: 1px solid var(--content-rule);
+
+      &::marker {
+        color: var(--content-link);
+        font-family: var(--font-mono);
+        font-size: 0.85em;
+        font-weight: 500;
+      }
     }
 
     .footnote-item > p {
@@ -1816,13 +1973,25 @@
     by sitting at the top of the column, so the wash only added noise to every jump to a section.
   */
   .footnote-item.is-anchor-landed {
-    /* Drawn outside the box so it cannot shift the text it highlights */
-    box-shadow: 0 0 0 0.4em var(--content-mark);
-    background-color: var(--content-mark);
+    /*
+      The accent wash with the accent down its leading edge -- the same "this one" plate the rest of
+      the language draws, rather than the yellow highlighter this used to paint. The edge is inside
+      the row's own padding, so a landed note does not shift the notes under it.
+    */
+    padding-inline-start: 0.7em;
+    border-inline-start: 2px solid var(--content-landed-edge);
+    background-color: var(--content-landed-wash);
   }
 
+  /*
+    The link back to where the reference was. A mono accent glyph, sized down: it is apparatus inside
+    apparatus, and at the note's own weight it competes with the note.
+  */
   .footnote-backref {
-    margin-inline-start: 0.3em;
+    margin-inline-start: 0.4em;
+    color: var(--content-link);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
     text-decoration: none;
   }
 
@@ -1849,6 +2018,38 @@
     /* -> And the banding, which on paper is grey ink over every other row for no gain */
     --content-table-row: transparent;
     --content-table-row-alt: transparent;
+
+    /*
+      A code block prints on white, which makes it the one place in the file where the palette has
+      to invert. The block's own ink goes back to black, its accent edge to a plain rule -- a 2pt
+      pastel red down the side of a listing is ink spent on nothing -- and the tokens to the GitHub
+      LIGHT set the screen palette used to be. That set was wrong on screen for exactly the reason
+      it is right here: it is a set of dark inks for a white ground, and every one of the eight
+      clears the 4.5:1 floor against paper (4.82:1 -- 12.81:1).
+    */
+    --content-code-block-ink: #000;
+    --content-code-edge: var(--content-rule);
+    --content-code-frame: var(--content-rule);
+    --content-code-comment: #6a737d;
+    --content-code-keyword: #cf222e;
+    --content-code-string: #0a3069;
+    --content-code-number: #0550ae;
+    --content-code-title: #7c3aed;
+    --content-code-type: #953800;
+    --content-code-attr: #0550ae;
+    --content-code-meta: #57606a;
+    --content-code-addition: #1a7f37;
+    --content-code-deletion: #cf222e;
+    /*
+      The diff washes go, rather than printing as pale tints under coloured text: composited on
+      paper they drop the token that sits on them to 4.33:1 / 4.40:1, just under the floor, and the
+      token's own colour is what says added or removed anyway.
+    */
+    --content-code-addition-wash: transparent;
+    --content-code-deletion-wash: transparent;
+    /* -> And the landed-footnote plate, which is a screen affordance: nothing was clicked on paper */
+    --content-landed-wash: transparent;
+    --content-landed-edge: transparent;
 
     font-size: 11pt;
     line-height: 1.55;

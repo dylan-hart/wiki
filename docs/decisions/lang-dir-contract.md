@@ -124,3 +124,50 @@ updated in the same commit to point at this document instead of describing the l
   a route change independent of `commonStore.locale`, per #1655's own scope note.
 - `e2e/tests/rtl.spec.js` gets the end-to-end case: an English-interface reader opening a seeded
   RTL page should see `dir="rtl"` survive past hydration, not flash back to `ltr`.
+
+## 6. Amendment, 2026-09-06 (OpenProject #2596): the URL's locale segment, with an interface-locale fallback
+
+§0's verdict stands in substance — the document's direction is the direction of the locale being
+_addressed_, not of the reader's chrome — but the input named there (`pageStore.locale`, with
+`siteStore.locales.primary` on `/_` routes) is not what `App.vue` resolves it from. Two things came
+out of #2596 that this section records:
+
+1. **What was actually shipped for #1660 is not in the tree.** That WP's own comment describes an
+   `applyContentLocale()` driven by a `pageStore.locale` watcher, closed as landed in PR #26 — but
+   no such function has ever existed in `App.vue` at any commit (`git log -S applyContentLocale`
+   finds the identifier only in a squash commit's message and in two doc comments that were written
+   against it). The client half of §4's "closed leak" was therefore still open: `applyLocale` went
+   on deriving both attributes from `commonStore.locale`, exactly as §0 describes the bug.
+2. **The resolution implemented instead is the URL's own leading locale segment, falling back to the
+   interface locale** — `App.vue#applyDocumentLocale`, off
+   `parseLocalePrefix(to.path, siteStore.locales.active…)`, written synchronously by the router
+   guard on every navigation. On a locale-prefixed URL this agrees exactly with
+   `resolveAppShellLocale`'s own answer, which is what §2(a) actually asks for — the server-stamped
+   shell is confirmed rather than overwritten.
+
+Where this differs from §5, and why:
+
+- **It fires for a destination with no page behind it.** #2596's defect: with the reader-facing
+  switcher navigating rather than setting the interface locale
+  (`LocaleSelectorMenu.vue#switchLocale`), picking an RTL locale on a path that has no page pushed
+  `/ar/<path>` and left the document LTR. A `pageStore.locale` watcher does not close that on its
+  own — the guard resolves that store field for a 404 destination too, but nothing was reading it
+  for `dir`. Deriving from the URL means "which translation is being addressed" is answered by the
+  only thing that exists on a 404: the URL. A not-found screen under an RTL prefix reads
+  right-to-left, which is the product decision #2596 resolved.
+- **A `/_` route keeps following the interface locale rather than the site's primary.** §5 would
+  have the admin area and the editors render LTR chrome for an operator who has deliberately picked
+  an RTL interface language from `AdminLayout.vue`'s own switcher — a regression against the
+  Feature 413 "Admin chrome direction" decision in `docs/variances.md` and against
+  `e2e/tests/rtl.spec.js`'s own assertion that `/_admin/dashboard` and `/_create/markdown` stay
+  `dir="rtl"`. There is no content locale on those routes to speak for, so the reader's own is the
+  better answer, not merely the compatible one.
+- **An unrecognised leading segment changes nothing.** `parseLocalePrefix` matches only against
+  `siteStore.locales.active`, so `/xx/some/page` cannot set `dir`/`lang` to a locale the site does
+  not have; it falls through to the interface locale.
+
+Still open, and NOT covered by this amendment: an unprefixed URL whose page's own content locale is
+not the interface locale (primary-locale content read under a non-primary interface, or a site with
+`forcePrefix` off). `lang` there still reports the interface locale. Closing that needs the page's
+own locale to feed `applyDocumentLocale()` once a page has loaded — a `pageStore.locale` watcher
+after all, but as an addition to the URL resolution rather than a replacement for it.

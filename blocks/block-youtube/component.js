@@ -81,7 +81,7 @@ export class BlockYoutubeElement extends VideoEmbedElement {
     block: 'youtube',
     name: 'YouTube Player',
     description: 'Embeds a YouTube video.',
-    icon: 'youtube',
+    icon: 'tabler:brand-youtube',
     props: [
       {
         name: 'url',

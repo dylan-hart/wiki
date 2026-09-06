@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-import { apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
 import { useEditorStore } from '@/stores/editor'
 
 /**
@@ -172,7 +172,7 @@ export function usePreviewResize({ state, previewPaneRef, editorMidRef }) {
         userSettings: { ...editorStore.userSettings, markdown: payload }
       })
     } catch (err) {
-      console.warn(`Could not save the Markdown editor's preview width: ${apiErrorMessage(err)}`)
+      log.warn('editor', "could not save the Markdown editor's preview width", err)
     }
   }
 

@@ -1,13 +1,10 @@
-export async function task(): Promise<void> {
-  WIKI.logger.info('Purging guest comment PII...')
+import type { TaskResult } from '../../core/scheduler.ts'
 
-  try {
-    await WIKI.models.comments.purgeGuestPii(WIKI.models.comments.getGuestPiiRetentionDays())
-
-    WIKI.logger.info('Purging guest comment PII: [ COMPLETED ]')
-  } catch (err: any) {
-    WIKI.logger.error('Purging guest comment PII: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+export async function task(): Promise<TaskResult | void> {
+  const purged = await WIKI.models.comments.purgeGuestPii(
+    WIKI.models.comments.getGuestPiiRetentionDays()
+  )
+  if (purged > 0) {
+    return { summary: 'purged guest comment PII past the retention window', purged }
   }
 }

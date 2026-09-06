@@ -1,7 +1,12 @@
-# Wiki.js 3.x
+# Cardinal.js 3.x
 
 Next-generation open source wiki. This is the **3.x development branch** — incomplete, unstable, and
 with no upgrade path from 2.x. AGPL-3.0.
+
+Cardinal.js is a fork of [Wiki.js](https://github.com/requarks/wiki), taken from its `scarlett`
+branch. Wherever this file says "Wiki.js" it means **upstream**, not this project — the 2.5.x
+importer under `backend/migration/` and `docs/migration/`, an upstream issue reference, or a
+verbatim string this codebase still emits. Everything else is Cardinal.js.
 
 **Nothing here has to stay compatible with an existing installation.** Nobody is expected to be
 running an earlier state of this branch, so do not write migration shims, legacy-value fallbacks,
@@ -353,6 +358,44 @@ npm run build          # rollup → blocks/compiled/
 The API is browsable via Swagger UI at `http://localhost:3000/_api` in a running instance. Default
 admin login is `admin@example.com` / `12345678`.
 
+### What "verified" means
+
+**A change is verified when the gate is green _inside the pinned dev container_, not when it is
+green on your host.** Run it:
+
+```sh
+./scripts/verify-ci.sh            # from anywhere in the repo
+npm --prefix backend run verify:ci -- --help    # the same thing, npm-shaped, plus its own docs
+```
+
+This is an instruction, not a suggestion. It exists because fixes were repeatedly marked resolved
+after passing on a Node 25.9 host and then failing on CI's Node 26 — a whole class of "fixed" work
+that was never fixed. `.devcontainer/` (`ARG NODE_VERSION`, the one declaration of the pin) is built
+to _be_ what the workflows run on; `scripts/verify-ci.sh` runs, inside it, every command
+`.github/workflows/quality.yml`'s gate job runs, in the same order, stopping at the first failure the
+way the job does. `backend/test/verifyCi.test.ts` parses that workflow and fails when a gate command
+exists there and not in the script, so the two cannot drift apart quietly.
+
+Four things worth knowing before you rely on it:
+
+- **It refuses to run outside the image.** The running Node must equal the Dockerfile's pin, pandoc
+  and git-cliff must be on `PATH`, a Playwright browser must exist, and `DATABASE_URL` must be set —
+  every one of those, missing, turns real coverage into a silent skip rather than a failure.
+  `VERIFY_CI_ALLOW_HOST=1` downgrades the refusal to a banner; a run with it set is not a
+  verification and must not be reported as one.
+- **Green is not the same as "everything ran."** The command prints the backend suite's skipped
+  count beside its verdict for exactly this reason. Read it.
+- **The e2e suite is opt-in (`--e2e`)** — it is not part of `quality.yml` at all (it lives in
+  `build.yml`'s `build` job), so running it by default would itself be a divergence from the gate
+  being mirrored. `--smoke-boot` likewise adds `quality.yml`'s separate production-install boot job,
+  opt-in because it swaps `backend/node_modules` for the production tree.
+- **The flaky-test quarantine lane runs report-only** and never changes the exit code, matching the
+  report-only lane step in `quality.yml` — see `docs/decisions/flaky-test-quarantine.md`.
+- `release.yml` needs no separate command: its gate is a strict subset of `quality.yml`'s.
+
+`./scripts/verify-ci.sh --help` is the authority on the flags and on what each one does and does not
+cover.
+
 ## TypeScript (backend)
 
 The backend is entirely **TypeScript 7** (the native Go compiler — `tsc` is a platform binary, not a
@@ -434,6 +477,37 @@ Conventions established during the conversion, worth following in new code:
   rather than changing runtime behavior inline.
 
 ## Conventions
+
+### Product name
+
+This product is **Cardinal.js**. Upstream, which it forked, is **Wiki.js**. The two are never
+interchangeable, and the test for any given occurrence is: *does this sentence remain true after the
+rename?* If it describes upstream, it stays "Wiki.js".
+
+```sh
+grep -rI "Wiki\.js\|wiki\.js\|wikijs" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=assets .
+```
+
+That is expected to keep returning hits, and a reviewer should be able to account for every one of
+them under these five categories. This is a **reviewed expectation, not a CI gate** — encoding the
+exclusion list somewhere would just fail the moment a legitimate new upstream reference is written.
+
+1. **The 2.5.x importer** — `backend/migration/`, `docs/migration/`. It genuinely reads real Wiki.js
+   2.5.x databases; renaming would make the code and its field-mapping specs describe a product that
+   does not exist. `ImportPageDialog.vue` and `ImportBatchPageDialog.vue`'s "Wiki.js's own Markdown"
+   are the same case.
+2. **The AGPL-3.0 copyright and attribution notices**, and `README.md`'s modification notice, which
+   has to name what was modified.
+3. **Upstream's own URLs, repos, accounts and community** — `requarks/wiki` issue links,
+   `requarks/wiki-locales`, `opencollective.com/wikijs`, `js.wiki`, and the inherited
+   `.github/CONTRIBUTING.md` / `SECURITY.md` / `ISSUE_TEMPLATE*` / `FUNDING.yml`, each of which
+   carries a note saying so at its head.
+4. **Comparative and historical writing** that is *about* upstream — `docs/legal/`,
+   `docs/logging-reviews/`, `docs/variances.md`, `docs/auth-provider-audit.md`.
+5. **Verbatim runtime literals this codebase still emits**, quoted in docs so the doc matches what
+   the reader will actually see: the `Wiki.js - <id>` `application_name` on pg connections, the
+   `=== Wiki.js 3.0.0 ===` boot banner, `admin.security.trustProxyHint`. A doc quoting one changes
+   only in the same commit that changes the literal.
 
 ### Style, linting, formatting
 
@@ -614,7 +688,8 @@ Consequences worth knowing:
 
 - **The `WIKI` global.** Set up in `index.ts`, typed in `types/global.d.ts`, available everywhere
   without importing:
-  `WIKI.db` (Drizzle), `WIKI.models.*`, `WIKI.config`, `WIKI.logger`, `WIKI.cache`, `WIKI.scheduler`,
+  `WIKI.db` (Drizzle), `WIKI.models.*`, `WIKI.config`, `WIKI.logger` (see
+  [Logging](#logging) — every line takes a scope), `WIKI.cache`, `WIKI.scheduler`,
   `WIKI.events.{inbound,outbound}` (Emittery), `WIKI.sites` / `WIKI.sitesMappings` (cached site
   configs), `WIKI.ROOTPATH`, `WIKI.SERVERPATH`, `WIKI.INSTANCE_ID`.
 - **Routes** are Fastify plugins: `async function routes(app) { ... }` with a default export.
@@ -701,6 +776,15 @@ regression the split existed to prevent.
   (`DEFAULT_CONTENT_TYPE_EXTENSION = 'txt'`), read through `fileExtensionForContentType` or the
   dotted `extensionForContentType`. `modules/storage/disk` overriding `redirect: 'json'` is the one
   documented divergence.
+- **Turning one provider display string into a first and last name**: `helpers/personName.ts` —
+  `splitDisplayName(display)` (first whitespace-separated part, whole remainder, two empty strings
+  for nothing) and `fillNameHalves(display, known)`, which applies that split ONLY where neither half
+  is already known. Deliberately naive and library-free by decision, so a wrong split reads as a
+  guess somebody can correct. The five single-string providers (`github`, `discord`, `slack`,
+  `twitch`, `cas`) each call it from their own module; it is never placed on `oauth2/authentication.ts`
+  or `oidc/preset.ts`, which would pre-empt every preset whose provider reports real name claims.
+  Nothing a person typed on this instance goes through it — local registration and the admin user
+  forms take both halves outright.
 - **`mcp/` shared bits**: `mcp/tools/shared.ts` holds `toResult` plus the shared `siteIdArg`/
   `localeArg` zod fields; a tool file declaring its own `toResult` is a regression.
 - **A `Date` column headed into a search index**:
@@ -739,6 +823,106 @@ regression the split existed to prevent.
     "Testing (backend)" for the convention; that copy is intentionally separate from
     `core/temporal.ts`'s (test code should not import from the app's own boot path).
 
+### Logging
+
+Everything the backend writes to stdout goes through `WIKI.logger`, in one shape:
+
+```ts
+WIKI.logger.info('db', 'connected', { postgres: '18.6', schema, migrations: 0, ms })
+WIKI.logger.error('jobs', 'purgeUploads failed, no attempts left', { job: job.id, attempts: 3, error: err })
+WIKI.logger.debug('jobs', 'storageSyncTick found nothing due')
+```
+
+`(scope, message, fields?)` on each of the four levels — `error`, `warn`, `info`, `debug`. A file
+that logs a lot from one subsystem binds a child instead, and every line it emits carries the
+standing fields:
+
+```ts
+const log = WIKI.logger.scope('storage', { module: 'git', target: target.id })
+log.debug('pulling from origin', { branch })
+```
+
+- **Every line has a scope, from the closed vocabulary in `core/logScopes.ts`** (re-exported from
+  `core/logger.ts`, so either import reads the same values). It is a `LogScope` union, so a string
+  outside it is a type error at the call site. **Do not add, rename or reorder one to describe a
+  narrower subsystem** — that is a *field* (`{ module: 'git' }`, `{ engine: 'elasticsearch' }`), never
+  a new scope. A genuinely new subsystem is a one-line addition there, and `docs/operations.md#logs`
+  is the operator-facing table of what each name owns.
+- **The level is the status**, in four lines: `error` — broken, and a person has to act. `warn` —
+  degraded, self-healing, or a configuration smell. `info` — a state change worth having in the
+  record (boot milestones, a job that *did* something, lifecycle events). `debug` — per-item,
+  per-request, per-tick (the access log, every job start/finish, the `sql` and `auth` firehoses). A
+  scheduled tick that found nothing to do is `debug` or nothing at all, never `info`.
+- **Voice: a lowercase fragment, no trailing period.** No `[ OK ]` / `[ COMPLETED ]` / `[ FAILED ]` /
+  `[ SKIPPED ]` tags, no `...` announcement suffix, no `successfully` — the level already says
+  whether it worked, and nothing is announced before it starts unless it can plausibly take seconds,
+  in which case the announcement is `debug`.
+- **Facts are fields, not prose.** Counts, ids, durations, paths and hostnames go in `fields`; the
+  message stays a sentence. One call site produces both outputs — the `key=value` tail in
+  `logFormat: text`, sibling keys in `logFormat: json`.
+- **Two field keys are rendered, not printed.** Pass `ms` as a **number** and the renderer humanises
+  it (`in 528ms`, `in 3.7s`) and moves it to the end of the tail. Pass `error` as the **`Error`
+  itself** — never `err.message`, never `String(err)`, never a pre-formatted string: the renderer
+  puts the message inline as `error="…"` and the stack on following lines (always at `error`; at
+  `warn` only when `logLevel: debug`), and JSON mode gets `{ name, message, stack }`. One failure is
+  **one record**, not a `warn(context)` followed by a `warn(err)`.
+- **Identifiers, never identities.** User ids, group ids, site ids — not e-mail addresses, and not a
+  hostname where the hostname is a person's. The one deliberate exception is the seeded admin address
+  on a first run, which is the only credential the operator has at that point.
+- **No bare `console.log` in `backend/`.** The exceptions are the places that genuinely have no
+  logger yet, cannot share the stream, or are talking to a person at a terminal rather than writing
+  a log: `core/config.ts` (runs before `logger.init()`), `core/logger.ts` itself (it *is* the sink),
+  `mcp/stdio.ts` (stdout is JSON-RPC there), every script under `scripts/`, and the CLI entry points
+  `tasks/migrate.ts`, `tasks/verify-migration.ts` and `tasks/promote-admin.ts`. Each carries a
+  file-level disable and a one-line reason. `index.ts` gets three *inline* disables instead — the
+  Node-version and cwd refusals, and the `IS_DEBUG` process-warning dump, all of which run before
+  `WIKI.logger` exists — since the rest of the file logs normally. A new `console.*` anywhere else
+  goes through `WIKI.logger`.
+
+`logLevel` (`error|warn|info|debug`), `logFormat` (`text|json`) and `logScopes` (a map of scope to
+level) are validated at boot case-sensitively: an unrecognised value — including an unknown scope
+name in `logScopes` — is a one-line refusal and `exit(1)`, not a value that quietly logs everything.
+
+**A line's threshold is per scope, resolved per call**, in `core/logger.ts#effectiveLevel`: the
+`scopeOverrides` thunk `init()` was handed, then `WIKI.config.logScopes`, then `logLevel` as the
+default for a scope neither map names. `index.ts` is what supplies the thunk, over
+`models/flags.ts#logScopeOverrides()` — which is all the `sqlLog` and `authDebug` system flags are
+now: `sqlLog` raises `sql` to `debug`, `authDebug` raises `auth` to `debug`, live, no restart.
+Neither flag gates a call site any more, and **new code must not add a second gate of its own**:
+`core/db.ts`'s query logger emits every query at `debug sql` unconditionally and lets the threshold
+decide, and `models/flags.ts#authDebug()` is a bare `WIKI.logger.debug('auth', message)`. A line
+worth emitting only sometimes is a line at the right level in the right scope, not a line behind an
+`if`.
+
+`logScopes` is declared in `base.yml` as an explicit null rather than `{}`, deliberately:
+`core/config.ts#warnUnknownConfigKeys` descends into any key that is a plain object on both sides,
+so `{}` would make every real entry warn as an unknown config key on every boot.
+
+**`(scope, message, fields?)` is the only call shape there is.** The legacy `(msg, context?)`
+overload that carried the un-swept call sites through the sweep — filed under a sentinel `legacy`
+scope so a grep over the output said how much was left — was deleted with the sweep's last task
+(#2668), and deleting it is what makes `npm run typecheck` the gate: a call that forgot its scope
+has no overload to land on. Do not reintroduce one.
+
+**Three gates enforce the rules above, and they cover different things:**
+
+- **`npm run typecheck`** — the scope vocabulary (`LogScope` is a union, so a name outside
+  `core/logScopes.ts` is a compile error, at a `scope()` declaration as much as at a direct call)
+  and the call shape itself.
+- **`no-console: error` in `backend/.oxlintrc.json`** — the other direction: a line that never
+  reached the logger at all. The exceptions listed above each carry a file-level (or, in `index.ts`,
+  an inline) disable with a one-line reason; a new `console.*` anywhere else fails the lint step.
+- **`test/logging-conventions.test.ts`** — what neither can see: it walks the source tree (skipping
+  `*.test.ts`, `test/`, `scripts/` and `db/migrations/`) and fails on an `[ OK ]`-style status tag,
+  a message ending in `.` or `...`, a message opening with a capital that is not a known acronym, a
+  `logger.x(err)` / `logger.x(err.message)` one-liner, a first argument outside the vocabulary, and
+  any `verbose`/`silly` call. It reads comments and string contents as such, so a doc comment
+  quoting a bad line is not itself a finding.
+
+A line that genuinely needs an exception carries `// log-conventions: allow <reason>` on the
+preceding line. That is the escape hatch for a correct line a text heuristic refuses — not a way to
+opt out of the conventions, and the test caps how many may exist at once.
+
 ### Testing (backend)
 
 `backend/`'s test runner is Node's built-in **`node:test`**, run via `npm run test` (→ `node --test
@@ -747,15 +931,23 @@ approach as everything else in `backend/`: `node --test` type-strips `.ts` test 
 `node backend` does, so a test file is written and run the same way as the code it tests, with no
 separate transpile or worker config.
 
+**What earns a test, at which layer, and what deliberately gets none is
+`docs/decisions/testing-strategy.md`** — the settled policy, written from the #2687/#2688 test-value
+audits under `docs/testing-audit/`. This section is the mechanics; that document is the reasoning,
+and it governs where the two ever disagree.
+
 - **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
   `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
   already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
   oxlint and oxfmt cover them the same way. One source file's tests may be several sibling files
   split by subject — `models/users.test.ts` (pure), `models/users.crud.test.ts`,
-  `models/users.profile.test.ts` — and **`*.db.test.ts` marks a DB-backed file**
-  (`core/scheduler.reaping.db.test.ts`, `models/storage.db.test.ts`, …), so the pure/DB boundary is
-  visible from the filename and the pure half can be run alone. Both halves still gate exactly as
-  before; the suffix is a naming convention, not a mechanism. A DB-backed file opens **one**
+  `models/users.profile.test.ts`. Eleven files carry a **`*.db.test.ts`** suffix
+  (`core/scheduler.reaping.db.test.ts`, `models/storage.db.test.ts`, …), but **it is not the pure/DB
+  boundary and must not be read as one** — 81 suites open a real Postgres schema and only those
+  eleven are so named. `docs/decisions/testing-strategy.md` retires the claim: the boundary is
+  `hasTestDatabase()`, which every one of them carries, running the pure half alone is
+  `DATABASE_URL` unset, and nothing is renamed in either direction. The suffix is not required of a
+  new DB-backed file and carries no claim if used. A DB-backed file opens **one**
   `setupTestDb()` for the whole file, shared by its describes, rather than one per describe.
   `test/` holds the shared harness and fixture code that is not itself a
   `*.test.ts` (`db.ts`, `mocks.ts`, …) — plus, since a harness module is a source file like any
@@ -818,6 +1010,13 @@ separate transpile or worker config.
   `cache.set.mock.calls` directly), rather than reaching for the real `NodeCache`/`Emittery` instances
   the app boots with. Follow the same pattern for any other `WIKI` member a future model test
   needs present but does not care about.
+  - **`createSilentLogger()` swallows both call shapes and answers `scope()` with itself**, so a
+    suite asserting on a log line spies the level method it cares about (`WIKI.logger.warn =
+    mock.fn()`) rather than building its own logger. Assert on the **scope and the fields** a call
+    passed, not on the rendered string: the renderer is `core/logger.ts`'s business, and a test that
+    matches formatted text breaks the moment a column widens. **Never assert against
+    `WIKI.logger.backlog()` or subscribe to `WIKI.logger.ws`** — both carry structured frames whose
+    shape belongs to the logger, not to the code under test.
   - **A new test never writes a `WIKI = {…}` literal.** `installTestWiki(overrides)` installs
     `createWikiStub(overrides)` as the global and returns a `{ restore() }` to call in
     `after()`/`afterEach()` — `node --test` isolates each matched FILE into its own process but not
@@ -971,6 +1170,11 @@ the `twemoji-assets` tarball dependency is resolvable) and `vite-plugin-vue-devt
 `../config.yml` at import time for the dev proxy port, none of which a unit test needs or wants
 paying the cost of on every run.
 
+**The policy for what earns a test and at which layer is `docs/decisions/testing-strategy.md`**,
+written from `docs/testing-audit/frontend.md`'s classification of every suite in this workspace. It
+is where the real-Chromium layer, the source-scanning gates and the `describe.each` convention are
+settled; the mechanics below stand unchanged.
+
 What IS mirrored from `vite.config.js`, because component code has to resolve exactly the way it
 does in the real build, not because it was convenient to share:
 
@@ -1084,6 +1288,11 @@ a block has no build-time template compilation (`rollup.config.mjs` bundles plai
 transform it) and no app framework around it, so a test loads `component.js` exactly as the browser
 would.
 
+**`docs/decisions/testing-strategy.md` is the policy** for what earns a test here and at which
+layer. `blocks/` was not separately classified by the #2687/#2688 audits, but the layers and the
+"what gets no test at all" rules apply to it unchanged — a block's suite sits at the component
+layer.
+
 - **`environment: 'jsdom'`**, not `happy-dom` (frontend's choice). A block's whole surface under test
   _is_ its shadow DOM — attribute reflection, light-DOM content read out of `this.textContent` /
   `querySelector`, Lit's `adoptedStyleSheets`-or-injected-`<style>` fallback — and jsdom's coverage of
@@ -1130,6 +1339,11 @@ because none of those own it at runtime — a spec drives a real browser against
 production-shaped stack (`node backend` from the repo root, serving `frontend/`'s `vite build`
 output out of `assets/`), which is a different thing from any one workspace's unit tests, not a
 superset of one of them.
+
+**`docs/decisions/testing-strategy.md` is the policy**, and it is deliberately restrictive about
+this layer: a flow earns an e2e spec when its failure mode is *the pieces not fitting together*.
+Permission matrices, error taxonomies and accessibility properties belong above it, in the unit and
+component suites, which is where they are.
 
 - **Boots the real thing, not a dev proxy.** `playwright.config.js`'s `webServer` runs `node
 backend` (`cwd: '..'` — `index.ts` refuses to boot from anywhere else) against `CONFIG_FILE:
@@ -1206,7 +1420,7 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
   on every keystroke until the path field itself is focused (`onPathFocus` sets `pathDirty`) — left
   alone, the dialog silently saves under a title-derived path instead of the one the test asked for.
 - **Multi-site (flow 3) resolves the second site by hostname, not a UI switcher** — there isn't one
-  yet; a Wiki.js 3.x site is addressed by the request's `Host` header
+  yet; a Cardinal.js 3.x site is addressed by the request's `Host` header
   (`WIKI.sitesMappings[req.hostname]`, `index.ts`), so "switching sites" here means navigating the
   browser to a different hostname. `*.localhost` resolves to the loopback address without any
   `/etc/hosts` entry (RFC 6761, honoured by Chromium and every major OS resolver), which is what

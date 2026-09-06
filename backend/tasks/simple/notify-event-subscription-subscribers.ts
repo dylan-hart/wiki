@@ -42,21 +42,25 @@ export async function task(payload?: NotifyEventSubscriptionSubscribersPayload):
     try {
       const recipient = await WIKI.models.users.getById(userId)
       if (!recipient?.email) {
-        WIKI.logger.warn(
-          `Skipping event-subscription notification for ${event}: user ${userId} has no email address.`
-        )
+        // -> `debug`: recurs on every run for the same account (see `notify-event-subscribers.ts`).
+        WIKI.logger.debug('hooks', 'event-subscription notification skipped, no email address', {
+          user: userId,
+          event
+        })
         continue
       }
       await WIKI.models.mail.sendEventSubscriptionNotification({
         to: recipient.email,
         event,
+        userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
     } catch (err: any) {
-      WIKI.logger.error(
-        `Sending event-subscription notification to user ${userId} for ${event}: [ FAILED ]`
-      )
-      WIKI.logger.error(err.message)
+      WIKI.logger.error('hooks', 'failed to send event-subscription notification', {
+        user: userId,
+        event,
+        error: err
+      })
     }
   }
 }

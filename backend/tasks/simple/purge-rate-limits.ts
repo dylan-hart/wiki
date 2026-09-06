@@ -1,13 +1,8 @@
-export async function task(): Promise<void> {
-  WIKI.logger.info('Purging stale rate limit counters...')
+import type { TaskResult } from '../../core/scheduler.ts'
 
-  try {
-    const purged = await WIKI.models.rateLimits.purgeStale()
-
-    WIKI.logger.info(`Purged ${purged} stale rate limit counters: [ COMPLETED ]`)
-  } catch (err: any) {
-    WIKI.logger.error('Purging stale rate limit counters: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+export async function task(): Promise<TaskResult | void> {
+  const purged = await WIKI.models.rateLimits.purgeStale()
+  if (purged > 0) {
+    return { summary: 'purged stale rate limit counters', purged }
   }
 }

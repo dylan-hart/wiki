@@ -257,3 +257,120 @@ describe('App.vue applyLocale() idempotency', () => {
     expect(localeStringsCalls.length).toBe(1)
   })
 })
+
+/**
+ * Regression coverage for OpenProject #2596: `<html dir>`/`lang` follow the locale the URL itself
+ * addresses in its leading segment, and do so for a destination with NO page behind it.
+ *
+ * The defect: `LocaleSelectorMenu.vue#switchLocale()` navigates (`router.push(localizedPagePath(…))`)
+ * rather than setting the interface locale, so picking an RTL locale while sitting on a path that
+ * has no page pushed `/ar/<path>` -- and the document stayed `dir="ltr" lang="en"`, because the only
+ * thing that wrote either attribute was the INTERFACE locale, which that click never touches. A
+ * "page not found" screen under an RTL locale's own prefix is still text a reader reads
+ * right-to-left, and nothing has to exist at the path for that to be true.
+ *
+ * The negative half matters just as much: the segment is matched against `siteStore.locales.active`,
+ * so an arbitrary first path segment cannot set `dir`/`lang` to a locale the site does not have.
+ */
+describe('App.vue applyDocumentLocale()', () => {
+  /**
+   * `/:catchAll(.*)*` mirrors `router/routes.js`'s own page route -- a locale-prefixed path and an
+   * ordinary one are the same shape to the router, which is exactly why the app has to make the
+   * locale call itself. No page is ever loaded here: the point is that the document attributes
+   * settle from the URL alone, which is what a 404 destination has and nothing else.
+   */
+  async function mountAppAt(path, { interfaceLocale = 'en' } = {}) {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    const commonStore = useCommonStore()
+
+    siteStore.$patch({
+      id: 'site-1',
+      locales: {
+        primary: 'en',
+        showMenu: true,
+        active: [
+          { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
+          { code: 'ar', language: 'ar', name: 'Arabic', nativeName: 'العربية', isRTL: true },
+          { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français', isRTL: false }
+        ]
+      }
+    })
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+    commonStore.setLocale(interfaceLocale)
+
+    API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve({}) }))
+
+    const router = buildTestRouter(['/', '/:catchAll(.*)*'])
+    const i18n = createTestI18n()
+
+    currentWrapper = mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push(path)
+    await router.isReady()
+    await flushPromises()
+
+    return { router, commonStore }
+  }
+
+  it('flips dir/lang for an RTL locale prefix on a path with no page behind it', async () => {
+    await mountAppAt('/ar/e2e-rtl-check')
+
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+    expect(document.documentElement.getAttribute('lang')).toBe('ar')
+  })
+
+  it('leaves dir/lang on the interface locale for a leading segment the site does not have', async () => {
+    await mountAppAt('/xx/e2e-rtl-check')
+
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+  })
+
+  it('keeps the URL segment ahead of the interface locale, both ways round', async () => {
+    // -> An RTL prefix under an LTR interface locale...
+    const { router, commonStore } = await mountAppAt('/ar/e2e-rtl-check')
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+
+    // -> ...survives the interface locale changing under it (the admin header's own switcher)
+    commonStore.setLocale('fr')
+    await flushPromises()
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+    expect(document.documentElement.getAttribute('lang')).toBe('ar')
+
+    // -> ...and an LTR prefix under an RTL interface locale reads left-to-right, not the other way
+    commonStore.setLocale('ar')
+    await router.push('/fr/quelque-page')
+    await flushPromises()
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr')
+    expect(document.documentElement.getAttribute('lang')).toBe('fr')
+  })
+
+  it('falls back to the interface locale once the URL stops naming one', async () => {
+    const { router, commonStore } = await mountAppAt('/ar/e2e-rtl-check')
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+
+    // -> A `/_` route has no locale segment at all: the admin area is drawn in the reader's own
+    //    interface language, so that is what its direction follows
+    await router.push('/_admin/dashboard')
+    await flushPromises()
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+
+    // -> Same for an ordinary unprefixed page path, with the interface locale now the RTL one
+    commonStore.setLocale('ar')
+    await router.push('/some/page')
+    await flushPromises()
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+    expect(document.documentElement.getAttribute('lang')).toBe('ar')
+  })
+
+  it('resolves the segment case-insensitively, to the code as the site spells it', async () => {
+    await mountAppAt('/AR/e2e-rtl-check')
+
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+    expect(document.documentElement.getAttribute('lang')).toBe('ar')
+  })
+})

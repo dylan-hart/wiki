@@ -68,13 +68,16 @@
         </w-item>
         <!--
           OpenProject #2024/#2531: kept in step with the wide-viewport button's own destination and
-          glyph (`HeaderNav.vue`) -- the Inbox overlay's Watching tab, `tabler:bell` -- rather than the old
-          `/_inbox` redirect into the now-deleted Messages stub and its unrelated `tabler:inbox`
-          icon.
+          glyph (`HeaderNav.vue`) -- the Inbox overlay's Watching tab, `tabler:inbox` -- rather than
+          the old `/_inbox` redirect into the now-deleted Messages stub. This is the same affordance
+          as that button, just collapsed below 900px, so the two must never draw different glyphs
+          (OpenProject #2619: both said `tabler:bell` after `InboxOverlay` moved to `tabler:inbox`,
+          and both comments claimed the agreement they had lost -- `inboxGlyph.test.js` now asserts
+          the equality against `InboxOverlay.vue` for this row and that button together).
         -->
         <w-item v-if="userStore.authenticated" clickable @click="openInbox">
           <w-item-section avatar>
-            <w-icon name="tabler:bell" class="text-amber" />
+            <w-icon name="tabler:inbox" class="text-amber" />
           </w-item-section>
           <w-item-section>{{ t('inbox.title') }}</w-item-section>
         </w-item>

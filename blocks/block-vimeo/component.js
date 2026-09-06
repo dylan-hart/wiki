@@ -61,7 +61,7 @@ export class BlockVimeoElement extends VideoEmbedElement {
     block: 'vimeo',
     name: 'Vimeo Player',
     description: 'Embeds a Vimeo video.',
-    icon: 'widescreen',
+    icon: 'tabler:brand-vimeo',
     props: [
       {
         name: 'url',

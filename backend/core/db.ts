@@ -10,7 +10,6 @@ import { parse } from 'pg-connection-string'
 import semver from 'semver'
 
 import { relations } from '../db/relations.ts'
-import { flags } from '../models/flags.ts'
 import { createDeferred } from '../helpers/common.ts'
 import {
   connectListener,
@@ -78,26 +77,27 @@ const LEGACY_TABLES = ['knex_migrations', 'searchEngines']
 /**
  * Query logger, consulted by Drizzle on every query.
  *
- * The decision is made per query rather than when the instance is built, so that the `sqlLog` system
- * flag can be turned on in the admin area and take effect on the next query — a logger chosen at boot
- * would need a restart.
+ * It emits unconditionally, at `debug` on the `sql` scope, and owns no gate of its own (OpenProject
+ * #2663). Whether the line survives is the logger's decision, made per call against the `sql` scope's
+ * effective threshold: the `sqlLog` admin flag raises it to `debug` from the next query onwards with
+ * no restart, `logScopes: { sql: debug }` in config.yml does the same for a whole run, and at the
+ * default `logLevel: info` it is dropped before a frame is even built.
  *
  * Bound parameter *values* are never logged, only redacted below. A bound parameter routinely carries
  * a secret — `models/settings.ts#updateConfig` binds a whole settings blob as one JSONB parameter, and
  * that blob can hold the API signing private key and its passphrase, the session secret, SMTP/LDAP/
- * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and this line reaches
- * `WIKI.logger.info` unconditionally whenever either trigger below is on: the container log pipeline
- * for `sqlLog`/`dev.logQueries`, and every connected admin terminal client via
- * `controllers/terminal.ts`'s backlog replay. Redaction lives inside `logQuery` itself rather than
- * behind either trigger's `if`, so both are covered identically. See OpenProject #2205.
+ * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and once the threshold does
+ * let this line through it reaches both the container log pipeline and every connected admin terminal
+ * client, via `controllers/terminal.ts`'s backlog replay. Redaction therefore lives inside `logQuery`
+ * itself rather than behind any trigger, so every route out is covered identically. See OpenProject
+ * #2205.
  */
 export const queryLogger = {
   logQuery(query: string, params: unknown[]): void {
-    if (!flags.isEnabled('sqlLog') && !WIKI.config.dev?.logQueries) {
-      return
-    }
-    WIKI.logger.info(
-      `[SQL] ${query}${params.length > 0 ? ` -- ${describeQueryParams(params)}` : ''}`
+    WIKI.logger.debug(
+      'sql',
+      query,
+      params.length > 0 ? { params: describeQueryParams(params) } : undefined
     )
   }
 }
@@ -132,6 +132,185 @@ function describeQueryParam(value: unknown): string {
     return 'object'
   }
   return typeof value
+}
+
+/**
+ * How much of a slow query's text reaches the log line.
+ *
+ * A generated `select` over a wide table with its relations joined in runs to several kilobytes, and
+ * the point of the line is "this shape of query is slow", which the leading clause already answers.
+ * The tail is dropped with an ellipsis rather than wrapped, so the line stays one line.
+ */
+const SLOW_QUERY_TEXT_LIMIT = 200
+
+/**
+ * Marks a `pg` client whose `query` this module has already wrapped, so a second `connect` listener
+ * — or a test driving `instrumentSlowQueries` twice over the same fake — cannot stack two timers on
+ * one call and report the same query twice.
+ */
+const SLOW_QUERY_INSTRUMENTED = Symbol('wiki:slowQueryInstrumented')
+
+/**
+ * The configured slow-query threshold in milliseconds, or 0 when the feature is off.
+ *
+ * Read per call rather than captured when the pool is built: `slowQueryMs` is a FILE setting with no
+ * live toggle (see `base.yml`), so this is not there to support a runtime change — it is there so
+ * that reading it is one expression with one owner, and so a test can drive the wrapper by setting
+ * `WIKI.config.slowQueryMs` rather than by rebuilding a pool. Anything non-numeric, negative or
+ * absent reads as off, which is also what an operator who never touched the key gets.
+ */
+function slowQueryThresholdMs(): number {
+  const configured = Number(WIKI.config.slowQueryMs)
+  return Number.isFinite(configured) && configured > 0 ? configured : 0
+}
+
+/**
+ * The text and bound parameters of one `client.query(...)` call, or `null` for a call shape that
+ * carries neither.
+ *
+ * `pg` accepts the query three ways — `query(text, values?)`, `query({ text, values })` (what
+ * Drizzle's node-postgres driver sends, prepared-statement `name` included) and `query(submittable)`
+ * for a `Cursor`/`QueryStream`. The first two are timed; a submittable is not a request/response
+ * round trip at all (it returns itself and streams rows afterwards), so there is no single duration
+ * to report and it is passed straight through.
+ */
+function describeQueryCall(args: unknown[]): { text: string; values: unknown[] } | null {
+  const [first, second] = args
+  if (typeof first === 'string') {
+    return { text: first, values: Array.isArray(second) ? second : [] }
+  }
+  if (typeof first === 'object' && first !== null && typeof (first as any).text === 'string') {
+    const config = first as { text: string; values?: unknown[]; submit?: unknown }
+    // -> A `Cursor` also carries `text`, and is distinguished by being submittable.
+    if (typeof config.submit === 'function') {
+      return null
+    }
+    return {
+      text: config.text,
+      values: Array.isArray(config.values) ? config.values : Array.isArray(second) ? second : []
+    }
+  }
+  return null
+}
+
+/**
+ * Emits the one slow-query line: `warn sql slow query  rows= query="…" params=(…) in 1.4s`.
+ *
+ * Bound parameter *values* never reach it — `describeQueryParams` is the same redactor
+ * `queryLogger.logQuery` uses, and for the same reason (OpenProject #2205): a single parameter
+ * routinely carries the whole settings blob, session secret and storage credentials included, and a
+ * `warn` reaches stdout and every connected admin Live Log client at the default `logLevel` rather
+ * than only when somebody asked for the firehose. There is exactly one redactor in this file and the
+ * slow path does not get a second one.
+ *
+ * Related knob, worth reading together with this one: `pool.statementTimeoutMillis` (`base.yml`,
+ * default 60000) is the ceiling at which Postgres CANCELS the query instead of letting it finish —
+ * those failures surface through the caller's own error path (and, for an idle client dropped
+ * underneath, through the pool's `error` handler in `init()`). `slowQueryMs` is the softer signal
+ * ahead of it, so a threshold set anywhere near `statementTimeoutMillis` reports nothing the
+ * cancellation was not about to report anyway.
+ */
+function reportSlowQuery(
+  text: string,
+  values: unknown[],
+  ms: number,
+  rows: number | undefined
+): void {
+  WIKI.logger.warn('sql', 'slow query', {
+    ...(rows === undefined ? {} : { rows }),
+    query: text.length > SLOW_QUERY_TEXT_LIMIT ? `${text.slice(0, SLOW_QUERY_TEXT_LIMIT)}…` : text,
+    ...(values.length > 0 ? { params: describeQueryParams(values) } : {}),
+    ms
+  })
+}
+
+/**
+ * Times every query a checked-out `pg` client runs, and reports the ones that reach `slowQueryMs`.
+ *
+ * Registered as the main pool's `connect` listener in `init()`, so it patches each physical
+ * connection once, as it is opened. Drizzle's own `Logger` interface is not an option for this: it
+ * is handed the query text and nothing else, and — the part that decides the design — it is invoked
+ * SYNCHRONOUSLY, immediately BEFORE the query is sent (`PgPreparedQuery.execute()`). At that moment
+ * no duration exists yet. That ordering is also why the two lines are not, and cannot be, merged:
+ * the `debug sql` firehose line for a query has already been written by the time this wrapper's
+ * timer stops, so the slow report cannot annotate it and it cannot be withheld pending the duration.
+ * What IS guaranteed, and is what the "not logged twice" requirement reduces to once #2663 made the
+ * firehose threshold-gated rather than flag-gated, is that a slow query produces exactly ONE line
+ * here — one `warn`, per execution, never a second `debug` of its own — whatever the `sql` scope's
+ * threshold happens to be.
+ *
+ * Because it sits on the pool, below Drizzle, it also times raw `db.execute()` calls and the
+ * boot-time migration runner. That is deliberate (a migration that takes four minutes is exactly the
+ * thing an operator wants named) and is why the shipped default is `0`. The dedicated LISTEN/NOTIFY
+ * pool (`listenerPool`) is a different pool and is not instrumented: its three connections hold a
+ * `LISTEN` open for the process lifetime rather than running query traffic.
+ *
+ * A rejected query is reported too, not just a resolved one — a `statement_timeout` cancellation is
+ * the single most useful slow query there is, and dropping it would mean the feature stayed silent
+ * in exactly the case it was turned on for. Its `rows` is simply absent.
+ *
+ * Exported for the same reason `resolvePoolSizeOptions` is: it is the whole of the behaviour, and a
+ * test can drive it against a fake client with no live Postgres, which `init()`'s connect-and-migrate
+ * sequence would otherwise be the only way in.
+ */
+export function instrumentSlowQueries(client: any): void {
+  if (!client || typeof client.query !== 'function' || client[SLOW_QUERY_INSTRUMENTED]) {
+    return
+  }
+  client[SLOW_QUERY_INSTRUMENTED] = true
+
+  const runQuery = client.query.bind(client)
+
+  client.query = (...args: any[]) => {
+    if (slowQueryThresholdMs() <= 0) {
+      return runQuery(...args)
+    }
+    const described = describeQueryCall(args)
+    if (!described) {
+      return runQuery(...args)
+    }
+
+    const startedAt = Date.now()
+    const finish = (result: any) => {
+      const ms = Date.now() - startedAt
+      const threshold = slowQueryThresholdMs()
+      if (threshold > 0 && ms >= threshold) {
+        reportSlowQuery(
+          described.text,
+          described.values,
+          ms,
+          typeof result?.rowCount === 'number' ? result.rowCount : undefined
+        )
+      }
+    }
+
+    // -> `query(..., callback)` is the other half of `pg`'s API and is what `pg-pool`'s own internal
+    //    calls use; wrapping only the promise form would leave those untimed.
+    const last = args[args.length - 1]
+    if (typeof last === 'function') {
+      const timed = args.slice(0, -1)
+      timed.push((err: any, result: any) => {
+        finish(result)
+        last(err, result)
+      })
+      return runQuery(...timed)
+    }
+
+    const result = runQuery(...args)
+    if (result && typeof result.then === 'function') {
+      return result.then(
+        (resolved: any) => {
+          finish(resolved)
+          return resolved
+        },
+        (err: any) => {
+          finish(undefined)
+          throw err
+        }
+      )
+    }
+    return result
+  }
 }
 
 /**
@@ -209,7 +388,7 @@ export default {
    * Initialize DB
    */
   async init(workerMode = false): Promise<WikiDb> {
-    WIKI.logger.info('Checking DB configuration...')
+    const startedAt = Date.now()
 
     // Fetch DB Config
 
@@ -293,7 +472,7 @@ export default {
     //    leaving it to run unbounded once a connection is checked out.
     const poolConfig = WIKI.config.pool ?? {}
     this.pool = new Pool({
-      application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
+      application_name: `Cardinal.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
       ...this.config,
       connectionTimeoutMillis: poolConfig.connectionTimeoutMillis,
       ...resolvePoolSizeOptions(workerMode, WIKI.config.pool),
@@ -309,10 +488,20 @@ export default {
     //    returns so worker mode (`worker.ts`'s `ensureDb()`, which also calls `init(true)`) is
     //    covered too.
     this.pool.on('error', (err: any, client: any) => {
-      WIKI.logger.error(
-        `Postgres pool error${err.code ? ` [${err.code}]` : ''}${client?.processID ? ` (client pid ${client.processID})` : ''}: ${err.message}`
-      )
+      WIKI.logger.error('db', 'pool error', {
+        ...(err.code ? { code: err.code } : {}),
+        ...(client?.processID ? { pid: client.processID } : {}),
+        error: err
+      })
     })
+
+    // -> Slow-query timing (OpenProject #2676). `connect` fires once per newly-opened physical
+    //    connection, which is the one place a client can be wrapped before anything has used it.
+    //    Attached unconditionally rather than behind a `slowQueryMs > 0` check so the wrapper is the
+    //    single owner of that decision — see `instrumentSlowQueries`, which no-ops per call while
+    //    the threshold is 0 (the shipped default). Worker mode is instrumented too: a CPU-bound job's
+    //    own query is as worth naming as a request handler's.
+    this.pool.on('connect', instrumentSlowQueries)
 
     // -> Worker mode never opens a LISTEN/NOTIFY client (see `subscribeToNotifications`'s only
     //    caller, `index.ts`'s `postBoot()`, which never runs in a worker thread), so a worker's
@@ -334,26 +523,57 @@ export default {
     const dbVersion = semver.coerce(resVersion.rows[0].server_version as string, { loose: true })!
     this.VERSION = dbVersion.version
     if (dbVersion.major < 16) {
-      WIKI.logger.error(
-        `Your PostgreSQL database version (${dbVersion.major}) is too old and unsupported by Wiki.js. Requires >= 16. Exiting...`
-      )
+      WIKI.logger.error('db', 'postgres version is unsupported', {
+        postgres: dbVersion.version,
+        minimum: '16'
+      })
       process.exit(1)
     }
-    WIKI.logger.info(`Using PostgreSQL v${dbVersion.version} [ OK ]`)
 
     // DEV - Drop schema
     await this.dropSchemaIfDev(db)
 
     // Run Migrations
+    let migrationsApplied = 0
     if (!workerMode) {
       // -> `syncSchemas()` hands back the still-held advisory lock rather than releasing it itself
       //    (see its own doc comment) so a wider boot sequence could keep holding it past this point —
       //    not done yet (task 2044), so it is released immediately here.
+      const before = await this.countAppliedMigrations(db)
       const migrationLock = await this.syncSchemas(db)
       await migrationLock.release()
+      migrationsApplied = (await this.countAppliedMigrations(db)) - before
     }
 
+    // -> One line for the whole of the above, rather than the seven progress announcements this
+    //    replaced (OpenProject #2665): connecting, the server version, the schema, the extensions and
+    //    the migrations are all just "did the database come up", and an operator wants the answer and
+    //    what it cost, not the commentary.
+    WIKI.logger.info('db', 'connected', {
+      postgres: this.VERSION,
+      schema: WIKI.config.db.schema,
+      ...(workerMode ? {} : { migrations: migrationsApplied }),
+      ms: Date.now() - startedAt
+    })
+
     return db
+  },
+  /**
+   * Rows in the migrations table, or 0 when there is no such table yet — which is exactly what a
+   * first-run database looks like on the way in, and is why this answers rather than throws.
+   *
+   * Read either side of `syncSchemas()` so `db connected` can say how many migrations THIS boot
+   * applied, rather than how many exist.
+   */
+  async countAppliedMigrations(db: WikiDb): Promise<number> {
+    try {
+      const res = await db.execute(
+        `SELECT count(*)::int AS total FROM ${WIKI.config.db.schema}.migrations`
+      )
+      return (res.rows[0]?.total as number) ?? 0
+    } catch {
+      return 0
+    }
   },
   /**
    * DEV - Drop schema, gated on `WIKI.IS_DEBUG` (OpenProject task 2270).
@@ -371,20 +591,22 @@ export default {
    * silently doing nothing, so a developer running with the wrong `NODE_ENV` is not left wondering
    * why their schema was not dropped.
    *
-   * `dev.logQueries` (the other member of `dev`, consulted by `queryLogger` above) is intentionally
-   * left ungated here -- it is handled by the `sqlLog` redaction work tracked separately.
+   * `dropSchema` is the only member of `dev` this file reads. The `dev.logQueries` key it used to
+   * read alongside it is gone: `logScopes: { sql: debug }` says the same thing in the vocabulary the
+   * logger already validates, and a second, dev-only trigger for one scope's threshold was one
+   * switch too many (OpenProject #2663).
    */
   async dropSchemaIfDev(db: WikiDb): Promise<void> {
     if (!WIKI.config.dev?.dropSchema) {
       return
     }
     if (!WIKI.IS_DEBUG) {
-      WIKI.logger.warn(
-        `DEV MODE - dev.dropSchema is set but was refused: WIKI.IS_DEBUG is false. Schema ${WIKI.config.db.schema} was NOT dropped.`
-      )
+      WIKI.logger.warn('db', 'dev.dropSchema refused, not a debug boot', {
+        schema: WIKI.config.db.schema
+      })
       return
     }
-    WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
+    WIKI.logger.warn('db', 'dev mode, dropping schema', { schema: WIKI.config.db.schema })
     await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
   },
   /**
@@ -434,7 +656,7 @@ export default {
    *    the belt for — see its own doc comment.
    */
   async subscribeToNotifications(): Promise<void> {
-    const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:EVENTS`
+    const connectionAppName = `Cardinal.js - ${WIKI.INSTANCE_ID}:EVENTS`
 
     // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
@@ -451,9 +673,10 @@ export default {
         try {
           const decoded = JSON.parse(msg.payload!)
           if ('event' in decoded && decoded.source !== WIKI.INSTANCE_ID) {
-            WIKI.logger.info(
-              `Received event ${decoded.event} from instance ${decoded.source}: [ OK ]`
-            )
+            WIKI.logger.debug('cluster', 'event received', {
+              event: decoded.event,
+              instance: decoded.source
+            })
             WIKI.events.inbound.emit(decoded.event, decoded.value)
           }
         } catch {}
@@ -481,7 +704,7 @@ export default {
     WIKI.models.locales.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
-    WIKI.logger.info('Event Listener initialized successfully: [ OK ]')
+    WIKI.logger.debug('cluster', 'event listener subscribed')
   },
   /**
    * Unsubscribe from database LISTEN / NOTIFY
@@ -539,18 +762,16 @@ export default {
    */
   async connect(db: WikiDb): Promise<void> {
     try {
-      WIKI.logger.info('Connecting to database...')
       await db.execute('SELECT 1 + 1;')
-      WIKI.logger.info('Database connection successful [ OK ]')
     } catch (err: any) {
-      WIKI.logger.debug(err)
       if (this.connectAttempts < 10) {
-        if (err.code) {
-          WIKI.logger.error(`Database connection error: ${err.code} ${err.address}:${err.port}`)
-        } else {
-          WIKI.logger.error(`Database connection error: ${err.message}`)
-        }
-        WIKI.logger.warn(`Will retry in 3 seconds... [Attempt ${++this.connectAttempts} of 10]`)
+        // -> One record per failed attempt, at `warn`: this is the self-healing case, and the
+        //    `error` an operator has to act on is the throw below once the attempts run out.
+        WIKI.logger.warn('db', 'connection failed, retrying', {
+          attempt: `${++this.connectAttempts}/10`,
+          ...(err.code ? { code: err.code, address: `${err.address}:${err.port}` } : {}),
+          error: err
+        })
         await setTimeout(3000)
         await this.connect(db)
       } else {
@@ -573,9 +794,13 @@ export default {
       LIMIT 1
     `)
     if (res.rows.length > 0) {
-      WIKI.logger.error('ERROR: UPGRADING FROM A 2.x INSTALLATION IS NOT YET SUPPORTED. Exiting...')
       WIKI.logger.error(
-        `Found the Wiki.js 2.x table "${res.rows[0].table_name}" in schema "${WIKI.config.db.schema}".`
+        'db',
+        'refusing to boot, upgrading from a 2.x installation is unsupported',
+        {
+          table: res.rows[0].table_name,
+          schema: WIKI.config.db.schema
+        }
       )
       process.exit(1)
     }
@@ -599,7 +824,6 @@ export default {
     try {
       await this.checkForLegacyInstall(db)
 
-      WIKI.logger.info('Ensuring DB schema exists...')
       await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
 
       /*
@@ -613,12 +837,10 @@ export default {
 
         Idempotent, so a database whose extensions an administrator installed by hand is untouched.
       */
-      WIKI.logger.info('Ensuring required DB extensions are installed...')
       for (const extension of REQUIRED_EXTENSIONS) {
         await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
       }
 
-      WIKI.logger.info('Ensuring DB migrations have been applied...')
       await migrate(db, {
         migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
         migrationsSchema: WIKI.config.db.schema,

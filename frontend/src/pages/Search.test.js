@@ -452,3 +452,95 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
     expect(wrapper.vm.state.offset).toBe(1)
   })
 })
+
+/**
+ * OpenProject #2697 -- handoff 2's Search screen.
+ *
+ * Two deliberate removals from 2.x and one new row shape. The removals are only half visible from
+ * here: the dark radial band behind the card is CSS, and is measured in `Search.layout.test.js`
+ * alongside the 150px trailing column and the pinned header strips. What a mounted component can
+ * answer -- and what the WP asks for by name -- is that the floating Back button is gone from the
+ * DOM ENTIRELY rather than merely hidden by a media query, that no handler was left behind for it,
+ * and that a result row renders the five parts the design gives it.
+ */
+const FIXTURE_RICH_RESULT = {
+  id: 'p9',
+  path: 'docs/ingest/credentials',
+  locale: 'en',
+  title: 'Rotating ingest credentials',
+  description: 'How and when to roll the ingest worker credentials.',
+  icon: 'tabler:file-text',
+  tags: ['runbook', 'security'],
+  updatedAt: '2026-08-01T00:00:00.000Z',
+  relevancy: 1,
+  highlight: 'the worker reads its <b>credentials</b> from the secret store'
+}
+
+describe('Search.vue result rows and the removed Back control (OpenProject #2697)', () => {
+  it('renders no Back control at all, and exposes no handler for one', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [FIXTURE_RICH_RESULT],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    // -> Gone from the DOM, not hidden: the class the old rule keyed off no longer exists either
+    expect(wrapper.find('.layout-search-back').exists()).toBe(false)
+    expect(wrapper.html()).not.toContain('circle-arrow-left')
+    // -> And no dead handler behind it. `<script setup>` bindings are exposed on the instance, so
+    //    a surviving `goBack` would be a function here rather than `undefined`.
+    expect(wrapper.vm.goBack).toBeUndefined()
+  })
+
+  it('renders each result as a link carrying plate, title, description, path and highlight', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [FIXTURE_RICH_RESULT],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const rows = wrapper.findAll('.layout-search-row')
+    expect(rows).toHaveLength(1)
+
+    const row = rows[0]
+    expect(row.element.tagName).toBe('A')
+    expect(row.attributes('href')).toBe('/docs/ingest/credentials')
+    expect(row.find('.layout-search-plate').exists()).toBe(true)
+    expect(row.find('.layout-search-rowtitle').text()).toBe('Rotating ingest credentials')
+    expect(row.find('.layout-search-rowdesc').text()).toBe(
+      'How and when to roll the ingest worker credentials.'
+    )
+    expect(row.find('.layout-search-rowpath').text()).toBe('/docs/ingest/credentials')
+
+    // -> The matched-term treatment is the shared `.text-highlight`, not a Search-only class
+    const excerpt = row.find('.layout-search-rowexcerpt')
+    expect(excerpt.classes()).toContain('text-highlight')
+    expect(excerpt.find('b').text()).toBe('credentials')
+  })
+
+  it('puts the tags in the trailing column, and renders none of it when a page has no tags', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [
+        FIXTURE_RICH_RESULT,
+        { ...FIXTURE_RICH_RESULT, id: 'p10', path: 'plain', tags: [] }
+      ],
+      totalHits: 2,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const [tagged, untagged] = wrapper.findAll('.layout-search-row')
+
+    expect(tagged.find('.layout-search-rowdate').exists()).toBe(true)
+    expect(tagged.findAll('.layout-search-rowtags .w-chip').map((c) => c.text())).toEqual([
+      'runbook',
+      'security'
+    ])
+
+    // -> No empty tag row left drawing a gap under the date
+    expect(untagged.find('.layout-search-rowdate').exists()).toBe(true)
+    expect(untagged.find('.layout-search-rowtags').exists()).toBe(false)
+  })
+})

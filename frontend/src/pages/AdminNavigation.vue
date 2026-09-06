@@ -119,34 +119,37 @@
         `AdminAuditLog.vue`'s retention card (OpenProject #2089/#2574).
       -->
       <div class="col-span-12">
-        <w-card class="rounded" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
-          <w-card-section>
-            <div class="text-subtitle1">{{ t('admin.navigation.pathDisplayTitle') }}</div>
-            <div class="text-caption text-grey mb-2">
-              {{ t('admin.navigation.pathDisplaySubtitle') }}
-            </div>
-            <div class="flex items-center gap-3">
-              <div style="width: 220px">
-                <w-select
-                  dense
-                  v-model="state.pathDisplayCase"
-                  :options="pathDisplayCaseOptions"
-                  option-value="value"
-                  option-label="label"
-                  emit-value
-                  map-options
-                  :aria-label="t('admin.navigation.pathDisplayLabel')" />
-              </div>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                color="primary"
-                :label="t('common.actions.save')"
-                :loading="state.savingPathDisplay"
-                @click="savePathDisplay" />
-            </div>
-          </w-card-section>
-        </w-card>
+        <!--
+          Still card-local, per the decision above -- the save button moves from beside the control
+          onto the card's own strip, which is where `AdminSearch`'s card-local Apply sits and is
+          still the card committing itself rather than the page header doing it.
+        -->
+        <w-settings-card :title="t('admin.navigation.pathDisplayTitle')">
+          <template #hint>{{ t('admin.navigation.pathDisplaySubtitle') }}</template>
+          <template #action>
+            <w-btn
+              class="acrylic-btn"
+              flat
+              color="primary"
+              :label="t('common.actions.save')"
+              :loading="state.savingPathDisplay"
+              @click="savePathDisplay" />
+          </template>
+          <w-settings-row
+            control-width="fixed"
+            icon="tabler:letter-case"
+            :label="t('admin.navigation.pathDisplayLabel')">
+            <w-select
+              dense
+              v-model="state.pathDisplayCase"
+              :options="pathDisplayCaseOptions"
+              option-value="value"
+              option-label="label"
+              emit-value
+              map-options
+              :aria-label="t('admin.navigation.pathDisplayLabel')" />
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>

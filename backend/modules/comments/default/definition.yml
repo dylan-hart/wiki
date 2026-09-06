@@ -1,8 +1,8 @@
 key: default
-title: Wiki.js Native
+title: Cardinal.js Native
 description: Built-in comments, stored in this wiki's own database.
 icon: '/_assets/icons/ultraviolet-comments.svg'
-vendor: Wiki.js
+vendor: Cardinal.js
 website: 'https://js.wiki'
 isAvailable: true
 props:

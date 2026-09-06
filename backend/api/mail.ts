@@ -210,7 +210,7 @@ async function routes(app: FastifyInstance) {
             'Mail is not configured. Set an SMTP host under Mail Configuration before sending a test email.'
           )
         }
-        WIKI.logger.warn(`Failed to send test email: ${err.message}`)
+        WIKI.logger.warn('mail', 'sending the test email failed', { error: err })
         switch (classifyMailError(err)) {
           case 'auth':
             return reply.badRequest(

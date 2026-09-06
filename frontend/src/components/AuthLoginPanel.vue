@@ -5,33 +5,39 @@
     <!-- ----------------------------------------------------- -->
     <template v-if="state.screen === `login`">
       <template v-if="formStrategies.length > 1">
-        <p>{{ t('auth.selectAuthProvider') }}</p>
-        <div class="auth-strategies mb-4">
+        <p class="auth-hint">{{ t('auth.selectAuthProvider') }}</p>
+        <!--
+          A segmented choice, drawn the way Cardinal draws one: the chosen strategy takes the accent
+          fill, and the others are hairline outline plates in the chrome tone. They used to be a
+          Material grey FILL (`grey-1` / `blue-grey-9`), which read as three buttons of equal weight
+          rather than as one selection among several.
+        -->
+        <div class="auth-strategies">
           <w-btn
             v-for="str of formStrategies"
             :key="str.id"
             :label="str.activeStrategy.displayName"
             :icon="`img:` + str.activeStrategy.strategy.icon"
-            :color="
-              str.id === state.selectedStrategyId
-                ? `primary`
-                : dark.isActive
-                  ? `blue-grey-9`
-                  : `grey-1`
-            "
-            :text-color="
-              str.id === state.selectedStrategyId || dark.isActive ? `white` : `blue-grey-9`
-            "
+            size="13px"
+            padding="7px 12px"
+            :outline="str.id !== state.selectedStrategyId"
+            :color="str.id === state.selectedStrategyId ? `primary` : chromeColor"
             @click="state.selectedStrategyId = str.id" />
         </div>
       </template>
       <w-form ref="loginForm" @submit="login">
+        <!--
+          No label above the field: the design draws a bare hairline box with a leading glyph, so the
+          field's name is its placeholder and its `aria-label` -- the same conversion the page
+          properties panel made. `aria-label` rather than nothing is what keeps the field a named
+          control for a screen reader (and keeps `e2e/helpers/admin.js`'s `getByLabel` resolving).
+        -->
         <w-input
+          class="auth-field"
           ref="loginEmailIpt"
           v-model="state.username"
-          :label="
-            t(`auth.fields.` + (selectedStrategy.activeStrategy?.strategy?.usernameType ?? `email`))
-          "
+          :placeholder="usernameFieldLabel"
+          :aria-label="usernameFieldLabel"
           :rules="
             selectedStrategy.activeStrategy?.strategy?.usernameType === `username`
               ? loginUsernameValidation
@@ -43,9 +49,10 @@
           <template #prepend><w-icon name="tabler:user" /></template>
         </w-input>
         <w-input
-          class="mt-2"
+          class="auth-field mt-2"
           v-model="state.password"
-          :label="t(`auth.fields.password`)"
+          :placeholder="t(`auth.fields.password`)"
+          :aria-label="t(`auth.fields.password`)"
           :rules="loginPasswordValidation"
           lazy-rules="ondemand"
           hide-bottom-space
@@ -54,9 +61,11 @@
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-btn
-          class="w-full mt-2"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="primary"
+          size="14px"
+          padding="10px 16px"
           :label="t(`auth.actions.login`)"
           icon="tabler:login" />
       </w-form>
@@ -66,11 +75,20 @@
         would only be a step in the way.
       -->
       <template v-if="canUsePasskeys">
-        <w-separator class="my-4" />
+        <w-separator spaced="18px" />
+        <!--
+          Outline plates, not `acrylic-btn`. The design draws every secondary row on this screen as a
+          hairline box with no fill; `acrylic-btn` paints a 10% wash of its own text colour and no
+          border, which turned the whole lower half of the column into a stack of tinted slabs. The
+          passkey row keeps the accent tone -- it is still a way IN -- while the provider, register
+          and forgot rows below take the chrome tone the design gives them.
+        -->
         <w-btn
-          class="acrylic-btn w-full"
-          flat
+          class="w-full"
+          outline
           color="primary"
+          size="13.5px"
+          padding="8.5px 14px"
           :label="t(`auth.passkeys.signin`)"
           icon="tabler:key"
           @click="loginWithPasskey" />
@@ -81,35 +99,41 @@
         over, and it comes back at the callback route with a session already established.
       -->
       <template v-if="redirectStrategies.length > 0">
-        <w-separator class="my-4" />
+        <w-separator spaced="18px" />
         <w-btn
-          class="acrylic-btn w-full mb-2"
+          class="w-full mb-2"
           v-for="str of redirectStrategies"
           :key="str.id"
-          flat
-          color="primary"
+          outline
+          :color="chromeColor"
+          size="13.5px"
+          padding="8.5px 14px"
           :label="t(`auth.actions.loginWith`, { provider: str.activeStrategy.displayName })"
           :icon="`img:` + str.activeStrategy.strategy.icon"
           :href="authorizeUrl(str)"
           type="a" />
       </template>
       <template v-if="selectedStrategy.activeStrategy?.strategy?.key === `local`">
-        <w-separator class="my-4" />
+        <w-separator spaced="18px" />
         <w-btn
-          class="acrylic-btn w-full mb-2"
+          class="w-full mb-2"
           v-if="selectedStrategy.activeStrategy.selfRegistration"
-          flat
-          color="primary"
+          outline
+          :color="chromeColor"
+          size="13px"
+          padding="8px 14px"
           :label="t(`auth.switchToRegister.link`)"
           icon="tabler:user-plus"
           @click="switchTo(`register`)" />
         <!-- -> Off where the strategy says so: a wiki that hands passwords out rather than letting
                 them be chosen has nothing for this to do -->
         <w-btn
-          class="acrylic-btn w-full"
+          class="w-full"
           v-if="selectedStrategy.activeStrategy.allowForgotPassword"
-          flat
-          color="primary"
+          outline
+          :color="chromeColor"
+          size="13px"
+          padding="8px 14px"
           :label="t(`auth.forgotPasswordLink`)"
           icon="tabler:lifebuoy"
           @click="switchTo(`forgot`)" />
@@ -118,31 +142,44 @@
     <!-- ----------------------------------------------------- -->
     <!-- FORGOT PASSWORD SCREEN -->
     <!-- ----------------------------------------------------- -->
+    <!--
+      Neither of the next two screens is drawn by `Cardinal Wiki - Auth Screens 3x.dc.html`, which
+      covers register, check-your-email and the two 2FA screens only. They take the same chrome as
+      the screens that ARE drawn -- 40px fields carrying their own name, a 42px primary with corner
+      marks, a 38px outline plate back to login -- rather than being left on the treatment the rest
+      of the panel has moved off. Recorded on OpenProject #2627 as a state the design does not cover.
+    -->
     <template v-else-if="state.screen === `forgot`">
-      <p>{{ t('auth.forgotPasswordSubtitle') }}</p>
+      <p class="auth-subtitle">{{ t('auth.forgotPasswordSubtitle') }}</p>
       <w-form ref="forgotForm" @submit="forgotPassword">
         <w-input
+          class="auth-field auth-field--sm"
           ref="forgotEmailIpt"
           v-model="state.forgotEmail"
           :rules="userEmailValidation"
           lazy-rules="ondemand"
           hide-bottom-space
-          :label="t(`auth.fields.email`)"
+          :placeholder="t(`auth.fields.email`)"
+          :aria-label="t(`auth.fields.email`)"
           autocomplete="email">
           <template #prepend><w-icon name="tabler:mail" /></template>
         </w-input>
         <w-btn
-          class="w-full mt-2"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="primary"
+          size="13.5px"
+          padding="9.5px 16px"
           :label="t(`auth.sendResetPassword`)"
           icon="tabler:lifebuoy" />
       </w-form>
-      <w-separator class="my-4" />
+      <w-separator spaced="16px" />
       <w-btn
-        class="acrylic-btn w-full"
-        flat
-        color="primary"
+        class="w-full"
+        outline
+        :color="chromeColor"
+        size="13px"
+        padding="8px 14px"
         :label="t(`auth.forgotPasswordCancel`)"
         icon="tabler:circle-arrow-left"
         @click="switchTo(`login`)" />
@@ -151,12 +188,14 @@
     <!-- RESET PASSWORD SCREEN -->
     <!-- ----------------------------------------------------- -->
     <template v-else-if="state.screen === `reset`">
-      <p>{{ t('auth.resetPassword.subtitle') }}</p>
+      <p class="auth-subtitle">{{ t('auth.resetPassword.subtitle') }}</p>
       <w-form ref="resetPasswordForm" @submit="resetPassword">
         <w-input
+          class="auth-field auth-field--sm"
           ref="resetNewPwdIpt"
           v-model="state.newPassword"
-          :label="t(`auth.fields.password`)"
+          :placeholder="t(`auth.fields.password`)"
+          :aria-label="t(`auth.fields.password`)"
           type="password"
           autocomplete="new-password"
           :rules="userPasswordValidation"
@@ -171,9 +210,10 @@
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-input
-          class="mt-2"
+          class="auth-field auth-field--sm mt-2"
           v-model="state.newPasswordVerify"
-          :label="t(`auth.fields.verifyPassword`)"
+          :placeholder="t(`auth.fields.verifyPassword`)"
+          :aria-label="t(`auth.fields.verifyPassword`)"
           type="password"
           autocomplete="new-password"
           :rules="userPasswordVerifyValidation"
@@ -182,17 +222,21 @@
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-btn
-          class="w-full mt-2"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="primary"
+          size="13.5px"
+          padding="9.5px 16px"
           :label="t(`auth.resetPassword.proceed`)"
           icon="tabler:refresh" />
       </w-form>
-      <w-separator class="my-4" />
+      <w-separator spaced="16px" />
       <w-btn
-        class="acrylic-btn w-full"
-        flat
-        color="primary"
+        class="w-full"
+        outline
+        :color="chromeColor"
+        size="13px"
+        padding="8px 14px"
         :label="t(`auth.switchToLogin.link`)"
         icon="tabler:circle-arrow-left"
         @click="switchTo(`login`)" />
@@ -210,9 +254,12 @@
     <!-- CHANGE PASSWORD SCREEN -->
     <!-- ----------------------------------------------------- -->
     <template v-else-if="state.screen === `changePwd`">
-      <p v-if="state.continuationToken">{{ t('auth.changePwd.instructions') }}</p>
+      <p v-if="state.continuationToken" class="auth-subtitle">
+        {{ t('auth.changePwd.instructions') }}
+      </p>
       <w-form ref="changePwdForm" @submit="changePwd">
         <w-input
+          class="auth-field auth-field--sm"
           v-if="!state.continuationToken"
           ref="changePwdCurrentIpt"
           v-model="state.password"
@@ -220,15 +267,17 @@
           :rules="loginPasswordValidation"
           lazy-rules="ondemand"
           hide-bottom-space
-          :label="t(`auth.changePwd.currentPassword`)"
+          :placeholder="t(`auth.changePwd.currentPassword`)"
+          :aria-label="t(`auth.changePwd.currentPassword`)"
           autocomplete="password">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-input
-          class="mt-2"
+          class="auth-field auth-field--sm mt-2"
           ref="changePwdNewPwdIpt"
           v-model="state.newPassword"
-          :label="t(`auth.changePwd.newPassword`)"
+          :placeholder="t(`auth.changePwd.newPassword`)"
+          :aria-label="t(`auth.changePwd.newPassword`)"
           type="password"
           autocomplete="new-password"
           :rules="userPasswordValidation"
@@ -243,9 +292,10 @@
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-input
-          class="mt-2"
+          class="auth-field auth-field--sm mt-2"
           v-model="state.newPasswordVerify"
-          :label="t(`auth.changePwd.newPasswordVerify`)"
+          :placeholder="t(`auth.changePwd.newPasswordVerify`)"
+          :aria-label="t(`auth.changePwd.newPasswordVerify`)"
           type="password"
           autocomplete="new-password"
           :rules="userPasswordVerifyValidation"
@@ -254,9 +304,11 @@
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
         <w-btn
-          class="w-full mt-2"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="primary"
+          size="13.5px"
+          padding="9.5px 16px"
           :label="t(`auth.changePwd.proceed`)"
           icon="tabler:refresh" />
       </w-form>
@@ -290,6 +342,7 @@ import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { emailRules, passwordRules, passwordVerifyRules } from '@/helpers/authValidation'
 import { localizeError } from '@/helpers/localization'
+import { log } from '@/helpers/log'
 import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 
 import { useSiteStore } from '@/stores/site'
@@ -368,6 +421,22 @@ const selectedStrategy = computed(() => {
 })
 
 const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword, t))
+
+/**
+ * The chrome tone every secondary control on this screen is drawn in -- an unselected strategy chip,
+ * a provider button, register, forgot password, back to login.
+ *
+ * `slate` is `#38465f`, which is the design's own value and is a chrome tone for a LIGHT ground; on
+ * the ink ground it disappears into the panel, so dark mode takes the lightened rung the language
+ * already names for exactly this. A `dark:` utility cannot do it: `WBtn` resolves `color` to an
+ * inline `var(--color-…)`, so the switch has to happen at the prop.
+ */
+const chromeColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
+
+/** What the selected strategy calls the first field -- an email address, or a bare username. */
+const usernameFieldLabel = computed(() =>
+  t(`auth.fields.` + (selectedStrategy.value.activeStrategy?.strategy?.usernameType ?? `email`))
+)
 
 const canUsePasskeys = computed(() => {
   return browserSupportsWebAuthn()
@@ -544,7 +613,7 @@ async function login() {
       throw new Error(resp.message || 'ERR_LOGIN_FAILED')
     }
   } catch (err) {
-    console.warn(err)
+    log.warn('auth', 'could not sign in', err)
     loading.hide()
     notify({
       type: 'negative',

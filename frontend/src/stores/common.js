@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 
+import { log } from '@/helpers/log'
+
 import { useSiteStore } from './site'
 
 /**
@@ -69,7 +71,7 @@ export const useCommonStore = defineStore('common', {
         await import(/* @vite-ignore */ blockImportUrl(entry, siteId))
         this.blocksLoaded.push(entry.tag)
       } catch (err) {
-        console.warn(`Failed to load ${entry.tag}: ${err.message}`)
+        log.warn('page', `could not load the ${entry.tag} block`, err)
       } finally {
         this.blocksLoading.delete(entry.tag)
       }

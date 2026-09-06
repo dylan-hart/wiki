@@ -1,35 +1,49 @@
 <template>
   <div>
     <template v-if="props.screen === `tfa`">
-      <p>{{ t('auth.tfa.subtitle') }}</p>
-      <v-otp-input
-        v-if="!state.useRecoveryCode"
-        v-model:value="state.securityCode"
-        :num-inputs="6"
-        :should-auto-focus="true"
-        input-classes="otp-input"
-        input-type="number"
-        separator=""
-        @on-complete="verifyTFA" />
+      <p class="auth-subtitle">{{ t('auth.tfa.subtitle') }}</p>
+      <div v-if="!state.useRecoveryCode" class="auth-otp">
+        <v-otp-input
+          v-model:value="state.securityCode"
+          :num-inputs="6"
+          :should-auto-focus="true"
+          input-classes="otp-input"
+          input-type="number"
+          separator=""
+          @on-complete="verifyTFA" />
+      </div>
+      <!--
+        The design draws no recovery-code field at all -- it covers the six-digit state only -- so
+        this keeps the format placeholder, which says something the field's own name does not, and
+        moves the name onto `aria-label` the way every other field on these screens now does.
+      -->
       <w-input
         v-else
         v-model="recoveryCodeInput"
         autofocus
-        class="mt-2"
-        :label="t(`auth.tfa.recoveryCodeLabel`)"
+        class="auth-field auth-field--sm mt-2"
+        :aria-label="t(`auth.tfa.recoveryCodeLabel`)"
         :hint="t(`auth.tfa.recoveryCodeHint`)"
         placeholder="XXXX-XXXX-XXXX-XXXX"
         @keyup:enter="verifyTFA" />
       <w-btn
         class="w-full mt-4"
         color="primary"
+        size="13.5px"
+        padding="9.5px 16px"
         :label="t(`auth.tfa.verifyToken`)"
         icon="tabler:login"
         @click="verifyTFA" />
+      <!--
+        The alternative to the six digits is a plain line of type, not a second button: the design
+        gives it no fill, no border and no glyph, so it does not compete with Verify above it.
+      -->
       <w-btn
-        class="w-full mt-2"
+        class="w-full mt-1.5"
         flat
-        color="grey"
+        color="text-secondary"
+        size="12.5px"
+        padding="7px 8px"
         :label="
           state.useRecoveryCode ? t('auth.tfa.useSecurityCode') : t('auth.tfa.useRecoveryCode')
         "
@@ -39,22 +53,30 @@
     <!-- TFA SETUP SCREEN -->
     <!-- ----------------------------------------------------- -->
     <template v-else-if="props.screen === `tfasetup`">
-      <p>{{ t('auth.tfaSetupTitle') }}</p>
-      <p>{{ t('auth.tfaSetupInstrFirst') }}</p>
-      <div style="justify-content: center; display: flex">
-        <div v-html="props.qrImage" style="width: 200px" />
+      <!--
+        The design leads with the requirement in bold and then two ordinary instruction lines; the QR
+        is a 150px hairline-framed plate rather than a bare 200px SVG dropped into the flow.
+      -->
+      <p class="auth-notice auth-notice--lead">{{ t('auth.tfaSetupTitle') }}</p>
+      <p class="auth-subtitle">{{ t('auth.tfaSetupInstrFirst') }}</p>
+      <div class="flex justify-center">
+        <div class="auth-qr" v-html="props.qrImage" />
       </div>
-      <p class="mt-2">{{ t('auth.tfaSetupInstrSecond') }}</p>
-      <v-otp-input
-        v-model:value="state.securityCode"
-        :num-inputs="6"
-        :should-auto-focus="true"
-        input-classes="otp-input"
-        input-type="number"
-        separator="" />
+      <p class="auth-subtitle mt-3">{{ t('auth.tfaSetupInstrSecond') }}</p>
+      <div class="auth-otp auth-otp--sm">
+        <v-otp-input
+          v-model:value="state.securityCode"
+          :num-inputs="6"
+          :should-auto-focus="true"
+          input-classes="otp-input"
+          input-type="number"
+          separator="" />
+      </div>
       <w-btn
         class="w-full mt-4"
         color="primary"
+        size="13.5px"
+        padding="9.5px 16px"
         :label="t(`auth.tfa.verifyToken`)"
         icon="tabler:login"
         @click="finishSetupTFA" />
@@ -237,3 +259,95 @@ async function finishSetupTFA() {
   }
 }
 </script>
+
+<style scoped lang="scss">
+/*
+  The digit row, re-dressed for the auth panel.
+
+  `css/tailwind.css`'s `.otp-input` is the app-wide default `vue3-otp-input` takes -- a fixed
+  3rem square with a 2px `rgba(0,0,0,.2)` edge, 4px side margins, and a GREEN edge once a digit is
+  entered. `Cardinal Wiki - Auth Screens 3x.dc.html` draws something else: six boxes that share the
+  row's full width (`flex:1`), separated by an 8px gap rather than by margins, in a 1px hairline, and
+  with the accent on the box being typed into rather than the ones already filled -- "here" instead
+  of "done".
+
+  Overridden here rather than at source deliberately. The design file covers the LOGIN panel's 2FA;
+  `SetupTfaDialog.vue` (the profile's own 2FA activation) uses the same class on an undesigned
+  surface and should not silently inherit this screen's treatment. A scoped `:deep()` rule is
+  unlayered, so it beats `@layer components` without needing `!important`.
+*/
+.auth-otp :deep(.otp-input-container) {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+}
+
+.auth-otp :deep(.otp-input) {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  height: 48px;
+  margin: 0;
+  border: 1px solid $hairline;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 500;
+  color: $ink;
+}
+
+/* -> The setup screen's row is one step shorter than the sign-in screen's */
+.auth-otp--sm :deep(.otp-input) {
+  height: 44px;
+  font-size: 18px;
+}
+
+/* -> The box being typed into, which is the one the design marks */
+.auth-otp :deep(.otp-input:focus),
+.auth-otp :deep(.otp-input:focus-visible) {
+  border-color: $accent-fill;
+  outline: none;
+}
+
+/*
+  A filled digit reads as ordinary: the library's own `is-complete` class is what painted five green
+  boxes and left the one still wanted looking the same as an empty one.
+*/
+.auth-otp :deep(.otp-input.is-complete) {
+  border-color: $hairline;
+}
+
+:global(body.body--dark) .auth-otp :deep(.otp-input) {
+  border-color: $hairline-dark;
+  color: $text-dark;
+}
+
+:global(body.body--dark) .auth-otp :deep(.otp-input.is-complete) {
+  border-color: $hairline-dark;
+}
+
+/*
+  The QR plate. 150px inside a hairline frame with 10px of quiet zone, as the design draws it -- the
+  server hands back an `<svg>` string, so the sizing has to reach through to whatever element it
+  produced rather than sitting on it.
+*/
+.auth-qr {
+  width: 150px;
+  height: 150px;
+  padding: 10px;
+  border: 1px solid $hairline;
+  background-color: $surface;
+  box-sizing: border-box;
+}
+
+.auth-qr :deep(svg),
+.auth-qr :deep(img) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+:global(body.body--dark) .auth-qr {
+  border-color: $hairline-dark;
+}
+</style>

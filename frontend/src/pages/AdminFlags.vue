@@ -34,90 +34,79 @@
     <w-separator inset />
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-7">
-        <w-card class="py-2">
-          <w-item>
-            <w-item-section>
-              <w-card class="bg-negative text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:alert-triangle" size="lg" />
-                  </w-card-section>
-                  <w-card-section>
-                    <span>{{ t('admin.flags.warn.label') }}</span>
-                    <div class="text-caption text-red-1">{{ t('admin.flags.warn.hint') }}</div>
-                  </w-card-section>
-                </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:flag" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.flags.experimental.label`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.flags.experimental.hint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.flags.experimental"
-                :aria-label="t(`admin.flags.experimental.label`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:flag" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.flags.authDebug.label`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.flags.authDebug.hint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.flags.authDebug"
-                :aria-label="t(`admin.flags.authDebug.label`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:flag" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.flags.sqlLog.label`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.flags.sqlLog.hint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle v-model="state.flags.sqlLog" :aria-label="t(`admin.flags.sqlLog.label`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <w-item-section avatar>
-              <w-icon name="tabler:info-circle" color="grey" />
-            </w-item-section>
-            <w-item-section>
-              <w-item-label caption>{{ t(`admin.flags.serverLogNotice`) }}</w-item-label>
-            </w-item-section>
-          </w-item>
+        <!--
+          The warning is a callout about the whole card, not a setting in it, so it sits above the
+          card rather than being forced into a settings row with nothing at its trailing edge.
+        -->
+        <w-card class="bg-negative text-white rounded mb-4">
+          <w-card-section class="items-center" horizontal>
+            <w-card-section class="flex-none pe-0">
+              <w-icon name="tabler:alert-triangle" size="lg" />
+            </w-card-section>
+            <w-card-section>
+              <span>{{ t('admin.flags.warn.label') }}</span>
+              <div class="text-caption text-red-1">{{ t('admin.flags.warn.hint') }}</div>
+            </w-card-section>
+          </w-card-section>
         </w-card>
-        <w-card class="py-2 mt-4">
-          <w-item>
-            <blueprint-icon icon="tabler:tool" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.flags.advanced.label`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.flags.advanced.hint`) }}</w-item-label>
-              <!-- The editor was never built, and nothing reads custom keys — say so rather than leave -->
-              <!-- a disabled button with no explanation -->
-              <w-item-label class="text-orange" caption>{{
-                t(`admin.flags.advanced.notImplemented`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-btn
-                :label="t(`common.actions.edit`)"
-                icon="tabler:code"
-                color="primary"
-                text-color="white"
-                disabled />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.flags.title')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:flask"
+            :label="t(`admin.flags.experimental.label`)"
+            :hint="t(`admin.flags.experimental.hint`)">
+            <w-toggle
+              v-model="state.flags.experimental"
+              :aria-label="t(`admin.flags.experimental.label`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:bug"
+            :label="t(`admin.flags.authDebug.label`)"
+            :hint="t(`admin.flags.authDebug.hint`)">
+            <w-toggle
+              v-model="state.flags.authDebug"
+              :aria-label="t(`admin.flags.authDebug.label`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:database-search"
+            :label="t(`admin.flags.sqlLog.label`)"
+            :hint="t(`admin.flags.sqlLog.hint`)">
+            <w-toggle v-model="state.flags.sqlLog" :aria-label="t(`admin.flags.sqlLog.label`)" />
+          </w-settings-row>
+          <!--
+            A note about the two flags above it rather than a setting of its own: it takes the hint
+            slot, not the label, so it reads at caption weight and stays attached to what it explains.
+          -->
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:info-circle"
+            :hint="t(`admin.flags.serverLogNotice`)" />
+        </w-settings-card>
+        <w-settings-card class="mt-4" :title="t('admin.flags.advanced.label')">
+          <!--
+            No `label` on the row: the card's own strip already names this setting, and repeating
+            "Custom Configuration" immediately under it would read as two different things.
+          -->
+          <w-settings-row control-width="auto" icon="tabler:tool">
+            <!-- The editor was never built, and nothing reads custom keys — say so rather than leave -->
+            <!-- a disabled button with no explanation -->
+            <template #hint>
+              <div>{{ t(`admin.flags.advanced.hint`) }}</div>
+              <div class="text-orange">{{ t(`admin.flags.advanced.notImplemented`) }}</div>
+            </template>
+            <w-btn
+              :label="t(`common.actions.edit`)"
+              icon="tabler:code"
+              color="primary"
+              text-color="white"
+              disabled />
+          </w-settings-row>
+        </w-settings-card>
       </div>
       <div class="col-span-12 max-lg:hidden lg:col-span-5">
         <div class="p-4 text-center">

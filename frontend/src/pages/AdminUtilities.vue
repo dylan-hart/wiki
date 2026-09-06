@@ -27,191 +27,168 @@
     </div>
     <w-separator inset />
     <div class="p-4 gap-4">
+      <!--
+        The settings row, not a hand-written `WItem` stack: each of these is a fixed, design-time
+        named action -- a label, a sentence, and one control at the trailing edge -- which is the
+        same shape a settings row draws and the same material the design says a menu row is made of.
+        No header strip on the card: the page header above already names it. See
+        `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
+      -->
       <w-card>
-        <w-list separator>
-          <w-item>
-            <blueprint-icon icon="tabler:plug-connected-x" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.disconnectWS`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.disconnectWSHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="disconnectWS"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:database-export" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.export`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.exportHint`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.exportExclusions`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                :loading="state.isExporting"
-                :aria-label="t(`admin.utilities.export`)"
-                @click="exportContent"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:stack-2" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.flushCache`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.flushCacheHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="flushCache"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:database-import" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.import`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.importHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="pickImportFile"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:flame" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.invalidApiCertificates`) }}</w-item-label>
-              <w-item-label caption>{{
-                t(`admin.utilities.invalidApiCertificatesHint`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="invalidateApiCertificates"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:key" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.invalidSessionSecret`) }}</w-item-label>
-              <w-item-label caption>{{
-                t(`admin.utilities.invalidSessionSecretHint`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="invalidateSessionSecret"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:fingerprint" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.rotatePageviewsHashKey`) }}</w-item-label>
-              <w-item-label caption>{{
-                t(`admin.utilities.rotatePageviewsHashKeyHint`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="rotatePageviewsHashKey"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:history" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.purgeHistory`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.purgeHistoryHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-select
-                :label="t(`admin.utilities.purgeHistoryTimeframe`)"
-                v-model="state.purgeHistoryTimeframe"
-                style="min-width: 175px"
-                emit-value
-                map-options
-                dense
-                :options="purgeHistoryTimeframes" />
-            </w-item-section>
-            <w-separator class="ms-2" vertical />
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="purgeHistory"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:trash" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.purgeRevokedKeys`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.purgeRevokedKeysHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                @click="purgeRevokedKeys"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:file-search" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.utilities.scanPageProblems`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.utilities.scanPageProblemsHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:circle-arrow-right"
-                color="primary"
-                :loading="state.isScanning"
-                :aria-label="t(`admin.utilities.scanPageProblems`)"
-                @click="scanPageProblems"
-                :label="t(`common.actions.proceed`)" />
-            </w-item-section>
-          </w-item>
-        </w-list>
+        <w-settings-row
+          icon="tabler:plug-connected-x"
+          control-width="auto"
+          :label="t(`admin.utilities.disconnectWS`)"
+          :hint="t(`admin.utilities.disconnectWSHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            @click="disconnectWS"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:database-export"
+          control-width="auto"
+          :label="t(`admin.utilities.export`)">
+          <!-- Two sentences, not one: what the export contains, and what it deliberately leaves out. -->
+          <template #hint>
+            <div>{{ t(`admin.utilities.exportHint`) }}</div>
+            <div>{{ t(`admin.utilities.exportExclusions`) }}</div>
+          </template>
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            :loading="state.isExporting"
+            :aria-label="t(`admin.utilities.export`)"
+            @click="exportContent"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:stack-2"
+          control-width="auto"
+          :label="t(`admin.utilities.flushCache`)"
+          :hint="t(`admin.utilities.flushCacheHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            @click="flushCache"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:database-import"
+          control-width="auto"
+          :label="t(`admin.utilities.import`)"
+          :hint="t(`admin.utilities.importHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            @click="pickImportFile"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:flame"
+          control-width="auto"
+          :label="t(`admin.utilities.invalidApiCertificates`)"
+          :hint="t(`admin.utilities.invalidApiCertificatesHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            @click="invalidateApiCertificates"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:key"
+          control-width="auto"
+          :label="t(`admin.utilities.invalidSessionSecret`)"
+          :hint="t(`admin.utilities.invalidSessionSecretHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            @click="invalidateSessionSecret"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:fingerprint"
+          control-width="auto"
+          :label="t(`admin.utilities.rotatePageviewsHashKey`)"
+          :hint="t(`admin.utilities.rotatePageviewsHashKeyHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            @click="rotatePageviewsHashKey"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <!--
+          The one row with two controls. `WSettingsRow` has a single trailing slot by design, so the
+          timeframe the action reads and the button that runs it go into it as one group rather than
+          asking the shared component for a second slot.
+        -->
+        <w-settings-row
+          icon="tabler:history"
+          control-width="auto"
+          :label="t(`admin.utilities.purgeHistory`)"
+          :hint="t(`admin.utilities.purgeHistoryHint`)">
+          <div class="flex items-center gap-2">
+            <w-select
+              :label="t(`admin.utilities.purgeHistoryTimeframe`)"
+              v-model="state.purgeHistoryTimeframe"
+              style="min-width: 175px"
+              emit-value
+              map-options
+              dense
+              :options="purgeHistoryTimeframes" />
+            <w-separator vertical />
+            <w-btn
+              class="acrylic-btn"
+              flat
+              icon="tabler:circle-arrow-right"
+              color="primary"
+              @click="purgeHistory"
+              :label="t(`common.actions.proceed`)" />
+          </div>
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:trash"
+          control-width="auto"
+          :label="t(`admin.utilities.purgeRevokedKeys`)"
+          :hint="t(`admin.utilities.purgeRevokedKeysHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            @click="purgeRevokedKeys"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="tabler:file-search"
+          control-width="auto"
+          :label="t(`admin.utilities.scanPageProblems`)"
+          :hint="t(`admin.utilities.scanPageProblemsHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            :loading="state.isScanning"
+            :aria-label="t(`admin.utilities.scanPageProblems`)"
+            @click="scanPageProblems"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
       </w-card>
       <!--
         Inline rather than a dialog or the scheduler's history view: the value of this scan is the
@@ -219,13 +196,17 @@
         behind another click.
       -->
       <w-card v-if="state.scanReport" class="mt-4">
-        <w-card-section>
-          <div class="text-subtitle1">{{ t('admin.utilities.scanPageProblemsResults') }}</div>
-          <div class="text-caption text-grey">
-            {{ t('admin.utilities.scanPageProblemsScannedAt', { date: scanReportScannedAt }) }}
-          </div>
-        </w-card-section>
-        <w-separator />
+        <!--
+          A heading the page header does not already give: this card is a result, not the page. The
+          band is `w-card-header` -- the app-wide section header -- rather than the settings card's
+          own strip, which is inseparable from `WSettingsCard`; whether the two converge is #2631's.
+        -->
+        <w-card-header>
+          {{ t('admin.utilities.scanPageProblemsResults') }}
+          <template #hint>{{
+            t('admin.utilities.scanPageProblemsScannedAt', { date: scanReportScannedAt })
+          }}</template>
+        </w-card-header>
         <div v-if="!scanReportHasProblems" class="p-4 text-center text-grey">
           {{ t('admin.utilities.scanPageProblemsNone') }}
         </div>

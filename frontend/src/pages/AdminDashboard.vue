@@ -41,283 +41,262 @@
       eight very wide boxes with a number floating in the middle of each.
     -->
     <div class="admin-dashboard-grid">
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:browser" />
-            <div>
-              <strong>{{ t('admin.sites.title') }}</strong>
-              <span>{{ adminStore.sites.length }}</span>
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:plus"
-              :label="t(`common.actions.new`)"
-              :disabled="!userStore.can(`manage:sites`)"
-              @click="newSite" />
-            <w-separator vertical />
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:sitemap"
-              :label="t(`common.actions.manage`)"
-              :disabled="!userStore.can(`manage:sites`)"
-              to="/_admin/sites" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:users" />
-            <div>
-              <strong>{{ t('admin.groups.title') }}</strong>
-              <span>{{ adminStore.info.groupsTotal }}</span>
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:plus"
-              :label="t(`common.actions.new`)"
-              :disabled="!userStore.can(`manage:groups`)"
-              @click="newGroup" />
-            <w-separator vertical />
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:users"
-              :label="t(`common.actions.manage`)"
-              :disabled="!groupsAreVisible"
-              to="/_admin/groups" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:user" />
-            <div>
-              <strong>{{ t('admin.users.title') }}</strong>
-              <span>{{ adminStore.info.usersTotal }}</span>
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:user-plus"
-              :label="t(`common.actions.new`)"
-              :disabled="!userStore.can(`manage:users`)"
-              @click="newUser" />
-            <w-separator vertical />
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:users"
-              :label="t(`common.actions.manage`)"
-              :disabled="!usersAreVisible"
-              to="/_admin/users" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:folder" />
-            <div>
-              <strong>{{ t('admin.pages.title') }}</strong>
-              <span>{{ adminStore.info.pagesTotal }}</span>
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:sitemap"
-              :label="t(`common.actions.view`)"
-              :to="`/_admin/` + adminStore.currentSiteId + `/pages`" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:eye" />
-            <div>
-              <strong>{{ t(`admin.dashboard.logins`) }}</strong>
-              <small
-                >{{ adminStore.info.loginsPastDay }}
-                <i>{{ t(`admin.dashboard.pastDay`) }}</i></small
-              >
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:chart-area"
-              :label="t(`admin.analytics.title`)"
-              :to="`/_admin/` + adminStore.currentSiteId + `/analytics`" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon :name="versionCard.icon" :color="versionCard.color" />
-            <div>
-              <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
-              <small :class="{ pending: versionCard.pending }"
-                >{{ versionCard.status }}
-                <i v-if="versionCard.version"
-                  >({{ versionCard.version
-                  }}<w-icon
-                    v-if="versionCard.latestVersion"
-                    name="tabler:arrow-right"
-                    class="mx-1 align-middle" />{{ versionCard.latestVersion }})</i
-                ></small
-              >
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:refresh"
-              :label="t(`admin.system.checkForUpdates`)"
-              :disabled="!userStore.can(`manage:system`)"
-              @click="checkForUpdates" />
-            <w-separator vertical />
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:info-circle"
-              :label="t(`admin.system.title`)"
-              :disabled="!userStore.can(`manage:system`)"
-              to="/_admin/system" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:robot" />
-            <div>
-              <strong>{{ t('admin.dashboard.activeWorkers') }}</strong>
-              <span>{{ adminStore.info.activeWorkers }}</span>
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:list-check"
-              :label="t(`admin.scheduler.title`)"
-              :disabled="!userStore.can(`manage:system`)"
-              to="/_admin/scheduler" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:binary-tree" />
-            <div>
-              <strong>{{ t('admin.cluster.title') }}</strong>
-              <span>{{ adminStore.info.clusterTotal }}</span>
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:server"
-              :label="t(`common.actions.view`)"
-              :disabled="!userStore.can(`manage:system`)"
-              to="/_admin/cluster" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div>
-        <w-card>
-          <w-card-section class="admin-dashboard-card">
-            <w-icon name="tabler:bolt" />
-            <div>
-              <strong>{{ t('admin.webhooks.title') }}</strong>
-              <span>{{ adminStore.info.webhooksTotal }}</span>
-            </div>
-          </w-card-section>
-          <w-separator />
-          <w-card-actions align="right">
-            <w-btn
-              flat
-              :color="actionColor"
-              icon="tabler:bolt"
-              :label="t(`common.actions.manage`)"
-              :disabled="!userStore.can(`manage:system`)"
-              to="/_admin/webhooks" />
-          </w-card-actions>
-        </w-card>
-      </div>
-      <div class="admin-dashboard-logins">
-        <w-card>
-          <!--
-            A banded section marker, the same one every framed list in the language opens with -- the
-            tinted strip, the mono overline and a hairline under it. It used to be a plain white row
-            with an icon and a bold label, which read as a first list item rather than as the panel's
-            own head.
-          -->
-          <div class="admin-dashboard-panel">
-            <w-icon name="tabler:key" />
-            <span>{{ t('admin.dashboard.lastLogins') }}</span>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:browser" />
+          <div>
+            <strong>{{ t('admin.sites.title') }}</strong>
+            <span>{{ adminStore.sites.length }}</span>
           </div>
-          <w-list separator>
-            <!--
-              Rows link only where the user list is reachable, the same condition the Users card puts on
-              its Manage button: the panel itself is `access:admin`, and reading one account is
-              `read:users`, so for a reader without it a link would land on a refusal.
-            -->
-            <w-item
-              v-for="lastLogin of state.lastLogins"
-              :key="lastLogin.id"
-              :clickable="usersAreVisible"
-              :to="usersAreVisible ? `/_admin/users/` + lastLogin.id : null">
-              <w-item-section side>
-                <w-icon name="tabler:user" :color="actionColor" />
-              </w-item-section>
-              <w-item-section>
-                <w-item-label>{{ lastLogin.name }}</w-item-label>
-                <w-item-label caption>{{ lastLogin.email }}</w-item-label>
-              </w-item-section>
-              <w-item-section side>
-                <div class="text-caption">{{ relativeDate(lastLogin.lastLoginAt) }}</div>
-                <!-- -> The exact moment, in the reader's own pattern and zone, behind the rough one -->
-                <w-tooltip anchor="center left" self="center right">
-                  {{ userStore.formatDateTime(t, lastLogin.lastLoginAt) }}
-                </w-tooltip>
-              </w-item-section>
-            </w-item>
-            <w-item v-if="state.lastLogins.length < 1">
-              <w-item-section>
-                <w-item-label caption>{{ t('admin.dashboard.lastLoginsNone') }}</w-item-label>
-              </w-item-section>
-            </w-item>
-          </w-list>
-        </w-card>
-      </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:plus"
+            :label="t(`common.actions.new`)"
+            :disabled="!userStore.can(`manage:sites`)"
+            @click="newSite" />
+          <w-separator vertical />
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:sitemap"
+            :label="t(`common.actions.manage`)"
+            :disabled="!userStore.can(`manage:sites`)"
+            to="/_admin/sites" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:users" />
+          <div>
+            <strong>{{ t('admin.groups.title') }}</strong>
+            <span>{{ adminStore.info.groupsTotal }}</span>
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:plus"
+            :label="t(`common.actions.new`)"
+            :disabled="!userStore.can(`manage:groups`)"
+            @click="newGroup" />
+          <w-separator vertical />
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:users"
+            :label="t(`common.actions.manage`)"
+            :disabled="!groupsAreVisible"
+            to="/_admin/groups" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:user" />
+          <div>
+            <strong>{{ t('admin.users.title') }}</strong>
+            <span>{{ adminStore.info.usersTotal }}</span>
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:user-plus"
+            :label="t(`common.actions.new`)"
+            :disabled="!userStore.can(`manage:users`)"
+            @click="newUser" />
+          <w-separator vertical />
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:users"
+            :label="t(`common.actions.manage`)"
+            :disabled="!usersAreVisible"
+            to="/_admin/users" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:folder" />
+          <div>
+            <strong>{{ t('admin.pages.title') }}</strong>
+            <span>{{ adminStore.info.pagesTotal }}</span>
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:sitemap"
+            :label="t(`common.actions.view`)"
+            :to="`/_admin/` + adminStore.currentSiteId + `/pages`" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:eye" />
+          <div>
+            <strong>{{ t(`admin.dashboard.logins`) }}</strong>
+            <small
+              >{{ adminStore.info.loginsPastDay }} <i>{{ t(`admin.dashboard.pastDay`) }}</i></small
+            >
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:chart-area"
+            :label="t(`admin.analytics.title`)"
+            :to="`/_admin/` + adminStore.currentSiteId + `/analytics`" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon :name="versionCard.icon" :color="versionCard.color" />
+          <div>
+            <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
+            <small :class="{ pending: versionCard.pending }"
+              >{{ versionCard.status }}
+              <i v-if="versionCard.version"
+                >({{ versionCard.version
+                }}<w-icon
+                  v-if="versionCard.latestVersion"
+                  name="tabler:arrow-right"
+                  class="mx-1 align-middle" />{{ versionCard.latestVersion }})</i
+              ></small
+            >
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:refresh"
+            :label="t(`admin.system.checkForUpdates`)"
+            :disabled="!userStore.can(`manage:system`)"
+            @click="checkForUpdates" />
+          <w-separator vertical />
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:info-circle"
+            :label="t(`admin.system.title`)"
+            :disabled="!userStore.can(`manage:system`)"
+            to="/_admin/system" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:robot" />
+          <div>
+            <strong>{{ t('admin.dashboard.activeWorkers') }}</strong>
+            <span>{{ adminStore.info.activeWorkers }}</span>
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:list-check"
+            :label="t(`admin.scheduler.title`)"
+            :disabled="!userStore.can(`manage:system`)"
+            to="/_admin/scheduler" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:binary-tree" />
+          <div>
+            <strong>{{ t('admin.cluster.title') }}</strong>
+            <span>{{ adminStore.info.clusterTotal }}</span>
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:server"
+            :label="t(`common.actions.view`)"
+            :disabled="!userStore.can(`manage:system`)"
+            to="/_admin/cluster" />
+        </w-card-actions>
+      </w-card>
+      <w-card>
+        <w-card-section class="admin-dashboard-card">
+          <w-icon name="tabler:bolt" />
+          <div>
+            <strong>{{ t('admin.webhooks.title') }}</strong>
+            <span>{{ adminStore.info.webhooksTotal }}</span>
+          </div>
+        </w-card-section>
+        <w-separator />
+        <w-card-actions align="right">
+          <w-btn
+            flat
+            :color="actionColor"
+            icon="tabler:bolt"
+            :label="t(`common.actions.manage`)"
+            :disabled="!userStore.can(`manage:system`)"
+            to="/_admin/webhooks" />
+        </w-card-actions>
+      </w-card>
+      <w-card class="admin-dashboard-logins">
+        <!--
+          A banded section marker, the same one every framed list in the language opens with -- the
+          tinted strip, the mono overline and a hairline under it. It used to be a plain white row
+          with an icon and a bold label, which read as a first list item rather than as the panel's
+          own head.
+        -->
+        <div class="admin-dashboard-panel">
+          <w-icon name="tabler:key" />
+          <span>{{ t('admin.dashboard.lastLogins') }}</span>
+        </div>
+        <w-list separator>
+          <!--
+            Rows link only where the user list is reachable, the same condition the Users card puts on
+            its Manage button: the panel itself is `access:admin`, and reading one account is
+            `read:users`, so for a reader without it a link would land on a refusal.
+          -->
+          <w-item
+            v-for="lastLogin of state.lastLogins"
+            :key="lastLogin.id"
+            :clickable="usersAreVisible"
+            :to="usersAreVisible ? `/_admin/users/` + lastLogin.id : null">
+            <w-item-section side>
+              <w-icon name="tabler:user" :color="actionColor" />
+            </w-item-section>
+            <w-item-section>
+              <w-item-label>{{ lastLogin.name }}</w-item-label>
+              <w-item-label caption>{{ lastLogin.email }}</w-item-label>
+            </w-item-section>
+            <w-item-section side>
+              <div class="text-caption">{{ relativeDate(lastLogin.lastLoginAt) }}</div>
+              <!-- -> The exact moment, in the reader's own pattern and zone, behind the rough one -->
+              <w-tooltip anchor="center left" self="center right">
+                {{ userStore.formatDateTime(t, lastLogin.lastLoginAt) }}
+              </w-tooltip>
+            </w-item-section>
+          </w-item>
+          <w-item v-if="state.lastLogins.length < 1">
+            <w-item-section>
+              <w-item-label caption>{{ t('admin.dashboard.lastLoginsNone') }}</w-item-label>
+            </w-item-section>
+          </w-item>
+        </w-list>
+      </w-card>
     </div>
   </w-page>
 </template>
@@ -510,6 +489,27 @@ function checkForUpdates() {
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
     gap: 12px;
     padding: 20px 24px 40px;
+
+    /*
+      The card IS the grid item -- there is no wrapper div between them. Grid's default
+      `align-items: stretch` sizes a grid item to the tallest thing on its row, so with a wrapper in
+      the way it was the WRAPPER that grew and the auto-height card inside it that stayed short:
+      Logins and Wiki Version, whose figures are the 22px `<small>` rather than the 30px `<span>`,
+      sat noticeably low against a full-height box, which is the ragged bottom edge.
+
+      Stretching the card only gets half of it. A taller card whose bands keep their own heights
+      leaves the footer strip stranded mid-box, so the card is a column and the figure band is what
+      absorbs the slack -- the strip stays welded to the bottom edge, where it reads as part of the
+      card rather than as something floating inside it.
+    */
+    > .w-card {
+      display: flex;
+      flex-direction: column;
+
+      > .admin-dashboard-card {
+        flex: 1;
+      }
+    }
   }
 
   /*

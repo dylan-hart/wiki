@@ -15,7 +15,7 @@ import type { FastifyInstance } from 'fastify'
  * Every node of this cluster connected to this database, with how it is using the connection pool.
  *
  * There is no node registry: a node is only known by the connections it holds, which it labels
- * `Wiki.js - <instance id>:<purpose>`. Two of those purposes hold a listener rather than doing query
+ * `Cardinal.js - <instance id>:<purpose>`. Two of those purposes hold a listener rather than doing query
  * work, so they are counted apart.
  *
  * Shared by the list route and the dashboard count, so that the number on the dashboard is the
@@ -24,11 +24,14 @@ import type { FastifyInstance } from 'fastify'
  */
 export async function getClusterNodes(): Promise<Record<string, any>[]> {
   const instRaw = await WIKI.db.execute(
-    sql`SELECT usename, client_addr, application_name, backend_start, state_change FROM pg_stat_activity WHERE datname = ${WIKI.dbManager.dbName} AND application_name LIKE 'Wiki.js%'`
+    sql`SELECT usename, client_addr, application_name, backend_start, state_change FROM pg_stat_activity WHERE datname = ${WIKI.dbManager.dbName} AND application_name LIKE 'Cardinal.js%'`
   )
   const insts: Record<string, any> = {}
   for (const inst of instRaw.rows as any[]) {
-    const instId = inst.application_name.substring(10, 20)
+    // -> Read the id out of `<product> - <instance id>:<purpose>` by its separators rather than by a
+    //    fixed offset. The offset this used to be (`substring(10, 20)`) was the length of the old
+    //    product-name prefix, so it silently returned the wrong slice the moment the name changed.
+    const instId = inst.application_name.split(' - ')[1]?.split(':')[0] ?? ''
     const conType = [':MAIN', ':WORKER'].some((ct) => inst.application_name.endsWith(ct))
       ? 'main'
       : 'sub'

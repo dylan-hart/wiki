@@ -2,7 +2,7 @@
 
 Feature [#408](../../../work_packages/408) "Cross-subsystem per-site scoping audit" is task
 [#701](../../../work_packages/701) "Resolve the TLS/SSL story for multi-hostname deployments". This
-is the explicit call: **Wiki.js does not terminate TLS itself.** A reverse proxy in front of it does.
+is the explicit call: **Cardinal.js does not terminate TLS itself.** A reverse proxy in front of it does.
 
 ## The decision
 
@@ -24,8 +24,9 @@ is the explicit call: **Wiki.js does not terminate TLS itself.** A reverse proxy
   client connecting directly cannot forge those headers itself. This is precisely the "proxy
   terminates TLS, forwards plain HTTP downstream" topology `trustProxy`'s own hint text describes
   (`admin.security.trustProxyHint` in `backend/locales/en.json`): _"Should be enabled when using a
-  reverse-proxy like nginx, apache, CloudFlare, etc in front of Wiki.js."_
-- The Docker deployment assets under `dev/` are already built around this shape — they ship Wiki.js
+  reverse-proxy like nginx, apache, CloudFlare, etc in front of Wiki.js."_ (quoted verbatim — that
+  locale string still carries the pre-fork product name.)
+- The Docker deployment assets under `dev/` are already built around this shape — they ship Cardinal.js
   as a plain-HTTP backend service, not a TLS-terminating edge.
 
 Building real in-process SNI support instead (per-site certificate storage and rotation, an ACME
@@ -36,12 +37,12 @@ belongs in its own Feature scoped for it, not a same-session addition here.
 
 ## Deploying with a reverse proxy
 
-Put nginx, Traefik, Caddy, or equivalent in front of the Wiki.js process:
+Put nginx, Traefik, Caddy, or equivalent in front of the Cardinal.js process:
 
 1. The proxy owns one or more certificates (per-hostname, selected via **SNI** at the TLS
    handshake — this is what lets one proxy serve several sites' certificates on the same `:443`) and
    terminates HTTPS there.
-2. It forwards the request to Wiki.js over plain HTTP on `port` (`config.sample.yml`, default
+2. It forwards the request to Cardinal.js over plain HTTP on `port` (`config.sample.yml`, default
    `3000`), setting the standard `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`
    headers — **overwriting**, not appending to, any `X-Forwarded-For` the request already carried.
    This is not automatic: nginx's commonly-copied `proxy_set_header X-Forwarded-For
@@ -56,7 +57,7 @@ $remote_addr;` instead (the nginx example below does this): that overwrites the 
    what nginx itself observed as the connecting address, discarding anything the client sent.
 3. Set `security.trustProxy` to the reverse proxy's own address or CIDR range via the admin Security
    page — e.g. `10.0.0.5` for a proxy on a fixed internal address, or `10.0.0.0/8` for a range,
-   comma-separated for more than one. This is what makes Wiki.js trust the `X-Forwarded-*` headers
+   comma-separated for more than one. This is what makes Cardinal.js trust the `X-Forwarded-*` headers
    **only when they arrive from that address** — not `security.trustProxy: true`, which trusts them
    unconditionally from anywhere, including a client connecting directly. With `true`,
    `X-Forwarded-For` becomes a header any client can set on its own request, so `req.ip` (and
@@ -76,13 +77,13 @@ $remote_addr;` instead (the nginx example below does this): that overwrites the 
 4. Each site's hostname (as configured in the Sites admin area) must match the `Host` header the
    proxy forwards, since that's what `WIKI.sitesMappings[req.hostname]` matches against to resolve
    which site a request belongs to. **This is security-relevant, not just routing plumbing**: with
-   `trustProxy` correctly scoped to the proxy's own address as above, Wiki.js also only honors
+   `trustProxy` correctly scoped to the proxy's own address as above, Cardinal.js also only honors
    `X-Forwarded-Host` from that same trusted address — a request arriving any other way is resolved
    against the socket's own `Host` header instead, so a client cannot use `X-Forwarded-Host` to name a
    different site than the one it actually connected to and read that site's guest-visible pages,
    sitemap, or assets.
 
-A minimal nginx example for two sites sharing one Wiki.js instance:
+A minimal nginx example for two sites sharing one Cardinal.js instance:
 
 ```nginx
 server {
@@ -95,10 +96,10 @@ server {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         # Overwrites, not appends -- see step 2 above. A client-forged X-Forwarded-For must not
-        # survive into what Wiki.js's auth rate limiter keys req.ip on.
+        # survive into what Cardinal.js's auth rate limiter keys req.ip on.
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-        # Security-relevant, not just routing plumbing -- see step 4 above. Wiki.js only trusts this
+        # Security-relevant, not just routing plumbing -- see step 4 above. Cardinal.js only trusts this
         # (and X-Forwarded-For above) from security.trustProxy's configured address/CIDR, which is
         # what keeps a request from naming a different site than the one it actually connected to.
         proxy_set_header X-Forwarded-Host $host;
@@ -115,10 +116,10 @@ server {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         # Overwrites, not appends -- see step 2 above. A client-forged X-Forwarded-For must not
-        # survive into what Wiki.js's auth rate limiter keys req.ip on.
+        # survive into what Cardinal.js's auth rate limiter keys req.ip on.
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-        # Security-relevant, not just routing plumbing -- see step 4 above. Wiki.js only trusts this
+        # Security-relevant, not just routing plumbing -- see step 4 above. Cardinal.js only trusts this
         # (and X-Forwarded-For above) from security.trustProxy's configured address/CIDR, which is
         # what keeps a request from naming a different site than the one it actually connected to.
         proxy_set_header X-Forwarded-Host $host;

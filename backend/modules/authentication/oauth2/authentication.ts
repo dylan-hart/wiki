@@ -1,4 +1,5 @@
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
+import { providerNameHalves } from '../../../models/authentication.ts'
 
 /** A userinfo field value as a plain OAuth2 provider reports it: one value, several, or neither. */
 function asStringArray(value: unknown): string[] {
@@ -178,6 +179,17 @@ export default class OAuth2Authentication {
       id: String(id),
       email,
       name: (info[this.conf.displayNameClaim || 'displayName'] as string) || email,
+      // -> Read only; whether either half reaches the account, and what `name` derives to, is
+      //    `models/users.ts`'s decision (Feature #2608). A plain OAuth2 provider has no standard
+      //    claim for either -- hence the two configurable names, defaulted to the camelCase pair
+      //    `displayNameClaim` above already assumes rather than OIDC's snake_case. Deliberately not
+      //    done here: splitting the display name when the provider issues no halves. Every branded
+      //    preset built on this class inherits this method, so that fallback belongs in the preset
+      //    that needs it (Task #2641), not in the base.
+      ...providerNameHalves(
+        info[this.conf.firstNameClaim || 'firstName'],
+        info[this.conf.lastNameClaim || 'lastName']
+      ),
       // -> `undefined` (module did not look) versus `[]` (looked, provider reported none) matters to
       //    `syncProviderGroups()` — see `ProviderProfile.groups`'s own doc comment — so the key itself
       //    is only ever present when `mapGroups` is on, never set to `undefined`.

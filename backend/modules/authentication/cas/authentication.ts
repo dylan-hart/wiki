@@ -1,5 +1,6 @@
 /* global WIKI */
 import { XMLParser } from 'fast-xml-parser'
+import { splitDisplayName } from '../../../helpers/personName.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 const xmlParser = new XMLParser({ removeNSPrefix: true })
@@ -129,7 +130,15 @@ export default class CasAuthentication {
       throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
     }
 
-    return { id, email, name }
+    /*
+      CAS has no standard released attribute for a separated first/last name the way OIDC has
+      `given_name`/`family_name` — every deployment releases whatever its own directory happens to be
+      configured for — so the two fields this instance stores come from the naive split of whatever
+      `name` resolved to, and no attribute is guessed at by convention. Where that was the bare CAS
+      username (the mapped attribute unset or absent, and always under CAS 1.0) the split leaves a
+      mononym: no surname is invented out of a username, the same restraint `email` gets above.
+    */
+    return { id, email, name, ...splitDisplayName(name) }
   }
 
   private parseCas1Response(text: string): CasValidation {

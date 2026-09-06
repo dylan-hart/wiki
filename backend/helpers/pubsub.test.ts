@@ -58,14 +58,14 @@ class FakePool {
 }
 
 let wikiHandle: { restore(): void }
-let warnings: string[]
+let warnings: { scope: string; message: string; fields?: Record<string, unknown> }[]
 
 beforeEach(() => {
   warnings = []
   wikiHandle = installTestWiki({
     logger: {
-      warn: (msg: string) => {
-        warnings.push(msg)
+      warn: (scope: string, message: string, fields?: Record<string, unknown>) => {
+        warnings.push({ scope, message, fields })
       },
       info: () => {},
       debug: () => {}
@@ -88,7 +88,7 @@ describe('connectListener', () => {
 
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:EVENTS',
+      applicationName: 'Cardinal.js - test:EVENTS',
       channels: ['wiki', 'wiki_collab'],
       label: 'test listener',
       onNotification: (msg) => notifications.push(msg),
@@ -100,7 +100,7 @@ describe('connectListener', () => {
 
     assert.equal(stored, client)
     assert.deepEqual(client.queries, [
-      "SET application_name = 'Wiki.js - test:EVENTS'",
+      "SET application_name = 'Cardinal.js - test:EVENTS'",
       'LISTEN wiki',
       'LISTEN wiki_collab'
     ])
@@ -121,7 +121,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:SCHEDULER',
+      applicationName: 'Cardinal.js - test:SCHEDULER',
       channels: ['scheduler'],
       label: 'scheduler',
       onNotification: () => {},
@@ -136,7 +136,15 @@ describe('connectListener', () => {
     firstClient.emit('error', new Error('connection reset'))
     // -> setClient(null) happens synchronously inside the error handler
     assert.equal(stored, null)
-    assert.ok(warnings.some((w) => w.includes('connection reset')))
+    assert.ok(
+      warnings.some((w) => {
+        const error = w.fields?.error as Error | undefined
+        return (
+          w.message === 'lost the listener connection, reconnecting' &&
+          error?.message.includes('connection reset') === true
+        )
+      })
+    )
     // -> Regression for the leaked-pool-slot finding: the failed client must be released
     //    (destroy-on-release, since its connection is presumed dead) rather than simply dropped, or
     //    it stays checked out of the pool forever and counts against `_isFull()` on every future
@@ -149,7 +157,7 @@ describe('connectListener', () => {
 
     assert.equal(stored, secondClient)
     assert.deepEqual(secondClient.queries, [
-      "SET application_name = 'Wiki.js - test:SCHEDULER'",
+      "SET application_name = 'Cardinal.js - test:SCHEDULER'",
       'LISTEN scheduler'
     ])
     assert.equal(pool.connectCalls, 2)
@@ -169,7 +177,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:COLLAB',
+      applicationName: 'Cardinal.js - test:COLLAB',
       channels: ['wiki_collab'],
       label: 'collaboration relay',
       onNotification: () => {},
@@ -190,7 +198,8 @@ describe('connectListener', () => {
     assert.equal(stored, recoveredClient)
     assert.equal(pool.connectCalls, 4) // initial + 2 failures + 1 success
     assert.ok(
-      warnings.filter((w) => w.includes('Failed to (re)connect')).length >= 2,
+      warnings.filter((w) => w.message === 'reconnecting the listener failed, retrying').length >=
+        2,
       'expected at least two retry warnings'
     )
 
@@ -205,7 +214,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: pool as any,
-      applicationName: 'Wiki.js - test:EVENTS',
+      applicationName: 'Cardinal.js - test:EVENTS',
       channels: ['wiki'],
       label: 'test listener',
       onNotification: () => {},
@@ -241,7 +250,7 @@ describe('connectListener', () => {
     let stored: FakeClient | null = null
     const handle = await connectListener({
       pool: listenerPool as any,
-      applicationName: 'Wiki.js - test:EVENTS',
+      applicationName: 'Cardinal.js - test:EVENTS',
       channels: ['wiki'],
       label: 'test listener',
       onNotification: () => {},

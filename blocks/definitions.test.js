@@ -105,3 +105,36 @@ describe('block definition templates', () => {
     })
   }
 })
+
+/**
+ * An Iconify reference — `<prefix>:<name>`, e.g. `tabler:sitemap`. The same shape
+ * `frontend/scripts/generate-icons.mjs` matches, minus its surrounding quotes.
+ */
+const ICONIFY_REF = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*$/
+
+/**
+ * Every consumer of `definition.icon` — `AdminBlocks.vue`, `BlockPickerOverlay.vue` and
+ * `BlockParamsDialog.vue` — hands the value straight to `WIcon`, which resolves an Iconify
+ * reference and draws NOTHING for anything else (CLAUDE.md, under Icons: an unprefixed name "falls
+ * through to `kind: 'none'` and draws nothing"). All 26 blocks shipped bare, unprefixed names —
+ * `run-command`, `todo-list`, `visualy-impaired` (sic) — left behind by the Tabler migration, which
+ * scans `frontend/src` only and so never saw them, and every one of those surfaces rendered an
+ * empty slot (OpenProject #2634).
+ *
+ * The absence of this one assertion is what let that ship, so it is asserted structurally, off the
+ * same source-text read the template check uses, rather than left to a reviewer's eye.
+ */
+describe('block definition icons', () => {
+  for (const dirName of blockDirNames) {
+    it(`${dirName} declares an Iconify icon reference`, () => {
+      const source = readFileSync(path.join(import.meta.dirname, dirName, 'component.js'), 'utf8')
+      const definition = readDefinition(source)
+
+      expect(definition, `${dirName}/component.js has no static definition object`).not.toBeNull()
+      expect(
+        definition.icon,
+        `${dirName}'s icon must be an Iconify reference like 'tabler:sitemap', not '${definition.icon}'`
+      ).toMatch(ICONIFY_REF)
+    })
+  }
+})

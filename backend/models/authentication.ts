@@ -125,6 +125,9 @@ export interface ProviderProfile {
   id: string
   email: string
   name: string
+  /** Separated halves where the provider issues them; '' / absent means "the provider did not say". */
+  firstName?: string
+  lastName?: string
   /**
    * Group names as the provider reports them, for a strategy configured with `mapGroups: true`. Absent
    * (rather than empty) means the module did not look — `undefined` and `[]` are different answers, and
@@ -132,6 +135,37 @@ export interface ProviderProfile {
    * `models/users.ts`'s `syncProviderGroups()`.
    */
   groups?: string[]
+}
+
+/**
+ * The two separated-name keys of a {@link ProviderProfile}, for a module that has just read them off
+ * whatever its provider calls them.
+ *
+ * Every module that issues the halves spreads this rather than assembling the pair itself, so all
+ * five agree on the two decisions it encodes:
+ *
+ * - **Only a genuine string counts.** A provider that omits the claim, or answers with a structured
+ *   value that is not a name, has said nothing — coercing such a value would invent a surname out of
+ *   `[object Object]`.
+ * - **An empty answer leaves the key off entirely**, exactly as `groups` above does for a module that
+ *   did not look. `models/login.ts` treats absent and `''` identically, so this is presentation
+ *   rather than meaning: a profile object then carries only what the provider actually reported,
+ *   which is what makes a whole-profile assertion in a module's own suite worth reading.
+ *
+ * Neither half is ever derived from the other or from `name` — a provider issuing a first name and
+ * no surname is the mononym case, and fabricating one is worse than leaving it empty. Splitting a
+ * single display name into halves is a per-module fallback, not something that belongs here.
+ */
+export function providerNameHalves(
+  firstName: unknown,
+  lastName: unknown
+): { firstName?: string; lastName?: string } {
+  const first = typeof firstName === 'string' ? firstName.trim() : ''
+  const last = typeof lastName === 'string' ? lastName.trim() : ''
+  return {
+    ...(first ? { firstName: first } : {}),
+    ...(last ? { lastName: last } : {})
+  }
 }
 
 /**
@@ -633,18 +667,15 @@ class Authentication {
         }
       )
 
-      WIKI.logger.info(
-        `Loaded ${WIKI.data.authentication.length} authentication module definitions [ OK ]`
-      )
+      WIKI.logger.debug('auth', 'loaded module definitions', {
+        modules: WIKI.data.authentication.length
+      })
     } catch (err: any) {
-      WIKI.logger.error('Failed to scan or load authentication module definitions [ FAILED ]')
-      WIKI.logger.error(err)
+      WIKI.logger.error('auth', 'reading the module definitions failed', { error: err })
     }
   }
 
   async activateStrategies(): Promise<void> {
-    WIKI.logger.info('Activating authentication strategies...')
-
     // Unload any active strategies
     try {
       for (const strKey in WIKI.auth.strategies) {
@@ -654,13 +685,13 @@ class Authentication {
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to unload active strategies [ FAILED ]`)
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('auth', 'unloading the active strategies failed', { error: err })
     }
     WIKI.auth.strategies = {}
 
     // Load enabled strategies
     const enabledStrategies = await this.getStrategies({ enabledOnly: true })
+    const enabled: string[] = []
     for (const stg of enabledStrategies) {
       try {
         const StrategyModule = (
@@ -673,14 +704,22 @@ class Authentication {
           await strategy.init()
         }
 
-        WIKI.logger.info(`Enabled authentication strategy ${stg.displayName} [ OK ]`)
+        enabled.push(stg.module)
       } catch (err: any) {
-        WIKI.logger.error(
-          `Failed to enable authentication strategy ${stg.displayName} (${stg.id}) [ FAILED ]`
-        )
-        WIKI.logger.error(err)
+        WIKI.logger.error('auth', 'enabling the strategy failed', {
+          strategy: stg.id,
+          module: stg.module,
+          error: err
+        })
       }
     }
+    // -> One line for the activation pass rather than one per strategy: an operator reads this to
+    //    learn which ways in are open, and the module keys are that answer.
+    WIKI.logger.info(
+      'auth',
+      `enabled ${enabled.length} ${enabled.length === 1 ? 'strategy' : 'strategies'}`,
+      { keys: enabled.join(', ') }
+    )
   }
 
   async init(ids: SystemIds): Promise<void> {

@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- config resolves before `WIKI.logger` is built, so stderr is the only sink it has (see `warnUnknownConfigKeys`'s own doc comment). */
 import { toMerged } from 'es-toolkit/object'
 import { isPlainObject } from 'es-toolkit/predicate'
 import { styleText } from 'node:util'
@@ -45,11 +46,48 @@ function warnUnknownConfigKeys(config: ConfigObject, schema: ConfigObject, pathP
   }
 }
 
+/**
+ * The environment variables that can override what `config.yml` says, in the order `init()` reads
+ * them. Closed on purpose: `overrides=` on the `boot starting` line names members of this list and
+ * nothing else, so an operator reading it knows the whole set of things that could have been
+ * overridden without going to the source.
+ */
+export const CONFIG_OVERRIDE_VARS = ['CONFIG_FILE', 'PORT', 'WIKI_PORT', 'DB_PASS_FILE'] as const
+
+export type ConfigOverrideVar = (typeof CONFIG_OVERRIDE_VARS)[number]
+
+/**
+ * What `init()` learned about where the configuration came from.
+ *
+ * Returned rather than logged: `init()` runs before `WIKI.logger` exists — `logger.init()` reads
+ * `WIKI.config.logLevel`, so config has to be loaded first — which is also why the unknown-key
+ * warnings above go through `console.warn`. `index.ts` puts these on the `boot starting` line.
+ */
+export interface ConfigProvenance {
+  /** The resolved absolute path actually read, `CONFIG_FILE` already applied. */
+  configPath: string
+  /**
+   * Which of `CONFIG_OVERRIDE_VARS` were *honoured* — set AND on the branch that reads them. `PORT`
+   * is only consulted when the configured port is below 1, so merely exporting it does not count:
+   * the line would otherwise claim an override that changed nothing.
+   */
+  overrides: ConfigOverrideVar[]
+}
+
 export default {
+  /**
+   * Number of top-level keys in the `settings` blob the last successful `loadFromDb()` read.
+   *
+   * Kept here rather than returned, so `loadFromDb()`'s boolean contract — which `ensureSeeded()`
+   * and `subscribeToEvents()` both branch on — stays a boolean. Only the `config loaded` line reads
+   * it.
+   */
+  dbKeyCount: 0,
   /**
    * Load root config from disk
    */
-  async init(silent = false): Promise<void> {
+  async init(silent = false): Promise<ConfigProvenance> {
+    const overrides: ConfigOverrideVar[] = []
     const confPaths = {
       config: path.join(WIKI.ROOTPATH, 'config.yml'),
       data: path.join(WIKI.SERVERPATH, 'base.yml')
@@ -57,6 +95,7 @@ export default {
 
     if (process.env.CONFIG_FILE) {
       confPaths.config = path.resolve(WIKI.ROOTPATH, process.env.CONFIG_FILE)
+      overrides.push('CONFIG_FILE')
     }
 
     if (!silent) {
@@ -101,10 +140,16 @@ export default {
 
     if (appconfig.port < 1) {
       appconfig.port = process.env.PORT || 80
+      // -> Only counted here, not merely on `process.env.PORT` being set: this is the one branch
+      //    that reads it, so anywhere else it is present but inert.
+      if (process.env.PORT) {
+        overrides.push('PORT')
+      }
     }
 
     if (process.env.WIKI_PORT) {
       appconfig.port = process.env.WIKI_PORT || 80
+      overrides.push('WIKI_PORT')
     }
 
     // Load package info
@@ -120,6 +165,7 @@ export default {
       }
       try {
         appconfig.db.pass = (await fs.readFile(process.env.DB_PASS_FILE, 'utf8')).trim()
+        overrides.push('DB_PASS_FILE')
       } catch (err: any) {
         console.error(
           styleText(
@@ -137,15 +183,17 @@ export default {
     WIKI.version = packageInfo.version
     WIKI.releaseDate = packageInfo.releaseDate
     WIKI.devMode = packageInfo.dev === true
+
+    return { configPath: confPaths.config, overrides }
   },
 
   /**
    * Load config from DB
    */
   async loadFromDb(): Promise<boolean> {
-    WIKI.logger.info('Loading settings from DB...')
     const conf = await WIKI.models.settings.getConfig()
     if (conf) {
+      this.dbKeyCount = Object.keys(conf).length
       WIKI.config = toMerged(WIKI.config, conf)
       return true
     } else {
@@ -171,7 +219,7 @@ export default {
         WIKI.events.outbound.emit('reloadConfig')
       }
     } catch (err: any) {
-      WIKI.logger.error(`Failed to save configuration to DB: ${err.message}`)
+      WIKI.logger.error('config', 'failed to save configuration', { keys, error: err })
       return false
     }
 
@@ -227,18 +275,23 @@ export default {
    */
   async ensureSeeded(): Promise<boolean> {
     return withAdvisoryLock('wiki:migrate', async () => {
+      // -> `keys=` is the top-level count of the `settings` blob itself, not of the merged
+      //    `WIKI.config`: what the operator wants to know here is how much of the running
+      //    configuration came from the database rather than from base.yml/config.yml. `seeded=`
+      //    says whether this boot is the one that wrote it.
       if (await this.loadFromDb()) {
-        WIKI.logger.info('Settings merged with DB successfully [ OK ]')
+        WIKI.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: false })
         return false
       }
 
-      WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
+      WIKI.logger.warn('config', 'no settings in db, seeding defaults')
       await this.initDbValues()
 
       if (!(await this.loadFromDb())) {
-        throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
+        throw new Error('Settings table is still empty after seeding defaults.')
       }
 
+      WIKI.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: true })
       return true
     })
   },

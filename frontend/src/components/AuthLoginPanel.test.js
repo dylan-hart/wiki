@@ -225,7 +225,7 @@ describe('AuthLoginPanel focus on first paint', () => {
 })
 
 describe('AuthLoginPanel register', () => {
-  it('posts strategyId/name/email/password to the REST endpoint and shows the check-email screen on nextAction: verify', async () => {
+  it('posts strategyId/firstName/lastName/email/password to the REST endpoint and shows the check-email screen on nextAction: verify', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
     API_CLIENT.post.mockReturnValueOnce({
       json: () => Promise.resolve({ ok: true, nextAction: 'verify' })
@@ -241,7 +241,8 @@ describe('AuthLoginPanel register', () => {
     await switchBtn.trigger('click')
     await wrapper.vm.$nextTick()
 
-    await wrapper.find('input[autocomplete="name"]').setValue('Ada Lovelace')
+    await wrapper.find('input[autocomplete="given-name"]').setValue('Ada')
+    await wrapper.find('input[autocomplete="family-name"]').setValue('Lovelace')
     await wrapper.find('input[autocomplete="email"]').setValue('ada@example.com')
     await wrapper.find('input[autocomplete="new-password"]').setValue('supersecret1')
     await wrapper.findAll('input[autocomplete="new-password"]')[1].setValue('supersecret1')
@@ -252,7 +253,8 @@ describe('AuthLoginPanel register', () => {
     expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/auth/register', {
       json: {
         strategyId: 'strategy-1',
-        name: 'Ada Lovelace',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
         email: 'ada@example.com',
         password: 'supersecret1'
       }
@@ -279,7 +281,8 @@ describe('AuthLoginPanel register', () => {
     await switchBtn.trigger('click')
     await wrapper.vm.$nextTick()
 
-    await wrapper.find('input[autocomplete="name"]').setValue('Ada Lovelace')
+    await wrapper.find('input[autocomplete="given-name"]').setValue('Ada')
+    await wrapper.find('input[autocomplete="family-name"]').setValue('Lovelace')
     await wrapper.find('input[autocomplete="email"]').setValue('ada@example.com')
     await wrapper.find('input[autocomplete="new-password"]').setValue('supersecret1')
     await wrapper.findAll('input[autocomplete="new-password"]')[1].setValue('supersecret1')

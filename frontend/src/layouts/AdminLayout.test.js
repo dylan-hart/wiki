@@ -493,3 +493,51 @@ describe('AdminLayout nav count badge', () => {
     expect(styleBlock).toMatch(/border-inline-end-color\s*:\s*\$positive/)
   })
 })
+
+/**
+ * Regression coverage for OpenProject #2635 (note 15 of the 2026-09-05 review): the centred admin
+ * toolbar used to carry a hardcoded `<w-badge label="beta" />` beside the "ADMIN AREA" label. It is
+ * gone, and it stays gone.
+ *
+ * Worth knowing before "restoring" it: `ui-redesign/Cardinal Wiki - Admin 3x.dc.html:30` DOES still
+ * draw that chip. The removal is a deliberate divergence from the mockup, asked for directly, not
+ * drift away from it -- so a later conformance pass should leave this alone rather than reconciling
+ * the two against the mockup. The label was a literal, never a locale key, so nothing in
+ * `backend/locales/` went with it; the badge's `ms-2` was purely the gap to the label, and the
+ * wordmark lives in a different `<w-toolbar>` entirely, so its position is unaffected.
+ */
+describe('AdminLayout beta badge removal (OpenProject #2635)', () => {
+  it('renders no "beta" badge in the admin header', async () => {
+    const router = await createTestRouter(['/_admin/:siteid?/:rest*'], '/_admin/site-1/dashboard')
+
+    const { wrapper } = mountWithApp(AdminLayout, {
+      router,
+      stores: { user: { permissions: ['manage:system'] } }
+    })
+    await flushPromises()
+
+    const header = wrapper.find('.admin-header')
+    expect(header.exists()).toBe(true)
+    expect(header.text().toLowerCase()).not.toContain('beta')
+  })
+
+  /*
+    Scoped to the centred toolbar rather than the whole template on purpose: `AdminLayout` draws five
+    other `<w-badge>`s, all of them the sidebar's nav counts, and a blanket "no w-badge anywhere"
+    assertion would both fail today and, once loosened, be guarding the wrong thing. What matters is
+    that this one toolbar holds the area label and nothing else.
+  */
+  it('leaves the centred toolbar holding the area label alone, with no badge beside it', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'AdminLayout.vue'), 'utf-8')
+    const template = source.slice(0, source.indexOf('</template>'))
+
+    const start = template.indexOf('<w-toolbar class="max-md:hidden justify-center"')
+    expect(start).toBeGreaterThan(-1)
+    const centredToolbar = template.slice(start, template.indexOf('</w-toolbar>', start))
+
+    expect(centredToolbar).toMatch(/<div class="admin-area-label">/)
+    expect(centredToolbar).not.toMatch(/<w-badge/)
+    expect(template).not.toMatch(/label="beta"/i)
+  })
+})

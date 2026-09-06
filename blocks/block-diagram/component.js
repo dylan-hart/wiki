@@ -62,7 +62,7 @@ export class BlockDiagramElement extends LitElement {
     */
     name: 'Mermaid',
     description: 'Draws a Mermaid diagram — flowchart, sequence, class, state, ER, gantt and more.',
-    icon: 'workflow',
+    icon: 'tabler:sitemap',
     /*
       A fenced block, and not only for the syntax highlighting: markdown would otherwise have its way
       with the source before this ever sees it. `-->` survives, but the typographer turns `--` into a

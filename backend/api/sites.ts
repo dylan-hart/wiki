@@ -413,7 +413,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
+    async (req) => {
       // -> Validate inputs
       // -> hostname is already validated by the body schema's `pattern`; no hand-rolled check needed.
       if (!req.body.title || req.body.title.length < 1 || !/^[^<>"]+$/.test(req.body.title)) {
@@ -436,18 +436,18 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> Create site
-      try {
-        const result = await WIKI.models.sites.createSite(req.body.hostname, {
-          title: req.body.title
-        })
-        return {
-          ok: true,
-          message: 'Site created successfully.',
-          id: result.id
-        }
-      } catch (err: any) {
-        WIKI.logger.warn(err)
-        return reply.internalServerError()
+      //
+      // No private try/catch (Bug #2650): an unexpected failure here is left to propagate to
+      // `helpers/errorHandler.ts#apiErrorHandler`, which logs it once at `error` with the
+      // `reqId`/`method`/`url`/`siteId`/`userId` context that correlates it to the request. Catching
+      // it here logged a bare, uncorrelated line at `warn` and answered the 500 itself.
+      const result = await WIKI.models.sites.createSite(req.body.hostname, {
+        title: req.body.title
+      })
+      return {
+        ok: true,
+        message: 'Site created successfully.',
+        id: result.id
       }
     }
   )
@@ -785,30 +785,28 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> Update site
-      try {
-        await WIKI.models.sites.updateSite(req.params.siteId, {
-          hostname: req.body.hostname,
-          isEnabled: req.body.isEnabled,
-          ...(Object.keys(config).length < 1 ? {} : { config })
-        })
-        await WIKI.models.auditLog.record({
-          event: 'site.settingsUpdated',
-          actor: actorFromRequest(req),
-          targetType: 'site',
-          targetId: req.params.siteId,
-          targetLabel: req.body.title ?? site.title,
-          detail: {
-            changedFields: Object.keys(req.body)
-          },
-          siteId: req.params.siteId
-        })
-        return {
-          ok: true,
-          message: 'Site updated successfully.'
-        }
-      } catch (err: any) {
-        WIKI.logger.warn(err)
-        return reply.internalServerError()
+      //
+      // No private try/catch, same reasoning as `POST /` above (Bug #2650): the throw reaches
+      // `apiErrorHandler`, which logs it at `error` with the request context attached.
+      await WIKI.models.sites.updateSite(req.params.siteId, {
+        hostname: req.body.hostname,
+        isEnabled: req.body.isEnabled,
+        ...(Object.keys(config).length < 1 ? {} : { config })
+      })
+      await WIKI.models.auditLog.record({
+        event: 'site.settingsUpdated',
+        actor: actorFromRequest(req),
+        targetType: 'site',
+        targetId: req.params.siteId,
+        targetLabel: req.body.title ?? site.title,
+        detail: {
+          changedFields: Object.keys(req.body)
+        },
+        siteId: req.params.siteId
+      })
+      return {
+        ok: true,
+        message: 'Site updated successfully.'
       }
     }
   )

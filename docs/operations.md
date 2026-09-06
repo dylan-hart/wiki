@@ -10,7 +10,7 @@ and what the common failure modes look like and mean.
 
 ## Backup scope
 
-A Wiki.js 3.x instance's durable state is split across three places. **All three** have to be backed
+A Cardinal.js 3.x instance's durable state is split across three places. **All three** have to be backed
 up together — any one alone is an incomplete backup:
 
 ### 1. The Postgres database
@@ -195,15 +195,181 @@ a break-glass action.
 
 ## Logs
 
-There is no log **file**. `backend/core/logger.ts` keeps only an in-memory ring buffer of the last 100
-formatted lines (`BACKLOG_SIZE`), replayed to an admin's browser the moment they open the live
-terminal — the admin area's **Terminal** page (`frontend/src/pages/AdminTerminal.vue`, over the
-`/_terminal` websocket in `backend/controllers/terminal.ts`, gated on `manage:system`). Beyond that
-buffer, every log line is written straight to the process's stdout/stderr via `console.log`/`console.error`
-and nothing else — capturing logs durably (a file, a log-shipping sidecar, `docker logs` retention,
-whatever your platform provides) is entirely the operator's responsibility; this application does not
-do it for you. A clustered deployment's terminal view only ever shows whichever instance the websocket
-happened to land on — it is not an aggregated multi-instance view.
+### The line
+
+Every line the backend writes has the same shape, in both output modes: an ISO-8601 UTC timestamp, a
+level, a **scope** (the subsystem the line is about), a lowercase message, and a `key=value` tail
+carrying the facts.
+
+```
+2026-09-04T19:19:51.052Z info  db        connected  postgres=18.6 schema=public migrations=0 in 528ms
+2026-09-04T19:19:53.901Z info  http      listening  host=0.0.0.0 port=3000
+2026-09-05T00:30:00.412Z warn  jobs      updateLocales failed, retrying  attempt=1/3 error="fetching locale metadata failed: 404"
+2026-09-05T00:45:00.900Z error jobs      updateLocales failed, no attempts left  attempts=3 error="fetching locale metadata failed: 404"
+  Error: fetching locale metadata failed: 404
+      at …
+```
+
+Three things to know when reading it:
+
+- **Counts, ids, durations, paths and hostnames are in the tail, not in the sentence.** Grep the tail
+  (`grep 'site=main'`), not the prose.
+- **A duration is humanised and always last** — `in 528ms`, `in 3.7s`. In JSON mode it is a plain
+  `ms` number.
+- **An error is one record, not two.** The message says what failed, `error="…"` says why, and the
+  stack follows on indented lines — always on `error`, and on `warn` only when `logLevel` is `debug`
+  (a stack is noise on a warning you have already decided to live with).
+
+The instance id is deliberately **not** on the text line: text mode is a person tailing one process,
+where the id is dead weight. It is on every JSON record, and the admin log page receives it in its
+handshake frame.
+
+### Levels
+
+| Level | What it means | Alert on it? |
+| --- | --- | --- |
+| `error` | Something is broken and will stay broken until a person acts — a boot failure, a job out of retries, an unhandled 5xx, an external system unreachable after its own retries. | Yes. |
+| `warn` | Degraded, self-healing, or a configuration smell — a job retrying, an unknown config key, mail unconfigured while a notification was due, a rate-limit ban, a refused API key. | Worth a dashboard, not a page. |
+| `info` | A state change worth having in the record — boot milestones and `ready`, config reload, a strategy or storage target activating, a job that actually did something, page/site lifecycle, cluster peers joining and leaving. | No. |
+| `debug` | Per-item, per-request, per-tick — the access log, every job start and finish, every locale loaded, icon fetches, tree operations, the SQL and auth firehoses. Quiet instances say nothing at `info` for minutes at a time; that is the design, not a stuck process. | No. |
+
+### Scopes
+
+Every line names exactly one subsystem, from a closed vocabulary
+(`backend/core/logScopes.ts`). It is what makes `grep ' storage '` a useful filter, and what
+per-scope verbosity (`logScopes`, below) hangs off.
+
+| Scope | Owns |
+| --- | --- |
+| `boot` | process start-up, the three boot phases, shutdown |
+| `config` | config load, settings seed and save, unknown-key warnings |
+| `db` | connection, migrations, pool errors, the LISTEN/NOTIFY channel |
+| `sql` | the query firehose, at `debug` — the `sqlLog` admin flag is what raises it — plus the `slowQueryMs` line, at `warn` (see [Slow queries](#slow-queries)) |
+| `http` | the access log, 5xx, the app-shell fallback |
+| `auth` | strategies, login/register/2FA/passkey outcomes, API-key and bearer refusals |
+| `session` | secret rotation, session purge |
+| `jobs` | scheduler lifecycle, job planning and outcomes |
+| `worker` | the worker thread pool coming online, going offline, erroring |
+| `mail` | outbound mail |
+| `storage` | storage targets and all seven storage modules (the module is a `target=` field) |
+| `search` | the search index and all five engines (the engine is a field) |
+| `render` | the render pipeline, the render queue, puppeteer |
+| `collab` | collaborative editing sessions |
+| `cluster` | cross-instance events, peer presence, maintenance broadcasts |
+| `locale` | locale load and update |
+| `icons` | icon resolution and set management |
+| `blocks` | custom block uploads and compilation |
+| `ext` | extensions |
+| `pages` | page, tree and folder lifecycle, drafts, approvals, watch notifications |
+| `assets` | uploads, thumbnails, the file cache |
+| `nav` | navigation rewrites |
+| `hooks` | webhook deliveries and notification fan-outs |
+| `mcp` | the in-process MCP server |
+| `terminal` | the admin log stream itself |
+| `migrate` | the 2.5.x → 3.0 migration CLI |
+| `audit` | the audit-log model's own failures (the audit *table* is a separate thing, see below) |
+
+A subsystem inside one of these is a **field**, not a new scope: a git storage target logs on
+`storage` with `target=…`, not on a `git` scope of its own.
+
+### Configuration
+
+Three keys in `config.yml`, all validated at boot **case-sensitively** — an unrecognised value is a
+one-line refusal and `exit(1)`, not a silently ignored setting:
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `logLevel` | `error`, `warn`, `info`, `debug` | `info` |
+| `logFormat` | `text` (human-readable, coloured on a TTY) or `json` (one object per line, for a log shipper) | `text` |
+| `logScopes` | a map of any scope in the table above to any of the four levels | none |
+
+The 2.x levels `verbose` and `silly` do not exist here, and neither does the old `default` format
+name — `text` is what that value is called.
+
+`logScopes` is how you trace one subsystem without turning everything on. `logLevel` is the default
+for a scope that says nothing; an entry sets that one scope's threshold instead, up or down:
+
+```yaml
+logLevel: info
+logScopes:
+  http: debug    # turn the access log on — it is a `debug http` line, so `info` shows none of it
+  sql: error     # and quieten a scope below the global default
+```
+
+An unknown scope name or an unknown level refuses the boot, for the same reason a bad `logLevel`
+does: a typo would otherwise trace nothing and say nothing about why.
+
+Two **admin system flags** are the live counterpart, for a scope you want to raise on a running
+instance: `sqlLog` raises `sql` to `debug` and `authDebug` raises `auth` to `debug`, from the next
+line onwards, across the whole cluster, with no restart. They are overrides of the same threshold
+rather than switches of their own — a flag beats a `logScopes` entry, which beats `logLevel` — so a
+scope's verbosity is one question with one answer, whichever of the three settings supplied it.
+
+### Slow queries
+
+`slowQueryMs` (`config.yml`, default `0` — off) is the one line the `sql` scope emits that is not
+part of the `debug` firehose. Set it to a positive number of milliseconds and every query the main
+Postgres pool runs that takes at least that long emits:
+
+```
+warn  sql       slow query  rows=1 query="select \"pages\".\"id\" from \"pages\" where ..." params=(2 params: string(36), object) in 1.4s
+```
+
+Bound parameter **values** are never logged — only a type/length descriptor per parameter, the same
+redaction the firehose applies (`core/db.ts#describeQueryParams`). The query text is truncated to its
+first 200 characters.
+
+Three things to know before turning it on:
+
+- **It is a `warn` on the `sql` scope**, not a level of its own, so `logScopes: { sql: error }`
+  quietens slow-query warnings along with the firehose. Quieten `sql` and you have turned this off
+  too.
+- **It is a file setting**, like `pool` — it is read from `config.yml`/`base.yml` and changing it
+  takes a restart. The `sqlLog` admin flag is not a live equivalent: that raises the `sql` scope's
+  threshold, it does not set a duration.
+- **Timing sits on the pool, below Drizzle**, so it covers raw `db.execute()` calls and the boot-time
+  migration runner as well as ordinary ORM traffic. Expect a burst of slow lines on the first boot
+  after an upgrade that applies a large migration. The three permanently-held LISTEN/NOTIFY
+  connections check out from a separate pool and are not timed.
+
+Tune it against `pool.statementTimeoutMillis` (default `60000`), which is the hard ceiling at which
+Postgres **cancels** a query outright: `slowQueryMs` is the softer "tell me before it gets there"
+signal, so a starting point well under that ceiling — around `1000` on a healthy instance — is what
+makes the two useful together rather than redundant.
+
+### Where the lines go
+
+There is no log **file**, and the application will not write one for you. Every line goes to the
+process's stdout via `console.log` and nothing else — capturing them durably (a file, a log-shipping
+sidecar, `docker logs` retention, whatever your platform provides) is entirely the operator's
+responsibility. `logFormat: json` exists precisely so that capture can be machine-readable.
+
+`backend/core/logger.ts` also keeps an in-memory ring buffer of the last **500** lines
+(`BACKLOG_SIZE`), replayed the moment an admin opens the live log view — the admin area's
+**Live Log** page (`frontend/src/pages/AdminLiveLog.vue`, over the `/_terminal/logs` websocket in
+`backend/controllers/terminal.ts`, gated on `manage:system`). It is a window onto what just happened,
+not storage: it is lost on restart, and a clustered deployment's view only ever shows whichever
+instance the websocket happened to land on — it is not an aggregated multi-instance view.
+
+What travels over that websocket is a **structured frame**, not pre-rendered text:
+
+```json
+{ "timestamp": "…", "instance": "46af6c1ac1", "level": "warn", "scope": "jobs", "message": "updateLocales failed, retrying", "fields": { "attempt": "1/3" }, "stack": "…" }
+```
+
+Rendering is the browser's job, which is why the page's colours never have to survive a non-TTY
+stdout to reach it (`util.styleText` strips them in a container, so a stream of pre-rendered ANSI
+arrived colourless). The page draws each frame as a row — timestamp, level, scope, message, then the
+fields as `key=value` chips — and off that shape it offers a level threshold, a scope multi-select
+built from the scopes it has actually seen, a free-text filter over message and fields, pause (which
+buffers rather than drops), click-to-expand stacks on anything carrying one, and copy-as-JSON for a
+single record or for everything currently showing. Filtering is client-side over what the page has
+retained (up to 5,000 records, oldest dropped): the server sends whatever the instance's own
+threshold lets through, and narrowing the view here does not change that.
+
+The **audit log** is a different thing entirely: a durable, queryable table of who did what
+(`models/auditLog.ts`, the admin area's Audit Log page, retention configurable there). Security
+questions are answered from it, not from stdout.
 
 ## Metrics
 

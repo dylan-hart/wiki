@@ -40,8 +40,19 @@ if (!process.env.DATABASE_URL) {
 export const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@example.com'
 export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || '12345678'
 
+/**
+ * The quarantine lane's marker, per `docs/decisions/flaky-test-quarantine.md`: a
+ * `*.flaky.spec.js` under `tests/` is out of the default run below and into
+ * `npm run test:flaky` (`playwright.flaky.config.js`), which CI runs as its own report-only step.
+ * Exported so that config selects the same files this one ignores, from one string.
+ */
+export const FLAKY_GLOB = '**/*.flaky.spec.js'
+
 export default defineConfig({
   testDir: './tests',
+  // -> `testMatch` defaults to every `*.spec.js` under `testDir`, which includes the lane, so the
+  //    ignore below is what actually keeps a quarantined spec out of the default run.
+  testIgnore: FLAKY_GLOB,
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,

@@ -96,8 +96,11 @@ depends on a developer remembering:
 5. **The known leak list**: /_edit threads `?locale=` (the mechanism already exists for `/_`
    routes); sitemap emits localized URLs + hreflang; app shell uses the request's resolved locale
    for `lang`/`dir` **(closed — decided 2026-08-31, see `docs/decisions/lang-dir-contract.md`: the
-   client now derives `<html lang>`/`dir` from the content locale the same way the server-side
-   shell template already did, instead of overwriting it from the interface locale post-hydration)**;
+   client derives `<html lang>`/`dir` from the locale the URL addresses, the same resolution the
+   server-side shell template already performed, instead of overwriting it from the interface
+   locale post-hydration. Implemented 2026-09-06 per that document's §6 amendment, which also
+   records the one case still on the interface locale: an unprefixed URL whose page is not in the
+   site's primary locale)**;
    the ~10 bare-path link sites go through `localizedPagePath`; locale deactivation validates (or
    migrates) existing content.
 6. Optional but worth deciding here: a **translation-group link** (nullable `translationGroupId`

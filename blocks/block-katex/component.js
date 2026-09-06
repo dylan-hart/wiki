@@ -50,7 +50,7 @@ export class BlockKatexElement extends LitElement {
     name: 'KaTeX',
     description:
       "Typesets a TeX formula with KaTeX, including chemical equations written with mhchem's \\ce and \\pu commands.",
-    icon: 'math',
+    icon: 'tabler:math-function',
     /*
       Fenced, and not as a nicety: TeX is made of the characters markdown reads as its own. A lone
       backslash goes missing, `_` and `^` open emphasis, `\\` at the end of a line is a break, and the

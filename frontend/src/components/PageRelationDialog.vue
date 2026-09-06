@@ -297,21 +297,28 @@ onMounted(() => {
   The section headings, in the treatment the profile pages and the page properties panel use.
 
   `.w-section-header` carries its own 16px inset and expects a column that has none, so the card
-  section's padding is cancelled around it -- the band then spans the dialog and its text lines up
-  with the fields under it. Its bottom margin goes too: three of these are items in the form's
-  `flex-col gap-4`, so the 16px gap is already the space beneath them, and the heading's own margin
-  would add to it rather than replace it. That gap is also what clears the two rules trailing below
-  the heading, which is what the `-mb-3` these replaces was fighting.
+  section's padding is given back around it -- the band then spans the dialog and its text lines up
+  with the fields under it. `--w-section-bleed` is how that is said: once, on the box that does the
+  padding, rather than as an inline negative margin on each of the four bands. Their bottom margin
+  goes too: three of these are items in the form's `flex-col gap-4`, so the 16px gap is already the
+  space beneath them, and the heading's own margin would add to it rather than replace it. That gap
+  is also what clears the two rules trailing below the heading, which is what the `-mb-3` these
+  replaces was fighting.
 */
 .page-relation-dialog {
+  --w-section-bleed: 16px;
+
   .w-section-header {
-    margin: 0 -16px;
+    margin-block-end: 0;
   }
 
-  /* -> The first one is also the top of the section, so it takes that padding as well */
+  /*
+    The first one is also the top of the section, so it takes that padding as well. Only the margin:
+    the 16px used to be handed straight back as `padding-top`, which left this one band 34px tall
+    like every other but with its text sitting 5px below the centre they are all aligned on.
+  */
   > .w-card-section > .w-section-header:first-child {
-    margin-top: -16px;
-    padding-top: 16px;
+    margin-block-start: -16px;
   }
 }
 </style>

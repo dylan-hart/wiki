@@ -88,7 +88,7 @@ describe('EditorWysiwyg', () => {
     //    else as plain text and wraps it in a single `<p>` itself, so wrapping it here too would
     //    nest `<p>` tags and, being invalid HTML, get silently split into an extra empty paragraph
     //    by the parser -- a pre-existing quirk of that heuristic, not what this test is after.
-    const { wrapper } = mountEditor('Hello from Wiki.js')
+    const { wrapper } = mountEditor('Hello from Cardinal.js')
     // -> `EditorContent` (from `@tiptap/vue-3`) mounts the ProseMirror view itself on its own
     //    `onMounted`, one tick after the wrapping `<div>` above it lands in the DOM -- a single
     //    `nextTick()` flushes the parent render but not that child's follow-up mount.
@@ -96,7 +96,7 @@ describe('EditorWysiwyg', () => {
     await nextTick()
 
     expect(wrapper.find('.ProseMirror').exists()).toBe(true)
-    expect(wrapper.find('.ProseMirror').text()).toContain('Hello from Wiki.js')
+    expect(wrapper.find('.ProseMirror').text()).toContain('Hello from Cardinal.js')
 
     wrapper.unmount()
   })

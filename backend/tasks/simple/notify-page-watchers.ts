@@ -86,8 +86,10 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
       }))
     )
   } catch (err: any) {
-    WIKI.logger.error(`Recording page watch notifications for page ${pageId}: [ FAILED ]`)
-    WIKI.logger.error(err.message)
+    WIKI.logger.error('hooks', 'failed to record page watch notifications', {
+      page: pageId,
+      error: err
+    })
     throw err
   }
 
@@ -117,9 +119,11 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
     try {
       const recipient = await WIKI.models.users.getById(watcher.userId)
       if (!recipient?.email) {
-        WIKI.logger.warn(
-          `Skipping immediate watch notification for page ${pageId}: user ${watcher.userId} has no email address.`
-        )
+        // -> `debug`: recurs on every run for the same account (see `notify-event-subscribers.ts`).
+        WIKI.logger.debug('hooks', 'immediate watch notification skipped, no email address', {
+          page: pageId,
+          user: watcher.userId
+        })
         continue
       }
       await WIKI.models.mail.sendPageWatchNotification({
@@ -129,16 +133,18 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
         action,
         changedFields,
         actorName,
+        userId: watcher.userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
       await WIKI.models.pageWatchEvents.markDelivered(eventId)
     } catch (err: any) {
       // -> Logged loudly, not thrown: the pending row above already guarantees this is not lost, and
       //    throwing here would retry `recordMany` too (see this file's own doc comment).
-      WIKI.logger.error(
-        `Sending immediate watch notification to user ${watcher.userId} for page ${pageId}: [ FAILED ]`
-      )
-      WIKI.logger.error(err.message)
+      WIKI.logger.error('hooks', 'failed to send immediate watch notification', {
+        page: pageId,
+        user: watcher.userId,
+        error: err
+      })
     }
   }
 }

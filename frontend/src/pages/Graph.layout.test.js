@@ -139,7 +139,7 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     expect(maxHullDist).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
   })
 
-  it("drawLabels offsets each label by that node's own drawn radius, not a fixed constant (OpenProject #2297)", async () => {
+  it("drawLabels draws a real node's label at the node's own center, not offset past its edge (OpenProject #2593)", async () => {
     const wrapper = await mountGraph()
 
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
@@ -151,18 +151,46 @@ describe('Graph.vue layout, reactivity and repaint', () => {
 
     const radiusA = wrapper.vm.radiusFor(nodeA)
     const radiusB = wrapper.vm.radiusFor(nodeB)
-    // -> The fixture's two nodes have different contributor counts, so their radii differ --
-    //    otherwise this test couldn't distinguish "offset tracks radius" from "offset is still
-    //    a constant that happens to equal both radii plus the gap".
+    // -> The fixture's two nodes have different contributor counts, so their radii differ. That
+    //    used to be what proved the OUTSIDE offset tracked each node's own radius (OpenProject
+    //    #2297's `node.x + radius + LABEL_GAP`); it now proves the opposite -- the label position
+    //    no longer moves with the radius at all, because it is inside the circle.
     expect(radiusA).not.toBe(radiusB)
 
     wrapper.vm.ctx.fillText.mockClear()
     drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 1.2)
 
     const callA = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeA.title)
-    const callB = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeB.title)
+    expect(callA.slice(1)).toEqual([nodeA.x, nodeA.y])
+    expect(callA[1]).not.toBe(nodeA.x + radiusA + LABEL_GAP)
 
-    expect(callA[1]).toBe(nodeA.x + radiusA + LABEL_GAP)
-    expect(callB[1]).toBe(nodeB.x + radiusB + LABEL_GAP)
+    // -> Whether the smaller node labels at all depends on the radius floor (a sibling Task retunes
+    //    it), so this asserts the invariant rather than the count: EVERY real label that draws
+    //    draws at its own node's center. `graphDraw.test.js` covers the too-small-to-label cutoff
+    //    directly, with a radius it controls itself.
+    for (const [text, x, y] of wrapper.vm.ctx.fillText.mock.calls) {
+      const node = wrapper.vm.nodes.find(
+        (candidate) => (candidate.title ?? candidate.path) === text
+      )
+      // -> Synthetic folder hubs deliberately keep the outside placement (asserted below), so this
+      //    invariant is about real nodes only.
+      if (node.synthetic) {
+        continue
+      }
+      expect([x, y]).toEqual([node.x, node.y])
+    }
+  })
+
+  it("drawLabels keeps a synthetic hub's label beside it, still offset by that node's own radius (OpenProject #2297, #2593)", async () => {
+    const wrapper = await mountGraph()
+
+    const synthetic = { path: 'docs', locale: 'en', synthetic: true, x: 40, y: 60, title: 'docs' }
+    const radius = wrapper.vm.radiusFor(synthetic)
+
+    wrapper.vm.ctx.fillText.mockClear()
+    drawLabels(wrapper.vm.ctx, [synthetic], wrapper.vm.radiusFor, 1.2)
+
+    const [call] = wrapper.vm.ctx.fillText.mock.calls
+    expect(call).toEqual(['docs', synthetic.x + radius + LABEL_GAP, synthetic.y])
   })
 })

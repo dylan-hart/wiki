@@ -1,3 +1,5 @@
+import type { TaskResult } from '../../core/scheduler.ts'
+
 /**
  * Serialize one site's content into a downloadable tarball under `<dataPath>/exports/`.
  *
@@ -9,17 +11,17 @@
 export async function task(
   payload: { siteId: string } = { siteId: '' },
   jobId?: string
-): Promise<void> {
-  WIKI.logger.info(`Exporting content for site ${payload.siteId}...`)
-  try {
-    const result = await WIKI.models.export.exportSite(payload.siteId)
-    if (jobId) {
-      await WIKI.models.jobs.setResult(jobId, result)
-    }
-    WIKI.logger.info(`Exported content for site ${payload.siteId}: [ COMPLETED ]`)
-  } catch (err: any) {
-    WIKI.logger.error(`Exporting content for site ${payload.siteId}: [ FAILED ]`)
-    WIKI.logger.error(err.message)
-    throw err
+): Promise<TaskResult> {
+  // -> A whole site's assets can take minutes, so the start IS worth saying — at `debug`, which is
+  //    where an announcement belongs. The failure is not logged here: it propagates, and the
+  //    scheduler writes the one record for it.
+  WIKI.logger.debug('pages', 'exporting site content', { site: payload.siteId })
+  const result = await WIKI.models.export.exportSite(payload.siteId)
+  // -> The `{ filePath, fileSize }` on the history row is what the download route reads back, and
+  //    stays a `setResult` write of its own; the summary returned below is only what this run's one
+  //    `info` line says, and carries no path an operator could mistake for a public URL.
+  if (jobId) {
+    await WIKI.models.jobs.setResult(jobId, result)
   }
+  return { summary: 'exported site content', site: payload.siteId, bytes: result.fileSize }
 }

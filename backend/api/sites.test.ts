@@ -82,6 +82,9 @@ async function getSiteById({ id }: { id: string }) {
 
 let updateSiteCalls: Array<{ id: string; patch: any }> = []
 async function updateSite(id: string, patch: any) {
+  if (updateSiteFailure) {
+    throw updateSiteFailure
+  }
   updateSiteCalls.push({ id, patch })
   return true
 }
@@ -136,7 +139,19 @@ async function isHostnameUnique(hostname: string) {
   return !hostnamesTakenByUnique.has(hostname)
 }
 
+/**
+ * Bug #2650: `POST /` and `PUT /:siteId` used to wrap their model call in a private
+ * `try/catch` that logged a bare `WIKI.logger.warn(err)` and answered `reply.internalServerError()`
+ * itself, so a crashed request never reached `apiErrorHandler` and never got the request context
+ * that correlates it. Both catches are gone; these two flags plant the failure that proves it.
+ */
+let createSiteFailure: Error | null = null
+let updateSiteFailure: Error | null = null
+
 async function createSite(hostname: string, config: Record<string, any>) {
+  if (createSiteFailure) {
+    throw createSiteFailure
+  }
   createSiteCalls.push({ hostname, config })
   return { id: 'new-site-id' }
 }
@@ -175,6 +190,9 @@ async function ensureSiteNav(siteId: string, locale: string) {
 
 before(async () => {
   const wiki = {
+    // -> Bug #2650: the two 500 assertions below check the LEVEL, not merely that something was
+    //    logged, so both `error` and `warn` are real mocks rather than `createSilentLogger`'s noops.
+    logger: { error: mock.fn(), warn: mock.fn() },
     config: {
       security: { disallowOpenRedirect: true },
       docsBase: 'https://test.docs.example/docs'
@@ -265,6 +283,10 @@ test('strict=false falls back to the wildcard site', async () => {
 beforeEach(() => {
   createSiteCalls.length = 0
   hostnamesTakenByUnique = new Set()
+  createSiteFailure = null
+  updateSiteFailure = null
+  ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
+  ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
 })
 
 test('a schema-valid hostname creates the site', async () => {
@@ -369,6 +391,42 @@ test('a duplicate catch-all hostname is rejected with the duplicate-catch-all me
 })
 
 /**
+ * Bug #2650. An unexpected `createSite` failure must reach `apiErrorHandler` — the real one
+ * `buildTestApp` installs — rather than being caught in the handler. Two things distinguish the two
+ * outcomes: the generic body `apiErrorHandler` builds for a `statusCode`-less throw carries
+ * `error: 'Internal Server Error'` (with a space), where the swallowed `reply.internalServerError()`
+ * answered `'InternalServerError'`; and the log line is `error`, not `warn`.
+ */
+
+test('an unexpected createSite failure reaches the shared error handler and is logged at error', async () => {
+  createSiteFailure = new Error('relation "sites" does not exist at character 42')
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: 'wiki.example.org', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(res.json(), {
+    ok: false,
+    error: 'Internal Server Error',
+    statusCode: 500,
+    message: 'Internal Server error'
+  })
+  // -> The thrown message named a table; the client is told none of it.
+  assert.equal(res.body.includes('relation'), false)
+  const errorCalls = (globalThis as any).WIKI.logger.error.mock.calls
+  assert.equal(errorCalls.length, 1)
+  assert.equal(errorCalls[0].arguments[0], 'http')
+  assert.match(errorCalls[0].arguments[2].error.message, /relation "sites" does not exist/)
+  // -> The request context `apiErrorHandler` attaches is exactly what the swallowed catch lost, and
+  //    since #2667 it is spread into the same fields object as the error itself.
+  assert.equal(errorCalls[0].arguments[2].method, 'POST')
+  assert.equal(typeof errorCalls[0].arguments[2].reqId, 'string')
+  assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+})
+
+/**
  * Regression coverage for the last leg of task 699/702's disabled-site contract: unlike the read
  * routes gated elsewhere in this feature, `PUT /:siteId` (behind `manage:sites`) must keep succeeding
  * against an already-disabled site — otherwise nobody could ever flip `isEnabled` back on.
@@ -394,6 +452,28 @@ test('updating a disabled site still succeeds, so it can be re-enabled', async (
   assert.equal(updateSiteCalls.length, 1)
   assert.equal(updateSiteCalls[0].id, DISABLED_SITE_ID)
   assert.equal(updateSiteCalls[0].patch.isEnabled, true)
+})
+
+/**
+ * Bug #2650, the `PUT /:siteId` half: same deleted `try/catch`, same expectation.
+ */
+
+test('an unexpected updateSite failure reaches the shared error handler and is logged at error', async () => {
+  updateSiteFailure = new Error('deadlock detected')
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { title: 'Renamed' }
+  })
+  assert.equal(res.statusCode, 500)
+  assert.equal(res.json().error, 'Internal Server Error')
+  const errorCalls = (globalThis as any).WIKI.logger.error.mock.calls
+  assert.equal(errorCalls.length, 1)
+  assert.equal(errorCalls[0].arguments[0], 'http')
+  assert.match(errorCalls[0].arguments[2].error.message, /deadlock detected/)
+  assert.equal(errorCalls[0].arguments[2].method, 'PUT')
+  assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
 })
 
 beforeEach(() => {

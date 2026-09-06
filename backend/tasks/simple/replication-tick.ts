@@ -1,13 +1,10 @@
-export async function task(): Promise<void> {
-  WIKI.logger.info('Checking replication schedule for a due pull...')
+import type { TaskResult } from '../../core/scheduler.ts'
 
-  try {
-    const queued = await WIKI.models.replication.tick()
-
-    WIKI.logger.info(`Checked replication schedule, queued ${queued} pull(s): [ COMPLETED ]`)
-  } catch (err: any) {
-    WIKI.logger.error('Checking replication schedule: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
+export async function task(): Promise<TaskResult | void> {
+  const queued = await WIKI.models.replication.tick()
+  // -> Same shape as `storage-sync-tick.ts`: idle is the common case, every few minutes, and the
+  //    scheduler's own `debug` finish line already records that the tick ran.
+  if (queued > 0) {
+    return { summary: 'queued replication pulls', queued }
   }
 }

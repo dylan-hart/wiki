@@ -85,7 +85,9 @@ describe(
         warn.mock.calls.length > 0,
         'expected WIKI.logger.warn to fire when roles are dropped'
       )
-      assert.match(warn.mock.calls[0]!.arguments[0] as string, /dropped/i)
+      // -> `LogFn` is `(scope, message, fields?)`: the subsystem is argument 0, the wording 1.
+      assert.equal(warn.mock.calls[0]!.arguments[0], 'auth')
+      assert.match(warn.mock.calls[0]!.arguments[1] as string, /dropped/i)
 
       warn.mock.restore()
     })

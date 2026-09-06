@@ -50,27 +50,32 @@
         <div class="text-caption text-grey mb-2">
           {{ t('admin.approval.overlapHint') }}
         </div>
-        <w-card>
-          <w-list separator>
-            <w-item v-for="rule of state.rules" :key="rule.id">
-              <blueprint-icon icon="tabler:checklist" />
-              <!--
-                A disabled rule keeps everything it says but covers nothing, so it is dimmed rather
-                than hidden or moved: it is still part of the configuration being read.
-              -->
-              <w-item-section :class="rule.isEnabled ? `` : `opacity-60`">
-                <w-item-label>
-                  <strong>{{ rule.name }}</strong>
-                </w-item-label>
-                <w-item-label caption>
+        <w-settings-card :title="t('admin.approval.title')">
+          <!--
+            A disabled rule keeps everything it says but covers nothing, so it is dimmed rather than
+            hidden or moved: it is still part of the configuration being read. The dimming is on the
+            row's text only -- the plate was never dimmed, and the controls stay at full strength
+            because re-enabling the rule is what the reader is most likely here to do.
+          -->
+          <w-settings-row
+            v-for="rule of state.rules"
+            :key="rule.id"
+            control-width="auto"
+            icon="tabler:checklist">
+            <template #label>
+              <strong :class="rule.isEnabled ? `` : `opacity-60`">{{ rule.name }}</strong>
+            </template>
+            <template #hint>
+              <div :class="rule.isEnabled ? `` : `opacity-60`">
+                <div>
                   {{ matchLabel(rule.match) }}
                   <span class="font-mono">{{ patternLabel(rule) }}</span>
-                </w-item-label>
-                <w-item-label caption>
+                </div>
+                <div>
                   <span class="text-grey">{{ t('admin.approval.submitters') }}:</span>
                   {{ groupNames(rule.submitterGroups) }}
-                </w-item-label>
-                <w-item-label caption>
+                </div>
+                <div>
                   <span class="text-grey">{{ t('admin.approval.reviewers') }}:</span>
                   {{ groupNames(rule.reviewerGroups) }}
                   <!-- The ordinary single-approver case says nothing extra here, as before. -->
@@ -78,39 +83,37 @@
                     &middot;
                     {{ t('admin.approval.minApprovals') }}: {{ rule.minApprovals }}
                   </template>
-                </w-item-label>
-              </w-item-section>
-              <w-item-section side>
-                <w-toggle
-                  :model-value="rule.isEnabled"
-                  :label="t(`admin.approval.enabled`)"
-                  :aria-label="t(`admin.approval.enabled`)"
-                  @update:model-value="
-                    (val) => {
-                      setEnabled(rule, val)
-                    }
-                  " />
-              </w-item-section>
-              <w-separator class="ms-4" vertical />
-              <w-item-section side style="flex-direction: row; align-items: center">
-                <w-btn
-                  class="acrylic-btn me-2"
-                  flat
-                  @click="editRule(rule)"
-                  icon="tabler:pencil"
-                  :color="dark.isActive ? `indigo-4` : `indigo`"
-                  :label="t(`common.actions.edit`)" />
-                <w-btn
-                  class="acrylic-btn"
-                  flat
-                  icon="tabler:trash"
-                  color="negative"
-                  @click="deleteRule(rule)"
-                  :aria-label="t(`common.actions.delete`)" />
-              </w-item-section>
-            </w-item>
-          </w-list>
-        </w-card>
+                </div>
+              </div>
+            </template>
+            <div class="flex items-center gap-2">
+              <w-toggle
+                :model-value="rule.isEnabled"
+                :label="t(`admin.approval.enabled`)"
+                :aria-label="t(`admin.approval.enabled`)"
+                @update:model-value="
+                  (val) => {
+                    setEnabled(rule, val)
+                  }
+                " />
+              <w-separator vertical />
+              <w-btn
+                class="acrylic-btn"
+                flat
+                @click="editRule(rule)"
+                icon="tabler:pencil"
+                :color="dark.isActive ? `indigo-4` : `indigo`"
+                :label="t(`common.actions.edit`)" />
+              <w-btn
+                class="acrylic-btn"
+                flat
+                icon="tabler:trash"
+                color="negative"
+                @click="deleteRule(rule)"
+                :aria-label="t(`common.actions.delete`)" />
+            </div>
+          </w-settings-row>
+        </w-settings-card>
       </template>
     </div>
     <w-inner-loading :showing="state.loading > 0" />

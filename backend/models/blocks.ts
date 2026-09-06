@@ -116,15 +116,15 @@ class Blocks {
       }
       this.definitions = manifest
       this.manifestLoaded = true
-      WIKI.logger.info(`Found ${this.definitions.length} blocks [ OK ]`)
+      WIKI.logger.debug('blocks', 'loaded the manifest', { blocks: this.definitions.length })
       await this.warnIfStale(manifestPath)
     } catch (err: any) {
       this.definitions = []
       this.manifestLoaded = false
-      WIKI.logger.warn(
-        `Could not read the blocks manifest at ${manifestPath} — run "npm run build" in blocks/. [ SKIPPED ]`
-      )
-      WIKI.logger.warn(err.message)
+      WIKI.logger.warn('blocks', 'could not read the manifest, run "npm run build" in blocks/', {
+        path: manifestPath,
+        error: err
+      })
     }
   }
 
@@ -159,7 +159,9 @@ class Blocks {
       }
       if (stale.length > 0) {
         WIKI.logger.warn(
-          `${stale.join(', ')} changed since the blocks manifest was built — run "npm run build" in blocks/ and restart to pick that up.`
+          'blocks',
+          'changed since the manifest was built — run "npm run build" in blocks/ and restart to pick that up',
+          { blocks: stale.join(', ') }
         )
       }
     } catch {
@@ -269,10 +271,9 @@ class Blocks {
    */
   async syncAllSites(): Promise<void> {
     if (!this.manifestLoaded) {
-      WIKI.logger.warn('Skipping block registration: the manifest could not be read. [ SKIPPED ]')
+      WIKI.logger.warn('blocks', 'skipping registration, the manifest could not be read')
       return
     }
-    WIKI.logger.info('Registering blocks for all sites...')
     const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
     const total = { added: 0, updated: 0, removed: 0 }
     for (const site of sites) {
@@ -281,11 +282,13 @@ class Blocks {
       total.updated += counts.updated
       total.removed += counts.removed
     }
-    WIKI.logger.info(`Registered blocks for ${sites.length} sites [ OK ]`)
+    WIKI.logger.info('blocks', 'registered blocks', { sites: sites.length })
     if (total.added || total.updated || total.removed) {
-      WIKI.logger.info(
-        `Blocks changed on disk: ${total.added} added, ${total.updated} updated, ${total.removed} removed.`
-      )
+      WIKI.logger.info('blocks', 'blocks changed on disk', {
+        added: total.added,
+        updated: total.updated,
+        removed: total.removed
+      })
     }
   }
 

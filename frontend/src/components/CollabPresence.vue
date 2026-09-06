@@ -77,6 +77,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { initials } from '@/helpers/initials'
 import { useCollabStore } from '@/stores/collab'
 
 /**
@@ -135,21 +136,6 @@ watch(nonSelfIds, (ids) => {
 function personLabel(person) {
   return person.isSelf ? t('editor.collab.you') : person.name
 }
-
-/**
- * Up to two letters, from the first and last word of the name — `Ada Lovelace` gives `AL`, and a
- * mononym gives its first letter. Falls back to a neutral glyph rather than an empty circle for an
- * account with no name on it.
- */
-function initials(name) {
-  const words = (name ?? '').trim().split(/\s+/).filter(Boolean)
-  if (words.length < 1) {
-    return '?'
-  }
-  const first = words[0][0]
-  const last = words.length > 1 ? words.at(-1)[0] : ''
-  return `${first}${last}`.toUpperCase()
-}
 </script>
 
 <style scoped lang="scss">
@@ -207,7 +193,9 @@ function initials(name) {
       on the other.
     */
     @at-root .body--light & {
-      box-shadow: 0 0 0 2px $grey-1;
+      /* -> The header's own ground, `$surface` -- not the near-white it used to borrow from the
+         Material ramp, which read as a faint grey halo against the white behind it */
+      box-shadow: 0 0 0 2px $surface;
     }
     @at-root .body--dark & {
       box-shadow: 0 0 0 2px $dark-3;

@@ -3,6 +3,7 @@ import { groups } from '../../models/groups.ts'
 import { glossary } from '../../models/glossary.ts'
 import { assetServing } from '../../models/assetServing.ts'
 import { jobs } from '../../models/jobs.ts'
+import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
  * Restore a tarball uploaded through `POST /_api/system/import` into a target site.
@@ -42,7 +43,7 @@ export async function task(
     jobs?: typeof jobs
     addJob?: typeof WIKI.scheduler.addJob
   } = {}
-): Promise<void> {
+): Promise<TaskResult> {
   const {
     siteImport: siteImportDep = siteImport,
     groups: groupsDep = groups,
@@ -52,7 +53,10 @@ export async function task(
     addJob = (opts) => WIKI.scheduler.addJob(opts)
   } = deps
 
-  WIKI.logger.info(`Importing content into site ${payload.targetSiteId}...`)
+  // -> Announced at `debug` because a whole site's restore can take minutes. The `try` stays for the
+  //    `finally` that deletes the upload; the failure itself is not logged here, it propagates and
+  //    the scheduler writes the one record for it.
+  WIKI.logger.debug('pages', 'importing site content', { site: payload.targetSiteId })
   try {
     const result = await siteImportDep.importSite(
       payload.filePath,
@@ -70,11 +74,9 @@ export async function task(
     if (jobId) {
       await jobsDep.setResult(jobId, result)
     }
-    WIKI.logger.info(`Imported content into site ${payload.targetSiteId}: [ COMPLETED ]`)
-  } catch (err: any) {
-    WIKI.logger.error(`Importing content into site ${payload.targetSiteId}: [ FAILED ]`)
-    WIKI.logger.error(err.message)
-    throw err
+    // -> Returned, not logged: the scheduler writes this run's one `info` line, with the job id and
+    //    the duration attached. The `finally` below still runs on the way out.
+    return { summary: 'imported site content', site: payload.targetSiteId }
   } finally {
     await siteImportDep.deleteUpload(payload.filePath)
   }

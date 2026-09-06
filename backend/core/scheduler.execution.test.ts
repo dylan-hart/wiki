@@ -89,10 +89,10 @@ describe('processJob claim ordering (fake WIKI)', () => {
 
 /**
  * OpenProject #1931: `runJob()`'s terminal, retries-exhausted failure must log at `error` so an
- * operator shipping only `error` to alerting actually sees it -- `wikijs_jobs_queued` counts
+ * operator shipping only `error` to alerting actually sees it -- `cardinaljs_jobs_queued` counts
  * *pending* jobs, so a storm of failing-and-retrying jobs looks identical to a healthy queue from
- * that metric alone. A still-retryable failure must keep logging at `warn`, matching the
- * "Rescheduling new attempt" line right after it.
+ * that metric alone. A still-retryable failure must keep logging at `warn`, and says so in its own
+ * message (`, retrying`) rather than in a second line.
  *
  * Drives the real `runJob()` against a fake `WIKI.db`/`notifier`-reachable state, not a live
  * Postgres connection -- there is no SQL orchestration worth a real database here, just a branch on
@@ -157,10 +157,11 @@ describe('runJob log level on failure (fake WIKI)', () => {
     await scheduler.runJob(job)
 
     const failureCalls = logCalls.filter(
-      (c) => c.args[0] === 'Failed to complete job job-retryable: willFail [ FAILED ]'
+      (c) => c.args[0] === 'jobs' && c.args[1] === 'willFail failed, retrying'
     )
     assert.equal(failureCalls.length, 1, 'the failure message must be logged exactly once')
     assert.equal(failureCalls[0]!.level, 'warn')
+    assert.equal(failureCalls[0]!.args[2].job, 'job-retryable')
     assert.equal(
       logCalls.filter((c) => c.level === 'error').length,
       0,
@@ -184,20 +185,18 @@ describe('runJob log level on failure (fake WIKI)', () => {
     await scheduler.runJob(job)
 
     const failureCalls = logCalls.filter(
-      (c) => c.args[0] === 'Failed to complete job job-exhausted: willFail [ FAILED ]'
+      (c) => c.args[0] === 'jobs' && c.args[1] === 'willFail failed, no attempts left'
     )
     assert.equal(failureCalls.length, 1, 'the failure message must be logged exactly once')
     assert.equal(failureCalls[0]!.level, 'error')
     assert.equal(
-      logCalls.filter((c) => c.level === 'warn' && c.args[0] === failureCalls[0]!.args[0]).length,
+      logCalls.filter((c) => c.level === 'warn' && c.args[1] === failureCalls[0]!.args[1]).length,
       0,
       'the exhausted-retries failure message must not also be logged at warn'
     )
-    // -> No reschedule attempted once retries are exhausted, so no "Rescheduling new attempt" line.
+    // -> No reschedule attempted once retries are exhausted, so the message must not claim one.
     assert.equal(
-      logCalls.some(
-        (c) => typeof c.args[0] === 'string' && c.args[0].startsWith('Rescheduling new attempt')
-      ),
+      logCalls.some((c) => typeof c.args[1] === 'string' && c.args[1].endsWith(', retrying')),
       false
     )
   })
@@ -205,11 +204,13 @@ describe('runJob log level on failure (fake WIKI)', () => {
 
 /**
  * OpenProject #1937: `runJob()`'s catch branch used to log a job's failure as two bare strings, with
- * no way to trace which job (or attempt) a given log line was about. This asserts both failure log
- * calls in that branch now carry `{ jobId, task, attempt }` as a sibling context argument, not folded
- * into the message string. `error` and `warn` share one mock here (task #1993's log-level split
- * routes an exhausted-retries failure to `error`, not `warn`) since this test's own concern is the
- * context payload, not which level a given retry count picks.
+ * no way to trace which job (or attempt) a given log line was about. Since the Phase 2 sweep
+ * (#2665) it is ONE record — scope `jobs`, a sentence, and `{ job, attempts, ms, error }` as fields
+ * (`attempt: 'n/m'` on the still-retryable line; see #2672), with the `Error` itself under `error` so
+ * the renderer puts the message inline and the stack under
+ * it. `error` and `warn` share one mock here (task #1993's log-level split routes an
+ * exhausted-retries failure to `error`, not `warn`) since this test's own concern is the field
+ * payload, not which level a given retry count picks.
  */
 describe('runJob failure logging (fake WIKI)', () => {
   let wikiHandle: { restore(): void }
@@ -247,11 +248,11 @@ describe('runJob failure logging (fake WIKI)', () => {
     wikiHandle.restore()
   })
 
-  test('both failure log calls carry { jobId, task, attempt } as sibling context, not concatenated in', async () => {
+  test('the one failure log call carries { job, attempts, error } as fields, not concatenated in', async () => {
     failureMock.mock.resetCalls()
     // -> retries === maxRetries: no reschedule branch, so this stays free of the Temporal/db.insert
-    //    path that `attempt` here doesn't need. This also means retries are exhausted, so both calls
-    //    log at `error` (task #1993) — `failureMock` above is registered for both levels.
+    //    path that `attempt` here doesn't need. This also means retries are exhausted, so the call
+    //    logs at `error` (task #1993) — `failureMock` above is registered for both levels.
     const job = {
       id: 'job-1',
       task: 'boom',
@@ -263,15 +264,23 @@ describe('runJob failure logging (fake WIKI)', () => {
 
     await scheduler.runJob(job)
 
-    assert.equal(failureMock.mock.callCount(), 2)
-    const expectedContext = { jobId: 'job-1', task: 'boom', attempt: 3 }
-    const [firstCall, secondCall] = failureMock.mock.calls
+    assert.equal(failureMock.mock.callCount(), 1, 'a failure is one record, not two')
+    const [failureCall] = failureMock.mock.calls
 
-    assert.match(firstCall!.arguments[0] as string, /Failed to complete job job-1: boom/)
-    assert.deepEqual(firstCall!.arguments[1], expectedContext)
+    assert.equal(failureCall!.arguments[0], 'jobs')
+    assert.equal(failureCall!.arguments[1], 'boom failed, no attempts left')
 
-    assert.ok(secondCall!.arguments[0] instanceof Error)
-    assert.deepEqual(secondCall!.arguments[1], expectedContext)
+    const fields = failureCall!.arguments[2] as Record<string, unknown>
+    assert.equal(fields.job, 'job-1')
+    // -> The terminal line reports the total, not "3 of 3": there is no next attempt for `n/m` to
+    //    be counting towards, and `attempts=3` is what an operator reads as "it used all three".
+    assert.equal(fields.attempts, 3)
+    assert.equal(fields.attempt, undefined)
+    assert.equal(typeof fields.ms, 'number')
+    // -> The `Error` itself, not `err.message`: the renderer is what turns it into `error="…"` plus
+    //    a stack, and only an `Error` gives it one.
+    assert.ok(fields.error instanceof Error)
+    assert.equal((fields.error as Error).message, 'task exploded')
   })
 })
 
@@ -429,5 +438,192 @@ describe('executeInProcess (fake WIKI)', () => {
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     assert.deepEqual(seenByStaleContinuation, { jobId: 'job-4', attempt: 1 })
+  })
+})
+
+/**
+ * OpenProject #2672: the scheduler owns a job's outcome line, not the task.
+ *
+ * A `tasks/simple/` task hands back `{ summary, ...fields }` when its run amounted to something, and
+ * `runJob()` turns that into the ONE `info` record for the run — carrying the job id, the attempt and
+ * the duration the task itself cannot know. A task that did nothing returns nothing and the run stays
+ * at `debug`, which is what keeps a timer-driven sweep that found nothing out of an operator's log.
+ *
+ * Asserted through a `mock.fn()`-style recorder per level against the real `runJob()`, on scope +
+ * level + the fields object rather than on a rendered string: the rendering is `core/logger.ts`'s
+ * business.
+ */
+describe('runJob outcome logging (fake WIKI)', () => {
+  let wikiHandle: { restore(): void }
+  let logCalls: { level: string; args: any[] }[]
+  let inserted: any[]
+
+  after(() => {
+    wikiHandle.restore()
+  })
+
+  beforeEach(() => {
+    logCalls = []
+    inserted = []
+    const makeLogFn =
+      (level: string) =>
+      (...args: any[]) =>
+        logCalls.push({ level, args })
+    wikiHandle = installTestWiki({
+      INSTANCE_ID: 'test-instance',
+      config: { scheduler: { retryBackoff: 60 } },
+      // -> `null` is a valid, silently-discarded notify target (`helpers/pubsub.ts`), so no real
+      //    LISTEN/NOTIFY client is needed for the `jobCompleted` sends these paths make.
+      scheduler: { pubsubClient: null },
+      logger: {
+        info: makeLogFn('info'),
+        warn: makeLogFn('warn'),
+        error: makeLogFn('error'),
+        debug: makeLogFn('debug')
+      },
+      db: {
+        update: () => ({
+          set: () => ({
+            where: async () => ({ rowCount: 1 })
+          })
+        }),
+        insert: (_table: any) => ({
+          values: async (values: any) => {
+            inserted.push(values)
+            return {}
+          }
+        })
+      }
+    })
+    scheduler.tasks = {}
+  })
+
+  function makeJob(overrides: Record<string, any> = {}) {
+    return {
+      id: 'job-1',
+      task: 'sweep',
+      useWorker: false,
+      payload: {},
+      retries: 0,
+      maxRetries: 3,
+      ...overrides
+    }
+  }
+
+  function callsAt(level: string, message: string) {
+    return logCalls.filter((c) => c.level === level && c.args[1] === message)
+  }
+
+  test("a task's returned summary becomes one info line, in place of the debug finish line", async () => {
+    scheduler.tasks.sweep = async () => ({ summary: 'purged expired user keys', purged: 12 })
+
+    await scheduler.runJob(makeJob())
+
+    const [outcome] = callsAt('info', 'sweep purged expired user keys')
+    assert.ok(outcome, 'the summary must be logged at info, as the task name plus the sentence')
+    assert.equal(outcome.args[0], 'jobs')
+    const fields = outcome.args[2] as Record<string, unknown>
+    assert.equal(fields.job, 'job-1')
+    // -> `n/m`, not a bare `n`: `maxRetries` counts retries, so four attempts is what a job with
+    //    `maxRetries: 3` actually gets, and the line has to say so without the reader knowing that.
+    assert.equal(fields.attempt, '1/4')
+    assert.equal(fields.purged, 12, "the summary's own fields ride the same record")
+    assert.equal(typeof fields.ms, 'number', 'ms is a number, for the renderer to humanise')
+    assert.equal(fields.summary, undefined, 'the sentence is the message, not also a field')
+    assert.equal(
+      callsAt('debug', 'sweep finished').length,
+      0,
+      'the info outcome replaces the debug finish line rather than joining it'
+    )
+  })
+
+  test('a task that returns nothing logs the debug finish line and no info at all', async () => {
+    scheduler.tasks.sweep = async () => {}
+
+    await scheduler.runJob(makeJob())
+
+    const [finished] = callsAt('debug', 'sweep finished')
+    assert.ok(finished, 'a run that reported nothing still records that it ran, at debug')
+    assert.equal((finished.args[2] as Record<string, unknown>).attempt, '1/4')
+    assert.equal(
+      logCalls.filter((c) => c.level === 'info').length,
+      0,
+      'a sweep that found nothing must not reach an operator shipping info'
+    )
+  })
+
+  test('a non-object return — what a worker-thread job resolves — is not a summary', async () => {
+    // -> `worker.ts`'s `ThreadWorker` resolves `true`, never the task's own value, so every worker
+    //    job lands here rather than in the summary branch.
+    scheduler.tasks.sweep = async () => true
+
+    await scheduler.runJob(makeJob())
+
+    assert.equal(callsAt('debug', 'sweep finished').length, 1)
+    assert.equal(logCalls.filter((c) => c.level === 'info').length, 0)
+  })
+
+  test('an object with no usable summary string is not a summary either', async () => {
+    scheduler.tasks.sweep = async () => ({ summary: '', purged: 3 })
+
+    await scheduler.runJob(makeJob())
+
+    assert.equal(callsAt('debug', 'sweep finished').length, 1)
+    assert.equal(logCalls.filter((c) => c.level === 'info').length, 0)
+  })
+
+  test('the start line names the attempt out of the total', async () => {
+    scheduler.tasks.sweep = async () => {}
+
+    await scheduler.runJob(makeJob({ retries: 2, maxRetries: 3 }))
+
+    const [started] = callsAt('debug', 'sweep started')
+    assert.ok(started)
+    assert.equal(started.args[0], 'jobs')
+    assert.deepEqual(started.args[2], { job: 'job-1', attempt: '3/4' })
+  })
+
+  test('a retryable failure names the instant the retry is actually queued for', async () => {
+    scheduler.tasks.sweep = async () => {
+      throw new Error('transient failure')
+    }
+
+    await scheduler.runJob(makeJob({ retries: 1, maxRetries: 3 }))
+
+    const [retrying] = callsAt('warn', 'sweep failed, retrying')
+    assert.ok(retrying)
+    const fields = retrying.args[2] as Record<string, unknown>
+    assert.equal(fields.attempt, '2/4')
+    assert.ok(fields.error instanceof Error)
+    // -> Not merely "an ISO-looking string": the whole point of the field is that it is the row's
+    //    real `waitUntil`, so it must equal what the requeue insert actually wrote.
+    const requeued = inserted.find((values) => values.waitUntil instanceof Date)
+    assert.ok(requeued, 'a retryable failure requeues the job')
+    assert.equal(
+      fields.next,
+      requeued.waitUntil.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
+    )
+    // -> retryBackoff 60 with retries: 1 -> 2**1 * 60 = 120s out, so this is unmistakably the
+    //    backoff rather than "now".
+    assert.ok(requeued.waitUntil.getTime() - Date.now() > 100_000)
+  })
+
+  test('a terminal failure names no next run, because there is not one', async () => {
+    scheduler.tasks.sweep = async () => {
+      throw new Error('permanent failure')
+    }
+
+    await scheduler.runJob(makeJob({ retries: 3, maxRetries: 3 }))
+
+    const [terminal] = callsAt('error', 'sweep failed, no attempts left')
+    assert.ok(terminal)
+    const fields = terminal.args[2] as Record<string, unknown>
+    assert.equal(fields.attempts, 4)
+    assert.equal(fields.next, undefined)
+    assert.equal(
+      inserted.filter((values) => values.waitUntil instanceof Date).length,
+      0,
+      'nothing is requeued once the attempts are used up'
+    )
   })
 })

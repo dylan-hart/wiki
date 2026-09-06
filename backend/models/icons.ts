@@ -255,7 +255,7 @@ class Icons {
         refreshedAt: new Date()
       })
       .returning()
-    WIKI.logger.info(`Added icon set ${prefix} [ OK ]`)
+    WIKI.logger.info('icons', 'added icon set', { prefix })
     const set = inserted[0]!
     // -> A set that was just added has no icons stored for it yet, so there is no need to ask --
     //    `iconCount` is only ever 0 the moment a set is created.
@@ -297,7 +297,7 @@ class Icons {
     }
     await fs.rm(path.join(this.cachePath, prefix), { recursive: true, force: true })
 
-    WIKI.logger.info(`Deleted icon set ${prefix} [ OK ]`)
+    WIKI.logger.info('icons', 'deleted icon set', { prefix })
     return deletedIcons.rowCount ?? 0
   }
 
@@ -317,7 +317,7 @@ class Icons {
       if (!info) {
         // -> A set can be renamed or withdrawn upstream. Keeping the row is the right call: its icons
         //    are stored here and content still references them.
-        WIKI.logger.warn(`Icon set ${set.prefix} is no longer offered upstream [ SKIPPED ]`)
+        WIKI.logger.warn('icons', 'icon set is no longer offered upstream', { prefix: set.prefix })
         continue
       }
       await WIKI.db
@@ -519,9 +519,10 @@ class Icons {
       return { icons: {}, notFound: names }
     }
     if (!this.claimUpstreamBudget()) {
-      WIKI.logger.warn(
-        `Upstream icon request budget exhausted, not fetching ${prefix}:${asking.join(',')} [ SKIPPED ]`
-      )
+      WIKI.logger.warn('icons', 'upstream request budget exhausted, not fetching', {
+        prefix,
+        icons: asking.join(',')
+      })
       return { icons: {}, notFound: names }
     }
 
@@ -531,8 +532,11 @@ class Icons {
         `/${prefix}.json?icons=${asking.map(encodeURIComponent).join(',')}`
       )) as IconifyJSON
     } catch (err: any) {
-      WIKI.logger.warn(`Could not fetch icons from ${this.apiUrl} [ FAILED ]`)
-      WIKI.logger.warn(err.message)
+      WIKI.logger.warn('icons', 'fetching icons upstream failed', {
+        url: this.apiUrl,
+        prefix,
+        error: err
+      })
       return { icons: {}, notFound: names }
     }
 
@@ -548,7 +552,7 @@ class Icons {
       }
       if (!isSafeIconBody(data.body)) {
         notFound.push(name)
-        WIKI.logger.warn(`Refused unsafe icon body for ${prefix}:${name} [ FAILED ]`)
+        WIKI.logger.warn('icons', 'refused an unsafe icon body', { prefix, icon: name })
         continue
       }
       icons[name] = data
@@ -558,7 +562,7 @@ class Icons {
     }
 
     if (Object.keys(icons).length > 0) {
-      WIKI.logger.debug(`Stored ${Object.keys(icons).length} new icons for set ${prefix} [ OK ]`)
+      WIKI.logger.debug('icons', 'stored new icons', { prefix, icons: Object.keys(icons).length })
     }
     return { icons, notFound: [...notFound, ...names.filter((n) => !asking.includes(n))] }
   }
@@ -753,8 +757,7 @@ class Icons {
       await fs.writeFile(tempPath, JSON.stringify(icon), 'utf8')
       await fs.rename(tempPath, filePath)
     } catch (err: any) {
-      WIKI.logger.warn(`Could not write ${filePath} to the icon cache [ SKIPPED ]`)
-      WIKI.logger.warn(err.message)
+      WIKI.logger.warn('icons', 'writing to the icon cache failed', { path: filePath, error: err })
       await fs.rm(tempPath, { force: true }).catch(() => {})
     }
   }
@@ -768,7 +771,7 @@ class Icons {
     this.catalogCache.clear()
     await fs.rm(this.cachePath, { recursive: true, force: true })
     await fs.mkdir(this.cachePath, { recursive: true })
-    WIKI.logger.info('Purged the icon cache [ OK ]')
+    WIKI.logger.info('icons', 'purged the icon cache')
   }
 
   /**
@@ -828,11 +831,11 @@ class Icons {
   async apiFetch(pathname: string): Promise<any> {
     if (WIKI.config.offline) {
       return Promise.reject(
-        new Error('Wiki.js is in offline mode and cannot reach the Iconify API.')
+        new Error('Cardinal.js is in offline mode and cannot reach the Iconify API.')
       )
     }
     const url = `${this.apiUrl}${pathname}`
-    WIKI.logger.debug(`Fetching ${url}`)
+    WIKI.logger.debug('icons', 'fetching upstream', { url })
     const resp = await fetch(url, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(15_000)
@@ -868,8 +871,10 @@ class Icons {
     try {
       await fs.mkdir(this.cachePath, { recursive: true })
     } catch (err: any) {
-      WIKI.logger.warn(`Could not create the icon cache directory ${this.cachePath} [ SKIPPED ]`)
-      WIKI.logger.warn(err.message)
+      WIKI.logger.warn('icons', 'creating the icon cache directory failed', {
+        path: this.cachePath,
+        error: err
+      })
     }
   }
 
@@ -886,7 +891,7 @@ class Icons {
    * database that migration and this seed both run, in that order, and both name `tabler`.
    */
   async init(): Promise<void> {
-    WIKI.logger.info('Inserting default icon sets...')
+    WIKI.logger.debug('config', 'seeding the default icon sets')
     await WIKI.db
       .insert(iconSetsTable)
       .values(DEFAULT_SETS.map((set) => ({ ...set, isEnabled: true })))

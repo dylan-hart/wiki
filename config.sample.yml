@@ -1,5 +1,5 @@
 #######################################################################
-# Wiki.js - CONFIGURATION                                             #
+# Cardinal.js - CONFIGURATION                                         #
 #######################################################################
 # Full documentation + examples:
 # https://next.js.wiki/docs/install
@@ -56,7 +56,7 @@ db:
   db: postgres
   schema: wiki
   # -> This is the Postgres connection's own TLS setting, not application-level TLS for the wiki
-  #    itself — Wiki.js never terminates HTTPS; see docs/tls-termination.md.
+  #    itself — Cardinal.js never terminates HTTPS; see docs/tls-termination.md.
   ssl: false
 
   # Optional
@@ -116,13 +116,86 @@ bindIP: 0.0.0.0
 # ---------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------
-# Possible values: error, warn, info (default), debug
+# Every line is `<timestamp> <level> <scope>  <message>  <key=value ...>`;
+# `scope` names the subsystem (db, http, jobs, storage, ...) and is what makes
+# a grep useful. See docs/operations.md#logs for the full scope table.
+#
+# The threshold. Possible values: error, warn, info (default), debug
+#   error  something is broken and a person has to act
+#   warn   degraded, self-healing, or a configuration smell
+#   info   a state change worth having in the record
+#   debug  per-item, per-request, per-tick -- the access log, every job tick,
+#          and the sqlLog / authDebug firehoses
+# The 2.x levels `verbose` and `silly` do not exist here. Case-sensitive, and
+# enforced: anything else refuses to start rather than quietly logging
+# everything.
 
 logLevel: info
 
-# Output format for logging, possible values: default, json
+# Output format, possible values: text, json
+#   text  human-readable, coloured on a TTY -- for tailing one process
+#   json  one object per line, with the instance id on every record -- for a
+#         log shipper or an aggregator
+# (`default` was this value's old name; there is no alias for it.)
+# Enforced the same way as logLevel above.
 
-logFormat: default
+logFormat: text
+
+# There is no log FILE, by design: lines go to stdout and nowhere else, plus an
+# in-memory ring buffer of the last 500 replayed to the admin log view.
+# Capturing them durably is the operator's job.
+
+# Optional per-scope thresholds. Every line names exactly one subsystem, from
+# the closed vocabulary in backend/core/logScopes.ts (documented as a table in
+# docs/operations.md#logs), and an entry here sets the level for that scope
+# alone -- `logLevel` above stays the default for every scope that says nothing.
+# An entry can quieten a scope as well as raise it.
+#
+# The worked example: the HTTP access log is a `debug http` line, so at the
+# default `logLevel: info` there is no access log at all. This is how you turn
+# one on without also turning on every other per-request line in the server:
+#
+# logScopes:
+#   http: debug
+#   sql: error
+#
+# Validated at boot the same way as logLevel and logFormat: an unknown scope
+# name or an unknown level is a one-line refusal and exit(1), not a typo that
+# quietly traces nothing.
+#
+# The two admin system flags are the live counterpart, for a scope you want to
+# raise without a restart: `sqlLog` raises `sql` to debug and `authDebug` raises
+# `auth` to debug, from the next line onwards. A flag wins over an entry here.
+
+# ---------------------------------------------------------------------
+# Slow query threshold
+# ---------------------------------------------------------------------
+# Milliseconds. 0 (the default) is off. Set a positive value and every query
+# the main Postgres pool runs that takes at least that long emits one line:
+#
+#   warn  sql       slow query  rows=1 query="select ..." params=(2 params: string(36), object) in 1.4s
+#
+# Bound parameter VALUES are never logged, here or anywhere -- only a
+# type/length descriptor per parameter, exactly as the `sql` firehose does.
+# The query text is truncated to its first 200 characters.
+#
+# This is not a second logging level: the line is a `warn` on the `sql` scope,
+# so `logScopes: { sql: error }` quietens it along with the firehose. It is
+# also a FILE setting, not one of the admin flags above -- changing it takes a
+# restart, the same as `pool` below it.
+#
+# Related, and worth setting together: `pool.statementTimeoutMillis` (above,
+# default 60000) is the hard ceiling at which Postgres CANCELS a query outright.
+# `slowQueryMs` is the softer "tell me before it gets there" signal, so a useful
+# starting point is well under that ceiling -- 1000 or so on a healthy instance.
+#
+# Timing sits below Drizzle, on the pool itself, so it covers raw
+# `db.execute()` calls and the boot-time migration runner as well as ordinary
+# ORM traffic: expect a burst of slow lines on the first boot after an upgrade
+# that applies a large migration. The three permanently-held LISTEN/NOTIFY
+# connections use a separate pool and are not timed.
+
+slowQueryMs: 0
 
 # ---------------------------------------------------------------------
 # Offline Mode
@@ -203,6 +276,5 @@ update:
 
 dev:
   dropSchema: false
-  logQueries: false
   port: 3001
   hmrClientPort: 3001

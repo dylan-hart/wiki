@@ -59,6 +59,32 @@ export type UploadConflictBehavior = 'overwrite' | 'reject' | 'new'
 
 const UPLOAD_CONFLICT_BEHAVIORS = new Set<UploadConflictBehavior>(['overwrite', 'reject', 'new'])
 
+/**
+ * Who a delete is attributed to in the content lifecycle log (OpenProject #2674).
+ *
+ * An optional field on an options object rather than a new positional argument, deliberately: an
+ * unswept caller (a future storage module, a maintenance script) is then a line reading `user=system`
+ * rather than a compile error, and the deletion itself never depended on knowing who asked for it.
+ * `authorId` is the actor's own id — the same value `upload()` already takes and stores on the row —
+ * never an e-mail address.
+ */
+export interface AssetDeleteOptions {
+  authorId?: string | null
+}
+
+/**
+ * The `user=` field every `assets` lifecycle line carries. `system` stands in for a write with no
+ * actor behind it (a storage sync, a folder sweep reached from somewhere that never had one).
+ */
+function actorFields(authorId?: string | null): { user: string } {
+  return { user: authorId || 'system' }
+}
+
+/** Where a file sits, as one readable value: `folder/path/file.png`, or just `file.png` at the root. */
+function assetPath(folderPath: string, fileName: string): string {
+  return folderPath ? `${folderPath}/${fileName}` : fileName
+}
+
 /** Extensions that count as a document rather than "other". */
 const DOCUMENT_EXTS = new Set([
   'csv',
@@ -346,13 +372,15 @@ class Assets {
       throw err
     }
 
+    const folderPath = decodeTreePath(entry.folderPath ?? '') ?? ''
+
     await announce(
       'asset:upload',
       siteId,
       {
         id: entry.id,
         fileName: storedName,
-        folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
+        folderPath,
         siteId,
         authorId
       },
@@ -362,6 +390,18 @@ class Assets {
       }
     )
 
+    // -> The content lifecycle line (OpenProject #2674), from the model rather than from
+    //    `api/assets.ts`, so the file manager, the MCP `uploadAsset` tool, the 2.5.x import and a
+    //    git/disk storage import all produce the identical line.
+    WIKI.logger.info('assets', 'uploaded', {
+      site: siteId,
+      asset: entry.id,
+      path: assetPath(folderPath, storedName),
+      bytes: fileData.length,
+      kind,
+      ...actorFields(authorId)
+    })
+
     return {
       id: entry.id,
       fileName: storedName,
@@ -369,7 +409,7 @@ class Assets {
       kind,
       mimeType: resolvedMime,
       fileSize: fileData.length,
-      folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
+      folderPath,
       title: entry.title,
       hasPreview: Boolean(preview),
       createdAt: entry.createdAt,
@@ -452,6 +492,19 @@ class Assets {
         dispatchExtra: { kind, fileSize: data.length }
       }
     )
+
+    // -> Still an upload from the operator's point of view (OpenProject #2674) -- somebody sent a file
+    //    and the site now serves those bytes at that path. `overwrite` is what distinguishes it from
+    //    a file arriving at a name nothing held.
+    WIKI.logger.info('assets', 'uploaded', {
+      site: siteId,
+      asset: id,
+      path: assetPath(folderPath, fileName),
+      bytes: data.length,
+      kind,
+      overwrite: true,
+      ...actorFields(authorId)
+    })
 
     const updated = await this.getAsset(siteId, id)
     // -> Only if the row vanished between the update and the read, which means someone deleted the
@@ -797,9 +850,14 @@ class Assets {
   /**
    * Delete an asset and the tree entry that points at it.
    *
+   * @param authorId Who asked for it, for the lifecycle log line alone — see `AssetDeleteOptions`.
    * @returns Whether an asset was deleted
    */
-  async deleteAsset(siteId: string, id: string): Promise<boolean> {
+  async deleteAsset(
+    siteId: string,
+    id: string,
+    { authorId }: AssetDeleteOptions = {}
+  ): Promise<boolean> {
     const asset = await this.getAsset(siteId, id)
     if (!asset) {
       return false
@@ -821,13 +879,27 @@ class Assets {
       { dispatchExtra: { kind: asset.kind, fileSize: asset.fileSize } }
     )
 
+    WIKI.logger.info('assets', 'deleted', {
+      site: siteId,
+      asset: id,
+      path: assetPath(asset.folderPath, asset.fileName),
+      kind: asset.kind,
+      ...actorFields(authorId)
+    })
+
     return true
   }
 
   /**
    * Delete the assets left behind by a folder deletion, which removed their tree entries already.
+   *
+   * @param authorId Who asked for it, for the lifecycle log lines alone — see `AssetDeleteOptions`.
    */
-  async deleteOrphaned(siteId: string, entries: DeletedEntry[]): Promise<void> {
+  async deleteOrphaned(
+    siteId: string,
+    entries: DeletedEntry[],
+    { authorId }: AssetDeleteOptions = {}
+  ): Promise<void> {
     if (entries.length < 1) {
       return
     }
@@ -863,6 +935,17 @@ class Assets {
         },
         { dispatchExtra: { kind: row?.kind, fileSize: row?.fileSize } }
       )
+      // -> One per file, for the same reason the `announce` above is per file (OpenProject #2674):
+      //    each of these really is a file leaving the wiki. `cascade` says it was the folder over it
+      //    that was deleted, not the file itself.
+      WIKI.logger.info('assets', 'deleted', {
+        site: siteId,
+        asset: entry.id,
+        path: assetPath(entry.folderPath, entry.fileName),
+        ...(row?.kind ? { kind: row.kind } : {}),
+        cascade: 'folder',
+        ...actorFields(authorId)
+      })
     }
   }
 }

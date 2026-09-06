@@ -219,8 +219,8 @@ const HASHED_ASSET_PATTERN = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
  * base62-ish string) before the extension to every build output except the handful of names it pins
  * on purpose (`renderer.js`, kept fixed because a static server-rendered page references it by name)
  * — those, plus the hand-authored trees under `assets/_assets` that never go through vite at all
- * (`bg/`, `fonts/`, `icons/`, `illustrations/`, `logo-wikijs.svg`, `storage/`, `svg/`), are exactly
- * the entries this returns `false` for.
+ * (`fonts/`, `icons/`, `illustrations/`, `logo-wikijs.svg`, `storage/`, `svg/`), are exactly the
+ * entries this returns `false` for.
  *
  * @param filename Basename only (`path.basename(filePath)`), not a full path
  */

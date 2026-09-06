@@ -1,11 +1,12 @@
-import { after, before, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { login } from './login.ts'
+import { login, LOGIN_REFUSAL_REASONS } from './login.ts'
 import { userCredentials } from './userCredentials.ts'
 import { createWikiStub, installTestWiki } from '../test/mocks.ts'
 import { users } from './users.ts'
 import { ProvisionableLoginError } from './authentication.ts'
 import { AccountRateLimitedError } from '../helpers/rateLimit.ts'
+import { resetCoalesce } from '../helpers/logCoalesce.ts'
 
 /**
  * `syncProviderGroups` reconciles a user's wiki group membership with what an identity provider just
@@ -792,5 +793,315 @@ describe('login.login (empty/missing password guard)', () => {
       /ERR_LOGIN_FAILED/
     )
     assert.equal(authenticate.mock.calls.length, 0)
+  })
+})
+
+/**
+ * What the server log says about a login (OpenProject #2673).
+ *
+ * The audit table's `login.success` / `login.failed` rows are unchanged and are not what this
+ * covers — these are the operator-facing lines beside them: one `info auth login` when a session is
+ * actually created, and one `warn auth login refused` per refusal, each carrying a `reason` drawn
+ * from the closed {@link LOGIN_REFUSAL_REASONS} vocabulary rather than free text.
+ *
+ * Pure: no database and no real logger. Every case drives a real refusal branch and reads the
+ * arguments the logger stub was called with, so a branch rewired to a different reason (or to no
+ * line at all) fails here rather than passing quietly.
+ */
+describe('login outcome logging', () => {
+  const strategyId = 'strategy-1'
+  const ip = '203.0.113.11'
+  const siteId = 'site-1'
+
+  let warn: ReturnType<typeof mock.fn>
+  let info: ReturnType<typeof mock.fn>
+  let wiki: { restore(): void } | undefined
+
+  /** Every `warn('auth', message, fields)` call, as `[message, fields]`. */
+  const warnCalls = (): Array<[string, any]> =>
+    warn.mock.calls.map((call: any) => [call.arguments[1], call.arguments[2]])
+
+  /** The single refusal line one case produced, asserted to be exactly one. */
+  function soleRefusal(): { message: string; fields: any } {
+    const calls = warnCalls().filter(([message]) => message === 'login refused')
+    assert.equal(calls.length, 1, `expected one refusal line, got ${JSON.stringify(warnCalls())}`)
+    return { message: calls[0][0], fields: calls[0][1] }
+  }
+
+  function installWiki(overrides: Record<string, any> = {}): void {
+    wiki?.restore()
+    warn = mock.fn()
+    info = mock.fn()
+    wiki = installTestWiki({
+      logger: { warn, info, debug: mock.fn() },
+      config: {
+        security: {
+          authRateLimitEnabled: true,
+          authRateLimitMax: 10,
+          authRateLimitWindow: '5m',
+          authRateLimitBan: '15m'
+        }
+      },
+      data: { authentication: [{ key: 'local', useForm: true }] },
+      auth: { strategies: {} },
+      models: {
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
+        auditLog: { record: async () => {} }
+      },
+      ...overrides
+    })
+  }
+
+  /** A form-based strategy whose `authenticate()` does whatever the case needs. */
+  function withStrategy(authenticate: () => Promise<any>): void {
+    installWiki({
+      auth: { strategies: { [strategyId]: { module: 'local', authenticate } } }
+    })
+  }
+
+  beforeEach(() => {
+    // -> `logLoginRefused` coalesces per address across calls, and the pending windows are module
+    //    level — a burst left over from one case would silence the next case's first refusal.
+    resetCoalesce()
+    installWiki()
+  })
+
+  afterEach(() => {
+    resetCoalesce()
+    wiki?.restore()
+    wiki = undefined
+  })
+
+  test('every reason a branch produces is a member of the closed vocabulary', () => {
+    assert.equal(
+      new Set(LOGIN_REFUSAL_REASONS).size,
+      LOGIN_REFUSAL_REASONS.length,
+      'no duplicate reasons'
+    )
+    for (const reason of LOGIN_REFUSAL_REASONS) {
+      assert.match(reason, /^[a-z]+(-[a-z]+)*$/, `${reason} should be lowercase and hyphenated`)
+    }
+  })
+
+  test('refuses a form login with no password as reason=no-password', async () => {
+    withStrategy(async () => {
+      throw new Error('should not be called')
+    })
+
+    await assert.rejects(
+      login.login({ siteId, strategyId, username: 'ada', password: '', ip }, { session: {} })
+    )
+
+    const { fields } = soleRefusal()
+    assert.equal(fields.reason, 'no-password')
+    assert.deepEqual(fields, { reason: 'no-password', strategy: strategyId, site: siteId, ip })
+  })
+
+  test('refuses a rejected credential as reason=bad-credentials, naming neither user nor password', async () => {
+    withStrategy(async () => {
+      throw new Error('Invalid password')
+    })
+
+    await assert.rejects(
+      login.login({ siteId, strategyId, username: 'ada', password: 'hunter2', ip }, { session: {} })
+    )
+
+    const { fields } = soleRefusal()
+    assert.equal(fields.reason, 'bad-credentials')
+    // -> The submitted identifier and the password are the audit row's business, under access
+    //    control the server log has none of.
+    const rendered = JSON.stringify(fields)
+    assert.ok(!rendered.includes('ada'), 'no submitted username in the line')
+    assert.ok(!rendered.includes('hunter2'), 'no password in the line')
+    assert.ok(!rendered.includes('@'), 'no e-mail address in the line')
+  })
+
+  test('refuses an unknown strategy as reason=unknown-strategy', async () => {
+    await assert.rejects(
+      login.login(
+        { siteId, strategyId: 'nope', username: 'ada', password: 'pw', ip },
+        { session: {} }
+      )
+    )
+
+    const { fields } = soleRefusal()
+    assert.equal(fields.reason, 'unknown-strategy')
+    assert.equal(fields.strategy, 'nope')
+  })
+
+  test('refuses an account-rate-limited attempt as reason=account-rate-limited', async () => {
+    withStrategy(async () => {
+      throw new Error('should not be called')
+    })
+    ;(WIKI as any).models.rateLimits.consume = async () => ({
+      allowed: false,
+      hits: 11,
+      retryAfter: 900
+    })
+
+    await assert.rejects(
+      login.login({ siteId, strategyId, username: 'ada', password: 'pw', ip }, { session: {} }),
+      /ERR_RATE_LIMITED/
+    )
+
+    assert.equal(soleRefusal().fields.reason, 'account-rate-limited')
+  })
+
+  test('refuses a deactivated account as reason=inactive-user, naming the account by id', async () => {
+    installWiki({ auth: { strategies: { [strategyId]: { module: 'local' } } } })
+
+    await assert.rejects(
+      login.afterLoginChecks(
+        { id: 'user-7', email: 'ada@example.com', isActive: false, isVerified: true, auth: {} },
+        strategyId,
+        { ip, siteId }
+      ),
+      /ERR_INACTIVE_USER/
+    )
+
+    const { fields } = soleRefusal()
+    assert.deepEqual(fields, {
+      reason: 'inactive-user',
+      strategy: strategyId,
+      site: siteId,
+      ip,
+      user: 'user-7'
+    })
+    assert.ok(!JSON.stringify(fields).includes('@'), 'the id, never the address')
+  })
+
+  test('refuses an unverified account as reason=user-not-verified', async () => {
+    installWiki({ auth: { strategies: { [strategyId]: { module: 'local' } } } })
+
+    await assert.rejects(
+      login.afterLoginChecks(
+        { id: 'user-7', email: 'ada@example.com', isActive: true, isVerified: false, auth: {} },
+        strategyId,
+        { ip, siteId }
+      ),
+      /ERR_USER_NOT_VERIFIED/
+    )
+
+    assert.equal(soleRefusal().fields.reason, 'user-not-verified')
+  })
+
+  test('refuses a login through a strategy that is no longer loaded as reason=unknown-strategy', async () => {
+    await assert.rejects(
+      login.afterLoginChecks({ id: 'user-7', auth: {} }, 'gone', { ip, siteId }),
+      /ERR_INVALID_STRATEGY/
+    )
+
+    assert.equal(soleRefusal().fields.reason, 'unknown-strategy')
+  })
+
+  test('refuses a wrong 2FA code as reason=tfa-incorrect-code', async (t) => {
+    installWiki({
+      auth: { strategies: { strat: { module: 'local' } } },
+      models: {
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
+        userCredentials
+      },
+      // -> `countTfaFailure` is a module function rather than a method on `userCredentials`, so it
+      //    cannot be mocked out; it is let run against a `select()` chain answering no rows, which
+      //    is its own early return.
+      db: {
+        select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) })
+      }
+    })
+    const user = { id: 'user-7', email: 'ada@example.com', auth: { strat: {} } }
+    t.mock.method(userCredentials, 'validateToken', async () => ({ user, strategyId: 'strat' }))
+    t.mock.method(userCredentials, 'verifyTfaCode', async () => false)
+
+    await assert.rejects(
+      login.loginTFA(
+        { strategyId: 'strat', siteId, securityCode: '123456', continuationToken: 'tok', ip },
+        {}
+      ),
+      /ERR_TFA_INCORRECT_TOKEN/
+    )
+
+    const { fields } = soleRefusal()
+    assert.equal(fields.reason, 'tfa-incorrect-code')
+    assert.equal(fields.user, 'user-7')
+    assert.ok(!JSON.stringify(fields).includes('@'))
+  })
+
+  test('logs one info auth login when a session is actually created', async () => {
+    installWiki({
+      auth: { strategies: { [strategyId]: { module: 'local', config: {} } } },
+      models: {
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
+        auditLog: { record: async () => {} },
+        hooks: { emit: async () => {} },
+        users: { updateSession: async () => {} }
+      },
+      db: {
+        query: { users: { findFirst: () => Promise.resolve({ groups: [] }) } },
+        update: () => ({ set: () => ({ where: async () => {} }) })
+      }
+    })
+
+    const result = await login.afterLoginChecks(
+      { id: 'user-7', email: 'ada@example.com', isActive: true, isVerified: true, auth: {} },
+      strategyId,
+      { ip, siteId },
+      { skipTFA: true, skipChangePwd: true },
+      { session: { permissions: [] } }
+    )
+
+    assert.equal(result.authenticated, true)
+    const logins = info.mock.calls.filter((call: any) => call.arguments[1] === 'login')
+    assert.equal(logins.length, 1)
+    assert.deepEqual(logins[0].arguments[0], 'auth')
+    assert.deepEqual(logins[0].arguments[2], {
+      user: 'user-7',
+      strategy: strategyId,
+      site: siteId
+    })
+    assert.equal(warn.mock.calls.length, 0, 'a successful login refuses nothing')
+  })
+
+  test('twenty wrong passwords from one address are three lines and one summary', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    withStrategy(async () => {
+      throw new Error('Invalid password')
+    })
+
+    for (let i = 0; i < 20; i += 1) {
+      await assert.rejects(
+        login.login({ siteId, strategyId, username: 'ada', password: `guess-${i}`, ip }, {})
+      )
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three lines')
+
+    // -> `authRateLimitWindow: '5m'` is the window the summary closes on.
+    mock.timers.tick(300_000)
+    const calls = warnCalls()
+    assert.equal(calls.length, 4)
+    assert.deepEqual(calls[3], ['login refused 20 times in 300s', { ip, strategy: strategyId }])
+    mock.timers.reset()
+  })
+
+  test('one address burst does not silence another address', async () => {
+    withStrategy(async () => {
+      throw new Error('Invalid password')
+    })
+
+    for (let i = 0; i < 8; i += 1) {
+      await assert.rejects(
+        login.login({ siteId, strategyId, username: 'ada', password: 'x', ip }, {})
+      )
+    }
+    await assert.rejects(
+      login.login({ siteId, strategyId, username: 'grace', password: 'x', ip: '198.51.100.22' }, {})
+    )
+
+    assert.deepEqual(
+      warnCalls().map(([, fields]) => fields.ip),
+      [ip, ip, ip, '198.51.100.22']
+    )
   })
 })

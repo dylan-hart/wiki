@@ -2,7 +2,17 @@
   <div class="site-header bg-header text-ink dark:text-text-dark">
     <div class="flex flex-nowrap">
       <w-toolbar style="height: 64px">
-        <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
+        <!--
+          On the same `header-nav-btn` band as the five icon buttons at the far end of this 64px bar
+          (and `AccountMenu`'s avatar): a flush, squared 64x64 target whose hover lights the header's
+          full height, rather than the smaller rounded box `WBtn`'s own dense sizing draws around a
+          34px mark. `flat` alone, no `dense` -- `_base.scss`'s rule overrides both of `dense`'s
+          effects with `!important` anyway, so leaving it on would only misdescribe the button.
+
+          The mark stays 34px: that is what `ui-redesign/Cardinal Wiki - Ledger 3x.dc.html` draws it
+          at, so the 15px of inset on each side inside the square is the intended figure, not slack.
+        -->
+        <w-btn class="header-nav-btn" flat to="/" :aria-label="t(`common.header.home`)">
           <w-avatar v-if="siteStore.logoText" size="34px" square>
             <img :src="`/_site/current/logo`" alt="" />
           </w-avatar>
@@ -101,15 +111,18 @@
             OpenProject #2024: this badge counts unread page-watch notifications
             (`unreadNotifications` below), so it has to open onto the tab that actually lists them --
             the Inbox overlay's Watching tab (OpenProject #2531 converted `/_inbox/*` from routes to a
-            `MainOverlayDialog` entry). `tabler:bell` matches the icon `InboxOverlay`'s sidenav uses for
-            that tab, so the glyph agrees with the destination instead of pointing at the unrelated
-            `tabler:inbox` glyph.
+            `MainOverlayDialog` entry). The glyph follows the destination: `tabler:inbox` is what
+            `InboxOverlay` draws for itself (its own header icon, and the `watching` sidenav entry this
+            button lands on), so the two agree (OpenProject #2619 -- they had drifted apart, this
+            button still on `tabler:bell` after the overlay moved, with `inboxGlyph.test.js` now
+            asserting the equality against `InboxOverlay.vue` rather than against a fixed name --
+            for `HeaderActionsMenu.vue`'s collapsed copy of this same row too).
           -->
           <w-btn
             v-if="userStore.authenticated"
             class="header-nav-btn"
             flat
-            icon="tabler:bell"
+            icon="tabler:inbox"
             color="slate-soft"
             :aria-label="t(`inbox.title`)"
             @click="openInbox">

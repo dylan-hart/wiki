@@ -23,7 +23,7 @@ describe('search db module definition', () => {
     assert.equal(parsed.title, 'Database')
     assert.equal(typeof parsed.description, 'string')
     assert.ok(parsed.description.length > 0)
-    assert.equal(parsed.vendor, 'Wiki.js')
+    assert.equal(parsed.vendor, 'Cardinal.js')
     assert.equal(parsed.website, 'https://js.wiki')
   })
 

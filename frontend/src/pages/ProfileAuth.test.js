@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ProfileAuth from './ProfileAuth.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
@@ -134,5 +135,73 @@ describe('ProfileAuth recovery-code count', () => {
     expect(wrapper.text()).not.toContain('recovery codes remaining')
     // -> The rest of the auth method row still rendered fine
     expect(wrapper.text()).toContain('Local')
+  })
+})
+
+/**
+ * OpenProject #2701 -- the section on the settings pattern. Two cards (the auth methods, the
+ * passkeys), a row per entry, the provider's own logo on the plate rather than a generic glyph, and
+ * everything the row has to say about itself -- the password-login state, the recovery-code count --
+ * in the one hint column under the label instead of in two separate side sections.
+ */
+describe('ProfileAuth on the settings pattern', () => {
+  it('draws the auth methods as settings rows, each plated with its own provider logo', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod({ isTfaSetup: false })],
+      recoveryCodesResponse: { ok: true, total: 10, remaining: 10 }
+    })
+
+    const rows = wrapper.findAll('.w-settings-row')
+    // -> One auth method; `mountPage` stubs no passkeys, and the passkeys card is only drawn when
+    //    there is one to put in it
+    expect(rows).toHaveLength(1)
+    expect(rows[0].find('.w-settings-row__label').text()).toBe('Local')
+    expect(rows[0].find('.blueprint-icon img').attributes('src')).toBe('ultraviolet-local.svg')
+    expect(wrapper.findAll('.w-settings-card')).toHaveLength(1)
+  })
+
+  it('puts the recovery-code count in the row hint rather than beside the control', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod()],
+      recoveryCodesResponse: { ok: true, total: 10, remaining: 2 }
+    })
+
+    const hint = wrapper.find('.w-settings-row .w-settings-row__hint')
+    expect(hint.text()).toContain('2 of 10 recovery codes remaining')
+    expect(hint.text()).toContain('running low')
+    expect(wrapper.find('.w-settings-row__control').text()).not.toContain('recovery codes')
+  })
+
+  it('adds a passkeys card once there is a passkey, and keeps Add outside it either way', async () => {
+    stubApi({
+      'users/profile/auth': {
+        authMethods: [localAuthMethod({ isTfaSetup: false })],
+        passkeys: [
+          {
+            id: 'pk-1',
+            name: 'Yubikey 5',
+            siteHostname: 'wiki.example',
+            createdAt: '2026-01-01T00:00:00.000Z'
+          }
+        ]
+      }
+    })
+
+    // -> `mountWithApp` rather than this file's own `mountPage`: a passkey row renders its created
+    //    date through `humanizeDate()`, which reads `userStore` and so needs a Pinia instance.
+    const { wrapper } = mountWithApp(ProfileAuth, {
+      messages: { ...MESSAGES, common: { ...MESSAGES.common, datetime: '{date} at {time}' } }
+    })
+    await flushPromises()
+
+    const cards = wrapper.findAll('.w-settings-card')
+    expect(cards).toHaveLength(2)
+    const passkeyRow = cards[1].find('.w-settings-row')
+    expect(passkeyRow.find('.w-settings-row__label').text()).toBe('Yubikey 5')
+    expect(passkeyRow.find('.w-settings-row__hint').text()).toContain('wiki.example')
+
+    // -> The Add button is a page action, not a row: it has to be reachable when there is no card
+    const addButton = wrapper.findAll('button').find((btn) => btn.text().includes('Add Passkey'))
+    expect(addButton.element.closest('.w-settings-card')).toBeNull()
   })
 })

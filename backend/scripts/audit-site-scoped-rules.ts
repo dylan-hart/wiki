@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- a one-off operator script: its stdout IS its result, and it runs outside a booted `WIKI`. */
 /*
   One-off pre-deploy diagnostic for "Per-site page-rule enforcement" (feature 406).
 

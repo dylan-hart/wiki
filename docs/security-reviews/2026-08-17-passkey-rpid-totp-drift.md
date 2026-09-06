@@ -2,7 +2,7 @@
 
 Task 435, feature 356 ("2FA & Passkey Hardening, Recovery, and Admin Visibility"). Scope: does
 `resolveOrigin()` / the `rpID` / `expectedOrigin` / `expectedRPID` wiring in
-`backend/models/passkeys.ts` hold up under both `security.trustProxy` settings and Wiki.js's
+`backend/models/passkeys.ts` hold up under both `security.trustProxy` settings and Cardinal.js's
 single-hostname-per-site model, and is the TOTP drift window in `backend/helpers/totp.ts` adequate.
 
 **Verdict: no exploitable gap found.** One diagnosability fix shipped (`ERR_PK_ORIGIN_MISMATCH`,
@@ -67,7 +67,7 @@ if (tp === true) {
 }
 ```
 
-i.e. `X-Forwarded-Host` is honored from **any** source, with no IP/CIDR allowlist — Wiki.js's own
+i.e. `X-Forwarded-Host` is honored from **any** source, with no IP/CIDR allowlist — Cardinal.js's own
 `SecurityConfig` schema (`backend/api/schemas/security.ts`) only exposes `trustProxy` as a plain
 boolean, never as the IP/CIDR/function form Fastify also accepts. So: if the Node process is reachable
 by anyone other than the legitimate reverse proxy — the proxy is on a shared network segment, a

@@ -1,6 +1,7 @@
 import { getCurrentInstance, markRaw, nextTick, onMounted, reactive, ref } from 'vue'
 
 import WConfirmDialog from '@/components/shared/WConfirmDialog.vue'
+import { log } from '@/helpers/log'
 
 /**
  * Programmatic dialogs.
@@ -36,8 +37,9 @@ export function dialog({ component, componentProps = {} }) {
     on the profile authentication page. `confirm()` is the form that takes a title and a message.
   */
   if (!component) {
-    console.error(
-      'dialog() requires a component. For a title/message confirmation, call confirm() instead.',
+    log.error(
+      'dialog',
+      'dialog() requires a component; for a title/message confirmation, call confirm() instead',
       componentProps
     )
   }

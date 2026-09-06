@@ -156,6 +156,105 @@ describe('docs/operations.md — operations reference', () => {
       assert.match(raw, /no log/i)
       assert.match(raw, /[Tt]erminal/)
     })
+
+    test('documents the line shape and the two rendered field keys', () => {
+      assert.match(raw, /key=value/)
+      // -> `ms` is humanised and `error` carries the Error itself; both are renderer behaviour an
+      //    operator reads off the line, not call-site formatting.
+      assert.match(raw, /in 528ms/)
+      assert.match(raw, /error="/)
+    })
+
+    test('names all four levels and says what each one means', () => {
+      const logsSection = raw.slice(raw.indexOf('## Logs'), raw.indexOf('## Metrics'))
+      for (const level of ['error', 'warn', 'info', 'debug']) {
+        assert.ok(
+          logsSection.includes(`\`${level}\``),
+          `expected the Logs section to cover \`${level}\``
+        )
+      }
+    })
+
+    test('the scope table lists every name in core/logScopes.ts, and no others', () => {
+      const scopesSource = fs.readFileSync(
+        path.join(REPO_ROOT, 'backend/core/logScopes.ts'),
+        'utf8'
+      )
+      const declared = [...scopesSource.matchAll(/^ {2}'([a-z]+)',?$/gm)].map((m) => m[1])
+      assert.ok(declared.length > 0, 'expected to parse the LOG_SCOPES array')
+
+      // -> The Scopes subsection alone: the Levels table one heading above has the same row shape.
+      const scopeTable = raw.slice(raw.indexOf('### Scopes'), raw.indexOf('### Configuration'))
+      const documented = [...scopeTable.matchAll(/^\| `([a-z]+)` \| /gm)].map((m) => m[1])
+
+      assert.deepEqual(
+        [...documented].sort(),
+        [...declared].sort(),
+        'the scope table in docs/operations.md#logs must match backend/core/logScopes.ts exactly — ' +
+          'a scope added there without a row here leaves an operator with an undocumented column value'
+      )
+    })
+
+    test('documents logLevel, logFormat and logScopes as the three validated config keys', () => {
+      assert.match(raw, /`logLevel`/)
+      assert.match(raw, /`logFormat`/)
+      assert.match(raw, /`logScopes`/)
+      assert.match(raw, /`text`/)
+      assert.match(raw, /`json`/)
+    })
+
+    test('presents logScopes as a live config key, not a planned one', () => {
+      // -> The inverse of the assertion this replaced: per-scope thresholds landed in OpenProject
+      //    #2663, so `base.yml` declaring the key is what makes the doc's claim true, and the doc
+      //    must no longer read as forward-looking.
+      const logsSection = raw.slice(raw.indexOf('## Logs'), raw.indexOf('## Metrics'))
+      assert.ok(logsSection.includes('logScopes'), 'the Logs section must document logScopes')
+      assert.doesNotMatch(
+        logsSection,
+        /logScopes[^.]*\bplanned\b|\bplanned\b[^.]*logScopes/i,
+        'per-scope thresholds are implemented — the doc must not still call them planned'
+      )
+
+      const baseYml = fs.readFileSync(path.join(REPO_ROOT, 'backend/base.yml'), 'utf8')
+      assert.match(
+        baseYml,
+        /^ {4}logScopes:/m,
+        'docs/operations.md documents logScopes, so base.yml must declare it — otherwise ' +
+          'core/config.ts#warnUnknownConfigKeys flags a documented key as unrecognized on every boot'
+      )
+    })
+
+    test('documents the two admin flags as scope overrides rather than separate switches', () => {
+      const logsSection = raw.slice(raw.indexOf('## Logs'), raw.indexOf('## Metrics'))
+      assert.match(logsSection, /`sqlLog`/)
+      assert.match(logsSection, /`authDebug`/)
+      assert.match(
+        logsSection,
+        /no restart/i,
+        'the point of the flags being thresholds is that they take effect without a restart'
+      )
+    })
+
+    test('states the in-memory backlog size, matching BACKLOG_SIZE in core/logger.ts', () => {
+      const loggerSource = fs.readFileSync(path.join(REPO_ROOT, 'backend/core/logger.ts'), 'utf8')
+      const match = loggerSource.match(/BACKLOG_SIZE\s*=\s*(\d+)/)
+      assert.ok(match, 'expected BACKLOG_SIZE to be declared in backend/core/logger.ts')
+      assert.match(
+        raw,
+        new RegExp(`\\b${match![1]}\\b`),
+        `docs/operations.md should state the real backlog size (${match![1]} lines)`
+      )
+    })
+
+    test('describes the admin log websocket as carrying structured frames', () => {
+      assert.match(raw, /_terminal\/logs/)
+      assert.match(raw, /structured frame/i)
+    })
+
+    test('distinguishes the audit log from stdout logging', () => {
+      assert.match(raw, /audit log/i)
+      assert.match(raw, /auditLog\.ts/)
+    })
   })
 
   describe('container mounts', () => {

@@ -202,7 +202,7 @@ import { forceCenter, forceCollide } from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { zoomIdentity } from 'd3-zoom'
 import { debounce } from 'es-toolkit/function'
-import { apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { useSiteStore } from '@/stores/site'
@@ -501,7 +501,7 @@ async function searchKeyword(query) {
       return
     }
     keywordMatches.value = []
-    console.warn(apiErrorMessage(err))
+    log.warn('graph', 'could not run the keyword search behind the graph filter', err)
   }
 }
 
@@ -722,22 +722,27 @@ const zoomTransform = ref(null)
 const clusters = ref([])
 
 /*
-  Node radius (5) and edge stroke color/opacity below are starting points for visual tuning, not
-  verified-correct constants -- adjust them against a real graph in the browser once there's data on
-  screen. The label zoom threshold/size cap (`drawLabels()`, OpenProject #1287/#1288) have since been
-  tuned past that starting point.
+  The edge stroke color/opacity below are starting points for visual tuning, not verified-correct
+  constants -- adjust them against a real graph in the browser once there's data on screen. The node
+  radius bounds and the label zoom threshold/size cap (`drawLabels()`, OpenProject #1287/#1288) have
+  both since been tuned past that starting point -- see `MIN_NODE_RADIUS`/`MAX_NODE_RADIUS` below.
 */
 
 /** The one shared radius floor/ceiling for BOTH sizing metrics ('edits' and 'visits') -- consolidated
  *  from four separate (and, until OpenProject #2561, additively-capped) constants into this single
  *  pair once `radiusFor()` switched to a true min/max lerp normalized against the current graph's own
  *  observed range (`sqrtRangeOf()`/`lerpRadius()`, `graphNodeSize.js`) rather than an absolute
- *  `MIN + sqrt(count) * SCALE` formula. `MIN_NODE_RADIUS` matches the pre-#1270 'uniform' mode's fixed
- *  radius, same as before, so the smallest-ranked node in any graph is no smaller than that legacy
- *  dot. `MAX_NODE_RADIUS` is `5x` the old `22` cap (OpenProject #2561) -- the lerp's own normalization
- *  is what makes a ceiling this much larger workable at all: only the single highest-ranked node in
- *  the currently-loaded graph ever actually draws at it, everything else scales down from there. */
-const MIN_NODE_RADIUS = 5
+ *  `MIN + sqrt(count) * SCALE` formula. `MIN_NODE_RADIUS` was `5` -- the pre-#1270 'uniform' mode's
+ *  fixed dot radius -- and is DOUBLE that as of OpenProject #2594: the floor now has to leave room
+ *  for a legible page title rendered INSIDE the node rather than beside it (Task #2593), which a
+ *  5px dot cannot do at any font size. Nothing else keys off it: `lerpRadius()` takes it as a
+ *  parameter, `collideRadiusFor()` derives from `radiusFor()` and so rescales on its own, and a
+ *  synthetic folder/root hub keeps its own fixed `3` (see `radiusFor()`), deliberately below the
+ *  real-node floor. `MAX_NODE_RADIUS` is `5x` the old `22` cap (OpenProject #2561) -- the lerp's own
+ *  normalization is what makes a ceiling this much larger workable at all: only the single
+ *  highest-ranked node in the currently-loaded graph ever actually draws at it, everything else
+ *  scales down from there. */
+const MIN_NODE_RADIUS = 10
 const MAX_NODE_RADIUS = 110
 
 /** How many contributors count toward a node's 'edits'-mode size, per the currently-checked

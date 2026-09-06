@@ -108,9 +108,12 @@ describe('migration bootstrap', () => {
   })
 
   test('createSchedulerStub() warns and never touches WIKI.db for an unsupported task', async () => {
-    const warnings: string[] = []
+    const warnings: { scope: string; message: string; fields?: Record<string, unknown> }[] = []
     const wikiHandle = installTestWiki({
-      logger: { warn: (msg: string) => warnings.push(msg) },
+      logger: {
+        warn: (scope: string, message: string, fields?: Record<string, unknown>) =>
+          warnings.push({ scope, message, fields })
+      },
       // -> Throws if the stub's addJob() ever reaches for it — proving the unsupported-task branch
       //    returns before attempting the insert, not merely that the insert itself was a no-op.
       db: {
@@ -124,7 +127,9 @@ describe('migration bootstrap', () => {
       const result = await scheduler.addJob({ task: 'dispatchWebhook' } as any)
       assert.equal(result, undefined)
       assert.equal(warnings.length, 1)
-      assert.match(warnings[0]!, /cannot queue task "dispatchWebhook"/)
+      assert.equal(warnings[0]!.scope, 'migrate')
+      assert.match(warnings[0]!.message, /cannot queue this task/)
+      assert.equal(warnings[0]!.fields?.task, 'dispatchWebhook')
     } finally {
       wikiHandle.restore()
     }

@@ -58,7 +58,7 @@ export class BlockMapElement extends LitElement {
     block: 'map',
     name: 'Map',
     description: 'Shows a location on an OpenStreetMap map.',
-    icon: 'geography',
+    icon: 'tabler:map-2',
     props: [
       {
         name: 'lat',

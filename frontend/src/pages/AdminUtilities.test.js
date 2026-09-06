@@ -50,6 +50,11 @@ const messages = {
   'admin.utilities.scanPageProblemsOrphanTreeEntry': '/{path} — has no matching page',
   'admin.utilities.scanPageProblemsOrphanPageRow': '/{path} — has no matching tree entry',
   'admin.utilities.scanPageProblemsFailed': 'The scan could not be completed.',
+  'admin.utilities.disconnectWS': 'Disconnect WebSocket Clients',
+  'admin.utilities.disconnectWSHint': 'Force all connected clients to reconnect.',
+  'admin.utilities.purgeHistory': 'Purge Page History',
+  'admin.utilities.purgeHistoryHint': 'Delete page history older than the selected timeframe.',
+  'admin.utilities.purgeHistoryTimeframe': 'Timeframe',
   'common.actions.proceed': 'Proceed',
   'common.actions.viewDocs': 'View docs'
 }
@@ -339,5 +344,98 @@ describe('AdminUtilities scanPageProblems', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('Scan results')
+  })
+})
+
+/**
+ * The Cardinal settings pattern, as it reaches a TOOL page —
+ * `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
+ *
+ * Each of these ten utilities is a fixed, design-time named action: a plate, a label over a
+ * sentence, and one control at the trailing edge. That is the settings row's own shape, so the page
+ * draws them with `WSettingsRow` rather than the hand-written `WItem` + `BlueprintIcon` + two
+ * `WItemSection` + two `WItemLabel` stack it used to. What it deliberately does NOT take is a header
+ * strip on the tool card (the page header above already names it) — while the scan-results card,
+ * which the page header does not name, does take one.
+ */
+describe('AdminUtilities settings pattern', () => {
+  it('draws every tool as a settings row with a plate, a label and one trailing control', async () => {
+    const wrapper = await mountUtilities()
+    const rows = wrapper.findAll('.w-settings-row')
+
+    expect(rows).toHaveLength(10)
+    for (const row of rows) {
+      expect(row.find('.blueprint-icon').exists()).toBe(true)
+      expect(row.find('.w-settings-row__label').text()).not.toBe('')
+      expect(row.find('.w-settings-row__control').exists()).toBe(true)
+    }
+
+    const disconnect = rows[0]
+    expect(disconnect.find('.w-settings-row__label').text()).toBe('Disconnect WebSocket Clients')
+    expect(disconnect.find('.w-settings-row__hint').text()).toBe(
+      'Force all connected clients to reconnect.'
+    )
+    expect(disconnect.find('.w-settings-row__control').text()).toContain('Proceed')
+  })
+
+  it('leaves no hand-written list row behind', async () => {
+    const wrapper = await mountUtilities()
+
+    // -> The tool list's own `WItem`s are gone. The scan report's expansion list is not mounted
+    //    here (no report yet), so the page should hold none at all.
+    expect(wrapper.findAll('.w-item')).toHaveLength(0)
+  })
+
+  it('keeps the two-control purge-history row in one trailing slot', async () => {
+    const wrapper = await mountUtilities()
+    const row = wrapper
+      .findAll('.w-settings-row')
+      .find((r) => r.find('.w-settings-row__label').text() === 'Purge Page History')
+
+    expect(row).toBeTruthy()
+    const control = row.find('.w-settings-row__control')
+    expect(control.find('select, input, [role="combobox"]').exists()).toBe(true)
+    expect(control.text()).toContain('Proceed')
+    // -> One control cell, not two: `WSettingsRow` has a single trailing slot by design.
+    expect(row.findAll('.w-settings-row__control')).toHaveLength(1)
+  })
+
+  it('gives the tool card no header strip and the scan-results card one', async () => {
+    const wrapper = await mountUtilities()
+
+    expect(wrapper.findAll('.w-section-header')).toHaveLength(0)
+
+    vi.useFakeTimers()
+    try {
+      API_CLIENT.post.mockReturnValueOnce({
+        json: () => Promise.resolve({ ok: true, id: 'job-6' })
+      })
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve({
+            state: 'completed',
+            result: {
+              hashDrift: { count: 0, entries: [] },
+              treeDivergence: { count: 0, entries: [] },
+              duplicatePaths: { count: 0, entries: [] },
+              brokenRelations: { count: 0, entries: [] },
+              localeCollisions: { count: 0, entries: [] },
+              scannedAt: '2026-08-17T00:00:00.000Z'
+            }
+          })
+      })
+
+      await wrapper.find('[aria-label="Scan for Page Problems"]').trigger('click')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(1500)
+      await flushPromises()
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const headers = wrapper.findAll('.w-section-header')
+    expect(headers).toHaveLength(1)
+    expect(headers[0].text()).toContain('Scan results')
+    expect(headers[0].find('.w-card-header__hint').text()).toContain('Scanned')
   })
 })

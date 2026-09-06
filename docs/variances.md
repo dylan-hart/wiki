@@ -950,7 +950,9 @@ LTR. Reasoning:
   document-wide direction control point and one `commonStore.locale`" — that premise turned out to
   be wrong (`docs/decisions/lang-dir-contract.md`): the server has stamped `<html lang>`/`dir` from
   the _content_ locale since before this note was written (`backend/helpers/appShell.ts`), and the
-  client now matches it (#1660) rather than overwriting it from the interface locale. The
+  client matches it on a locale-prefixed URL (#2596; #1660 was closed against an implementation that
+  never reached the tree — see `lang-dir-contract.md` §6) rather than overwriting it from the
+  interface locale. The
   conclusion is unchanged — admin chrome still inherits `dir` off `<html>` like everything else
   that isn't `.page-contents`-scoped — but the reasoning is: the document's direction is the
   _content_ locale's direction, and there is no separate "admin chrome direction" to hang off a
@@ -963,9 +965,12 @@ LTR. Reasoning:
   a UI-only interface locale picked here reverted on the very next navigation, direction included.
   The guard now also accepts any locale from the instance's installed catalogue
   (`adminStore.locales`), which is what makes this bullet's claim actually true today. This switcher
-  still drives `commonStore.locale` — the _interface_ locale — and does not, by itself, change
-  `<html dir>`; see `lang-dir-contract.md` §5 for the mechanism that keeps admin chrome's direction
-  meaningful for readers whose interface locale differs from a page's content locale.)
+  still drives `commonStore.locale` — the _interface_ locale — and, on a `/_admin` route, that IS
+  what `<html dir>` follows: `App.vue#applyDocumentLocale` reads the URL's own locale segment where
+  there is one and the interface locale where there is not, and an admin route never carries one.
+  See `lang-dir-contract.md` §6, which records that resolution and why a `/_` route deliberately
+  does not fall back to the site's primary locale instead — doing so would render LTR chrome around
+  the RTL `admin.*` text this bullet is about.)
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
   Arabic once `ar` is the active locale, per the same `t()` mechanism as everywhere else) would
   produce mismatched, not merely conservative, layout — worse than mirroring, not safer.
@@ -1896,3 +1901,46 @@ without a written decision could otherwise look like an oversight rather than an
 **What actually happens:** every migrated comment is flat/top-level; 2.x reply chains are not
 reconstructed. Revisit only if comment-thread fidelity is ever actually requested for the migration
 importer specifically — the id-map-plus-second-pass shape above is the known path to it.
+
+## The CI-parity devcontainer ships Debian's git, not `ubuntu-latest`'s
+
+**Date:** 2026-09-06
+**Work package:** #2684 (Build the pinned CI-parity image), under Feature #2601 (Environment parity)
+
+**Decision:** `.devcontainer/`'s image keeps the git that comes with its pinned `node:*-bookworm`
+base (git 2.39.x) and no longer enables the `ghcr.io/devcontainers/features/git` feature, even though
+GitHub's `ubuntu-latest` runner ships a noticeably newer git (2.5x at time of writing). Feature #2601
+asks for an image that IS what CI runs on; on this one axis it is not.
+
+**Why this reads as a deviation:** every other tool the gate depends on is matched to CI exactly and
+deliberately — Node to a single patch, `postgres:18`, git-cliff to the same pinned release
+`quality.yml` downloads, Playwright's Chromium to the revision both workspaces' `playwright` version
+expects. git is the one where the image knowingly differs, so without this entry it would read as
+something nobody checked rather than something that was weighed.
+
+**Why it is the right trade here.** The reason is not "close enough": it is that the two properties
+are mutually exclusive, and the other one matters more. The devcontainers git feature builds git from
+source under `/usr/local`, and git reads its system config from `$prefix/etc/gitconfig` — so with that
+feature enabled, `/usr/local/etc/gitconfig` becomes the system config and the explicit
+`git config --system` block the Dockerfile writes to `/etc/gitconfig` is still on disk and silently
+never read again. That block exists to close Bug #2586, where a test fixture depended on an ambient
+`init.defaultBranch` and consequently passed on the developer's machine and failed on CI across
+fifteen subtests, unreproducible locally. Trading a *stated* git configuration for a newer git binary
+would reintroduce exactly the class of defect the parity work exists to eliminate, and would do it
+invisibly. A newer git is also not pinnable: the feature builds whatever is newest at container-create
+time, so it is itself a source of the drift being closed, while `ubuntu-latest`'s git moves on GitHub's
+schedule and cannot be matched by any fixed value.
+
+**What actually happens:** a git behaviour that changed between 2.39 and 2.5x could behave differently
+inside the container than on a runner. Nothing known depends on one: the git storage module
+(`backend/modules/storage/git/`) drives git through `simple-git` and sets its own per-repo branch and
+identity in `repo.ts#ensureRepo` rather than relying on ambient defaults, and its fixtures now pass
+`--initial-branch` explicitly (#2586's own fix). One related gap is deliberately *not* closed by the
+image and is worth knowing: a bare runner has no global `user.name`/`user.email` at all, whereas the
+image sets one, so a test that silently relies on an ambient identity would pass here and fail in CI —
+the inverse of #2586. `backend/test/devcontainerCiParity.test.ts` guards the settings themselves and
+that the git feature stays disabled.
+
+**Resolved when:** either the base image's distro ships a git contemporaneous with the runner's, or a
+way to install a *pinned* newer git that still writes to `/etc/gitconfig` (a versioned `.deb`, or a
+source build with `--prefix=/usr`) is added to the Dockerfile — at which point delete this entry.

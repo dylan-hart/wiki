@@ -138,7 +138,7 @@ async function verifyBasePath(client: Client, config: SftpTargetConfig): Promise
     throw new Error(`"${basePath}" exists on ${config.host}, but is not a directory.`)
   }
 
-  const marker = `${basePath.replace(/\/+$/, '')}/.wikijs-write-test-${Date.now()}`
+  const marker = `${basePath.replace(/\/+$/, '')}/.cardinaljs-write-test-${Date.now()}`
   try {
     await client.put(Buffer.from(''), marker)
     await client.delete(marker)

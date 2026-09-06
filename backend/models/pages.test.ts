@@ -13,6 +13,7 @@ import { CustomError, generatePathHash } from '../helpers/common.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import {
   pageDrafts as pageDraftsTable,
+  pageHistory as pageHistoryTable,
   pageRenderQueue as pageRenderQueueTable,
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
@@ -3094,5 +3095,336 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     assert.equal(events[0]!.action, 'moved')
     assert.equal(events[0]!.pageLocale, 'fr')
     assert.ok(events[0]!.changedFields.includes('locale'))
+  })
+})
+
+/**
+ * The content lifecycle log lines (OpenProject #2674): one `info pages` record per create, move,
+ * delete, restore and publish-state crossing, and none at all for an ordinary edit.
+ *
+ * Asserted on the SCOPE and the FIELDS a call passed, never on a rendered string — the renderer is
+ * `core/logger.ts`'s business, and a suite matching formatted text breaks the moment a column widens.
+ * `WIKI.logger.info` is swapped for a collector per test rather than read back off
+ * `logger.backlog()`, for the same reason: the backlog's frame shape belongs to the logger.
+ */
+describe('page content lifecycle log lines (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let pageHistoryModel: typeof import('./pageHistory.ts').pageHistory
+  let actor: PageActor
+  let originalInfo: any
+  let infoCalls: { scope: string; message: string; fields: Record<string, any> }[]
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ pageHistory: pageHistoryModel } = await import('./pageHistory.ts'))
+    actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+    // -> Same reasoning as every other describe in this file: nothing here supplies a `render`, and
+    //    Puppeteer is never installed in this environment (OpenProject #1716).
+    mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
+  })
+
+  after(async () => {
+    mock.restoreAll()
+    await teardownTestDb()
+  })
+
+  beforeEach(() => {
+    infoCalls = []
+    originalInfo = WIKI.logger.info
+    WIKI.logger.info = ((scope: string, message: string, fields: Record<string, any> = {}) => {
+      infoCalls.push({ scope, message, fields })
+    }) as any
+  })
+
+  afterEach(() => {
+    WIKI.logger.info = originalInfo
+  })
+
+  /** Every `info` line filed under `pages`, optionally narrowed to one message. */
+  function pagesLines(message?: string) {
+    return infoCalls.filter(
+      (call) => call.scope === 'pages' && (message === undefined || call.message === message)
+    )
+  }
+
+  function lifecycleInput(overrides: Partial<PageInput> = {}): PageInput {
+    return {
+      path: 'lifecycle/base',
+      title: 'Lifecycle',
+      editor: 'markdown',
+      content: '# Hello',
+      ...overrides
+    }
+  }
+
+  test('createPage logs one "created" line naming the site, page, path, locale and user', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/created' }),
+      actor
+    )
+
+    const lines = pagesLines()
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]!.message, 'created')
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      page: page.id,
+      path: 'lifecycle/created',
+      locale: 'en',
+      user: fixtures.userId
+    })
+  })
+
+  test('an actor carrying a `via` (an MCP tool call) puts it on the line', async () => {
+    await pagesModel.createPage(fixtures.siteId, lifecycleInput({ path: 'lifecycle/via-mcp' }), {
+      ...actor,
+      via: 'mcp'
+    })
+
+    assert.equal(pagesLines('created')[0]!.fields.via, 'mcp')
+  })
+
+  test('an ordinary content update logs nothing at info', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/edited' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.updatePage(
+      fixtures.siteId,
+      page.id,
+      { content: '# Edited', title: 'Edited' },
+      actor
+    )
+
+    assert.deepEqual(pagesLines(), [])
+  })
+
+  test('a publishState change across the published boundary logs "published" then "unpublished"', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/publishing', publishState: 'draft' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { publishState: 'published' }, actor)
+    const published = pagesLines()
+    assert.equal(published.length, 1)
+    assert.equal(published[0]!.message, 'published')
+    assert.deepEqual(published[0]!.fields, {
+      site: fixtures.siteId,
+      page: page.id,
+      path: 'lifecycle/publishing',
+      locale: 'en',
+      state: 'published',
+      user: fixtures.userId
+    })
+
+    infoCalls = []
+    await pagesModel.updatePage(fixtures.siteId, page.id, { publishState: 'draft' }, actor)
+    const unpublished = pagesLines()
+    assert.equal(unpublished.length, 1)
+    assert.equal(unpublished[0]!.message, 'unpublished')
+    assert.equal(unpublished[0]!.fields.state, 'draft')
+  })
+
+  test('a publishState write that does not actually change it logs nothing', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/still-published', publishState: 'published' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { publishState: 'published' }, actor)
+
+    assert.deepEqual(pagesLines(), [])
+  })
+
+  test('movePage logs one "moved" line carrying where the page came from and went', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/move-from' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.movePage(fixtures.siteId, page.id, { path: 'lifecycle/move-to' }, actor)
+
+    const lines = pagesLines()
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]!.message, 'moved')
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      page: page.id,
+      from: 'lifecycle/move-from',
+      to: 'lifecycle/move-to',
+      locale: 'en',
+      user: fixtures.userId
+    })
+  })
+
+  test('a re-homing move adds fromLocale, since from and to can otherwise be the same path', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/rehome' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'lifecycle/rehome', locale: 'fr' },
+      actor
+    )
+
+    const fields = pagesLines('moved')[0]!.fields
+    assert.equal(fields.fromLocale, 'en')
+    assert.equal(fields.locale, 'fr')
+  })
+
+  test('a no-op move logs nothing', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/no-op-move' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.movePage(fixtures.siteId, page.id, { path: 'lifecycle/no-op-move' }, actor)
+
+    assert.deepEqual(pagesLines(), [])
+  })
+
+  test('a translations cascade logs one line per page actually moved, not one for the batch', async () => {
+    const primary = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/twins', locale: 'en' }),
+      actor
+    )
+    const twin = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/twins', locale: 'fr' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.movePage(
+      fixtures.siteId,
+      primary.id,
+      { path: 'lifecycle/twins-moved', includeTranslations: true },
+      actor
+    )
+
+    const moved = pagesLines('moved')
+    assert.equal(moved.length, 2)
+    assert.deepEqual(
+      moved.map((line) => line.fields.page).sort(),
+      [primary.id, twin.id].sort(),
+      'both the primary and its twin are moves in their own right'
+    )
+    for (const line of moved) {
+      assert.equal(line.fields.from, 'lifecycle/twins')
+      assert.equal(line.fields.to, 'lifecycle/twins-moved')
+    }
+  })
+
+  test('deletePage logs one "deleted" line', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/delete-me' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+    const lines = pagesLines()
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]!.message, 'deleted')
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      page: page.id,
+      path: 'lifecycle/delete-me',
+      locale: 'en',
+      user: fixtures.userId
+    })
+  })
+
+  test('deletePage on a page that does not exist logs nothing', async () => {
+    await pagesModel.deletePage(fixtures.siteId, '00000000-0000-4000-8000-00000000f00d', actor)
+
+    assert.deepEqual(pagesLines(), [])
+  })
+
+  test('deleteOrphaned logs one line per page, marked as a folder cascade', async () => {
+    const first = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/orphans/one' }),
+      actor
+    )
+    const second = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/orphans/two' }),
+      actor
+    )
+    infoCalls = []
+
+    await pagesModel.deleteOrphaned(
+      fixtures.siteId,
+      [
+        { id: first.id, fileName: 'one', folderPath: 'lifecycle/orphans', locale: 'en' },
+        { id: second.id, fileName: 'two', folderPath: 'lifecycle/orphans', locale: 'en' }
+      ],
+      actor
+    )
+
+    const lines = pagesLines('deleted')
+    assert.equal(lines.length, 2)
+    assert.deepEqual(lines.map((line) => line.fields.path).sort(), [
+      'lifecycle/orphans/one',
+      'lifecycle/orphans/two'
+    ])
+    for (const line of lines) {
+      assert.equal(line.fields.cascade, 'folder')
+      assert.equal(line.fields.user, fixtures.userId)
+    }
+  })
+
+  test('recovering a deleted version reads as "restored", not as a second "created"', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      lifecycleInput({ path: 'lifecycle/recover-me' }),
+      actor
+    )
+    await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+    const [version] = await fixtures.db
+      .select({ id: pageHistoryTable.id })
+      .from(pageHistoryTable)
+      .where(and(eq(pageHistoryTable.pageId, page.id), eq(pageHistoryTable.action, 'deleted')))
+      .limit(1)
+    infoCalls = []
+
+    const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, version!.id, actor)
+
+    const lines = pagesLines()
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]!.message, 'restored')
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      page: recovered.id,
+      path: 'lifecycle/recover-me',
+      locale: 'en',
+      user: fixtures.userId
+    })
   })
 })

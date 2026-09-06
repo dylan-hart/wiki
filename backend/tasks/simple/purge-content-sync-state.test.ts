@@ -56,8 +56,11 @@ describe('purge-content-sync-state task', { skip: !hasTestDatabase() }, () => {
     await teardownTestDb()
   })
 
-  test('removes only the row whose page no longer exists', async () => {
-    await task()
+  test('removes only the row whose page no longer exists, and reports the count it swept', async () => {
+    // -> OpenProject #2672: the count is RETURNED, not logged. `core/scheduler.ts#runJob` is what
+    //    turns it into this run's one `info` line, with the job id and duration attached.
+    const outcome = await task()
+    assert.deepEqual(outcome, { summary: 'purged orphaned contentSyncState rows', purged: 1 })
 
     const rows = await fixtures.db
       .select({ contentId: contentSyncStateTable.contentId })

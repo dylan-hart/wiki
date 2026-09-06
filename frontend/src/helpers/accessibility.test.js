@@ -249,3 +249,185 @@ describe('placeholder and muted-text token pinning', () => {
     })
   })
 })
+
+/**
+ * OpenProject #2630 -- the code-token palette in `frontend/src/css/_page-contents.scss`, pinned
+ * against the ground each form is ACTUALLY drawn on.
+ *
+ * The pairing is the whole point here for the same reason it is above, and this is the case that
+ * proves it: the Cardinal second pass moved the rendered code block onto ink in BOTH themes
+ * (`--content-surface-code: var(--color-ink)`, `#1c2233`, and `--color-dark-6`, `#0f1219`) but left
+ * the token palette at GitHub's LIGHT theme -- a set of dark inks meant for a white ground. Nothing
+ * failed, because nothing was checking the pair; on screen `--content-code-string` (`#0a3069`) was
+ * rendering at 1.24:1, which is a string literal that is not there.
+ *
+ * So each palette is listed with its own ground, and a future edit that reaches for a white-ground
+ * palette again fails here rather than shipping an unreadable code block.
+ */
+describe('rendered code-token palette (frontend/src/css/_page-contents.scss)', () => {
+  /** `--color-ink`: the code block's ground in the LIGHT theme -- a dark island on a white page. */
+  const CODE_GROUND = '#1c2233'
+  /** `--color-dark-6`, the deepest well: the code block's ground in the DARK theme. */
+  const CODE_GROUND_DARK = '#0f1219'
+
+  /**
+   * The light theme's set. Cardinal's own hues, one per token class -- accent for keywords, positive
+   * for strings, warning for numbers and attributes, the lightened chrome slate for titles, the
+   * custom-block purple lifted onto ink for types, and the two dark text tiers for comments and meta.
+   */
+  const LIGHT_THEME_TOKENS = {
+    addition: '#7fc4a8',
+    attr: '#e0b86a',
+    comment: '#8792ab',
+    deletion: '#f08287',
+    keyword: '#f08287',
+    meta: '#9aa6bd',
+    number: '#e0b86a',
+    string: '#7fc4a8',
+    title: '#8ea6cf',
+    type: '#c79ad2'
+  }
+
+  /**
+   * The dark theme's set -- a genuinely second palette, not the same values reused. On a light page
+   * the block is a dark island and these tones are held back so it does not glare out of a white
+   * column; on a dark page it is the deepest well of an already-dark surface, and each is lifted a
+   * step so a code block is not coloured in exactly the language of the panels around it.
+   */
+  const DARK_THEME_TOKENS = {
+    addition: '#95d9bd',
+    attr: '#f0cc84',
+    comment: '#98a4bb',
+    deletion: '#ff9ba0',
+    keyword: '#ff9ba0',
+    meta: '#adb8cd',
+    number: '#f0cc84',
+    string: '#95d9bd',
+    title: '#a5bde0',
+    type: '#d8afe2'
+  }
+
+  /** The set the print block keeps, where the block really is drawn on white. */
+  const PRINT_TOKENS = {
+    addition: '#1a7f37',
+    attr: '#0550ae',
+    comment: '#6a737d',
+    deletion: '#cf222e',
+    keyword: '#cf222e',
+    meta: '#57606a',
+    number: '#0550ae',
+    string: '#0a3069',
+    title: '#7c3aed',
+    type: '#953800'
+  }
+
+  it('clears AA for every light-theme token on the ink ground the block is drawn on', () => {
+    for (const [name, hex] of Object.entries(LIGHT_THEME_TOKENS)) {
+      expect(meetsWcagAA(hex, CODE_GROUND), `${name} (${hex}) vs ${CODE_GROUND}`).toBe(true)
+    }
+  })
+
+  it('clears AA for every dark-theme token on the deep-well ground', () => {
+    for (const [name, hex] of Object.entries(DARK_THEME_TOKENS)) {
+      expect(meetsWcagAA(hex, CODE_GROUND_DARK), `${name} (${hex}) vs ${CODE_GROUND_DARK}`).toBe(
+        true
+      )
+    }
+  })
+
+  it('clears AA for every print token on paper, which is the ground print actually uses', () => {
+    for (const [name, hex] of Object.entries(PRINT_TOKENS)) {
+      expect(meetsWcagAA(hex, '#ffffff'), `${name} (${hex}) vs white`).toBe(true)
+    }
+  })
+
+  it('gives the two palettes genuinely different values rather than one reused for both', () => {
+    for (const name of Object.keys(LIGHT_THEME_TOKENS)) {
+      expect(DARK_THEME_TOKENS[name], name).not.toBe(LIGHT_THEME_TOKENS[name])
+    }
+  })
+
+  /*
+   * The regression this suite exists for. Every one of the eight token classes the screen palette
+   * used to carry was under the floor on the ground it was painted on, and `string` was invisible.
+   */
+  it('would fail if the screen palette went back to the white-ground set it shipped with', () => {
+    for (const [name, hex] of Object.entries(PRINT_TOKENS)) {
+      expect(meetsWcagAA(hex, CODE_GROUND), `${name} (${hex}) vs ${CODE_GROUND}`).toBe(false)
+    }
+    expect(contrastRatio('#0a3069', CODE_GROUND)).toBeLessThan(1.5)
+  })
+
+  /*
+   * A diff line puts its token on a wash of its own colour laid over the block, not on the block --
+   * so the pairing that has to clear the floor is the token against the COMPOSITED row, which is
+   * always a step closer to the token than the bare ground is.
+   */
+  describe('diff rows, where the token sits on a wash of its own hue', () => {
+    /** Composites an `rgba(fg, alpha)` wash over `bg`, per-channel in sRGB -- what a browser paints. */
+    function composite(fgHex, bgHex, alpha) {
+      const channel = (hex, start) => Number.parseInt(hex.slice(start, start + 2), 16)
+      const mix = (start) =>
+        Math.round(channel(fgHex, start) * alpha + channel(bgHex, start) * (1 - alpha))
+      return `#${[1, 3, 5].map((start) => mix(start).toString(16).padStart(2, '0')).join('')}`
+    }
+
+    // Both washes are the token's own colour at 16%, in both themes.
+    const WASH_ALPHA = 0.16
+
+    it('clears AA for an added and a removed line in the light theme', () => {
+      for (const hex of [LIGHT_THEME_TOKENS.addition, LIGHT_THEME_TOKENS.deletion]) {
+        const row = composite(hex, CODE_GROUND, WASH_ALPHA)
+        expect(meetsWcagAA(hex, row), `${hex} on its own wash (${row})`).toBe(true)
+      }
+    })
+
+    it('clears AA for an added and a removed line in the dark theme', () => {
+      for (const hex of [DARK_THEME_TOKENS.addition, DARK_THEME_TOKENS.deletion]) {
+        const row = composite(hex, CODE_GROUND_DARK, WASH_ALPHA)
+        expect(meetsWcagAA(hex, row), `${hex} on its own wash (${row})`).toBe(true)
+      }
+    })
+
+    /*
+     * And why print drops the washes entirely rather than carrying them over: composited on paper
+     * they take the token that sits on them BELOW the floor, which is the whole reason the print
+     * block sets both to `transparent` instead of reusing the screen alpha.
+     */
+    it('is why print drops the wash: on paper the same pair would fall under the floor', () => {
+      for (const hex of [PRINT_TOKENS.addition, PRINT_TOKENS.deletion]) {
+        const row = composite(hex, '#ffffff', 0.12)
+        expect(meetsWcagAA(hex, row), `${hex} on its own wash (${row})`).toBe(false)
+      }
+      // -> On the white it actually prints on, both clear it comfortably.
+      expect(meetsWcagAA(PRINT_TOKENS.addition, '#ffffff')).toBe(true)
+      expect(meetsWcagAA(PRINT_TOKENS.deletion, '#ffffff')).toBe(true)
+    })
+  })
+})
+
+/**
+ * OpenProject #2630 -- the two small mono marks that sit IN prose rather than in the code block:
+ * an inline `code` chip and a `<kbd>` plate. Both are `--content-code-ink` on
+ * `--content-surface-alt`, and the dark theme has to move the ink as well as the ground.
+ *
+ * The defect this pins: `code`'s colour was the literal `var(--color-slate)` in BOTH themes while
+ * only its ground switched, which put `#38465f` on `#242b3a` -- 1.09:1, a chip with nothing legible
+ * in it. The dark Ledger draws the same chip in the lightened chrome tone.
+ */
+describe('inline code and kbd chips (frontend/src/css/_page-contents.scss)', () => {
+  const CHIP_INK = '#38465f' // --color-slate
+  const CHIP_INK_DARK = '#8ea6cf' // --color-slate-light
+  const CHIP_GROUND = '#eef1f7' // --color-tint
+  const CHIP_GROUND_DARK = '#242b3a' // --color-dark-2
+
+  it('clears AA in both themes, each ink on its own ground', () => {
+    expect(meetsWcagAA(CHIP_INK, CHIP_GROUND)).toBe(true)
+    expect(meetsWcagAA(CHIP_INK_DARK, CHIP_GROUND_DARK)).toBe(true)
+  })
+
+  it('would fail if the dark theme kept the light ink, which is what it used to do', () => {
+    expect(meetsWcagAA(CHIP_INK, CHIP_GROUND_DARK)).toBe(false)
+    expect(contrastRatio(CHIP_INK, CHIP_GROUND_DARK)).toBeLessThan(1.5)
+  })
+})

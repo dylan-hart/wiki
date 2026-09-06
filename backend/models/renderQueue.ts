@@ -196,7 +196,8 @@ class RenderQueue {
     }
     if (!(await this.isAvailable())) {
       WIKI.logger.warn(
-        'Pages are queued for rendering but the Puppeteer extension is not installed. Leaving them queued.'
+        'render',
+        'pages are queued for rendering but the Puppeteer extension is not installed, leaving them queued'
       )
       return
     }
@@ -238,9 +239,10 @@ class RenderQueue {
             continue
           }
           if (page.editor !== 'markdown') {
-            WIKI.logger.warn(
-              `Cannot render page ${page.id}: server-side rendering is not implemented for the ${page.editor} editor.`
-            )
+            WIKI.logger.warn('render', 'server-side rendering is not implemented for this editor', {
+              page: page.id,
+              editor: page.editor
+            })
             continue
           }
           const html = await renderer.render(
@@ -263,9 +265,15 @@ class RenderQueue {
             { scripts: entry.allowScripts, styles: entry.allowStyles },
             page.path
           )
-          WIKI.logger.debug(`Rendered page ${page.id} (${page.path}) from its source.`)
+          WIKI.logger.debug('render', 'rendered page from its source', {
+            page: page.id,
+            path: page.path
+          })
         } catch (err: any) {
-          WIKI.logger.warn(`Failed to render page ${entry.pageId}: ${err.message}`)
+          WIKI.logger.warn('render', 'rendering the page failed', {
+            page: entry.pageId,
+            error: err
+          })
           await this.discardRenderer(renderer)
           renderer = null
         }

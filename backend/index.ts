@@ -1,5 +1,5 @@
 // ===========================================
-// Wiki.js Server
+// Cardinal.js Server
 // Licensed under AGPLv3
 // ===========================================
 
@@ -31,15 +31,18 @@ import {
 import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
 import { ensureTemporal } from './core/temporal.ts'
+import { readyFields } from './helpers/bootSummary.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
 if (!semver.satisfies(process.version, '>=26')) {
+  // eslint-disable-next-line no-console -- refused before config, and therefore before `WIKI.logger`, exists
   console.error('ERROR: Node.js 26.x or later required!')
   process.exit(1)
 }
 
 if (existsSync('./package.json')) {
+  // eslint-disable-next-line no-console -- refused before config, and therefore before `WIKI.logger`, exists
   console.error('ERROR: Must run server from the parent directory!')
   process.exit(1)
 }
@@ -70,23 +73,32 @@ global.WIKI = WIKI
 
 if (WIKI.IS_DEBUG) {
   process.on('warning', (warning: Error) => {
+    // eslint-disable-next-line no-console -- registered before `WIKI.logger` exists, and a Node process warning can fire before it does
     console.log(warning.stack)
   })
 }
 
-await WIKI.configSvc.init()
+// -> Returns where the configuration actually came from rather than logging it: this runs before
+//    `WIKI.logger` exists (the logger reads `WIKI.config.logLevel`), so the provenance is carried
+//    out to the `boot starting` line below instead of being announced from inside `init()`.
+const configProvenance = await WIKI.configSvc.init()
 
 // ----------------------------------------
 // Init Logger
 // ----------------------------------------
 
-WIKI.logger = logger.init()
+// -> The thunk is the LIVE half of the per-scope thresholds (OpenProject #2663): re-read on every
+//    line, so flipping `sqlLog` or `authDebug` in the admin area raises that scope from the next
+//    line onwards with no restart. `WIKI.models` does not exist yet — `preBoot()` below builds it —
+//    which is exactly why this is a thunk and not a value.
+WIKI.logger = logger.init({
+  scopeOverrides: () => WIKI.models?.flags?.logScopeOverrides() ?? {}
+})
 
 // -> Registered as early as `WIKI.logger` exists, so nothing between here and the end of boot can
 //    crash the process unlogged via a rejection nobody's `.catch` caught. Exits deliberately rather
 //    than carrying on in a state some in-flight operation already gave up on.
 registerUnhandledRejectionHandler(WIKI.logger, {
-  debug: WIKI.IS_DEBUG,
   exit: (code) => process.exit(code)
 })
 
@@ -94,11 +106,22 @@ registerUnhandledRejectionHandler(WIKI.logger, {
 // Init Server
 // ----------------------------------------
 
-WIKI.logger.info('=======================================')
-WIKI.logger.info(`= Wiki.js ${(WIKI.version + ' ').padEnd(29, '=')}`)
-WIKI.logger.info('=======================================')
-WIKI.logger.info('Initializing...')
-WIKI.logger.info(`Running node.js ${process.version} [ OK ]`)
+// -> One line for what used to be a three-line banner plus two announcements. Everything the banner
+//    drew as decoration is a field, so the same facts survive into JSON mode and an operator can
+//    grep for `boot starting` rather than for a row of `=`.
+//
+//    `config=` is the resolved absolute path actually read, not the raw `CONFIG_FILE` value, and
+//    `overrides=` names which environment variables were HONOURED — set and on the branch that
+//    reads them, so `PORT` present but inert does not appear. `none` rather than an omitted field,
+//    so "this build reports overrides and there were none" is distinguishable from "this build does
+//    not report them".
+WIKI.logger.info('boot', 'starting', {
+  version: WIKI.version,
+  node: process.version,
+  instance: WIKI.INSTANCE_ID,
+  config: configProvenance.configPath,
+  overrides: configProvenance.overrides.join(',') || 'none'
+})
 
 // ----------------------------------------
 // Pre-Boot Sequence
@@ -114,10 +137,9 @@ async function preBoot() {
     //    booting instance can never observe a half-seeded database — see `configSvc.ensureSeeded()`.
     await WIKI.configSvc.ensureSeeded()
   } catch (err: any) {
-    WIKI.logger.error('Database Initialization Error: ' + err.message)
-    if (WIKI.IS_DEBUG) {
-      WIKI.logger.error(err)
-    }
+    // -> One record: the message inline and the stack below it, rather than a second `error(err)`
+    //    the operator only saw with debug already on.
+    WIKI.logger.error('db', 'database initialization failed', { error: err })
     process.exit(1)
   }
 
@@ -278,9 +300,8 @@ async function initHTTPServer() {
   // ----------------------------------------
 
   try {
-    WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
-    WIKI.logger.info('HTTP Server: [ RUNNING ]')
+    WIKI.logger.info('http', 'listening', { host: WIKI.config.bindIP, port: WIKI.config.port })
     // -> `/_ready` is deliberately NOT flipped ready here: `app.listen()` only means the socket
     //    accepts connections, not that a request can be served correctly. `WIKI.sites`/
     //    `WIKI.sitesMappings` are still `{}` at this point (see the WIKI literal above), no auth
@@ -293,7 +314,11 @@ async function initHTTPServer() {
     //    (bound by `gracefulServer` above, independent of that readiness flag) answers from here
     //    onward regardless, so liveness probes still see the process as up throughout.
   } catch (err: any) {
-    WIKI.logger.error(err)
+    WIKI.logger.error('boot', 'http server failed to bind', {
+      host: WIKI.config.bindIP,
+      port: WIKI.config.port,
+      error: err
+    })
     process.exit(1)
   }
 }
@@ -305,9 +330,24 @@ async function initHTTPServer() {
 await preBoot()
 await initHTTPServer()
 
-await runBootPhaseOrExit(postBoot, 'Post-Boot Initialization Error', WIKI.logger, {
-  debug: WIKI.IS_DEBUG
-})
+await runBootPhaseOrExit(postBoot, 'post-boot initialization', WIKI.logger)
+
+// -> The last line of the boot narrative, and the one an operator actually waits for: everything
+//    `postBoot()` did has already reported itself above it. Emitted one statement BEFORE
+//    `setReady()` rather than after, so `setReady()` stays the final statement of the file (see
+//    `index.test.ts` / OpenProject #2062) while this is still the last thing written — `setReady()`
+//    itself logs nothing. `ms` is wall time since the `WIKI` literal at the top of this file, which
+//    is as close to process start as anything in userland gets.
+WIKI.logger.info(
+  'boot',
+  'ready',
+  readyFields({
+    sites: WIKI.sites,
+    bindIP: WIKI.config.bindIP,
+    port: WIKI.config.port,
+    ms: Temporal.Now.instant().epochMilliseconds - WIKI.startedAt.epochMilliseconds
+  })
+)
 
 // -> Not ready until postBoot() has resolved: everything that makes the instance able to answer a
 //    page request (site/group/locale/approval/classification caches, storage/search/comment sync,

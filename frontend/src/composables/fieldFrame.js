@@ -160,11 +160,19 @@ export function useFieldFrame({
     return true
   }
 
-  /** See the note in `WFieldFrame`'s template: held open only when a message could occupy it. */
-  const showsBottom = computed(
-    () =>
-      Boolean(errorMessage.value) ||
-      (!props.hideBottomSpace && (props.hint || props.rules.length > 0))
+  /*
+    See the note in `WFieldFrame`'s template: held open only when a message could occupy it.
+
+    `Boolean()` around the WHOLE expression, not just the error half. `props.hint` is a STRING, and
+    `false || ('some hint' || ...)` evaluates to that string -- so a field with a hint handed
+    `WFieldFrame` its `showsBottom` as text, which is declared `type: Boolean` and warns on every
+    such mount. It rendered correctly regardless (the value only ever feeds a `v-if`), which is why
+    it survived: this composable's own suite asserted `toBeTruthy()`, which a string passes.
+  */
+  const showsBottom = computed(() =>
+    Boolean(
+      errorMessage.value || (!props.hideBottomSpace && (props.hint || props.rules.length > 0))
+    )
   )
 
   /**

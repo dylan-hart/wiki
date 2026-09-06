@@ -27,6 +27,7 @@ import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { WikiTx } from '../core/db.ts'
+import type { LogFields } from '../core/logger.ts'
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -320,6 +321,32 @@ export interface PageActor {
    * every write method would have to accept and pass along (OpenProject #1119).
    */
   via?: PageHistoryVia
+}
+
+/**
+ * Why a `createPage()` call is happening, for the lifecycle log line and nothing else.
+ *
+ * A recovery (`pageHistory.recoverDeletedPage`) really does insert a brand new page row, so it goes
+ * through `createPage()` like every other create — but an operator reading the log wants to see the
+ * page coming *back*, not appearing for the first time. This is the one piece of provenance
+ * `createPage()` cannot work out for itself, and it changes only which message is logged: everything
+ * the call writes is identical either way.
+ */
+export type PageWriteOrigin = 'restore'
+
+/**
+ * Who a lifecycle line attributes a write to.
+ *
+ * `user` is the actor's own id — never an e-mail address — and `system` stands in for a write with no
+ * actor behind it at all. `via` is carried straight off `PageActor.via`, the second, orthogonal
+ * "what made the save" axis `pageHistory.record()` already stores (OpenProject #1119), and is omitted
+ * rather than rendered empty for the ordinary editor path.
+ */
+function actorFields(actor: { id?: string | null; via?: PageHistoryVia }): LogFields {
+  return {
+    user: actor.id || 'system',
+    ...(actor.via ? { via: actor.via } : {})
+  }
 }
 
 /**
@@ -845,8 +872,16 @@ class Pages {
    * Create a page.
    *
    * @param actor Who is saving it. Their permissions decide what survives sanitizing.
+   * @param origin Why this create is happening, for the lifecycle log line only — see
+   *   `PageWriteOrigin`. Omitted by every ordinary caller; `pageHistory.recoverDeletedPage` passes
+   *   `'restore'` so a recovery reads as `restored` rather than `created`.
    */
-  async createPage(siteId: string, input: PageInput, actor: PageActor): Promise<Page> {
+  async createPage(
+    siteId: string,
+    input: PageInput,
+    actor: PageActor,
+    { origin }: { origin?: PageWriteOrigin } = {}
+  ): Promise<Page> {
     if (!WIKI.sites[siteId]) {
       throw new CustomError('pageInvalidSite', 'This site does not exist.', 404)
     }
@@ -1004,6 +1039,18 @@ class Pages {
     //    is also a brand new graph node (and possibly new edges, if its relations/links point at
     //    existing pages), so the cached graph bundle has to reflect it too.
     this.invalidateSiteCaches(siteId)
+
+    // -> The content lifecycle line (OpenProject #2674). Emitted from the model rather than from
+    //    `api/pages/write.ts`, so the editor, the MCP `createPage` tool, the 2.5.x import and a
+    //    git/disk storage import all produce the identical line. A page's *edits* stay at `debug`
+    //    (the history table already records every one of them); its appearance does not.
+    WIKI.logger.info('pages', origin === 'restore' ? 'restored' : 'created', {
+      site: siteId,
+      page: page.id,
+      path: page.path,
+      locale,
+      ...actorFields(actor)
+    })
 
     const finalPage = (await this.getPage({ siteId, id: page.id })) as Page
 
@@ -1192,6 +1239,29 @@ class Pages {
     const rawUpdated = rawRows[0]!
 
     const updated = (await this.getPage({ siteId, id })) as Page
+
+    /*
+      The one thing an ordinary edit can do that IS a content lifecycle event (OpenProject #2674):
+      cross the published boundary. Everything else a save touches stays silent at `info` -- edits are
+      frequent and `pageHistory` already records each of them -- but whether a page is readable by the
+      world is a state change an operator reads the log for. `draft` <-> `scheduled` is neither
+      publishing nor unpublishing (the page was not visible before and is not visible now), so it logs
+      nothing here; `scheduled` counts as leaving `published`, because that is what it does to a page
+      that was live.
+    */
+    if (values.publishState !== undefined && values.publishState !== existing.publishState) {
+      const published = values.publishState === 'published'
+      if (published || existing.publishState === 'published') {
+        WIKI.logger.info('pages', published ? 'published' : 'unpublished', {
+          site: siteId,
+          page: id,
+          path: updated.path,
+          locale: updated.locale,
+          state: values.publishState,
+          ...actorFields(actor)
+        })
+      }
+    }
 
     await WIKI.models.pageHistory.record({
       siteId,
@@ -1629,6 +1699,19 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+    // -> One per page actually moved (OpenProject #2674) -- this method is called once for the page
+    //    named in the request and once more per `includeTranslations` twin, and a twin's move is a
+    //    move of its own, not a detail of somebody else's. `fromLocale` appears only for a re-homing,
+    //    where `from`/`to` can otherwise be the same path.
+    WIKI.logger.info('pages', 'moved', {
+      site: siteId,
+      page: pageId,
+      from: previousPath,
+      to: moved.path,
+      locale: moved.locale,
+      ...(previousLocale !== moved.locale ? { fromLocale: previousLocale } : {}),
+      ...actorFields(actor)
+    })
     return {
       moved,
       glossaryInvalidate: moved.path !== previousPath || moved.locale !== previousLocale
@@ -1769,7 +1852,10 @@ class Pages {
     await Promise.all(
       [...relinkedPageIds].map((relinkedPageId) =>
         WIKI.models.pageDrafts.clear(relinkedPageId).catch((err: any) => {
-          WIKI.logger.warn(`Failed to clear the draft for page ${relinkedPageId}: ${err.message}`)
+          WIKI.logger.warn('pages', 'clearing the draft failed', {
+            page: relinkedPageId,
+            error: err
+          })
         })
       )
     )
@@ -1861,6 +1947,13 @@ class Pages {
       locale: page.locale,
       siteId,
       authorId: actor.id
+    })
+    WIKI.logger.info('pages', 'deleted', {
+      site: siteId,
+      page: id,
+      path: page.path,
+      locale: page.locale,
+      ...actorFields(actor)
     })
     return true
   }
@@ -1955,8 +2048,23 @@ class Pages {
         siteId,
         authorId: actor.id
       })
+      // -> One line per page, as deleting them one at a time would have produced (OpenProject
+      //    #2674), for exactly the reason the `announce` above is also per page: a page that stops
+      //    existing is content leaving the wiki, whether it was named directly or swept up by the
+      //    folder over it. `cascade` is what tells the two apart in the log; the `debug` summary
+      //    below still carries the batch size.
+      WIKI.logger.info('pages', 'deleted', {
+        site: siteId,
+        page: entry.id,
+        path,
+        locale: entry.locale,
+        cascade: 'folder',
+        ...actorFields(actor)
+      })
     }
-    WIKI.logger.debug(`Deleted ${entries.length} page(s) that went with a deleted folder.`)
+    WIKI.logger.debug('pages', 'deleted the pages that went with a deleted folder', {
+      pages: entries.length
+    })
   }
 
   /**
@@ -2357,7 +2465,10 @@ class Pages {
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to queue watch notifications for page ${pageId}: ${err.message}`)
+      WIKI.logger.warn('pages', 'queueing the watch notifications failed', {
+        page: pageId,
+        error: err
+      })
     }
   }
 

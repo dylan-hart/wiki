@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 
 import { sortBy } from 'es-toolkit/array'
 
+import { log } from '@/helpers/log'
+
 /**
  * Turn the site's active locale CODES into the descriptors the UI reads.
  *
@@ -180,7 +182,9 @@ export const useSiteStore = defineStore('site', {
      * (`GET sites/:siteId/glossary/acronyms`), consulted by `usePathDisplay()`'s humanizer so e.g.
      * "uss" renders as "USS" rather than the case style's own guess. Fetched lazily by
      * `fetchAcronymMap` -- triggered from `applySiteInfo` itself, once per site load, only when
-     * `pathDisplayCase` is not `'off'` -- since a site with the setting off never needs it.
+     * `pathDisplayCase` is not `'off'` -- since a site with the setting off never needs it. Both
+     * fields are per-site and are reset by `applySiteInfo` on every site load, so a switch never
+     * renders the previous site's casing.
      */
     acronymMap: {},
     acronymMapLoaded: false,
@@ -195,7 +199,7 @@ export const useSiteStore = defineStore('site', {
       colorHeader: '#ffffff',
       colorSidebar: '#f0f2f7',
       codeBlocksTheme: '',
-      contentWidth: 'centered',
+      contentWidth: 'measured',
       sidebarPosition: 'left',
       tocPosition: 'right',
       showPrintBtn: true,
@@ -274,7 +278,7 @@ export const useSiteStore = defineStore('site', {
         }
         this.applySiteInfo(siteInfo)
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not load the site configuration', err)
         throw err
       }
     },
@@ -329,6 +333,18 @@ export const useSiteStore = defineStore('site', {
           ...siteInfo.theme
         }
       })
+      // -> The acronym lookup is per-site, so the previous site's map and its loaded flag are
+      //    dropped here rather than left for `fetchAcronymMap` to notice: the early return on
+      //    `acronymMapLoaded` would otherwise skip the new site's fetch entirely and leave it
+      //    rendering the old site's casing, and the `'off'` branch below issues no fetch at all, so
+      //    without the reset that map would simply stay put (#2599). Deliberately a second,
+      //    FUNCTION-form `$patch` rather than an `acronymMap: {}` field on the object one above --
+      //    the object form deep-merges a plain object field instead of replacing it, exactly as
+      //    `fetchAcronymMap`'s own comment records, so folding it in there would be a no-op.
+      this.$patch((state) => {
+        state.acronymMap = {}
+        state.acronymMapLoaded = false
+      })
       // -> Only a site with the setting on ever needs its acronym lookup; not awaited, since every
       //    render site (`usePathDisplay()`) reads `acronymMap` reactively off this store and updates
       //    on its own once the fetch resolves -- the same lazy, swallow-on-failure shape as
@@ -360,7 +376,7 @@ export const useSiteStore = defineStore('site', {
           state.acronymMapLoaded = true
         })
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not load the acronym map', err)
       }
     },
     async fetchTags(forceRefresh = false) {
@@ -374,7 +390,7 @@ export const useSiteStore = defineStore('site', {
           tagsLoaded: true
         })
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not load the tag list', err)
         throw err
       }
     },
@@ -398,7 +414,7 @@ export const useSiteStore = defineStore('site', {
           extensionsStatusLoaded: true
         })
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not read which extensions are installed', err)
       }
     },
     /**
@@ -446,7 +462,7 @@ export const useSiteStore = defineStore('site', {
         }
         // -> An empty sidebar is the right outcome for a menu nobody has set up, rather than an error
         //    in front of a reader who cannot act on it
-        console.warn(err.message)
+        log.warn('nav', 'could not load the sidebar menu', err)
         this.$patch({
           nav: {
             currentId: id,

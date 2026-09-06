@@ -1,44 +1,50 @@
 <template>
-  <w-page class="py-4">
+  <w-page>
     <h1 class="w-section-header">{{ t('profile.groups') }}</h1>
     <div class="p-4">
       <div class="text-body2">{{ t('profile.groupsInfo') }}</div>
-      <w-list class="mt-6" bordered separator>
-        <w-item v-if="state.groups.length === 0 && state.loading < 1">
-          <w-item-section>
+      <!--
+        A settings row with nothing at the trailing edge: membership here is read-only, so every row
+        is a plate and a name and no control at all. `control-width="auto"` rather than the default
+        `grow` is what makes that read correctly -- an empty `grow` control still claims 200px of the
+        row, which leaves the name crammed into a fraction of a card it has all of.
+      -->
+      <w-settings-card class="mt-4" :title="t('profile.groupsMemberOf')">
+        <w-settings-row
+          v-if="state.groups.length === 0 && state.loading < 1"
+          control-width="auto"
+          icon="tabler:users-group">
+          <template #label>
             <span class="text-negative">{{ t('profile.groupsNone') }}</span>
-          </w-item-section>
-        </w-item>
-        <w-item v-for="grp of state.groups" :key="grp.id">
-          <w-item-section avatar>
-            <w-avatar color="slate" text-color="white" icon="tabler:users" rounded />
-          </w-item-section>
-          <w-item-section>
-            <strong>{{ grp.name }}</strong>
-          </w-item-section>
-        </w-item>
-      </w-list>
+          </template>
+        </w-settings-row>
+        <w-settings-row
+          v-for="grp of state.groups"
+          :key="grp.id"
+          control-width="auto"
+          icon="tabler:users"
+          :label="grp.name" />
+      </w-settings-card>
 
       <!--
         Informational only -- these are groups the viewer does NOT belong to, so there is nothing here
         for them to act on. Dimmed with opacity-60 rather than hidden or styled as a warning, the same
         "still part of the page, just not actionable" treatment AdminApprovals.vue uses for a disabled
-        rule.
+        rule -- on the card now that a row is one component rather than the two sections that used to
+        carry the class each.
       -->
       <template v-if="state.otherGroups.length > 0">
         <div class="text-body2 mt-6">
           {{ t('profile.otherGroups', { siteName: siteStore.title }) }}
         </div>
-        <w-list class="mt-2" bordered separator>
-          <w-item v-for="grp of state.otherGroups" :key="grp.id">
-            <w-item-section avatar class="opacity-60">
-              <w-avatar color="grey" text-color="white" icon="tabler:users" rounded />
-            </w-item-section>
-            <w-item-section class="opacity-60">
-              <strong>{{ grp.name }}</strong>
-            </w-item-section>
-          </w-item>
-        </w-list>
+        <w-settings-card class="mt-4 opacity-60" :title="t('profile.otherGroupsTitle')">
+          <w-settings-row
+            v-for="grp of state.otherGroups"
+            :key="grp.id"
+            control-width="auto"
+            icon="tabler:users"
+            :label="grp.name" />
+        </w-settings-card>
       </template>
     </div>
 

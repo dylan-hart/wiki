@@ -6,16 +6,33 @@
         <span>{{ t(`admin.users.create`) }}</span>
       </w-card-section>
       <w-form ref="createUserForm" class="py-2" @submit="create">
+        <!--
+          Two authored halves, no display name: an account this instance creates has one derived
+          from them server-side (`models/users.ts#resolveNameFields`, Feature #2608), and stays on
+          derivation until somebody edits the display name in the user editor.
+        -->
         <w-item>
           <blueprint-icon icon="tabler:user" />
           <w-item-section>
             <w-input
-              ref="iptName"
-              v-model="state.userName"
+              ref="iptFirstName"
+              v-model="state.userFirstName"
               dense
-              :rules="userNameValidation"
+              :rules="userFirstNameValidation"
               hide-bottom-space
-              :label="t(`common.field.name`)"
+              :label="t(`admin.users.firstName`)"
+              lazy-rules="ondemand" />
+          </w-item-section>
+        </w-item>
+        <w-item>
+          <blueprint-icon icon="tabler:user" />
+          <w-item-section>
+            <w-input
+              v-model="state.userLastName"
+              dense
+              :rules="userLastNameValidation"
+              hide-bottom-space
+              :label="t(`admin.users.lastName`)"
               lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
@@ -184,7 +201,7 @@ defineEmits([...dialogComponentEmits])
 // DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
-  autofocus: () => iptName.value
+  autofocus: () => iptFirstName.value
 })
 
 // STORES
@@ -198,7 +215,8 @@ const { t } = useI18n()
 // DATA
 
 const state = reactive({
-  userName: '',
+  userFirstName: '',
+  userLastName: '',
   userEmail: '',
   userPassword: '',
   userGroups: [],
@@ -214,7 +232,7 @@ const state = reactive({
 // REFS
 
 const createUserForm = ref(null)
-const iptName = ref(null)
+const iptFirstName = ref(null)
 
 // COMPUTED
 
@@ -225,9 +243,15 @@ const selectedGroupName = computed(() => {
 
 // VALIDATION RULES
 
-const userNameValidation = [
-  (val) => val.length > 0 || t('admin.users.nameMissing'),
+const userFirstNameValidation = [
+  (val) => val.length > 0 || t('admin.users.firstNameMissing'),
   (val) => /^[^<>"]+$/.test(val) || t('admin.users.nameInvalidChars')
+]
+
+// -> Optional, unlike the first name: a mononym has no surname, and nothing here fabricates one.
+//    An empty value therefore passes the character rule rather than tripping it.
+const userLastNameValidation = [
+  (val) => val.length === 0 || /^[^<>"]+$/.test(val) || t('admin.users.nameInvalidChars')
 ]
 
 const userEmailValidation = [
@@ -280,7 +304,8 @@ async function create() {
     }
     await API_CLIENT.post('users', {
       json: {
-        name: state.userName,
+        firstName: state.userFirstName,
+        lastName: state.userLastName,
         email: state.userEmail,
         password: state.userPassword,
         groups: state.userGroups,
@@ -296,10 +321,11 @@ async function create() {
       message: t('admin.users.createSuccess')
     })
     if (state.keepOpened) {
-      state.userName = ''
+      state.userFirstName = ''
+      state.userLastName = ''
       state.userEmail = ''
       state.userPassword = ''
-      iptName.value.focus()
+      iptFirstName.value.focus()
     } else {
       onDialogOK()
     }

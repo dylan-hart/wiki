@@ -13,7 +13,7 @@ import { mountWithApp } from '../../test/mount.js'
  * which turned out to already be covered by `AdminDashboard.vue`'s stat tiles) on any other admin page
  * either. Both are genuine dashboard-worthy signals — a scheduler that stopped renewing its cron lock is
  * an operational problem, and whether an update companion is present belongs right next to the
- * version/upgrade card — so they were added to the "Wiki.js" card here instead of being left as
+ * version/upgrade card — so they were added to the "Cardinal.js" card here instead of being left as
  * response-schema dead weight.
  */
 function mountPage() {
@@ -129,6 +129,74 @@ describe('AdminSystem load() error handling (OpenProject #947)', () => {
 
     expect(loadingIsActive.value).toBe(false)
     expect(queue.at(-1)).toMatchObject({ type: 'negative', caption: 'Network error' })
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * WP #2653 (rebrand: user-facing strings): this page carries two of the fork's few remaining
+ * hardcoded product names -- the left card's own header, and the first line of the block
+ * `copySysInfo()` puts on the clipboard for pasting into a bug report. Both are read by a person, so
+ * both are pinned here; the version number beside the second one is what makes it worth asserting as
+ * a whole line rather than as a bare substring.
+ */
+describe('AdminSystem product name (WP #2653)', () => {
+  const originalClipboard = navigator.clipboard
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: originalClipboard,
+      configurable: true,
+      writable: true
+    })
+  })
+
+  it('heads the system card with Cardinal.js, not upstream Wiki.js', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ platform: 'linux', operatingSystem: 'Linux' })
+    })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('Cardinal.js')
+    expect(wrapper.text()).not.toContain('Wiki.js')
+
+    wrapper.unmount()
+  })
+
+  it('opens the copied system-info block with the Cardinal.js version line', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true
+    })
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          currentVersion: '3.0.0-alpha.1',
+          platform: 'linux',
+          operatingSystem: 'Linux',
+          nodeVersion: '26.0.0',
+          cpuCores: 8,
+          ramTotal: '16 GB'
+        })
+    })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    await wrapper.vm.copySysInfo()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText.mock.calls[0][0].split('\n')[0]).toBe('Cardinal.js 3.0.0-alpha.1')
 
     wrapper.unmount()
   })

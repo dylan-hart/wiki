@@ -101,7 +101,15 @@
               t('editor.markup.strikethrough')
             }}</w-tooltip>
           </w-btn>
+          <!--
+            The three buttons in this bar that open a menu rather than acting on click carry the
+            design's own 9px chevron beside the glyph, so a reader can tell which of them are going to
+            ask a follow-up question before pressing one. `w-tooltip`/`w-menu` are floating children
+            and contribute no box of their own, so the chevron is the only thing the slot adds to the
+            button's own layout.
+          -->
           <w-btn icon="tabler:heading" padding="xs sm" flat>
+            <w-icon class="editor-markdown-toolbar-caret" name="tabler:chevron-down" size="9px" />
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.header')
             }}</w-tooltip>
@@ -132,7 +140,10 @@
               t('editor.markup.superscript')
             }}</w-tooltip>
           </w-btn>
+          <!-- -> The design rules the inline-markup group off from the block-level group here -->
+          <w-separator class="editor-markdown-toolbar-rule" vertical />
           <w-btn icon="tabler:quote" padding="xs sm" flat>
+            <w-icon class="editor-markdown-toolbar-caret" name="tabler:chevron-down" size="9px" />
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.blockquoteAdmonitions')
             }}</w-tooltip>
@@ -214,6 +225,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn icon="tabler:list-check" padding="xs sm" flat>
+            <w-icon class="editor-markdown-toolbar-caret" name="tabler:chevron-down" size="9px" />
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.taskList')
             }}</w-tooltip>
@@ -363,6 +375,7 @@ import {
   resolveInitialPreviewWidth
 } from '@/helpers/editorUserSettings'
 import { htmlToMarkdown } from '@/helpers/htmlToMarkdown'
+import { log } from '@/helpers/log'
 import {
   blockOpeningLine,
   blockValues,
@@ -908,7 +921,7 @@ async function loadSiteBlocks() {
       that flatters the page, against hiding blocks the site really does have. The lens is the other
       way round — with no definitions to build a form from, it simply does not appear.
     */
-    console.warn(`Could not read which blocks this site has enabled: ${err.message}`)
+    log.warn('editor', 'could not read which blocks this site has enabled', err)
   }
 }
 
@@ -976,7 +989,7 @@ function processContent(newContent) {
     //    sits in -- and it is being edited, so it is whatever the path field says right now
     html = md.render(newContent, { pagePath: pageStore.path })
   } catch (err) {
-    console.error(err)
+    log.error('editor', 'could not render the Markdown preview', err)
     notify({
       type: 'negative',
       message: t('editor.renderFailed'),
@@ -1326,7 +1339,7 @@ onMounted(async () => {
     editorStore.userSettings.markdown !== undefined
       ? Promise.resolve(editorStore.userSettings.markdown)
       : editorStore.fetchUserSettings('markdown').catch((err) => {
-          console.warn(`Could not read Markdown editor settings: ${err.message}`)
+          log.warn('editor', 'could not read the Markdown editor settings', err)
           return {}
         })
 
@@ -1364,23 +1377,45 @@ onMounted(async () => {
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
   // -> Define Monaco Theme
-  monaco.editor.defineTheme('wikijs', {
+  monaco.editor.defineTheme('cardinaljs', {
     base: 'vs-dark',
     inherit: true,
-    rules: [],
+    /*
+      The markdown token ramp `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` spells out, line by
+      line, rather than `vs-dark`'s inherited blues and oranges -- which are a different application's
+      palette showing through the one surface of this app that is genuinely somebody else's widget.
+
+      Token names are Monarch's, from `monaco-editor`'s own markdown grammar: a heading is `keyword`
+      (which is also a list marker), a blockquote is `comment`, a fence's ``` line is `string`, the
+      body inside one is `variable.source`, and an inline `code` span is `variable`. A theme rule
+      matches by token PREFIX, so the bare names here cover the `.md` postfix the grammar appends.
+    */
+    rules: [
+      { token: 'keyword', foreground: 'f08287' },
+      { token: 'comment', foreground: '8ea6cf' },
+      { token: 'string', foreground: '8792ab' },
+      { token: 'variable.source', foreground: '9aa6bd' },
+      { token: 'variable', foreground: 'a9b7d0' }
+    ],
     /*
       Cardinal's own dark ramp, not the near-black this carried before: both design files that draw a
       code surface (`ui-redesign/Cardinal Wiki - Editor 3x.dc.html` and `… - History 3x.dc.html`) set
-      the text ground at ink and the line-number gutter one rung below it, with the numbers in a muted
-      slate. `#070a0d`/`#0d1117` were a step darker than anything in the ramp, so the editor read as a
-      different application's window sitting inside this one.
+      the text ground at the recessed rung and the line-number gutter at ink BELOW it, with the numbers
+      in a muted slate. `#070a0d`/`#0d1117` were a step darker than anything in the ramp, so the editor
+      read as a different application's window sitting inside this one -- and the pair that replaced
+      them had ground and gutter the wrong way round against what the Editor file actually draws (its
+      `#14171f` is on the line-number cell, `#171b24` on the column behind the text).
     */
     colors: {
-      'editor.background': '#14171f',
+      'editor.background': '#171b24',
       'editor.foreground': '#c3cee2',
-      'editor.lineHighlightBackground': '#171b24',
+      'editor.lineHighlightBackground': '#1e2431',
       'editorLineNumber.foreground': '#3f4a63',
-      'editorGutter.background': '#171b24'
+      'editorLineNumber.activeForeground': '#c14a52',
+      'editorGutter.background': '#14171f',
+      'editorCursor.foreground': '#e4676b',
+      /* -> "Edit table" / "Edit block parameters": the design draws a lens in the positive tone */
+      'editorCodeLens.foreground': '#3f7a66'
     }
   })
 
@@ -1403,7 +1438,7 @@ onMounted(async () => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'wikijs',
+    theme: 'cardinaljs',
     value: pageStore.content,
     wordWrap: 'on'
   })
@@ -1659,7 +1694,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style lang="scss">
-@use 'sass:color';
+/*
+  Both toolbars -- the markup bar over the source pane and the preview pane's own header -- and the
+  height each pane below them has to subtract. `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` draws
+  both bands at 40px with a 30px square inside; one variable so the two bands and the two
+  `calc(100% - …)` heights below cannot drift apart.
+*/
+$toolbar-height: 40px;
+$toolbar-btn: 30px;
 
 .editor-markdown {
   /*
@@ -1695,7 +1737,13 @@ onBeforeUnmount(() => {
     min-height: 0;
   }
   &-mid {
-    background-color: $dark-6;
+    /*
+      The column the code sits in. `#171b24` -- the recessed rung -- is what the Editor design puts
+      behind the text, with the line-number gutter one step DARKER at ink; the Monaco theme paints
+      both, and this is the same value so nothing shows through as a different dark while Monaco is
+      still measuring itself.
+    */
+    background-color: $dark-4;
     flex: 1 1 50%;
     display: block;
     height: 100%;
@@ -1703,8 +1751,12 @@ onBeforeUnmount(() => {
     /*
       The seam facing the preview pane, which is the next flex item in `-main` -- always the one
       after this in reading order, whichever physical side that mirrors to under `dir="rtl"`.
+
+      A hairline in the language's own border tone, 5px wide: the design draws the pane seam as a
+      `#dbe1ec` strip, not as a stripe of the accent. Cardinal reserves the accent for the live edge,
+      and a permanent red rule down the middle of the editor is not one.
     */
-    border-inline-end: 5px solid $primary;
+    border-inline-end: 5px solid $hairline;
     /*
       Monaco writes its measured width in pixels onto its own elements, so this item's automatic
       min-width -- min-content, i.e. whatever Monaco last laid itself out at -- pins it to the full
@@ -1716,19 +1768,25 @@ onBeforeUnmount(() => {
   }
   &-editor {
     display: block;
-    height: calc(100% - 32px);
+    /* -> Whatever `-toolbar` above it is tall; the two move together or Monaco overflows the column */
+    height: calc(100% - #{$toolbar-height});
     position: relative;
 
     > div {
       height: 100%;
     }
   }
+  /* -> Set down the rail in Cardinal's chrome overline: tracked uppercase mono, the caption tier */
   &-type {
     writing-mode: vertical-rl;
     text-orientation: mixed;
-    padding-bottom: 1rem;
-    color: rgba(255, 255, 255, 0.4);
-    font-weight: 500;
+    padding: 12px 0;
+    color: $text-caption;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
   }
   &-divider {
     flex: 0 0 auto;
@@ -1768,11 +1826,15 @@ onBeforeUnmount(() => {
     height: 100%;
     overflow: hidden;
 
+    /*
+      Paper, not a grey: the design renders the preview onto the same white the article column itself
+      uses, so what an author sees beside the source is the page as it will actually be read.
+    */
     @at-root .body--light & {
-      background-color: $grey-2;
+      background-color: $surface;
     }
     @at-root .body--dark & {
-      background-color: $dark-6;
+      background-color: $dark-3;
     }
     // @include until($tablet) {
     //   display: none;
@@ -1828,25 +1890,38 @@ onBeforeUnmount(() => {
       max-width: 0;
       opacity: 0;
     }
+    /*
+      The preview pane's own header. The design gives it no ground of its own -- it is the paper the
+      render sits on, ruled off by a hairline -- so the only thing separating it from the article
+      below is that rule, exactly as a page's own chrome is separated everywhere else in Cardinal.
+    */
     &-toolbar {
-      color: $grey-8;
-      height: 32px;
+      color: $slate;
+      height: $toolbar-height;
       display: flex;
       align-items: center;
-      padding: 0 1rem;
+      padding: 0 12px;
 
       @at-root .body--light & {
-        background-color: $grey-3;
+        background-color: $surface;
+        border-bottom: 1px solid $hairline;
       }
       @at-root .body--dark & {
-        background-color: $dark-2;
-        color: $grey-6;
+        background-color: $dark-3;
+        border-bottom: 1px solid $hairline-dark;
+        color: $text-secondary-dark;
+      }
+
+      /* -> The 30px square the design draws, inside a 40px band; see `-toolbar`'s own note below */
+      .w-btn {
+        min-height: $toolbar-btn !important;
       }
     }
     &-content {
-      height: calc(100% - 32px);
+      height: calc(100% - #{$toolbar-height});
       overflow-y: scroll;
-      padding: 1rem;
+      /* -> The design's own article inset inside the preview pane */
+      padding: 22px 24px;
       max-width: calc(var(--preview-width, 50vw) - 57px);
       // -ms-overflow-style: none;
       // &::-webkit-scrollbar {
@@ -1932,23 +2007,36 @@ onBeforeUnmount(() => {
       }
     }
   }
+  /*
+    The markup bar over the source pane.
+
+    Cardinal's chrome is continuous light slate, and the design draws this band as exactly that: the
+    tinted strip, a hairline underneath, slate glyphs. What was here instead -- a cardinal-red band
+    with a darker red 60px stub on its reading-start edge, continuing the sidebar's own red stripe --
+    put the loudest colour in the language across the top of the one screen an author spends the most
+    time on, and spent the accent on chrome rather than on the live edge it is reserved for.
+  */
   &-toolbar {
-    background-color: $primary;
-    /*
-      Continues the sidebar's own dark stripe up under the top toolbar, so the two read as one band
-      down the reading-start edge. `-inline-start`, not `-left`: the sidebar is the first item in
-      `-main`'s flex row, so it is always the one this toolbar sits beside on that edge, in LTR or RTL.
-    */
-    border-inline-start: 60px solid color.adjust($primary, $lightness: -5%);
-    color: #fff;
-    height: 32px;
+    height: $toolbar-height;
+    padding: 0 8px;
     // -> Flex so the preview toggle can be pushed to the far inline-end by `w-space`
     display: flex;
     align-items: center;
 
+    @at-root .body--light & {
+      background-color: $tint;
+      border-bottom: 1px solid $hairline;
+      color: $slate;
+    }
+    @at-root .body--dark & {
+      background-color: $dark-2;
+      border-bottom: 1px solid $hairline-dark;
+      color: $text-secondary-dark;
+    }
+
     /*
       `w-btn`'s own default min-height (2.572em, ~36px at this button's inherited 14px font-size --
-      see `WBtn.vue`'s `styles` computed) is taller than this toolbar's fixed 32px band regardless of
+      see `WBtn.vue`'s `styles` computed) is taller than this toolbar's fixed band regardless of
       the `padding="xs sm"` passed here, since that prop only overrides `padding`, never `minHeight`.
       Centered by `align-items: center` above, the button box then overflows top and bottom, which is
       invisible until a flat button's own `hover:bg-current/10` fill paints that overflow. `!important`
@@ -1957,19 +2045,71 @@ onBeforeUnmount(() => {
       other caller.
     */
     .w-btn {
-      min-height: 24px !important;
+      min-height: $toolbar-btn !important;
+    }
+
+    /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */
+    &-caret {
+      margin-inline-start: 1px;
+      color: $slate-soft;
+
+      @at-root .body--dark & {
+        color: $slate-light;
+      }
+    }
+
+    /*
+      20px of hairline, the design's own group rule, not a full-height divider. The colour goes
+      through `--w-hairline-color` because `.w-hairline` paints its line on an `::after` and is
+      itself transparent (`css/tailwind.css`); `self-stretch`/`h-auto` come off `WSeparator` as
+      Tailwind utilities, which this unlayered rule outranks without needing `!important`.
+    */
+    &-rule {
+      height: 20px;
+      margin: 0 5px;
+      align-self: center;
+      --w-hairline-color: #{$hairline};
+
+      @at-root .body--dark & {
+        --w-hairline-color: #{$hairline-dark};
+      }
     }
   }
+  /*
+    The insert rail. Light slate like the toolbar beside it, ruled off from the source pane by the
+    same hairline -- the two together are one continuous piece of chrome wrapping the dark editor,
+    which is what the design draws and what the rest of the app already looks like.
+  */
   &-sidebar {
-    background-color: $dark-4;
-    border-top: 32px solid color.adjust($primary, $lightness: -10%);
-    color: #fff;
-    width: 56px;
+    width: 48px;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
     align-items: center;
-    padding: 12px 0;
+    padding: 8px 0;
+
+    @at-root .body--light & {
+      background-color: $tint;
+      border-inline-end: 1px solid $hairline;
+      color: $slate;
+    }
+    @at-root .body--dark & {
+      background-color: $dark-2;
+      border-inline-end: 1px solid $hairline-dark;
+      color: $text-secondary-dark;
+    }
+
+    /*
+      The design's 34px square inside a 48px rail. `padding="sm sm"` on each button would draw a box
+      wider than the rail can hold once `WBtn`'s own min-height is added, and both of those are inline
+      styles on the element -- hence `!important`, for the same reason the markup toolbar's own
+      override above needs it.
+    */
+    .w-btn {
+      min-height: 34px !important;
+      width: 34px;
+      padding: 0 !important;
+    }
   }
 }
 </style>

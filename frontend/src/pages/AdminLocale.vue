@@ -47,69 +47,56 @@
         <!-- ----------------------- -->
         <!-- Locale Options -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.locale.settings') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:language" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.locale.primary`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.locale.primaryHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-select
-                v-model="state.primary"
-                :options="state.locales"
-                option-value="code"
-                option-label="name"
-                emit-value
-                map-options
-                dense
-                :aria-label="t(`admin.locale.primary`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:layout-sidebar-right-collapse" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.locale.forcePrefix`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.locale.forcePrefixHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.forcePrefix"
-                :aria-label="t(`admin.locale.forcePrefixHint`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:map" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.locale.showMenu`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.locale.showMenuHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle v-model="state.showMenu" :aria-label="t(`admin.locale.showMenuHint`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.locale.settings')">
+          <w-settings-row
+            icon="tabler:language"
+            :label="t(`admin.locale.primary`)"
+            :hint="t(`admin.locale.primaryHint`)">
+            <w-select
+              v-model="state.primary"
+              :options="state.locales"
+              option-value="code"
+              option-label="name"
+              emit-value
+              map-options
+              dense
+              :aria-label="t(`admin.locale.primary`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:layout-sidebar-right-collapse"
+            :label="t(`admin.locale.forcePrefix`)"
+            :hint="t(`admin.locale.forcePrefixHint`)">
+            <w-toggle v-model="state.forcePrefix" :aria-label="t(`admin.locale.forcePrefixHint`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:map"
+            :label="t(`admin.locale.showMenu`)"
+            :hint="t(`admin.locale.showMenuHint`)">
+            <w-toggle v-model="state.showMenu" :aria-label="t(`admin.locale.showMenuHint`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Active Locales -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>
-            {{ t('admin.locale.active') }}
-            <template #hint>Select the locales that can be used on this site.</template>
-          </w-card-header>
-          <w-item
+        <w-settings-card class="mt-4" :title="t('admin.locale.active')">
+          <template #hint>Select the locales that can be used on this site.</template>
+          <!--
+            The completeness bar is not the row's control -- the toggle is -- so the two travel
+            together at the trailing edge rather than the bar claiming a `WItemSection` of its own.
+          -->
+          <w-settings-row
             v-for="lc of state.locales"
             :key="lc.code"
-            :tag="lc.code !== state.selectedLocale ? `label` : null">
-            <blueprint-icon :text="lc.language" />
-            <w-item-section>
-              <w-item-label>{{ lc.nativeName }}</w-item-label>
-              <w-item-label caption>{{ lc.name }} ({{ lc.code }})</w-item-label>
-            </w-item-section>
-            <w-item-section side>
+            control-width="auto"
+            :tag="lc.code !== state.selectedLocale ? `label` : `div`"
+            :text="lc.language"
+            :label="lc.nativeName"
+            :hint="`${lc.name} (${lc.code})`">
+            <div class="flex items-center gap-4">
               <div
                 class="locale-completeness flex items-center gap-2"
                 :title="t('admin.locale.completeness', { percent: lc.completeness ?? 0 })">
@@ -125,23 +112,20 @@
                   {{ lc.completeness ?? 0 }}%
                 </span>
               </div>
-            </w-item-section>
-            <w-item-section avatar>
               <w-toggle
                 :disabled="lc.code === state.primary"
                 v-model="state.active"
                 :val="lc.code"
                 :aria-label="lc.name" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+            </div>
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Offline Sideload -->
         <!-- ----------------------- -->
-        <w-card class="pb-4 mt-4" v-if="canSideload">
-          <w-card-header>{{ t('admin.locale.sideload') }}</w-card-header>
-          <div class="px-4 text-caption text-grey">{{ t('admin.locale.sideloadHelp') }}</div>
-          <div class="px-4 pt-3">
+        <w-settings-card class="mt-4" v-if="canSideload" :title="t('admin.locale.sideload')">
+          <w-settings-row control-width="auto" icon="tabler:upload">
+            <template #hint>{{ t('admin.locale.sideloadHelp') }}</template>
             <w-btn
               outline
               icon="tabler:upload"
@@ -149,8 +133,8 @@
               :label="t('admin.locale.sideload')"
               :loading="state.sideloading"
               @click="sideload" />
-          </div>
-        </w-card>
+          </w-settings-row>
+        </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-5">
         <div class="p-4 text-center">

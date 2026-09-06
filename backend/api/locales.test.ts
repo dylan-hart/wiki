@@ -201,6 +201,76 @@ test('GET /:code/strings returns a 200 with a different ETag after the underlyin
 })
 
 /**
+ * The 304 must be sent ONCE (OpenProject #2644).
+ *
+ * `notModifiedOrPrepare()` calls `reply.code(304).send()` and answers `true`; the handler then has
+ * to `return reply`, not a bare `return`. Fastify's `reply.sent` is `raw.writableEnded`, so while
+ * any async `onSend` hook is still awaiting it reads `false` — and an `async` handler resolving with
+ * `undefined` at that moment makes `fastify/lib/wrap-thenable.js` take its
+ * `reply.sent === false && reply.raw.headersSent === false` branch and send a SECOND time. On a real
+ * server the second write throws `ERR_HTTP_HEADERS_SENT` and logs
+ * `Reply was already sent, did you forget to "return reply" …`, which is what production was doing
+ * on every revalidating locale fetch (the SPA sends `If-None-Match` on each page load). The trigger
+ * is the async hook, not this route's `response: { 304: … }` schema: `@fastify/session`'s own
+ * `onSend` hook (`core/http/session.ts`) is registered on the root app and awaits a session store
+ * round trip, so every `/_api` reply is behind one.
+ *
+ * `app.inject()` does not surface the symptom — light-my-request's second `writeHead` does not
+ * throw, so a test asserting only `statusCode === 304` passes on the broken code. What IS observable
+ * either way is that the double send runs the `onSend` chain twice, so that is the assertion. The
+ * hook has to defer on a real macrotask rather than `await Promise.resolve()`: a microtask-only hook
+ * can finish before `wrap-thenable`'s own `.then` runs, which would make this pass for the wrong
+ * reason.
+ */
+test('GET /:code/strings sends its 304 exactly once, behind an async onSend hook', async () => {
+  let onSendCalls = 0
+
+  // -> A hook the suite needs registered ahead of its own routes is a plugin wrapper, not an
+  //    `app.addHook` after `buildTestApp` has already called `ready()`.
+  const withAsyncOnSend = async (instance: FastifyInstance) => {
+    instance.addHook('onSend', async (_req, _reply, payload) => {
+      onSendCalls += 1
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      return payload
+    })
+    await instance.register(localesRoutes)
+  }
+
+  const hooked = await buildTestApp({
+    routes: withAsyncOnSend,
+    wiki: {
+      models: {
+        locales: {
+          getStrings: async (code: string) => (code === 'en' ? sampleStrings : [])
+        }
+      }
+    }
+  })
+
+  try {
+    const first = await hooked.inject({ method: 'GET', url: '/en/strings' })
+    assert.equal(first.statusCode, 200)
+
+    onSendCalls = 0
+    const second = await hooked.inject({
+      method: 'GET',
+      url: '/en/strings',
+      headers: { 'if-none-match': first.headers.etag as string }
+    })
+
+    assert.equal(second.statusCode, 304)
+    assert.equal(second.body, '')
+    assert.equal(
+      onSendCalls,
+      1,
+      'the 304 was written twice — the handler resolved with `undefined` instead of `return reply`'
+    )
+  } finally {
+    await closeTestApp(hooked)
+  }
+})
+
+/**
  * `POST /sideload` (OpenProject #820): a `manage:system`-only trigger for
  * `WIKI.models.locales.sideloadFromDataPath`, letting an admin rescan `<dataPath>/locales/` for a
  * dropped-in locale pack against a running instance without a restart.

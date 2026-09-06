@@ -8,10 +8,12 @@ import {
   consumeAccountAuthAttempt,
   isPublicRateLimitedPath,
   limitApiKey,
+  limitAuthAttempts,
   limitApiRequests,
   limitGuestComments,
   limitPublicRequests
 } from './rateLimit.ts'
+import { resetCoalesce } from './logCoalesce.ts'
 import { makeReplyStub, makeRequestStub } from '../test/fastify.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
@@ -841,5 +843,146 @@ describe('limitGuestComments', () => {
     const replyOther = makeReply()
     await limitGuestComments(makeReq({ ip: '198.51.100.2' }), replyOther)
     assert.equal((replyOther.tooManyRequests as any).mock.calls.length, 0)
+  })
+})
+
+/**
+ * The IP-keyed limiter on the authentication endpoints, and the one refusal line in this file that
+ * is coalesced (OpenProject #2673).
+ *
+ * A banned key is refused on every request it keeps making, so a guessing run that has already
+ * tripped the limit would otherwise write one line per attempt. The first three in a window are
+ * logged in full and carry `hits` — the count the ban was decided on — and the rest fold into one
+ * summary emitted when the window closes.
+ */
+describe('limitAuthAttempts', () => {
+  const makeAuthReq = (
+    overrides: Partial<FastifyRequest> | Record<string, any> = {}
+  ): FastifyRequest =>
+    makeRequestStub({ ip: '203.0.113.9', method: 'POST', url: '/_api/auth/login', ...overrides })
+
+  let consume: ReturnType<typeof mock.fn>
+  let warn: ReturnType<typeof mock.fn>
+
+  /** Every `warn('auth', message, fields)` call, as `[message, fields]`. */
+  const warnCalls = (): Array<[string, any]> =>
+    warn.mock.calls.map((call: any) => [call.arguments[1], call.arguments[2]])
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    warn = mock.fn()
+    activeBanMemo.clear()
+    // -> The coalescer's pending windows are module-level and shared across cases, exactly like the
+    //    ban memo above.
+    resetCoalesce()
+    wikiHandle = installTestWiki({
+      config: {
+        security: {
+          authRateLimitEnabled: true,
+          authRateLimitMax: 10,
+          authRateLimitWindow: '5m',
+          authRateLimitBan: '15m'
+        }
+      },
+      models: {
+        rateLimits: { consume }
+      },
+      logger: { warn, debug: mock.fn() }
+    })
+  })
+
+  afterEach(() => {
+    resetCoalesce()
+    wikiHandle.restore()
+  })
+
+  test('lets an allowed attempt through, keyed by ip, and logs nothing', async () => {
+    await limitAuthAttempts(makeAuthReq(), makeReplyStub().reply)
+
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal(consume.mock.calls[0].arguments[0], 'auth:203.0.113.9')
+    assert.equal(warn.mock.calls.length, 0)
+  })
+
+  test('the ban line carries the count the ban was decided on', async () => {
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 11, retryAfter: 900 }))
+    await limitAuthAttempts(makeAuthReq(), makeReplyStub().reply)
+
+    assert.deepEqual(warnCalls(), [
+      [
+        'rate limit banned',
+        {
+          method: 'POST',
+          url: '/_api/auth/login',
+          ip: '203.0.113.9',
+          hits: 11,
+          retryAfter: 900
+        }
+      ]
+    ])
+    assert.equal(warn.mock.calls[0].arguments[0], 'auth', 'filed under the auth scope')
+  })
+
+  test('folds a burst of refusals into three lines and one summary', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 11, retryAfter: 900 }))
+
+    for (let i = 0; i < 20; i += 1) {
+      await limitAuthAttempts(makeAuthReq(), makeReplyStub().reply)
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three lines')
+
+    // -> `authRateLimitWindow: '5m'` above is the window the summary closes on.
+    mock.timers.tick(300_000)
+    const calls = warnCalls()
+    assert.equal(calls.length, 4)
+    assert.deepEqual(calls[3], ['rate limit banned 20 times in 300s', { ip: '203.0.113.9' }])
+    mock.timers.reset()
+  })
+
+  test('counts each address separately', async () => {
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 11, retryAfter: 900 }))
+
+    for (let i = 0; i < 5; i += 1) {
+      await limitAuthAttempts(makeAuthReq({ ip: '203.0.113.9' }), makeReplyStub().reply)
+    }
+    for (let i = 0; i < 2; i += 1) {
+      await limitAuthAttempts(makeAuthReq({ ip: '198.51.100.4' }), makeReplyStub().reply)
+    }
+
+    // -> Three from the first address (its threshold), both from the second: one client's burst
+    //    must not silence another client's first refusal.
+    assert.deepEqual(
+      warnCalls().map(([, fields]) => fields.ip),
+      ['203.0.113.9', '203.0.113.9', '203.0.113.9', '198.51.100.4', '198.51.100.4']
+    )
+  })
+
+  test('still answers 429 with a Retry-After header for a folded refusal', async () => {
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 11, retryAfter: 42 }))
+
+    let last = makeReplyStub()
+    for (let i = 0; i < 5; i += 1) {
+      last = makeReplyStub()
+      await limitAuthAttempts(makeAuthReq(), last.reply)
+    }
+
+    // -> The fifth attempt is past the logging threshold; coalescing changes what is SAID about a
+    //    refusal, never whether the client is refused.
+    assert.deepEqual((last.reply as any).header.mock.calls[0].arguments, ['Retry-After', '42'])
+    assert.equal(last.calls.tooManyRequests.length, 1)
+  })
+
+  test('does nothing at all when the limit is turned off', async () => {
+    wikiHandle.restore()
+    wikiHandle = installTestWiki({
+      config: { security: { authRateLimitEnabled: false } },
+      models: { rateLimits: { consume } },
+      logger: { warn, debug: mock.fn() }
+    })
+
+    await limitAuthAttempts(makeAuthReq(), makeReplyStub().reply)
+    assert.equal(consume.mock.calls.length, 0)
+    assert.equal(warn.mock.calls.length, 0)
   })
 })

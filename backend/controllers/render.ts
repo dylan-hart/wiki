@@ -11,7 +11,7 @@ const SHELL = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Wiki.js Renderer</title>
+<title>Cardinal.js Renderer</title>
 </head>
 <body>
 <script type="module" src="/_assets/renderer.js"></script>

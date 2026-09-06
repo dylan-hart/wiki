@@ -44,7 +44,9 @@ describe('purge-user-keys.task (DB-backed)', { skip: !hasTestDatabase() }, () =>
     const expiredId = await seedKey('resetPwd', -1)
     const validId = await seedKey('resetPwd', 24)
 
-    await task()
+    // -> OpenProject #2672: the sweep RETURNS its count rather than logging it; the scheduler is
+    //    what writes the one `info` line for the run.
+    assert.deepEqual(await task(), { summary: 'purged expired user keys', purged: 1 })
 
     const [expiredRow] = await fixtures.db
       .select()
@@ -59,10 +61,12 @@ describe('purge-user-keys.task (DB-backed)', { skip: !hasTestDatabase() }, () =>
     assert.ok(validRow, 'expected the still-valid key to survive the purge')
   })
 
-  test('does nothing when there is nothing expired', async () => {
+  test('does nothing, and reports nothing, when there is nothing expired', async () => {
     const validId = await seedKey('emailVerify', 24)
 
-    await assert.doesNotReject(task())
+    // -> Nothing swept means nothing returned, which is what keeps a nightly sweep that found
+    //    nothing at `debug` instead of in an operator's `info` log.
+    assert.equal(await task(), undefined)
 
     const [validRow] = await fixtures.db
       .select()

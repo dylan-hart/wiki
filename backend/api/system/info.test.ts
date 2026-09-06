@@ -25,21 +25,21 @@ describe('GET /cluster (renamed from /instances)', () => {
     {
       usename: 'wiki',
       client_addr: '10.0.0.1',
-      application_name: 'Wiki.js - aaaaaaaaaa:MAIN',
+      application_name: 'Cardinal.js - aaaaaaaaaa:MAIN',
       backend_start: '2026-08-17 09:00:00.000000+00',
       state_change: '2026-08-17 09:05:00.000000+00'
     },
     {
       usename: 'wiki',
       client_addr: '10.0.0.1',
-      application_name: 'Wiki.js - aaaaaaaaaa:PUBSUB',
+      application_name: 'Cardinal.js - aaaaaaaaaa:PUBSUB',
       backend_start: '2026-08-17 09:00:00.000000+00',
       state_change: '2026-08-17 09:05:30.000000+00'
     },
     {
       usename: 'wiki',
       client_addr: '10.0.0.2',
-      application_name: 'Wiki.js - bbbbbbbbbb:MAIN',
+      application_name: 'Cardinal.js - bbbbbbbbbb:MAIN',
       backend_start: '2026-08-17 09:01:00.000000+00',
       state_change: '2026-08-17 09:06:00.000000+00'
     }
@@ -83,6 +83,52 @@ describe('GET /cluster (renamed from /instances)', () => {
       url: '/instances'
     })
     assert.equal(res.statusCode, 404)
+  })
+})
+
+/**
+ * The instance id is read out of `<product> - <instance id>:<purpose>` by its separators, not by a
+ * fixed character offset. It used to be `substring(10, 20)` -- exactly the length of the product-name
+ * prefix that happened to be in use -- so renaming the product silently sliced the wrong ten
+ * characters out of every row and every node came back with a garbled id, with nothing failing
+ * loudly. This drives the same handler with a deliberately differently-sized prefix to pin that the
+ * parse no longer depends on the brand's length.
+ */
+describe('GET /cluster parses the instance id by separator, not by offset', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    app = await buildTestApp({
+      routes: systemRoutes,
+      wiki: {
+        dbManager: { dbName: 'wiki_test' },
+        db: {
+          execute: async () => ({
+            rows: [
+              {
+                usename: 'wiki',
+                client_addr: '10.0.0.1',
+                // -> A product-name prefix of a different length to the one the app ships with.
+                application_name: 'Q - 0123456789:MAIN',
+                backend_start: '2026-08-17 09:00:00.000000+00',
+                state_change: '2026-08-17 09:05:00.000000+00'
+              }
+            ]
+          })
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  test('the id is everything between " - " and ":", whatever precedes it', async () => {
+    const res = await app.inject({ method: 'GET', url: '/cluster' })
+    assert.equal(res.statusCode, 200)
+    const nodes = res.json()
+    assert.equal(nodes.length, 1)
+    assert.equal(nodes[0].id, '0123456789')
+    assert.equal(nodes[0].activeConnections, 1)
   })
 })
 

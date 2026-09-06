@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 
 import { v4 as uuid } from 'uuid'
 
+import { log } from '@/helpers/log'
+
 import { useSiteStore } from './site'
 
 const imgMimeExt = {
@@ -186,7 +188,7 @@ export const useEditorStore = defineStore('editor', {
           configIsLoaded: true
         })
       } catch (err) {
-        console.warn(err)
+        log.warn('editor', 'could not load the editor configuration', err)
         throw err
       }
     },
@@ -209,7 +211,7 @@ export const useEditorStore = defineStore('editor', {
         })
         return settings
       } catch (err) {
-        console.warn(err)
+        log.warn('editor', `could not load this user's ${editor} editor settings`, err)
         throw err
       }
     },

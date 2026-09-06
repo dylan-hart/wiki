@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import { Client } from 'ldapts'
 import type { Entry, SearchOptions, SearchResult } from 'ldapts'
-import { ProvisionableLoginError } from '../../../models/authentication.ts'
+import { ProvisionableLoginError, providerNameHalves } from '../../../models/authentication.ts'
 
 /** Only what this module actually calls, kept narrow so a test double needs no more than this. */
 type LdapClientFactory = (options: { url: string; tlsOptions: Record<string, any> }) => Client
@@ -164,9 +164,11 @@ export default class LdapAuthentication {
     try {
       tlsOptions = this.getTlsOptions()
     } catch (err: any) {
-      WIKI.logger.warn(
-        `LDAP strategy ${this.strategyId}: could not read its TLS certificate: ${err.message}`
-      )
+      WIKI.logger.warn('auth', 'could not read the LDAP strategy TLS certificate', {
+        module: 'ldap',
+        strategy: this.strategyId,
+        error: err
+      })
       throw new Error('ERR_STRATEGY_MISCONFIGURED')
     }
 
@@ -234,6 +236,15 @@ export default class LdapAuthentication {
       const id = attrs[this.conf.mappingUID]?.[0]
       const email = attrs[this.conf.mappingEmail]?.[0]
       const name = attrs[this.conf.mappingDisplayName]?.[0]
+      /*
+        `givenName` and `sn` are read from their standard LDAP names rather than through a mapping
+        prop of their own (Feature #2608): unlike the unique-ID and email attributes -- which really
+        do differ between directories, `uid` versus `sAMAccountName` -- both of these are defined by
+        RFC 4519 and are what every `person` entry uses. `sn` is schema-required for a `person`, but
+        a directory is still free to hand back an entry without a value for it, so an empty surname
+        is a supported answer, not an error: nothing is derived from `givenName` to fill it in.
+      */
+      const [firstName, lastName] = [attrs.givenName?.[0], attrs.sn?.[0]]
       if (!id || !email) {
         WIKI.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: entry for "${username}" has no value for its unique ID or email mapping`
@@ -245,7 +256,13 @@ export default class LdapAuthentication {
         ? await this.fetchGroups(adminClient, dn, attrs)
         : undefined
 
-      throw new ProvisionableLoginError({ id, email, name: name || email, groups })
+      throw new ProvisionableLoginError({
+        id,
+        email,
+        name: name || email,
+        ...providerNameHalves(firstName, lastName),
+        groups
+      })
     } finally {
       await unbindQuietly(adminClient)
     }

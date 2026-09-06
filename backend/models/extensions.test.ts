@@ -27,7 +27,7 @@ let previousWiki: any
 let extensionsModel: typeof import('./extensions.ts').extensions
 
 before(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), 'wikijs-extensions-test-'))
+  dir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-extensions-test-'))
   previousWiki = (globalThis as any).WIKI
   ;(globalThis as any).WIKI = {
     SERVERPATH: dir,

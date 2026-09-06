@@ -125,7 +125,9 @@ describe('NavBrowseMenu nav-root i18n leak (OpenProject #832)', () => {
 
     // -> This is the exact step the original bug fired on: browsing INTO a subfolder, where the
     //    upstream sidebar rendered "/ sidebar.root" instead of resolving its translated label.
-    const upButton = document.querySelector('.browse-menu-up')
+    // -> The plate is `UpOneLevelBtn.vue` now (one control, three call sites), but it still resolves
+    //    its label through this component's own i18n, which is what this assertion is about.
+    const upButton = document.querySelector('.up-one-level-btn')
     expect(upButton).not.toBeNull()
     expect(upButton.getAttribute('aria-label')).toBe('Up one level')
     expect(upButton.getAttribute('aria-label')).not.toBe('common.browse.upOneLevel')

@@ -279,7 +279,12 @@ async function routes(app: FastifyInstance) {
       try {
         await WIKI.models.storage.executeAction(target, req.params.action)
       } catch (err: any) {
-        WIKI.logger.warn(err)
+        WIKI.logger.warn('storage', 'a target action failed', {
+          target: target.id,
+          module: target.module,
+          action: req.params.action,
+          error: err
+        })
         return reply.badRequest(err.message)
       }
 

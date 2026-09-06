@@ -47,6 +47,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { initials as initialsFor } from '@/helpers/initials'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -61,18 +62,8 @@ const { t } = useI18n()
 
 // COMPUTED
 
-/**
- * Up to two letters standing in for an avatar: the first letter of the first and last
- * whitespace-separated parts of the display name, so "Dylan Hart" reads DH while a single-word name
- * reads its one letter rather than doubling it.
- */
-const initials = computed(() => {
-  const parts = (userStore.name || '').trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) {
-    return '?'
-  }
-  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
-})
+/** The reader's own avatar letters -- see `helpers/initials.js` for the rule they all share. */
+const initials = computed(() => initialsFor(userStore.name))
 </script>
 
 <style lang="scss">

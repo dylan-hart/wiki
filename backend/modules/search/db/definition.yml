@@ -2,7 +2,7 @@ key: db
 title: 'Database'
 icon: '/_assets/icons/ultraviolet-database.svg'
 description: 'PostgreSQL full-text search. Every site starts with it, and it is the only search engine guaranteed to work: it cannot be disabled, so a site can always be searched even with no external engine configured.'
-vendor: 'Wiki.js'
+vendor: 'Cardinal.js'
 website: 'https://js.wiki'
 props:
   termHighlighting:

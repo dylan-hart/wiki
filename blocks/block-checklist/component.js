@@ -41,7 +41,7 @@ export class BlockChecklistElement extends LitElement {
     name: 'Checklist',
     description:
       'A run-log checklist — checking an item off records who checked it and when, per run.',
-    icon: 'todo-list',
+    icon: 'tabler:checklist',
     props: [
       {
         name: 'run-key',

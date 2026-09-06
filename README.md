@@ -1,21 +1,23 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://static.requarks.io/logo/wikijs-full-darktheme.svg">
-  <img alt="Wiki.js" src="https://static.requarks.io/logo/wikijs-full.svg" width="600">
-</picture>
+# Cardinal.js
 
-[![License](https://img.shields.io/badge/license-AGPLv3-blue.svg?style=flat)](https://github.com/requarks/wiki/blob/master/LICENSE)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue.svg?style=flat)](LICENSE)
 [![Standard - JavaScript Style Guide](https://img.shields.io/badge/code%20style-standard-green.svg?style=flat&logo=javascript&logoColor=white)](http://standardjs.com/)
-[![GitHub Sponsors](https://img.shields.io/github/sponsors/ngpixel?logo=github&color=ea4aaa)](https://github.com/users/NGPixel/sponsorship)
-[![Open Collective backers and sponsors](https://img.shields.io/opencollective/all/wikijs?label=backers&color=218bff&logo=opencollective&logoColor=white)](https://opencollective.com/wikijs)
 
 ##### Next Generation Open Source Wiki
 
 </div>
 
-- **[Official Website](https://beta.js.wiki)**
-- **[Documentation](https://beta.js.wiki/docs)**
+**Cardinal.js is a modified version of [Wiki.js](https://github.com/requarks/wiki)**, forked from its
+`scarlett` (3.x) branch at upstream commit `d0c5a8bfa` (2026-08-14). It has been modified
+continuously since 2026-08-16, and the full record of those modifications is this repository's own
+commit history. Cardinal.js is not affiliated with, nor endorsed by, Requarks or the Wiki.js
+maintainers, and "Wiki.js" below always means upstream. Like the code it forked, Cardinal.js is
+licensed under the [GNU Affero General Public License v3](LICENSE); the complete corresponding
+source for every running instance is this repository, at
+[github.com/dylan-hart/wiki](https://github.com/dylan-hart/wiki).
+
 - **[Operations Guide](docs/operations.md)** — backup/restore scope and container mounts
 - **[MCP Getting Started](docs/mcp-getting-started.md)** — connect an LLM agent via the built-in
   Model Context Protocol server
@@ -25,7 +27,8 @@
 **USE AT YOUR OWN RISK! THERE'S NO UPGRADE PATH FROM THIS BUILD AND NO SUPPORT IS PROVIDED!**  
 :red_square: :warning: :warning: :red_square:
 
-The current stable release (2.x) is available at https://js.wiki
+Upstream Wiki.js's current stable release (2.x) is available at https://js.wiki, along with its
+own [documentation](https://js.wiki/docs). Cardinal.js has no released build and no docs site.
 
 ---
 
@@ -88,6 +91,22 @@ This will launch the server and automatically restart upon modification of any s
 
 Only precompiled client assets are served in this mode. See the sections below on how to modify the frontend and run in SPA (Single Page Application) mode.
 
+### What the dev container is
+
+It is not merely a convenient place to work — it is built to be the same environment
+`.github/workflows/` runs the quality gate on, so that "it passes here" and "it passes in CI" mean
+the same thing. Concretely, it pins Node to a single exact patch (`.devcontainer/Dockerfile`'s
+`ARG NODE_VERSION`, the only place any Node version is named), runs the same `postgres:18`, and bakes
+in every tool a workflow installs onto its runner before it can run the gate: pandoc, git-cliff at
+the same pinned release, and the Chromium revision the `playwright` package expects — so neither
+`e2e/` nor `frontend/`'s two real-layout suites need a per-machine `npm run install-browsers`. Git is
+configured explicitly rather than inherited from your host, so a test can never pass here and fail in
+CI on an ambient `init.defaultBranch`.
+
+Bumping Node therefore means editing `.devcontainer/Dockerfile`'s `NODE_VERSION` *and*
+`NODE_IMAGE_DIGEST` *and* every `node-version:` in `.github/workflows/*.yml`, in one commit. The image
+build fails if the first two disagree, and `backend/test/devcontainerCiParity.test.ts` guards the rest.
+
 ### Backend Tests
 
 The `app` container's `DATABASE_URL` (set in `.devcontainer/docker-compose.yml`) points at the same
@@ -118,7 +137,14 @@ Any change you make to the frontend will not be reflected on port 3000 until you
 
 ### pgAdmin
 
-A web version of pgAdmin (a PostgreSQL administration tool) is available at `http://localhost:8000`. Use the login `dev@js.wiki` / `123123` to login.
+pgAdmin is **not started by default** — it sits behind the `tools` docker-compose profile, because
+the dev container is meant to be exactly what CI runs on and CI has no pgAdmin. Start it explicitly:
+
+```sh
+docker compose --profile tools up -d pgadmin   # from .devcontainer/
+```
+
+A web version of pgAdmin (a PostgreSQL administration tool) is then available at `http://localhost:8000`. Use the login `dev@js.wiki` / `123123` to login.
 
 Add a new server under **Servers** with the following settings:
 
@@ -134,6 +160,15 @@ Add a new server under **Servers** with the following settings:
 
 - PostgreSQL **16** or later
 - Node.js **26.x** or later
+
+That is the supported *floor* — what the code is compatible with, and what each workspace's
+`package.json` `engines` states. It is deliberately not the same statement as the exact patch CI and
+the development container run on, which is pinned once, as `ARG NODE_VERSION` in
+[`.devcontainer/Dockerfile`](.devcontainer/Dockerfile). That file's header states how the pin is
+raised — the ARG, the base-image digest beside it and every `node-version:` in
+`.github/workflows/*.yml`, together, in one commit — and
+`backend/test/devcontainerCiParity.test.ts` fails if the two ever drift apart. You do not need the
+pinned patch to run this locally; a newer 26.x is fine.
 
 ### Usage
 

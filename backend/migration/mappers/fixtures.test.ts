@@ -243,6 +243,10 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
           emailClaim: 'email',
           allowUnverifiedEmail: false,
           displayNameClaim: 'name',
+          // -> Not part of the 2.x source row either (OpenProject #2640 added these two, so an
+          //    imported strategy picks up the OpenID Connect standard claim names).
+          firstNameClaim: 'given_name',
+          lastNameClaim: 'family_name',
           logoutURL: '',
           // -> Not part of the 2.x source row at all (OpenProject #826 added these props after this
           //    fixture was authored) -- an imported OIDC strategy gets them at their definition.yml

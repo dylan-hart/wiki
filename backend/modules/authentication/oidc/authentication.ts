@@ -1,5 +1,6 @@
 import * as client from 'openid-client'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
+import { providerNameHalves } from '../../../models/authentication.ts'
 
 /** A claim value as OIDC providers report it: one value, several, or (rarely) neither. */
 function asStringArray(value: unknown): string[] {
@@ -22,6 +23,15 @@ function asStringArray(value: unknown): string[] {
  * through this same function, so the check applies to all of them with no per-preset code. Only a
  * claim that is explicitly `false` refuses the login -- a provider that omits the claim entirely (many
  * do) is not assumed unverified, since there is nothing to contradict.
+ *
+ * The separated name halves come from OIDC's own standard `given_name`/`family_name` claims, each
+ * overridable by `firstNameClaim`/`lastNameClaim` for a provider that puts them somewhere else — the
+ * same shape `displayNameClaim` already has, since a claim name is exactly the kind of thing an
+ * administrator has to be able to correct. They are read here and nowhere else: whether either half
+ * is written to the account, and what `name` derives to, is `models/users.ts`'s decision (Feature
+ * #2608), not this module's. Deliberately NOT done here: splitting the display name when the
+ * provider issues no halves at all — that fallback is per-module (Task #2641), and doing it in this
+ * shared mapper would silently apply it to every OIDC preset.
  */
 export function mapOidcProfile(
   conf: Record<string, any>,
@@ -40,6 +50,10 @@ export function mapOidcProfile(
     id: subject,
     email,
     name: (info[conf.displayNameClaim || 'name'] as string) || email,
+    ...providerNameHalves(
+      info[conf.firstNameClaim || 'given_name'],
+      info[conf.lastNameClaim || 'family_name']
+    ),
     // -> `undefined` (module did not look) versus `[]` (looked, provider reported none) matters to
     //    `syncProviderGroups()` — see `ProviderProfile.groups`'s own doc comment — so the key itself
     //    is only ever present when `mapGroups` is on, never set to `undefined`.

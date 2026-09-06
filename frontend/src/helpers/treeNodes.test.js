@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { mergeFolderEntries } from './treeNodes'
+import { mergeFolderEntries, parentFolderIdOf } from './treeNodes'
 
 const folder = (id, folderPath, fileName, extra = {}) => ({
   id,
@@ -90,5 +90,47 @@ describe('mergeFolderEntries', () => {
     const treeNodes = {}
     expect(() => mergeFolderEntries(treeNodes, [folder('b', 'gone', 'b')], null)).not.toThrow()
     expect(treeNodes.b.children).toEqual([])
+  })
+})
+
+/**
+ * OpenProject #2695: what "up one level" resolves to, shared by `FileManager.vue` and
+ * `TreeBrowserDialog.vue` -- the two surfaces the up-one-level plate was added to. Neither browser
+ * has a `parent` field to read (the tree response does not carry one), so neither had any way to
+ * answer this before.
+ */
+describe('parentFolderIdOf', () => {
+  const nodes = {
+    'f-docs': { folderPath: '', fileName: 'docs', title: 'Docs', children: ['f-setup'] },
+    'f-setup': { folderPath: 'docs', fileName: 'setup', title: 'Setup', children: ['f-install'] },
+    'f-install': { folderPath: 'docs/setup', fileName: 'install', title: 'Install', children: [] },
+    'f-blog': { folderPath: '', fileName: 'blog', title: 'Blog', children: [] }
+  }
+
+  it('resolves the folder above a nested one', () => {
+    expect(parentFolderIdOf(nodes, 'f-install')).toBe('f-setup')
+    expect(parentFolderIdOf(nodes, 'f-setup')).toBe('f-docs')
+  })
+
+  it('answers null for a folder sitting directly under the root', () => {
+    // -> Not a failed lookup: `null` IS the root, which is what every browser here already calls it
+    expect(parentFolderIdOf(nodes, 'f-docs')).toBeNull()
+  })
+
+  it('answers null at the root, and for a folder the map has never heard of', () => {
+    expect(parentFolderIdOf(nodes, null)).toBeNull()
+    expect(parentFolderIdOf(nodes, 'f-missing')).toBeNull()
+    expect(parentFolderIdOf(undefined, 'f-docs')).toBeNull()
+  })
+
+  it('matches on the whole path, not on the last segment alone', () => {
+    // -> `blog/setup` ends in the same name as `docs/setup`; going up from one must not land on the
+    //    other branch's parent
+    const ambiguous = {
+      ...nodes,
+      'f-blog-setup': { folderPath: 'blog', fileName: 'setup', title: 'Setup', children: [] }
+    }
+    expect(parentFolderIdOf(ambiguous, 'f-blog-setup')).toBe('f-blog')
+    expect(parentFolderIdOf(ambiguous, 'f-setup')).toBe('f-docs')
   })
 })

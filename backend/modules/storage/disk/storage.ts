@@ -436,7 +436,11 @@ async function importLocaleDir(
       }
     } catch (err: any) {
       result.unrecognized.push({ path: relPath, reason: err.message })
-      WIKI.logger.warn(`Failed to import "${relPath}": ${err.message}`)
+      WIKI.logger.warn('storage', 'importing a file failed', {
+        module: 'disk',
+        path: relPath,
+        error: err
+      })
     }
   }
 }
@@ -505,12 +509,15 @@ export async function importAll(target: StorageTarget): Promise<ImportAllResult>
     )
   }
 
-  WIKI.logger.info(
-    `Import for storage target ${target.title}: ${result.pagesCreated} page(s) created, ` +
-      `${result.pagesSkipped} page(s) skipped, ${result.assetsWritten} asset(s) written, ` +
-      `${result.assetsSkipped} asset(s) skipped, ${result.unrecognized.length} entr` +
-      `${result.unrecognized.length === 1 ? 'y' : 'ies'} unrecognized.`
-  )
+  WIKI.logger.info('storage', 'import completed', {
+    module: 'disk',
+    target: target.id,
+    pagesCreated: result.pagesCreated,
+    pagesSkipped: result.pagesSkipped,
+    assetsWritten: result.assetsWritten,
+    assetsSkipped: result.assetsSkipped,
+    unrecognized: result.unrecognized.length
+  })
   return result
 }
 

@@ -129,7 +129,7 @@ describe('SearchEngineDefinition', () => {
       key: 'db',
       title: 'Database',
       description: 'PostgreSQL full-text search.',
-      vendor: 'Wiki.js',
+      vendor: 'Cardinal.js',
       website: 'https://js.wiki',
       props: {
         termHighlighting: {
@@ -171,7 +171,7 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
   let previousWiki: any
 
   before(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'wikijs-search-model-test-'))
+    dir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-search-model-test-'))
 
     await mkdir(path.join(dir, 'modules/search/db'), { recursive: true })
     await writeFile(
@@ -179,7 +179,7 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
       [
         'title: Database',
         'description: PostgreSQL full-text search.',
-        'vendor: Wiki.js',
+        'vendor: Cardinal.js',
         'website: https://js.wiki',
         'props:',
         '  termHighlighting:',
@@ -499,7 +499,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     key: 'db',
     title: 'Database',
     description: 'PostgreSQL full-text search.',
-    vendor: 'Wiki.js',
+    vendor: 'Cardinal.js',
     website: 'https://js.wiki',
     props: {
       termHighlighting: fakeProp()
@@ -988,7 +988,7 @@ describe('search.initActiveEngines()', () => {
         throw new Error('service unreachable')
       }
     }
-    const warnings: string[] = []
+    const warnings: { message: string; fields?: Record<string, any> }[] = []
     ;(globalThis as any).WIKI = {
       sites: {
         'site-broken': {
@@ -1000,7 +1000,8 @@ describe('search.initActiveEngines()', () => {
       logger: {
         info: () => {},
         error: () => {},
-        warn: (msg: string) => warnings.push(msg),
+        warn: (_scope: string, message: string, fields?: Record<string, any>) =>
+          warnings.push({ message, fields }),
         debug: () => {}
       }
     }
@@ -1010,7 +1011,7 @@ describe('search.initActiveEngines()', () => {
     await assert.doesNotReject(search.initActiveEngines())
 
     assert.deepEqual(dbCalls, ['init:site-ok:{}'])
-    assert.ok(warnings.some((w) => w.includes('broken-engine')))
+    assert.ok(warnings.some((w) => w.fields?.engine === 'broken-engine'))
   })
 
   /**
@@ -1024,7 +1025,7 @@ describe('search.initActiveEngines()', () => {
       ...dbModule,
       init: () => new Promise<void>(() => {}) // never resolves or rejects
     }
-    const warnings: string[] = []
+    const warnings: { message: string; fields?: Record<string, any> }[] = []
     ;(globalThis as any).WIKI = {
       sites: {
         'site-hanging': {
@@ -1036,7 +1037,8 @@ describe('search.initActiveEngines()', () => {
       logger: {
         info: () => {},
         error: () => {},
-        warn: (msg: string) => warnings.push(msg),
+        warn: (_scope: string, message: string, fields?: Record<string, any>) =>
+          warnings.push({ message, fields }),
         debug: () => {}
       }
     }
@@ -1059,8 +1061,8 @@ describe('search.initActiveEngines()', () => {
     }
 
     assert.deepEqual(dbCalls, ['init:site-ok:{}'])
-    assert.ok(warnings.some((w) => w.includes('hanging-engine')))
-    assert.ok(warnings.some((w) => w.includes('Timed out')))
+    assert.ok(warnings.some((w) => w.fields?.engine === 'hanging-engine'))
+    assert.ok(warnings.some((w) => /Timed out/.test(w.fields?.error?.message ?? '')))
   })
 
   /**
@@ -1076,7 +1078,7 @@ describe('search.initActiveEngines()', () => {
       ...dbModule,
       init: () => new Promise<void>(() => {}) // never resolves or rejects
     }
-    const warnings: string[] = []
+    const warnings: { message: string; fields?: Record<string, any> }[] = []
     ;(globalThis as any).WIKI = {
       sites: {
         'site-hanging-a': {
@@ -1092,7 +1094,8 @@ describe('search.initActiveEngines()', () => {
       logger: {
         info: () => {},
         error: () => {},
-        warn: (msg: string) => warnings.push(msg),
+        warn: (_scope: string, message: string, fields?: Record<string, any>) =>
+          warnings.push({ message, fields }),
         debug: () => {}
       }
     }
@@ -1122,8 +1125,8 @@ describe('search.initActiveEngines()', () => {
 
     assert.equal(settled, true)
     assert.deepEqual(dbCalls, ['init:site-ok:{}'])
-    assert.ok(warnings.some((w) => w.includes('hanging-engine-a')))
-    assert.ok(warnings.some((w) => w.includes('hanging-engine-b')))
+    assert.ok(warnings.some((w) => w.fields?.engine === 'hanging-engine-a'))
+    assert.ok(warnings.some((w) => w.fields?.engine === 'hanging-engine-b'))
   })
 })
 

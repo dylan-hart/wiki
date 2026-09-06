@@ -3,7 +3,7 @@ title: Local File System
 icon: '/_assets/icons/ultraviolet-hdd.svg'
 banner: '/_assets/storage/disk.jpg'
 description: Store files on the local file system or over network attached storage. Note that you must use replicated storage if using high-availability instances.
-vendor: Wiki.js
+vendor: Cardinal.js
 website: 'https://js.wiki'
 assetDelivery:
   isStreamingSupported: true

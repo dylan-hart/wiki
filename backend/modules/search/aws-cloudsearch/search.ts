@@ -708,6 +708,7 @@ function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQuer
  * (Feature #381).
  */
 export class AwsCloudSearchModule extends ExternalSearchModule {
+  protected readonly engine = MODULE_KEY
   private readonly clientFactory: (config: Record<string, any>) => CloudSearchAdminClient
   private readonly queryClientFactory: (config: Record<string, any>) => CloudSearchQueryClient
   private readonly pageSource: RebuildPageSource
@@ -831,13 +832,17 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
 
     if (changed) {
       await client.indexDocuments(domain)
-      WIKI.logger.info(
-        `AWS CloudSearch domain "${domain}" schema changed for site ${siteId}, reindex requested [ OK ]`
-      )
+      WIKI.logger.info('search', 'domain schema changed, reindex requested', {
+        engine: MODULE_KEY,
+        domain,
+        site: siteId
+      })
     } else {
-      WIKI.logger.info(
-        `AWS CloudSearch domain "${domain}" is already provisioned for site ${siteId} [ OK ]`
-      )
+      WIKI.logger.info('search', 'domain already provisioned', {
+        engine: MODULE_KEY,
+        domain,
+        site: siteId
+      })
     }
   }
 
@@ -865,7 +870,8 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
       async () => {
         await this.uploadBatch(page.siteId, [toIndexDocument(page)])
       },
-      (message) => `Failed to update the AWS CloudSearch index for page ${page.id}: ${message}`
+      'indexing a page failed',
+      { page: page.id }
     )
   }
 
@@ -875,7 +881,8 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
       async () => {
         await this.uploadBatch(siteId, [{ type: 'delete', id: pageId }])
       },
-      (message) => `Failed to remove page ${pageId} from the AWS CloudSearch index: ${message}`
+      'removing a page from the index failed',
+      { page: pageId }
     )
   }
 
@@ -1113,7 +1120,11 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
-    WIKI.logger.info(`Rebuilding the AWS CloudSearch domain for ${locales.length} locale(s)...`)
+    WIKI.logger.debug('search', 'rebuilding the domain', {
+      engine: MODULE_KEY,
+      site: siteId,
+      locales: locales.length
+    })
     const client = this.queryClientFor(siteId, this.configFor(siteId))
     const uploadedIds = new Set<string>()
     const result: RebuildResult = { pages: 0, locales: [] }
@@ -1130,7 +1141,11 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })
-      WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
+      WIKI.logger.debug('search', 'locale reindexed', {
+        engine: MODULE_KEY,
+        locale,
+        pages: localePages
+      })
     }
 
     const existingIds = await this.fetchAllIds(client, siteId)
@@ -1140,12 +1155,19 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
         siteId,
         staleIds.map((id) => ({ type: 'delete' as const, id }))
       )
-      WIKI.logger.info(
-        `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
-      )
+      WIKI.logger.info('search', 'purged stale documents', {
+        engine: MODULE_KEY,
+        site: siteId,
+        documents: staleIds.length
+      })
     }
 
-    WIKI.logger.info(`AWS CloudSearch domain rebuild completed: ${result.pages} page(s) [ OK ]`)
+    WIKI.logger.info('search', 'index rebuild completed', {
+      engine: MODULE_KEY,
+      site: siteId,
+      pages: result.pages,
+      locales: result.locales.length
+    })
     return result
   }
 }

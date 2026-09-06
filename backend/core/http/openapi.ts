@@ -21,7 +21,7 @@ export function registerOpenApi(app: FastifyInstance): void {
     openapi: {
       openapi: '3.1.0',
       info: {
-        title: 'Wiki.js API',
+        title: 'Cardinal.js API',
         version: WIKI.version
       },
       components: {

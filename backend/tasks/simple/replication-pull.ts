@@ -5,11 +5,7 @@
  * view's "run now".
  */
 export async function task(): Promise<void> {
-  try {
-    await WIKI.models.replication.pull()
-  } catch (err: any) {
-    WIKI.logger.error('Replication pull: [ FAILED ]')
-    WIKI.logger.error(err.message)
-    throw err
-  }
+  // -> No try/catch: `pull()`'s own failure propagates, and the scheduler writes the one record for
+  //    it with the job id and attempt attached. A second, contextless pair here said less.
+  await WIKI.models.replication.pull()
 }

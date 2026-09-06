@@ -155,6 +155,8 @@ describe('Graph.vue keyword search wiring', () => {
 
   it('degrades keywordMatches to empty (not stale) on a failed request, quietly -- but a client-side title match survives it (OpenProject #2533)', async () => {
     const wrapper = await mountGraph()
+    // -> `Graph.vue` logs the failure through `helpers/log.js` (OpenProject #2682), which
+    //    reaches `console.warn` under `import.meta.env.DEV` -- true here, so the spy still sees it
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.reject(new Error('network down'))

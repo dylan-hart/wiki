@@ -56,7 +56,7 @@ describe('ApiKeyCopyDialog mcp install command', () => {
 
     expect(wrapper.vm.mcpInstallScope).toBe('user')
     expect(wrapper.vm.mcpInstallCommand).toBe(
-      'claude mcp add --transport http wikijs https://wiki.example.com/_mcp ' +
+      'claude mcp add --transport http cardinaljs https://wiki.example.com/_mcp ' +
         '--header "Authorization: Bearer wiki_abc123.def456" --scope user'
     )
   })

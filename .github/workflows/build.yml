@@ -57,7 +57,7 @@ jobs:
       - name: Setup Node.js environment
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 26.x
+          node-version: 26.8.1
           cache: npm
           cache-dependency-path: |
             backend/package-lock.json
@@ -114,6 +114,32 @@ jobs:
       - name: Run E2E Smoke Suite
         working-directory: e2e
         run: npm test
+
+      # --- Quarantine lane, e2e only (report-only) --------------------------------------------
+      # OpenProject #2692 (Feature #2603, Epic #2600). The answer to "does build.yml get a lane
+      # step too" is: yes, but only e2e's, and both halves of that are deliberate.
+      #
+      # Only e2e's, because this job already `needs: quality`, and quality.yml runs the
+      # backend/frontend/blocks lanes there -- repeating them here would pay for them twice per
+      # push, the same double-pay this job already refuses for the default unit suites (see the
+      # comment above the E2E steps).
+      #
+      # But e2e's here rather than in quality.yml, because the e2e lane cannot run there: that
+      # workflow installs no e2e dependencies, and e2e/playwright.config.js throws at import time on
+      # an unset DATABASE_URL -- which playwright.flaky.config.js inherits, empty lane or not. This
+      # job is the only place e2e's dependencies, browsers, postgres service and a real `assets/`
+      # build all exist at once. Not added to e2e.yml as well: its pull_request trigger and this
+      # workflow's push trigger are disjoint, but e2e.yml's own header records that the same suite
+      # must not end up running twice per commit, and #2692's spec says not to wire both. The
+      # consequence, stated rather than left implicit: the e2e lane runs on scarlett pushes and not
+      # on pull requests. That costs nothing while the lane holds zero specs, and is the thing to
+      # revisit the moment a `*.flaky.spec.js` lands.
+      #
+      # `continue-on-error: true`, a job-summary table and a per-lane `::error::` annotation, all
+      # exactly as in quality.yml -- see the step there for why the script still exits non-zero.
+      - name: Quarantine Lane, e2e (report-only)
+        continue-on-error: true
+        run: ./scripts/ci-quarantine-lane.sh e2e
 
       - name: Upload Playwright Report
         if: ${{ !cancelled() }}

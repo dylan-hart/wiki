@@ -37,92 +37,70 @@
         <!-- ----------------------- -->
         <!-- Warning -->
         <!-- ----------------------- -->
-        <w-card class="py-2 mb-4">
-          <w-item>
-            <w-item-section>
-              <w-card class="bg-negative text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:alert-triangle" size="lg" />
-                  </w-card-section>
-                  <w-card-section class="text-caption">{{
-                    t('admin.replication.warning')
-                  }}</w-card-section>
-                </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
+        <!--
+          The warning is about the whole page, not a setting in it, so it is its own banner above the
+          card rather than a settings row with nothing at its trailing edge.
+        -->
+        <w-card class="bg-negative text-white rounded mb-4">
+          <w-card-section class="items-center" horizontal>
+            <w-card-section class="flex-none pe-0">
+              <w-icon name="tabler:alert-triangle" size="lg" />
+            </w-card-section>
+            <w-card-section class="text-caption">{{
+              t('admin.replication.warning')
+            }}</w-card-section>
+          </w-card-section>
         </w-card>
         <!-- ----------------------- -->
         <!-- Configuration -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.replication.title') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:link" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.replication.sourceUrl`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.replication.sourceUrlHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.sourceUrl"
-                dense
-                hide-bottom-space
-                placeholder="https://prod.example.com"
-                :aria-label="t(`admin.replication.sourceUrl`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:key" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.replication.bearerToken`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.replication.bearerTokenHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.bearerToken"
-                dense
-                hide-bottom-space
-                type="password"
-                autocomplete="new-password"
-                :aria-label="t(`admin.replication.bearerToken`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:calendar-time" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.replication.cronSchedule`) }}</w-item-label>
-              <w-item-label caption>{{
-                t('admin.replication.cronScheduleHint', { example: '0 0 * * 0' })
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.cronSchedule"
-                dense
-                :rules="rulesCronSchedule"
-                hide-bottom-space
-                placeholder="0 0 * * 0"
-                :aria-label="t(`admin.replication.cronSchedule`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:shield-lock" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.replication.enabled`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.replication.enabledHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.isEnabled"
-                :aria-label="t(`admin.replication.enabled`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.replication.title')">
+          <w-settings-row
+            icon="tabler:link"
+            :label="t(`admin.replication.sourceUrl`)"
+            :hint="t(`admin.replication.sourceUrlHint`)">
+            <w-input
+              v-model="state.config.sourceUrl"
+              dense
+              hide-bottom-space
+              placeholder="https://prod.example.com"
+              :aria-label="t(`admin.replication.sourceUrl`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:key"
+            :label="t(`admin.replication.bearerToken`)"
+            :hint="t(`admin.replication.bearerTokenHint`)">
+            <w-input
+              v-model="state.config.bearerToken"
+              dense
+              hide-bottom-space
+              type="password"
+              autocomplete="new-password"
+              :aria-label="t(`admin.replication.bearerToken`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:calendar-time"
+            :label="t(`admin.replication.cronSchedule`)"
+            :hint="t('admin.replication.cronScheduleHint', { example: '0 0 * * 0' })">
+            <w-input
+              v-model="state.config.cronSchedule"
+              dense
+              :rules="rulesCronSchedule"
+              hide-bottom-space
+              placeholder="0 0 * * 0"
+              :aria-label="t(`admin.replication.cronSchedule`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:shield-lock"
+            :label="t(`admin.replication.enabled`)"
+            :hint="t(`admin.replication.enabledHint`)">
+            <w-toggle
+              v-model="state.config.isEnabled"
+              :aria-label="t(`admin.replication.enabled`)" />
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>

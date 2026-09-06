@@ -376,7 +376,7 @@ export default {
     //    an unhandled 'error' and taking the process down with it.
     this.listenerHandle = await connectListener({
       pool: WIKI.dbManager.listenerPool!,
-      applicationName: `Wiki.js - ${WIKI.INSTANCE_ID}:COLLAB`,
+      applicationName: `Cardinal.js - ${WIKI.INSTANCE_ID}:COLLAB`,
       channels: [NOTIFY_CHANNEL],
       label: 'collaboration relay',
       onNotification: (msg) => {
@@ -386,7 +386,7 @@ export default {
         try {
           this.receiveRelay(JSON.parse(msg.payload) as RelayEnvelope)
         } catch (err: any) {
-          WIKI.logger.warn(`Malformed collaboration relay message: ${err.message}`)
+          WIKI.logger.warn('collab', 'malformed relay message', { error: err })
         }
       },
       getClient: () => this.listenClient,
@@ -412,7 +412,7 @@ export default {
       }
     }, PING_INTERVAL)
 
-    WIKI.logger.info('Collaborative editing initialized successfully: [ OK ]')
+    WIKI.logger.debug('collab', 'collaborative editing initialized')
   },
 
   async shutdown(): Promise<void> {
@@ -463,17 +463,19 @@ export default {
     if (now - this.peerPresence.checkedAt < PEER_PRESENCE_TTL) {
       return this.peerPresence.known
     }
-    const ownName = `Wiki.js - ${WIKI.INSTANCE_ID}:COLLAB`
+    const ownName = `Cardinal.js - ${WIKI.INSTANCE_ID}:COLLAB`
     try {
       const result = await WIKI.db.execute(
         sql`SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
-              AND application_name LIKE 'Wiki.js - %:COLLAB'
+              AND application_name LIKE 'Cardinal.js - %:COLLAB'
               AND application_name <> ${ownName} LIMIT 1`
       )
       this.peerPresence = { known: result.rows.length > 0, checkedAt: now }
     } catch (err: any) {
       // -> Assume company: waiting 500ms is a far smaller mistake than duplicating a page's text
-      WIKI.logger.warn(`Could not determine whether other instances are running: ${err.message}`)
+      WIKI.logger.warn('collab', 'could not determine whether peer instances are running', {
+        error: err
+      })
       this.peerPresence = { known: true, checkedAt: now }
     }
     return this.peerPresence.known
@@ -516,9 +518,9 @@ export default {
         //    buffering. `terminate()`, not `close()`: this socket has already sent more than a real
         //    y-websocket handshake ever does, so it does not get the closing handshake's grace period
         //    either.
-        WIKI.logger.warn(
-          'A collaboration socket exceeded the pre-auth frame buffer cap and was terminated.'
-        )
+        WIKI.logger.warn('collab', 'socket exceeded the pre-auth frame buffer cap, terminated', {
+          bytes: session.pendingBytes + bytes.byteLength
+        })
         conn.terminate()
         return
       }
@@ -531,7 +533,7 @@ export default {
       }
     })
     conn.on('error', (err: Error) => {
-      WIKI.logger.debug(`Collaboration socket error: ${err.message}`)
+      WIKI.logger.debug('collab', 'socket error', { error: err })
     })
     return session
   },
@@ -780,9 +782,7 @@ export default {
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to initialize the collaboration room for page ${room.pageId}: ${err.message}`
-      )
+      WIKI.logger.warn('collab', 'failed to initialize room', { page: room.pageId, error: err })
     } finally {
       room.provisional = false
       this.awaitingState.delete(room.pageId)
@@ -885,9 +885,7 @@ export default {
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to handle a collaboration message on page ${room.pageId}: ${err.message}`
-      )
+      WIKI.logger.warn('collab', 'failed to handle a message', { page: room.pageId, error: err })
     }
   },
 
@@ -1026,9 +1024,10 @@ export default {
     const persisting: Promise<void> = WIKI.models.pageDrafts
       .save(room.pageId, room.siteId, Y.encodeStateAsUpdate(room.doc), null, room.lastAuthorName)
       .catch((err: any) => {
-        WIKI.logger.warn(
-          `Failed to persist an autosave draft for page ${room.pageId}: ${err.message}`
-        )
+        WIKI.logger.warn('collab', 'failed to persist an autosave draft', {
+          page: room.pageId,
+          error: err
+        })
       })
       .finally(() => {
         // -> Only clear if this is still the flush that's in flight -- a guard against a future
@@ -1085,7 +1084,7 @@ export default {
     clearAfter
       .then(() => WIKI.models.pageDrafts.clear(pageId))
       .catch((err: any) => {
-        WIKI.logger.warn(`Failed to clear the draft for page ${pageId}: ${err.message}`)
+        WIKI.logger.warn('collab', 'failed to clear the draft', { page: pageId, error: err })
       })
   },
 

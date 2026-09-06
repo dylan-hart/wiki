@@ -115,7 +115,7 @@ export async function resolveAuthor(
 ): Promise<{ name: string; email: string }> {
   const config = target.config ?? {}
   const fallback = {
-    name: config.defaultName || 'Wiki.js',
+    name: config.defaultName || 'Cardinal.js',
     email: config.defaultEmail || 'noreply@example.com'
   }
   if (!authorId) {

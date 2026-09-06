@@ -135,7 +135,6 @@
           :class="{ 'is-ringing': state.bellRinging }"
           v-if="userStore.authenticated && !isRedirect"
           flat
-          dense
           :icon="pageStore.isWatching ? `tabler:bell-filled` : `tabler:bell`"
           :color="pageStore.isWatching ? `accent` : `slate-soft`"
           :aria-label="pageStore.isWatching ? t(`common.page.unwatch`) : t(`common.page.watch`)"
@@ -149,7 +148,6 @@
           class="ms-4"
           v-if="siteStore.theme.showPrintBtn"
           flat
-          dense
           icon="tabler:printer"
           color="slate-soft"
           :aria-label="t('common.actions.print')"
@@ -173,7 +171,6 @@
           class="ms-4"
           v-if="pageStore.canReview && !isRedirect"
           flat
-          dense
           :color="pendingCount > 0 ? `accent` : `slate-soft`"
           :aria-label="t(`inbox.pendingReview`)">
           <!--
@@ -861,6 +858,33 @@ async function toggleWatch() {
 </script>
 
 <style scoped lang="scss">
+/*
+  One target box for the whole action row (OpenProject #2616).
+
+  Watch, Print and the review queue were `dense` icon-only buttons sitting beside a full labelled
+  Edit, which is a 28px/10px box against a 32px/14px one -- three visibly smaller places to aim at in
+  a row a reader reads as one group. `dense` is gone from all three (it drove nothing in `WBtn` but
+  those two metrics), and this rule is what keeps the equality true from here on: a button added to
+  this row later inherits the box rather than having to remember to ask for it.
+
+  What is NOT equalised is the fill. Edit stays the one accent button on this surface and everything
+  else stays a bare icon in the chrome tone -- see the comment above Edit itself. The note this fixes
+  was about the hit area, not the colour.
+
+  Written as a child combinator rather than a class, for the same reason: a class is a thing to
+  remember. `>` deliberately stops at the row's own children, leaving the save/save-and-close pair
+  inside `w-btn-group` alone -- a group is one control with its own internal seam, not two members of
+  this row.
+
+  `!important` because `WBtn` writes `min-height` and `padding` as INLINE styles, which no class beats
+  on specificity alone; `.w-btn.header-nav-btn` in `css/_base.scss` documents the same fight against
+  the same two properties for the site header's own band.
+*/
+.page-header-actions > .w-btn {
+  min-height: 2.572em !important;
+  padding: 0 1.12em !important;
+}
+
 /*
   The phone layout of this row.
 

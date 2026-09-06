@@ -123,6 +123,7 @@ import { notify } from '@/composables/notify'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
 
 // PROPS
 
@@ -217,7 +218,7 @@ async function loadInheritedNav() {
       props.updatePositionHandler()
     })
   } catch (err) {
-    console.warn(`Could not resolve the inherited navigation menu: ${apiErrorMessage(err)}`)
+    log.warn('nav', 'could not resolve the inherited navigation menu', err)
   }
 }
 
@@ -239,7 +240,7 @@ async function loadMenuMode() {
     ).json()
     state.menuMode = resp?.mode ?? 'static'
   } catch (err) {
-    console.warn(`Could not resolve the menu's source mode: ${apiErrorMessage(err)}`)
+    log.warn('nav', "could not resolve the menu's source mode", err)
   }
 }
 

@@ -159,7 +159,6 @@ class Sites extends ClusterReloaded {
   }
 
   async reloadCache(): Promise<void> {
-    WIKI.logger.info('Reloading site configurations...')
     const sites = await WIKI.db.select().from(sitesTable).orderBy(sitesTable.id)
     WIKI.sites = keyBy(sites, (s) => s.id)
     WIKI.sitesMappings = {}
@@ -169,7 +168,7 @@ class Sites extends ClusterReloaded {
       //    key through the same normalizer as every read keeps both sides provably in lockstep.
       WIKI.sitesMappings[normalizeHostname(site.hostname)] = site.id
     }
-    WIKI.logger.info(`Loaded ${sites.length} site configurations [ OK ]`)
+    WIKI.logger.debug('config', 'reloaded the site configurations', { sites: sites.length })
   }
 
   async createSite(hostname: string, config: Record<string, any> = {}) {
@@ -246,7 +245,7 @@ class Sites extends ClusterReloaded {
               injectCSS: '',
               injectHead: '',
               injectBody: '',
-              contentWidth: 'centered',
+              contentWidth: 'measured',
               sidebarPosition: 'left',
               tocPosition: 'right',
               showPrintBtn: true,
@@ -276,7 +275,7 @@ class Sites extends ClusterReloaded {
 
     // -> The menu every page of the site's primary locale inherits by default. Empty to begin with,
     //    but it has to exist before a page can point at it
-    WIKI.logger.debug(`Creating new root navigation for site ${newSite.id}`)
+    WIKI.logger.debug('nav', 'creating the root navigation', { site: newSite.id })
     const newSiteConfig = newSite.config as { locales: { primary: string } }
     await WIKI.models.navigation.ensureSiteNav(newSite.id, newSiteConfig.locales.primary)
 
@@ -549,7 +548,7 @@ class Sites extends ClusterReloaded {
   }
 
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.info('Inserting default site...')
+    WIKI.logger.debug('config', 'seeding the default site')
 
     await WIKI.db.insert(sitesTable).values({
       id: ids.siteId,
@@ -614,7 +613,7 @@ class Sites extends ClusterReloaded {
           injectCSS: '',
           injectHead: '',
           injectBody: '',
-          contentWidth: 'centered',
+          contentWidth: 'measured',
           sidebarPosition: 'left',
           tocPosition: 'right',
           showPrintBtn: true,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Confirms a published Wiki.js 3.x image actually RUNS correctly on a real arm64 host, not merely
+# Confirms a published Cardinal.js 3.x image actually RUNS correctly on a real arm64 host, not merely
 # that its manifest lists linux/arm64 (that half is `backend/scripts/verify-arm64-manifest.ts`, run
 # from anywhere, no arm64 hardware needed). This script is the other half of OpenProject #2488
 # ("Verify published multi-arch manifest on a real ARM host") and must be run ON a genuine arm64

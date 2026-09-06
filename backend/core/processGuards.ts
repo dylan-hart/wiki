@@ -24,16 +24,17 @@ export async function runBootPhaseOrExit(
   phase: () => Promise<void>,
   label: string,
   logger: BootLogger,
-  opts: { debug?: boolean; exit?: (code: number) => void } = {}
+  opts: { exit?: (code: number) => void } = {}
 ): Promise<void> {
   const exit = opts.exit ?? ((code: number) => process.exit(code))
   try {
     await phase()
   } catch (err: any) {
-    logger.error(`${label}: ${err.message}`)
-    if (opts.debug) {
-      logger.error(err)
-    }
+    // -> One record, not two: `fields.error` carries the message inline and the stack below it, so
+    //    the situation and the trace can no longer be separated by an interleaved line from another
+    //    request — which is what the old `IS_DEBUG`-gated second `error(err)` risked, and which also
+    //    meant the stack was simply absent unless the operator had already turned debug on.
+    logger.error('boot', `${label} failed`, { error: err })
     exit(1)
   }
 }
@@ -61,15 +62,18 @@ export async function runBootPhaseOrExit(
  */
 export function registerUnhandledRejectionHandler(
   logger: BootLogger,
-  opts: { debug?: boolean; target?: NodeJS.EventEmitter; exit?: (code: number) => void } = {}
+  opts: { target?: NodeJS.EventEmitter; exit?: (code: number) => void } = {}
 ): void {
   const target = opts.target ?? process
   target.on('unhandledRejection', (reason: unknown) => {
+    // -> No `error` field for a non-`Error` reason: there is no name or stack to lift out of a
+    //    rejected string, and inventing one would put a fabricated trace in front of an operator.
     const message = reason instanceof Error ? reason.message : String(reason)
-    logger.error(`Unhandled Promise Rejection: ${message}`)
-    if (opts.debug && reason instanceof Error) {
-      logger.error(reason)
-    }
+    logger.error(
+      'boot',
+      `unhandled promise rejection: ${message}`,
+      reason instanceof Error ? { error: reason } : {}
+    )
     opts.exit?.(1)
   })
 }

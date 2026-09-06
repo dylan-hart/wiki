@@ -43,7 +43,7 @@ jobs:
       - name: Setup Node.js environment
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 26.x
+          node-version: 26.8.1
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -58,8 +58,14 @@ jobs:
       # Bounded with `timeout` rather than left to core/db.ts's own 10-attempt/3s retry loop running
       # to completion (~30s+): the very first connection attempt against an unreachable database
       # fails immediately, so a couple of seconds is enough to see either the module-resolution
-      # crash we're guarding against or the first "Database connection error" log line -- whichever
+      # crash we're guarding against or the first "connection failed, retrying" log line -- whichever
       # comes first tells us everything this step needs to know.
+      #
+      # That string is core/db.ts#connect()'s per-attempt line (`warn db connection failed, retrying
+      # attempt=1/10 ...`). It replaced an older per-attempt "Database connection error" error line
+      # when the scoped logger landed: an attempt that will be retried is a warning, and the `error`
+      # an operator has to act on is the throw once all ten attempts are spent -- which this bounded
+      # window deliberately never reaches. So grep for the retry line, not the exhausted-retries one.
       - name: Boot smoke test (production install, unreachable database)
         run: |
           set +e
@@ -73,7 +79,7 @@ jobs:
             exit 1
           fi
 
-          if ! grep -q 'Database connection error' boot.log; then
+          if ! grep -q 'connection failed, retrying' boot.log; then
             echo "::error::Boot did not reach the database-connect stage at all, so this step asserted nothing useful -- investigate the boot log above."
             exit 1
           fi
@@ -119,7 +125,7 @@ jobs:
       - name: Setup Node.js environment
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 26.x
+          node-version: 26.8.1
           cache: npm
           cache-dependency-path: |
             backend/package-lock.json
@@ -276,6 +282,30 @@ jobs:
       - name: Blocks Tests
         working-directory: blocks
         run: npm run test
+
+      # --- Quarantine lane (report-only) ------------------------------------------------------
+      # OpenProject #2692 (Feature #2603, Epic #2600). The `*.flaky.*` lane is every test that
+      # depends on real external state no care inside the test makes deterministic -- see
+      # docs/decisions/flaky-test-quarantine.md, which is the authority on what belongs in it. It
+      # runs here as its own step so a fragile test is visible without being a trunk-red generator.
+      #
+      # `continue-on-error: true` is what makes it report-only, and it is deliberate rather than
+      # incidental: every other step in this workflow relies on GitHub Actions' `false` default, so
+      # this is the one place the exception is stated. The script itself still exits non-zero on a
+      # red lane, which renders the step with the failed-but-continued marker rather than a plain
+      # green tick -- a step that cannot fail is a step nobody reads, which is exactly how a lane
+      # rots. It also writes a job summary table and one `::error::` annotation per failed lane, so
+      # a red lane is legible on the run page without opening a log.
+      #
+      # Covers backend/frontend/blocks -- the three workspaces whose dependencies this job installs.
+      # The `e2e/` lane runs in build.yml's `build` job instead, where e2e's own dependencies,
+      # browsers, postgres service and a real `assets/` build already exist; see the step there.
+      #
+      # Note this workflow is a `workflow_call:` target invoked by build.yml, so this step runs on
+      # every pull request AND every push to scarlett. Intended.
+      - name: Quarantine Lane (report-only)
+        continue-on-error: true
+        run: ./scripts/ci-quarantine-lane.sh backend frontend blocks
 
       # Run from backend's own already-installed, version-pinned oxfmt (see backend/package.json)
       # rather than a bare `npx oxfmt`, which would silently resolve whatever `latest` happens to be

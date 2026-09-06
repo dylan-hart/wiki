@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -518,5 +522,163 @@ describe('TagsBrowse.vue tag management mode (OpenProject #1877)', () => {
     wrapper.vm.startRename(FIXTURE_TAGS[0])
     wrapper.vm.state.renameValue = 'gear'
     await expect(wrapper.vm.performRename('equipment', 'gear')).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * `ui-redesign/Cardinal Wiki - Tags 3x.dc.html` conformance (OpenProject #2626).
+ *
+ * Structural rather than measured: jsdom runs no layout engine, so what is asserted here is that
+ * the markup, classes and inline styles the design's metrics ride on are the ones on the element --
+ * not the pixel each resolves to. A claim that genuinely needed a rendered box would have to go
+ * through `test/realGridLayout.js`'s real Chromium; nothing on this screen does.
+ */
+describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)', () => {
+  const RESULTS = { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+
+  function mountWithResults() {
+    return mountTagsBrowse('/_tags?tags=equipment', RESULTS)
+  }
+
+  it('leaves the section band full-bleed: the page is unpadded and the band is its first child', async () => {
+    const { wrapper } = await mountTagsBrowse()
+
+    const page = wrapper.find('.w-page')
+    expect(page.classes()).not.toContain('p-4')
+    expect(page.element.firstElementChild.classList.contains('w-section-header')).toBe(true)
+  })
+
+  /*
+    Sibling Task #2631 owns walking every `.w-section-header` caller onto the design's padding
+    rhythm, precisely because hand-tuning it per call site is how the padding drifted in the first
+    place. This screen's band is 38px in the design and 34px in the shared class, and that gap is
+    deliberately left to #2631 -- so this page must not quietly answer it in its own stylesheet.
+  */
+  it("does not restyle the shared section band -- that is #2631's, not this screen's", () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(here, 'TagsBrowse.vue'), 'utf8')
+    // -> Comments stripped first: the block explains WHY it leaves the band alone, and naming the
+    //    class in that explanation must not read as an override.
+    const declarations = source.slice(source.indexOf('<style')).replaceAll(/\/\*[\s\S]*?\*\//g, '')
+
+    expect(declarations.length).toBeGreaterThan(0)
+    expect(declarations).not.toContain('.w-section-header')
+  })
+
+  it('keeps the two columns and the body that pads them, now that the page does not', async () => {
+    const { wrapper } = await mountTagsBrowse()
+
+    expect(wrapper.find('.tags-browse-body').exists()).toBe(true)
+    expect(wrapper.find('.tags-browse-sidebar').exists()).toBe(true)
+    expect(wrapper.find('.tags-browse-results').exists()).toBe(true)
+  })
+
+  it("sets a tag chip's `#` as a mono glyph, not a drawn icon", async () => {
+    const { wrapper } = await mountTagsBrowse()
+
+    const chip = wrapper.find('.tags-browse-chips .w-chip')
+    const hash = chip.find('.tags-browse-hash')
+
+    expect(hash.exists()).toBe(true)
+    expect(hash.text()).toBe('#')
+    expect(hash.attributes('aria-hidden')).toBe('true')
+    expect(chip.find('[data-icon="tabler:hash"]').exists()).toBe(false)
+  })
+
+  it("draws the sidebar chips at the design's 11.5px", async () => {
+    const { wrapper } = await mountWithResults()
+
+    const chips = wrapper.findAll('.tags-browse-chips .w-chip')
+    expect(chips.length).toBeGreaterThan(0)
+    for (const chip of chips) {
+      expect(chip.attributes('style')).toContain('font-size: 11.5px')
+    }
+  })
+
+  /*
+    The design's filter fields are the 34px frame with 10px of inset, which is what the DEFAULT field
+    draws; `dense` is the 28px one (`composables/fieldFrame.js`). Asserted through the marker class
+    `useFieldFrame` puts on a dense control rather than a computed height, which jsdom cannot give.
+  */
+  it('puts the locale, order-by and search fields on the 34px frame, not the dense one', async () => {
+    const { wrapper } = await mountWithResults()
+
+    const controls = wrapper.findAll('.w-input-control')
+    expect(controls.length).toBeGreaterThanOrEqual(3)
+    for (const control of controls) {
+      expect(control.classes()).not.toContain('w-input-control--dense')
+    }
+  })
+
+  it("sizes every field's leading glyph at the design's 14px", async () => {
+    const { wrapper } = await mountWithResults()
+
+    for (const name of ['tabler:language', 'tabler:sort-descending', 'tabler:search']) {
+      const icon = wrapper.find(`[data-icon="${name}"]`)
+      expect(icon.exists()).toBe(true)
+      expect(icon.attributes('style')).toContain('font-size: 14px')
+    }
+  })
+
+  it('wraps the results in a hairline plate that draws its own row rule', async () => {
+    const { wrapper } = await mountWithResults()
+
+    const plate = wrapper.find('.tags-browse-plate')
+    expect(plate.exists()).toBe(true)
+    // -> `separator` is off: the design's rule is the pale tint, drawn by `.tags-browse-plate`
+    expect(plate.find('.w-list').classes()).not.toContain('w-list--separator')
+    expect(plate.find('.w-item').exists()).toBe(true)
+  })
+
+  it('draws the page plate as a 36px square with a 20px glyph', async () => {
+    const { wrapper } = await mountWithResults()
+
+    const avatar = wrapper.find('.tags-browse-plate .w-avatar')
+    expect(avatar.classes()).toContain('rounded-none')
+    expect(avatar.attributes('style')).toContain('width: 36px')
+    expect(avatar.attributes('style')).toContain('height: 36px')
+    expect(avatar.find('.w-icon').attributes('style')).toContain('font-size: 20px')
+  })
+
+  it("sets the path and the last-updated line in the design's mono metadata tone", async () => {
+    const { wrapper } = await mountWithResults()
+
+    const section = wrapper.find('.tags-browse-plate .w-item-section--main')
+    expect(section.find('.tags-browse-result-title').text()).toBe('Some Page')
+
+    const meta = section.findAll('.tags-browse-result-meta')
+    expect(meta).toHaveLength(2)
+    expect(meta[0].text()).toBe('/some/page')
+  })
+
+  it("draws the result-row tags at the design's 11px, with the same mono `#`", async () => {
+    const { wrapper } = await mountWithResults()
+
+    const chips = wrapper.findAll('.tags-browse-plate .w-item-section--side .w-chip')
+    expect(chips).toHaveLength(FIXTURE_PAGE.tags.length)
+    for (const chip of chips) {
+      expect(chip.attributes('style')).toContain('font-size: 11px')
+      expect(chip.find('.tags-browse-hash').text()).toBe('#')
+      expect(chip.find('[data-icon="tabler:hash"]').exists()).toBe(false)
+    }
+  })
+
+  it('draws Load more as an outlined plate on the surface, not a flat accent label', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment', {
+      results: [FIXTURE_PAGE, FIXTURE_PAGE_2],
+      totalHits: 7,
+      suggestion: null
+    })
+
+    const button = findLoadMoreButton(wrapper)
+    expect(button).toBeTruthy()
+    expect(button.classes()).toContain('border-hairline')
+    expect(button.classes()).toContain('bg-surface')
+  })
+
+  it("gives the results count the design's own tone rather than leaving it to inherit", async () => {
+    const { wrapper } = await mountWithResults()
+
+    expect(wrapper.find('.tags-browse-count').exists()).toBe(true)
   })
 })

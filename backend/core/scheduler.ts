@@ -21,13 +21,55 @@ import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { PoolClient } from 'pg'
 
 /**
+ * What a task hands back when its run is worth an `info` line.
+ *
+ * `summary` is the sentence the scheduler logs in place of its own `<task> finished` — lowercase, no
+ * trailing period, the same wording the task used to log for itself — and every other property rides
+ * that same line as a field. A task that did nothing worth reporting returns nothing at all and stays
+ * at `debug`: "swept, found none" is not news, and these run on a timer.
+ *
+ * Deliberately NOT written to `jobHistory.result`. That column is a task's own channel to a follow-up
+ * route (`exportContent`'s `{ filePath, fileSize }`, which `GET /_api/system/export/:jobId/download`
+ * reads back), written by the task itself through `WIKI.models.jobs.setResult()`; a summary landing
+ * silently on top of it would break the routes that read it. The two are separate on purpose — see
+ * `models/jobs.ts#setResult`.
+ */
+export interface TaskResult {
+  summary: string
+  [field: string]: unknown
+}
+
+/**
  * An in-process task, loaded from `tasks/simple/`.
  *
  * `jobId` is this task's own row in `jobHistory` — most tasks have no use for it, but one that wants
  * to hand something back (`exportContent`'s `{ filePath, fileSize }`) writes it there via
  * `WIKI.models.jobs.setResult(jobId, ...)`, which is what lets a follow-up route find it later.
+ *
+ * A task that returns a `TaskResult` is telling the scheduler what its run amounted to, so the outcome
+ * is logged ONCE, by the one caller that also knows the job id, the attempt and how long it took (see
+ * `runJob()`). A task does not log its own counts.
  */
-export type SimpleTask = (payload?: any, jobId?: string) => Promise<void> | void
+export type SimpleTask = (
+  payload?: any,
+  jobId?: string
+) => Promise<TaskResult | void> | TaskResult | void
+
+/**
+ * Read a task's return value as a summary, or `null` when there is nothing to say.
+ *
+ * Anything that is not a plain object carrying a non-empty `summary` string is "no summary": a task
+ * returning `undefined` (most of them), one that hands back a bare count, and every worker-thread job
+ * — `worker.ts`'s `ThreadWorker` resolves `true` rather than the task's own value, so a worker job is
+ * always the `debug` case here.
+ */
+function taskSummary(value: unknown): TaskResult | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null
+  }
+  const summary = (value as { summary?: unknown }).summary
+  return typeof summary === 'string' && summary.length > 0 ? (value as TaskResult) : null
+}
 
 /** Fallback for `scheduler.taskTimeout`, in seconds, when nothing is configured. */
 const DEFAULT_TASK_TIMEOUT = 300
@@ -166,12 +208,18 @@ export default {
     if (this.maxWorkers < 1) {
       this.maxWorkers = 1
     }
-    WIKI.logger.info(`Initializing Worker Pool (Limit: ${this.maxWorkers})...`)
     const workerFile = path.join(WIKI.SERVERPATH, 'worker.ts')
     const poolOptions = {
-      errorHandler: (err: Error) => WIKI.logger.warn(err),
-      exitHandler: () => WIKI.logger.debug('A worker has gone offline.'),
-      onlineHandler: () => WIKI.logger.debug('New worker is online.')
+      errorHandler: (err: Error) => WIKI.logger.warn('worker', 'worker pool error', { error: err }),
+      exitHandler: () => WIKI.logger.debug('worker', 'worker offline'),
+      onlineHandler: () => WIKI.logger.debug('worker', 'worker online'),
+      // -> Forwarded verbatim to `new Worker(file, options)`, so this is what `worker.ts` reads out
+      //    of `node:worker_threads`' `workerData` to build its own `INSTANCE_ID` before its logger
+      //    exists. One object for the whole pool — the per-worker half of the id is the thread's own
+      //    `threadId`, not anything sent from here.
+      workerOptions: {
+        workerData: { parentInstanceId: WIKI.INSTANCE_ID }
+      }
     }
     /*
       `DynamicThreadPool` refuses a minimum equal to its maximum (poolifier 5.x: "Use a fixed pool
@@ -212,9 +260,7 @@ export default {
     return this
   },
   async start(): Promise<void> {
-    WIKI.logger.info('Starting Scheduler...')
-
-    const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
+    const connectionAppName = `Cardinal.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
 
     // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
@@ -270,7 +316,7 @@ export default {
     }, WIKI.config.scheduler.scheduledCheck * 1000)
 
     // -> Add scheduled jobs on init
-    await this.addScheduled()
+    const planned = await this.addScheduled()
 
     /*
       Anything left claimed but unfinished, before this instance starts claiming more. Most often
@@ -284,7 +330,7 @@ export default {
       this.processJob()
     }, WIKI.config.scheduler.pollingCheck * 1000)
 
-    WIKI.logger.info('Scheduler: [ STARTED ]')
+    WIKI.logger.info('jobs', 'scheduler started', { workers: this.maxWorkers, planned })
   },
   /**
    * Add a job to the scheduler
@@ -340,7 +386,7 @@ export default {
         ...(promise && { promise: jobDefer.promise })
       }
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to add job to scheduler: ${err.message}`)
+      WIKI.logger.warn('jobs', 'failed to queue job', { task, error: err })
     }
   },
   /**
@@ -388,11 +434,10 @@ export default {
   async executeOnWorker(job: { task: string; payload?: any }): Promise<void> {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     await withTimeout(
-      this.workerPool!.execute(
-        { ...job, INSTANCE_ID: `${WIKI.INSTANCE_ID}:WKR` },
-        undefined,
-        AbortSignal.timeout(timeoutMs)
-      ),
+      // -> No `INSTANCE_ID` rider on the payload any more: a worker settles its own id from
+      //    `workerData` at boot (see `poolOptions` above), so sending one per job only ever
+      //    overwrote a correct value with the same information a job later.
+      this.workerPool!.execute({ ...job }, undefined, AbortSignal.timeout(timeoutMs)),
       timeoutMs + TASK_TIMEOUT_GRACE,
       () =>
         new Error(
@@ -428,7 +473,7 @@ export default {
     //    reports how many rows it actually got.
     const availableWorkers = this.maxWorkers - this.activeWorkers
     if (availableWorkers < 1) {
-      WIKI.logger.debug('All workers are busy. Cannot process more jobs at the moment.')
+      WIKI.logger.debug('jobs', 'all workers busy, nothing claimed', { workers: this.maxWorkers })
       return
     }
     this.activeWorkers += availableWorkers
@@ -494,7 +539,7 @@ export default {
       // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued. Correct the
       //    up-front reservation back down to what was actually claimed (zero).
       this.activeWorkers -= availableWorkers
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('jobs', 'failed to claim jobs', { error: err })
       return
     }
 
@@ -553,12 +598,16 @@ export default {
     payload?: any
     id?: string
     retries?: number
-  }): Promise<void> {
+  }): Promise<TaskResult | void> {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     const runTask = () => this.tasks![job.task](job.payload, job.id)
     // -> `Promise.resolve`, since a task may be written as a synchronous function: `Promise.race`
     //    accepted a bare value, `withTimeout` takes a promise
-    await withTimeout(
+    // -> The task's own return value is handed back rather than discarded: a task that ran to
+    //    completion may have returned a `TaskResult`, and `runJob()` is what turns that into the one
+    //    `info` line for this run. A task that timed out never returns at all, so there is nothing to
+    //    carry through that branch.
+    return await withTimeout(
       Promise.resolve(
         job.id
           ? runWithJobExecutionContext({ jobId: job.id, attempt: (job.retries ?? 0) + 1 }, runTask)
@@ -579,13 +628,20 @@ export default {
    * scheduler's backoff, and its siblings in the batch are unaffected either way.
    */
   async runJob(job: any): Promise<void> {
-    WIKI.logger.info(`Processing new job ${job.id}: ${job.task}...`)
+    const attempt = job.retries + 1
+    // -> `maxRetries` counts the RETRIES, so the run itself is the extra one: a job with
+    //    `maxRetries: 3` gets four attempts, and `attempt=2/4` is what an operator needs to read
+    //    "two down, two to go" off a single line without knowing that convention.
+    const attempts = job.maxRetries + 1
+    const startedAt = Date.now()
+    WIKI.logger.debug('jobs', `${job.task} started`, {
+      job: job.id,
+      attempt: `${attempt}/${attempts}`
+    })
     try {
-      if (job.useWorker) {
-        await this.executeOnWorker(job)
-      } else {
-        await this.executeInProcess(job)
-      }
+      const outcome = job.useWorker
+        ? await this.executeOnWorker(job)
+        : await this.executeInProcess(job)
       await WIKI.db
         .update(jobHistoryTable)
         .set({
@@ -593,21 +649,65 @@ export default {
           completedAt: sql`now()`
         })
         .where(eq(jobHistoryTable.id, job.id))
-      WIKI.logger.info(`Completed job ${job.id}: ${job.task}`)
+      // -> The scheduler owns the outcome line, not the task (audit N3/X1). A task that reports
+      //    something — a count swept, a digest sent — returns it, and that becomes the ONE `info`
+      //    record for this run, carrying the job id, the attempt and the duration a task cannot know.
+      //    A task that did nothing worth saying returns nothing and the run stays at `debug`, so a
+      //    timer-driven sweep finding nothing is invisible until an operator asks for `debug`.
+      const summary = taskSummary(outcome)
+      if (summary) {
+        const { summary: sentence, ...summaryFields } = summary
+        WIKI.logger.info('jobs', `${job.task} ${sentence}`, {
+          job: job.id,
+          attempt: `${attempt}/${attempts}`,
+          ...summaryFields,
+          ms: Date.now() - startedAt
+        })
+      } else {
+        WIKI.logger.debug('jobs', `${job.task} finished`, {
+          job: job.id,
+          attempt: `${attempt}/${attempts}`,
+          ms: Date.now() - startedAt
+        })
+      }
       notifyJobCompleted(job.id, 'success')
     } catch (err: any) {
       // -> Only the terminal, retries-exhausted branch logs at `error`. A job that will still be
-      //    retried logs at `warn`, matching the "Rescheduling new attempt" line below it — an
-      //    operator shipping only `error` to alerting must see a storm of failing-and-retrying jobs,
-      //    not just the final give-up.
-      // -> `jobId`/`task`/`attempt` (OpenProject #1937) so a failure is traceable to the job that
-      //    caused it without cross-referencing `jobHistory` by timestamp. `attempt` is the one about
-      //    to be recorded below (`job.retries + 1`), not `job.retries` itself.
+      //    retried logs at `warn` — an operator shipping only `error` to alerting must see a storm
+      //    of failing-and-retrying jobs, not just the final give-up.
+      // -> One record, not two: the situation is the message and the error rides `fields.error`, so
+      //    the renderer puts the message inline and the stack under it rather than emitting a
+      //    second, contextless line. `job` plus the attempt (OpenProject #1937) keep it traceable
+      //    without cross-referencing `jobHistory` by timestamp, and the attempt named is the one
+      //    about to be recorded below (`job.retries + 1`), not `job.retries` itself.
+      // -> The two branches count differently on purpose: a job that will be tried again says
+      //    `attempt=n/m`, because there is an `n+1` coming; one that has run out says `attempts=m`,
+      //    the total it used, because there is no next attempt for a ratio to be counting towards.
+      // -> `next` is settled here, before the line is written, and reused by the requeue insert
+      //    below: the whole point of the field is that it is the row's real `waitUntil`, not a
+      //    second calculation of the same backoff that could drift from it.
       const retriesExhausted = job.retries >= job.maxRetries
-      const failureLog = retriesExhausted ? WIKI.logger.error : WIKI.logger.warn
-      const jobContext = { jobId: job.id, task: job.task, attempt: job.retries + 1 }
-      failureLog(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`, jobContext)
-      failureLog(err, jobContext)
+      const nextRun = retriesExhausted
+        ? null
+        : Temporal.Now.instant().add({
+            seconds: 2 ** job.retries * WIKI.config.scheduler.retryBackoff
+          })
+      if (retriesExhausted) {
+        WIKI.logger.error('jobs', `${job.task} failed, no attempts left`, {
+          job: job.id,
+          attempts,
+          ms: Date.now() - startedAt,
+          error: err
+        })
+      } else {
+        WIKI.logger.warn('jobs', `${job.task} failed, retrying`, {
+          job: job.id,
+          attempt: `${attempt}/${attempts}`,
+          next: nextRun!.toString({ smallestUnit: 'millisecond' }),
+          ms: Date.now() - startedAt,
+          error: err
+        })
+      }
       try {
         await WIKI.db
           .update(jobHistoryTable)
@@ -618,23 +718,24 @@ export default {
           })
           .where(eq(jobHistoryTable.id, job.id))
         notifyJobCompleted(job.id, 'failed', err.message)
-        // -> Reschedule for retry
-        if (job.retries < job.maxRetries) {
-          const backoffDelay = 2 ** job.retries * WIKI.config.scheduler.retryBackoff
+        // -> Reschedule for retry, at exactly the instant the `warn` above told the operator to
+        //    expect it
+        if (nextRun) {
           await WIKI.db.insert(jobsTable).values({
             ...job,
             retries: job.retries + 1,
-            waitUntil: new Date(
-              Temporal.Now.instant().add({ seconds: backoffDelay }).epochMilliseconds
-            ),
+            waitUntil: new Date(nextRun.epochMilliseconds),
             updatedAt: new Date()
           })
-          WIKI.logger.warn(`Rescheduling new attempt for job ${job.id}: ${job.task}...`)
         }
       } catch (recordErr: any) {
         // -> The task's failure is already logged; this is the database refusing to hear about it,
         //    which leaves the job looking active until `reapStaleJobs` picks it up
-        WIKI.logger.warn(`Could not record the failure of job ${job.id}: ${recordErr.message}`)
+        WIKI.logger.warn('jobs', 'failed to record job failure', {
+          job: job.id,
+          task: job.task,
+          error: recordErr
+        })
       }
     }
   },
@@ -674,7 +775,7 @@ export default {
     try {
       stranded = await claimStrandedJobs(cutoff, staleAfter)
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to requeue interrupted jobs: ${err.message}`)
+      WIKI.logger.warn('jobs', 'failed to requeue interrupted jobs', { error: err })
       return 0
     }
 
@@ -684,9 +785,10 @@ export default {
         // -> Its remaining attempts are what they were: being interrupted is a failed attempt, and a
         //    job that had already used them up is not owed another one
         if (job.attempt > job.maxRetries) {
-          WIKI.logger.warn(
-            `Job ${job.id}: ${job.task} was interrupted and has no attempts left [ SKIPPED ]`
-          )
+          WIKI.logger.warn('jobs', `${job.task} interrupted, no attempts left`, {
+            job: job.id,
+            attempt: `${job.attempt}/${job.maxRetries + 1}`
+          })
           notifyJobCompleted(job.id, 'failed', job.lastErrorMessage)
           continue
         }
@@ -729,7 +831,11 @@ export default {
         //    has its own `jobHistory` row marked `interrupted`, and without a per-job catch here, a
         //    single insert failure aborted the whole loop and left the rest permanently unrequeued —
         //    a later sweep only ever looks at `state = 'active'` rows, so it never revisits them.
-        WIKI.logger.warn(`Failed to requeue job ${job.id}: ${job.task}: ${err.message}`)
+        WIKI.logger.warn('jobs', 'failed to requeue job', {
+          job: job.id,
+          task: job.task,
+          error: err
+        })
       }
     }
 
@@ -740,14 +846,26 @@ export default {
     //    drop the comment atop this function says this branch exists to avoid.
     await notifier.drained()
 
+    // -> A sweep that found something is `warn`: an instance died mid-job, which is worth an
+    //    operator's attention even though the jobs are back in the queue. The far more common empty
+    //    sweep is `debug` — it runs on a timer and finding nothing is the healthy case, but saying so
+    //    is what tells someone with `debug` on that the sweep is running at all.
     if (stranded.length > 0) {
-      WIKI.logger.warn(
-        `Found ${stranded.length} interrupted job(s), ${requeued} of them requeued [ OK ]`
-      )
+      WIKI.logger.warn('jobs', 'requeued interrupted jobs', {
+        found: stranded.length,
+        requeued
+      })
+    } else {
+      WIKI.logger.debug('jobs', 'no interrupted jobs found')
     }
     return requeued
   },
-  async addScheduled(): Promise<void> {
+  /**
+   * @returns How many future planned jobs this pass actually queued (0 when another instance held
+   *   the cron lock, or when every planned iteration was already scheduled).
+   */
+  async addScheduled(): Promise<number> {
+    let totalAdded = 0
     try {
       await WIKI.db.transaction(async (trx: any) => {
         // -> Acquire lock
@@ -765,7 +883,6 @@ export default {
           )
 
         if (jobLock.rowCount > 0) {
-          WIKI.logger.info('Scheduling future planned jobs...')
           // -> Both selects read through `trx`, the same physical connection the lock UPDATE just
           //    took, rather than the ambient `WIKI.db` pool handle. Under READ COMMITTED this does not
           //    change what rows are visible (a `trx.select()` after the lock UPDATE sees exactly the
@@ -779,7 +896,6 @@ export default {
               .select()
               .from(jobsTable)
               .where(eq(jobsTable.isScheduled, true))
-            let totalAdded = 0
             for (const job of scheduledJobs) {
               // -> Get next planned iterations
               const plannedIterations = CronExpressionParser.parse(job.cron, {
@@ -835,17 +951,14 @@ export default {
                 }
               }
             }
-            if (totalAdded > 0) {
-              WIKI.logger.info(`Scheduled ${totalAdded} new future planned jobs: [ OK ]`)
-            } else {
-              WIKI.logger.info('No new future planned jobs to schedule: [ OK ]')
-            }
+            WIKI.logger.debug('jobs', 'planned jobs reconciled', { added: totalAdded })
           }
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn(err)
+      WIKI.logger.warn('jobs', 'failed to schedule future planned jobs', { error: err })
     }
+    return totalAdded
   },
   /**
    * Stop the scheduler.
@@ -861,7 +974,6 @@ export default {
    * holds (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
    */
   async stop(): Promise<void> {
-    WIKI.logger.info('Stopping Scheduler...')
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
     // -> Nulled synchronously, before anything below is awaited: no new job is claimed once shutdown
@@ -876,7 +988,10 @@ export default {
       await this.listenerHandle.close()
       this.listenerHandle = null
     }
-    WIKI.logger.info('Scheduler: [ STOPPED ]')
+    // -> `debug`, not `info`: `core/http/server.ts`'s `boot stopping` / `boot stopped  ms=` pair is
+    //    the shutdown narrative now, and this runs inside it as one of the graceful server's own
+    //    `closePromises`. An operator wanting to see which teardown step is slow turns on `debug`.
+    WIKI.logger.debug('jobs', 'scheduler stopped')
   },
   /**
    * Waits for whatever `processJob` currently has in flight, bounded so a hung task cannot hold
@@ -894,9 +1009,12 @@ export default {
     }
     const timeoutMs =
       (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000 + SHUTDOWN_DRAIN_GRACE
-    WIKI.logger.info(
-      `Waiting for ${this.inFlightJobs.size} in-flight job(s) to finish (up to ${timeoutMs}ms)...`
-    )
+    // -> `debug jobs`, for the same reason as `scheduler stopped` above: the drain's cost is already
+    //    reported by `boot stopped  ms=`, and this is the detail behind that number.
+    WIKI.logger.debug('jobs', 'waiting for in-flight jobs', {
+      jobs: this.inFlightJobs.size,
+      timeout: timeoutMs
+    })
     // -> The bound expiring is this function doing its job, not a failure, so the rejection
     //    `withTimeout` signals it with is swallowed here — `Promise.allSettled` itself never rejects,
     //    so nothing else can reach this `catch`. `unref`, since this runs while the process is

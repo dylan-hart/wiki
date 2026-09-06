@@ -165,7 +165,12 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
       )
       exported++
     }
-    WIKI.logger.info(`(STORAGE/${target.title}) Exported ${exported} asset(s) to ${driver.label}.`)
+    WIKI.logger.info('storage', 'exported every asset', {
+      module: target.module,
+      target: target.id,
+      assets: exported,
+      driver: driver.label
+    })
   }
 
   /**

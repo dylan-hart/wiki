@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- CLI entry point: the `usage:` text and the fatal-exit lines are stdout/stderr for a person at a terminal, not log records. */
 /**
  * Wiki.js 2.5.x -> 3.0 migration CLI.
  *
@@ -36,12 +37,12 @@ async function main(): Promise<void> {
 
   const WIKI = await bootstrapMigrationRuntime('migrate-cli')
 
-  WIKI.logger.info('=======================================')
-  WIKI.logger.info('= Wiki.js 2.5.x -> 3.0 Migration CLI  =')
-  WIKI.logger.info('=======================================')
-  if (args.dryRun) {
-    WIKI.logger.info('Dry run: computing what would change without writing anything.')
-  }
+  // -> No `source` field: `args.source` is a whole `ParsedSource`, credentials included. The source
+  //    is described (kind and location only) by `runAgainstDestination` below.
+  WIKI.logger.info('migrate', '2.5.x -> 3.0 migration cli', {
+    site: args.siteId,
+    dryRun: args.dryRun
+  })
 
   // Unlike index.ts's server, this process has nothing else keeping the event loop alive once it's
   // done — an open pg Pool does, though, so without closing it here the CLI would exit its own logic
@@ -82,16 +83,17 @@ async function resolveRenderMode(
   const available = await WIKI.models.renderQueue.isAvailable()
   if (!available) {
     WIKI.logger.info(
-      'render-mode "auto": this destination has no Puppeteer extension installed, so imported pages ' +
-        "will carry 2.x's stored render through unchanged (2.x's own asset-URL convention, not " +
-        '3.0\'s "/_files/" one) until re-rendered by hand afterwards (Admin > Pages > select all > ' +
-        'Re-render).'
+      'migrate',
+      'render-mode auto: no Puppeteer extension on this destination, so imported pages will carry ' +
+        "2.x's stored render through unchanged (2.x's own asset-URL convention, not 3.0's " +
+        '"/_files/" one) until re-rendered by hand afterwards (Admin > Pages > select all > Re-render)'
     )
     return 'passthrough'
   }
   WIKI.logger.info(
-    'render-mode "auto": this destination can render pages natively -- imported markdown pages will ' +
-      "be queued for a real 3.0 render instead of carrying 2.x's stored render through unchanged."
+    'migrate',
+    'render-mode auto: this destination can render pages natively, so imported markdown pages will ' +
+      "be queued for a real 3.0 render instead of carrying 2.x's stored render through unchanged"
   )
   return 'queue'
 }
@@ -99,7 +101,7 @@ async function resolveRenderMode(
 async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs): Promise<void> {
   const site = await WIKI.models.sites.getSiteById({ id: args.siteId, forceReload: true })
   if (!site) {
-    WIKI.logger.error(`Destination site "${args.siteId}" was not found. Exiting...`)
+    WIKI.logger.error('migrate', 'destination site was not found', { site: args.siteId })
     process.exitCode = 1
     return
   }
@@ -108,12 +110,13 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
   await source.connect()
   try {
     const description = await source.describe()
-    WIKI.logger.info(
-      `Source: ${description.kind} at ${description.location}` +
-        (description.version ? ` (detected version ${description.version})` : '')
-    )
+    WIKI.logger.info('migrate', 'source connected', {
+      kind: description.kind,
+      location: description.location,
+      ...(description.version ? { detectedVersion: description.version } : {})
+    })
     for (const note of description.notes) {
-      WIKI.logger.info(`  - ${note}`)
+      WIKI.logger.info('migrate', note)
     }
 
     const ctx: MigrationContext = {
@@ -121,24 +124,23 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       source,
       siteId: args.siteId,
       dryRun: args.dryRun,
-      log: (message) => WIKI.logger.info(message),
+      log: (message) => WIKI.logger.info('migrate', message),
       renderMode: await resolveRenderMode(WIKI, args.renderMode),
       ...resolveUsersImportContext(WIKI)
     }
 
     const results = await runMigration(MIGRATION_PHASES, ctx, { only: args.only })
 
-    WIKI.logger.info('=======================================')
-    WIKI.logger.info('Migration summary:')
     for (const result of results) {
-      const detail = result.counts ? ` ${JSON.stringify(result.counts)}` : ''
-      WIKI.logger.info(`  ${result.phase}: ${result.status}${detail}`)
-      if (result.notImplemented?.length) {
-        WIKI.logger.info(`    not yet implemented: ${result.notImplemented.join(', ')}`)
-      }
+      WIKI.logger.info('migrate', `phase ${result.phase} ${result.status}`, {
+        ...result.counts,
+        ...(result.notImplemented?.length
+          ? { notImplemented: result.notImplemented.join(',') }
+          : {})
+      })
       if (result.errors?.length) {
         for (const message of result.errors) {
-          WIKI.logger.error(`    ${message}`)
+          WIKI.logger.error('migrate', message, { phase: result.phase })
         }
       }
     }
@@ -151,7 +153,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
     process.stdout.write(`\n${formatReportTable(reports)}\n`)
     if (args.reportFile) {
       await fs.writeFile(args.reportFile, `${reportsToJson(reports)}\n`, 'utf8')
-      WIKI.logger.info(`Report written to ${args.reportFile}`)
+      WIKI.logger.info('migrate', 'report written', { path: args.reportFile })
     }
 
     // -> Whole-branch review Important #4: a live (non-dry-run) run must exit non-zero, with a clear
@@ -161,12 +163,14 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
     const notImplementedPhases = notImplementedPhaseIds(results)
     if (!args.dryRun && notImplementedPhases.length > 0) {
       WIKI.logger.error(
-        `Live migration incomplete: the following phase(s) had no real write path against this ` +
-          `source and did not write anything: ${notImplementedPhases.join(', ')}. Whatever phases DID ` +
-          `write above already made real changes to the destination — this is not a rollback, just a ` +
-          `signal that the migration is only partially done. Re-run with a source that implements ` +
-          `the missing phase(s) (a bundle source cannot import ${notImplementedPhases.join('/')} at ` +
-          `all yet), or pass --only to target just the phase(s) that need it.`
+        'migrate',
+        `live migration incomplete: these phases had no real write path against this source and ` +
+          `wrote nothing. Whatever phases DID write above already made real changes to the ` +
+          `destination — this is not a rollback, just a signal that the migration is only partially ` +
+          `done. Re-run with a source that implements the missing phases (a bundle source cannot ` +
+          `import ${notImplementedPhases.join('/')} at all yet), or pass --only to target just the ` +
+          `phases that need it`,
+        { phases: notImplementedPhases.join(',') }
       )
     }
 

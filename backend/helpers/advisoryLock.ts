@@ -145,7 +145,7 @@ function getLockPool(): Pool {
     lockPool = WIKI.dbManager?.config
       ? new Pool({
           ...(WIKI.dbManager.config as PoolConfig),
-          application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:LOCKS`,
+          application_name: `Cardinal.js - ${WIKI.INSTANCE_ID}:LOCKS`,
           max: LOCK_POOL_MAX
         })
       : (WIKI.db.$client as Pool)
@@ -216,9 +216,10 @@ export async function withAdvisoryLock<T>(
         //    propagating, and `fn`'s own error (most likely the same dead connection) is the one the
         //    caller needs — see `dispatch-storage.ts`, which rethrows to drive `jobHistory` state.
         unlockFailed = true
-        WIKI.logger.warn(
-          `withAdvisoryLock: failed to release advisory lock for key '${key}', discarding connection: ${err.message}`
-        )
+        WIKI.logger.warn('db', 'releasing an advisory lock failed, discarding the connection', {
+          key,
+          error: err
+        })
       }
     }
   } finally {

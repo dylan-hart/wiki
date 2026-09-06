@@ -506,3 +506,189 @@ describe('UserEditOverlay dates honour the stored profile timezone (OpenProject 
     wrapperTokyo.unmount()
   })
 })
+
+/**
+ * Feature #2608, Task #2642: the admin editor authors the two halves AND shows the derived display
+ * name, so the "author it yourself" override the parent Feature grants is reachable from the UI.
+ * All three go in the patch every save -- `models/users.ts#updateUser` is the sole owner of the
+ * derive-unless-authored rule, and treats a `name` equal to what the halves derive to as "keep
+ * deriving", so saving an untouched form does not silently author every account.
+ */
+const NAMED_USER = {
+  id: 'user-1',
+  name: 'Jane Doe',
+  firstName: 'Jane',
+  lastName: 'Doe',
+  email: 'jane@example.com',
+  isVerified: true,
+  isActive: true,
+  meta: {},
+  prefs: {},
+  groups: [{ id: 'grp-1', name: 'Users' }]
+}
+
+async function mountOverview(user = NAMED_USER) {
+  const router = await createTestRouter(['/:id?/:section?'], '/user-1/overview')
+
+  API_CLIENT.get.mockImplementation((url) => {
+    if (url === 'groups') {
+      return { json: () => Promise.resolve([]) }
+    }
+    if (url === `users/${user.id}`) {
+      return { json: () => Promise.resolve(user) }
+    }
+    return { json: () => Promise.resolve(undefined) }
+  })
+
+  const { wrapper } = mountWithApp(UserEditOverlay, {
+    router,
+    messages: {
+      admin: {
+        users: {
+          firstName: 'First Name',
+          lastName: 'Last Name',
+          name: 'Display Name'
+        }
+      }
+    },
+    stores: {
+      admin: { overlayOpts: { id: user.id } },
+      user: { permissions: ['manage:users'] }
+    }
+  })
+  await flushPromises()
+  return wrapper
+}
+
+describe('UserEditOverlay first/last/display name (Feature #2608)', () => {
+  it('renders all three fields, each labelled on the input itself', async () => {
+    const wrapper = await mountOverview()
+
+    // -> `WInput` puts `aria-label` on the `<input>`, never on an ancestor.
+    expect(wrapper.find('input[aria-label="First Name"]').exists()).toBe(true)
+    expect(wrapper.find('input[aria-label="Last Name"]').exists()).toBe(true)
+    expect(wrapper.find('input[aria-label="Display Name"]').exists()).toBe(true)
+  })
+
+  it('fills the three fields from the fetched user', async () => {
+    const wrapper = await mountOverview()
+
+    expect(wrapper.find('input[aria-label="First Name"]').element.value).toBe('Jane')
+    expect(wrapper.find('input[aria-label="Last Name"]').element.value).toBe('Doe')
+    expect(wrapper.find('input[aria-label="Display Name"]').element.value).toBe('Jane Doe')
+  })
+
+  it('sends all three in the default save patch', async () => {
+    const wrapper = await mountOverview()
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    await wrapper.vm.save()
+    await flushPromises()
+
+    const [url, options] = API_CLIENT.put.mock.calls.at(-1)
+    expect(url).toBe('users/user-1')
+    expect(options.json).toMatchObject({
+      name: 'Jane Doe',
+      firstName: 'Jane',
+      lastName: 'Doe'
+    })
+  })
+
+  /*
+    The half-edit case, and why `composables/displayName.js` exists. The server reads a submitted
+    `name` that differs from what the halves derive to as a deliberate override and marks the account
+    authored for good -- so an editor that left a stale display name in the patch while an
+    administrator corrected only the first name would silently, permanently freeze that user's
+    display name.
+  */
+  it('re-derives the display name as a half is edited, so the patch is never stale', async () => {
+    const wrapper = await mountOverview()
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await flushPromises()
+
+    expect(wrapper.find('input[aria-label="Display Name"]').element.value).toBe('Janet Doe')
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      name: 'Janet Doe',
+      firstName: 'Janet',
+      lastName: 'Doe'
+    })
+  })
+
+  it('stops re-deriving once the display name is overridden, and sends the override', async () => {
+    const wrapper = await mountOverview()
+
+    await wrapper.find('input[aria-label="Display Name"]').setValue('Countess Lovelace')
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await flushPromises()
+
+    expect(wrapper.find('input[aria-label="Display Name"]').element.value).toBe('Countess Lovelace')
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      name: 'Countess Lovelace',
+      firstName: 'Janet'
+    })
+  })
+
+  it('loads an already-authored name without overwriting it from the halves', async () => {
+    const wrapper = await mountOverview({ ...NAMED_USER, name: 'Countess Lovelace' })
+
+    expect(wrapper.find('input[aria-label="Display Name"]').element.value).toBe('Countess Lovelace')
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await flushPromises()
+
+    expect(wrapper.find('input[aria-label="Display Name"]').element.value).toBe('Countess Lovelace')
+  })
+
+  /*
+    The two required name fields used to declare their rule inline as
+    `(val) => invalidCharsRegex.test(val) || ...`, reading a bare identifier that is actually a
+    `state` member -- so it resolved to `undefined` and the rule threw the moment it ran. No test
+    mounted the Overview tab, so it never surfaced. It is a named function now, and this is the
+    coverage that keeps it callable.
+  */
+  it('validates the required name fields without throwing on the regex', async () => {
+    const wrapper = await mountOverview()
+
+    expect(wrapper.vm.requiredNameRule('Jane')).toBe(true)
+    expect(wrapper.vm.requiredNameRule('')).not.toBe(true)
+    expect(wrapper.vm.requiredNameRule('<script>')).not.toBe(true)
+  })
+
+  it('accepts a mononym: an empty last name passes its own rule and is sent as empty', async () => {
+    const wrapper = await mountOverview({
+      ...NAMED_USER,
+      name: 'Prince',
+      firstName: 'Prince',
+      lastName: ''
+    })
+
+    expect(wrapper.find('input[aria-label="Last Name"]').element.value).toBe('')
+    // -> The last-name rule is the one that tolerates emptiness; the first name and display name
+    //    keep refusing it, which is why they are not asserted here.
+    expect(wrapper.vm.optionalNameRule('')).toBe(true)
+    expect(wrapper.vm.optionalNameRule('Doe')).toBe(true)
+    expect(wrapper.vm.optionalNameRule('<script>')).not.toBe(true)
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      name: 'Prince',
+      firstName: 'Prince',
+      lastName: ''
+    })
+  })
+})

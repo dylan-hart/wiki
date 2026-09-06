@@ -62,7 +62,10 @@ class ApprovalNotifications {
       }
       await this.sendSubmissionNotification(siteId, page, submissionId, reviewerIds)
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to notify reviewers of submission ${submissionId}: ${err.message}`)
+      WIKI.logger.warn('hooks', 'notifying the reviewers of a submission failed', {
+        submission: submissionId,
+        error: err
+      })
     }
   }
 
@@ -90,22 +93,27 @@ class ApprovalNotifications {
       try {
         const reviewer = await WIKI.models.users.getById(reviewerId)
         if (!reviewer?.email) {
-          WIKI.logger.warn(
-            `Skipping submission notification for reviewer ${reviewerId}: no email address on file.`
-          )
+          WIKI.logger.warn('hooks', 'no email address on file, skipping the reviewer', {
+            reviewer: reviewerId,
+            submission: submissionId
+          })
           continue
         }
         const safePath = escapeHtml(page.path)
         await WIKI.models.mail.send({
           to: reviewer.email,
+          kind: 'approval',
+          userId: reviewerId,
           subject: `New edit suggestion waiting for review: ${page.path}`,
           text: `A new edit suggestion is waiting for your review on "${page.path}" — ${link}`,
           html: `<p>A new edit suggestion is waiting for your review on <strong>${safePath}</strong> — <a href="${link}">${link}</a></p>`
         })
       } catch (err: any) {
-        WIKI.logger.warn(
-          `Failed to send submission notification to reviewer ${reviewerId} for submission ${submissionId}: ${err.message}`
-        )
+        WIKI.logger.warn('hooks', 'sending the submission notification failed', {
+          reviewer: reviewerId,
+          submission: submissionId,
+          error: err
+        })
       }
     }
   }
@@ -173,7 +181,10 @@ class ApprovalNotifications {
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to notify submission author of page ${page.id}: ${err.message}`)
+      WIKI.logger.warn('hooks', 'notifying the submission author failed', {
+        page: page.id,
+        error: err
+      })
     }
   }
 }

@@ -16,7 +16,7 @@ export class BlockCountdownElement extends LitElement {
     block: 'countdown',
     name: 'Countdown',
     description: 'Counts down to a date and time.',
-    icon: 'timer',
+    icon: 'tabler:hourglass',
     props: [
       {
         name: 'date',

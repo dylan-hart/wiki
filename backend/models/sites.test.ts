@@ -1005,7 +1005,7 @@ describe('sites hostname normalization (pure unit)', () => {
           })
         })
       },
-      logger: { info: () => {} },
+      logger: { info: () => {}, debug: () => {} },
       sites: {},
       sitesMappings: {}
     }

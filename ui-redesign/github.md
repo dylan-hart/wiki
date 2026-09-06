@@ -7,7 +7,7 @@ date: 2026-09-05T16:12:00Z
 
 ### Updated in this project
 
-- Baseline corrected to the `scarlett` branch (Wiki.js 3.x: Vue 3 + Vite + Tailwind, in-repo `W*` component library) — the earlier screens were grounded on 2.x from `main`
+- Baseline corrected to the `scarlett` branch (Cardinal.js 3.x, the Wiki.js 3.x fork: Vue 3 + Vite + Tailwind, in-repo `W*` component library) — the earlier screens were grounded on 2.x from `main`
 - Added the 3.x page view in the locked Ledger language (header with inline search, 255px sidebar with locale/Browse strip, page-icon masthead, contents rail, tags, watchers)
 - Added the 56px right-hand page actions rail (properties, history, export, more, duplicate, move, delete) from PageActionsCol.vue — history lives there in 3.x, not in the header
 - Added the 3.x admin shell + dashboard (300px dark nav with site picker, count badges and status lights; dashboard counter cards and last-logins panel)

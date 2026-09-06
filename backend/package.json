@@ -1,5 +1,5 @@
 {
-  "name": "wiki-backend",
+  "name": "cardinal-backend",
   "version": "3.0.0",
   "private": true,
   "description": "The most powerful and extensible open source Wiki software",
@@ -33,7 +33,9 @@
     "mcp": "cd .. && node backend/mcp/stdio.ts",
     "typecheck": "tsc",
     "typecheck:watch": "tsc --watch",
-    "test": "node --test '**/*.test.ts'",
+    "test": "node --test '**/!(*.flaky).test.ts'",
+    "test:flaky": "node --test '**/*.flaky.test.ts'",
+    "verify:ci": "bash ../scripts/verify-ci.sh",
     "seed-rtl-test-locale": "node scripts/seed-rtl-test-locale.ts",
     "block-locale-keys": "node scripts/blockLocaleKeys.ts",
     "block-locale-keys:check": "node scripts/blockLocaleKeys.ts --check",

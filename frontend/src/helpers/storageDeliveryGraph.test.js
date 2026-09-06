@@ -36,9 +36,49 @@ describe('generateGraph', () => {
     const { nodes, edges, layouts } = generateGraph([], t)
 
     expect(Object.keys(nodes)).toEqual(expect.arrayContaining(['user', 'pages', 'pages_wiki']))
-    expect(nodes.pages_wiki.name).toBe('Wiki.js')
+    expect(nodes.pages_wiki.name).toBe('Cardinal.js')
     expect(edges.user_pages).toEqual({ source: 'user', target: 'pages' })
     expect(layouts.nodes.user).toEqual({ x: -30, y: 30 })
+  })
+
+  it('draws every wiki node as this product, not as upstream Wiki.js', () => {
+    // -> WP #2653: the graph is the last surface that both labelled and DREW the wiki node as
+    //    upstream Wiki.js. Every wiki node in every branch -- the always-seeded `pages_wiki`, the
+    //    direct-access branch, the streaming branch and the db fallback -- carries the same pair, so
+    //    a new branch that reintroduces the old mark or the old label fails here rather than only
+    //    being noticed on screen.
+    const { nodes } = generateGraph(
+      [
+        target({ module: 'db', contentTypes: { activeTypes: ['documents'] } }),
+        target({
+          module: 's3',
+          contentTypes: { activeTypes: ['images'] },
+          assetDelivery: {
+            isDirectAccessSupported: true,
+            directAccess: true,
+            isStreamingSupported: false,
+            streaming: false
+          }
+        }),
+        target({
+          module: 'sftp',
+          contentTypes: { activeTypes: ['others'] },
+          assetDelivery: {
+            isDirectAccessSupported: false,
+            directAccess: false,
+            isStreamingSupported: true,
+            streaming: true
+          }
+        })
+      ],
+      t
+    )
+
+    const wikiNodes = ['pages_wiki', 'images_wiki', 'documents_wiki', 'others_wiki']
+    for (const key of wikiNodes) {
+      expect(nodes[key].name).toBe('Cardinal.js')
+      expect(nodes[key].icon).toBe('/_assets/logo-cardinal.svg')
+    }
   })
 
   it('draws one node per content type, each reachable from the reader', () => {
@@ -64,7 +104,7 @@ describe('generateGraph', () => {
       t
     )
 
-    expect(nodes.images_wiki.name).toBe('Wiki.js')
+    expect(nodes.images_wiki.name).toBe('Cardinal.js')
     expect(edges.images_db_in).toEqual({ source: 'images', target: 'images_wiki' })
     expect(edges.images_db_out).toEqual({ source: 'images_wiki', target: 'images' })
     // -> Only the three types this db target does not hold are still origin-less

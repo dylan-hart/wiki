@@ -43,47 +43,38 @@
     </div>
     <w-separator inset />
     <div class="p-4 gap-4">
-      <w-card>
-        <w-list separator>
-          <template v-for="editor of editors" :key="editor.id">
-            <w-item v-if="flagsStore.experimental || !editor.isDisabled">
-              <blueprint-icon :icon="editor.icon" />
-              <w-item-section>
-                <w-item-label>
-                  <strong>{{ t(`admin.editors.` + editor.id + `Name`) }}</strong>
-                </w-item-label>
-                <w-item-label caption>
-                  <span>{{ t(`admin.editors.` + editor.id + `Description`) }}</span>
-                </w-item-label>
-                <w-item-label caption v-if="editor.useRendering">
-                  <em class="text-purple">{{ t('admin.editors.useRenderingPipeline') }}</em>
-                </w-item-label>
-              </w-item-section>
-              <template v-if="editor.hasConfig">
-                <w-item-section side>
-                  <w-btn
-                    icon="tabler:settings"
-                    :label="t(`admin.editors.configuration`)"
-                    :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
-                    outline
-                    padding="xs md"
-                    @click="openConfig(editor.id)" />
-                </w-item-section>
-                <w-separator class="ms-4" vertical />
-              </template>
-              <w-item-section side>
-                <w-toggle
-                  class="pe-2"
-                  v-model="state.config[editor.id]"
-                  :label="t(`admin.sites.isActive`)"
-                  :aria-label="t(`admin.sites.isActive`)"
-                  :loading="state.loading > 0"
-                  :disabled="editor.isDisabled" />
-              </w-item-section>
-            </w-item>
-          </template>
-        </w-list>
-      </w-card>
+      <w-settings-card :title="t('admin.editors.title')">
+        <template v-for="editor of editors" :key="editor.id">
+          <w-settings-row
+            v-if="flagsStore.experimental || !editor.isDisabled"
+            control-width="auto"
+            :icon="editor.icon"
+            :label="t(`admin.editors.` + editor.id + `Name`)">
+            <template #hint>
+              <div>{{ t(`admin.editors.` + editor.id + `Description`) }}</div>
+              <em v-if="editor.useRendering" class="text-purple">{{
+                t('admin.editors.useRenderingPipeline')
+              }}</em>
+            </template>
+            <div class="flex items-center gap-3">
+              <w-btn
+                v-if="editor.hasConfig"
+                icon="tabler:settings"
+                :label="t(`admin.editors.configuration`)"
+                :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                outline
+                padding="xs md"
+                @click="openConfig(editor.id)" />
+              <w-toggle
+                v-model="state.config[editor.id]"
+                :label="t(`admin.sites.isActive`)"
+                :aria-label="t(`admin.sites.isActive`)"
+                :loading="state.loading > 0"
+                :disabled="editor.isDisabled" />
+            </div>
+          </w-settings-row>
+        </template>
+      </w-settings-card>
     </div>
   </w-page>
 </template>
@@ -186,10 +177,17 @@ const { state, load, save } = useAdminSettings({
   }
 })
 
+/*
+  `icon` is an Iconify reference written out as a literal here, so that `scripts/generate-icons.mjs`
+  can see it and inline the glyph (a name built by concatenation is invisible to that scanner). These
+  were asset names -- `asciidoc`, `html`, `markdown`, `advance`, `google-presentation` -- left behind
+  by the removal of the 2.x `ultraviolet-*` illustrations, and `WIcon` resolves anything without a
+  set prefix to `kind: 'none'`, so every plate on this page has been drawing empty.
+*/
 const editors = reactive([
   {
     id: 'asciidoc',
-    icon: 'asciidoc',
+    icon: 'tabler:file-text',
     // -> Task 491: a real, if minimal, editor exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
     //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. OpenProject #988
     //    added the AsciiDoc-to-HTML render pipeline (`renderers/asciidoc.js`), so `useRendering` is on
@@ -200,24 +198,24 @@ const editors = reactive([
   },
   {
     id: 'code',
-    icon: 'html',
+    icon: 'tabler:code',
     useRendering: true
   },
   {
     id: 'markdown',
-    icon: 'markdown',
+    icon: 'tabler:markdown',
     hasConfig: true,
     useRendering: true
   },
   {
     id: 'redirect',
-    icon: 'advance',
+    icon: 'tabler:arrow-ramp-right',
     isDisabled: true,
     useRendering: false
   },
   {
     id: 'wysiwyg',
-    icon: 'google-presentation',
+    icon: 'tabler:forms',
     isDisabled: true,
     useRendering: true
   }

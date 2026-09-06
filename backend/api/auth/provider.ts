@@ -279,7 +279,11 @@ async function routes(app: FastifyInstance) {
           ? reply.redirect(authorization)
           : reply.type('text/html').send(authorization.html)
       } catch (err: any) {
-        WIKI.logger.warn(`Could not start a login at ${strategy.module}: ${err.message}`)
+        WIKI.logger.warn('auth', 'could not start a login at the provider', {
+          module: strategy.module,
+          strategy: strategy.id,
+          error: err
+        })
         return reply.redirect(loginErrorUrl(flow.redirect, err.message))
       }
     }

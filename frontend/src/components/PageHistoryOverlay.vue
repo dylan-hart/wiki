@@ -1,7 +1,19 @@
 <template>
   <w-layout class="page-history" container>
     <w-header class="card-header">
-      <w-icon name="tabler:history" left size="md" />
+      <!--
+        20px and accent-coloured, both straight off the design
+        (`ui-redesign/Cardinal Wiki - History 3x.dc.html`, whose header glyph is
+        `<svg width="20" height="20" ... stroke="#f08287">`). It was `size="md"` — 32px, per
+        `components/shared/metrics.js` — with no colour at all, so it inherited the header's white
+        and read as a third the header's height rather than as a mark beside the label.
+
+        `accent-dark`, not `accent`: this overlay is drawn on ink in BOTH themes (see the stylesheet
+        note below), so the accent that belongs here is the dark ramp's `#f08287` — which is what the
+        design sets — rather than the light `#e4676b`/`#c14a52` pair. Named, so the hex stays in
+        `css/tailwind.css` where the contrast table (`helpers/accessibility.test.js`) can see it.
+      -->
+      <w-icon name="tabler:history" left size="20px" color="accent-dark" />
       <span>{{ t('history.title') }}</span>
       <!--
         Centred on the header itself rather than on the space left between the two groups of
@@ -76,29 +88,32 @@
             @keydown.enter="selectVersion(idx)">
             <!-- The subway stop: the line itself is drawn by the item, this is the dot on it. -->
             <div class="page-history-dot" :class="actionStyle(version.action).dot">
-              <w-icon :name="actionStyle(version.action).icon" size="15px" />
+              <w-icon :name="actionStyle(version.action).icon" size="14px" />
             </div>
             <div class="page-history-body">
               <div class="flex items-center gap-2">
                 <strong>{{ actionLabel(version.action) }}</strong>
-                <w-badge v-if="idx === 0" color="primary" rounded>
+                <!-- A square plate, not a pill: see the badge rule in this file's own stylesheet. -->
+                <w-badge v-if="idx === 0" color="primary">
                   {{ t('history.current') }}
                 </w-badge>
               </div>
-              <div class="page-history-meta">{{ humanizeDate(t, version.versionDate) }}</div>
+              <div class="page-history-meta page-history-time">
+                {{ humanizeDate(t, version.versionDate) }}
+              </div>
               <div class="page-history-meta flex items-center gap-1">
                 <span>{{ version.author.name || t('history.unknownAuthor') }}</span>
                 <!--
                   #1119: provenance -- did the person actually type this, or did an MCP tool call
                   acting as them? `version.via` comes straight off the `pageHistory` row.
                 -->
-                <w-badge v-if="version.via === 'mcp'" outline color="slate-pale" rounded>
+                <w-badge v-if="version.via === 'mcp'" outline color="slate-pale">
                   {{ t('history.viaMcp') }}
                   <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
                 </w-badge>
               </div>
               <!-- Where it went, which is the whole point of telling a move apart from an edit. -->
-              <div class="page-history-meta" v-if="version.action === `moved`">
+              <div class="page-history-meta page-history-path" v-if="version.action === `moved`">
                 /{{ version.path }}
               </div>
             </div>
@@ -377,17 +392,22 @@ const state = reactive({
 })
 
 /**
- * How each kind of change reads on the line. Both halves are literals on purpose: an icon name built
- * at runtime is not inlined by the icon generator, and a class built at runtime is not emitted by
- * Tailwind.
+ * How each kind of change reads on the line. The icon names are literals on purpose: one built at
+ * runtime is not inlined by the icon generator.
+ *
+ * The dot classes are this component's own, not Tailwind utilities. Each `bg-*` utility resolved
+ * through a token the design does not draw here -- `bg-blue-7` is Material's #1e88e5 against the
+ * design's #5f78a8, and `bg-positive`/`bg-warning` are the text tier against its fill tier -- and a
+ * utility also carries no glyph ink, so every dot took white even where the fill needs $ink over it.
+ * The pair now lives together in the stylesheet, where the fill and the ink over it are one rule.
  */
 const ACTION_STYLES = {
-  created: { icon: 'tabler:plus', dot: 'bg-positive' },
-  updated: { icon: 'tabler:pencil', dot: 'bg-blue-7' },
-  moved: { icon: 'tabler:share', dot: 'bg-warning' },
-  deleted: { icon: 'tabler:trash', dot: 'bg-negative' }
+  created: { icon: 'tabler:plus', dot: 'is-created' },
+  updated: { icon: 'tabler:pencil', dot: 'is-updated' },
+  moved: { icon: 'tabler:share', dot: 'is-moved' },
+  deleted: { icon: 'tabler:trash', dot: 'is-deleted' }
 }
-const ACTION_FALLBACK = { icon: 'tabler:circle', dot: 'bg-grey-7' }
+const ACTION_FALLBACK = { icon: 'tabler:circle', dot: 'is-other' }
 
 // REFS
 
@@ -860,6 +880,14 @@ $timeline-turn: 16px;
     pointer-events: none;
     font-size: 0.8rem;
     opacity: 0.6;
+    /*
+      -> The page's OWN title, so it is set as the author wrote it. `.card-header` (`css/_base.scss`)
+         uppercases a dialog's title band, and this span sits inside that band, so it inherited the
+         transform and shouted the page name back. The design draws the two differently on purpose:
+         the `PAGE HISTORY` label beside it declares `text-transform: uppercase` explicitly, and this
+         span declares no transform at all.
+    */
+    text-transform: none;
   }
 
   /*
@@ -945,6 +973,15 @@ $timeline-turn: 16px;
     }
   }
 
+  /*
+    The subway stop: 28px, round, ringed in the timeline column's own ground so the line behind it
+    reads as passing UNDER the dot rather than through it. All three measurements are the design's
+    (`ui-redesign/Cardinal Wiki - History 3x.dc.html`).
+
+    The ring was $dark-5 -- ink, which is the DIFF pane's ground, not this column's. The comment
+    below it already said "the sidebar's own colour"; $dark-4 is what that actually is, and against
+    $dark-4 the old ring drew a visible dark halo instead of disappearing.
+  */
   &-dot {
     flex: 0 0 28px;
     height: 28px;
@@ -952,9 +989,46 @@ $timeline-turn: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: $text-dark;
-    /* -> A ring in the sidebar's own colour, so the line appears to pass behind the dot */
-    box-shadow: 0 0 0 3px $dark-5;
+    box-shadow: 0 0 0 3px $dark-4;
+  }
+
+  /*
+    One fill per kind of change, taken from the design rather than from the Material ramp these used
+    to resolve through: `bg-blue-7` is #1e88e5, where the design's "Updated" dot is #5f78a8, and
+    `bg-positive`/`bg-warning` are the TEXT tier (#3f7a66 / #a8801f) where the design draws the fill
+    tier (#5f9c86 / #d9a441).
+
+    Every dot is a fill, so the glyph over it takes whichever ink clears it: white on the two darker
+    fills, $ink on the two bright ones. That is how the design draws its own amber "Moved" dot
+    (stroke #1c2233), and it is the rule `css/_theme.scss` states for every `-fill` tone.
+
+    #5f78a8 is a literal because the palette has no name for it -- it is the only tone on this screen
+    that is neither chrome nor a status. Naming it is a job for the token pass, not for this file.
+  */
+  &-dot.is-created {
+    background-color: $positive-fill;
+    color: #fff;
+  }
+
+  &-dot.is-updated {
+    background-color: #5f78a8;
+    color: #fff;
+  }
+
+  &-dot.is-moved {
+    background-color: $warning-fill;
+    color: $ink;
+  }
+
+  &-dot.is-deleted {
+    background-color: $negative-fill;
+    color: $ink;
+  }
+
+  /* -> An action this build has no name for: chrome, so it reads as unclassified rather than as a status */
+  &-dot.is-other {
+    background-color: $slate-soft;
+    color: #fff;
   }
 
   &-body {
@@ -967,6 +1041,32 @@ $timeline-turn: 16px;
   &-meta {
     font-size: 0.75rem;
     color: $text-secondary-dark;
+  }
+
+  /*
+    The design sets one tone across all three metadata lines but not one typeface: the timestamp and
+    the destination path are mono, the author's name is the proportional face beside them. They all
+    used to be `-meta` alone, so the whole block came out proportional.
+  */
+  &-time {
+    margin-top: 2px;
+    font-family: var(--font-mono);
+  }
+
+  &-path {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+  }
+
+  /*
+    Square mono plates, uppercase and tracked -- how the design draws both of the entry's markers,
+    the CURRENT cursor and the VIA MCP provenance mark. `WBadge` is already mono/9px/600; what it
+    does not do on its own is the casing or the tracking, and it drew both of these as pills until
+    the `rounded` prop came off (the language zeroes every radius but a genuinely round shape).
+  */
+  &-item .w-badge {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
   }
 
   /* -> Full width, indented to sit under the entry's text rather than under its dot */
@@ -984,8 +1084,10 @@ $timeline-turn: 16px;
     word-break: break-word;
   }
 
+  /* -> Mono, like every other list of machine names in this language and like the design's own row */
   &-fields {
     margin-top: 0.25rem;
+    font-family: var(--font-mono);
     font-size: 0.7rem;
     color: $text-caption-dark;
     word-break: break-word;

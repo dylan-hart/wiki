@@ -143,7 +143,7 @@
                   the stylesheet has `--content-bleed` to match -->
           <div
             class="page-container-body"
-            :class="{ 'is-centered': siteStore.theme.contentWidth === `centered` }">
+            :class="{ 'is-measured': siteStore.theme.contentWidth === `measured` }">
             <!--
               Delegated rather than bound per link: the anchors are written by `v-html`, so there is
               nothing here to put a handler on, and they are replaced wholesale on every render.
@@ -294,6 +294,72 @@
             <page-tags :edit="state.tagEditMode" />
           </div>
         </template>
+        <!-- Revision -->
+        <!--
+          Where the page stands in its own history: `rev 14 &middot; 6 changes`, who last wrote it, and when.
+          Three lines of text and no controls -- the history itself is a page of its own, reached from
+          the actions column, and a link here would be a fourth way to the same place.
+
+          Unlike Contents and Tags this is not gated on the page having volunteered anything: every
+          page has an author and a last-saved moment, so the section is always at least those two
+          lines. What varies is how much of the first line there is (see `revisionLine`), and the
+          guard below is only for the store before a page has actually landed in it -- drawing a
+          heading over three empty lines during a load is what it prevents, not any real page.
+        -->
+        <template v-if="showRevision">
+          <w-separator v-if="showToc || showTags" />
+          <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
+          <div class="page-sidebar-revision">
+            <div v-if="revisionLine">{{ revisionLine }}</div>
+            <div v-if="pageStore.authorName">{{ pageStore.authorName }}</div>
+            <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
+                 `userStore` has: the two are the same fact about the same page and must not drift -->
+            <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
+              {{ lastModified }}
+            </div>
+          </div>
+        </template>
+        <!--
+          Watching (OpenProject #2649) -- who else is following this page, as a run of initial plates
+          with a `+N` remainder for everybody past the third.
+
+          Absent entirely, heading and rule included, on a page nobody watches: the same reasoning
+          `showTags` above is written against, and the reason a failed or refused request leaves this
+          empty rather than saying so. A rail section is a glance, not a place to report an error --
+          the bell in the page header is where watching is acted on and where a failure there is
+          reported.
+        -->
+        <template v-if="showWatching">
+          <!--
+            Each rail section owns the rule ABOVE it, conditioned on there being anything above it to
+            separate from -- the pattern Tags follows for Contents. Revision (Task #2652) sits between
+            Tags and this, so its own `showRevision` is the third thing there can be something above.
+          -->
+          <w-separator v-if="showToc || showTags || showRevision" />
+          <div class="page-sidebar-heading">{{ t('common.page.watching') }}</div>
+          <div class="page-watchers">
+            <!--
+              `title` rather than a visible name: the plate is two letters wide by design and the
+              full name is what a reader hovers for. `aria-label` says the same thing to a screen
+              reader, for which two uppercase letters are not a name at all.
+            -->
+            <div
+              v-for="watcher of watcherPlates"
+              :key="watcher.userId"
+              class="page-watchers-plate"
+              :title="watcher.name"
+              :aria-label="watcher.name">
+              {{ watcher.initials }}
+            </div>
+            <span
+              v-if="watcherRemainder > 0"
+              class="page-watchers-remainder"
+              :title="t('common.page.watchingMore', { count: watcherRemainder })"
+              :aria-label="t('common.page.watchingMore', { count: watcherRemainder })">
+              +{{ watcherRemainder }}
+            </span>
+          </div>
+        </template>
       </div>
       <!-- -> Every action on it acts on a page: there is none here to edit, share, rate or delete -->
       <page-actions-col v-if="!pageStore.notFound" />
@@ -397,6 +463,8 @@ import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { pickEditor } from '@/helpers/editorPicker'
+import { initials } from '@/helpers/initials'
+import { log } from '@/helpers/log'
 import {
   applyKeywordHighlight,
   clearKeywordHighlight,
@@ -447,6 +515,15 @@ const editorComponents = {
     loadingComponent: LoadingGeneric
   })
 }
+
+/**
+ * How many watcher plates the rail's Watching section draws before it stops counting out loud and
+ * says `+N` instead.
+ *
+ * Fixed at three, as the design draws it, and deliberately not responsive: the rail is a
+ * fixed-width column, so there is no width to fit plates against.
+ */
+const WATCHER_PLATE_CAP = 3
 
 // STORES
 
@@ -511,6 +588,20 @@ const pageScroller = ref(null)
 const highlightMatches = ref([])
 const highlightCurrentIndex = ref(-1)
 
+/*
+  WATCHING (OpenProject #2649, Feature #2606)
+  =============================================================
+  The leading watchers of the open page and how many there are altogether, for the rail's Watching
+  section. `watcherTotal` is counted server-side over EVERY watcher regardless of the `limit` asked
+  for, which is what makes the `+N` remainder possible without fetching the whole list.
+
+  Empty until the request answers, and empty again the moment the page changes -- see the watcher
+  below. A page nobody watches and a page whose watchers could not be read are the same empty list on
+  purpose: neither draws a section.
+*/
+const watchers = ref([])
+const watcherTotal = ref(0)
+
 // COMPUTED
 
 /**
@@ -572,6 +663,80 @@ const showToc = computed(() => {
 const showTags = computed(() => {
   return pageStore.showTags && (pageStore.tags?.length > 0 || state.tagEditMode)
 })
+/*
+  Whether there is a Revision section. On a loaded page this is always true -- an author and a
+  last-saved moment are facts about every stored page -- so this is not the "did the page volunteer
+  one" question `showToc` and `showTags` ask. It is the guard against drawing the heading with
+  nothing under it at all: the store before a page has landed in it, and the moment between one
+  page's route and the next page's reply.
+*/
+const showRevision = computed(() =>
+  Boolean(pageStore.revision || pageStore.authorName || pageStore.updatedAt)
+)
+/**
+ * The rail's first Revision line -- `rev 14 · 6 changes`, `rev 1`, or nothing at all.
+ *
+ * Three renderings, and the difference between them is ABSENCE, never a zero (see `Page#.revision`
+ * in the API schema, and `stores/page.js`):
+ *
+ *  - no `revision` at all -- this reader has no `read:history` on the page, so there is no line;
+ *    the author and the time below still render, since those come from the page itself.
+ *  - a `revision` with no `changeCount` -- there is nothing to have diffed against (a page whose
+ *    only version is its creation), so it is `rev 1` alone, with neither the interpunct nor a
+ *    `0 changes` clause after it.
+ *  - both -- the full line, assembled through a locale key rather than by joining two strings with
+ *    a hardcoded `·`, so the separator and the order of the two clauses stay a translator's.
+ *
+ * The `> 0` is defensive rather than expected: the server never sends a zero here. It is written
+ * that way so a zero that somehow arrives renders as the second case above -- which is what it
+ * means -- rather than as `rev 1 · 0 changes`, which is a thing this section never draws.
+ */
+const revisionLine = computed(() => {
+  const revision = pageStore.revision
+  if (!revision?.ordinal) {
+    return ''
+  }
+  const ordinal = t('common.page.revisionOrdinal', { ordinal: revision.ordinal })
+  if (!(revision.changeCount > 0)) {
+    return ordinal
+  }
+  return t('common.page.revisionLine', {
+    revision: ordinal,
+    changes: t('common.page.revisionChanges', { count: revision.changeCount }, revision.changeCount)
+  })
+})
+/*
+  And the same question again for the watchers, with one fewer half to it: there is nothing a
+  page can ASK for here, so having somebody to draw is the whole test. A page nobody watches, a page
+  whose watchers have not come back yet, and a page whose watchers could not be read all answer false
+  -- a "Watching" heading over nothing is the very thing `showTags` above exists to avoid.
+*/
+const showWatching = computed(() => watcherPlates.value.length > 0)
+/**
+ * The watchers actually drawn as plates: the leading `WATCHER_PLATE_CAP` of them, oldest first,
+ * which is the order the route already answers in.
+ *
+ * The two letters come from the server's own `initials` field -- served alongside `name` precisely so
+ * every consumer draws the same two -- falling back to `helpers/initials.js` for a payload without
+ * one. That helper stays the single client-side derivation of this; nothing here re-derives it
+ * inline, which is the drift Bug #2609 consolidated away.
+ */
+const watcherPlates = computed(() =>
+  watchers.value.slice(0, WATCHER_PLATE_CAP).map((watcher) => ({
+    userId: watcher.userId,
+    name: watcher.name,
+    initials: watcher.initials || initials(watcher.name)
+  }))
+)
+/**
+ * How many watchers the plates do not account for, as the trailing `+N`. Counted off the server's
+ * `total` -- every watcher, not the returned slice -- so it stays right however many the request
+ * asked for, and floored at zero rather than trusted: a `total` behind the list it came with would
+ * otherwise draw `+-1`.
+ */
+const watcherRemainder = computed(() =>
+  Math.max(watcherTotal.value - watcherPlates.value.length, 0)
+)
 /*
   Whether this user may save a change to the page, which is what editing the tags amounts to -- the tags
   go up with the rest of the page rather than through an endpoint of their own. So the test is the pair
@@ -732,6 +897,57 @@ watch(
       promptUnlock()
     }
   }
+)
+
+/*
+  The rail's Watching section (OpenProject #2649), fetched HERE rather than in `pageStore.pageLoad`.
+
+  It is a second round trip, and the article must not wait on it: the sibling Revision section rides
+  the page read precisely because that one costs nothing extra, and this one cannot. So the page
+  arrives, draws, and the plates appear a moment later underneath it -- or never, on a page nobody
+  watches or one whose watchers the server declines to list.
+
+  Three sources, and each is a real reason to ask again: the page id, obviously; `isWatching`, so the
+  reader's own plate appears and disappears as they press the bell rather than at the next navigation;
+  and `showSidebar`, which is what makes this cost nothing at all on a site with the rail switched off
+  or while the editor is open. Vue coalesces a flush, so a page load moving id and `isWatching`
+  together still asks once.
+
+  Same generation guard as `pageLoadGeneration` below and for the same reason: navigating A -> B while
+  A's watchers are still in flight must not let A's answer land over B's.
+*/
+let watchersGeneration = 0
+
+watch(
+  [showSidebar, () => pageStore.id, () => pageStore.isWatching],
+  async ([sidebarShown, pageId]) => {
+    const generation = ++watchersGeneration
+    // -> Cleared first, unconditionally: whatever is on screen belongs to the page being left.
+    watchers.value = []
+    watcherTotal.value = 0
+    if (!sidebarShown || !pageId || !siteStore.id) {
+      return
+    }
+    try {
+      const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageId}/watchers`, {
+        searchParams: { limit: WATCHER_PLATE_CAP }
+      }).json()
+      if (generation !== watchersGeneration) {
+        return
+      }
+      watchers.value = resp?.watchers ?? []
+      watcherTotal.value = resp?.total ?? 0
+    } catch (err) {
+      /*
+        Silent by design, and the section stays absent. Who watches a page is not something the reader
+        asked for, so a toast about it would interrupt them over something they did not do -- and the
+        request is refused for entirely ordinary reasons (a page they may not read, a page still
+        behind its password) that the view already says out loud elsewhere.
+      */
+      log.warn('page', 'could not load the page watchers', err)
+    }
+  },
+  { immediate: true }
 )
 
 /*
@@ -1121,11 +1337,18 @@ $toc-overlay-max: 749.98px;
 */
 .page-breadcrumbs {
   /*
-    A fixed 34px band, as the design draws it (`padding: 6px 16px` around one line of 11.5px mono).
-    It used to be sized by its own contents through a `py-1`/`sm:py-2` pair, so the bar's height moved
-    with whatever the trail happened to hold -- a crumb with an icon made it taller than one without.
+    38px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left of this one:
+    the two sit at the same vertical position and each rules itself off with its own hairline, so any
+    disagreement in height leaves the two rules on different lines and the two grounds meeting at a
+    step. Both boxes are `border-box`, so that 1px border is inside the 38px on either side.
+
+    A fixed height at all -- rather than one sized by its own contents through the `py-1`/`sm:py-2`
+    pair this used to carry -- because the bar's height otherwise moved with whatever the trail
+    happened to hold: a crumb with an icon made it taller than one without.
+
+    `min-height` rather than `height` so a trail long enough to wrap can still grow past the band.
   */
-  min-height: 34px;
+  min-height: 38px;
   font-family: var(--font-mono);
   font-size: 11.5px;
 
@@ -1179,24 +1402,38 @@ $toc-overlay-max: 749.98px;
   The masthead. A white plate with the page's icon in a hairline square beside its title, ruled off
   from the article -- the two-stop gradient and the white top edge it used to carry were the same
   bevel the trail above it had, and they are gone for the same reason.
-*/
-/*
-  The masthead. The design gives it `padding: 16px 16px 16px 0` around a 64px icon plate, which comes
-  out at 96px and grows with a wrapped title -- so it is stated as a MINIMUM here rather than a fixed
-  height, where a fixed 95px cropped the bottom padding off a two-line title.
+
+  120px, and the same 120px on every page. What it used to say here was a 96px MINIMUM around a 64px
+  icon plate, which sounds fixed and was not: the band was sized by whatever was in it, so a page with
+  a description came out at 130px and a page without at 109px, and moving between the two visibly
+  shifted the whole article under it. Neither number was the 96px, which is why reading the
+  declaration told you nothing -- `Index.pageHeaderHeight.test.js` measures the rendered band in a
+  real browser instead.
+
+  The 8px of block padding is what makes 120px reachable rather than aspirational. The text column
+  brings its own `p-4`, and 16px here on top of it left 87px for a title-plus-description block that
+  needs 96.8 -- the band would have grown past 120 on every page that had a description, which is the
+  defect over again. At 8px the budget is 103px and both pages land on exactly 120.
+
+  A MINIMUM still, for exactly one remaining case: a title long enough to wrap. 120px against a
+  36px/1.05 title, a description and the padding leaves about a line of slack -- enough for the
+  description, not for a second title line -- and a fixed height here is already recorded as having
+  cropped one (a fixed 95px, before the minimum replaced it). So the band takes the extra line rather
+  than hiding it. That is variance, but with a cause a reader can see in front of them, not one that
+  turns on whether an author happened to fill in a field. A description long enough to wrap grows it
+  the same way and for the same reason; a description of ordinary length never does.
 */
 .page-header {
-  min-height: 96px;
-  padding-block: 16px;
+  min-height: 120px;
+  padding-block: 8px;
 
   /*
-    Sized by its contents on a phone instead, which comes out around 70px: the 95px is pitched for a 64px
-    icon beside 34px display type, and holding it under the halved icon and title of the phone layout left
-    a band of empty gradient under the description.
+    Sized by its contents on a phone instead, which comes out around 96px: the 120px is pitched for a
+    64px icon beside 34px display type, and holding it under the halved icon and title of the phone
+    layout left a band of empty ground under the description.
 
-    `auto` rather than a smaller fixed height, because a fixed one is what the desktop bar can only just
-    afford: a title long enough to wrap has nowhere to go in it. Here the bar grows by a line instead, and
-    a page with no description gets a bar shorter still.
+    So the variance the desktop band just lost is deliberate down here -- there is no height worth
+    holding when everything that would fill it is half the size.
   */
   @media (max-width: $breakpoint-xs-max) {
     min-height: 0;
@@ -1301,18 +1538,20 @@ $toc-overlay-max: 749.98px;
 }
 
 /*
-  A measure, when the site asks for one. `contentWidth` has been a stored, editable setting with
-  nothing reading it -- so "Centered" in the theme settings did nothing at all -- and 720px is the
-  measure the design draws (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: the article pads
-  32/28/44 and then holds its text to 720px inside that).
+  A measure, when the site asks for one. 720px is the measure the design draws
+  (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: the article pads 32/28/44 and then holds its text
+  to 720px inside that) -- and it holds the text FLUSH to the padded column's leading edge, since the
+  mockup writes a bare `max-width: 720px` with no `margin: 0 auto` anywhere in the file. A measure is
+  a line length, not a position: the text starts where every other thing on this surface starts, and
+  simply stops early. Centring it instead left the article drifting away from the breadcrumbs and
+  header above it on a wide window, which is what this setting was reported for.
 
   On the contents rather than on this box, so the padding above stays the column's and only the text
   is bounded: a page of prose reads at a comfortable measure while the sheet it sits on still fills
   the window.
 */
-.page-container-body.is-centered > .page-contents {
+.page-container-body.is-measured > .page-contents {
   max-width: 720px;
-  margin-inline: auto;
 }
 
 /*
@@ -1469,6 +1708,88 @@ $toc-overlay-max: 749.98px;
 }
 
 .body--dark .page-sidebar-heading {
+  color: $text-caption-dark;
+}
+
+/*
+  The Revision section's three lines (OpenProject #2652). One type size and one leading for all
+  three -- 13px/1.7 in the body face, as the design draws them -- because they are one statement
+  about the page read top to bottom, not a list of three fields: the version, who wrote it, and
+  when. Only the last is toned down, and only by one tier.
+
+  No margin of its own: the heading above it owns the gap under itself, the same way the contents
+  list and the tag row are spaced from theirs.
+*/
+.page-sidebar-revision {
+  color: $slate;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.page-sidebar-revision-time {
+  color: $text-caption;
+}
+
+.body--dark .page-sidebar-revision {
+  color: $text-dark;
+}
+
+.body--dark .page-sidebar-revision-time {
+  color: $text-caption-dark;
+}
+
+/*
+  The Watching section's run of plates (OpenProject #2649). A flex row rather than a grid: there are
+  at most four things in it (three plates and the remainder), and they sit against the inline start
+  with the gap the design draws between them.
+*/
+.page-watchers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/*
+  One person, as two letters on a tinted square. Square on purpose -- Cardinal draws no rounded
+  avatars, and the rail's tags are square too -- and a hair darker than $tint so a run of plates reads
+  as a run of objects on the rail's own near-white ground rather than dissolving into it.
+
+  Barlow Condensed at 10/600, the language's face for a short uppercase chrome label, which is exactly
+  what a pair of initials is. `flex: none` because the plate is a fixed 26px and must not be squeezed
+  by a long remainder beside it.
+*/
+.page-watchers-plate {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid $hairline;
+  /* -> Between $tint and $hairline; the design's own value, and there is no token at this step */
+  background-color: #e9edf5;
+  color: $slate;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.body--dark .page-watchers-plate {
+  border-color: $hairline-dark;
+  background-color: $dark-2;
+  color: $text-dark;
+}
+
+/* Everybody past the third, in the mono the rail sets every other count and timestamp in. */
+.page-watchers-remainder {
+  color: $text-caption;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.body--dark .page-watchers-remainder {
   color: $text-caption-dark;
 }
 

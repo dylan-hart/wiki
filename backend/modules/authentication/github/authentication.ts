@@ -1,3 +1,4 @@
+import { splitDisplayName } from '../../../helpers/personName.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
@@ -41,7 +42,7 @@ export default class GitHubAuthentication {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'Wiki.js'
+        'User-Agent': 'Cardinal.js'
       }
     })
     if (!resp.ok) {
@@ -79,7 +80,7 @@ export default class GitHubAuthentication {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        'User-Agent': 'Wiki.js'
+        'User-Agent': 'Cardinal.js'
       },
       body: JSON.stringify({
         client_id: this.conf.clientId,
@@ -118,7 +119,7 @@ export default class GitHubAuthentication {
             Authorization: `Bearer ${token.access_token}`,
             Accept: 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': 'Wiki.js'
+            'User-Agent': 'Cardinal.js'
           }
         }
       )
@@ -128,10 +129,19 @@ export default class GitHubAuthentication {
       }
     }
 
+    /*
+      GitHub's profile carries one free-text `name` and no separated halves at all — there is no
+      `given_name`/`family_name` equivalent on the REST user object — so the two fields this instance
+      stores come from the naive split, the same one every other single-string provider gets. An
+      account with the `name` field left blank falls back to `login`, which is a handle rather than a
+      name and so lands as a mononym: `firstName = <login>`, no fabricated surname.
+    */
+    const name = account.name || account.login
     return {
       id: String(account.id),
       email,
-      name: account.name || account.login
+      name,
+      ...splitDisplayName(name)
     }
   }
 }

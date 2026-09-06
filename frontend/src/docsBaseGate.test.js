@@ -25,6 +25,11 @@ import { listSourceFiles } from '../test/sourceFiles.js'
  * The five rendered-DOM `docsBase` assertions elsewhere (`components/BlockPickerOverlay.test.js`,
  * `pages/{AdminCluster,AdminMetrics,AdminGlossary,AdminApi}.test.js`) are a different property --
  * that a surface which DOES have a doc page renders the link correctly -- and stay where they are.
+ *
+ * `AdminTerminal.vue`, named above as one of the original seven, is now `AdminLiveLog.vue`
+ * (OpenProject #2680): the xterm view of a text stream became a rendered view of structured log
+ * frames. Still fork-invented -- upstream has no such page at all -- so it keeps its entry, under
+ * the concept the surface actually names now.
  */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
@@ -33,9 +38,9 @@ const FORK_INVENTED_SURFACES = [
   ['pages/AdminApprovals.vue', 'a page-approval-rules concept'],
   ['pages/AdminClassification.vue', 'a classification-guardrail concept'],
   ['pages/AdminFlags.vue', 'a feature-flags concept'],
+  ['pages/AdminLiveLog.vue', 'a structured-log-stream concept'],
   ['pages/AdminScheduler.vue', 'a job-scheduler concept'],
-  ['pages/AdminSites.vue', 'a multi-site-administration concept'],
-  ['pages/AdminTerminal.vue', 'an in-browser-shell concept']
+  ['pages/AdminSites.vue', 'a multi-site-administration concept']
 ]
 
 describe('docsBase help links on fork-invented surfaces (OpenProject #1929)', () => {

@@ -217,6 +217,222 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
   })
 
   /**
+   * Feature #2608. The provider modules read the halves off their claims; this is the other half of
+   * that story — what `findOrCreateProviderUser()` does with them, which is the ONLY place in the
+   * provider path that writes a name. Both rules under test come from the parent's scope: populate
+   * on creation, and fill any field still empty at sign-in without touching one that is not.
+   */
+  describe('separated name halves from the provider profile', () => {
+    async function readNames(id: string) {
+      const [row] = await fixtures.db
+        .select({
+          name: usersTable.name,
+          firstName: usersTable.firstName,
+          lastName: usersTable.lastName,
+          nameLocallyEdited: usersTable.nameLocallyEdited
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, id))
+        .limit(1)
+      return row!
+    }
+
+    test('a new account stores both halves and derives its display name from them', async () => {
+      const created = await findOrCreate(baseStrategy({ id: 'halves-create-strategy' }), {
+        id: 'halves-account-1',
+        email: 'halves-new@example.com',
+        // -> Deliberately NOT `first last`: the halves win, and the row must not come out marked
+        //    locally edited for having disagreed with a display name nobody authored here.
+        name: 'Dr. Alice Example',
+        firstName: 'Alice',
+        lastName: 'Example'
+      })
+
+      const row = await readNames(created.id)
+      assert.equal(row.firstName, 'Alice')
+      assert.equal(row.lastName, 'Example')
+      assert.equal(row.name, 'Alice Example')
+      assert.equal(row.nameLocallyEdited, false)
+    })
+
+    test('a provider issuing no halves still stores its single display name, as before', async () => {
+      const created = await findOrCreate(baseStrategy({ id: 'halves-none-strategy' }), {
+        id: 'halves-account-2',
+        email: 'halves-nameonly@example.com',
+        name: 'Just A Name'
+      })
+
+      const row = await readNames(created.id)
+      assert.equal(row.name, 'Just A Name')
+      assert.equal(row.firstName, '')
+      assert.equal(row.lastName, '')
+    })
+
+    test('a new account from a provider issuing only a given name is a mononym, not a fabricated surname', async () => {
+      const created = await findOrCreate(baseStrategy({ id: 'halves-mononym-strategy' }), {
+        id: 'halves-account-3',
+        email: 'halves-mononym@example.com',
+        name: 'Prince',
+        firstName: 'Prince'
+      })
+
+      const row = await readNames(created.id)
+      assert.equal(row.firstName, 'Prince')
+      assert.equal(row.lastName, '')
+      assert.equal(row.name, 'Prince')
+    })
+
+    test('a later sign-in fills a half the account never had', async () => {
+      const strategy = baseStrategy({ id: 'halves-fill-strategy' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'halves-fill@example.com',
+          name: 'Alice Example',
+          firstName: 'Alice',
+          lastName: '',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: { [strategy.id]: { id: 'halves-account-4', email: 'halves-fill@example.com' } }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'halves-account-4',
+        email: 'halves-fill@example.com',
+        name: 'Alice Example',
+        firstName: 'Alice',
+        lastName: 'Example'
+      })
+
+      const row = await readNames(created!.id)
+      assert.equal(row.lastName, 'Example')
+      // -> Re-derived, because nothing has marked this row authored.
+      assert.equal(row.name, 'Alice Example')
+    })
+
+    test('a later sign-in leaves a half the account already has alone, even when the provider disagrees', async () => {
+      const strategy = baseStrategy({ id: 'halves-keep-strategy' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'halves-keep@example.com',
+          name: 'Alicia Example-Smith',
+          firstName: 'Alicia',
+          lastName: 'Example-Smith',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: { [strategy.id]: { id: 'halves-account-5', email: 'halves-keep@example.com' } }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'halves-account-5',
+        email: 'halves-keep@example.com',
+        name: 'Alice Example',
+        firstName: 'Alice',
+        lastName: 'Example'
+      })
+
+      const row = await readNames(created!.id)
+      assert.equal(row.firstName, 'Alicia')
+      assert.equal(row.lastName, 'Example-Smith')
+      assert.equal(row.name, 'Alicia Example-Smith')
+    })
+
+    test('a row whose display name a person authored keeps it when a half is filled in', async () => {
+      const strategy = baseStrategy({ id: 'halves-authored-strategy' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'halves-authored@example.com',
+          name: 'The Boss',
+          firstName: '',
+          lastName: '',
+          nameLocallyEdited: true,
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: { [strategy.id]: { id: 'halves-account-6', email: 'halves-authored@example.com' } }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'halves-account-6',
+        email: 'halves-authored@example.com',
+        name: 'Alice Example',
+        firstName: 'Alice',
+        lastName: 'Example'
+      })
+
+      const row = await readNames(created!.id)
+      // -> The empty halves were still worth filling; the authored display name is what survives.
+      assert.equal(row.firstName, 'Alice')
+      assert.equal(row.lastName, 'Example')
+      assert.equal(row.name, 'The Boss')
+      assert.equal(row.nameLocallyEdited, true)
+    })
+
+    test('the returned user carries the freshly-filled halves and re-derived name, not the pre-login row', async () => {
+      const strategy = baseStrategy({ id: 'halves-returned-strategy' })
+      await fixtures.db.insert(usersTable).values({
+        email: 'halves-returned@example.com',
+        name: 'Alice',
+        firstName: 'Alice',
+        lastName: '',
+        isSystem: false,
+        isActive: true,
+        isVerified: true,
+        auth: { [strategy.id]: { id: 'halves-account-7', email: 'halves-returned@example.com' } }
+      })
+
+      const result = await findOrCreate(strategy, {
+        id: 'halves-account-7',
+        email: 'halves-returned@example.com',
+        name: 'Alice Example',
+        firstName: 'Alice',
+        lastName: 'Example'
+      })
+
+      assert.equal(result.lastName, 'Example')
+      assert.equal(result.name, 'Alice Example')
+      // -> The strategy link written earlier in the same call must survive the row being re-read.
+      assert.equal(result.auth[strategy.id].id, 'halves-account-7')
+    })
+
+    test('a profile reporting nothing new issues no name write at all', async () => {
+      const strategy = baseStrategy({ id: 'halves-noop-strategy' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'halves-noop@example.com',
+          name: 'Untouched Name',
+          firstName: '',
+          lastName: '',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: { [strategy.id]: { id: 'halves-account-8', email: 'halves-noop@example.com' } }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'halves-account-8',
+        email: 'halves-noop@example.com',
+        name: 'Untouched Name'
+      })
+
+      const row = await readNames(created!.id)
+      // -> Had a write happened with no halves, `updateUser` would have re-derived `name` to ''.
+      assert.equal(row.name, 'Untouched Name')
+      assert.equal(row.firstName, '')
+      assert.equal(row.lastName, '')
+    })
+  })
+
+  /**
    * WP #2560: relinking a migrated fallback account via `trustEmailForLinking` clears the orphaned
    * local-strategy auth entry `createProviderFallbackUserConverter()` (Feature #2547's other sibling
    * Task) originally wrote for it -- but only when that entry actually carries the migration

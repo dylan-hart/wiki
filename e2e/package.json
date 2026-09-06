@@ -1,10 +1,11 @@
 {
-  "name": "wiki-e2e",
+  "name": "cardinal-e2e",
   "version": "3.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "test:flaky": "playwright test --config playwright.flaky.config.js --pass-with-no-tests",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "install-browsers": "playwright install --with-deps chromium"

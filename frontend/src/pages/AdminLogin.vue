@@ -47,140 +47,120 @@
         <!-- ----------------------- -->
         <!-- Experience -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.login.experience') }}</w-card-header>
-          <w-item>
-            <blueprint-icon
-              class="self-start"
-              icon="tabler:photo"
-              :indicator="state.sharpMissing ? '' : null"
-              :indicator-text="t(`admin.extensions.requiresSharp`)" />
-            <w-item-section>
-              <div class="flex">
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.login.background`) }}</w-item-label>
-                  <w-item-label caption>{{ t(`admin.login.backgroundHint`) }}</w-item-label>
-                </w-item-section>
-                <w-item-section class="flex-none">
-                  <div class="flex gap-2">
-                    <w-btn
-                      :label="t(`common.actions.upload`)"
-                      icon="tabler:upload"
-                      color="primary"
-                      text-color="white"
-                      @click="uploadBg" />
-                    <w-btn
-                      :label="t(`common.actions.clear`)"
-                      outline
-                      icon="tabler:x"
-                      color="primary"
-                      :disabled="!state.hasBg"
-                      @click="clearBg" />
-                  </div>
-                </w-item-section>
-              </div>
+        <w-settings-card :title="t('admin.login.experience')">
+          <!--
+            The background image spans the row under both the text and the buttons, which is what
+            `WSettingsRow`'s `preview` slot is for -- the same shape `AdminGeneral`'s logo and
+            favicon rows use.
+          -->
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:photo"
+            :indicator="state.sharpMissing ? '' : null"
+            :indicator-text="t(`admin.extensions.requiresSharp`)"
+            :label="t(`admin.login.background`)"
+            :hint="t(`admin.login.backgroundHint`)">
+            <div class="flex gap-2">
+              <w-btn
+                :label="t(`common.actions.upload`)"
+                icon="tabler:upload"
+                color="primary"
+                text-color="white"
+                @click="uploadBg" />
+              <w-btn
+                :label="t(`common.actions.clear`)"
+                outline
+                icon="tabler:x"
+                color="primary"
+                :disabled="!state.hasBg"
+                @click="clearBg" />
+            </div>
+            <template #preview>
               <img
                 v-if="adminStore.currentSiteId"
-                class="admin-login-bg mt-4"
+                class="admin-login-bg"
                 :src="`/_site/` + adminStore.currentSiteId + `/loginBg?` + bgTimestamp"
                 :alt="t(`admin.login.background`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:layout-sidebar-right-collapse" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.login.bypassScreen`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.login.bypassScreenHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.autoLogin"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.login.bypassScreen`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:lock-off" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.login.bypassUnauthorized`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.login.bypassUnauthorizedHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.bypassUnauthorized"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.login.bypassUnauthorized`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:chevrons-right" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.login.loginRedirect`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.login.loginRedirectHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.loginRedirect"
-                dense
-                :rules="[
-                  (val) =>
-                    state.invalidCharsRegex.test(val) || t('admin.login.loginRedirectInvalidChars')
-                ]"
-                hide-bottom-space
-                :aria-label="t(`admin.login.loginRedirect`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:chevron-right" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.login.welcomeRedirect`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.login.welcomeRedirectHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.welcomeRedirect"
-                dense
-                :rules="[
-                  (val) =>
-                    state.invalidCharsRegex.test(val) ||
-                    t('admin.login.welcomeRedirectInvalidChars')
-                ]"
-                hide-bottom-space
-                :aria-label="t(`admin.login.welcomeRedirect`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:logout" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.login.logoutRedirect`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.login.logoutRedirectHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.logoutRedirect"
-                dense
-                :rules="[
-                  (val) =>
-                    state.invalidCharsRegex.test(val) || t('admin.login.logoutRedirectInvalidChars')
-                ]"
-                hide-bottom-space
-                :aria-label="t(`admin.login.logoutRedirect`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+            </template>
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:layout-sidebar-right-collapse"
+            :label="t(`admin.login.bypassScreen`)"
+            :hint="t(`admin.login.bypassScreenHint`)">
+            <w-toggle
+              v-model="state.config.autoLogin"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.login.bypassScreen`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:lock-off"
+            :label="t(`admin.login.bypassUnauthorized`)"
+            :hint="t(`admin.login.bypassUnauthorizedHint`)">
+            <w-toggle
+              v-model="state.config.bypassUnauthorized"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.login.bypassUnauthorized`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:chevrons-right"
+            :label="t(`admin.login.loginRedirect`)"
+            :hint="t(`admin.login.loginRedirectHint`)">
+            <w-input
+              v-model="state.config.loginRedirect"
+              dense
+              :rules="[
+                (val) =>
+                  state.invalidCharsRegex.test(val) || t('admin.login.loginRedirectInvalidChars')
+              ]"
+              hide-bottom-space
+              :aria-label="t(`admin.login.loginRedirect`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:chevron-right"
+            :label="t(`admin.login.welcomeRedirect`)"
+            :hint="t(`admin.login.welcomeRedirectHint`)">
+            <w-input
+              v-model="state.config.welcomeRedirect"
+              dense
+              :rules="[
+                (val) =>
+                  state.invalidCharsRegex.test(val) || t('admin.login.welcomeRedirectInvalidChars')
+              ]"
+              hide-bottom-space
+              :aria-label="t(`admin.login.welcomeRedirect`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:logout"
+            :label="t(`admin.login.logoutRedirect`)"
+            :hint="t(`admin.login.logoutRedirectHint`)">
+            <w-input
+              v-model="state.config.logoutRedirect"
+              dense
+              :rules="[
+                (val) =>
+                  state.invalidCharsRegex.test(val) || t('admin.login.logoutRedirectInvalidChars')
+              ]"
+              hide-bottom-space
+              :aria-label="t(`admin.login.logoutRedirect`)" />
+          </w-settings-row>
+        </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
         <!-- ----------------------- -->
         <!-- Providers -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.login.providers') }}</w-card-header>
-          <w-card-section class="admin-login-providers pt-0">
+        <w-settings-card :title="t('admin.login.providers')">
+          <!--
+            A drag-ordered list, not a stack of settings: the rows are reordered by the handle at
+            their leading edge and each names a provider rather than a setting, so they stay
+            `WItem`s inside a plain section under the strip. Forcing a 34px plate in front of a drag
+            handle would put two leading affordances on one row.
+          -->
+          <w-card-section class="admin-login-providers">
             <sortable
               :list="state.providers"
               item-key="id"
@@ -207,22 +187,18 @@
                 </w-item>
               </template>
             </sortable>
-          </w-card-section>
-          <w-item class="pt-0">
-            <w-item-section>
-              <w-card class="bg-info text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:info-circle" size="lg" />
-                  </w-card-section>
-                  <w-card-section class="text-caption">{{
-                    t('admin.login.providersVisbleWarning')
-                  }}</w-card-section>
+            <w-card class="bg-info text-white rounded mt-2">
+              <w-card-section class="items-center" horizontal>
+                <w-card-section class="flex-none pe-0">
+                  <w-icon name="tabler:info-circle" size="lg" />
                 </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
-        </w-card>
+                <w-card-section class="text-caption">{{
+                  t('admin.login.providersVisbleWarning')
+                }}</w-card-section>
+              </w-card-section>
+            </w-card>
+          </w-card-section>
+        </w-settings-card>
       </div>
     </div>
   </w-page>

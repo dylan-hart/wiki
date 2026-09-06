@@ -108,17 +108,29 @@ export function createSiteAdminAccessStub(
 }
 
 /**
- * `error`/`warn`/`info`/`debug`/`verbose`/`silly`, all no-ops — a test run should not scroll past the
- * logging of the code it is exercising.
+ * `error`/`warn`/`info`/`debug` — every level `core/logger.ts` implements, and no more — all no-ops,
+ * because a test run should not scroll past the logging of the code it is exercising.
  *
  * Exported (TEST-F1) rather than re-inlined per file: 70 backend test files used to carry their own
  * partial literal (`{ debug }`, `{ warn }`, `{ info, warn, error, debug }`, …), so adding one
  * `WIKI.logger.info()` call to a route broke every suite whose stub happened to omit `info` — and
  * failed naming the logger rather than the change.
+ *
+ * Every level takes the one call shape the real logger does, `(scope, message, fields?)` — the
+ * legacy `(msg, context?)` overload went with OpenProject #2668, and a no-op cared about neither
+ * anyway. `scope()` answers the stub itself rather than a fresh object, so a child logger a code
+ * path builds is silent the same way and `log.scope('x').scope('y').info(…)` cannot run out of
+ * stub.
+ *
+ * A suite that wants to ASSERT on a line replaces the level it cares about
+ * (`WIKI.logger.warn = mock.fn()`) and asserts on the scope and the fields, never on a rendered
+ * string — the rendering is `core/logger.ts`'s business.
  */
 export function createSilentLogger(): any {
   const noop = () => {}
-  return { error: noop, warn: noop, info: noop, debug: noop, verbose: noop, silly: noop }
+  const stub: any = { error: noop, warn: noop, info: noop, debug: noop }
+  stub.scope = () => stub
+  return stub
 }
 
 /**

@@ -4,6 +4,35 @@ import type Mail from 'nodemailer/lib/mailer/index.js'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { HookEvent } from './hooks.ts'
 import { localizedPagePath, type LocaleRoutingConfig } from '../helpers/localeRouting.ts'
+import { generateHash } from '../helpers/common.ts'
+import { coalesce } from '../helpers/logCoalesce.ts'
+
+/**
+ * Which transactional message a send is, as a countable vocabulary rather than a sentence.
+ *
+ * One member per `send*` wrapper below (plus `approval`, for the one template composed outside this
+ * file — `models/approvalNotifications.ts`'s reviewer notice). It is what `kind=` says on every mail
+ * log line, so an operator can answer "are the digests going out and the password resets not"
+ * without grepping message text; a closed union is what keeps that field countable, the same way
+ * `LOG_SCOPES` keeps `scope=` countable.
+ *
+ * Deliberately NOT the failure category. `classifyMailError`'s auth/connection/tls/send verdict is a
+ * different question about a different thing and rides on its own `failure=` field — the two shared
+ * the name `kind` before OpenProject #2675 and could not both be read off one line.
+ */
+export type MailKind =
+  | 'verify'
+  | 'forgotPassword'
+  | 'welcome'
+  | 'passwordChanged'
+  | 'registrationAttempt'
+  | 'test'
+  | 'eventSubscription'
+  | 'watch'
+  | 'digest'
+  | 'notificationEvent'
+  | 'notificationEventTemplate'
+  | 'approval'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -11,6 +40,75 @@ export interface MailMessage {
   subject: string
   html: string
   text: string
+  /**
+   * Which transactional message this is — see {@link MailKind}. Required: every template that
+   * reaches the transport is one of a closed set, and a send that cannot say which one it is would
+   * log a blank `kind=`, which is worse than not logging the field at all.
+   */
+  kind: MailKind
+  /**
+   * The recipient's user id, when the caller has one.
+   *
+   * Optional because not every send has a user behind it — the admin's "Send Test Email" goes to
+   * whatever address was typed into the dialog, and a guest suggestion author is an address on a
+   * submission row and nothing else. Where it is absent the log falls back to a hash of the address
+   * ({@link recipientRef}); it never falls back to the address itself.
+   */
+  userId?: string
+}
+
+/**
+ * How long one `mail:unconfigured` coalescing window stays open.
+ *
+ * There is no "the calling job just finished" hook to flush against — the notification tasks own
+ * their own files (OpenProject #2672) and reaching into them for a mail concern would put the same
+ * flush call in three places — so this is a fixed window instead. A minute is long enough that a
+ * digest fan-out to hundreds of recipients on an unconfigured instance collapses into one or two
+ * lines rather than hundreds, and short enough that an operator who has just typed an SMTP host in
+ * and clicked "Send Test Email" is not left waiting on a stale count.
+ */
+export const MAIL_UNCONFIGURED_LOG_WINDOW_MS = 60_000
+
+/** The one coalescing key every refused-because-unconfigured send counts against. */
+const MAIL_UNCONFIGURED_LOG_KEY = 'mail:unconfigured'
+
+/**
+ * How many hex characters of the address hash stand in for a recipient with no user id.
+ *
+ * Enough to correlate two lines about the same address within one log, not enough to be worth
+ * attacking as a way back to the address — and the point is correlation, not identification.
+ */
+const ADDRESS_REF_LENGTH = 12
+
+/**
+ * What `to=` says: the recipient's user id, or a stable hash of their address when there is no user.
+ *
+ * An e-mail address is an identity, and OpenProject #2648 removed the last one from the log; this is
+ * the invariant's positive half — a value that still lets an operator follow one recipient across
+ * two lines, without the log becoming a list of who has an account here. `helpers/common.ts`'s
+ * `generateHash` is reused rather than a second hash introduced for this one field.
+ */
+export function recipientRef(address: string, userId?: string): string {
+  if (userId) {
+    return userId
+  }
+  return generateHash(address.trim().toLowerCase()).slice(0, ADDRESS_REF_LENGTH)
+}
+
+/**
+ * Whether a delivery failure is worth an `error` or only a `warn`.
+ *
+ * `send()` cannot know whether its own caller will retry — the notification tasks rethrow so the
+ * scheduler retries them, `models/login.ts`'s notices swallow and move on — so the level is decided
+ * by whether a retry could plausibly help instead. A `connection` failure (socket refused, DNS,
+ * timeout) is the transient family: the host may well answer next time, the scheduler will try
+ * again, and #2672's job-outcome line is what reports the eventual exhaustion, so a `warn` per
+ * attempt is the right weight. Everything else is a standing fault — a rejected certificate, wrong
+ * credentials, a refused envelope — that the next attempt will hit in exactly the same way, and an
+ * operator has to act on it rather than wait it out.
+ */
+export function mailFailureLevel(failure: ReturnType<typeof classifyMailError>): 'warn' | 'error' {
+  return failure === 'connection' ? 'warn' : 'error'
 }
 
 /**
@@ -121,6 +219,15 @@ class MailModel {
   private transporterSnapshot: string | null = null
 
   /**
+   * Which message kinds have been dropped in the current `mail:unconfigured` window.
+   *
+   * A `helpers/logCoalesce.ts` summary carries a count and nothing about the events themselves —
+   * deliberately, since a generic helper cannot know what is worth remembering — so the one detail
+   * this line wants beyond the count is accumulated here and cleared when the window closes.
+   */
+  private unconfiguredKinds = new Set<MailKind>()
+
+  /**
    * Whether enough of `WIKI.config.mail` is filled in to attempt a connection. Only `host` is
    * required for a transporter to be buildable at all — everything else nodemailer accepts as
    * empty/absent.
@@ -165,13 +272,49 @@ class MailModel {
   }
 
   /**
+   * Count one refused-because-unconfigured send and, when the window closes, say how many there were.
+   *
+   * An unconfigured instance refuses every send it is asked for, so the honest per-attempt line —
+   * which is what this used to be — turns a nightly digest fan-out into one `warn` per recipient and
+   * buries everything else that happened overnight. The count is the operator-facing fact ("mail is
+   * off and 412 notifications went nowhere"), not each individual attempt, so nothing is logged
+   * individually at all: `threshold: 0` means every call folds into the summary, which
+   * `helpers/logCoalesce.ts` then emits once per window with `total` intact.
+   */
+  private noteUnconfiguredDrop(kind?: MailKind): void {
+    if (kind) {
+      this.unconfiguredKinds.add(kind)
+    }
+    // -> Snapshotted per call rather than read inside the callback, because the callback outlives
+    //    the window it summarizes: `coalesce` keeps the most recent call's `emit`, and clearing the
+    //    set below is what makes the NEXT window start empty.
+    const kinds = [...this.unconfiguredKinds].join(',')
+    coalesce(
+      MAIL_UNCONFIGURED_LOG_KEY,
+      MAIL_UNCONFIGURED_LOG_WINDOW_MS,
+      (summary) => {
+        this.unconfiguredKinds.clear()
+        WIKI.logger.warn('mail', `not configured, dropped ${summary.total} notifications`, {
+          dropped: summary.total,
+          kinds: kinds || undefined
+        })
+      },
+      { threshold: 0 }
+    )
+  }
+
+  /**
    * The transporter for the current config, rebuilding it only when the config actually changed.
    *
-   * @throws `ERR_MAIL_NOT_CONFIGURED` when no SMTP host is set, logging why the send was refused.
+   * @param kind Which message wanted a transport, for the refusal summary's `kinds=` — see
+   *   {@link noteUnconfiguredDrop}. Optional so a caller that only wants to know whether a transport
+   *   can be built (or a test) need not invent one.
+   * @throws `ERR_MAIL_NOT_CONFIGURED` when no SMTP host is set. The refusal is coalesced rather than
+   *   logged per attempt, because on an unconfigured instance it is EVERY attempt.
    */
-  getTransporter(): Mail<SMTPTransport.SentMessageInfo> {
+  getTransporter(kind?: MailKind): Mail<SMTPTransport.SentMessageInfo> {
     if (!this.isConfigured()) {
-      WIKI.logger.warn('Cannot send mail: no SMTP host is configured.')
+      this.noteUnconfiguredDrop(kind)
       throw new Error('ERR_MAIL_NOT_CONFIGURED')
     }
     const options = this.buildTransportOptions()
@@ -179,6 +322,15 @@ class MailModel {
     if (!this.transporter || this.transporterSnapshot !== snapshot) {
       this.transporter = nodemailer.createTransport(options)
       this.transporterSnapshot = snapshot
+      // -> `transport built`, not `transport connected`: nodemailer's `createTransport` opens no
+      //    socket, it just holds the options until the first `sendMail`. The value of the line is
+      //    that it prints the settings actually in force after the config merge, which is what an
+      //    SMTP misconfiguration is diagnosed from — at `debug`, so it costs nothing normally.
+      WIKI.logger.debug('mail', 'transport built', {
+        host: options.host,
+        port: options.port,
+        secure: options.secure
+      })
     }
     return this.transporter
   }
@@ -186,16 +338,23 @@ class MailModel {
   /**
    * Send a single email through the configured SMTP transport.
    *
-   * @throws `ERR_MAIL_NOT_CONFIGURED` when there is no transport to send with. Any other failure
-   *   (auth rejected, connection refused, certificate rejected, message rejected, ...) is logged
-   *   with its {@link classifyMailError} category — so a log search can tell "the SMTP host is
-   *   unreachable" apart from "the TLS certificate didn't validate" apart from "the credentials
-   *   are wrong" apart from "the message itself was rejected" — and rethrown as-is.
+   * Both outcomes reach the log, because "did the digest actually go out" is not answerable from a
+   * log that only speaks up when something breaks: a success is one `info` line carrying `kind=` and
+   * `to=`, and a failure is one `warn`/`error` carrying the same two plus `failure=`, the
+   * {@link classifyMailError} category — so a log search can tell "the SMTP host is unreachable"
+   * apart from "the TLS certificate didn't validate" apart from "the credentials are wrong" apart
+   * from "the message itself was rejected". {@link mailFailureLevel} decides which of the two levels
+   * a failure gets.
+   *
+   * @throws `ERR_MAIL_NOT_CONFIGURED` when there is no transport to send with — counted rather than
+   *   logged per attempt, see {@link noteUnconfiguredDrop}. Every other failure is rethrown as-is.
    */
-  async send({ to, subject, html, text }: MailMessage): Promise<void> {
-    const transporter = this.getTransporter()
+  async send({ to, subject, html, text, kind, userId }: MailMessage): Promise<void> {
+    const transporter = this.getTransporter(kind)
     const cfg = WIKI.config.mail ?? {}
     const senderEmail = cfg.senderEmail || cfg.user
+    // -> An id or an address hash, never the address itself: see `recipientRef`.
+    const recipient = recipientRef(to, userId)
     try {
       await transporter.sendMail({
         from: cfg.senderName ? { name: cfg.senderName, address: senderEmail } : senderEmail,
@@ -205,10 +364,16 @@ class MailModel {
         text
       })
     } catch (err: any) {
-      const kind = classifyMailError(err)
-      WIKI.logger.warn(`Failed to send mail to ${to} (${kind} failure): ${err.message}`)
+      const failure = classifyMailError(err)
+      WIKI.logger[mailFailureLevel(failure)]('mail', 'delivery failed', {
+        kind,
+        to: recipient,
+        failure,
+        error: err
+      })
       throw err
     }
+    WIKI.logger.info('mail', 'sent', { kind, to: recipient })
   }
 
   /**
@@ -230,7 +395,7 @@ class MailModel {
    * `WIKI.config.mail.defaultBaseURL` when there is no site to ask (no `siteId`, an unresolvable
    * one) or the site is the `*` catch-all, which has no hostname of its own to link at. No per-site
    * override setting exists for scheme/port (v1 scope decision, OpenProject #1023) — `https://` is
-   * assumed, matching how every other Wiki.js 3.x site link is built.
+   * assumed, matching how every other Cardinal.js 3.x site link is built.
    */
   resolveMailBaseURL(siteId?: string): string {
     const hostname = siteId ? WIKI.sites[siteId]?.hostname : null
@@ -256,10 +421,17 @@ class MailModel {
     locale: string | null | undefined,
     key: string,
     params: Record<string, string>,
-    { textSuffix = '', htmlSuffix = '' }: { textSuffix?: string; htmlSuffix?: string } = {}
+    {
+      kind,
+      userId,
+      textSuffix = '',
+      htmlSuffix = ''
+    }: { kind: MailKind; userId?: string; textSuffix?: string; htmlSuffix?: string }
   ): Promise<void> {
     await this.send({
       to,
+      kind,
+      userId,
       subject: await WIKI.models.locales.resolveString(locale, `mail.${key}.subject`),
       text:
         (await WIKI.models.locales.resolveString(locale, `mail.${key}.text`, params)) + textSuffix,
@@ -280,15 +452,17 @@ class MailModel {
     to,
     name,
     token,
+    userId,
     locale
   }: {
     to: string
     name: string
     token: string
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/auth/verify/${token}`)
-    await this.sendTemplate(to, locale, 'verifyEmail', { name, link })
+    await this.sendTemplate(to, locale, 'verifyEmail', { name, link }, { kind: 'verify', userId })
   }
 
   /**
@@ -307,11 +481,13 @@ class MailModel {
     to,
     name,
     token,
+    userId,
     locale
   }: {
     to: string
     name: string
     token: string
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`)
@@ -331,7 +507,7 @@ class MailModel {
       locale,
       'forgotPassword',
       { name, link },
-      { textSuffix: signatureText, htmlSuffix: signatureHtml }
+      { kind: 'forgotPassword', userId, textSuffix: signatureText, htmlSuffix: signatureHtml }
     )
   }
 
@@ -355,16 +531,18 @@ class MailModel {
     name,
     token,
     siteId,
+    userId,
     locale
   }: {
     to: string
     name: string
     token: string
     siteId?: string
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`, this.resolveMailBaseURL(siteId))
-    await this.sendTemplate(to, locale, 'welcomeEmail', { name, link })
+    await this.sendTemplate(to, locale, 'welcomeEmail', { name, link }, { kind: 'welcome', userId })
   }
 
   /**
@@ -376,14 +554,22 @@ class MailModel {
   async sendPasswordResetConfirmed({
     to,
     name,
+    userId,
     locale
   }: {
     to: string
     name: string
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink('/login')
-    await this.sendTemplate(to, locale, 'passwordChanged', { name, link })
+    await this.sendTemplate(
+      to,
+      locale,
+      'passwordChanged',
+      { name, link },
+      { kind: 'passwordChanged', userId }
+    )
   }
 
   /**
@@ -398,14 +584,22 @@ class MailModel {
   async sendRegistrationAttemptNotice({
     to,
     name,
+    userId,
     locale
   }: {
     to: string
     name: string
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink('/login')
-    await this.sendTemplate(to, locale, 'registrationAttempt', { name, link })
+    await this.sendTemplate(
+      to,
+      locale,
+      'registrationAttempt',
+      { name, link },
+      { kind: 'registrationAttempt', userId }
+    )
   }
 
   /**
@@ -432,6 +626,7 @@ class MailModel {
       : await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
     await this.send({
       to,
+      kind: 'test',
       subject: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.subject'),
       text: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.text', { baseURLText }),
       html: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.html', { baseURLHtml })
@@ -452,13 +647,21 @@ class MailModel {
   async sendEventSubscriptionNotification({
     to,
     event,
+    userId,
     locale
   }: {
     to: string
     event: string
+    userId?: string
     locale?: string | null
   }): Promise<void> {
-    await this.sendTemplate(to, locale, 'eventSubscription', { event })
+    await this.sendTemplate(
+      to,
+      locale,
+      'eventSubscription',
+      { event },
+      { kind: 'eventSubscription', userId }
+    )
   }
 
   /**
@@ -533,6 +736,7 @@ class MailModel {
     action,
     changedFields,
     actorName,
+    userId,
     locale
   }: {
     to: string
@@ -541,6 +745,7 @@ class MailModel {
     action: PageWatchNotifiableAction
     changedFields: string[]
     actorName: string
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
@@ -563,6 +768,8 @@ class MailModel {
     )
     await this.send({
       to,
+      kind: 'watch',
+      userId,
       subject: await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.subject', {
         label,
         title: page.title
@@ -593,11 +800,13 @@ class MailModel {
     to,
     siteId,
     items,
+    userId,
     locale
   }: {
     to: string
     siteId: string
     items: WatchEventItem[]
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
@@ -616,6 +825,8 @@ class MailModel {
     const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
     await this.send({
       to,
+      kind: 'digest',
+      userId,
       subject,
       text: `${text}\n\n${footer}`,
       html: `${html}<p>${footer}</p>`
@@ -646,12 +857,14 @@ class MailModel {
     event,
     siteId,
     data,
+    userId,
     locale
   }: {
     to: string
     event: HookEvent
     siteId: string | null
     data: Record<string, unknown>
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const label = await WIKI.models.locales.resolveString(
@@ -673,6 +886,8 @@ class MailModel {
 
     await this.send({
       to,
+      kind: 'notificationEvent',
+      userId,
       subject: await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.subject', {
         label,
         site: siteName
@@ -743,6 +958,7 @@ class MailModel {
     path,
     pageLocale,
     actorName,
+    userId,
     locale
   }: {
     to: string
@@ -752,6 +968,7 @@ class MailModel {
     path?: string | null
     pageLocale?: string | null
     actorName?: string | null
+    userId?: string
     locale?: string | null
   }): Promise<void> {
     const label = await WIKI.models.locales.resolveString(
@@ -834,6 +1051,8 @@ class MailModel {
 
     await this.send({
       to,
+      kind: 'notificationEventTemplate',
+      userId,
       subject,
       text: `${text}\n\n${footer}`,
       html: `<p>${html}</p><p>${footer}</p>`

@@ -106,75 +106,78 @@
         </w-card>
       </div>
       <div class="col-span-12" v-else>
-        <w-card>
-          <w-list separator>
-            <w-item v-for="key of state.keys" :key="key.id">
-              <w-item-section side>
-                <w-icon name="tabler:key" :color="isUsable(key) ? `positive` : `negative`" />
-              </w-item-section>
-              <w-item-section>
-                <w-item-label>{{ key.name }}</w-item-label>
-                <w-item-label caption>{{
-                  t('admin.api.keyEndingIn', { suffix: key.keyShort })
-                }}</w-item-label>
-                <!--
+        <w-settings-card :title="t('admin.api.title')">
+          <!--
+            One key is one row: its name is the label, everything the key is scoped by stacks in the
+            hint, and its state and the revoke button sit at the trailing edge. An unusable key is
+            marked by the plate's own dot rather than by a red glyph: the plate is chrome, and a
+            green key beside a red key read as two different kinds of thing.
+          -->
+          <w-settings-row
+            v-for="key of state.keys"
+            :key="key.id"
+            control-width="auto"
+            icon="tabler:key"
+            :indicator="isUsable(key) ? null : `negative`"
+            :indicator-text="keyState(key) ? t(`admin.api.${keyState(key)}`) : null"
+            :label="key.name">
+            <template #hint>
+              <div>{{ t('admin.api.keyEndingIn', { suffix: key.keyShort }) }}</div>
+              <!--
                 A personal token (`key.userId` set, task/OpenProject #788) carries exactly its owner's
                 own current permissions, resolved live -- there is no fixed `groups` list to name the
                 way an admin-issued key's does, so this line names the owner instead.
               -->
-                <w-item-label v-if="key.userId" caption>{{
-                  t('admin.api.personalTokenOf', { user: ownerName(key) })
-                }}</w-item-label>
-                <w-item-label v-else caption>{{
-                  t('admin.api.permissionsFrom', { groups: groupNames(key) })
-                }}</w-item-label>
-                <!--
-                  A key's actual reach: `null` means unscoped, the same as every key before scoping
-                  existed, so that state gets the reassuring "Full Access" wording rather than reading
-                  as an empty, broken list.
-                -->
-                <w-item-label caption>{{
+              <div v-if="key.userId">
+                {{ t('admin.api.personalTokenOf', { user: ownerName(key) }) }}
+              </div>
+              <div v-else>{{ t('admin.api.permissionsFrom', { groups: groupNames(key) }) }}</div>
+              <!--
+                A key's actual reach: `null` means unscoped, the same as every key before scoping
+                existed, so that state gets the reassuring "Full Access" wording rather than reading
+                as an empty, broken list.
+              -->
+              <div>
+                {{
                   key.scope === null
                     ? t('admin.api.newKeyFullAccess')
                     : t('admin.api.scopedTo', { scope: key.scope.join(', ') })
-                }}</w-item-label>
-                <!--
-                  OpenProject #1205: `null` is unrestricted, the same as every key before this
-                  existed -- same "no narrowing" treatment as `scope` above, rather than a blank
-                  line. An empty array is a distinct, deliberately-reachable state (every level
-                  unchecked) and gets its own wording rather than reading as "unrestricted".
-                -->
-                <template v-if="key.allowedClassifications != null">
-                  <w-item-label v-if="key.allowedClassifications.length < 1" caption>{{
-                    t('admin.api.limitedToNone')
-                  }}</w-item-label>
-                  <w-item-label v-else caption>{{
-                    t('admin.api.limitedTo', { levels: classificationLevelNames(key) })
-                  }}</w-item-label>
-                </template>
-                <!--
-                  Which site the key is pinned to: `null` is instance-wide, the same as every key
-                  before site-pinning existed, so it gets the same "All Sites" wording the picker
-                  itself uses rather than reading as a missing value.
-                -->
-                <w-item-label caption>{{
-                  t('admin.api.keySite', { site: siteName(key) })
-                }}</w-item-label>
-                <w-item-label caption>{{
-                  t('admin.api.createdOn', { date: humanizeDate(t, key.createdAt) })
-                }}</w-item-label>
-                <w-item-label caption>
-                  <span :style="key.isRevoked ? `text-decoration: line-through;` : ``">{{
-                    t('admin.api.expiresOn', { date: humanizeDate(t, key.expiration) })
-                  }}</span>
-                </w-item-label>
-              </w-item-section>
+                }}
+              </div>
+              <!--
+                OpenProject #1205: `null` is unrestricted, the same as every key before this
+                existed -- same "no narrowing" treatment as `scope` above, rather than a blank
+                line. An empty array is a distinct, deliberately-reachable state (every level
+                unchecked) and gets its own wording rather than reading as "unrestricted".
+              -->
+              <template v-if="key.allowedClassifications != null">
+                <div v-if="key.allowedClassifications.length < 1">
+                  {{ t('admin.api.limitedToNone') }}
+                </div>
+                <div v-else>
+                  {{ t('admin.api.limitedTo', { levels: classificationLevelNames(key) }) }}
+                </div>
+              </template>
+              <!--
+                Which site the key is pinned to: `null` is instance-wide, the same as every key
+                before site-pinning existed, so it gets the same "All Sites" wording the picker
+                itself uses rather than reading as a missing value.
+              -->
+              <div>{{ t('admin.api.keySite', { site: siteName(key) }) }}</div>
+              <div>{{ t('admin.api.createdOn', { date: humanizeDate(t, key.createdAt) }) }}</div>
+              <div>
+                <span :style="key.isRevoked ? `text-decoration: line-through;` : ``">{{
+                  t('admin.api.expiresOn', { date: humanizeDate(t, key.expiration) })
+                }}</span>
+              </div>
+            </template>
+            <div class="flex items-center gap-2">
               <!--
                 One state, in the order they explain the key best: revoked is what an operator did
                 to this key, invalidated is what happened to every key at once, expired is the key
                 simply running its course.
               -->
-              <w-item-section v-if="keyState(key)" side>
+              <div v-if="keyState(key)">
                 <div class="flex items-center">
                   <w-icon class="me-2" color="negative" size="xs" name="tabler:alert-triangle" />
                   <div class="text-caption text-negative">
@@ -186,25 +189,23 @@
                 <div class="text-caption text-grey mt-1 text-right" style="max-width: 340px">
                   {{ stateHint(key) }}
                 </div>
-              </w-item-section>
-              <w-separator class="ms-4" vertical />
-              <w-item-section side style="flex-direction: row; align-items: center">
-                <w-btn
-                  class="acrylic-btn"
-                  :color="key.isRevoked ? `gray` : `red`"
-                  icon="tabler:ban"
-                  flat
-                  :aria-label="t(`admin.api.revoke`)"
-                  @click="revoke(key)"
-                  :disabled="key.isRevoked">
-                  <w-tooltip v-if="!key.isRevoked" anchor="center left" self="center right">{{
-                    t('admin.api.revoke')
-                  }}</w-tooltip>
-                </w-btn>
-              </w-item-section>
-            </w-item>
-          </w-list>
-        </w-card>
+              </div>
+              <w-separator vertical />
+              <w-btn
+                class="acrylic-btn"
+                :color="key.isRevoked ? `gray` : `red`"
+                icon="tabler:ban"
+                flat
+                :aria-label="t(`admin.api.revoke`)"
+                @click="revoke(key)"
+                :disabled="key.isRevoked">
+                <w-tooltip v-if="!key.isRevoked" anchor="center left" self="center right">{{
+                  t('admin.api.revoke')
+                }}</w-tooltip>
+              </w-btn>
+            </div>
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>

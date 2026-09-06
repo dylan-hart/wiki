@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
@@ -91,6 +91,97 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
     assert.equal(updated?.locale, 'fr')
     assert.equal(updated?.timezone, 'America/New_York')
+  })
+})
+
+/**
+ * Feature #2608, Task #2642: the profile screen authors `firstName`/`lastName` and shows the derived
+ * display name, so `updateProfile` has to carry all three straight through to `updateUser` -- the one
+ * owner of the derive-unless-authored rule -- and hand the halves back on the profile it answers with.
+ *
+ * DB-backed rather than a pass-through assertion against a stubbed `updateUser`: the interesting part
+ * is that the three columns come back agreeing after a real round trip, which is exactly what a stub
+ * of the method that reconciles them could not tell us.
+ */
+describe('users.updateProfile name halves (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    ;({ users: usersModel } = await import('./users.ts'))
+  })
+
+  /*
+    These tests share the file's one fixture user, and one of them deliberately AUTHORS the display
+    name -- a state that, by design, survives every later write. Reset it here rather than in each
+    test: writing a `name` that is exactly what the halves derive to is the documented way to hand an
+    account back to derivation, so this is the model's own affordance, not a test-only backdoor.
+  */
+  beforeEach(async () => {
+    await usersModel.updateProfile(fixtures.userId, {
+      name: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace'
+    })
+  })
+
+  test('re-derives the display name from the two halves when no name is submitted', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, {
+      firstName: 'Ada',
+      lastName: 'Lovelace'
+    })
+
+    assert.equal(updated?.firstName, 'Ada')
+    assert.equal(updated?.lastName, 'Lovelace')
+    assert.equal(updated?.name, 'Ada Lovelace')
+  })
+
+  test('a submitted name matching what the halves derive to keeps the account on derivation', async () => {
+    await usersModel.updateProfile(fixtures.userId, { firstName: 'Ada', lastName: 'Lovelace' })
+
+    // -> What the profile form submits on every save. Because it equals the derived value, the row
+    //    is NOT marked authored -- so the next half-only edit still moves the display name.
+    await usersModel.updateProfile(fixtures.userId, {
+      name: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace'
+    })
+
+    const afterHalfEdit = await usersModel.updateProfile(fixtures.userId, { firstName: 'Augusta' })
+    assert.equal(afterHalfEdit?.name, 'Augusta Lovelace')
+  })
+
+  test('an explicitly different display name is authored, and survives a later half edit', async () => {
+    await usersModel.updateProfile(fixtures.userId, { firstName: 'Ada', lastName: 'Lovelace' })
+
+    const authored = await usersModel.updateProfile(fixtures.userId, {
+      name: 'Countess Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace'
+    })
+    assert.equal(authored?.name, 'Countess Lovelace')
+
+    const afterHalfEdit = await usersModel.updateProfile(fixtures.userId, { firstName: 'Augusta' })
+    assert.equal(afterHalfEdit?.firstName, 'Augusta')
+    assert.equal(afterHalfEdit?.name, 'Countess Lovelace')
+  })
+
+  test('a mononym derives its display name from the first name alone', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, {
+      firstName: 'Prince',
+      lastName: ''
+    })
+
+    assert.equal(updated?.lastName, '')
+    assert.equal(updated?.name, 'Prince')
+  })
+
+  test('a save touching no name field leaves all three alone', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, { jobTitle: 'Analyst' })
+
+    assert.equal(updated?.jobTitle, 'Analyst')
+    assert.equal(updated?.name, 'Ada Lovelace')
+    assert.equal(updated?.firstName, 'Ada')
+    assert.equal(updated?.lastName, 'Lovelace')
   })
 })
 

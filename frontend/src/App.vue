@@ -18,7 +18,8 @@ import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss, replaceHeadStyle } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
-import { resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
+import { log } from '@/helpers/log'
+import { parseLocalePrefix, resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { useDark } from '@/composables/dark'
 import { confirm } from '@/composables/dialog'
@@ -100,9 +101,71 @@ watch(
   }
 )
 
-watch(() => commonStore.locale, applyLocale)
+watch(() => commonStore.locale, onInterfaceLocaleChanged)
 
 // LOCALE
+
+/**
+ * The locale the CURRENT url addresses in its own leading path segment (`/ar/some/page` -> `ar`), or
+ * `null` when it carries none the site recognises -- written by the router guard below on every
+ * navigation, read by `applyDocumentLocale()`.
+ *
+ * A plain binding rather than a `ref`: nothing renders off it, and both of the two paths that lead
+ * to it being read (the guard itself, and the interface-locale watcher above) call
+ * `applyDocumentLocale()` explicitly rather than reacting to it.
+ */
+let routeLocale = null
+
+/**
+ * Write `<html dir>` and `<html lang>` for whatever locale the document currently describes.
+ *
+ * -> Which locale that is (OpenProject #2596)
+ * The url's own locale segment when it has one, and the reader's interface locale otherwise. A
+ * locale-prefixed url names the translation being addressed, which is what the document IS -- and
+ * that stays true whether or not a page happens to exist at the path: a "page not found" screen
+ * under `/ar/...` is still Arabic-addressed text a reader reads, so it reads right-to-left. Deriving
+ * it from the url rather than from a loaded page's own `isRTL` is what makes that hold for a 404
+ * destination, where nothing is ever loaded to ask -- the defect this fixes, in which picking an RTL
+ * locale from `LocaleSelectorMenu.vue` on a path with no page behind it pushed `/ar/<path>` and left
+ * the document on `dir="ltr" lang="en"` for good.
+ *
+ * `routeLocale` is only ever one of `siteStore.locales.active`'s own codes (`parseLocalePrefix`
+ * matches against exactly that list, and answers with the code as the site spells it), so an
+ * arbitrary leading segment -- `/xx/some/page` -- cannot set either attribute to something the site
+ * does not have. It falls through to the interface locale, i.e. changes nothing.
+ *
+ * This is the same resolution `backend/helpers/appShell.ts#resolveAppShellLocale` already performs
+ * server-side to stamp the pre-hydration shell, so on a locale-prefixed url this write now CONFIRMS
+ * the served html rather than overwriting it a tick later.
+ *
+ * Synchronous, and deliberately not part of `applyLocale()`'s awaited body: the guard calls that one
+ * un-awaited and `router.afterEach` removes `.init-loading` as soon as navigation resolves, so a
+ * reader would otherwise see the outgoing (or default LTR) layout for as long as the locale strings
+ * take to fetch -- exactly the flash `index.html`'s static `lang="en"` needs correcting.
+ *
+ * `direction.set()` rather than a bare `setAttribute()`: this runs on every navigation, not once at
+ * boot, so a component mounted across navigations (`PageHeader.vue`'s review-queue menu, via
+ * `composables/direction.js`) needs a reactive read of whatever this last resolved to, not a stale
+ * one from whenever it happened to first mount.
+ */
+function applyDocumentLocale() {
+  const locale = routeLocale ?? commonStore.locale
+  const localeInfo = siteStore.locales.active.find((entry) => entry.code === locale)
+  direction.set(Boolean(localeInfo?.isRTL))
+  document.documentElement.setAttribute('lang', locale)
+}
+
+/**
+ * The interface locale changed (the admin header's own language switcher, or the router guard's
+ * not-an-active-locale correction below).
+ *
+ * Both halves re-run: the ui strings, always -- and the document attributes, which follow this same
+ * locale on any url that does not name one of its own.
+ */
+function onInterfaceLocaleChanged(locale) {
+  applyDocumentLocale()
+  applyLocale(locale)
+}
 
 /**
  * Locale codes with an `applyLocale()` call currently in flight, each mapped to the promise that
@@ -121,24 +184,12 @@ const localeApplyPromises = new Map()
 
 async function applyLocale(locale) {
   /*
-    -> Direction + <html lang>
-    Set synchronously, ahead of the (possibly awaited) locale-strings fetch below: this function is
-    called un-awaited from the router guard, whose `afterEach` removes `.init-loading` as soon as
-    navigation resolves -- it does not wait on this promise. Direction comes from `siteStore.locales`,
-    already loaded by the time the guard reaches locale handling, so it does not depend on `locale`
-    being in `i18n.availableLocales` or on its strings having arrived. Left this way rather than after
-    `i18n.locale.value = locale` below, a reader would see the outgoing (or default LTR) layout for as
-    long as the strings take to fetch -- exactly the flash `index.html`'s static `lang="en"` needs the
-    boot code to correct.
-
-    `direction.set()` rather than a bare `setAttribute()`: this runs on every navigation, not once at
-    boot, so a component mounted across navigations (`PageHeader.vue`'s review-queue menu, via
-    `composables/direction.js`) needs a reactive read of whatever this last resolved to, not a stale
-    one from whenever it happened to first mount.
+    -> Interface strings only
+    `<html dir>`/`lang` are `applyDocumentLocale()`'s, above, and are written synchronously by the
+    router guard before this is ever called -- they answer a different question (which translation
+    the document addresses) than this one does (which language the chrome is drawn in), and must not
+    wait on this function's awaited fetch. See that function's own comment.
   */
-  const localeInfo = siteStore.locales.active.find((entry) => entry.code === locale)
-  direction.set(Boolean(localeInfo?.isRTL))
-  document.documentElement.setAttribute('lang', locale)
 
   // -> Already the active locale, with its strings loaded: nothing left for either trigger to do.
   if (i18n.locale.value === locale && i18n.availableLocales.includes(locale)) {
@@ -185,7 +236,7 @@ async function applyLocale(locale) {
           i18n.setLocaleMessage('en', strings)
         })
         .catch((err) => {
-          console.warn('Failed to load en fallback locale strings.', err)
+          log.warn('locale', 'could not load the en fallback locale strings', err)
         })
     }
   })()
@@ -276,7 +327,7 @@ async function applyCodeBlocksTheme() {
   const load = HLJS_THEMES[`../node_modules/highlight.js/styles/${desiredHljsTheme}.min.css`]
   if (!load) {
     // -> A name the admin area offers that highlight.js does not ship; the fallback palette stands in
-    console.warn(`Unknown code blocks theme: ${desiredHljsTheme}`)
+    log.warn('site', `highlight.js does not ship the ${desiredHljsTheme} code blocks theme`)
     return
   }
 
@@ -321,7 +372,7 @@ async function loadBootstrap() {
     userStore.applyProfile(data.user)
     return null
   } catch (err) {
-    console.warn(`Could not load the site configuration: ${err.message}`)
+    log.warn('site', 'could not load the site configuration', err)
     flagsStore.apply({})
     userStore.applyProfile()
     return err
@@ -469,7 +520,7 @@ router.beforeEach(async (to, from) => {
     hasPrefetchedMarkdownSettings = true
     if (userStore.authenticated) {
       editorStore.fetchUserSettings('markdown').catch((err) => {
-        console.warn(`Could not prefetch Markdown editor settings: ${err.message}`)
+        log.warn('editor', 'could not prefetch the Markdown editor settings', err)
       })
     }
   }
@@ -511,10 +562,30 @@ router.beforeEach(async (to, from) => {
     )
   }
 
+  /*
+    -> Document locale
+    The same leading segment again, but as the answer to a different question: `pageStore.locale`
+    above is which translation to ASK the server for, this is which one the document in front of the
+    reader is written in, i.e. what `<html dir>`/`lang` describe. Kept as the raw
+    `parseLocalePrefix` result rather than reusing `pageStore.locale`, because that one cannot tell a
+    path with no locale segment (`/some/page`, resolved to the site's primary) apart from one that
+    names the primary explicitly (`/en/some/page`) -- and only the second of those is the url
+    ADDRESSING a locale. With no segment, the document follows the interface locale instead, which is
+    what every `/_`-prefixed route (the admin area, the editors, the profile) does and what
+    `applyDocumentLocale()` falls back to.
+  */
+  routeLocale = siteStore.useLocales
+    ? (parseLocalePrefix(
+        to.path,
+        siteStore.locales.active.map((l) => l.code)
+      )?.locale ?? null)
+    : null
+
   // -> Locale
   if (!commonStore.locale || !siteStore.locales.active.some((l) => l.code === commonStore.locale)) {
     commonStore.setLocale(siteStore.locales.primary)
   }
+  applyDocumentLocale()
   applyLocale(commonStore.locale)
 
   /*

@@ -308,7 +308,7 @@ class DiagramRender {
     if (WIKI.config.offline) {
       throw new CustomError(
         'diagramRenderOffline',
-        'Wiki.js is in offline mode and cannot reach a PlantUML server to render this diagram.',
+        'Cardinal.js is in offline mode and cannot reach a PlantUML server to render this diagram.',
         503
       )
     }

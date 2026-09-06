@@ -4,7 +4,7 @@ import { onScopeDispose, watchEffect } from 'vue'
  * Document title management.
  *
  * Replaces the meta plugin with just the part the app used: a `title` set by pages, and a
- * `titleTemplate` set by layouts that wraps it (e.g. `title => \`${title} - Wiki.js\``).
+ * `titleTemplate` set by layouts that wraps it (e.g. `title => \`${title} - Cardinal.js\``).
  *
  * Registrations form a stack in mount order. The effective title is the most recently registered
  * `title`, and the effective template the most recently registered `titleTemplate` -- so a layout

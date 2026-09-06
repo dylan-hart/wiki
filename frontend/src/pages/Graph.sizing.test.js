@@ -182,19 +182,66 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.radiusFor(nodeB)).toBeGreaterThan(wrapper.vm.radiusFor(nodeA))
   })
 
-  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #2292, #1287/#1288)', async () => {
+  it('draws the graph’s smallest-ranked real node at exactly MIN_NODE_RADIUS, 10 (OpenProject #2594)', async () => {
     const wrapper = await mountGraph()
 
-    // -> `0.8` sits between the old `1.1` threshold and the new, lower one -- proving labels now
-    //    persist at a zoom level that used to hide them. Mount's own initial draw (at the default
-    //    `k = 1` zoom, itself above the new threshold) already logged fillText calls, so clear
-    //    those before asserting on the below-threshold case.
+    // -> The fixture's B has a zero contributor count, so it IS the bottom of the graph's own
+    //    observed range and lands exactly on the floor. Pinning the floor's VALUE (not merely
+    //    "B is smaller than A") is the point: `MIN_NODE_RADIUS` is a `<script setup>`-local const
+    //    with no export, so `radiusFor()` is the only surface that can assert what it is, and
+    //    nothing did before this Task doubled it from `5`.
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+
+    expect(wrapper.vm.radiusFor(nodeB)).toBe(10)
+    expect(wrapper.vm.radiusFor(nodeA)).toBe(110)
+  })
+
+  it('puts every real node on the floor in the degenerate all-same-count case (OpenProject #2594)', async () => {
+    const wrapper = await mountGraph()
+
+    // -> Every loaded node sharing one count is a zero-width sqrt range, which `lerpRadius()`
+    //    resolves to `minRadius` rather than dividing by zero (`graphNodeSize.js`). Re-checked
+    //    end-to-end through `radiusFor()` against the doubled floor, since `graphNodeSize.test.js`
+    //    only covers the pure function with hand-passed bounds.
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    const shared = { editor: 7, mcp: 0, all: 7, total: { editor: 7, mcp: 0, all: 7 } }
+    nodeA.contributors = { ...shared }
+    nodeB.contributors = { ...shared }
+    // -> `currentMetricRange` is a plain variable, not a `computed` (node objects are `markRaw`'d
+    //    out of Vue's reactivity), so an in-place edit to a node's counts needs an explicit refresh
+    //    before `radiusFor()` reads the new range -- same call `Graph.layout.test.js` makes.
+    wrapper.vm.computeClusters()
+
+    expect(wrapper.vm.radiusFor(nodeA)).toBe(10)
+    expect(wrapper.vm.radiusFor(nodeB)).toBe(10)
+  })
+
+  it('keeps synthetic folder/root nodes at their own fixed 3, below the real-node floor (OpenProject #2594)', async () => {
+    const wrapper = await mountGraph()
+
+    // -> `radiusFor()` short-circuits on `node.synthetic` before the lerp ever runs, so doubling
+    //    `MIN_NODE_RADIUS` deliberately does NOT move a synthetic hub -- worth pinning, because it
+    //    is what makes a radius-keyed rule "below the minimum node radius" (sibling Task #2593)
+    //    select synthetic nodes and nothing else.
+    expect(wrapper.vm.radiusFor({ synthetic: true })).toBe(3)
+  })
+
+  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #2593, #2292, #1287/#1288)', async () => {
+    const wrapper = await mountGraph()
+
+    // -> `0.7` sits between the old `0.75` threshold (OpenProject #2292) and the new, lower `0.6`
+    //    (OpenProject #2593) -- proving labels now persist at a zoom level that used to hide them,
+    //    the same way `0.8` proved it against the `1.1` before that. Mount's own initial draw (at
+    //    the default `k = 1` zoom, itself above the threshold) already logged fillText calls, so
+    //    clear those before asserting on the below-threshold case.
     wrapper.vm.ctx.fillText.mockClear()
-    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.7)
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.5)
     expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
 
     wrapper.vm.ctx.fillText.mockClear()
-    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.8)
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.7)
     expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
   })
 

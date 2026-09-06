@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- a build/CI script: its stdout IS its result, and it runs outside a booted `WIKI`. */
 /**
  * Keeps `locales/en.json`'s `blocks.<tag>.*` namespace in step with the `description` / `label` /
  * `hint` strings every block's `component.js` (one per `blocks/block-*` directory) declares on its

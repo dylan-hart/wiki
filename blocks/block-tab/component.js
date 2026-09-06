@@ -22,7 +22,7 @@ export class BlockTabElement extends HTMLElement {
     block: 'tab',
     name: 'Tab',
     description: 'One panel of a set of tabs.',
-    icon: 'subtitles',
+    icon: 'tabler:layout-navbar',
     isChild: true,
     props: [
       {

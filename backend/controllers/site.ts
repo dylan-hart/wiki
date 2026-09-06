@@ -10,12 +10,32 @@ import type { FastifyInstance } from 'fastify'
 
 /**
  * What is served for each of a site's images while nobody has uploaded one. The keys are the names
- * the images are addressed by, which are the asset kinds themselves.
+ * the images are addressed by, which are the asset kinds themselves; the values are paths relative
+ * to `WIKI.SERVERPATH`, i.e. inside `backend/` itself.
+ *
+ * These used to point into `assets/_assets/`, which is `frontend/`'s `vite build` output and is
+ * gitignored — so the backend's own branding depended on a build of another workspace having run,
+ * and reached it only as a side effect of `frontend/public/` being copied verbatim into `assets/`.
+ * An unbuilt or merely stale `assets/` therefore left `node backend` serving the wrong mark, or
+ * nothing at all, with no signal distinguishing that from "no logo configured" (OpenProject #2611).
+ * `backend/assets/branding/` is committed source instead, and is inside the one tree
+ * `dev/build/Dockerfile` already copies wholesale, so the file is there whether or not anything has
+ * been built.
+ *
+ * `frontend/public/_assets/logo-cardinal.svg` is a deliberate second copy, not this one: the Vite
+ * dev server and the built bundle answer `/_assets/logo-cardinal.svg` for `AdminLayout.vue` and
+ * `WelcomeOverlay.vue` out of `public/`, which is a different path space from this table and stays
+ * that way. `controllers/site.test.ts` asserts the two copies are byte-identical so they cannot
+ * drift apart. The login background has no such second reader — nothing outside this table ever
+ * served it — so it lives here alone.
+ *
+ * Exported so `controllers/site.test.ts` can assert every path in it actually resolves on disk,
+ * rather than re-listing them and going stale the moment a fourth asset kind is added.
  */
-const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
-  logo: 'assets/_assets/logo-cardinal.svg',
-  favicon: 'assets/_assets/logo-cardinal.svg',
-  loginBg: 'assets/_assets/bg/login.jpg'
+export const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
+  logo: 'assets/branding/logo-cardinal.svg',
+  favicon: 'assets/branding/logo-cardinal.svg',
+  loginBg: 'assets/branding/login-bg.jpg'
 }
 
 /**
@@ -26,10 +46,11 @@ const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
  * Only the uploaded branch below sends this constant (plus its own strong sha1 ETag) — the
  * `replyWithFile` fallback further down sends its own, longer-lived `Cache-Control` instead (see
  * `helpers/common.ts`). That split is intentional, not an oversight: the fallback's bytes are a
- * fixed path under this repo's own `assets/_assets/`, which only ever changes via a redeploy (a new
- * build, a new process), not a request an administrator can make against a running instance the way
- * an upload is — so it can be cached long instead of always-revalidated, while `replyWithFile` still
- * gives it a validator for the rare revalidation (a forced reload, or the cache window elapsing).
+ * fixed path under this backend's own `assets/branding/`, which only ever changes via a redeploy (a
+ * new deployment, a new process), not a request an administrator can make against a running instance
+ * the way an upload is — so it can be cached long instead of always-revalidated, while
+ * `replyWithFile` still gives it a validator for the rare revalidation (a forced reload, or the
+ * cache window elapsing).
  */
 const SITE_ASSET_CACHE = 'public, no-cache'
 
@@ -78,7 +99,7 @@ async function routes(app: FastifyInstance) {
       //    that resolved the page around the `<img>` tag -- which is exactly the check this route
       //    never runs through, since it resolves its own siteId independently
       if (guardSiteEnabled(site, reply)) {
-        return
+        return reply
       }
 
       const kind = req.params.resource as SiteAssetKind
@@ -98,7 +119,10 @@ async function routes(app: FastifyInstance) {
         //    against doesn't apply to it. Cache-Control/ETag/Last-Modified DO apply — `replyWithFile`
         //    sends all three — since this is still a same-origin file every hard load would otherwise
         //    re-download in full.
-        return replyWithFile(req, reply, path.join(WIKI.ROOTPATH, fallback))
+        // -> `SERVERPATH`, not `ROOTPATH`: the fallbacks are backend-owned committed files, so they
+        //    are resolved inside `backend/` rather than against a build output directory that may not
+        //    exist yet (OpenProject #2611).
+        return replyWithFile(req, reply, path.join(WIKI.SERVERPATH, fallback))
       }
 
       // -> Answered from the hash column alone whenever possible: a conditional request never has to
@@ -108,7 +132,7 @@ async function routes(app: FastifyInstance) {
       //    uploaded, so the browser must take the type at its word rather than looking for something
       //    more interesting in them
       if (notModifiedOrPrepare(req, reply, { etag: `"${hash}"`, cacheControl: SITE_ASSET_CACHE })) {
-        return
+        return reply
       }
 
       // -> Theoretical only (`hash` and `data` are written together by `setAsset` and removed

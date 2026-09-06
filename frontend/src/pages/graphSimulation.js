@@ -81,7 +81,8 @@ const CHARGE_BASE_STRENGTH = 30
  *  at the *old* 22px ceiling reproduces close to the *old* flat `-120` charge:
  *  `-(30 + 22 * 4) = -118`, a sanity check against the value this replaces. A node at the new 110px
  *  ceiling gets `-(30 + 110 * 4) = -470`, proportionally stronger without overpowering the much
- *  smaller nodes most graphs are still mostly made of (`MIN_NODE_RADIUS`, `5`, gets only `-50`). */
+ *  smaller nodes most graphs are still mostly made of (`MIN_NODE_RADIUS`, `10` since OpenProject
+ *  #2594, gets only `-70`). */
 const CHARGE_RADIUS_FACTOR = 4
 
 /** A node's charge strength: bigger nodes repel harder, scaling with the same per-node radius
@@ -124,8 +125,10 @@ export function startSimulation(
 }
 
 /*
-  `24`px (raised from `16`, OpenProject #2562) is a starting point sized against the `5`px node-dot
-  radius in `drawNodes()` -- tune visually so the hull clearly contains the dots without ballooning
+  `24`px (raised from `16`, OpenProject #2562) is a starting point sized against what was then a
+  `5`px minimum node-dot radius in `drawNodes()` (`MIN_NODE_RADIUS`, `10` since OpenProject #2594 --
+  which is part of why #2562's own spacing retune is still open) -- tune visually so the hull clearly
+  contains the dots without ballooning
   past neighboring clusters. It's a floor added on top of each node's own `radiusFor()` (OpenProject
   #2296), not the whole gap any more -- see `padHull()` and `computeClusters()`'s circle case below,
   both of which used to pad by this constant alone and let a large node (up to `MAX_NODE_RADIUS`,

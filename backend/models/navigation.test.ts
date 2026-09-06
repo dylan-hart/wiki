@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
@@ -3415,5 +3415,193 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
     )
     // -> The shared, cached generated portion is untouched by the other actor's missing group
     assert.ok(withoutGroup.some((item) => item.label === 'Mixed Actor Page'))
+  })
+})
+
+/**
+ * The content lifecycle log line (OpenProject #2674): one `info nav updated` record per menu
+ * rewrite, from either editor — the admin menu editor (`setNavItems`) and the page-context one
+ * (`updateNavigation`).
+ *
+ * Asserted on the SCOPE and the FIELDS a call passed, never on a rendered string — the renderer is
+ * `core/logger.ts`'s business, and a suite matching formatted text breaks the moment a column widens.
+ */
+describe('navigation lifecycle log lines (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: typeof import('./navigation.ts').navigation
+  let pagesModel: typeof import('./pages.ts').pages
+  let actor: PageActor
+  let originalInfo: any
+  let infoCalls: { scope: string; message: string; fields: Record<string, any> }[]
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  beforeEach(() => {
+    infoCalls = []
+    originalInfo = WIKI.logger.info
+    WIKI.logger.info = ((scope: string, message: string, fields: Record<string, any> = {}) => {
+      infoCalls.push({ scope, message, fields })
+    }) as any
+  })
+
+  afterEach(() => {
+    WIKI.logger.info = originalInfo
+  })
+
+  function navLines() {
+    return infoCalls.filter((call) => call.scope === 'nav')
+  }
+
+  test('setNavItems on a site-wide default logs the locale that row carries and the item count', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    infoCalls = []
+
+    await navigationModel.setNavItems(
+      fixtures.siteId,
+      siteNavId,
+      [
+        { id: 'a', type: 'link', label: 'Home', target: '/' },
+        { id: 'b', type: 'link', label: 'Docs', target: '/docs' }
+      ],
+      { authorId: fixtures.userId }
+    )
+
+    const lines = navLines()
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]!.message, 'updated')
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      nav: siteNavId,
+      locale: 'en',
+      items: 2,
+      user: fixtures.userId
+    })
+  })
+
+  test("setNavItems on a tree entry's own override carries no locale, since that row has none", async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'nav-log-override', title: 'Nav Log', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      mode: 'override'
+    })
+    infoCalls = []
+
+    await navigationModel.setNavItems(fixtures.siteId, page.id, [
+      { id: 'c', type: 'header', label: 'Section' }
+    ])
+
+    const lines = navLines()
+    assert.equal(lines.length, 1)
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      nav: page.id,
+      items: 1,
+      user: 'system'
+    })
+  })
+
+  test('a refused setNavItems logs nothing', async () => {
+    await assert.rejects(
+      () => navigationModel.setNavItems(fixtures.siteId, randomUUID(), []),
+      /does not exist/
+    )
+
+    assert.deepEqual(navLines(), [])
+  })
+
+  test('updateNavigation logs the page it was edited from, its locale and the mode', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'nav-log-page', title: 'Nav Log Page', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+    infoCalls = []
+
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      mode: 'override',
+      items: [{ id: 'd', type: 'link', label: 'One', target: '/one' }],
+      authorId: fixtures.userId
+    })
+
+    const lines = navLines()
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]!.message, 'updated')
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      nav: page.id,
+      locale: 'en',
+      page: page.id,
+      mode: 'override',
+      items: 1,
+      user: fixtures.userId
+    })
+  })
+
+  test('copyNav logs the same line, naming the menu the items came from', async () => {
+    const sourceNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'de')
+    const targetNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'es')
+    await navigationModel.setNavItems(fixtures.siteId, sourceNavId, [
+      { id: 'e', type: 'link', label: 'Copied', target: '/copied' }
+    ])
+    infoCalls = []
+
+    await navigationModel.copyNav({
+      sourceSiteId: fixtures.siteId,
+      sourceId: sourceNavId,
+      targetSiteId: fixtures.siteId,
+      targetId: targetNavId,
+      mode: 'replace',
+      authorId: fixtures.userId
+    })
+
+    const lines = navLines()
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]!.message, 'updated')
+    assert.deepEqual(lines[0]!.fields, {
+      site: fixtures.siteId,
+      nav: targetNavId,
+      from: sourceNavId,
+      items: 1,
+      copy: 'replace',
+      user: fixtures.userId
+    })
+  })
+
+  test('a bare mode switch writes no items, so the line carries no item count', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'nav-log-mode-only', title: 'Mode Only', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+    infoCalls = []
+
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      mode: 'hide',
+      authorId: fixtures.userId
+    })
+
+    const fields = navLines()[0]!.fields
+    assert.equal('items' in fields, false)
+    assert.equal('nav' in fields, false, 'a hidden sidebar resolves to no menu row at all')
+    assert.equal(fields.mode, 'hide')
+    assert.equal(fields.page, page.id)
   })
 })

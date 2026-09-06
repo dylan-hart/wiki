@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
 import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import { dispositionFor } from '../models/assets.ts'
-import { mayOnAsset } from '../helpers/pageAccess.ts'
+import { actorFrom, mayOnAsset } from '../helpers/pageAccess.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -534,7 +534,11 @@ async function routes(app: FastifyInstance) {
       if (!mayOnAsset(req, 'manage:assets', req.params.siteId, doomed)) {
         return reply.forbidden('You are not allowed to delete this file.')
       }
-      if (!(await WIKI.models.assets.deleteAsset(req.params.siteId, req.params.assetId))) {
+      if (
+        !(await WIKI.models.assets.deleteAsset(req.params.siteId, req.params.assetId, {
+          authorId: actorFrom(req)?.id
+        }))
+      ) {
         return reply.notFound('This asset does not exist.')
       }
       return reply.code(204).send()

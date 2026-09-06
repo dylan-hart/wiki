@@ -316,14 +316,14 @@ export function continueList(editor) {
 
   if (remainder.length === 0) {
     const lineMaxColumn = editor.getModel().getLineMaxColumn(line)
-    editor.executeEdits('wikijs.continueList', [
+    editor.executeEdits('cardinaljs.continueList', [
       { range: new Range(line, 1, line, lineMaxColumn), text: '', forceMoveMarkers: true }
     ])
     return
   }
 
   const marker = detected.indent + nextMarkerText(detected)
-  editor.executeEdits('wikijs.continueList', [
+  editor.executeEdits('cardinaljs.continueList', [
     { range: new Range(line, column, line, column), text: `\n${marker}`, forceMoveMarkers: true }
   ])
 }

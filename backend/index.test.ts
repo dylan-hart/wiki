@@ -264,7 +264,7 @@ describe('API-key population hook wiring (index.ts)', () => {
  * OpenProject #2048: `WIKI.db = await dbManager.init()` used to run *before* `preBoot()`'s
  * `try` opened, and nothing in `backend/` installs an `unhandledRejection` handler -- so a
  * migration or connection failure at boot killed the process with a bare unhandled-rejection
- * stack instead of the same deliberate "Database Initialization Error" + `WIKI.logger.error` +
+ * stack instead of the same deliberate "database initialization failed" + `WIKI.logger.error` +
  * `process.exit(1)` every other preBoot failure (e.g. an empty settings table) already got.
  * Fixed by moving the `try` up to wrap the db init calls too.
  *
@@ -282,7 +282,7 @@ let configDir: string
 let configFile: string
 
 before(async () => {
-  configDir = await mkdtemp(path.join(tmpdir(), 'wikijs-preboot-test-'))
+  configDir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-preboot-test-'))
   configFile = path.join(configDir, 'config.yml')
   // -> Everything else preBoot needs (db.schema, pool.min, ...) comes from the real backend/base.yml
   //    defaults; DATABASE_URL below overrides every db.* connection field regardless of what's here.
@@ -344,12 +344,16 @@ test(
     )
     assert.match(
       output,
-      /Database Initialization Error/,
+      /database initialization failed/,
       `expected the deliberate error message in the output\n--- output ---\n${output}`
     )
+    // -> Node's own warning spells it `UnhandledPromiseRejection`; `core/processGuards.ts` spells
+    //    its deliberate line `unhandled promise rejection`. Neither belongs here: this failure is
+    //    caught and reported by `preBoot()` itself, so a rejection reaching either path means the
+    //    catch stopped covering it.
     assert.doesNotMatch(
       output,
-      /Unhandled(Promise)?Rejection/i,
+      /Unhandled(Promise)?Rejection|unhandled promise rejection/i,
       `expected no unhandled-rejection stack in the output\n--- output ---\n${output}`
     )
   }
@@ -431,5 +435,71 @@ describe('backend/index.ts boot sequence (OpenProject #2062)', () => {
     const trailing = indexTs.slice(setReadyIdx + 'WIKI.server.setReady()'.length)
     // Only whitespace (and an optional trailing newline) should remain in the file after it.
     assert.match(trailing, /^\s*$/)
+  })
+})
+
+/**
+ * The boot narrative's two composed lines, asserted against the source text for the same reason the
+ * suite above is: `index.ts` runs its whole boot sequence at import time and cannot be imported.
+ * The derivations they carry are covered as real functions in `helpers/bootSummary.test.ts` and
+ * `core/config.test.ts` — what is only checkable here is that `index.ts` actually calls them, once,
+ * in the right places (OpenProject #2671).
+ */
+describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
+  test('the starting line reports the resolved config path and the honoured overrides', () => {
+    const startingIdx = indexTs.indexOf("WIKI.logger.info('boot', 'starting'")
+    assert.notEqual(startingIdx, -1, "expected one `info('boot', 'starting', …)` call")
+    const call = indexTs.slice(startingIdx, indexTs.indexOf('})', startingIdx))
+
+    assert.match(call, /config: configProvenance\.configPath/)
+    assert.match(call, /overrides: configProvenance\.overrides/)
+    // -> The raw env read the resolved path replaced: reading `CONFIG_FILE` here again would report
+    //    the unresolved value and would not know whether `init()` actually honoured it.
+    assert.doesNotMatch(call, /process\.env\.CONFIG_FILE/)
+  })
+
+  test('the provenance comes back from configSvc.init(), not from a second read of the environment', () => {
+    assert.match(indexTs, /const configProvenance = await WIKI\.configSvc\.init\(\)/)
+    // -> `init()` runs before `WIKI.logger` exists, so it returns this rather than logging it.
+    const initIdx = indexTs.indexOf('await WIKI.configSvc.init()')
+    // -> Matched as a call prefix, not an exact `init()`: the logger now takes an options object
+    //    (OpenProject #2663), and this assertion is about ordering, not about its arguments.
+    const loggerInitIdx = indexTs.indexOf('WIKI.logger = logger.init(')
+    assert.ok(initIdx < loggerInitIdx, 'config must still be loaded before the logger is built')
+  })
+
+  /** Whitespace-tolerant, so reformatting the call across lines does not read as a missing line. */
+  const READY_CALL = /WIKI\.logger\.info\(\s*'boot',\s*'ready',/
+
+  test('the ready line is emitted exactly once, after postBoot() and before setReady()', () => {
+    const readyMatch = READY_CALL.exec(indexTs)
+    assert.notEqual(readyMatch, null, "expected one `info('boot', 'ready', …)` call")
+    const readyIdx = readyMatch!.index
+    assert.equal(
+      READY_CALL.exec(indexTs.slice(readyIdx + readyMatch![0].length)),
+      null,
+      'the ready line must be emitted exactly once'
+    )
+
+    const postBootIdx = indexTs.indexOf('runBootPhaseOrExit(postBoot,')
+    const setReadyIdx = indexTs.lastIndexOf('WIKI.server.setReady()')
+    assert.ok(postBootIdx < readyIdx, 'every postBoot() summary must land before the ready line')
+    // -> Before `setReady()`, not after: `setReady()` logs nothing, so this is still the last line
+    //    written, and the "nothing follows setReady()" assertion above stays true.
+    assert.ok(readyIdx < setReadyIdx, 'the ready line must precede setReady()')
+  })
+
+  test('the ready line carries sites, url and ms, derived by helpers/bootSummary.ts', () => {
+    assert.match(indexTs, /import \{ readyFields \} from '\.\/helpers\/bootSummary\.ts'/)
+    const readyIdx = READY_CALL.exec(indexTs)!.index
+    const call = indexTs.slice(readyIdx, indexTs.indexOf('\n)', readyIdx))
+
+    assert.match(call, /readyFields\(\{/)
+    assert.match(call, /sites: WIKI\.sites/)
+    assert.match(call, /bindIP: WIKI\.config\.bindIP/)
+    assert.match(call, /port: WIKI\.config\.port/)
+    // -> Wall time since the `WIKI` literal's own `Temporal.Now.instant()`, as a number, which is
+    //    what the text renderer needs to print it as a closing `in 1.2s` clause.
+    assert.match(call, /ms: Temporal\.Now\.instant\(\)\.epochMilliseconds - WIKI\.startedAt\./)
   })
 })

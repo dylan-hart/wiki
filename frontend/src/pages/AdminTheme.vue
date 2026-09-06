@@ -47,47 +47,39 @@
         <!-- ----------------------- -->
         <!-- Theme Options -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>
-            {{ t('admin.theme.appearance') }}
-            <template #action>
-              <w-btn
-                class="acrylic-btn"
-                icon="tabler:refresh"
-                :label="t(`admin.theme.resetDefaults`)"
-                flat
-                size="sm"
-                color="pink"
-                @click="resetColors" />
-            </template>
-          </w-card-header>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:bulb" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.darkMode`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.darkModeHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.dark"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.theme.darkMode`)" />
-            </w-item-section>
-          </w-item>
+        <w-settings-card :title="t('admin.theme.appearance')">
+          <template #action>
+            <w-btn
+              class="acrylic-btn"
+              icon="tabler:refresh"
+              :label="t(`admin.theme.resetDefaults`)"
+              flat
+              size="sm"
+              color="pink"
+              @click="resetColors" />
+          </template>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:bulb"
+            :label="t(`admin.theme.darkMode`)"
+            :hint="t(`admin.theme.darkModeHint`)">
+            <w-toggle
+              v-model="state.config.dark"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.theme.darkMode`)" />
+          </w-settings-row>
           <template v-for="cl of colorKeys" :key="cl">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:color-swatch" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.theme.` + cl + `Color`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.theme.` + cl + `ColorHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section side>
+            <w-settings-row
+              control-width="auto"
+              icon="tabler:color-swatch"
+              :label="t(`admin.theme.` + cl + `Color`)"
+              :hint="t(`admin.theme.` + cl + `ColorHint`)">
+              <div class="flex items-center gap-2">
                 <div class="text-caption text-grey-6">
                   {{ state.config[`color` + startCase(cl)] }}
                 </div>
-              </w-item-section>
-              <w-item-section side>
+
                 <span
                   tabindex="0"
                   class="cvd-preview-swatch"
@@ -98,16 +90,16 @@
                     })
                   }}</w-tooltip>
                 </span>
-              </w-item-section>
-              <w-item-section v-if="contrastWarning(cl)" side>
-                <span tabindex="0" class="inline-flex">
-                  <w-icon name="tabler:alert-triangle" color="negative" size="sm" />
-                  <w-tooltip>{{
-                    t(`admin.theme.contrastWarning`, { ratio: contrastWarningRatio(cl) })
-                  }}</w-tooltip>
-                </span>
-              </w-item-section>
-              <w-item-section side>
+
+                <template v-if="contrastWarning(cl)">
+                  <span tabindex="0" class="inline-flex">
+                    <w-icon name="tabler:alert-triangle" color="negative" size="sm" />
+                    <w-tooltip>{{
+                      t(`admin.theme.contrastWarning`, { ratio: contrastWarningRatio(cl) })
+                    }}</w-tooltip>
+                  </span>
+                </template>
+
                 <w-btn
                   class="me-2"
                   :key="`btnpick-` + cl"
@@ -121,222 +113,184 @@
                     ><w-color-picker v-model="state.config[`color` + startCase(cl)]"
                   /></w-menu>
                 </w-btn>
-              </w-item-section>
-            </w-item>
+              </div>
+            </w-settings-row>
           </template>
-        </w-card>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Code Blocks -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>
-            {{ t('admin.theme.codeBlocks') }}
-            <template #action>
-              <w-btn
-                class="acrylic-btn"
-                icon="tabler:refresh"
-                :label="t(`admin.theme.resetDefaults`)"
-                flat
-                size="sm"
-                color="pink"
-                @click="resetCodeBlocks" />
-            </template>
-          </w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:code" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.codeBlocksAppearance`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.codeBlocksAppearanceHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-select
-                v-model="state.config.codeBlocksTheme"
-                :options="codeThemes"
-                emit-value
-                map-options
-                dense
-                options-dense
-                :aria-label="t(`admin.theme.codeBlocksAppearance`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" :title="t('admin.theme.codeBlocks')">
+          <template #action>
+            <w-btn
+              class="acrylic-btn"
+              icon="tabler:refresh"
+              :label="t(`admin.theme.resetDefaults`)"
+              flat
+              size="sm"
+              color="pink"
+              @click="resetCodeBlocks" />
+          </template>
+          <w-settings-row
+            icon="tabler:code"
+            :label="t(`admin.theme.codeBlocksAppearance`)"
+            :hint="t(`admin.theme.codeBlocksAppearanceHint`)">
+            <w-select
+              v-model="state.config.codeBlocksTheme"
+              :options="codeThemes"
+              emit-value
+              map-options
+              dense
+              options-dense
+              :aria-label="t(`admin.theme.codeBlocksAppearance`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Theme Layout -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.theme.layout') }}</w-card-header>
+        <w-settings-card class="mt-4" :title="t('admin.theme.layout')">
           <template v-if="flagStore.experimental">
-            <w-item>
-              <blueprint-icon icon="tabler:arrows-horizontal" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.theme.contentWidth`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.theme.contentWidthHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section class="flex-none">
-                <w-btn-toggle
-                  v-model="state.config.contentWidth"
-                  toggle-color="primary"
-                  :aria-label="t(`admin.theme.contentWidth`)"
-                  :options="widthOptions" />
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
+            <w-settings-row
+              control-width="auto"
+              icon="tabler:arrows-horizontal"
+              :label="t(`admin.theme.contentWidth`)"
+              :hint="t(`admin.theme.contentWidthHint`)">
+              <w-btn-toggle
+                v-model="state.config.contentWidth"
+                toggle-color="primary"
+                :aria-label="t(`admin.theme.contentWidth`)"
+                :options="widthOptions" />
+            </w-settings-row>
           </template>
-          <w-item>
-            <blueprint-icon icon="tabler:layout-sidebar-right" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.sidebarPosition`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.sidebarPositionHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section class="flex-none">
-              <w-btn-toggle
-                v-model="state.config.sidebarPosition"
-                toggle-color="primary"
-                :aria-label="t(`admin.theme.sidebarPosition`)"
-                :options="rightLeftOptions" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:list" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.tocPosition`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.tocPositionHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section class="flex-none">
-              <w-btn-toggle
-                v-model="state.config.tocPosition"
-                toggle-color="primary"
-                :aria-label="t(`admin.theme.tocPosition`)"
-                :options="rightLeftOptions" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:printer" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.showPrintBtn`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.showPrintBtnHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.showPrintBtn"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.theme.showPrintBtn`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:layout-sidebar-right"
+            :label="t(`admin.theme.sidebarPosition`)"
+            :hint="t(`admin.theme.sidebarPositionHint`)">
+            <w-btn-toggle
+              v-model="state.config.sidebarPosition"
+              toggle-color="primary"
+              :aria-label="t(`admin.theme.sidebarPosition`)"
+              :options="rightLeftOptions" />
+          </w-settings-row>
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:list"
+            :label="t(`admin.theme.tocPosition`)"
+            :hint="t(`admin.theme.tocPositionHint`)">
+            <w-btn-toggle
+              v-model="state.config.tocPosition"
+              toggle-color="primary"
+              :aria-label="t(`admin.theme.tocPosition`)"
+              :options="rightLeftOptions" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:printer"
+            :label="t(`admin.theme.showPrintBtn`)"
+            :hint="t(`admin.theme.showPrintBtnHint`)">
+            <w-toggle
+              v-model="state.config.showPrintBtn"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.theme.showPrintBtn`)" />
+          </w-settings-row>
+        </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
         <!-- ----------------------- -->
         <!-- Fonts -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>
-            {{ t('admin.theme.fonts') }}
-            <template #action>
-              <w-btn
-                class="acrylic-btn"
-                icon="tabler:refresh"
-                :label="t(`admin.theme.resetDefaults`)"
-                flat
-                size="sm"
-                color="pink"
-                @click="resetFonts" />
-            </template>
-          </w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:typography" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.baseFont`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.baseFontHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-select
-                v-model="state.config.baseFont"
-                :options="fonts"
-                emit-value
-                map-options
-                dense
-                :aria-label="t(`admin.theme.baseFont`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:typography" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.contentFont`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.contentFontHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-select
-                v-model="state.config.contentFont"
-                :options="fonts"
-                emit-value
-                map-options
-                dense
-                :aria-label="t(`admin.theme.contentFont`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.theme.fonts')">
+          <template #action>
+            <w-btn
+              class="acrylic-btn"
+              icon="tabler:refresh"
+              :label="t(`admin.theme.resetDefaults`)"
+              flat
+              size="sm"
+              color="pink"
+              @click="resetFonts" />
+          </template>
+          <w-settings-row
+            icon="tabler:typography"
+            :label="t(`admin.theme.baseFont`)"
+            :hint="t(`admin.theme.baseFontHint`)">
+            <w-select
+              v-model="state.config.baseFont"
+              :options="fonts"
+              emit-value
+              map-options
+              dense
+              :aria-label="t(`admin.theme.baseFont`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:typography"
+            :label="t(`admin.theme.contentFont`)"
+            :hint="t(`admin.theme.contentFontHint`)">
+            <w-select
+              v-model="state.config.contentFont"
+              :options="fonts"
+              emit-value
+              map-options
+              dense
+              :aria-label="t(`admin.theme.contentFont`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Code Injection -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.theme.codeInjection') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:brand-css3" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.cssOverride`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.cssOverrideHint`) }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <w-item-section>
+        <!--
+          A code editor is not a control that fits at a row trailing edge, so each field takes the
+          `preview` slot and spans the row under its own label -- the same shape AdminSearch uses
+          for the Postgres dictionary overrides. It replaces a pair of rows per field: one holding
+          the label and hint, a second holding nothing but the editor.
+        -->
+        <w-settings-card class="mt-4" :title="t('admin.theme.codeInjection')">
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:brand-css3"
+            :label="t(`admin.theme.cssOverride`)"
+            :hint="t(`admin.theme.cssOverrideHint`)">
+            <template #preview>
               <util-code-editor
                 v-model="state.config.injectCSS"
                 language="css"
                 :aria-label="t(`admin.theme.cssOverride`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:brand-html5" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.headHtmlInjection`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.headHtmlInjectionHint`) }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <w-item-section>
+            </template>
+          </w-settings-row>
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:brand-html5"
+            :label="t(`admin.theme.headHtmlInjection`)"
+            :hint="t(`admin.theme.headHtmlInjectionHint`)">
+            <template #preview>
               <util-code-editor
                 v-model="state.config.injectHead"
                 language="html"
                 :aria-label="t(`admin.theme.headHtmlInjection`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:brand-html5" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.theme.bodyHtmlInjection`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.theme.bodyHtmlInjectionHint`) }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <w-item-section>
+            </template>
+          </w-settings-row>
+          <w-settings-row
+            control-width="auto"
+            icon="tabler:brand-html5"
+            :label="t(`admin.theme.bodyHtmlInjection`)"
+            :hint="t(`admin.theme.bodyHtmlInjectionHint`)">
+            <template #preview>
               <util-code-editor
                 v-model="state.config.injectBody"
                 language="html"
                 :aria-label="t(`admin.theme.bodyHtmlInjection`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+            </template>
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAdminSettings } from '@/composables/adminSettings'
@@ -393,7 +347,7 @@ function defaultConfig() {
     colorHeader: '#ffffff',
     colorSidebar: '#f0f2f7',
     codeBlocksTheme: 'github-dark',
-    contentWidth: 'centered',
+    contentWidth: 'measured',
     sidebarPosition: 'left',
     tocPosition: 'right',
     showPrintBtn: true,
@@ -464,10 +418,16 @@ const PAGE_BG_DARK = '#1b1f2a'
  */
 const CHROME_TEXT_COLOR = '#1c2233'
 
-const widthOptions = [
-  { label: 'Full Width', value: 'full' },
-  { label: 'Centered', value: 'centered' }
-]
+/*
+  "Measured", not "Centered": the setting holds page content to the design's 720px measure and leaves
+  it flush to the article column's leading edge -- it does not centre anything, and never should have
+  claimed to (see `Index.vue`'s `.page-container-body.is-measured` rule). Translated, unlike the other
+  option lists on this page, because these two labels had to be rewritten here anyway.
+*/
+const widthOptions = computed(() => [
+  { label: t('admin.theme.contentWidthFull'), value: 'full' },
+  { label: t('admin.theme.contentWidthMeasured'), value: 'measured' }
+])
 
 const rightLeftOptions = [
   { label: 'Hide', value: 'off' },

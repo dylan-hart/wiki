@@ -141,3 +141,32 @@ describe('CollabPresence avatar images', () => {
     expect(img.attributes('height')).toBe('30')
   })
 })
+
+/**
+ * OpenProject #2609: the rule itself is `helpers/initials.js`'s and is unit-tested there; this is the
+ * wiring -- that a bubble with no uploaded avatar behind it draws the shared derivation rather than
+ * this component's own former copy of it.
+ */
+describe('CollabPresence bubble initials', () => {
+  async function bubbleTextsFor(names) {
+    const { wrapper, collabStore } = mountPresence()
+    collabStore.participants = names.map((name, index) => ({
+      id: `p${index}`,
+      name,
+      color: '#111',
+      isSelf: false,
+      typing: false,
+      hasAvatar: false
+    }))
+    await wrapper.vm.$nextTick()
+    return wrapper.findAll('.collab-presence-bubble span').map((span) => span.text())
+  }
+
+  it('draws the first and last initial of a multi-part name', async () => {
+    expect(await bubbleTextsFor(['Dylan James Hart', 'Ada Lovelace'])).toEqual(['DH', 'AL'])
+  })
+
+  it('draws a single letter for a mononym and a neutral glyph for a nameless account', async () => {
+    expect(await bubbleTextsFor(['Prince', ''])).toEqual(['P', '?'])
+  })
+})

@@ -412,7 +412,7 @@ export const blockCredentials = pgTable(
  * The admin-configurable sensitivity levels a page may carry (OpenProject #1079), same pattern as
  * `groups`: seeded with three defaults (`public` / `internal` / `restricted`, at the fixed
  * `systemIds` below) that an administrator may rename, reorder, add to, or remove -- no pluggable
- * external classification provider, plain Wiki.js data.
+ * external classification provider, plain Cardinal.js data.
  *
  * Instance-wide, not per-site, mirroring `groups` itself.
  */
@@ -1236,7 +1236,13 @@ export const pageWatching = pgTable(
   (table) => [
     // -> Covers the site scoping too, being the leading column: this is the inbox's own query
     index('pageWatching_user_site_idx').on(table.userId, table.siteId),
-    // -> Watching a page twice is watching it once, so the second attempt is a no-op rather than a row
+    // -> Watching a page twice is watching it once, so the second attempt is a no-op rather than a row.
+    //    `pageId` leading also makes this the index for every by-page question — `listWatchers`'s
+    //    notification lookup and `listForPage`'s rail listing/count both filter on it alone. No
+    //    `(pageId, createdAt)` index was added for the latter's `ORDER BY createdAt`: the sort runs
+    //    over one page's watchers, a set bounded by how many people pressed the bell on a single page,
+    //    which a top-N sort handles without touching disk. Revisit if a page ever accumulates watchers
+    //    in the thousands.
     uniqueIndex('pageWatching_page_user_idx').on(table.pageId, table.userId)
   ]
 )
@@ -1743,7 +1749,22 @@ export const users = pgTable(
   {
     id: uuid().primaryKey().defaultRandom(),
     email: varchar({ length: 255 }).notNull().unique(),
+    // -> The display name. DERIVED from `firstName`/`lastName` on write -- see
+    //    `models/users.ts#deriveDisplayName`, the one place that composes it -- unless
+    //    `nameLocallyEdited` says a human authored it outright.
     name: varchar({ length: 255 }).notNull(),
+    // -> The two authored halves of a person's name (Feature #2608). Separated rather than parsed out
+    //    of `name` at render time because sorting an admin user list by surname, and addressing a user
+    //    by first name in notification copy, both want the split stored. An empty string means "not
+    //    set", which is what a provider sign-in fills: it populates a half that is still empty and
+    //    never overwrites one that is not.
+    firstName: varchar({ length: 255 }).notNull().default(''),
+    lastName: varchar({ length: 255 }).notNull().default(''),
+    // -> The stored "a human on this instance authored this account's name" marker. Two consequences,
+    //    both owned by `models/users.ts`: `name` stops being derived from the two halves above, and a
+    //    provider re-login leaves all three fields alone. Stored rather than inferred by comparing a
+    //    provider's claim against the current value -- see Feature #2608's resolved scope.
+    nameLocallyEdited: boolean().notNull().default(false),
     auth: jsonb().notNull().default({}),
     meta: jsonb().notNull().default({}),
     passkeys: jsonb().notNull().default({}),

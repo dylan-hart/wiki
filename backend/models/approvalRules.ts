@@ -113,7 +113,7 @@ class ApprovalRules extends ClusterReloaded {
       rulesCache[siteId] ??= []
       rulesCache[siteId].push(rule)
     }
-    WIKI.logger.info(`Loaded ${rows.length} approval rules [ OK ]`)
+    WIKI.logger.debug('pages', 'reloaded the approval rules cache', { rules: rows.length })
   }
 
   /**

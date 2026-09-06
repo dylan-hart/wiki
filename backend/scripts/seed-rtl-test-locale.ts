@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- a one-off seeding script: its stdout IS its result, and it runs outside a booted `WIKI`. */
 /**
  * One-off seed for two synthetic locales, for validating feature 413 ("RTL support end-to-end") and
  * WP #1662 (the content-vs-interface locale split) end to end.
@@ -116,7 +117,7 @@ export const RTL_TEST_LOCALE_STRINGS: Record<string, string> = {
   'auth.actions.login': 'تسجيل الدخول',
   'auth.enterCredentials': 'أدخل بيانات الاعتماد الخاصة بك',
   // -> welcome: first-run chrome
-  'welcome.title': 'مرحباً بك في Wiki.js!',
+  'welcome.title': 'مرحباً بك في Cardinal.js!',
   'welcome.subtitle': 'لنبدأ...'
 }
 
@@ -255,8 +256,12 @@ export async function runSeedLtrTestLocale(): Promise<void> {
 if (import.meta.main) {
   Promise.all([runSeedRtlTestLocale(), runSeedLtrTestLocale()])
     .then(() => {
+      // -> The `[ OK ]` tag this line used to end in was the last one left in `backend/`
+      //    (OpenProject #2668). It is a `console.log` from a script, not a log record, but the tag
+      //    was the same 2.x habit the logging conventions retired: the outcome is already the fact
+      //    that the line printed at all, and the `.catch` below is the other outcome.
       console.log(
-        `Seeded RTL test locale '${RTL_TEST_LOCALE_CODE}' and LTR test locale '${LTR_TEST_LOCALE_CODE}' [ OK ]`
+        `Seeded RTL test locale '${RTL_TEST_LOCALE_CODE}' and LTR test locale '${LTR_TEST_LOCALE_CODE}'`
       )
     })
     .catch((err: any) => {

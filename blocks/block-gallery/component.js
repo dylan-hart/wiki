@@ -87,7 +87,7 @@ export class BlockGalleryElement extends LitElement {
     block: 'gallery',
     name: 'Image Gallery',
     description: 'Displays a grid of images, each opening full size in a lightbox.',
-    icon: 'image',
+    icon: 'tabler:photo',
     props: [
       {
         name: 'thumbnail-size',
