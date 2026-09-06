@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import HeaderNav from './HeaderNav.vue'
+import WBtn from '@/components/shared/WBtn.vue'
 import { useMinWidth } from '@/composables/screen'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -168,5 +169,53 @@ describe('HeaderNav "Create New Page" icon (OpenProject #2074)', () => {
     expect(createButton.exists()).toBe(true)
     expect(createButton.find('[data-icon="tabler:plus"]').exists()).toBe(true)
     expect(wrapper.find('[data-icon="tabler:circle-plus"]').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2610: the logo button was the one thing in this 64px bar NOT on the shared
+ * `header-nav-btn` band -- it carried `dense flat` and nothing else, so `WBtn`'s own dense sizing
+ * drew a rounded ~54px box around the 34px mark and lit only that box on hover, visibly unlike the
+ * five flush squares at the opposite end of the same toolbar (and `AccountMenu`'s avatar, which
+ * `AdminLayout.test.js` already pins to the same class).
+ *
+ * `_base.scss`'s `.w-btn.header-nav-btn` is not loaded here -- these are component tests, not the
+ * real-Chromium harness -- so the class itself is the contract asserted, exactly as
+ * `AdminLayout.test.js` asserts it for the account button rather than measuring a box.
+ */
+describe('HeaderNav logo button hover target (OpenProject #2610)', () => {
+  function findHomeButton(wrapper) {
+    return wrapper.find('[aria-label="common.header.home"]')
+  }
+
+  it('draws the logo on the shared 64x64 header-nav-btn band', async () => {
+    const { wrapper } = await mountHeaderNav()
+
+    const homeButton = findHomeButton(wrapper)
+    expect(homeButton.exists()).toBe(true)
+    expect(homeButton.classes()).toContain('header-nav-btn')
+  })
+
+  it('drops `dense`, whose sizing the band overrides anyway, so the two cannot disagree', async () => {
+    const { wrapper } = await mountHeaderNav()
+
+    const homeButton = wrapper
+      .findAllComponents(WBtn)
+      .find((btn) => btn.attributes('aria-label') === 'common.header.home')
+    expect(homeButton).toBeTruthy()
+    expect(homeButton.props('dense')).toBe(false)
+  })
+
+  it('keeps the mark at the 34px the Cardinal Ledger mockup draws it at, in both logo branches', async () => {
+    const { wrapper, siteStore } = await mountHeaderNav()
+
+    // `logoText: true` (the store default) puts the mark in a squared 34px avatar beside the wordmark
+    expect(findHomeButton(wrapper).find('.w-avatar').attributes('style')).toContain('34px')
+
+    siteStore.logoText = false
+    await wrapper.vm.$nextTick()
+
+    // Without the wordmark it is a bare image, sized by its own height instead
+    expect(findHomeButton(wrapper).find('img').attributes('style')).toContain('34px')
   })
 })
