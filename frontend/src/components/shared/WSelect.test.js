@@ -397,6 +397,16 @@ describe('WSelect', () => {
       expect(wrapper.classes()).toContain('mt-4')
     })
 
+    it('sends style to the wrapper only, not the filter input, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
+        attrs: { style: 'margin-top: 4px' }
+      })
+
+      expect(wrapper.find('input').attributes('style') ?? '').not.toContain('margin-top')
+      expect(wrapper.attributes('style')).toContain('margin-top')
+    })
+
     it('does not also land a forwarded attribute on the outer control div, for the useInput variant', () => {
       const wrapper = mount(WSelect, {
         props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
