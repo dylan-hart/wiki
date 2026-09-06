@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
 
 import MainLayout from './MainLayout.vue'
+import FooterNav from '@/components/FooterNav.vue'
 import routes from '@/router/routes.js'
 
 import { createTestRouter } from '../../test/router.js'
+import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
 
 const LAYOUT_STUBS = {
@@ -224,5 +227,112 @@ describe('MainLayout sidebar mini-mode expand override (OpenProject #2513)', () 
 
     expect(wrapper.find('.sidebar-mini').exists()).toBe(false)
     expect(wrapper.find('[aria-label="Collapse Sidebar"]').exists()).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #2720, Dylan's 2026-09-06 hands-on review (note 6, first half): the Edit Nav control
+ * drew `tabler:steering-wheel` (an odd, non-obvious glyph for "edit the navigation tree") inside a
+ * `w-bar dense`, whose own translucent black wash and forced 8px button label read as a "dark muddy"
+ * strip out of step with the rest of the sidebar's chrome.
+ */
+async function mountMainLayoutWithEditNav() {
+  const router = await createTestRouter(['/'])
+
+  return mountWithApp(MainLayout, {
+    messages,
+    router,
+    stores: {
+      user: { authenticated: true, permissions: ['manage:navigation'] }
+    },
+    stubs: {
+      HeaderNav: true,
+      MainOverlayDialog: true,
+      NavSidebar: true
+    },
+    attachTo: document.body
+  })
+}
+
+describe('MainLayout edit-nav control (OpenProject #2720)', () => {
+  it('draws tabler:list-tree in the full sidebar footer bar, not the old steering wheel', async () => {
+    const { wrapper } = await mountMainLayoutWithEditNav()
+
+    const bar = wrapper.find('.sidebar-footerbtns')
+    expect(bar.exists()).toBe(true)
+    // -> Scoped through the button itself, not just the bar: `nav-edit-menu`'s own popup content
+    //    sits in the same subtree and carries icons of its own.
+    const editNavBtn = bar.findComponent({ name: 'WBtn' })
+    expect(editNavBtn.findComponent({ name: 'WIcon' }).props('name')).toBe('tabler:list-tree')
+  })
+
+  it('draws tabler:list-tree in the collapsed mini-rail variant too', async () => {
+    // -> The mini rail only renders once something has forced the sidebar into its 56px icon-only
+    //    mode -- a page-level `navigationMode: 'hide'` is the ordinary way that happens (see the
+    //    #2513 suite above).
+    const router = await createTestRouter(['/'])
+    const { wrapper } = mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        user: { authenticated: true, permissions: ['manage:navigation'] },
+        page: { navigationId: 1, navigationMode: 'hide' }
+      },
+      stubs: { HeaderNav: true, MainOverlayDialog: true, NavSidebar: true }
+    })
+
+    expect(wrapper.find('.sidebar-mini').exists()).toBe(true)
+    const miniEditNavBtn = wrapper.find(`[aria-label="${messages.common.sidebar.editNav}"]`)
+    expect(miniEditNavBtn.exists()).toBe(true)
+    expect(miniEditNavBtn.findComponent({ name: 'WIcon' }).props('name')).toBe('tabler:list-tree')
+  })
+
+  it('carries no background of its own (the old w-bar wash is gone)', async () => {
+    const { wrapper } = await mountMainLayoutWithEditNav()
+
+    const bar = wrapper.get('.sidebar-footerbtns')
+    // -> happy-dom reports an unset `background-color` as an empty string rather than resolving it
+    //    to its initial value; either way, the important thing asserted here is that nothing set it
+    //    to WBar's own translucent wash (`rgb(0 0 0 / 0.2)`).
+    expect(getComputedStyle(bar.element).backgroundColor).toMatch(
+      /^(|rgba\(0, 0, 0, 0\)|transparent)$/
+    )
+  })
+
+  /**
+   * The bar's height is built to match `.site-footer`'s (`FooterNav.vue`) -- the "Powered by
+   * Cardinal.js" band at the foot of the article column -- via an invisible spacer sharing the
+   * SAME font stack, size and vertical padding `.site-footer` renders its own text with, rather
+   * than a pixel value copied from one measurement. Asserted here as a live comparison between the
+   * two REAL components' own computed styles (both mounted under this suite's `test.css: true`
+   * pipeline), so a future edit to either side's padding/font-size that breaks the match fails this
+   * test instead of silently drifting -- `getBoundingClientRect` itself is not asked here, since
+   * neither jsdom nor happy-dom runs a layout engine (see `test/realGridLayout.js`'s own header
+   * comment); the box-model DECLARATIONS that determine the rendered height are what is compared.
+   */
+  it('sizes its spacer from the same padding/font-size/font-family recipe as the site footer', async () => {
+    const { wrapper } = await mountMainLayoutWithEditNav()
+    const spacer = wrapper.get('.sidebar-footerbtns-spacer')
+
+    const footerI18n = createTestI18n({
+      common: { footerGeneric: 'Powered by {link}' }
+    })
+    const footerWrapper = mount(FooterNav, {
+      props: { generic: true },
+      global: { plugins: [footerI18n] },
+      attachTo: document.body
+    })
+
+    try {
+      const spacerStyle = getComputedStyle(spacer.element)
+      const footerStyle = getComputedStyle(footerWrapper.element)
+
+      expect(spacerStyle.paddingTop).toBe(footerStyle.paddingTop)
+      expect(spacerStyle.paddingBottom).toBe(footerStyle.paddingBottom)
+      expect(spacerStyle.fontSize).toBe(footerStyle.fontSize)
+      expect(spacerStyle.fontFamily).toBe(footerStyle.fontFamily)
+    } finally {
+      footerWrapper.unmount()
+    }
   })
 })
