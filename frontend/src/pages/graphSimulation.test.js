@@ -123,4 +123,25 @@ describe('computeClusters padding (OpenProject #2562)', () => {
       expect(match).toBeDefined()
     }
   })
+
+  it('a floor-sized node already gets more total clearance after OpenProject #2594 doubled MIN_NODE_RADIUS, with no HULL_PADDING change', () => {
+    // -> HULL_PADDING is a flat term ADDED ON TOP of radiusFor(node) per vertex, so the doubled
+    //    floor (5 -> 10, OpenProject #2594) already flows through the radius term alone: 24 + 5 =
+    //    29 at the old floor, 24 + 10 = 34 at the new one. This pins that reasoning (the
+    //    "no numeric change needed here" conclusion in OpenProject #2562's own re-tuning pass) as
+    //    an executable check rather than leaving it only in a doc comment.
+    const radiusFor = (n) => n.radius
+    const oldFloor = computeClusters([{ x: 0, y: 0, folder: 'g', radius: 5 }], {
+      groupKeyFor: (n) => n.folder,
+      colorForGroup: () => '#000',
+      radiusFor
+    }).find((c) => c.key === 'g')
+    const newFloor = computeClusters([{ x: 0, y: 0, folder: 'g', radius: 10 }], {
+      groupKeyFor: (n) => n.folder,
+      colorForGroup: () => '#000',
+      radiusFor
+    }).find((c) => c.key === 'g')
+    expect(oldFloor.circle.r).toBe(29)
+    expect(newFloor.circle.r).toBe(34)
+  })
 })

@@ -198,7 +198,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.webhooks.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

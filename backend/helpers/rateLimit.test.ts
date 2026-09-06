@@ -11,7 +11,8 @@ import {
   limitAuthAttempts,
   limitApiRequests,
   limitGuestComments,
-  limitPublicRequests
+  limitPublicRequests,
+  limitRenders
 } from './rateLimit.ts'
 import { resetCoalesce } from './logCoalesce.ts'
 import { makeReplyStub, makeRequestStub } from '../test/fastify.ts'
@@ -31,8 +32,10 @@ describe('limitApiKey', () => {
   let consumeCalls: any[]
   let consumeResult: { allowed: boolean; hits: number; retryAfter: number }
   let app: FastifyInstance
+  let warn: ReturnType<typeof mock.fn>
 
   before(async () => {
+    warn = mock.fn()
     wikiHandle = installTestWiki({
       models: {
         rateLimits: {
@@ -43,6 +46,7 @@ describe('limitApiKey', () => {
         }
       },
       logger: {
+        warn,
         debug: () => {}
       }
     })
@@ -91,9 +95,17 @@ describe('limitApiKey', () => {
 
   beforeEach(() => {
     consumeCalls = []
+    warn.mock.resetCalls()
     // -> The ban memo is a module-level singleton shared across every test in this file; clearing it
     //    here keeps a ban memoized by one test from leaking into the next test reusing the same key.
     activeBanMemo.clear()
+    // -> The coalescer's pending windows are module-level and shared across cases, exactly like the
+    //    ban memo above.
+    resetCoalesce()
+  })
+
+  afterEach(() => {
+    resetCoalesce()
   })
 
   test('lets a request through and keys the counter by the api key id, not by ip', async () => {
@@ -119,6 +131,30 @@ describe('limitApiKey', () => {
       assert.equal(consumeCalls[0].key, 'apikey:admin-key-456')
     })()
   })
+
+  /**
+   * OpenProject #2731. Each `/probe` request hits `activeBanMemo` after the first refusal (since
+   * `consumeWithBanMemo` memoizes a banned verdict), so the memo is cleared mid-loop to force every
+   * iteration through `logRefusal` the way twenty genuinely separate refused requests would.
+   */
+  test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    consumeResult = { allowed: false, hits: 301, retryAfter: 120 }
+
+    for (let i = 0; i < 20; i += 1) {
+      activeBanMemo.clear()
+      await app.inject({ method: 'GET', url: '/probe' })
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three individual lines')
+
+    // -> `API_KEY_LIMIT.windowSeconds` is a fixed 300s, not admin-configurable.
+    mock.timers.tick(300_000)
+    assert.equal(warn.mock.calls.length, 4)
+    const [, message, fields] = warn.mock.calls[3].arguments
+    assert.equal(message, 'rate limit refused 20 times in 300s')
+    assert.deepEqual(fields, { apiKey: 'key-123', count: 20 })
+    mock.timers.reset()
+  })
 })
 
 /**
@@ -137,12 +173,17 @@ describe('limitApiRequests', () => {
     makeRequestStub(overrides)
 
   let consume: ReturnType<typeof mock.fn>
+  let warn: ReturnType<typeof mock.fn>
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    warn = mock.fn()
     // -> Same reasoning as `limitApiKey`'s `beforeEach` above: several tests below reuse the same
     //    IP/key on purpose, so a ban memoized by one must not carry into the next.
     activeBanMemo.clear()
+    // -> The coalescer's pending windows are module-level and shared across cases, exactly like the
+    //    ban memo above.
+    resetCoalesce()
     wikiHandle = installTestWiki({
       config: {
         security: {
@@ -155,11 +196,12 @@ describe('limitApiRequests', () => {
       models: {
         rateLimits: { consume }
       },
-      logger: { debug: mock.fn() }
+      logger: { warn, debug: mock.fn() }
     })
   })
 
   afterEach(() => {
+    resetCoalesce()
     wikiHandle.restore()
   })
 
@@ -369,6 +411,29 @@ describe('limitApiRequests', () => {
     assert.notEqual(key, `auth:203.0.113.9`)
     assert.equal(key, 'api:ip:203.0.113.9')
   })
+
+  /**
+   * OpenProject #2731: this refusal line used to fire once per refused request, no coalescing at
+   * all. Same shape as `limitAuthAttempts`'s own ban-line coalescing test below, adapted for this
+   * hook's key/message/field naming.
+   */
+  test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 301, retryAfter: 120 }))
+
+    for (let i = 0; i < 20; i += 1) {
+      await limitApiRequests(makeReq({ ip: '203.0.113.9' }), makeReply())
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three individual lines')
+
+    // -> `apiRateLimitWindow: '5m'` above is the window the summary closes on.
+    mock.timers.tick(300_000)
+    assert.equal(warn.mock.calls.length, 4)
+    const [, message, fields] = warn.mock.calls[3].arguments
+    assert.equal(message, 'rate limit refused 20 times in 300s')
+    assert.deepEqual(fields, { key: 'ip:203.0.113.9', count: 20 })
+    mock.timers.reset()
+  })
 })
 
 /**
@@ -517,17 +582,21 @@ describe('limitPublicRequests', () => {
     makeRequestStub({ url: '/sitemap.xml', ...overrides })
 
   let consume: ReturnType<typeof mock.fn>
+  let warn: ReturnType<typeof mock.fn>
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    warn = mock.fn()
+    resetCoalesce()
     wikiHandle = installTestWiki({
       config: { security: { apiRateLimitEnabled: true } },
       models: { rateLimits: { consume } },
-      logger: { debug: mock.fn() }
+      logger: { warn, debug: mock.fn() }
     })
   })
 
   afterEach(() => {
+    resetCoalesce()
     wikiHandle.restore()
   })
 
@@ -615,6 +684,25 @@ describe('limitPublicRequests', () => {
     const replyPublic1 = makeReply()
     await limitPublicRequests(makeReq(), replyPublic1)
     assert.equal((replyPublic1.tooManyRequests as any).mock.calls.length, 0)
+  })
+
+  /** OpenProject #2731. Same shape as `limitApiRequests`'s coalescing test above. */
+  test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 601, retryAfter: 90 }))
+
+    for (let i = 0; i < 20; i += 1) {
+      await limitPublicRequests(makeReq(), makeReply())
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three individual lines')
+
+    // -> `PUBLIC_DEFAULTS.windowSeconds` is a fixed 300s, not admin-configurable.
+    mock.timers.tick(300_000)
+    assert.equal(warn.mock.calls.length, 4)
+    const [, message, fields] = warn.mock.calls[3].arguments
+    assert.equal(message, 'rate limit refused 20 times in 300s')
+    assert.deepEqual(fields, { key: 'ip:203.0.113.4', count: 20 })
+    mock.timers.reset()
   })
 })
 
@@ -767,6 +855,88 @@ describe('rate-limit ban memo', () => {
 })
 
 /**
+ * Unit tests for `limitRenders`: the per-route render-request limiter. `WIKI.models.rateLimits.consume`
+ * is stubbed the same way as the other hooks in this file — the fixed-window logic itself belongs to
+ * `models/rateLimits.ts`.
+ */
+describe('limitRenders', () => {
+  const makeReply = (): FastifyReply => makeReplyStub().reply
+
+  const makeReq = (overrides: Partial<FastifyRequest> = {}): FastifyRequest =>
+    makeRequestStub({ method: 'GET', url: '/_render/page-1', ip: '203.0.113.9', ...overrides })
+
+  let consume: ReturnType<typeof mock.fn>
+  let warn: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    warn = mock.fn()
+    activeBanMemo.clear()
+    resetCoalesce()
+    wikiHandle = installTestWiki({
+      models: { rateLimits: { consume } },
+      logger: { warn, debug: mock.fn() }
+    })
+  })
+
+  afterEach(() => {
+    resetCoalesce()
+    wikiHandle.restore()
+  })
+
+  test('keys by session user id when authenticated, falling back to ip otherwise', async () => {
+    await limitRenders(makeReq(), makeReply())
+    assert.equal(consume.mock.calls[0].arguments[0], 'render:203.0.113.9')
+
+    const req = makeReq({
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] } as any
+    })
+    await limitRenders(req, makeReply())
+    assert.equal(consume.mock.calls[1].arguments[0], 'render:user-1')
+  })
+
+  test('exempts a session carrying manage:system', async () => {
+    const req = makeReq({
+      session: {
+        authenticated: true,
+        user: { id: 'admin-1' },
+        permissions: ['manage:system']
+      } as any
+    })
+    await limitRenders(req, makeReply())
+    assert.equal(consume.mock.calls.length, 0)
+  })
+
+  test('refuses with a 429 and Retry-After once the policy is exceeded', async () => {
+    consume.mock.mockImplementationOnce(async () => ({ allowed: false, hits: 11, retryAfter: 90 }))
+    const reply = makeReply()
+    await limitRenders(makeReq(), reply)
+    assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '90'])
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  /** OpenProject #2731. Same shape as `limitApiRequests`'s coalescing test above. */
+  test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 11, retryAfter: 90 }))
+
+    for (let i = 0; i < 20; i += 1) {
+      activeBanMemo.clear()
+      await limitRenders(makeReq(), makeReply())
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three individual lines')
+
+    // -> `RENDER_LIMIT.windowSeconds` is a fixed 300s, not admin-configurable.
+    mock.timers.tick(300_000)
+    assert.equal(warn.mock.calls.length, 4)
+    const [, message, fields] = warn.mock.calls[3].arguments
+    assert.equal(message, 'rate limit refused 20 times in 300s')
+    assert.deepEqual(fields, { ip: '203.0.113.9', count: 20 })
+    mock.timers.reset()
+  })
+})
+
+/**
  * Unit tests for `limitGuestComments` (OpenProject #2256): the fixed, non-configurable per-IP limit
  * on anonymous comment posting. `api/comments.ts` is what decides *when* to call this (only on the
  * guest branch); this file covers only the hook's own job — what key it builds, and how it turns a
@@ -784,16 +954,20 @@ describe('limitGuestComments', () => {
     })
 
   let consume: ReturnType<typeof mock.fn>
+  let warn: ReturnType<typeof mock.fn>
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    warn = mock.fn()
+    resetCoalesce()
     wikiHandle = installTestWiki({
       models: { rateLimits: { consume } },
-      logger: { debug: mock.fn() }
+      logger: { warn, debug: mock.fn() }
     })
   })
 
   afterEach(() => {
+    resetCoalesce()
     wikiHandle.restore()
   })
 
@@ -844,11 +1018,31 @@ describe('limitGuestComments', () => {
     await limitGuestComments(makeReq({ ip: '198.51.100.2' }), replyOther)
     assert.equal((replyOther.tooManyRequests as any).mock.calls.length, 0)
   })
+
+  /** OpenProject #2731. Same shape as `limitApiRequests`'s coalescing test above. */
+  test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 6, retryAfter: 120 }))
+
+    for (let i = 0; i < 20; i += 1) {
+      await limitGuestComments(makeReq(), makeReply())
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three individual lines')
+
+    // -> `COMMENT_GUEST_LIMIT.windowSeconds` is a fixed 600s, not admin-configurable.
+    mock.timers.tick(600_000)
+    assert.equal(warn.mock.calls.length, 4)
+    const [, message, fields] = warn.mock.calls[3].arguments
+    assert.equal(message, 'rate limit refused a guest comment 20 times in 600s')
+    assert.deepEqual(fields, { ip: '203.0.113.7', count: 20 })
+    mock.timers.reset()
+  })
 })
 
 /**
- * The IP-keyed limiter on the authentication endpoints, and the one refusal line in this file that
- * is coalesced (OpenProject #2673).
+ * The IP-keyed limiter on the authentication endpoints. Its ban line was the first refusal line in
+ * this file to be coalesced (OpenProject #2673); the other five limiters' own refusal lines were
+ * given the same treatment afterward (OpenProject #2731).
  *
  * A banned key is refused on every request it keeps making, so a guessing run that has already
  * tripped the limit would otherwise write one line per attempt. The first three in a window are

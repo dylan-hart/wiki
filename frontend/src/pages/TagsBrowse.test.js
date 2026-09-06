@@ -118,11 +118,12 @@ async function mountTagsBrowse(
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_TAGS) })
 
   const router = await createTagsRouter(initialPath)
+  const i18n = createTagsBrowseI18n(i18nMessages)
   const wrapper = mount(TagsBrowse, {
-    global: { plugins: [router, createTagsBrowseI18n(i18nMessages)] }
+    global: { plugins: [router, i18n] }
   })
   await flushPromises()
-  return { wrapper, router, siteStore, userStore }
+  return { wrapper, router, siteStore, userStore, i18n }
 }
 
 beforeEach(() => {
@@ -549,20 +550,27 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
   })
 
   /*
-    Sibling Task #2631 owns walking every `.w-section-header` caller onto the design's padding
-    rhythm, precisely because hand-tuning it per call site is how the padding drifted in the first
-    place. This screen's band is 38px in the design and 34px in the shared class, and that gap is
-    deliberately left to #2631 -- so this page must not quietly answer it in its own stylesheet.
+    Task #2631 (landed) walked every `.w-section-header` caller onto the design's shared padding
+    rhythm and settled the class itself at 34px everywhere -- it deliberately did not raise this
+    screen's band to the design's 38px, which is a page-specific gap against the SIDEBAR band beside
+    it, not a rhythm-wide padding drift. OpenProject #2717 closed that gap the same way #2613 closed
+    the analogous one for `.page-breadcrumbs`: a page-local `min-height` override, leaving the shared
+    class (and `sectionHeaderRhythm.test.js`'s 34px guard) untouched. So this screen's stylesheet DOES
+    restyle `.w-section-header` now, on purpose, and only ever its height -- never its padding, which
+    stays #2631's alone.
   */
-  it("does not restyle the shared section band -- that is #2631's, not this screen's", () => {
+  it('pins its own band to 38px locally, without restating the shared rhythm’s padding', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(here, 'TagsBrowse.vue'), 'utf8')
-    // -> Comments stripped first: the block explains WHY it leaves the band alone, and naming the
-    //    class in that explanation must not read as an override.
+    // -> Comments stripped first, same as the padding scan in `sectionHeaderRhythm.test.js`.
     const declarations = source.slice(source.indexOf('<style')).replaceAll(/\/\*[\s\S]*?\*\//g, '')
 
     expect(declarations.length).toBeGreaterThan(0)
-    expect(declarations).not.toContain('.w-section-header')
+
+    const rule = declarations.match(/\.tags-browse \.w-section-header\s*\{([^{}]*)\}/)
+    expect(rule).not.toBeNull()
+    expect(rule[1]).toMatch(/min-height:\s*38px/)
+    expect(rule[1]).not.toMatch(/padding/)
   })
 
   it('keeps the two columns and the body that pads them, now that the page does not', async () => {
@@ -649,6 +657,49 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
     const meta = section.findAll('.tags-browse-result-meta')
     expect(meta).toHaveLength(2)
     expect(meta[0].text()).toBe('/some/page')
+  })
+
+  /**
+   * OpenProject #2716: this line used to go through `humanizeDate` (the long absolute form), the
+   * same as search results and Inbox Watching, while the page view's own "Last modified" line
+   * already used the short recent form -- so the same fact about the same page read differently
+   * depending on which list it was found in. `updatedAt` is computed relative to "now" rather than
+   * a fixed calendar string, since `formatRecent`'s abbreviated form only applies within the last 7
+   * days.
+   */
+  it('shows the last-updated line in the recent form, not the legacy absolute one', async () => {
+    const recentUpdatedAt = Temporal.Now.instant().subtract({ hours: 26 }).toString()
+    const { wrapper, userStore, i18n } = await mountTagsBrowse(
+      '/_tags?tags=equipment',
+      {
+        results: [{ ...FIXTURE_PAGE, updatedAt: recentUpdatedAt }],
+        totalHits: 1,
+        suggestion: null
+      },
+      [],
+      { tags: { pageLastUpdated: 'Last updated {date}' } }
+    )
+
+    const meta = wrapper
+      .find('.tags-browse-plate .w-item-section--main')
+      .findAll('.tags-browse-result-meta')
+    expect(meta[1].text()).toBe(
+      `Last updated ${userStore.formatRecent(i18n.global.t, recentUpdatedAt)}`
+    )
+  })
+
+  it('renders the placeholder, not an empty date, for a page with no updatedAt', async () => {
+    const { wrapper } = await mountTagsBrowse(
+      '/_tags?tags=equipment',
+      { results: [{ ...FIXTURE_PAGE, updatedAt: null }], totalHits: 1, suggestion: null },
+      [],
+      { tags: { pageLastUpdated: 'Last updated {date}' } }
+    )
+
+    const meta = wrapper
+      .find('.tags-browse-plate .w-item-section--main')
+      .findAll('.tags-browse-result-meta')
+    expect(meta[1].text()).toBe('Last updated ---')
   })
 
   it("draws the result-row tags at the design's 11px, with the same mono `#`", async () => {

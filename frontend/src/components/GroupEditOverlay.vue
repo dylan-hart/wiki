@@ -404,7 +404,7 @@ async function fetchGroup() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.isLoading = false

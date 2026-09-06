@@ -237,7 +237,6 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
 
-import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { useFlagsStore } from '@/stores/flags'
@@ -366,7 +365,10 @@ const defaultPageIcon = DEFAULT_PAGE_ICON
  * rather than once per render of a list that can hold up to `RESULTS_LIMIT` rows.
  */
 const formattedResults = computed(() =>
-  state.results.map((r) => ({ ...r, updatedAtFormatted: humanizeDate(t, r.updatedAt) }))
+  state.results.map((r) => ({
+    ...r,
+    updatedAtFormatted: userStore.formatRecent(t, r.updatedAt) || '---'
+  }))
 )
 
 // WATCHERS

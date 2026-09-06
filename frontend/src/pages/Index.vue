@@ -714,20 +714,43 @@ const revisionLine = computed(() => {
 const showWatching = computed(() => watcherPlates.value.length > 0)
 /**
  * The watchers actually drawn as plates: the leading `WATCHER_PLATE_CAP` of them, oldest first,
- * which is the order the route already answers in.
+ * which is the order the route already answers in -- except that a reader who is watching is always
+ * among them, first, regardless of where the route's oldest-first order would otherwise put them
+ * (OpenProject #2722). The route is asked for only `WATCHER_PLATE_CAP` watchers to begin with, so on
+ * a page with that many or more existing watchers the reader's own, freshly-added row is the newest
+ * and therefore never comes back in the slice at all -- without this, pressing Watch would flip the
+ * bell while the rail beside it stayed silent about the very person who just pressed it.
+ *
+ * The reader's own entry comes from the fetched list when the route happened to include it (in which
+ * case its real `initials`/`name` are used, same as anybody else's), and is otherwise built from
+ * `userStore` -- the only source of a name/id for a row the fetch never returned. Either way it is
+ * de-duplicated by `userId`, never added twice, and `watcherRemainder` needs no change to account for
+ * it: the server's `total` already counts every real watcher, this reader included, no matter how
+ * many of them the slice above actually returned.
  *
  * The two letters come from the server's own `initials` field -- served alongside `name` precisely so
  * every consumer draws the same two -- falling back to `helpers/initials.js` for a payload without
  * one. That helper stays the single client-side derivation of this; nothing here re-derives it
  * inline, which is the drift Bug #2609 consolidated away.
  */
-const watcherPlates = computed(() =>
-  watchers.value.slice(0, WATCHER_PLATE_CAP).map((watcher) => ({
+const watcherPlates = computed(() => {
+  const fetched = watchers.value
+  const pinSelf = pageStore.isWatching && userStore.authenticated
+  let ordered = fetched
+  if (pinSelf) {
+    const rest = fetched.filter((watcher) => watcher.userId !== userStore.id)
+    const self = fetched.find((watcher) => watcher.userId === userStore.id) ?? {
+      userId: userStore.id,
+      name: userStore.name
+    }
+    ordered = [self, ...rest]
+  }
+  return ordered.slice(0, WATCHER_PLATE_CAP).map((watcher) => ({
     userId: watcher.userId,
     name: watcher.name,
     initials: watcher.initials || initials(watcher.name)
   }))
-)
+})
 /**
  * How many watchers the plates do not account for, as the trailing `+N`. Counted off the server's
  * `total` -- every watcher, not the returned slice -- so it stays right however many the request
@@ -907,11 +930,15 @@ watch(
   arrives, draws, and the plates appear a moment later underneath it -- or never, on a page nobody
   watches or one whose watchers the server declines to list.
 
-  Three sources, and each is a real reason to ask again: the page id, obviously; `isWatching`, so the
-  reader's own plate appears and disappears as they press the bell rather than at the next navigation;
-  and `showSidebar`, which is what makes this cost nothing at all on a site with the rail switched off
-  or while the editor is open. Vue coalesces a flush, so a page load moving id and `isWatching`
-  together still asks once.
+  Three sources, and each is a real reason to ask again: the page id, obviously; `showSidebar`, which
+  is what makes this cost nothing at all on a site with the rail switched off or while the editor is
+  open; and `pageStore.watchersRevision` rather than `isWatching` itself -- `isWatching` flips
+  synchronously the moment the bell is pressed, before the PUT/DELETE it kicked off has actually
+  committed, so a watcher keyed on it asked the server for the list while that write was still in
+  flight and got back the state from before the click every time (OpenProject #2722).
+  `watchersRevision` only moves once `pageStore.pageWatch()`'s request has resolved, which is what
+  puts this fetch strictly after the write rather than racing it. Vue coalesces a flush, so a page
+  load moving id and revision together still asks once.
 
   Same generation guard as `pageLoadGeneration` below and for the same reason: navigating A -> B while
   A's watchers are still in flight must not let A's answer land over B's.
@@ -919,7 +946,7 @@ watch(
 let watchersGeneration = 0
 
 watch(
-  [showSidebar, () => pageStore.id, () => pageStore.isWatching],
+  [showSidebar, () => pageStore.id, () => pageStore.watchersRevision],
   async ([sidebarShown, pageId]) => {
     const generation = ++watchersGeneration
     // -> Cleared first, unconditionally: whatever is on screen belongs to the page being left.

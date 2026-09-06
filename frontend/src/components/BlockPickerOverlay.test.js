@@ -8,7 +8,7 @@ import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for the picker starting a newly-selected block's form on the site's configured
- * default (`block.config`, written by the admin "Content Blocks" page's per-block "Server" field —
+ * default (`block.config`, written by the admin "Blocks" page's per-block "Server" field —
  * see `models/blocks.ts#setBlocksState`) rather than always on the component's own hardcoded
  * `prop.default`. `helpers/blocks.js#propDefault` carries the actual precedence logic and has its own
  * direct unit coverage via `helpers/markdownBlocks.test.js`; this locks down that the picker's

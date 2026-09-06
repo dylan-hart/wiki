@@ -69,12 +69,11 @@ before(async () => {
 
 after(() => closeTestApp(app))
 
-test('GET /analytics/modules returns what the model discovered, unchanged', async () => {
-  const res = await app.inject({ method: 'GET', url: '/analytics/modules' })
-  assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), FIXTURE_MODULES)
-})
-
+// -> The "returns what the model discovered, unchanged" passthrough test was removed by
+//    OpenProject #2690 (`docs/testing-audit/backend.md`'s `api/analytics.test.ts` row): it restated
+//    the handler line by line and could only fail on a deliberate rewrite. The permission
+//    assertion below is the one with independent value — nothing else pins this route's declared
+//    permission.
 test('GET /analytics/modules declares manage:sites, not manage:system', () => {
   assert.deepEqual(routeConfigs['GET:/analytics/modules']?.permissions, ['manage:sites'])
 })

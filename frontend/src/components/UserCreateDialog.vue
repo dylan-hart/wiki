@@ -339,7 +339,7 @@ async function create() {
       //    `.data`, and its own message is already the text to show.
       message: err.data
         ? t(`admin.users.${err.data.error}`, apiErrorMessage(err, t('common.error.unexpected')))
-        : err.message
+        : apiErrorMessage(err)
     })
   }
   state.loading--

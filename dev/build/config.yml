@@ -9,7 +9,7 @@ db:
   schema: $(DB_SCHEMA:wiki)
   ssl: $(DB_SSL:false)
 logLevel: $(LOG_LEVEL:info)
-logFormat: $(LOG_FORMAT:default)
+logFormat: $(LOG_FORMAT:text)
 offline: $(WIKI_OFFLINE:false)
 dataPath: ./data
 scheduler:

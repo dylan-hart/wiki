@@ -187,6 +187,7 @@ import { computed, onMounted, ref } from 'vue'
 import ApiKeyScopePicker from './ApiKeyScopePicker.vue'
 import { useApiKeyCreateForm } from '@/composables/apiKeyCreateForm'
 import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { useAdminStore } from '@/stores/admin'
 
 // EMITS
@@ -258,7 +259,7 @@ async function loadGroups() {
     notify({
       type: 'negative',
       message: t('admin.users.groupsLoadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loadingGroups = false

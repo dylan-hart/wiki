@@ -61,13 +61,11 @@ describe('GET /system/extensions/status', () => {
     getExtensions.mock.resetCalls()
   })
 
-  test('answers a key -> isInstalled map for every declared extension', async () => {
-    const res = await app.inject({ method: 'GET', url: '/extensions/status' })
-    assert.equal(res.statusCode, 200)
-    assert.deepEqual(res.json(), { pandoc: true, puppeteer: false })
-    assert.equal(getExtensions.mock.callCount(), 1)
-  })
-
+  // -> The plain "answers a key -> isInstalled map" test was removed by OpenProject #2690
+  //    (`docs/testing-audit/backend.md`'s `api/system/extensions.test.ts` row): it restated the
+  //    handler's own return shape. The test below is the one with independent value — it also
+  //    proves the same shape, but as evidence of the deliberate "no route-level permission" design
+  //    decision, not as an end in itself.
   test('answers an anonymous caller too — no route-level permission gates it', async () => {
     const res = await app.inject({
       method: 'GET',

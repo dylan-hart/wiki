@@ -62,7 +62,7 @@ export function blockMarkdown(block, values = {}) {
 
 /**
  * What a prop starts on when nothing has said otherwise: the site's own configured default (e.g.
- * block-kroki/block-plantuml's "Server" field, set on the admin Content Blocks page) when the site
+ * block-kroki/block-plantuml's "Server" field, set on the admin Blocks page) when the site
  * has set one, falling back to the block's own hardcoded default otherwise.
  *
  * Shared by the block picker, filling in a form for a block about to be inserted, and the "Edit Block

@@ -284,7 +284,7 @@
                     flat
                     dense
                     round
-                    icon="tabler:icons"
+                    icon="tabler:search"
                     color="primary"
                     :aria-label="t(`iconPicker.open`)">
                     <w-tooltip>{{ t('iconPicker.open') }}</w-tooltip>

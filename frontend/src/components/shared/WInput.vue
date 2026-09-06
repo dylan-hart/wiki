@@ -26,8 +26,7 @@
 
     <!--
       Static text pinned in front of the value, e.g. the leading "/" on a path filter. Marked
-      aria-hidden and paired with a `pt-0.5` so it sits on the same optical baseline as the input:
-      it is decoration around the field, not part of what has been typed.
+      aria-hidden: it is decoration around the field, not part of what has been typed.
     -->
     <span
       v-if="prefix"
@@ -323,15 +322,6 @@ const effectiveType = computed(() =>
   props.type === 'password' && props.revealable && isRevealed.value ? 'text' : props.type
 )
 
-/*
-  `pt-0.5` on the control is optical centring, not padding.
-
-  Roboto's ascent exceeds its descent, so a line box centred by geometry renders its glyphs above
-  the optical centre -- measured at 2px high in both field sizes, with the input's own box exactly
-  centred. Two pixels of top padding is the smallest nudge that balances it (one pixel is absorbed
-  by the flex centring), and the box does not grow, since the control's min-height already leaves
-  room.
-*/
 const describedBy = computed(() => (showsBottom.value ? `${inputId}-desc` : undefined))
 
 // METHODS

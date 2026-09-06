@@ -159,7 +159,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('editor.settings.fetchFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

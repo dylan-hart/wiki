@@ -1256,7 +1256,7 @@ async function copyItemURL(item) {
     notify({
       type: 'negative',
       message: t('fileman.copyURLFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }

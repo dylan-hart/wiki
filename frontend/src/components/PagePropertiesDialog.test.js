@@ -113,6 +113,21 @@ describe('PagePropertiesDialog', () => {
   })
 
   /**
+   * OpenProject #2725: the "Open Icon Picker" button drew `tabler:icons` -- the icon for the
+   * picker's own "Icons" tab, not the action of opening a search/pick UI. All three of this
+   * button's call sites (this dialog, NavItemEditor, PageRelationDialog) settle on `tabler:search`.
+   */
+  it('uses the search icon, not tabler:icons, for the Open Icon Picker button', async () => {
+    const { wrapper } = mountDialog()
+    await flushPromises()
+
+    const openIconPickerBtn = wrapper.find('button[aria-label="Open Icon Picker"]')
+    expect(openIconPickerBtn.exists()).toBe(true)
+    expect(openIconPickerBtn.find('[data-icon="tabler:search"]').exists()).toBe(true)
+    expect(openIconPickerBtn.find('[data-icon="tabler:icons"]').exists()).toBe(false)
+  })
+
+  /**
    * Regression coverage for OpenProject #1133 item 4: `state.requirePassword` used to be set once in
    * `onMounted`, with nothing keeping it in sync if `pageStore.hasPassword` arrived afterwards (e.g.
    * this panel mounting before `pageStore.pageLoad()` resolves). Watches `hasPassword` rather than

@@ -72,16 +72,11 @@ beforeEach(() => {
   ]
 })
 
-test('omits localeStatus, and never queries the join, when includeLocaleStatus is not set', async () => {
-  const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/search` })
-  assert.equal(res.statusCode, 200)
-  const body = res.json()
-  assert.equal(translationRowsCalls.length, 0)
-  for (const row of body.results) {
-    assert.equal('localeStatus' in row, false)
-  }
-})
-
+// -> The plain "omits localeStatus... when includeLocaleStatus is not set" test was removed by
+//    OpenProject #2690 (`docs/testing-audit/backend.md`'s `api/pages/read.search.test.ts` row): it
+//    restated the on/off branch declared in `read.ts` itself with no computed value to verify. The
+//    test below is kept in full — it verifies the actual primary/missing/stale state computation,
+//    not just the flag's presence, which is real logic living in this route.
 test('attaches localeStatus per result when includeLocaleStatus=true', async () => {
   const res = await app.inject({
     method: 'GET',

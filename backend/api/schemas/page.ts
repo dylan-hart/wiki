@@ -288,6 +288,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'integer',
             description:
               'Lines added plus lines removed between this version and the one before it — a count of changed diff lines, so a line that was edited counts twice. Absent, rather than zero, when there is nothing to compare against: a page whose only version is its creation, or one with no history. Zero is never sent.'
+          },
+          via: {
+            type: 'string',
+            enum: [...pageHistoryVia],
+            description:
+              "What actually made the newest version: `editor` for the standard editor (every REST-API-driven save), or `mcp` for an MCP tool call acting on the author's behalf."
           }
         }
       },

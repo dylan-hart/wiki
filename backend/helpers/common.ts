@@ -1,6 +1,5 @@
 import crypto from 'node:crypto'
 import mime from 'mime'
-import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 
@@ -219,8 +218,8 @@ const HASHED_ASSET_PATTERN = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
  * base62-ish string) before the extension to every build output except the handful of names it pins
  * on purpose (`renderer.js`, kept fixed because a static server-rendered page references it by name)
  * — those, plus the hand-authored trees under `assets/_assets` that never go through vite at all
- * (`fonts/`, `icons/`, `illustrations/`, `logo-wikijs.svg`, `storage/`, `svg/`), are exactly the
- * entries this returns `false` for.
+ * (`fonts/`, `icons/`, `illustrations/`, `storage/`, `svg/`), are exactly the entries this returns
+ * `false` for.
  *
  * @param filename Basename only (`path.basename(filePath)`), not a full path
  */
@@ -294,32 +293,35 @@ export function durationToSeconds(value: unknown, fallback: number): number {
 
 /**
  * A file's bytes only change when this codebase's own on-disk contents change (a redeploy — a new
- * build, a new process), never in response to a request, so there is no per-instance revalidation
- * problem to solve for it and a long `max-age` is safe: this is not hash-named content though, so it
- * still needs a validator for the rare case a client does revalidate (a forced reload, or the
- * `max-age` window elapsing) to pick up a redeploy's new bytes without a full re-download.
+ * build, a new process), never in response to a request — but that is exactly why the URL a caller
+ * answers through this function needs to always revalidate rather than being cached long: the URL
+ * itself never changes across a redeploy, so a browser holding a fresh copy of the OLD bytes has no
+ * way to learn new ones landed until it actually asks again. "Only changes on redeploy" is the reason
+ * a long `max-age` is UNSAFE here, not the reason it would be fine — a browser that cached the bytes
+ * before a redeploy keeps serving them for the rest of that window with no chance to notice, which is
+ * exactly the caching-versus-branding bug this function used to cause (OpenProject #2724). The caller
+ * supplies its own `Cache-Control`, which should say so (`public, no-cache` is what every current
+ * caller passes), and this always sends a strong ETag — the file's own sha1 — so a `no-cache` policy
+ * still turns almost every load into a cheap 304 rather than a full re-download, at the one-time cost
+ * of reading and hashing the file per request. That cost is fine for what actually calls this: small,
+ * infrequently-requested branding fallbacks, not large or hot content.
  */
-const REPLY_WITH_FILE_CACHE = 'public, max-age=86400'
-
 export async function replyWithFile(
   req: FastifyRequest,
   reply: FastifyReply,
-  filePath: string
+  filePath: string,
+  options: { cacheControl: string }
 ): Promise<FastifyReply> {
-  const stats = await fsp.stat(filePath)
-  // -> Weak because it's derived from size+mtime rather than the file's actual bytes — cheap to
-  //    compute (no read/hash of the file itself) and sufficient: the only thing that can change
-  //    these bytes is a redeploy, which always touches both.
-  const etag = `W/"${stats.size}-${stats.mtimeMs}"`
+  const [stats, buffer] = await Promise.all([fsp.stat(filePath), fsp.readFile(filePath)])
+  const etag = `"${crypto.createHash('sha1').update(buffer).digest('hex')}"`
   reply.header('Content-Type', mime.getType(filePath))
-  reply.header('Cache-Control', REPLY_WITH_FILE_CACHE)
+  reply.header('Cache-Control', options.cacheControl)
   reply.header('ETag', etag)
   reply.header('Last-Modified', stats.mtime.toUTCString())
   if (req.headers['if-none-match'] === etag) {
     return reply.code(304).send()
   }
-  const stream = fs.createReadStream(filePath)
-  return reply.send(stream)
+  return reply.send(buffer)
 }
 
 /**

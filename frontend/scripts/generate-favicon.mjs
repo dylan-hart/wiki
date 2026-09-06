@@ -1,5 +1,6 @@
 /*
-  Generates `public/favicon.ico` — the icon a browser fetches from `/favicon.ico` on its own.
+  Generates `public/favicon.ico` AND its backend copy, `../backend/assets/branding/favicon.ico` —
+  the icon a browser fetches from `/favicon.ico` on its own.
 
   Two different things serve an icon here, and only one of them is declared in markup:
 
@@ -7,7 +8,11 @@
     administrator upload an icon of their own. That is the right declaration and is untouched.
   - Every browser ALSO requests the bare `/favicon.ico` root path unprompted, whatever the markup
     says, and `'favicon.ico'` is in `RESERVED_ROOT_FILES` (`backend/core/http/siteRouting.ts`) so
-    that request is served this file rather than falling through to the app shell.
+    that request is served this file rather than falling through to the app shell — the backend
+    copy, not this one: `core/http/server.ts#registerStaticAssets` resolves it against
+    `WIKI.SERVERPATH`, the same committed-source pattern `controllers/site.ts`'s
+    `SITE_ASSET_FALLBACKS` already uses for the other branding fallbacks, and for the same reason
+    (OpenProject #2611) — `public/favicon.ico` stays for the Vite dev server alone.
 
   So this file ships regardless, and it has to be the Cardinal mark rather than the icon inherited
   from upstream. Its source of truth is `public/_assets/logo-cardinal.svg` — the same placeholder
@@ -17,7 +22,8 @@
   size and read back as raw RGBA, which needs no PNG decoder on this side. Chromium is a developer-
   machine precondition for THIS script only — the output is committed, so neither `npm run test`
   nor CI ever launches a browser for it. `scripts/generate-favicon.test.js` asserts the committed
-  bytes really are the Cardinal mark.
+  bytes really are the Cardinal mark, and `backend/controllers/site.test.ts` asserts the two
+  committed copies stay byte-identical.
 
   Usage: node scripts/generate-favicon.mjs
 */
@@ -29,6 +35,7 @@ import { chromium } from 'playwright'
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const SRC = path.join(ROOT, 'public/_assets/logo-cardinal.svg')
 const OUT = path.join(ROOT, 'public/favicon.ico')
+const BACKEND_OUT = path.join(ROOT, '../backend/assets/branding/favicon.ico')
 
 /**
  * 48 and 32 are what the file this replaces carried. 16 is added because it is the size a browser
@@ -170,4 +177,8 @@ try {
 
 const ico = encodeIco(SIZES.map((size) => ({ size, dib: encodeDib(size, rendered.get(size)) })))
 fs.writeFileSync(OUT, ico)
-console.log(`wrote ${SIZES.join('/')} px to public/favicon.ico (${ico.length.toLocaleString()} B)`)
+fs.writeFileSync(BACKEND_OUT, ico)
+console.log(
+  `wrote ${SIZES.join('/')} px to public/favicon.ico and ../backend/assets/branding/favicon.ico ` +
+    `(${ico.length.toLocaleString()} B)`
+)

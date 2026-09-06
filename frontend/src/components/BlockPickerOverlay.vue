@@ -270,11 +270,11 @@ onMounted(async () => {
 
     @at-root .body--light & {
       background-color: var(--color-tint);
-      border-left: 1px solid var(--color-hairline);
+      border-inline-start: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
       background-color: var(--color-dark-3);
-      border-left: 1px solid var(--color-hairline-dark);
+      border-inline-start: 1px solid var(--color-hairline-dark);
     }
   }
 
@@ -405,30 +405,30 @@ onMounted(async () => {
 
   &-mark-tl {
     top: -4px;
-    left: -4px;
+    inset-inline-start: -4px;
     border-top: 1px solid var(--mark-tone);
-    border-left: 1px solid var(--mark-tone);
+    border-inline-start: 1px solid var(--mark-tone);
   }
 
   &-mark-tr {
     top: -4px;
-    right: -4px;
+    inset-inline-end: -4px;
     border-top: 1px solid var(--mark-tone);
-    border-right: 1px solid var(--mark-tone);
+    border-inline-end: 1px solid var(--mark-tone);
   }
 
   &-mark-bl {
     bottom: -4px;
-    left: -4px;
+    inset-inline-start: -4px;
     border-bottom: 1px solid var(--mark-tone);
-    border-left: 1px solid var(--mark-tone);
+    border-inline-start: 1px solid var(--mark-tone);
   }
 
   &-mark-br {
     bottom: -4px;
-    right: -4px;
+    inset-inline-end: -4px;
     border-bottom: 1px solid var(--mark-tone);
-    border-right: 1px solid var(--mark-tone);
+    border-inline-end: 1px solid var(--mark-tone);
   }
 
   &-name {
