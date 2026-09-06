@@ -61,7 +61,7 @@
           v-if="showEditNav"
           class="py-1"
           flat
-          icon="tabler:steering-wheel"
+          icon="tabler:list-tree"
           color="slate"
           :aria-label="t(`common.sidebar.editNav`)"
           size="sm">
@@ -118,20 +118,23 @@
           </w-btn>
         </div>
         <nav-sidebar />
-        <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one -->
-        <w-bar v-if="showEditNav" class="sidebar-footerbtns" dense>
-          <w-btn
-            class="flex-1"
-            icon="tabler:steering-wheel"
-            :label="t(`common.sidebar.editNav`)"
-            flat>
+        <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one.
+                Not a `w-bar` (Feature 2604 conformance pass): its `dense` variant's own translucent
+                fill and forced 8px button label are scoped inside `WBar.vue` and cannot be
+                overridden from here without `:deep`/`!important` -- see `.sidebar-footerbtns`
+                below, which owns this bar's look outright instead. -->
+        <div v-if="showEditNav" class="sidebar-footerbtns flex flex-nowrap items-stretch">
+          <!-- -> Invisible: exists only to give this bar the SAME natural height as `.site-footer`'s
+                  own text line (`FooterNav.vue`) -- see the CSS comment below. -->
+          <span class="sidebar-footerbtns-spacer" aria-hidden="true">&nbsp;</span>
+          <w-btn class="flex-1" icon="tabler:list-tree" :label="t(`common.sidebar.editNav`)" flat>
             <w-menu ref="navEditMenu" anchor="top left" self="bottom left" :offset="[0, 10]">
               <nav-edit-menu
                 :menu-hide-handler="navEditMenu.hide"
                 :update-position-handler="navEditMenu.updatePosition" />
             </w-menu>
           </w-btn>
-        </w-bar>
+        </div>
       </template>
     </w-drawer>
     <!--
@@ -589,15 +592,48 @@ function openSidebar() {
 /*
   No background of its own, and nothing sticky: the drawer is the height of the shell and the nav list
   above scrolls inside itself, so this bar sits at the bottom of the window by being last in the
-  column. WBar's own translucent tint is what colours it -- the `background-color` that used to be
-  declared here never applied, its scoped rule outranking a single class.
+  column. Ruled off from the list above, matching the strip at the top of the same column.
 
-  Ruled off from the list above, matching the strip at the top of the same column.
+  This used to be a `w-bar` (dense), which is where the old "dark muddy" look came from --
+  `WBar.vue`'s own translucent black wash, present regardless of theme, plus its dense variant
+  forcing every `.w-btn` inside down to an 8px label. Neither is wanted here: the bar should read
+  like the rest of the sidebar's chrome (no fill of its own, the flat button's ordinary hover), so
+  it is a plain element this rule owns outright instead.
+
+  Height: matches `.site-footer` (`FooterNav.vue`) -- the "Powered by Cardinal.js" line at the foot
+  of the article column -- so the two bookend bars read as the same band. Not a hardcoded pixel
+  guess: `.sidebar-footerbtns-spacer` is an invisible line built from the SAME font stack, size and
+  vertical padding `.site-footer` renders its own text with, so it takes on the SAME natural height
+  that text line does in whichever browser/OS/font-fallback actually renders it, and `items-stretch`
+  (the template's own Tailwind class, a flex row's default cross-axis behaviour) sizes the real
+  button to match. A future edit to `.site-footer`'s own font or padding keeps this in step for
+  free -- `MainLayout.test.js` asserts the two stay equal -- rather than a bare pixel value copied
+  from one measurement, which would not.
 */
 .sidebar-footerbtns {
   flex-shrink: 0;
   border-top: 1px solid $hairline;
   color: $text-secondary;
+
+  .sidebar-footerbtns-spacer {
+    flex: 0 0 0;
+    width: 0;
+    overflow: hidden;
+    padding: 8px 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    visibility: hidden;
+  }
+
+  .w-btn {
+    // -> WBar's dense override used to force this down to 8px; the library's own un-dense default
+    //    (12.5px) is still smaller than a nav row's label, so it is stated explicitly here instead.
+    //    `min-height` is WBtn's own inline style (em-relative to ITS font-size), which would
+    //    otherwise outgrow the band this bar's height is built to match -- reset so the flex
+    //    stretch above is what actually sizes it.
+    min-height: auto !important;
+    font-size: 14px;
+  }
 }
 
 .body--dark .sidebar-footerbtns {
