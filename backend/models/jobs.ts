@@ -189,7 +189,7 @@ class Jobs {
    * Initialize jobs table
    */
   async init(): Promise<void> {
-    WIKI.logger.info('Inserting scheduled jobs...')
+    WIKI.logger.debug('config', 'seeding the scheduled jobs')
 
     await WIKI.db.insert(jobScheduleTable).values([...JOB_SCHEDULE_SEED])
 
@@ -387,9 +387,10 @@ class Jobs {
         .set({ result })
         .where(and(eq(jobHistoryTable.id, id), eq(jobHistoryTable.attempt, context.attempt)))
       if ((updated.rowCount ?? 0) < 1) {
-        WIKI.logger.warn(
-          `Dropped a stale setResult() for job ${id} (attempt ${context.attempt}): a later attempt has already superseded it.`
-        )
+        WIKI.logger.warn('jobs', 'dropped a stale result, a later attempt has superseded it', {
+          job: id,
+          attempt: context.attempt
+        })
       }
       return
     }

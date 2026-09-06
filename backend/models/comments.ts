@@ -314,9 +314,10 @@ class Comments {
       )
     const purged = result.rowCount ?? 0
     if (purged > 0) {
-      WIKI.logger.info(
-        `Purged guest PII from ${purged} comment(s) older than ${retentionDays} day(s) [ OK ]`
-      )
+      WIKI.logger.info('pages', 'purged guest PII from old comments', {
+        comments: purged,
+        retentionDays
+      })
     }
     return purged
   }

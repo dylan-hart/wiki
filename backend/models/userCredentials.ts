@@ -528,7 +528,7 @@ class UserCredentials {
     strategyId: string,
     siteId?: string
   ): Promise<{ secret: string; tfaQRImage: string }> {
-    WIKI.logger.debug(`Generating a new 2FA secret for user ${user.id}...`)
+    WIKI.logger.debug('auth', 'generating a new 2FA secret', { user: user.id })
 
     // -> The title is only a label in the user's authenticator app, so any site will do when the one
     //    being logged into cannot be resolved
@@ -775,7 +775,7 @@ class UserCredentials {
     kind: string
     meta?: Record<string, any>
   }): Promise<string> {
-    WIKI.logger.debug(`Generating ${kind} token for user ${userId}...`)
+    WIKI.logger.debug('auth', 'generating a token', { kind, user: userId })
     const token = await nanoid()
     await WIKI.db.insert(userKeys).values({
       kind,

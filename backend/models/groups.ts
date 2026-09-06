@@ -248,7 +248,7 @@ class Groups extends ClusterReloaded {
     //    them here (rather than leaving them to accumulate) is what makes an edited pattern get
     //    recompiled promptly instead of the cache growing across every group edit an instance sees.
     clearPageRuleRegexCache()
-    WIKI.logger.info(`Loaded page rules for ${rows.length} groups [ OK ]`)
+    WIKI.logger.debug('config', 'reloaded the group page rules', { groups: rows.length })
   }
 
   /**
@@ -614,7 +614,7 @@ class Groups extends ClusterReloaded {
   }
 
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.info('Inserting default groups...')
+    WIKI.logger.debug('config', 'seeding the default groups')
 
     await WIKI.db.insert(groupsTable).values([
       {
@@ -858,9 +858,9 @@ class Groups extends ClusterReloaded {
       return { ...rule, roles }
     })
     if (dropped > 0) {
-      WIKI.logger.warn(
-        `Dropped ${dropped} permission(s) from the guests group that may not be granted to it.`
-      )
+      WIKI.logger.warn('auth', 'dropped permissions that may not be granted to the guests group', {
+        dropped
+      })
     }
     return { ...patch, rules }
   }

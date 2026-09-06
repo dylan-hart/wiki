@@ -78,9 +78,10 @@ class Replication {
           tz: 'UTC'
         }).next()
       } catch (err: any) {
-        WIKI.logger.warn(
-          `Replication schedule has an unparseable cron expression "${cfg.cronSchedule}", skipping: ${err.message}`
-        )
+        WIKI.logger.warn('jobs', 'unparseable replication cron expression, skipping', {
+          schedule: cfg.cronSchedule,
+          error: err
+        })
         return 0
       }
       if (next.getTime() > now.epochMilliseconds) {
@@ -119,15 +120,13 @@ class Replication {
   async pull(): Promise<void> {
     const cfg = WIKI.config.replication
     if (!cfg?.isEnabled) {
-      WIKI.logger.info('Replication pull skipped: replication is disabled.')
+      WIKI.logger.debug('jobs', 'replication pull skipped, replication is disabled')
       return
     }
     if (!cfg.sourceUrl || !cfg.bearerToken) {
-      WIKI.logger.warn('Replication pull skipped: source URL or token is not configured.')
+      WIKI.logger.warn('jobs', 'replication pull skipped, no source URL or token configured')
       return
     }
-
-    WIKI.logger.info(`Replication pull starting from ${cfg.sourceUrl}...`)
 
     const filePath = await this.downloadSnapshot(cfg.sourceUrl, cfg.bearerToken)
     try {
@@ -135,7 +134,7 @@ class Replication {
       // -> Only reached once the restore itself has actually succeeded (OpenProject #2517) -- a
       //    failed/partial import never reloads caches or queues a reindex as though it had landed.
       await this.runPostImportSideEffects()
-      WIKI.logger.info('Replication pull: [ COMPLETED ]')
+      WIKI.logger.info('jobs', 'replication pull complete', { source: cfg.sourceUrl })
     } finally {
       await fs.rm(filePath, { force: true })
     }

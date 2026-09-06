@@ -271,8 +271,9 @@ describe('mail.send', () => {
     await assert.rejects(() =>
       mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
     )
-    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
-    assert.match(message, /\(connection failure\)/)
+    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.equal(scope, 'mail')
+    assert.equal(fields.kind, 'connection')
   })
 
   test('logs an auth-classified message when sendMail fails with EAUTH', async () => {
@@ -287,8 +288,9 @@ describe('mail.send', () => {
     await assert.rejects(() =>
       mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
     )
-    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
-    assert.match(message, /\(auth failure\)/)
+    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.equal(scope, 'mail')
+    assert.equal(fields.kind, 'auth')
   })
 
   test('logs a send-classified message when sendMail fails with an envelope/message code', async () => {
@@ -303,8 +305,9 @@ describe('mail.send', () => {
     await assert.rejects(() =>
       mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
     )
-    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
-    assert.match(message, /\(send failure\)/)
+    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.equal(scope, 'mail')
+    assert.equal(fields.kind, 'send')
   })
 
   test('logs a tls-classified message when sendMail fails with a certificate error', async () => {
@@ -319,8 +322,9 @@ describe('mail.send', () => {
     await assert.rejects(() =>
       mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
     )
-    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
-    assert.match(message, /\(tls failure\)/)
+    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.equal(scope, 'mail')
+    assert.equal(fields.kind, 'tls')
   })
 })
 

@@ -180,13 +180,17 @@ class CommentProviders {
         }
       })
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
-      WIKI.logger.info(`Found ${this.definitions.length} comment provider modules [ OK ]`)
+      WIKI.logger.debug('ext', 'loaded module definitions', {
+        kind: 'comments',
+        modules: this.definitions.length
+      })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.error(
-        `Could not read the comment provider module definitions at ${modulesPath} [ FAILED ]`
-      )
-      WIKI.logger.error(err.message)
+      WIKI.logger.error('ext', 'reading the module definitions failed', {
+        kind: 'comments',
+        path: modulesPath,
+        error: err
+      })
     }
   }
 
@@ -215,12 +219,11 @@ class CommentProviders {
 
   /** Register the installed comment provider modules for every site. Called at boot, after storage. */
   async syncAllSites(): Promise<void> {
-    WIKI.logger.info('Registering comment providers for all sites...')
     const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
     for (const site of sites) {
       await WIKI.models.commentProviders.syncSite(site.id)
     }
-    WIKI.logger.info(`Registered comment providers for ${sites.length} sites [ OK ]`)
+    WIKI.logger.info('ext', 'registered comment providers', { sites: sites.length })
   }
 
   /**

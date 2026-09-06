@@ -23,7 +23,7 @@ function installFakeWiki() {
   const insertedRows: any[] = []
   let selectCalls = 0
   ;(globalThis as any).WIKI = {
-    logger: { info: () => {}, warn: () => {} },
+    logger: { info: () => {}, warn: () => {}, debug: () => {} },
     events: createEventsStub(),
     db: {
       insert() {

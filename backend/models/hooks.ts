@@ -359,9 +359,12 @@ class Hooks {
           //    what happened to an attempted delivery (pending/success/error), and this delivery was
           //    never attempted. A warn line is the only trace of it, same as the queueing failure
           //    below.
-          WIKI.logger.warn(
-            `Webhook ${hook.id} is over its delivery rate limit (${verdict.hits}/${policy.max} in the current window); skipping delivery of ${event}.`
-          )
+          WIKI.logger.warn('hooks', 'webhook is over its delivery rate limit, skipping delivery', {
+            hook: hook.id,
+            event,
+            hits: verdict.hits,
+            max: policy.max
+          })
           continue
         }
         const { metadata, content, ...rest } = data
@@ -382,7 +385,7 @@ class Hooks {
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to queue webhook deliveries for ${event}: ${err.message}`)
+      WIKI.logger.warn('hooks', 'queueing the webhook deliveries failed', { event, error: err })
     }
 
     // -> Two further, independent fan-outs for the same event — see `notifyEmailSubscribers`'s and
@@ -427,7 +430,7 @@ class Hooks {
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to queue email notifications for ${event}: ${err.message}`)
+      WIKI.logger.warn('hooks', 'queueing the email notifications failed', { event, error: err })
     }
   }
 
@@ -462,9 +465,10 @@ class Hooks {
         payload: { event, data, subscriberIds }
       })
     } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to queue event-subscriber notifications for ${event}: ${err.message}`
-      )
+      WIKI.logger.warn('hooks', 'queueing the event-subscriber notifications failed', {
+        event,
+        error: err
+      })
     }
   }
 
@@ -491,7 +495,10 @@ class Hooks {
     const hook = await this.getHookById(hookId)
     if (!hook) {
       // -> Deleted between queueing and delivery; nothing to do and nothing to retry
-      WIKI.logger.info(`Webhook ${hookId} no longer exists, skipping delivery of ${event}.`)
+      WIKI.logger.debug('hooks', 'webhook no longer exists, skipping delivery', {
+        hook: hookId,
+        event
+      })
       return
     }
 
@@ -514,13 +521,17 @@ class Hooks {
         .update(hooksTable)
         .set({ state: 'success', lastErrorMessage: null })
         .where(eq(hooksTable.id, hook.id))
-      WIKI.logger.debug(`Delivered ${event} to webhook ${hook.name} [ OK ]`)
+      WIKI.logger.debug('hooks', 'delivered to webhook', { hook: hook.id, event })
     } catch (err: any) {
       await WIKI.db
         .update(hooksTable)
         .set({ state: 'error', lastErrorMessage: err.message })
         .where(eq(hooksTable.id, hook.id))
-      WIKI.logger.warn(`Failed to deliver ${event} to webhook ${hook.name}: ${err.message}`)
+      WIKI.logger.warn('hooks', 'delivering to the webhook failed', {
+        hook: hook.id,
+        event,
+        error: err
+      })
       // -> Rethrown so the job fails and the scheduler retries with its usual backoff
       throw err
     }

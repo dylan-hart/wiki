@@ -290,8 +290,7 @@ class AssetServing {
       await fs.writeFile(tempPath, data)
       await fs.rename(tempPath, filePath)
     } catch (err: any) {
-      WIKI.logger.warn(`Could not write ${filePath} to the file cache [ SKIPPED ]`)
-      WIKI.logger.warn(err.message)
+      WIKI.logger.warn('assets', 'writing to the file cache failed', { path: filePath, error: err })
       await fs.rm(tempPath, { force: true }).catch(() => {})
       return
     }
@@ -371,10 +370,9 @@ class AssetServing {
         total -= file.size
         removed++
       }
-      WIKI.logger.debug(`Trimmed ${removed} file(s) from the file cache [ OK ]`)
+      WIKI.logger.debug('assets', 'trimmed the file cache', { files: removed })
     } catch (err: any) {
-      WIKI.logger.warn('Could not sweep the file cache [ SKIPPED ]')
-      WIKI.logger.warn(err.message)
+      WIKI.logger.warn('assets', 'sweeping the file cache failed', { error: err })
     } finally {
       this.sweeping = false
     }
@@ -393,7 +391,7 @@ class AssetServing {
     this.writtenSinceSweep = 0
     await fs.rm(this.cachePath, { recursive: true, force: true })
     await fs.mkdir(this.cachePath, { recursive: true })
-    WIKI.logger.info('Purged the file cache [ OK ]')
+    WIKI.logger.info('assets', 'purged the file cache')
   }
 
   /** Where the disk cache lives. Derived data — deleting it costs a refill and nothing else. */

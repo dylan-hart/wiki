@@ -171,7 +171,7 @@ class MailModel {
    */
   getTransporter(): Mail<SMTPTransport.SentMessageInfo> {
     if (!this.isConfigured()) {
-      WIKI.logger.warn('Cannot send mail: no SMTP host is configured.')
+      WIKI.logger.warn('mail', 'cannot send, no SMTP host is configured')
       throw new Error('ERR_MAIL_NOT_CONFIGURED')
     }
     const options = this.buildTransportOptions()
@@ -206,7 +206,9 @@ class MailModel {
       })
     } catch (err: any) {
       const kind = classifyMailError(err)
-      WIKI.logger.warn(`Failed to send mail to ${to} (${kind} failure): ${err.message}`)
+      // -> The recipient is deliberately absent: an address is an identity, and the send site's own
+      //    context is what says whose mail this was.
+      WIKI.logger.warn('mail', 'sending failed', { kind, error: err })
       throw err
     }
   }

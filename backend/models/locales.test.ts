@@ -28,11 +28,12 @@ import { ensureTemporal } from '../test/temporal.ts'
 await ensureTemporal()
 
 /**
- * `refreshFromDisk` (see `locales.ts`) logs a `[ SKIPPED ]` warning at boot for every language
- * declared in `locales/metadata.js` that has no matching `backend/locales/<code>.json` file on
- * disk. This is a pure, no-`WIKI`, no-database check of that exact invariant: every declared
- * language resolves to a real file. It is what "a fresh boot produces zero [ SKIPPED ] locale
- * warnings" (task 690's stated done-condition) reduces to, without needing to actually boot.
+ * `refreshFromDisk` (see `locales.ts`) warns at boot -- `locale  declared in the metadata file but
+ * not found on disk` -- naming every language declared in `locales/metadata.js` that has no matching
+ * `backend/locales/<code>.json` file on disk. This is a pure, no-`WIKI`, no-database check of that
+ * exact invariant: every declared language resolves to a real file. It is what "a fresh boot
+ * produces zero skipped-locale warnings" (task 690's stated done-condition) reduces to, without
+ * needing to actually boot.
  */
 describe('locales metadata <-> vendored files', () => {
   const localesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../locales')

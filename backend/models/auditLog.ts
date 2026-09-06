@@ -225,7 +225,7 @@ class AuditLog {
         siteId
       })
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to record audit log entry for ${event}: ${err.message}`)
+      WIKI.logger.warn('audit', 'recording the audit log entry failed', { event, error: err })
     }
   }
 
@@ -258,7 +258,10 @@ class AuditLog {
         }))
       )
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to record ${entries.length} audit log entr(ies): ${err.message}`)
+      WIKI.logger.warn('audit', 'recording the audit log entries failed', {
+        entries: entries.length,
+        error: err
+      })
     }
   }
 
@@ -360,9 +363,15 @@ class AuditLog {
     )
     const result = await WIKI.db.delete(auditLogTable).where(lte(auditLogTable.createdAt, cutoff))
     const purged = result.rowCount ?? 0
-    WIKI.logger.info(
-      `Purged ${purged} audit log entr(ies) older than ${retentionDays} day(s) [ OK ]`
-    )
+    // -> Silent at `info` when there was nothing to purge; this runs from a scheduled job.
+    if (purged > 0) {
+      WIKI.logger.info('audit', 'purged old audit log entries', {
+        entries: purged,
+        retentionDays
+      })
+    } else {
+      WIKI.logger.debug('audit', 'no audit log entries to purge', { retentionDays })
+    }
     // OpenProject #2237: record the purge itself, so a shortened retention window at least leaves a
     // trail of what it did (actor is nobody -- this runs from the `cleanAuditLog` job, not a
     // request). Necessary but not sufficient on its own: this entry lives in the same table it just

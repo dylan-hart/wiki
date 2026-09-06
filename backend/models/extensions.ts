@@ -194,11 +194,15 @@ class Extensions {
       // -> No `parseProps`: an extension declares how to detect and install itself, not a config form
       const definitions = await readModuleDefinitions<ExtensionDefinition>(extensionsPath)
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
-      WIKI.logger.info(`Found ${this.definitions.length} extensions [ OK ]`)
+      WIKI.logger.debug('ext', 'loaded extension definitions', {
+        extensions: this.definitions.length
+      })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.warn(`Could not read the extension definitions at ${extensionsPath} [ SKIPPED ]`)
-      WIKI.logger.warn(err.message)
+      WIKI.logger.warn('ext', 'reading the extension definitions failed', {
+        path: extensionsPath,
+        error: err
+      })
     }
   }
 
@@ -245,7 +249,7 @@ class Extensions {
       case 'module':
         return moduleExists(definition.detect.value)
       default:
-        WIKI.logger.warn(`Extension ${definition.key} has no usable detection method.`)
+        WIKI.logger.warn('ext', 'no usable detection method', { extension: definition.key })
         return false
     }
   }
@@ -335,7 +339,6 @@ class Extensions {
     const specifier = definition.detect.value
     const request = installRequest(definition)
 
-    WIKI.logger.info(`Installing extension ${definition.key} (npm package ${request})...`)
     try {
       const { stdout } = await execFileAsync(
         process.platform === 'win32' ? 'npm.cmd' : 'npm',
@@ -349,12 +352,20 @@ class Extensions {
           shell: process.platform === 'win32'
         }
       )
-      WIKI.logger.debug(stdout.trim())
+      WIKI.logger.debug('ext', 'npm output', {
+        extension: definition.key,
+        package: request,
+        output: stdout.trim()
+      })
     } catch (err: any) {
       // -> npm says what went wrong on stderr, and the tail of it is the part worth passing on
       const detail: string = (err.stderr || err.stdout || err.message || '').toString().trim()
-      WIKI.logger.warn(`Failed to install extension ${definition.key}:`)
-      WIKI.logger.warn(detail || err)
+      WIKI.logger.warn('ext', 'installing the extension failed', {
+        extension: definition.key,
+        package: request,
+        ...(detail ? { detail } : {}),
+        error: err
+      })
       throw new Error(
         `npm could not install ${request}: ${detail.slice(-installErrorLength) || 'no output'}`
       )
@@ -365,7 +376,10 @@ class Extensions {
         `npm reported success but ${specifier} is still not present in node_modules. Check the server logs.`
       )
     }
-    WIKI.logger.info(`Extension ${definition.key} is installed. [ OK ]`)
+    WIKI.logger.info('ext', 'installed extension', {
+      extension: definition.key,
+      package: request
+    })
   }
 
   /**
@@ -395,17 +409,25 @@ class Extensions {
    * Log which extensions were found, the way the other module types report at boot
    */
   async logState(): Promise<void> {
+    const installed: string[] = []
+    const missing: string[] = []
+    const incompatible: string[] = []
     for (const extension of await this.getExtensions()) {
       if (!extension.isCompatible) {
-        WIKI.logger.info(
-          `Extension ${extension.key} is not compatible with this system. [ SKIPPED ]`
-        )
+        incompatible.push(extension.key)
       } else if (extension.isInstalled) {
-        WIKI.logger.info(`Extension ${extension.key} is installed. [ OK ]`)
+        installed.push(extension.key)
       } else {
-        WIKI.logger.info(`Extension ${extension.key} was not found on this system. [ SKIPPED ]`)
+        missing.push(extension.key)
       }
     }
+    // -> One line for the whole set rather than one per extension: which extensions are present is a
+    //    single fact about the instance, and the keys are what an operator reads it for.
+    WIKI.logger.info('ext', 'extensions detected', {
+      installed: installed.join(', ') || 'none',
+      missing: missing.join(', ') || 'none',
+      incompatible: incompatible.join(', ') || 'none'
+    })
   }
 }
 

@@ -426,7 +426,9 @@ class PageHistory {
       const rows = await WIKI.db.select().from(pagesTable).where(eq(pagesTable.id, pageId)).limit(1)
       const page = rows[0]
       if (!page) {
-        WIKI.logger.warn(`Cannot record page history for ${pageId}: the page is not there.`)
+        WIKI.logger.warn('pages', 'cannot record page history, the page is not there', {
+          page: pageId
+        })
         return null
       }
 
@@ -464,7 +466,7 @@ class PageHistory {
 
       return inserted[0]?.id ?? null
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to record page history for ${pageId}: ${err.message}`)
+      WIKI.logger.warn('pages', 'recording the page history failed', { page: pageId, error: err })
       return null
     }
   }
@@ -975,7 +977,16 @@ class PageHistory {
       //    a closed list, but a raw fragment built from a request is a habit worth not having
       .where(lt(pageHistoryTable.versionDate, sql`now() - ${interval}::interval`))
     const purged = result.rowCount ?? 0
-    WIKI.logger.info(`Purged ${purged} page version(s) older than ${interval} [ OK ]`)
+    // -> Silent at `info` when there was nothing to purge: this runs on a schedule, and a line an
+    //    operator reads every day saying `0` is what trains them to stop reading the log.
+    if (purged > 0) {
+      WIKI.logger.info('pages', 'purged old page versions', {
+        versions: purged,
+        olderThan: interval
+      })
+    } else {
+      WIKI.logger.debug('pages', 'no page versions to purge', { olderThan: interval })
+    }
     return purged
   }
 

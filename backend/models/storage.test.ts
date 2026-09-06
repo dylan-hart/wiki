@@ -848,7 +848,7 @@ function makeDiskRow(
  * the same order `sites` lists them.
  */
 function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
-  const warnings: string[] = []
+  const warnings: { message: string; fields?: Record<string, any> }[] = []
   let call = 0
   global.WIKI = {
     ...global.WIKI,
@@ -864,7 +864,11 @@ function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
         }
       })
     },
-    logger: { ...global.WIKI.logger, warn: (msg: string) => warnings.push(msg) }
+    logger: {
+      ...global.WIKI.logger,
+      warn: (_scope: string, message: string, fields?: Record<string, any>) =>
+        warnings.push({ message, fields })
+    }
   } as unknown as WikiGlobal
   return { warnings }
 }
@@ -1045,5 +1049,6 @@ test('runDailyBackups logs and continues past a target whose dailyBackup throws,
   )
   assert.deepEqual(calls.sort(), ['site-1', 'site-2'])
   assert.equal(warnings.length, 1)
-  assert.match(warnings[0], /disk full/)
+  assert.equal(warnings[0]!.fields?.site, 'site-1')
+  assert.match(warnings[0]!.fields?.error?.message ?? '', /disk full/)
 })
