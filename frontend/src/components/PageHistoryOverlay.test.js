@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 /*
@@ -44,6 +44,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { buildTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
+import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
  * Regression coverage for task 516: `branchFrom`'s destination locale, and the three failure shapes
@@ -83,7 +84,13 @@ function mockGetEndpoints() {
   })
 }
 
-async function mountOverlay({ mockEndpoints = mockGetEndpoints, overlayOpts } = {}) {
+/*
+  `messages` is left undefined by default on purpose: with no catalogue the test i18n renders each
+  key as its own path, which is what almost every assertion below matches on. The one caller that
+  passes it is the real-layout describe, where a label's WIDTH is part of what is being measured and
+  `history.versionLabelA` is nothing like the "A" the app actually draws.
+*/
+async function mountOverlay({ mockEndpoints = mockGetEndpoints, overlayOpts, messages } = {}) {
   mockEndpoints()
 
   const router = buildTestRouter(['/:pathMatch(.*)*'])
@@ -91,6 +98,7 @@ async function mountOverlay({ mockEndpoints = mockGetEndpoints, overlayOpts } = 
   const { wrapper } = mountWithApp(PageHistoryOverlay, {
     attachTo: document.body,
     router,
+    ...(messages ? { messages } : {}),
     ...(overlayOpts ? { props: { overlayOpts } } : {}),
     stores: {
       page: (store) => {
@@ -534,3 +542,324 @@ describe('PageHistoryOverlay: the header band (OpenProject #2637)', () => {
     }
   })
 })
+
+/**
+ * OpenProject #2622 -- item 3 of `docs/cardinal-reskin-second-pass.md`'s "Still to do" list: the
+ * timeline entry's own layout, against `ui-redesign/Cardinal Wiki - History 3x.dc.html`.
+ *
+ * The design draws one entry as a 28px round action dot, a text column and the A/B cursors on one
+ * row, with the reason and the changed-fields list wrapped onto a row of their own beneath them,
+ * indented to start under the text column rather than under the dot. What each of the three dot
+ * kinds is filled with, and which ink its glyph takes, come from the same file.
+ */
+const TIMELINE_VERSIONS = [
+  {
+    ...VERSION,
+    id: 'v3',
+    action: 'updated',
+    versionDate: '2024-03-03T16:12:00.000Z',
+    reason: 'Added the health gate flag to the rollout command.',
+    changedFields: ['content', 'description']
+  },
+  {
+    ...VERSION,
+    id: 'v2',
+    action: 'moved',
+    versionDate: '2024-02-02T11:02:00.000Z',
+    path: 'docs/ingest/workers'
+  },
+  { ...VERSION, id: 'v1', action: 'created', versionDate: '2024-01-01T09:15:00.000Z' }
+]
+
+/*
+  `backend/locales/en.json`'s own values for every string the timeline entry draws. A measurement is
+  only worth taking against what the app actually renders: "A" and "B" are 24px plates, where the
+  bare `history.versionLabelA` key the test i18n falls back to is a 155px one, wide enough to push
+  the whole A/B column onto a row of its own.
+*/
+const TIMELINE_MESSAGES = {
+  'history.action.created': 'Created',
+  'history.action.moved': 'Moved',
+  'history.action.updated': 'Updated',
+  'history.changedFields': 'Changed: {fields}',
+  'history.current': 'Current',
+  'history.loadMore': 'Load older versions',
+  'history.unknownAuthor': 'Unknown',
+  'history.versionActions': 'Version Actions',
+  'history.versionLabelA': 'A',
+  'history.versionLabelB': 'B',
+  'history.viaMcp': 'via MCP'
+}
+
+function mockTimelineEndpoints() {
+  globalThis.API_CLIENT.get.mockImplementation((url) => {
+    if (String(url).endsWith('/history')) {
+      return { json: () => Promise.resolve({ items: TIMELINE_VERSIONS, nextCursor: null }) }
+    }
+    if (String(url).includes('/history/')) {
+      return { json: () => Promise.resolve(FULL_VERSION) }
+    }
+    return { json: () => Promise.resolve({ id: 'page-1' }) }
+  })
+}
+
+describe('PageHistoryOverlay timeline entry: structure', () => {
+  it('gives each dot the components own action class rather than a background utility', async () => {
+    const { wrapper } = await mountOverlay({ mockEndpoints: mockTimelineEndpoints })
+
+    const dots = wrapper.findAll('.page-history-dot')
+    expect(dots.map((dot) => dot.classes().join(' '))).toEqual([
+      'page-history-dot is-updated',
+      'page-history-dot is-moved',
+      'page-history-dot is-created'
+    ])
+  })
+
+  it('falls back to the unclassified dot for an action this build has no name for', async () => {
+    const { wrapper } = await mountOverlay({
+      mockEndpoints: () => {
+        globalThis.API_CLIENT.get.mockImplementation((url) => {
+          if (String(url).endsWith('/history')) {
+            return {
+              json: () =>
+                Promise.resolve({
+                  items: [{ ...VERSION, action: 'reticulated' }],
+                  nextCursor: null
+                })
+            }
+          }
+          return { json: () => Promise.resolve(FULL_VERSION) }
+        })
+      }
+    })
+
+    expect(wrapper.find('.page-history-dot').classes()).toContain('is-other')
+  })
+
+  /*
+    The wrapped row only wraps if it is a SIBLING of the dot, the text column and the A/B cursors --
+    a `flex: 0 0 100%` child nested inside the text column would just fill that column instead.
+  */
+  it('puts the reason/fields row on the entry itself, beside the dot rather than inside the text column', async () => {
+    await mountOverlay({ mockEndpoints: mockTimelineEndpoints })
+
+    const entry = document.body.querySelector('.page-history-item')
+    expect([...entry.children].map((el) => el.className)).toEqual([
+      'page-history-dot is-updated',
+      'page-history-body',
+      'page-history-pick',
+      'page-history-notes'
+    ])
+    expect(entry.querySelector('.page-history-body .page-history-notes')).toBeNull()
+  })
+
+  it('draws no reason/fields row on an entry that has neither', async () => {
+    await mountOverlay({ mockEndpoints: mockTimelineEndpoints })
+
+    const entries = document.body.querySelectorAll('.page-history-item')
+    expect(entries[0].querySelector('.page-history-notes')).not.toBeNull()
+    expect(entries[1].querySelector('.page-history-notes')).toBeNull()
+    expect(entries[2].querySelector('.page-history-notes')).toBeNull()
+  })
+
+  /*
+    The design sets the timestamp and the moved-to path in mono and the author's name in the
+    proportional face; all three used to be one `.page-history-meta` class, so the whole block came
+    out proportional. These classes are the hook the stylesheet hangs the two mono lines off.
+  */
+  it('marks the timestamp and the moved-to path as the entrys mono lines', async () => {
+    await mountOverlay({ mockEndpoints: mockTimelineEndpoints })
+
+    const entries = document.body.querySelectorAll('.page-history-item')
+    expect(entries[0].querySelector('.page-history-time')).not.toBeNull()
+    // -> Only a move has somewhere it went; an update and a create draw no path line at all
+    expect(entries[0].querySelector('.page-history-path')).toBeNull()
+    expect(entries[1].querySelector('.page-history-path').textContent.trim()).toBe(
+      '/docs/ingest/workers'
+    )
+  })
+
+  /*
+    Cardinal zeroes every radius but a genuinely round shape, and the design draws both of the
+    entry's markers as square mono plates. `WBadge`'s `rounded` prop is the pill.
+  */
+  it('draws the current and via-MCP markers as square plates, not pills', async () => {
+    await mountOverlay({
+      mockEndpoints: () => {
+        globalThis.API_CLIENT.get.mockImplementation((url) => {
+          if (String(url).endsWith('/history')) {
+            return {
+              json: () => Promise.resolve({ items: [{ ...VERSION, via: 'mcp' }], nextCursor: null })
+            }
+          }
+          return { json: () => Promise.resolve({ ...FULL_VERSION, via: 'mcp' }) }
+        })
+      }
+    })
+
+    const badges = [...document.body.querySelectorAll('.page-history-item .w-badge')]
+    expect(badges).toHaveLength(2)
+    for (const badge of badges) {
+      expect(badge.classList.contains('rounded-none')).toBe(true)
+      expect(badge.classList.contains('rounded-full')).toBe(false)
+    }
+  })
+})
+
+/*
+  Everything above is structure; none of it can answer whether the dot is actually 28px and round,
+  or whether the reason/fields row actually lands on a row of its own under the text column. Neither
+  `happy-dom` nor `jsdom` runs a layout engine -- every `getBoundingClientRect()` comes back zeroed
+  -- so a measurement claim needs a real browser, which is what `test/realGridLayout.js` is for.
+
+  The page is assembled from two stylesheets: `buildAppCss()` compiles the app's own
+  `src/css/tailwind.css` exactly as the production build does, and the SFC style blocks Vitest has
+  already compiled (`css: true`) and injected into this environment's `<head>` carry the component's
+  own SCSS -- including the dot rules, which is the half being measured. 380px is the timeline
+  drawer's real width (`<w-drawer :width="380">`).
+
+  The 30s suite timeout is the same allowance `ApiKeyCreateDialog.test.js` documents: the browser
+  launch and the Tailwind build are paid for while seven other files transform in parallel workers.
+*/
+describe(
+  'PageHistoryOverlay timeline entry — real layout',
+  { skip: !hasChromium(), timeout: 30000 },
+  () => {
+    let browser
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    /** Mounts the three-entry timeline, renders it at the drawer's real width and measures it. */
+    async function measureTimeline() {
+      await mountOverlay({ mockEndpoints: mockTimelineEndpoints, messages: TIMELINE_MESSAGES })
+
+      const timeline = document.body.querySelector('.page-history-timeline').outerHTML
+      const sfcCss = [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')
+      const appCss = await buildAppCss()
+
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          '<!doctype html><html><head>' +
+            `<style>${appCss}</style><style>${sfcCss}</style>` +
+            '</head><body style="margin:0;background:#171b24">' +
+            `<div style="width:380px">${timeline}</div>` +
+            '</body></html>'
+        )
+        return await page.evaluate(() => {
+          const rect = (el) => {
+            if (!el) {
+              return null
+            }
+            const r = el.getBoundingClientRect()
+            return {
+              top: Math.round(r.top),
+              left: Math.round(r.left),
+              right: Math.round(r.right),
+              bottom: Math.round(r.bottom),
+              width: Math.round(r.width),
+              height: Math.round(r.height)
+            }
+          }
+          const font = (el) => (el ? getComputedStyle(el).fontFamily : null)
+
+          return [...document.querySelectorAll('.page-history-item')].map((entry) => {
+            const dot = entry.querySelector('.page-history-dot')
+            const dotStyle = getComputedStyle(dot)
+            // -> [timestamp, author, path?] -- the first and last carry their own class as well
+            const metas = entry.querySelectorAll('.page-history-meta')
+            return {
+              entry: rect(entry),
+              dot: rect(dot),
+              dotRadius: dotStyle.borderTopLeftRadius,
+              dotFill: dotStyle.backgroundColor,
+              dotInk: dotStyle.color,
+              dotRing: dotStyle.boxShadow,
+              glyph: rect(dot.querySelector('.w-icon')),
+              body: rect(entry.querySelector('.page-history-body')),
+              pick: rect(entry.querySelector('.page-history-pick')),
+              reason: rect(entry.querySelector('.page-history-reason')),
+              fields: rect(entry.querySelector('.page-history-fields')),
+              timeFont: font(entry.querySelector('.page-history-time')),
+              authorFont: font(metas[1]),
+              pathFont: font(entry.querySelector('.page-history-path')),
+              fieldsFont: font(entry.querySelector('.page-history-fields'))
+            }
+          })
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    it('draws a 28px round action dot ringed in the timeline columns own ground', async () => {
+      const [updated] = await measureTimeline()
+
+      expect(updated.dot.width).toBe(28)
+      expect(updated.dot.height).toBe(28)
+      // -> `border-radius: 50%` of a 28px box; anything less is a rounded square, not a dot
+      expect(updated.dotRadius).toBe('50%')
+      // -> The design's 14px glyph, centred in the 28px plate
+      expect(updated.glyph.width).toBe(14)
+      expect(updated.glyph.height).toBe(14)
+      /*
+        $dark-4 (#171b24), the timeline column's ground -- NOT $dark-5 (#14171f), the diff pane's,
+        which is what this was and which drew a visible dark halo instead of hiding the line behind
+        the dot.
+      */
+      expect(updated.dotRing).toContain('rgb(23, 27, 36)')
+      expect(updated.dotRing).toContain('3px')
+    })
+
+    it('fills each dot with the designs own tone and the ink that clears it', async () => {
+      const [updated, moved, created] = await measureTimeline()
+
+      // -> #5f78a8 / #5f9c86: dark enough to carry the white glyph the design draws on them
+      expect(updated.dotFill).toBe('rgb(95, 120, 168)')
+      expect(updated.dotInk).toBe('rgb(255, 255, 255)')
+      expect(created.dotFill).toBe('rgb(95, 156, 134)')
+      expect(created.dotInk).toBe('rgb(255, 255, 255)')
+      // -> #d9a441 is a bright fill, so its glyph takes $ink (#1c2233) -- as the design draws it
+      expect(moved.dotFill).toBe('rgb(217, 164, 65)')
+      expect(moved.dotInk).toBe('rgb(28, 34, 51)')
+    })
+
+    it('wraps the reason and changed-fields onto a row of their own, indented under the text column', async () => {
+      const [updated] = await measureTimeline()
+
+      // -> The dot, the text column and the A/B cursors are one row: same top, in that order
+      expect(updated.body.top).toBe(updated.dot.top)
+      expect(updated.pick.top).toBe(updated.dot.top)
+      expect(updated.body.left).toBeGreaterThan(updated.dot.right)
+      expect(updated.pick.left).toBeGreaterThanOrEqual(updated.body.right)
+
+      // -> ...and the reason/fields are NOT: they start below the dot, on their own row
+      expect(updated.reason.top).toBeGreaterThanOrEqual(updated.dot.bottom)
+      expect(updated.fields.top).toBeGreaterThanOrEqual(updated.reason.bottom)
+
+      /*
+        Indented to start under the entry's text rather than under its dot -- the 40px the design
+        gives the row is exactly the dot plus the row gap, so the two edges line up rather than
+        merely landing close to one another.
+      */
+      expect(updated.reason.left).toBe(updated.body.left)
+      expect(updated.fields.left).toBe(updated.body.left)
+      expect(updated.reason.left - updated.entry.left).toBe(56) // 16px entry padding + 40px indent
+    })
+
+    it('sets the timestamp, the moved-to path and the changed fields in mono, and the author beside them in the proportional face', async () => {
+      const [updated, moved] = await measureTimeline()
+
+      expect(updated.timeFont).toContain('Roboto Mono')
+      expect(updated.fieldsFont).toContain('Roboto Mono')
+      expect(moved.pathFont).toContain('Roboto Mono')
+      expect(updated.authorFont).not.toContain('Roboto Mono')
+    })
+  }
+)
