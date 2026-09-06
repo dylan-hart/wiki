@@ -181,3 +181,34 @@ argument written down.
   this record for the quarantine rules. The two must agree; this file is the authority on the lane.
 - **Task #2692** owns the CI side: the lane runs as its own step, report-only everywhere including
   `release.yml`. A lane that blocks a release is a blocking lane with extra steps.
+
+## Where the lane runs (Task #2692, landed)
+
+Every lane step calls one script, `scripts/ci-quarantine-lane.sh <workspace>…`, which runs each
+named workspace's `npm run test:flaky`, writes a pass/fail table to the job summary and emits one
+`::error::` annotation per failed lane. The script exits non-zero on a red lane and every step sets
+`continue-on-error: true`: that pairing is what makes the step render with GitHub's
+failed-but-continued marker instead of a permanently green tick, without gating anything.
+
+| Workflow | Job | Lanes | Runs on |
+| --- | --- | --- | --- |
+| `quality.yml` | `quality` | `backend frontend blocks` | every PR, and every `scarlett` push via `build.yml`'s `quality` job |
+| `build.yml` | `build` | `e2e` | every `scarlett` push |
+| `release.yml` | `release` | `backend frontend blocks` | every `vX.Y.Z` tag |
+
+Two things a future lane member needs to know before landing:
+
+- **The `e2e/` lane runs on `scarlett` pushes only, not on pull requests.** It cannot live in
+  `quality.yml`: that workflow installs no `e2e/` dependencies, and `playwright.config.js` throws at
+  import time on an unset `DATABASE_URL` — which `playwright.flaky.config.js` inherits whether the
+  lane is empty or not. `build.yml`'s `build` job is the only place e2e's dependencies, browsers,
+  postgres service and a real `assets/` build coexist. It is deliberately not also wired into
+  `e2e.yml`, per #2692's spec. The moment a `*.flaky.spec.js` lands, that PR-side gap is the thing
+  to revisit.
+- **`release.yml`'s job has no postgres service.** Today's single lane member needs no database, so
+  the report is accurate there. A DB-backed lane member would make that step report red for a
+  missing `DATABASE_URL` rather than for its own reason — visible and report-only, not a blocked
+  release, but the point at which a service container gets added to that job.
+
+`backend/test/quarantineLaneCi.test.ts` asserts this table, the `continue-on-error` on each step,
+and that the script still emits the summary, the annotation and the non-zero exit.
