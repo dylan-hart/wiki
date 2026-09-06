@@ -23,7 +23,10 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
  * | 404 (has statusCode) | silent (answered as-is)               | logs, one argument      |
  * | 500 (unexpected)     | logs, plus `buildErrorLogContext(req)` | logs, one argument      |
  *
- * so this suite asserts on `WIKI.logger.warn`'s call count and arity per probe. Built with a bare
+ * so this suite asserts on `WIKI.logger.error`'s call count and arity per probe — at `error`, which
+ * is Bug #2650: both branches used to log a crashed request at `warn`, one level below what an
+ * operator alerts on, so a 500 was indistinguishable from a routine notice. `warn` is mocked
+ * alongside purely to assert it is NOT the level either branch reaches for. Built with a bare
  * `fastify()` rather than `test/fastify.ts#buildTestApp`: the harness installs the `/_api/` handler
  * DIRECTLY (every suite that uses it mounts one route plugin at `/`, where the dispatch would never
  * fire), and the dispatching wrapper is exactly what is under test.
@@ -31,11 +34,13 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 describe('registerErrorHandler', () => {
   let app: FastifyInstance
   let wikiHandle: { restore(): void }
+  let error: ReturnType<typeof mock.fn>
   let warn: ReturnType<typeof mock.fn>
 
   before(async () => {
+    error = mock.fn()
     warn = mock.fn()
-    wikiHandle = installTestWiki({ logger: { ...createSilentLogger(), warn } })
+    wikiHandle = installTestWiki({ logger: { ...createSilentLogger(), error, warn } })
 
     const throwingRoutes: FastifyPluginAsync = async (instance) => {
       // -> A deliberate `@fastify/sensible` error: it carries a `statusCode`, so both branches
@@ -65,6 +70,7 @@ describe('registerErrorHandler', () => {
   })
 
   beforeEach(() => {
+    error.mock.resetCalls()
     warn.mock.resetCalls()
   })
 
@@ -72,7 +78,7 @@ describe('registerErrorHandler', () => {
     const api = await app.inject({ method: 'GET', url: '/_api/deliberate' })
     assert.equal(api.statusCode, 404)
     assert.equal(
-      warn.mock.calls.length,
+      error.mock.calls.length,
       0,
       'the /_api/ branch answers a statusCode-carrying error without logging it'
     )
@@ -80,28 +86,32 @@ describe('registerErrorHandler', () => {
     const other = await app.inject({ method: 'GET', url: '/other/deliberate' })
     assert.equal(other.statusCode, 404)
     assert.equal(
-      warn.mock.calls.length,
+      error.mock.calls.length,
       1,
       'the non-API branch logs every error it answers, deliberate ones included'
     )
-    assert.equal(warn.mock.calls[0]!.arguments.length, 1)
+    assert.equal(error.mock.calls[0]!.arguments.length, 1)
+    assert.equal(warn.mock.calls.length, 0, 'neither branch logs at warn (#2650)')
   })
 
-  test('an unexpected throw is logged by both, but only /_api/ attaches a request log context', async () => {
+  test('an unexpected throw is logged at error by both, but only /_api/ attaches a request log context', async () => {
     const api = await app.inject({ method: 'GET', url: '/_api/boom' })
     assert.equal(api.statusCode, 500)
-    assert.equal(warn.mock.calls.length, 1)
-    const apiArgs = warn.mock.calls[0]!.arguments
+    assert.equal(error.mock.calls.length, 1)
+    const apiArgs = error.mock.calls[0]!.arguments
     assert.equal(apiArgs.length, 2, 'the /_api/ branch logs buildErrorLogContext(req) alongside it')
     // -> `req.id` is the same correlation id Fastify's own access log carries, which is the whole
     //    point of the second argument.
     assert.ok((apiArgs[1] as Record<string, unknown>).reqId)
 
-    warn.mock.resetCalls()
+    error.mock.resetCalls()
     const other = await app.inject({ method: 'GET', url: '/other/boom' })
     assert.equal(other.statusCode, 500)
-    assert.equal(warn.mock.calls.length, 1)
-    assert.equal(warn.mock.calls[0]!.arguments.length, 1)
+    assert.equal(error.mock.calls.length, 1)
+    assert.equal(error.mock.calls[0]!.arguments.length, 1)
+    // -> An unhandled exception is `error` on BOTH surfaces, never `warn` (#2650): an operator
+    //    alerting on `error` has to see a crashed request whichever handler answered it.
+    assert.equal(warn.mock.calls.length, 0)
   })
 
   test('both branches answer the documented bodies, and neither leaks the thrown message', async () => {
