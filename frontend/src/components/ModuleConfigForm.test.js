@@ -84,7 +84,7 @@ describe('ModuleConfigForm', () => {
     )
     const wrapper = mountForm(config)
     expect(wrapper.find('label').exists()).toBe(false)
-    expect(wrapper.find('div.w-item').exists()).toBe(true)
+    expect(wrapper.find('div.w-settings-row').exists()).toBe(true)
   })
 
   it('draws an editable boolean row as a label, so the whole row toggles it', () => {

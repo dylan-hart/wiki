@@ -65,59 +65,62 @@
         :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
         {{ t('admin.glossary.noTerms') }}
       </w-banner>
-      <w-card v-else>
-        <w-list separator>
-          <w-item v-for="term of state.terms" :key="term._key">
-            <blueprint-icon icon="tabler:quote" />
-            <w-item-section>
-              <w-item-label>
-                <strong>{{ term.term }}</strong>
-                <w-chip
-                  v-if="term.isAcronym"
-                  dense
-                  size="sm"
-                  class="ms-2"
-                  icon="tabler:square-letter-a">
-                  {{ t('admin.glossary.isAcronym') }}
-                </w-chip>
-              </w-item-label>
-              <div v-if="term.aliases?.length" class="flex flex-wrap gap-1 mt-1">
-                <w-chip
-                  v-for="alias of term.aliases"
-                  :key="alias.value"
-                  dense
-                  :icon="alias.isAcronym ? 'tabler:square-letter-a' : null">
-                  {{ alias.value }}
-                </w-chip>
-              </div>
-              <w-item-label v-if="term.path" caption>
-                <w-icon name="tabler:link" size="12px" class="me-1" />
-                /{{ term.path }}
-              </w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <span class="text-caption text-grey">{{ term.definition }}</span>
-            </w-item-section>
-            <w-separator class="ms-4" vertical />
-            <w-item-section side style="flex-direction: row; align-items: center">
-              <w-btn
-                class="acrylic-btn me-2"
-                flat
-                @click="editTerm(term)"
-                icon="tabler:pencil"
-                :color="dark.isActive ? `indigo-4` : `indigo`"
-                :label="t(`common.actions.edit`)" />
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="tabler:trash"
-                color="negative"
-                @click="deleteTerm(term)"
-                :aria-label="t(`common.actions.delete`)" />
-            </w-item-section>
-          </w-item>
-        </w-list>
-      </w-card>
+      <w-settings-card v-else :title="t('admin.glossary.title')">
+        <!--
+          The definition was a second `WItemSection` in the middle of the row. A settings row has one
+          text column, so it moves into the hint under the term it defines -- which is also the
+          reading order: term, what it means, then how else it is spelled.
+        -->
+        <w-settings-row
+          v-for="term of state.terms"
+          :key="term._key"
+          control-width="auto"
+          icon="tabler:quote">
+          <template #label>
+            <strong>{{ term.term }}</strong>
+            <w-chip
+              v-if="term.isAcronym"
+              dense
+              size="sm"
+              class="ms-2"
+              icon="tabler:square-letter-a">
+              {{ t('admin.glossary.isAcronym') }}
+            </w-chip>
+          </template>
+          <template #hint>
+            <div>{{ term.definition }}</div>
+            <div v-if="term.aliases?.length" class="flex flex-wrap gap-1 mt-1">
+              <w-chip
+                v-for="alias of term.aliases"
+                :key="alias.value"
+                dense
+                :icon="alias.isAcronym ? 'tabler:square-letter-a' : null">
+                {{ alias.value }}
+              </w-chip>
+            </div>
+            <div v-if="term.path">
+              <w-icon name="tabler:link" size="12px" class="me-1" />
+              /{{ term.path }}
+            </div>
+          </template>
+          <div class="flex items-center gap-2">
+            <w-btn
+              class="acrylic-btn"
+              flat
+              @click="editTerm(term)"
+              icon="tabler:pencil"
+              :color="dark.isActive ? `indigo-4` : `indigo`"
+              :label="t(`common.actions.edit`)" />
+            <w-btn
+              class="acrylic-btn"
+              flat
+              icon="tabler:trash"
+              color="negative"
+              @click="deleteTerm(term)"
+              :aria-label="t(`common.actions.delete`)" />
+          </div>
+        </w-settings-row>
+      </w-settings-card>
     </div>
     <w-inner-loading :showing="state.loading > 0" />
   </w-page>

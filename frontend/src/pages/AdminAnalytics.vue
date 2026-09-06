@@ -70,29 +70,22 @@
       </div>
       <!-- -> `min-w-0`, or a long value inside a field would push the panel wider than the row -->
       <div class="min-w-0 flex-1" v-if="provider">
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.analytics.info') }}</w-card-header>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:power" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.analytics.enabled`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.analytics.enabledHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle v-model="provider.isEnabled" :aria-label="t(`admin.analytics.enabled`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.analytics.info')">
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:power"
+            :label="t(`admin.analytics.enabled`)"
+            :hint="t(`admin.analytics.enabledHint`)">
+            <w-toggle v-model="provider.isEnabled" :aria-label="t(`admin.analytics.enabled`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Configuration -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.analytics.providerConfiguration') }}</w-card-header>
-          <w-card-section>
-            <w-banner
-              class="mt-4"
-              v-if="!provider.config || Object.keys(provider.config).length < 1"
-              :class="dark.isActive ? `bg-dark-4 text-grey-5` : `bg-grey-2 text-grey-7`">
+        <w-settings-card class="mt-4" :title="t('admin.analytics.providerConfiguration')">
+          <w-card-section v-if="!provider.config || Object.keys(provider.config).length < 1">
+            <w-banner :class="dark.isActive ? `bg-dark-4 text-grey-5` : `bg-grey-2 text-grey-7`">
               <em>{{ t('admin.analytics.providerNoConfiguration') }}</em>
             </w-banner>
           </w-card-section>
@@ -104,7 +97,7 @@
             `buildConfigPayload()` in `save()` below reads back.
           -->
           <module-config-form v-if="provider.config" :config="provider.config" />
-        </w-card>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Infobox -->
         <!-- ----------------------- -->
