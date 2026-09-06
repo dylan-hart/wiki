@@ -157,7 +157,8 @@ export class BlockIncludeElement extends LitElement {
       try {
         await import(/* @vite-ignore */ await getBlockImportUrl(tag))
       } catch (err) {
-        console.warn(`Failed to load ${tag}: ${err.message}`)
+        // oxlint-disable-next-line no-console -- a nested block that will not load leaves nothing on the page to explain itself
+        console.warn(`block-include: ${tag} could not be loaded — ${err?.message ?? err}`)
       }
     }
   }

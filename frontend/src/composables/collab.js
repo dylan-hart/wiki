@@ -6,6 +6,7 @@ import * as Y from 'yjs'
 import { i18n } from '@/boot/i18n'
 import { confirm } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { log } from '@/helpers/log'
 import { useCollabStore } from '@/stores/collab'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -485,7 +486,7 @@ async function offerDraftRestore({ siteId, pageId }) {
         applyRestoredDraft(restored)
         notify({ type: 'positive', message: t('editor.collab.draftRecovery.restored') })
       } catch (err) {
-        console.warn(err)
+        log.warn('collab', 'could not restore the recovered draft', err)
         notify({ type: 'negative', message: t('editor.collab.draftRecovery.restoreFailed') })
       }
     })
@@ -494,7 +495,7 @@ async function offerDraftRestore({ siteId, pageId }) {
         await API_CLIENT.delete(`sites/${siteId}/pages/${pageId}/draft`)
       } catch (err) {
         // -> Best-effort: worst case, the same draft is offered again next time this page is opened.
-        console.warn(err)
+        log.warn('collab', 'could not discard the recovered draft', err)
       }
     })
 }
@@ -518,7 +519,7 @@ export async function claimWysiwygSeed({ siteId, pageId }) {
     ).json()
     return granted
   } catch (err) {
-    console.warn(err)
+    log.warn('collab', 'could not claim the WYSIWYG seed; seeding anyway', err)
     return true
   }
 }

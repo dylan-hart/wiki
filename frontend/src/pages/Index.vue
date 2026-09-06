@@ -464,6 +464,7 @@ import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { pickEditor } from '@/helpers/editorPicker'
 import { initials } from '@/helpers/initials'
+import { log } from '@/helpers/log'
 import {
   applyKeywordHighlight,
   clearKeywordHighlight,
@@ -943,7 +944,7 @@ watch(
         request is refused for entirely ordinary reasons (a page they may not read, a page still
         behind its password) that the view already says out loud elsewhere.
       */
-      console.warn(err)
+      log.warn('page', 'could not load the page watchers', err)
     }
   },
   { immediate: true }

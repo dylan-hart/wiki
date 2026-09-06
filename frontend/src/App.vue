@@ -18,6 +18,7 @@ import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss, replaceHeadStyle } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
+import { log } from '@/helpers/log'
 import { parseLocalePrefix, resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { useDark } from '@/composables/dark'
@@ -235,7 +236,7 @@ async function applyLocale(locale) {
           i18n.setLocaleMessage('en', strings)
         })
         .catch((err) => {
-          console.warn('Failed to load en fallback locale strings.', err)
+          log.warn('locale', 'could not load the en fallback locale strings', err)
         })
     }
   })()
@@ -326,7 +327,7 @@ async function applyCodeBlocksTheme() {
   const load = HLJS_THEMES[`../node_modules/highlight.js/styles/${desiredHljsTheme}.min.css`]
   if (!load) {
     // -> A name the admin area offers that highlight.js does not ship; the fallback palette stands in
-    console.warn(`Unknown code blocks theme: ${desiredHljsTheme}`)
+    log.warn('site', `highlight.js does not ship the ${desiredHljsTheme} code blocks theme`)
     return
   }
 
@@ -371,7 +372,7 @@ async function loadBootstrap() {
     userStore.applyProfile(data.user)
     return null
   } catch (err) {
-    console.warn(`Could not load the site configuration: ${err.message}`)
+    log.warn('site', 'could not load the site configuration', err)
     flagsStore.apply({})
     userStore.applyProfile()
     return err
@@ -519,7 +520,7 @@ router.beforeEach(async (to, from) => {
     hasPrefetchedMarkdownSettings = true
     if (userStore.authenticated) {
       editorStore.fetchUserSettings('markdown').catch((err) => {
-        console.warn(`Could not prefetch Markdown editor settings: ${err.message}`)
+        log.warn('editor', 'could not prefetch the Markdown editor settings', err)
       })
     }
   }

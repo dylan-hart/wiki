@@ -375,6 +375,7 @@ import {
   resolveInitialPreviewWidth
 } from '@/helpers/editorUserSettings'
 import { htmlToMarkdown } from '@/helpers/htmlToMarkdown'
+import { log } from '@/helpers/log'
 import {
   blockOpeningLine,
   blockValues,
@@ -920,7 +921,7 @@ async function loadSiteBlocks() {
       that flatters the page, against hiding blocks the site really does have. The lens is the other
       way round — with no definitions to build a form from, it simply does not appear.
     */
-    console.warn(`Could not read which blocks this site has enabled: ${err.message}`)
+    log.warn('editor', 'could not read which blocks this site has enabled', err)
   }
 }
 
@@ -988,7 +989,7 @@ function processContent(newContent) {
     //    sits in -- and it is being edited, so it is whatever the path field says right now
     html = md.render(newContent, { pagePath: pageStore.path })
   } catch (err) {
-    console.error(err)
+    log.error('editor', 'could not render the Markdown preview', err)
     notify({
       type: 'negative',
       message: t('editor.renderFailed'),
@@ -1338,7 +1339,7 @@ onMounted(async () => {
     editorStore.userSettings.markdown !== undefined
       ? Promise.resolve(editorStore.userSettings.markdown)
       : editorStore.fetchUserSettings('markdown').catch((err) => {
-          console.warn(`Could not read Markdown editor settings: ${err.message}`)
+          log.warn('editor', 'could not read the Markdown editor settings', err)
           return {}
         })
 

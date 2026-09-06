@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { i18n } from '@/boot/i18n'
+import { log } from '@/helpers/log'
 
 export const useFlagsStore = defineStore('flags', {
   state: () => ({
@@ -21,7 +22,7 @@ export const useFlagsStore = defineStore('flags', {
         }
         this.apply(systemFlags)
       } catch (err) {
-        console.warn(err.message)
+        log.warn('flags', 'could not load the system flags', err)
         throw err
       }
     },

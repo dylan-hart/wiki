@@ -690,6 +690,7 @@ export class BlockPdfElement extends LitElement {
     } catch (err) {
       // -> A cancelled draw is the ordinary way a page in flight is abandoned, not a failure
       if (!(err instanceof RenderingCancelledException) && err?.name !== 'AbortException') {
+        // oxlint-disable-next-line no-console -- one unrenderable page out of many is skipped silently on the page itself
         console.warn(`block-pdf: page ${entry.num} could not be drawn — ${err?.message ?? err}`)
       }
       entry.renderTask = null

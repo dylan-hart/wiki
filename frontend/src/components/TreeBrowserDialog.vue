@@ -173,6 +173,7 @@ import Tree from '@/components/TreeNav.vue'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
 import { fetchTreeEntries, mergeFolderEntries } from '@/helpers/treeNodes'
 import { normalizePagePath } from '@/helpers/pagePaths'
 
@@ -409,7 +410,7 @@ async function fetchTranslationsCount() {
     //    cannot even list them almost certainly cannot cascade to them either, and the checkbox
     //    staying hidden is a safe, silent fallback -- the plain move/rename this dialog already
     //    offers is unaffected either way.
-    console.warn(err)
+    log.warn('page', "could not count this page's translations", err)
   }
 }
 

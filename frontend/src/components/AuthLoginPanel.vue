@@ -342,6 +342,7 @@ import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { emailRules, passwordRules, passwordVerifyRules } from '@/helpers/authValidation'
 import { localizeError } from '@/helpers/localization'
+import { log } from '@/helpers/log'
 import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 
 import { useSiteStore } from '@/stores/site'
@@ -612,7 +613,7 @@ async function login() {
       throw new Error(resp.message || 'ERR_LOGIN_FAILED')
     }
   } catch (err) {
-    console.warn(err)
+    log.warn('auth', 'could not sign in', err)
     loading.hide()
     notify({
       type: 'negative',

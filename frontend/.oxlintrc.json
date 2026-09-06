@@ -24,6 +24,11 @@
     // allow debugger during development only
     "no-debugger": "error",
 
+    // Everything that writes to the console goes through `src/helpers/log.js`, which carries the one
+    // file-level disable: one prefix, one set of levels, and warnings that stay off a production
+    // reader's console unless the site's `experimental` flag is on. See OpenProject #2682.
+    "no-console": "error",
+
     // These are valid rule names but currently inert: the `import` plugin is not enabled above.
     // Turning it on reports a false positive for every Vite `?worker` import in boot/monaco.js,
     // because the plugin resolves the specifier literally and does not know Vite rewrites those
@@ -35,5 +40,17 @@
     "import/default": "error",
     "import/export": "error",
     "import/extensions": "off"
-  }
+  },
+  "overrides": [
+    {
+      // `scripts/` is not the app -- these are build-time CLIs (`npm run icons`, `npm run
+      // check-locales`, ...) whose console output IS their user interface, and there is no browser
+      // console to keep clean or `helpers/log.js` to route through. `no-console` is about
+      // `src/**` only.
+      "files": ["scripts/**"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }

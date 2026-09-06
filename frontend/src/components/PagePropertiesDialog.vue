@@ -320,6 +320,7 @@ import { useAdminStore } from '@/stores/admin'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+import { log } from '@/helpers/log'
 
 import IconPickerDialog from './IconPickerDialog.vue'
 import PageRelationDialog from './PageRelationDialog.vue'
@@ -490,7 +491,7 @@ onMounted(async () => {
   try {
     await adminStore.fetchClassificationLevels()
   } catch (err) {
-    console.warn('Failed to load classification levels.', err)
+    log.warn('page', 'could not load the classification levels', err)
   }
 })
 </script>

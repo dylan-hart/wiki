@@ -245,6 +245,7 @@ import HeaderNav from '@/components/HeaderNav.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 
 /** How many results one page of search results holds. The API caps a single request at 100. */
@@ -513,7 +514,7 @@ onMounted(async () => {
     try {
       await siteStore.fetchTags()
     } catch (err) {
-      console.warn(err)
+      log.warn('search', 'could not load the tag filter list', err)
     }
   }
 })

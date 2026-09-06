@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 
 import { sortBy } from 'es-toolkit/array'
 
+import { log } from '@/helpers/log'
+
 /**
  * Turn the site's active locale CODES into the descriptors the UI reads.
  *
@@ -276,7 +278,7 @@ export const useSiteStore = defineStore('site', {
         }
         this.applySiteInfo(siteInfo)
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not load the site configuration', err)
         throw err
       }
     },
@@ -374,7 +376,7 @@ export const useSiteStore = defineStore('site', {
           state.acronymMapLoaded = true
         })
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not load the acronym map', err)
       }
     },
     async fetchTags(forceRefresh = false) {
@@ -388,7 +390,7 @@ export const useSiteStore = defineStore('site', {
           tagsLoaded: true
         })
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not load the tag list', err)
         throw err
       }
     },
@@ -412,7 +414,7 @@ export const useSiteStore = defineStore('site', {
           extensionsStatusLoaded: true
         })
       } catch (err) {
-        console.warn(err.message)
+        log.warn('site', 'could not read which extensions are installed', err)
       }
     },
     /**
@@ -460,7 +462,7 @@ export const useSiteStore = defineStore('site', {
         }
         // -> An empty sidebar is the right outcome for a menu nobody has set up, rather than an error
         //    in front of a reader who cannot act on it
-        console.warn(err.message)
+        log.warn('nav', 'could not load the sidebar menu', err)
         this.$patch({
           nav: {
             currentId: id,

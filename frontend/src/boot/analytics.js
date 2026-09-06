@@ -2,6 +2,7 @@ import { watch } from 'vue'
 
 import { useSiteStore } from '@/stores/site'
 import { ANALYTICS_PROVIDERS } from '@/helpers/analyticsProviders'
+import { log } from '@/helpers/log'
 
 /**
  * Inject every enabled analytics provider's tracking snippet into `document.head`, once the site
@@ -50,7 +51,7 @@ function injectEnabledProviders(providers) {
     if (!template) {
       // -> A provider key the site config has stored that this build's map doesn't know about
       //    (e.g. a module removed since it was enabled). Nothing to inject; not worth throwing over.
-      console.warn(`Unknown analytics provider: ${key}`)
+      log.warn('analytics', `no snippet for the enabled provider ${key}; nothing injected`)
       continue
     }
     template.inject(provider.config)
