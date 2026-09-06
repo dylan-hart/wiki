@@ -136,12 +136,13 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
   )
 
   /**
-   * Task 759 (the SVG CSP lockdown) plus WP 1826 (cache headers/validator for the built-in
+   * Task 759 (the SVG CSP lockdown) plus WP 1826/#2724 (cache headers/validator for the built-in
    * fallbacks): the ETag/`If-None-Match`/304 branch, the `Content-Security-Policy` header being
    * conditioned on `asset.mime === svgMimeType`, and both response branches' caching headers — an
-   * uploaded asset gets a strong sha1 `ETag` + `public, no-cache`; the `replyWithFile` fallback branch
-   * (nobody has uploaded anything for this kind) gets its own weak size/mtime `ETag`, a
-   * `Last-Modified`, and a long `public, max-age=86400` instead, with its own independent 304 path.
+   * uploaded asset and the `replyWithFile` fallback branch (nobody has uploaded anything for this
+   * kind) now share the same `public, no-cache` policy and strong (sha1) `ETag`, each with its own
+   * independent 304 path, so a redeployed fallback's new bytes are never stuck behind a stale
+   * browser cache the way a day-long `max-age` at an unchanging URL used to leave them (#2724).
    *
    * Runs its own app + `WIKI` stub, saved/restored around the shared `globalThis.WIKI` the suite above
    * uses — same pattern `helpers/images.test.ts`'s Sharp-unavailable describe uses for the same reason:
@@ -294,8 +295,10 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     })
 
     test(
-      'the built-in fallback (nothing uploaded) is served with a Cache-Control, an ETag and a ' +
-        'Last-Modified header, but no SVG lockdown headers (those only guard admin-uploaded bytes)',
+      'the built-in fallback (nothing uploaded) is served with "public, no-cache", a strong ETag ' +
+        'and a Last-Modified header, but no SVG lockdown headers (those only guard admin-uploaded ' +
+        'bytes) — the same revalidating policy as an uploaded asset, so a redeployed fallback is ' +
+        'never stuck behind a stale cache at this unchanging URL (#2724)',
       async () => {
         SITE.config.assets = { logo: false }
         currentAsset = null
@@ -308,8 +311,13 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
 
         assert.equal(res.statusCode, 200)
         assert.match(res.body, /<svg/)
-        assert.equal(res.headers['cache-control'], 'public, max-age=86400')
+        assert.equal(res.headers['cache-control'], 'public, no-cache')
         assert.ok(res.headers.etag, 'expected an ETag on the fallback response')
+        assert.equal(
+          (res.headers.etag as string).startsWith('W/'),
+          false,
+          'expected a strong ETag, not a weak size/mtime one'
+        )
         assert.ok(res.headers['last-modified'], 'expected a Last-Modified on the fallback response')
         assert.equal(res.headers['content-security-policy'], undefined)
         assert.equal(res.headers['x-content-type-options'], undefined)
@@ -340,7 +348,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
         assert.equal(second.statusCode, 304)
         assert.equal(second.body, '')
         assert.equal(second.headers.etag, etag)
-        assert.equal(second.headers['cache-control'], 'public, max-age=86400')
+        assert.equal(second.headers['cache-control'], 'public, no-cache')
       }
     )
 
@@ -354,7 +362,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
         const res = await localApp.inject({
           method: 'GET',
           url: '/current/logo',
-          headers: { host: SITE.hostname, 'if-none-match': 'W/"stale-from-a-previous-build"' }
+          headers: { host: SITE.hostname, 'if-none-match': '"stale-from-a-previous-redeploy"' }
         })
 
         assert.equal(res.statusCode, 200)

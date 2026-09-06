@@ -171,20 +171,15 @@ describe('isHashedAssetFilename', () => {
     })
   }
 
-  // -> The 7 entries under `assets/_assets` that are NOT vite build output: `renderer.js` is a
+  // -> The 6 entries under `assets/_assets` that are NOT vite build output: `renderer.js` is a
   //    deliberately fixed entry point name (referenced by a static server-rendered page), and the
-  //    other 6 are hand-authored trees vite never touches. (`bg/` was an eighth until the login
+  //    other 5 are hand-authored trees vite never touches. (`bg/` was a sixth until the login
   //    background it held became a backend-owned branding fallback — see `controllers/site.ts`'s
-  //    `SITE_ASSET_FALLBACKS`, OpenProject #2611.)
-  const unhashedSamples = [
-    'fonts',
-    'icons',
-    'illustrations',
-    'logo-wikijs.svg',
-    'renderer.js',
-    'storage',
-    'svg'
-  ]
+  //    `SITE_ASSET_FALLBACKS`, OpenProject #2611; `logo-wikijs.svg`/`logo-wikijs-full.svg` were two
+  //    more until they were deleted as dead, still-shipped upstream branding, OpenProject #2724 —
+  //    NOT replaced with `logo-cardinal.svg` here: that name is coincidentally hash-shaped, 8
+  //    characters between the hyphen and the extension, so it is NOT a safe unhashed example.)
+  const unhashedSamples = ['fonts', 'icons', 'illustrations', 'renderer.js', 'storage', 'svg']
 
   for (const name of unhashedSamples) {
     test(`unhashed entry "${name}" is not immutable`, () => {

@@ -10,7 +10,8 @@ import {
   createHttpApp,
   pinoStreamToWikiLogger,
   registerShutdownLogging,
-  registerStaticAssets
+  registerStaticAssets,
+  ROOT_FAVICON_PATH
 } from './server.ts'
 import { registerErrorHandler } from './errors.ts'
 import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
@@ -23,23 +24,26 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
  * never binds one — so the settings that decide how every request is parsed and routed can be
  * asserted directly rather than inferred from an e2e failure.
  *
- * `registerStaticAssets()` is the other half: three mounts whose ORDER relative to
- * `registerSecurity`/`registerSession` is behaviour (Fastify registers plugins in call order), and
- * whose `/_assets/` mount carries the immutable-cache rule `helpers/common.ts#isHashedAssetFilename`
- * decides. Driven here against a throwaway `WIKI.ROOTPATH` laid out the way a built checkout is,
- * since `fastify-favicon` refuses to register at all without a real `assets/favicon.ico`.
+ * `registerStaticAssets()` is the other half: the root favicon route plus two static mounts, whose
+ * ORDER relative to `registerSecurity`/`registerSession` is behaviour (Fastify registers plugins in
+ * call order), and whose `/_assets/` mount carries the immutable-cache rule
+ * `helpers/common.ts#isHashedAssetFilename` decides. Driven here against a throwaway `WIKI.ROOTPATH`/
+ * `WIKI.SERVERPATH` laid out the way a built checkout is, since the favicon route needs a real file
+ * under `assets/branding/` to serve (`helpers/common.ts#replyWithFile` `fsp.stat`s it).
  */
 
 /** The minimum `WIKI` global `createHttpApp()` and `registerStaticAssets()` actually read. */
 function installWikiStub({
   rootPath = process.cwd(),
+  serverPath = rootPath,
   logger,
   ...config
-}: { rootPath?: string; logger?: any } & Record<string, any> = {}) {
+}: { rootPath?: string; serverPath?: string; logger?: any } & Record<string, any> = {}) {
   const previous = (globalThis as any).WIKI
   installTestWiki({
     INSTANCE_ID: 'test-instance',
     ROOTPATH: rootPath,
+    SERVERPATH: serverPath,
     sitesMappings: {},
     ...(logger ? { logger } : {}),
     config: {
@@ -384,13 +388,16 @@ describe('registerStaticAssets', () => {
 
   before(async () => {
     rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-static-'))
+    fs.mkdirSync(path.join(rootPath, path.dirname(ROOT_FAVICON_PATH)), { recursive: true })
     fs.mkdirSync(path.join(rootPath, 'assets/_assets'), { recursive: true })
     fs.mkdirSync(path.join(rootPath, 'blocks/compiled'), { recursive: true })
-    fs.writeFileSync(path.join(rootPath, 'assets/favicon.ico'), 'icon-bytes')
+    fs.writeFileSync(path.join(rootPath, ROOT_FAVICON_PATH), 'icon-bytes')
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/index-CL_uwIZr.js'), 'hashed')
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/renderer.js'), 'unhashed')
     fs.writeFileSync(path.join(rootPath, 'blocks/compiled/block-map.js'), 'block')
 
+    // -> Both `ROOTPATH` and `SERVERPATH` point at the same synthetic tree here: the real distinction
+    //    (repo root vs. `backend/`) doesn't matter to a fixture that only ever lays out one of each.
     restoreWiki = installWikiStub({ rootPath })
     app = createHttpApp()
     // -> Pino writes an access line per request to stdout; nothing here is asserting on logs, so
@@ -406,9 +413,35 @@ describe('registerStaticAssets', () => {
     fs.rmSync(rootPath, { recursive: true, force: true })
   })
 
-  test('serves the root favicon', async () => {
-    const res = await app.inject({ method: 'GET', url: '/favicon.ico' })
-    assert.equal(res.statusCode, 200)
+  test(
+    'serves the root favicon read per request from backend/assets/branding/, with a revalidating ' +
+      'Cache-Control and a strong ETag (OpenProject #2724 — no more buffering it once at boot)',
+    async () => {
+      const res = await app.inject({ method: 'GET', url: '/favicon.ico' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body, 'icon-bytes')
+      assert.equal(res.headers['cache-control'], 'public, no-cache')
+      assert.ok(res.headers.etag, 'expected an ETag on the favicon response')
+      assert.equal(
+        (res.headers.etag as string).startsWith('W/'),
+        false,
+        'expected a strong ETag, not a weak size/mtime one'
+      )
+    }
+  )
+
+  test('a matching If-None-Match against the root favicon short-circuits to an empty 304', async () => {
+    const first = await app.inject({ method: 'GET', url: '/favicon.ico' })
+    const etag = first.headers.etag as string
+
+    const second = await app.inject({
+      method: 'GET',
+      url: '/favicon.ico',
+      headers: { 'if-none-match': etag }
+    })
+
+    assert.equal(second.statusCode, 304)
+    assert.equal(second.body, '')
   })
 
   test('serves a hashed build output under /_assets/ as immutable', async () => {
@@ -427,6 +460,36 @@ describe('registerStaticAssets', () => {
     const res = await app.inject({ method: 'GET', url: '/_blocks/block-map.js' })
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['cache-control'], 'public, max-age=3600')
+  })
+})
+
+/**
+ * `frontend/public/favicon.ico` is a deliberate second copy of `ROOT_FAVICON_PATH` — the Vite dev
+ * server answers `/favicon.ico` out of `public/` directly, a different path space from the backend's
+ * own committed copy this route serves — same pattern, and same drift risk, as
+ * `controllers/site.test.ts`'s `SITE_ASSET_FALLBACKS` byte-identical check for `logo-cardinal.svg`.
+ * `frontend/scripts/generate-favicon.mjs` writes both from one render, which is what is meant to keep
+ * them in step; this is what notices if it didn't.
+ */
+describe('ROOT_FAVICON_PATH — the backend owns its own favicon.ico', () => {
+  /** The real `backend/`, i.e. what `WIKI.SERVERPATH` resolves to in a running instance. */
+  const serverPath = path.join(import.meta.dirname, '..', '..')
+
+  test('resolves to a real file inside backend/', () => {
+    const resolved = path.join(serverPath, ROOT_FAVICON_PATH)
+    assert.equal(fs.statSync(resolved).isFile(), true, `${resolved} is not a file`)
+  })
+
+  test('is byte-identical to the frontend public copy the Vite dev server answers directly', () => {
+    const backendCopy = fs.readFileSync(path.join(serverPath, ROOT_FAVICON_PATH))
+    const frontendCopy = fs.readFileSync(
+      path.join(serverPath, '..', 'frontend', 'public', 'favicon.ico')
+    )
+    assert.equal(
+      backendCopy.equals(frontendCopy),
+      true,
+      'backend/assets/branding/favicon.ico and frontend/public/favicon.ico have drifted apart'
+    )
   })
 })
 
