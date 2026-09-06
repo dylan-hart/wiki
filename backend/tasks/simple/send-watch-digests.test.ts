@@ -65,8 +65,10 @@ beforeEach(() => {
 })
 
 describe('send-watch-digests task', () => {
-  test('no pending events is a no-op: no mail sent, nothing marked delivered', async () => {
-    await sendWatchDigests()
+  test('no pending events is a no-op: no mail sent, nothing marked delivered, nothing reported', async () => {
+    // -> OpenProject #2672: an idle run returns nothing, so the scheduler keeps it at `debug` rather
+    //    than putting a daily "sent 0 digests" line in an operator's log.
+    assert.equal(await sendWatchDigests(), undefined)
 
     assert.equal(sendPageWatchDigest.mock.calls.length, 0)
     assert.equal(markManyDelivered.mock.calls.length, 0)
@@ -75,7 +77,12 @@ describe('send-watch-digests task', () => {
   test('a single user with one pending event gets one digest covering it, then it is marked delivered', async () => {
     listPendingForDigest.mock.mockImplementation(async () => [pendingEvent()])
 
-    await sendWatchDigests()
+    // -> The counts are returned for the scheduler to log, not logged here (OpenProject #2672).
+    assert.deepEqual(await sendWatchDigests(), {
+      summary: 'sent page watch digests',
+      sent: 1,
+      of: 1
+    })
 
     assert.equal(sendPageWatchDigest.mock.calls.length, 1)
     const call = sendPageWatchDigest.mock.calls[0]!.arguments[0] as any

@@ -1,6 +1,7 @@
 import { setTimeout } from 'node:timers/promises'
 import { sql } from 'drizzle-orm'
 import { locales as localesTable } from '../../db/schema.ts'
+import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
  * Upper bound on how many languages a single `metadata.json` response may drive this task to fetch
@@ -26,7 +27,7 @@ export function isFlatStringMap(value: unknown): value is Record<string, string>
   return Object.values(value).every((entry) => typeof entry === 'string')
 }
 
-export async function task(): Promise<void> {
+export async function task(): Promise<TaskResult | void> {
   if (WIKI.config.offline) {
     // -> `debug`: this runs daily and says the same thing every time on a deployment that is
     //    deliberately offline. Sideload locale packs into <dataPath>/locales/ instead — see
@@ -125,8 +126,10 @@ export async function task(): Promise<void> {
   //    picks it up without waiting for its own restart.
   if (updated > 0) {
     await WIKI.models.locales.broadcastReload()
-    WIKI.logger.info('locale', 'synced localization data', { updated, of: languages.length })
-  } else {
-    WIKI.logger.debug('locale', 'localization data unchanged', { of: languages.length })
+    return { summary: 'synced localization data', updated, of: languages.length }
   }
+  // -> Not a summary: nothing changed, so the run itself is `debug` — but "checked N languages and
+  //    none had moved" is a different fact from the scheduler's bare `finished`, and it is the one
+  //    that says the sync is actually reaching upstream.
+  WIKI.logger.debug('locale', 'localization data unchanged', { of: languages.length })
 }

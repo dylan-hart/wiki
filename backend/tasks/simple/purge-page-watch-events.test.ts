@@ -105,7 +105,12 @@ describe('purge-page-watch-events task', { skip: !hasTestDatabase() }, () => {
       }
     ] as any)
 
-    await task()
+    // -> OpenProject #2672: the count is returned for the scheduler to log, not logged here.
+    const outcome = await task()
+    assert.equal(
+      (outcome as { summary: string }).summary,
+      'purged page watch events past the retention window'
+    )
 
     const remaining = await fixtures.db
       .select({ action: pageWatchEventsTable.action, createdAt: pageWatchEventsTable.createdAt })

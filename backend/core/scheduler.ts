@@ -21,13 +21,55 @@ import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { PoolClient } from 'pg'
 
 /**
+ * What a task hands back when its run is worth an `info` line.
+ *
+ * `summary` is the sentence the scheduler logs in place of its own `<task> finished` — lowercase, no
+ * trailing period, the same wording the task used to log for itself — and every other property rides
+ * that same line as a field. A task that did nothing worth reporting returns nothing at all and stays
+ * at `debug`: "swept, found none" is not news, and these run on a timer.
+ *
+ * Deliberately NOT written to `jobHistory.result`. That column is a task's own channel to a follow-up
+ * route (`exportContent`'s `{ filePath, fileSize }`, which `GET /_api/system/export/:jobId/download`
+ * reads back), written by the task itself through `WIKI.models.jobs.setResult()`; a summary landing
+ * silently on top of it would break the routes that read it. The two are separate on purpose — see
+ * `models/jobs.ts#setResult`.
+ */
+export interface TaskResult {
+  summary: string
+  [field: string]: unknown
+}
+
+/**
  * An in-process task, loaded from `tasks/simple/`.
  *
  * `jobId` is this task's own row in `jobHistory` — most tasks have no use for it, but one that wants
  * to hand something back (`exportContent`'s `{ filePath, fileSize }`) writes it there via
  * `WIKI.models.jobs.setResult(jobId, ...)`, which is what lets a follow-up route find it later.
+ *
+ * A task that returns a `TaskResult` is telling the scheduler what its run amounted to, so the outcome
+ * is logged ONCE, by the one caller that also knows the job id, the attempt and how long it took (see
+ * `runJob()`). A task does not log its own counts.
  */
-export type SimpleTask = (payload?: any, jobId?: string) => Promise<void> | void
+export type SimpleTask = (
+  payload?: any,
+  jobId?: string
+) => Promise<TaskResult | void> | TaskResult | void
+
+/**
+ * Read a task's return value as a summary, or `null` when there is nothing to say.
+ *
+ * Anything that is not a plain object carrying a non-empty `summary` string is "no summary": a task
+ * returning `undefined` (most of them), one that hands back a bare count, and every worker-thread job
+ * — `worker.ts`'s `ThreadWorker` resolves `true` rather than the task's own value, so a worker job is
+ * always the `debug` case here.
+ */
+function taskSummary(value: unknown): TaskResult | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null
+  }
+  const summary = (value as { summary?: unknown }).summary
+  return typeof summary === 'string' && summary.length > 0 ? (value as TaskResult) : null
+}
 
 /** Fallback for `scheduler.taskTimeout`, in seconds, when nothing is configured. */
 const DEFAULT_TASK_TIMEOUT = 300
@@ -556,12 +598,16 @@ export default {
     payload?: any
     id?: string
     retries?: number
-  }): Promise<void> {
+  }): Promise<TaskResult | void> {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     const runTask = () => this.tasks![job.task](job.payload, job.id)
     // -> `Promise.resolve`, since a task may be written as a synchronous function: `Promise.race`
     //    accepted a bare value, `withTimeout` takes a promise
-    await withTimeout(
+    // -> The task's own return value is handed back rather than discarded: a task that ran to
+    //    completion may have returned a `TaskResult`, and `runJob()` is what turns that into the one
+    //    `info` line for this run. A task that timed out never returns at all, so there is nothing to
+    //    carry through that branch.
+    return await withTimeout(
       Promise.resolve(
         job.id
           ? runWithJobExecutionContext({ jobId: job.id, attempt: (job.retries ?? 0) + 1 }, runTask)
@@ -583,14 +629,19 @@ export default {
    */
   async runJob(job: any): Promise<void> {
     const attempt = job.retries + 1
+    // -> `maxRetries` counts the RETRIES, so the run itself is the extra one: a job with
+    //    `maxRetries: 3` gets four attempts, and `attempt=2/4` is what an operator needs to read
+    //    "two down, two to go" off a single line without knowing that convention.
+    const attempts = job.maxRetries + 1
     const startedAt = Date.now()
-    WIKI.logger.debug('jobs', `${job.task} started`, { job: job.id, attempt })
+    WIKI.logger.debug('jobs', `${job.task} started`, {
+      job: job.id,
+      attempt: `${attempt}/${attempts}`
+    })
     try {
-      if (job.useWorker) {
-        await this.executeOnWorker(job)
-      } else {
-        await this.executeInProcess(job)
-      }
+      const outcome = job.useWorker
+        ? await this.executeOnWorker(job)
+        : await this.executeInProcess(job)
       await WIKI.db
         .update(jobHistoryTable)
         .set({
@@ -598,11 +649,27 @@ export default {
           completedAt: sql`now()`
         })
         .where(eq(jobHistoryTable.id, job.id))
-      WIKI.logger.debug('jobs', `${job.task} finished`, {
-        job: job.id,
-        attempt,
-        ms: Date.now() - startedAt
-      })
+      // -> The scheduler owns the outcome line, not the task (audit N3/X1). A task that reports
+      //    something — a count swept, a digest sent — returns it, and that becomes the ONE `info`
+      //    record for this run, carrying the job id, the attempt and the duration a task cannot know.
+      //    A task that did nothing worth saying returns nothing and the run stays at `debug`, so a
+      //    timer-driven sweep finding nothing is invisible until an operator asks for `debug`.
+      const summary = taskSummary(outcome)
+      if (summary) {
+        const { summary: sentence, ...summaryFields } = summary
+        WIKI.logger.info('jobs', `${job.task} ${sentence}`, {
+          job: job.id,
+          attempt: `${attempt}/${attempts}`,
+          ...summaryFields,
+          ms: Date.now() - startedAt
+        })
+      } else {
+        WIKI.logger.debug('jobs', `${job.task} finished`, {
+          job: job.id,
+          attempt: `${attempt}/${attempts}`,
+          ms: Date.now() - startedAt
+        })
+      }
       notifyJobCompleted(job.id, 'success')
     } catch (err: any) {
       // -> Only the terminal, retries-exhausted branch logs at `error`. A job that will still be
@@ -610,16 +677,37 @@ export default {
       //    of failing-and-retrying jobs, not just the final give-up.
       // -> One record, not two: the situation is the message and the error rides `fields.error`, so
       //    the renderer puts the message inline and the stack under it rather than emitting a
-      //    second, contextless line. `job`/`attempt` (OpenProject #1937) keep it traceable without
-      //    cross-referencing `jobHistory` by timestamp; `attempt` is the one about to be recorded
-      //    below (`job.retries + 1`), not `job.retries` itself.
+      //    second, contextless line. `job` plus the attempt (OpenProject #1937) keep it traceable
+      //    without cross-referencing `jobHistory` by timestamp, and the attempt named is the one
+      //    about to be recorded below (`job.retries + 1`), not `job.retries` itself.
+      // -> The two branches count differently on purpose: a job that will be tried again says
+      //    `attempt=n/m`, because there is an `n+1` coming; one that has run out says `attempts=m`,
+      //    the total it used, because there is no next attempt for a ratio to be counting towards.
+      // -> `next` is settled here, before the line is written, and reused by the requeue insert
+      //    below: the whole point of the field is that it is the row's real `waitUntil`, not a
+      //    second calculation of the same backoff that could drift from it.
       const retriesExhausted = job.retries >= job.maxRetries
-      const failureLog = retriesExhausted ? WIKI.logger.error : WIKI.logger.warn
-      failureLog(
-        'jobs',
-        `${job.task} failed${retriesExhausted ? ', no attempts left' : ', will retry'}`,
-        { job: job.id, attempt, ms: Date.now() - startedAt, error: err }
-      )
+      const nextRun = retriesExhausted
+        ? null
+        : Temporal.Now.instant().add({
+            seconds: 2 ** job.retries * WIKI.config.scheduler.retryBackoff
+          })
+      if (retriesExhausted) {
+        WIKI.logger.error('jobs', `${job.task} failed, no attempts left`, {
+          job: job.id,
+          attempts,
+          ms: Date.now() - startedAt,
+          error: err
+        })
+      } else {
+        WIKI.logger.warn('jobs', `${job.task} failed, retrying`, {
+          job: job.id,
+          attempt: `${attempt}/${attempts}`,
+          next: nextRun!.toString({ smallestUnit: 'millisecond' }),
+          ms: Date.now() - startedAt,
+          error: err
+        })
+      }
       try {
         await WIKI.db
           .update(jobHistoryTable)
@@ -630,15 +718,13 @@ export default {
           })
           .where(eq(jobHistoryTable.id, job.id))
         notifyJobCompleted(job.id, 'failed', err.message)
-        // -> Reschedule for retry
-        if (job.retries < job.maxRetries) {
-          const backoffDelay = 2 ** job.retries * WIKI.config.scheduler.retryBackoff
+        // -> Reschedule for retry, at exactly the instant the `warn` above told the operator to
+        //    expect it
+        if (nextRun) {
           await WIKI.db.insert(jobsTable).values({
             ...job,
             retries: job.retries + 1,
-            waitUntil: new Date(
-              Temporal.Now.instant().add({ seconds: backoffDelay }).epochMilliseconds
-            ),
+            waitUntil: new Date(nextRun.epochMilliseconds),
             updatedAt: new Date()
           })
         }
@@ -699,9 +785,9 @@ export default {
         // -> Its remaining attempts are what they were: being interrupted is a failed attempt, and a
         //    job that had already used them up is not owed another one
         if (job.attempt > job.maxRetries) {
-          WIKI.logger.warn('jobs', `${job.task} was interrupted with no attempts left`, {
+          WIKI.logger.warn('jobs', `${job.task} interrupted, no attempts left`, {
             job: job.id,
-            attempt: job.attempt
+            attempt: `${job.attempt}/${job.maxRetries + 1}`
           })
           notifyJobCompleted(job.id, 'failed', job.lastErrorMessage)
           continue
@@ -760,11 +846,17 @@ export default {
     //    drop the comment atop this function says this branch exists to avoid.
     await notifier.drained()
 
+    // -> A sweep that found something is `warn`: an instance died mid-job, which is worth an
+    //    operator's attention even though the jobs are back in the queue. The far more common empty
+    //    sweep is `debug` — it runs on a timer and finding nothing is the healthy case, but saying so
+    //    is what tells someone with `debug` on that the sweep is running at all.
     if (stranded.length > 0) {
       WIKI.logger.warn('jobs', 'requeued interrupted jobs', {
         found: stranded.length,
         requeued
       })
+    } else {
+      WIKI.logger.debug('jobs', 'no interrupted jobs found')
     }
     return requeued
   },

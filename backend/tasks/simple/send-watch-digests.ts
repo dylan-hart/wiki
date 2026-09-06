@@ -1,5 +1,6 @@
 import type { WatchEventItem } from '../../models/mail.ts'
 import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
+import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
  * Send one batched email per `digest`-mode watcher, covering every pending page-watch notification
@@ -42,7 +43,7 @@ import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
  * nothing further to tell a watcher about a page they can no longer read) but never appears in the
  * mail, and a group left with nothing readable is skipped entirely rather than sending an empty digest.
  */
-export async function task(): Promise<void> {
+export async function task(): Promise<TaskResult | void> {
   const pending = await WIKI.models.pageWatchEvents.listPendingForDigest()
 
   // -> Keyed by `userId\0siteId`, not `userId` alone — see this file's own doc comment on why a
@@ -139,8 +140,11 @@ export async function task(): Promise<void> {
   }
 
   if (sent > 0) {
-    WIKI.logger.info('hooks', 'sent page watch digests', { sent, of: eventsByUserSite.size })
-  } else {
-    WIKI.logger.debug('hooks', 'no page watch digest was sent', { of: eventsByUserSite.size })
+    return { summary: 'sent page watch digests', sent, of: eventsByUserSite.size }
   }
+  // -> Not a summary: there were pending groups and every one of them was skipped (unreadable now,
+  //    or no address on file). Nothing was sent, so the run says nothing at `info` — but WHY it sent
+  //    nothing when it had work in hand is worth a `debug` line of its own, which the scheduler's
+  //    generic `finished` cannot carry.
+  WIKI.logger.debug('hooks', 'no page watch digest was sent', { of: eventsByUserSite.size })
 }

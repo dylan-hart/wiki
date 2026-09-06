@@ -3,6 +3,7 @@ import { groups } from '../../models/groups.ts'
 import { glossary } from '../../models/glossary.ts'
 import { assetServing } from '../../models/assetServing.ts'
 import { jobs } from '../../models/jobs.ts'
+import type { TaskResult } from '../../core/scheduler.ts'
 
 /**
  * Restore a tarball uploaded through `POST /_api/system/import` into a target site.
@@ -42,7 +43,7 @@ export async function task(
     jobs?: typeof jobs
     addJob?: typeof WIKI.scheduler.addJob
   } = {}
-): Promise<void> {
+): Promise<TaskResult> {
   const {
     siteImport: siteImportDep = siteImport,
     groups: groupsDep = groups,
@@ -73,7 +74,9 @@ export async function task(
     if (jobId) {
       await jobsDep.setResult(jobId, result)
     }
-    WIKI.logger.info('pages', 'imported site content', { site: payload.targetSiteId })
+    // -> Returned, not logged: the scheduler writes this run's one `info` line, with the job id and
+    //    the duration attached. The `finally` below still runs on the way out.
+    return { summary: 'imported site content', site: payload.targetSiteId }
   } finally {
     await siteImportDep.deleteUpload(payload.filePath)
   }
