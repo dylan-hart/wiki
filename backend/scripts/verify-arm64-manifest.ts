@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- a release-verification script: its stdout IS its result, and it runs outside a booted `WIKI`. */
 /*
   Verifies that a published Docker image reference is genuinely multi-arch, covering
   linux/amd64 and linux/arm64 — the manifest-side half of OpenProject #2488 ("Verify published

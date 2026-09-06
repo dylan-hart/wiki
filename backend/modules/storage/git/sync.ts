@@ -509,13 +509,11 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
       if (percentDeleted >= maxDeletePercentFor(target)) {
         holdBackDeletions = true
         log.warn(
-          `This sync's diff would delete ${deletedPageCount} of ${totalPages} pages ` +
-            `(~${Math.round(percentDeleted)}%), at or above the configured safety threshold of ` +
-            `${maxDeletePercentFor(target)}%. Skipping the deletions (everything else in the diff ` +
-            `still applies) — re-run "Force Sync" with confirmation to apply them anyway.`,
+          'diff would delete at or above the safety threshold, deletions skipped — re-run force sync with confirmation to apply them',
           {
             deleted: deletedPageCount,
             total: totalPages,
+            percent: Math.round(percentDeleted),
             threshold: maxDeletePercentFor(target)
           }
         )

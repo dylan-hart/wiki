@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- stdout must stay pure JSON-RPC; the redirects below are exactly what keeps it that way. */
 /**
  * MCP server, stdio transport.
  *

@@ -36,11 +36,13 @@ import { readyFields } from './helpers/bootSummary.ts'
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
 if (!semver.satisfies(process.version, '>=26')) {
+  // eslint-disable-next-line no-console -- refused before config, and therefore before `WIKI.logger`, exists
   console.error('ERROR: Node.js 26.x or later required!')
   process.exit(1)
 }
 
 if (existsSync('./package.json')) {
+  // eslint-disable-next-line no-console -- refused before config, and therefore before `WIKI.logger`, exists
   console.error('ERROR: Must run server from the parent directory!')
   process.exit(1)
 }
@@ -71,6 +73,7 @@ global.WIKI = WIKI
 
 if (WIKI.IS_DEBUG) {
   process.on('warning', (warning: Error) => {
+    // eslint-disable-next-line no-console -- registered before `WIKI.logger` exists, and a Node process warning can fire before it does
     console.log(warning.stack)
   })
 }

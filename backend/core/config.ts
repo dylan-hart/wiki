@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- config resolves before `WIKI.logger` is built, so stderr is the only sink it has (see `warnUnknownConfigKeys`'s own doc comment). */
 import { toMerged } from 'es-toolkit/object'
 import { isPlainObject } from 'es-toolkit/predicate'
 import { styleText } from 'node:util'

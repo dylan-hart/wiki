@@ -48,10 +48,11 @@ describe('LOG_SCOPES', () => {
   })
 
   test('does not contain `legacy`', () => {
-    // -> `legacy` is the renderer's own sentinel for a call still using the pre-scope shape, so that
-    //    the Phase 2 sweep can grep for what is left. It is deliberately NOT a scope: were it in the
-    //    vocabulary, a call site could legitimately pass it as a real first argument and the
-    //    structural test that refuses an unknown scope would have nothing to catch it on.
+    // -> `legacy` was the renderer's sentinel for a call still using the pre-scope shape, so the
+    //    Phase 2 sweep could grep for what was left. Both the sentinel and the overload behind it
+    //    went with OpenProject #2668, and the name must not come back as a real scope on the way
+    //    past: a line filed under `legacy` says nothing about which subsystem produced it, which is
+    //    the one thing a scope is for.
     assert.equal((LOG_SCOPES as readonly string[]).includes('legacy'), false)
   })
 
@@ -78,7 +79,7 @@ describe('LogScope (type level)', () => {
     const bad: LogScope = 'nope'
     assert.equal(bad, 'nope')
 
-    // @ts-expect-error — `legacy` is a renderer sentinel, never a scope a caller may name.
+    // @ts-expect-error — `legacy` was the retired renderer sentinel; it is not a scope either.
     const sentinel: LogScope = 'legacy'
     assert.equal(sentinel, 'legacy')
   })
