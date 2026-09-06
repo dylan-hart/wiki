@@ -135,6 +135,185 @@ function describeQueryParam(value: unknown): string {
 }
 
 /**
+ * How much of a slow query's text reaches the log line.
+ *
+ * A generated `select` over a wide table with its relations joined in runs to several kilobytes, and
+ * the point of the line is "this shape of query is slow", which the leading clause already answers.
+ * The tail is dropped with an ellipsis rather than wrapped, so the line stays one line.
+ */
+const SLOW_QUERY_TEXT_LIMIT = 200
+
+/**
+ * Marks a `pg` client whose `query` this module has already wrapped, so a second `connect` listener
+ * — or a test driving `instrumentSlowQueries` twice over the same fake — cannot stack two timers on
+ * one call and report the same query twice.
+ */
+const SLOW_QUERY_INSTRUMENTED = Symbol('wiki:slowQueryInstrumented')
+
+/**
+ * The configured slow-query threshold in milliseconds, or 0 when the feature is off.
+ *
+ * Read per call rather than captured when the pool is built: `slowQueryMs` is a FILE setting with no
+ * live toggle (see `base.yml`), so this is not there to support a runtime change — it is there so
+ * that reading it is one expression with one owner, and so a test can drive the wrapper by setting
+ * `WIKI.config.slowQueryMs` rather than by rebuilding a pool. Anything non-numeric, negative or
+ * absent reads as off, which is also what an operator who never touched the key gets.
+ */
+function slowQueryThresholdMs(): number {
+  const configured = Number(WIKI.config.slowQueryMs)
+  return Number.isFinite(configured) && configured > 0 ? configured : 0
+}
+
+/**
+ * The text and bound parameters of one `client.query(...)` call, or `null` for a call shape that
+ * carries neither.
+ *
+ * `pg` accepts the query three ways — `query(text, values?)`, `query({ text, values })` (what
+ * Drizzle's node-postgres driver sends, prepared-statement `name` included) and `query(submittable)`
+ * for a `Cursor`/`QueryStream`. The first two are timed; a submittable is not a request/response
+ * round trip at all (it returns itself and streams rows afterwards), so there is no single duration
+ * to report and it is passed straight through.
+ */
+function describeQueryCall(args: unknown[]): { text: string; values: unknown[] } | null {
+  const [first, second] = args
+  if (typeof first === 'string') {
+    return { text: first, values: Array.isArray(second) ? second : [] }
+  }
+  if (typeof first === 'object' && first !== null && typeof (first as any).text === 'string') {
+    const config = first as { text: string; values?: unknown[]; submit?: unknown }
+    // -> A `Cursor` also carries `text`, and is distinguished by being submittable.
+    if (typeof config.submit === 'function') {
+      return null
+    }
+    return {
+      text: config.text,
+      values: Array.isArray(config.values) ? config.values : Array.isArray(second) ? second : []
+    }
+  }
+  return null
+}
+
+/**
+ * Emits the one slow-query line: `warn sql slow query  rows= query="…" params=(…) in 1.4s`.
+ *
+ * Bound parameter *values* never reach it — `describeQueryParams` is the same redactor
+ * `queryLogger.logQuery` uses, and for the same reason (OpenProject #2205): a single parameter
+ * routinely carries the whole settings blob, session secret and storage credentials included, and a
+ * `warn` reaches stdout and every connected admin Live Log client at the default `logLevel` rather
+ * than only when somebody asked for the firehose. There is exactly one redactor in this file and the
+ * slow path does not get a second one.
+ *
+ * Related knob, worth reading together with this one: `pool.statementTimeoutMillis` (`base.yml`,
+ * default 60000) is the ceiling at which Postgres CANCELS the query instead of letting it finish —
+ * those failures surface through the caller's own error path (and, for an idle client dropped
+ * underneath, through the pool's `error` handler in `init()`). `slowQueryMs` is the softer signal
+ * ahead of it, so a threshold set anywhere near `statementTimeoutMillis` reports nothing the
+ * cancellation was not about to report anyway.
+ */
+function reportSlowQuery(
+  text: string,
+  values: unknown[],
+  ms: number,
+  rows: number | undefined
+): void {
+  WIKI.logger.warn('sql', 'slow query', {
+    ...(rows === undefined ? {} : { rows }),
+    query: text.length > SLOW_QUERY_TEXT_LIMIT ? `${text.slice(0, SLOW_QUERY_TEXT_LIMIT)}…` : text,
+    ...(values.length > 0 ? { params: describeQueryParams(values) } : {}),
+    ms
+  })
+}
+
+/**
+ * Times every query a checked-out `pg` client runs, and reports the ones that reach `slowQueryMs`.
+ *
+ * Registered as the main pool's `connect` listener in `init()`, so it patches each physical
+ * connection once, as it is opened. Drizzle's own `Logger` interface is not an option for this: it
+ * is handed the query text and nothing else, and — the part that decides the design — it is invoked
+ * SYNCHRONOUSLY, immediately BEFORE the query is sent (`PgPreparedQuery.execute()`). At that moment
+ * no duration exists yet. That ordering is also why the two lines are not, and cannot be, merged:
+ * the `debug sql` firehose line for a query has already been written by the time this wrapper's
+ * timer stops, so the slow report cannot annotate it and it cannot be withheld pending the duration.
+ * What IS guaranteed, and is what the "not logged twice" requirement reduces to once #2663 made the
+ * firehose threshold-gated rather than flag-gated, is that a slow query produces exactly ONE line
+ * here — one `warn`, per execution, never a second `debug` of its own — whatever the `sql` scope's
+ * threshold happens to be.
+ *
+ * Because it sits on the pool, below Drizzle, it also times raw `db.execute()` calls and the
+ * boot-time migration runner. That is deliberate (a migration that takes four minutes is exactly the
+ * thing an operator wants named) and is why the shipped default is `0`. The dedicated LISTEN/NOTIFY
+ * pool (`listenerPool`) is a different pool and is not instrumented: its three connections hold a
+ * `LISTEN` open for the process lifetime rather than running query traffic.
+ *
+ * A rejected query is reported too, not just a resolved one — a `statement_timeout` cancellation is
+ * the single most useful slow query there is, and dropping it would mean the feature stayed silent
+ * in exactly the case it was turned on for. Its `rows` is simply absent.
+ *
+ * Exported for the same reason `resolvePoolSizeOptions` is: it is the whole of the behaviour, and a
+ * test can drive it against a fake client with no live Postgres, which `init()`'s connect-and-migrate
+ * sequence would otherwise be the only way in.
+ */
+export function instrumentSlowQueries(client: any): void {
+  if (!client || typeof client.query !== 'function' || client[SLOW_QUERY_INSTRUMENTED]) {
+    return
+  }
+  client[SLOW_QUERY_INSTRUMENTED] = true
+
+  const runQuery = client.query.bind(client)
+
+  client.query = (...args: any[]) => {
+    if (slowQueryThresholdMs() <= 0) {
+      return runQuery(...args)
+    }
+    const described = describeQueryCall(args)
+    if (!described) {
+      return runQuery(...args)
+    }
+
+    const startedAt = Date.now()
+    const finish = (result: any) => {
+      const ms = Date.now() - startedAt
+      const threshold = slowQueryThresholdMs()
+      if (threshold > 0 && ms >= threshold) {
+        reportSlowQuery(
+          described.text,
+          described.values,
+          ms,
+          typeof result?.rowCount === 'number' ? result.rowCount : undefined
+        )
+      }
+    }
+
+    // -> `query(..., callback)` is the other half of `pg`'s API and is what `pg-pool`'s own internal
+    //    calls use; wrapping only the promise form would leave those untimed.
+    const last = args[args.length - 1]
+    if (typeof last === 'function') {
+      const timed = args.slice(0, -1)
+      timed.push((err: any, result: any) => {
+        finish(result)
+        last(err, result)
+      })
+      return runQuery(...timed)
+    }
+
+    const result = runQuery(...args)
+    if (result && typeof result.then === 'function') {
+      return result.then(
+        (resolved: any) => {
+          finish(resolved)
+          return resolved
+        },
+        (err: any) => {
+          finish(undefined)
+          throw err
+        }
+      )
+    }
+    return result
+  }
+}
+
+/**
  * Build the Drizzle instance.
  *
  * `logger` is passed unconditionally rather than spread in from a conditional: a spread in the config
@@ -315,6 +494,14 @@ export default {
         error: err
       })
     })
+
+    // -> Slow-query timing (OpenProject #2676). `connect` fires once per newly-opened physical
+    //    connection, which is the one place a client can be wrapped before anything has used it.
+    //    Attached unconditionally rather than behind a `slowQueryMs > 0` check so the wrapper is the
+    //    single owner of that decision — see `instrumentSlowQueries`, which no-ops per call while
+    //    the threshold is 0 (the shipped default). Worker mode is instrumented too: a CPU-bound job's
+    //    own query is as worth naming as a request handler's.
+    this.pool.on('connect', instrumentSlowQueries)
 
     // -> Worker mode never opens a LISTEN/NOTIFY client (see `subscribeToNotifications`'s only
     //    caller, `index.ts`'s `postBoot()`, which never runs in a worker thread), so a worker's

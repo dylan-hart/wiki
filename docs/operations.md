@@ -244,7 +244,7 @@ per-scope verbosity (`logScopes`, below) hangs off.
 | `boot` | process start-up, the three boot phases, shutdown |
 | `config` | config load, settings seed and save, unknown-key warnings |
 | `db` | connection, migrations, pool errors, the LISTEN/NOTIFY channel |
-| `sql` | the query firehose, at `debug` — the `sqlLog` admin flag is what raises it |
+| `sql` | the query firehose, at `debug` — the `sqlLog` admin flag is what raises it — plus the `slowQueryMs` line, at `warn` (see [Slow queries](#slow-queries)) |
 | `http` | the access log, 5xx, the app-shell fallback |
 | `auth` | strategies, login/register/2FA/passkey outcomes, API-key and bearer refusals |
 | `session` | secret rotation, session purge |
@@ -304,6 +304,38 @@ instance: `sqlLog` raises `sql` to `debug` and `authDebug` raises `auth` to `deb
 line onwards, across the whole cluster, with no restart. They are overrides of the same threshold
 rather than switches of their own — a flag beats a `logScopes` entry, which beats `logLevel` — so a
 scope's verbosity is one question with one answer, whichever of the three settings supplied it.
+
+### Slow queries
+
+`slowQueryMs` (`config.yml`, default `0` — off) is the one line the `sql` scope emits that is not
+part of the `debug` firehose. Set it to a positive number of milliseconds and every query the main
+Postgres pool runs that takes at least that long emits:
+
+```
+warn  sql       slow query  rows=1 query="select \"pages\".\"id\" from \"pages\" where ..." params=(2 params: string(36), object) in 1.4s
+```
+
+Bound parameter **values** are never logged — only a type/length descriptor per parameter, the same
+redaction the firehose applies (`core/db.ts#describeQueryParams`). The query text is truncated to its
+first 200 characters.
+
+Three things to know before turning it on:
+
+- **It is a `warn` on the `sql` scope**, not a level of its own, so `logScopes: { sql: error }`
+  quietens slow-query warnings along with the firehose. Quieten `sql` and you have turned this off
+  too.
+- **It is a file setting**, like `pool` — it is read from `config.yml`/`base.yml` and changing it
+  takes a restart. The `sqlLog` admin flag is not a live equivalent: that raises the `sql` scope's
+  threshold, it does not set a duration.
+- **Timing sits on the pool, below Drizzle**, so it covers raw `db.execute()` calls and the boot-time
+  migration runner as well as ordinary ORM traffic. Expect a burst of slow lines on the first boot
+  after an upgrade that applies a large migration. The three permanently-held LISTEN/NOTIFY
+  connections check out from a separate pool and are not timed.
+
+Tune it against `pool.statementTimeoutMillis` (default `60000`), which is the hard ceiling at which
+Postgres **cancels** a query outright: `slowQueryMs` is the softer "tell me before it gets there"
+signal, so a starting point well under that ceiling — around `1000` on a healthy instance — is what
+makes the two useful together rather than redundant.
 
 ### Where the lines go
 

@@ -3,11 +3,12 @@ import { EventEmitter } from 'node:events'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
+import { setTimeout as sleep } from 'node:timers/promises'
 import Emittery from 'emittery'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 
-import dbManager, { queryLogger, type WikiDb } from './db.ts'
+import dbManager, { instrumentSlowQueries, queryLogger, type WikiDb } from './db.ts'
 import configSvc from './config.ts'
 import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
@@ -413,6 +414,263 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
 })
 
 /**
+ * OpenProject #2676: `slowQueryMs` — one `warn sql slow query` line per query that reaches the
+ * configured threshold, and nothing at all below it or while the threshold is 0 (the shipped
+ * default).
+ *
+ * Driven against a fake `pg` client rather than a live Postgres because the whole of the behaviour
+ * is `instrumentSlowQueries`'s wrapper — which call shapes it times, what it measures, and what
+ * reaches the line. A real database would add a real duration and take the assertions no further,
+ * while making "80ms is slow, 0ms is not" a property of the machine running the suite.
+ *
+ * The redaction claim is the same one the suite above makes about the firehose, re-asserted here
+ * because this is a second route out of the process for the same bound parameters — and a `warn` one
+ * that an operator sees at the default `logLevel`, where the `debug` firehose is invisible.
+ */
+describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
+  let wikiHandle: { restore(): void }
+  let warnCalls: any[][]
+  let debugCalls: any[][]
+
+  /**
+   * A stand-in for a checked-out `pg` client: records the arguments it was called with, settles
+   * after `delayMs`, and honours both of `pg`'s call conventions (promise, and trailing callback).
+   */
+  function makeFakeClient(behaviour: { delayMs?: number; result?: any; reject?: Error } = {}): any {
+    const calls: any[][] = []
+    return {
+      calls,
+      query(...args: any[]) {
+        calls.push(args)
+        const settle = async () => {
+          if (behaviour.delayMs) {
+            await sleep(behaviour.delayMs)
+          }
+          if (behaviour.reject) {
+            throw behaviour.reject
+          }
+          return behaviour.result ?? { rows: [], rowCount: 0 }
+        }
+        const last = args[args.length - 1]
+        if (typeof last === 'function') {
+          settle().then(
+            (result) => last(null, result),
+            (err) => last(err, undefined)
+          )
+          return undefined
+        }
+        return settle()
+      }
+    }
+  }
+
+  const slowLine = () => {
+    assert.equal(warnCalls.length, 1, 'exactly one slow-query line')
+    const [scope, message, fields] = warnCalls[0]!
+    assert.equal(scope, 'sql')
+    assert.equal(message, 'slow query')
+    return fields as Record<string, unknown>
+  }
+
+  // -> The two shapes OpenProject #2205 names: a PEM-shaped string and a settings blob carrying a
+  //    secret. Same fixtures as the firehose suite above, deliberately.
+  const pemLikeParam =
+    '-----BEGIN PRIVATE KEY-----\nMIIExampleNotARealKeyMaterialxxxxxxxxxxxxx\n-----END PRIVATE KEY-----'
+  const secretBlobParam = {
+    auth: { secret: 'super-secret-session-value', certs: { passphrase: 'hunter2-passphrase' } }
+  }
+
+  beforeEach(() => {
+    warnCalls = []
+    debugCalls = []
+    wikiHandle = installTestWiki({
+      logger: {
+        info: () => {},
+        warn: (...args: any[]) => warnCalls.push(args),
+        debug: (...args: any[]) => debugCalls.push(args),
+        error: () => {}
+      },
+      config: { slowQueryMs: 50 }
+    })
+  })
+
+  afterEach(() => {
+    wikiHandle.restore()
+  })
+
+  test('a query at or past the threshold logs one warn line carrying ms, rows and the query', async () => {
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [{ id: 1 }], rowCount: 1 } })
+    instrumentSlowQueries(client)
+
+    await client.query('select "id" from "pages" where "hash" = $1', ['abc'])
+
+    const fields = slowLine()
+    assert.equal(typeof fields.ms, 'number')
+    assert.ok((fields.ms as number) >= 50, `expected ms >= 50, got ${fields.ms}`)
+    assert.equal(fields.rows, 1)
+    assert.equal(fields.query, 'select "id" from "pages" where "hash" = $1')
+    assert.equal(fields.params, '(1 param: string(3))')
+  })
+
+  test('a query under the threshold logs nothing', async () => {
+    const client = makeFakeClient({ result: { rows: [], rowCount: 0 } })
+    instrumentSlowQueries(client)
+
+    await client.query('select 1', [])
+
+    assert.equal(warnCalls.length, 0)
+  })
+
+  test('slowQueryMs 0 (the shipped default) times nothing, however slow the query is', async () => {
+    WIKI.config.slowQueryMs = 0
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 0 } })
+    instrumentSlowQueries(client)
+
+    const result = await client.query('select pg_sleep(1)')
+
+    assert.equal(warnCalls.length, 0)
+    assert.deepEqual(result, { rows: [], rowCount: 0 }, 'the query still runs and still answers')
+  })
+
+  test('a non-numeric or negative slowQueryMs reads as off rather than as a threshold of 0', async () => {
+    for (const configured of [-1, 'soon', null, undefined, Number.NaN]) {
+      WIKI.config.slowQueryMs = configured
+      const client = makeFakeClient({ delayMs: 60 })
+      instrumentSlowQueries(client)
+
+      await client.query('select 1')
+
+      assert.equal(warnCalls.length, 0, `slowQueryMs ${String(configured)} should be off`)
+    }
+  })
+
+  test('bound parameter values never reach the slow line — only the type/length descriptor', async () => {
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 0 } })
+    instrumentSlowQueries(client)
+
+    await client.query('update "settings" set "value" = $1 where "key" = $2', [
+      secretBlobParam,
+      pemLikeParam
+    ])
+
+    const fields = slowLine()
+    const rendered = JSON.stringify(fields)
+    assert.ok(!rendered.includes('super-secret-session-value'), 'session secret must not appear')
+    assert.ok(!rendered.includes('hunter2-passphrase'), 'passphrase must not appear')
+    assert.ok(!rendered.includes('BEGIN PRIVATE KEY'), 'PEM value must not appear, even in part')
+    assert.equal(fields.params, `(2 params: object, string(${pemLikeParam.length}))`)
+  })
+
+  test('a query with no bound parameters carries no params field at all', async () => {
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 0 } })
+    instrumentSlowQueries(client)
+
+    await client.query('vacuum analyze')
+
+    const fields = slowLine()
+    assert.ok(!('params' in fields), 'no params field when there are no bound parameters')
+  })
+
+  test('a long query is truncated to its first 200 characters', async () => {
+    const longQuery = `select ${'"col", '.repeat(200)}1 from "pages"`
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 0 } })
+    instrumentSlowQueries(client)
+
+    await client.query(longQuery)
+
+    const fields = slowLine()
+    assert.equal((fields.query as string).length, 201, '200 characters plus the ellipsis')
+    assert.ok((fields.query as string).endsWith('…'))
+    assert.ok(longQuery.startsWith((fields.query as string).slice(0, 200)))
+  })
+
+  test("the { text, values } config shape Drizzle's driver sends is timed too", async () => {
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 2 } })
+    instrumentSlowQueries(client)
+
+    await client.query({ name: 'q1', text: 'select $1::text', values: [pemLikeParam] })
+
+    const fields = slowLine()
+    assert.equal(fields.query, 'select $1::text')
+    assert.equal(fields.params, `(1 param: string(${pemLikeParam.length}))`)
+    assert.equal(fields.rows, 2)
+  })
+
+  test('the trailing-callback call shape is timed too, and still calls back', async () => {
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 3 } })
+    instrumentSlowQueries(client)
+
+    const seen = await new Promise<any>((resolve) => {
+      client.query('select 1', [], (_err: any, result: any) => resolve(result))
+    })
+
+    assert.equal(seen.rowCount, 3)
+    assert.equal(slowLine().rows, 3)
+  })
+
+  test('a slow query that FAILS is still reported, with no rows, and still rejects', async () => {
+    const timeout = new Error('canceling statement due to statement timeout')
+    const client = makeFakeClient({ delayMs: 80, reject: timeout })
+    instrumentSlowQueries(client)
+
+    await assert.rejects(() => client.query('select pg_sleep(120)'), /statement timeout/)
+
+    const fields = slowLine()
+    assert.ok(!('rows' in fields), 'a failed query has no row count to report')
+    assert.equal(typeof fields.ms, 'number')
+  })
+
+  test('a submittable (Cursor / QueryStream) is passed straight through, untimed', async () => {
+    const cursor = { text: 'select 1', submit() {} }
+    const client = makeFakeClient()
+    // -> The fake answers a promise for every call; what matters is that the wrapper returned the
+    //    original call's value without attaching a timer to a stream that has no single duration.
+    client.query = (...args: any[]) => args[0]
+    instrumentSlowQueries(client)
+
+    assert.equal(client.query(cursor), cursor)
+    assert.equal(warnCalls.length, 0)
+  })
+
+  test('instrumenting the same client twice does not double-report', async () => {
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 0 } })
+    instrumentSlowQueries(client)
+    instrumentSlowQueries(client)
+
+    await client.query('select 1')
+
+    assert.equal(warnCalls.length, 1)
+  })
+
+  /*
+    The "not logged twice" claim, as it stands after #2663 removed the `sqlLog` boolean gate: the
+    firehose is a `debug sql` line whose survival is the logger's per-scope threshold decision, and
+    the slow report is a `warn sql` line. Even with the `sql` scope raised to `debug` — the case the
+    Task describes as `sqlLog` being on — a slow query produces exactly ONE line from the slow path,
+    never a second `debug` of its own.
+
+    The two cannot be merged into one, and that is a property of Drizzle rather than a choice made
+    here: `Logger.logQuery` is invoked synchronously immediately BEFORE the query is sent, so the
+    firehose line has already been written by the time this wrapper's timer stops. See
+    `instrumentSlowQueries`'s doc comment.
+  */
+  test('with the sql scope at debug as well, the slow path still emits exactly one line', async () => {
+    WIKI.config.logScopes = { sql: 'debug' }
+    const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 1 } })
+    instrumentSlowQueries(client)
+
+    // -> The firehose, exactly as Drizzle drives it: before the query runs.
+    queryLogger.logQuery('select "id" from "pages" where "hash" = $1', ['abc'])
+    await client.query('select "id" from "pages" where "hash" = $1', ['abc'])
+
+    assert.equal(debugCalls.length, 1, 'one firehose line, from queryLogger and nowhere else')
+    assert.equal(debugCalls[0]![0], 'sql')
+    assert.equal(warnCalls.length, 1, 'one slow-query line, at warn')
+    assert.equal(warnCalls[0]![1], 'slow query')
+  })
+})
+
+/**
  * Task 2270: `dev.dropSchema` must not be honored outside a debug boot, even though the config value
  * itself carries no environment condition -- see `dropSchemaIfDev`'s own doc comment in `core/db.ts`
  * for the full reasoning. A fake `db` (just an `execute` mock.fn, matching this suite's other fakes)
@@ -635,6 +893,20 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
     assert.equal(message, 'pool error')
     assert.equal(fields.code, 'ECONNRESET')
     assert.equal((fields.error as Error).message, 'Connection terminated unexpectedly')
+  })
+
+  // -> OpenProject #2676. `connect` is where slow-query timing gets attached to each new physical
+  //    connection (`instrumentSlowQueries`), so its absence would leave the feature silently inert
+  //    with nothing failing. Asserted here beside the `error` listener because both are wiring
+  //    `init()` does to the pool it just built, and both are otherwise unreachable without one.
+  test('the constructed pool has a connect listener registered, for slow-query timing', async () => {
+    await dbManager.init(true)
+
+    assert.ok(dbManager.pool, 'init() should have set dbManager.pool')
+    assert.ok(
+      dbManager.pool!.listenerCount('connect') >= 1,
+      'the pool should have at least one connect listener attached'
+    )
   })
 })
 
