@@ -18,12 +18,13 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
  * unexpected throw to the same generic 500 — so asserting on the response cannot tell them apart, and
  * a collapsed or inverted `if` would pass. What DOES differ is the logging:
  *
- * | probe                | `/_api/` branch                       | non-API branch          |
- * | -------------------- | ------------------------------------- | ----------------------- |
- * | 404 (has statusCode) | silent (answered as-is)               | logs, one argument      |
- * | 500 (unexpected)     | logs, plus `buildErrorLogContext(req)` | logs, one argument      |
+ * | probe                | `/_api/` branch                                | non-API branch                        |
+ * | -------------------- | ---------------------------------------------- | ------------------------------------- |
+ * | 404 (has statusCode) | silent (answered as-is)                        | logs `unhandled error outside /_api`  |
+ * | 500 (unexpected)     | logs `unhandled error, answered 500`, its       | logs `unhandled error outside /_api`, |
+ * |                      | fields carrying `buildErrorLogContext(req)`    | fields `{ error }` alone              |
  *
- * so this suite asserts on `WIKI.logger.error`'s call count and arity per probe — at `error`, which
+ * so this suite asserts on `WIKI.logger.error`'s call count, message and fields per probe — at `error`, which
  * is Bug #2650: both branches used to log a crashed request at `warn`, one level below what an
  * operator alerts on, so a 500 was indistinguishable from a routine notice. `warn` is mocked
  * alongside purely to assert it is NOT the level either branch reaches for. Built with a bare
@@ -90,7 +91,18 @@ describe('registerErrorHandler', () => {
       1,
       'the non-API branch logs every error it answers, deliberate ones included'
     )
-    assert.equal(error.mock.calls[0]!.arguments.length, 1)
+    const [scope, message, fields] = error.mock.calls[0]!.arguments as [
+      string,
+      string,
+      Record<string, unknown>
+    ]
+    assert.equal(scope, 'http')
+    assert.equal(message, 'unhandled error outside /_api')
+    assert.deepEqual(
+      Object.keys(fields),
+      ['error'],
+      'the non-API branch is handed no request, so it has no log context to attach'
+    )
     assert.equal(warn.mock.calls.length, 0, 'neither branch logs at warn (#2650)')
   })
 
@@ -98,17 +110,28 @@ describe('registerErrorHandler', () => {
     const api = await app.inject({ method: 'GET', url: '/_api/boom' })
     assert.equal(api.statusCode, 500)
     assert.equal(error.mock.calls.length, 1)
-    const apiArgs = error.mock.calls[0]!.arguments
-    assert.equal(apiArgs.length, 2, 'the /_api/ branch logs buildErrorLogContext(req) alongside it')
-    // -> `req.id` is the same correlation id Fastify's own access log carries, which is the whole
-    //    point of the second argument.
-    assert.ok((apiArgs[1] as Record<string, unknown>).reqId)
+    const [apiScope, apiMessage, apiFields] = error.mock.calls[0]!.arguments as [
+      string,
+      string,
+      Record<string, unknown>
+    ]
+    assert.equal(apiScope, 'http')
+    assert.equal(
+      apiMessage,
+      'unhandled error, answered 500',
+      'the /_api/ branch spreads buildErrorLogContext(req) into the fields of this line'
+    )
+    // -> `req.id` is the same correlation id the `http` access line carries, which is the whole
+    //    point of spreading the context in.
+    assert.ok(apiFields.reqId)
 
     error.mock.resetCalls()
     const other = await app.inject({ method: 'GET', url: '/other/boom' })
     assert.equal(other.statusCode, 500)
     assert.equal(error.mock.calls.length, 1)
-    assert.equal(error.mock.calls[0]!.arguments.length, 1)
+    const otherFields = error.mock.calls[0]!.arguments[2] as Record<string, unknown>
+    assert.equal(error.mock.calls[0]!.arguments[1], 'unhandled error outside /_api')
+    assert.equal(otherFields.reqId, undefined, 'the non-API branch attaches no request log context')
     // -> An unhandled exception is `error` on BOTH surfaces, never `warn` (#2650): an operator
     //    alerting on `error` has to see a crashed request whichever handler answered it.
     assert.equal(warn.mock.calls.length, 0)
