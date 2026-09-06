@@ -31,6 +31,7 @@ import {
 import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
 import { ensureTemporal } from './core/temporal.ts'
+import { readyFields } from './helpers/bootSummary.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
@@ -74,7 +75,10 @@ if (WIKI.IS_DEBUG) {
   })
 }
 
-await WIKI.configSvc.init()
+// -> Returns where the configuration actually came from rather than logging it: this runs before
+//    `WIKI.logger` exists (the logger reads `WIKI.config.logLevel`), so the provenance is carried
+//    out to the `boot starting` line below instead of being announced from inside `init()`.
+const configProvenance = await WIKI.configSvc.init()
 
 // ----------------------------------------
 // Init Logger
@@ -96,11 +100,18 @@ registerUnhandledRejectionHandler(WIKI.logger, {
 // -> One line for what used to be a three-line banner plus two announcements. Everything the banner
 //    drew as decoration is a field, so the same facts survive into JSON mode and an operator can
 //    grep for `boot starting` rather than for a row of `=`.
+//
+//    `config=` is the resolved absolute path actually read, not the raw `CONFIG_FILE` value, and
+//    `overrides=` names which environment variables were HONOURED — set and on the branch that
+//    reads them, so `PORT` present but inert does not appear. `none` rather than an omitted field,
+//    so "this build reports overrides and there were none" is distinguishable from "this build does
+//    not report them".
 WIKI.logger.info('boot', 'starting', {
   version: WIKI.version,
   node: process.version,
   instance: WIKI.INSTANCE_ID,
-  config: process.env.CONFIG_FILE ?? 'config.yml'
+  config: configProvenance.configPath,
+  overrides: configProvenance.overrides.join(',') || 'none'
 })
 
 // ----------------------------------------
@@ -311,6 +322,23 @@ await preBoot()
 await initHTTPServer()
 
 await runBootPhaseOrExit(postBoot, 'post-boot initialization', WIKI.logger)
+
+// -> The last line of the boot narrative, and the one an operator actually waits for: everything
+//    `postBoot()` did has already reported itself above it. Emitted one statement BEFORE
+//    `setReady()` rather than after, so `setReady()` stays the final statement of the file (see
+//    `index.test.ts` / OpenProject #2062) while this is still the last thing written — `setReady()`
+//    itself logs nothing. `ms` is wall time since the `WIKI` literal at the top of this file, which
+//    is as close to process start as anything in userland gets.
+WIKI.logger.info(
+  'boot',
+  'ready',
+  readyFields({
+    sites: WIKI.sites,
+    bindIP: WIKI.config.bindIP,
+    port: WIKI.config.port,
+    ms: Temporal.Now.instant().epochMilliseconds - WIKI.startedAt.epochMilliseconds
+  })
+)
 
 // -> Not ready until postBoot() has resolved: everything that makes the instance able to answer a
 //    page request (site/group/locale/approval/classification caches, storage/search/comment sync,

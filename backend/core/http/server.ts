@@ -171,29 +171,58 @@ export function createHttpApp(): FastifyInstance {
 const EXPECTED_SHUTDOWN_REASONS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP'])
 
 /**
+ * The reason reported for a shutdown nobody asked for by signal — a bare `WIKI.server.stop()`,
+ * which graceful-server passes no `type` and no `body` for and therefore reports with no `Error` at
+ * all. Not a fault, so it does not take the `warn` branch below.
+ */
+const PROGRAMMATIC_SHUTDOWN_REASON = 'programmatic'
+
+/**
  * The graceful-shutdown listener, which is logging only.
  *
- * Split out of `createHttpApp()` so the branch below is reachable from a test with a fake emitter
+ * Split out of `createHttpApp()` so the branches below are reachable from a test with a fake emitter
  * rather than only by signalling a real process. Called from where the block sat inline, since the
  * handlers are registered on `WIKI.server` as it is constructed.
+ *
+ * Two lines, one per end of the teardown, replacing the four the HTTP server and scheduler used to
+ * emit between them (`Shutting down HTTP Server`, `Stopping Scheduler`, `Scheduler: [ STOPPED ]`,
+ * `HTTP Server has exited`). The library's own event pair is what makes them meaningful: it emits
+ * `SHUTTING_DOWN` — carrying the reason — at the top of `stop()`, then runs the pre-close delay,
+ * `closePromises` (scheduler drain, collab socket close, db unsubscribe + pool end) and the socket
+ * close, and only then emits `SHUTDOWN`, immediately before `process.exit`. So `stopping` belongs on
+ * the first and `stopped  ms=` on the second, and `ms` is the real cost of the drain rather than a
+ * number measured against nothing.
  *
  * `SIGTERM` is how Docker, Kubernetes and systemd ask for a shutdown, and `SIGHUP` is how some
  * supervisors do — only `SIGINT` (a developer's Ctrl-C) used to be exempted, so every ordinary
  * restart logged `warn: Error: SIGTERM` with a stack and made the most common benign event in an
- * instance's life read as a fault (OpenProject #2645). An expected reason now gets the one `info`
- * line and nothing else; anything else — an uncaught exception routed through graceful-server's own
+ * instance's life read as a fault (OpenProject #2645). An expected reason gets the one `info` line
+ * and nothing else; anything else — an uncaught exception routed through graceful-server's own
  * handler — keeps the `warn` with its stack.
  */
 export function registerShutdownLogging(server: Pick<IGracefulServer, 'on'>): void {
-  // -> Only the SHUTDOWN event logs. The actual teardown (scheduler drain, collab socket close, db
-  //    unsubscribe + pool end) runs via `closePromises` above, awaited by the library before it
-  //    closes the server, so a separate "shutting down" announcement said nothing the line below
-  //    does not — and it said it one event earlier, with no reason attached.
-  server.on(gracefulServer.SHUTDOWN, (err: Error) => {
-    WIKI.logger.info('http', 'stopping', { reason: err.message })
-    if (!EXPECTED_SHUTDOWN_REASONS.has(err.message)) {
-      WIKI.logger.warn('http', 'shutdown reason was not an expected signal', { error: err })
+  // -> Captured on the first event and read on the second, rather than recomputed: the two handlers
+  //    are the only readers, one shutdown happens per process, and `stop()` is idempotent (it
+  //    returns early once already shutting down), so there is nothing to key this by.
+  let shutdownStartedAt: number | null = null
+
+  server.on(gracefulServer.SHUTTING_DOWN, (err?: Error) => {
+    shutdownStartedAt = Date.now()
+    WIKI.logger.info('boot', 'stopping', {
+      reason: err?.message ?? PROGRAMMATIC_SHUTDOWN_REASON
+    })
+    if (err && !EXPECTED_SHUTDOWN_REASONS.has(err.message)) {
+      WIKI.logger.warn('boot', 'shutdown reason was not an expected signal', { error: err })
     }
+  })
+
+  // -> Written synchronously, because graceful-server calls `process.exit()` on the very next
+  //    statement after this event. Writes to stdout are synchronous for both pipes and TTYs on
+  //    Linux and macOS, which is what keeps this line from being dropped under `docker logs`.
+  server.on(gracefulServer.SHUTDOWN, () => {
+    WIKI.logger.info('boot', 'stopped', {
+      ms: shutdownStartedAt === null ? 0 : Date.now() - shutdownStartedAt
+    })
   })
 }
 

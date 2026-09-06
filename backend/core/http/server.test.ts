@@ -224,37 +224,77 @@ describe('registerShutdownLogging', () => {
   /**
    * Drives the real event names against a bare `EventEmitter` — `IGracefulServer.on` is
    * `(name, callback) => EventEmitter`, so an emitter satisfies the parameter structurally and the
-   * handler runs exactly as the library calls it, with no process signalling involved.
+   * handlers run exactly as the library calls them, with no process signalling involved.
+   *
+   * Both events, in the order graceful-server emits them: `SHUTTING_DOWN` with the reason at the top
+   * of `stop()`, then `SHUTDOWN` once the pre-close delay, the `closePromises` and the socket close
+   * are all done. `emitShuttingDownOnly` covers the first half alone.
    */
-  function emitShutdown(reason: Error) {
-    const info = mock.fn()
-    const warn = mock.fn()
-    const wiki = installTestWiki({ logger: { ...createSilentLogger(), info, warn } })
+  function emitShutdown(reason?: Error) {
+    const { info, warn, server, restore } = startShutdown(reason)
     try {
-      const server = new EventEmitter()
-      registerShutdownLogging(server)
       server.emit(gracefulServer.SHUTDOWN, reason)
       return { info, warn }
     } finally {
-      wiki.restore()
+      restore()
     }
   }
 
+  function startShutdown(reason?: Error) {
+    const info = mock.fn()
+    const warn = mock.fn()
+    const wiki = installTestWiki({ logger: { ...createSilentLogger(), info, warn } })
+    const server = new EventEmitter()
+    registerShutdownLogging(server)
+    server.emit(gracefulServer.SHUTTING_DOWN, reason)
+    return { info, warn, server, restore: () => wiki.restore() }
+  }
+
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-    test(`${signal} is an ordinary shutdown: one info line, no warning and no stack`, () => {
+    test(`${signal} is an ordinary shutdown: stopping then stopped, no warning and no stack`, () => {
       const { info, warn } = emitShutdown(new Error(signal))
-      assert.equal(info.mock.callCount(), 1)
-      assert.deepEqual(info.mock.calls[0].arguments, ['http', 'stopping', { reason: signal }])
+      assert.equal(info.mock.callCount(), 2)
+      assert.deepEqual(info.mock.calls[0].arguments, ['boot', 'stopping', { reason: signal }])
       assert.equal(warn.mock.callCount(), 0)
     })
   }
 
+  test('the stopped line carries `ms`, as a number, so the renderer prints it as a duration', () => {
+    const { info } = emitShutdown(new Error('SIGTERM'))
+    const [scope, message, fields] = info.mock.calls[1].arguments as [
+      string,
+      string,
+      { ms: number }
+    ]
+    assert.equal(scope, 'boot')
+    assert.equal(message, 'stopped')
+    assert.equal(typeof fields.ms, 'number')
+    assert.ok(fields.ms >= 0)
+  })
+
+  test('stopping is emitted when the teardown starts, not when it ends', () => {
+    // -> The whole point of the split: graceful-server runs its pre-close delay, `closePromises`
+    //    (scheduler drain, collab close, db pool end) and the socket close BETWEEN the two events,
+    //    so a `stopping` line on SHUTDOWN would appear only after all of that had already happened
+    //    and `ms` would be measured against nothing.
+    const { info, server, restore } = startShutdown(new Error('SIGTERM'))
+    try {
+      assert.equal(info.mock.callCount(), 1)
+      assert.deepEqual(info.mock.calls[0].arguments, ['boot', 'stopping', { reason: 'SIGTERM' }])
+      server.emit(gracefulServer.SHUTDOWN, new Error('SIGTERM'))
+      assert.equal(info.mock.callCount(), 2)
+      assert.equal(info.mock.calls[1].arguments[1], 'stopped')
+    } finally {
+      restore()
+    }
+  })
+
   test('any other reason still warns with the error itself, stack included', () => {
     const boom = new Error('boom')
     const { info, warn } = emitShutdown(boom)
-    assert.equal(info.mock.callCount(), 1)
+    assert.equal(info.mock.callCount(), 2)
     assert.equal(warn.mock.callCount(), 1)
-    assert.equal(warn.mock.calls[0].arguments[0], 'http')
+    assert.equal(warn.mock.calls[0].arguments[0], 'boot')
     // -> The `Error` itself under `fields.error`, so the renderer prints its message and its stack.
     assert.equal((warn.mock.calls[0].arguments[2] as { error: Error }).error, boom)
   })
@@ -266,18 +306,11 @@ describe('registerShutdownLogging', () => {
     assert.equal(warn.mock.callCount(), 1)
   })
 
-  test('the shutting-down event logs nothing of its own', () => {
-    // -> One line per shutdown, on SHUTDOWN, where the reason is: the earlier SHUTTING_DOWN
-    //    announcement carried no reason and preceded no work this handler does (OpenProject #2665).
-    const info = mock.fn()
-    const wiki = installTestWiki({ logger: { ...createSilentLogger(), info } })
-    try {
-      const server = new EventEmitter()
-      registerShutdownLogging(server)
-      server.emit(gracefulServer.SHUTTING_DOWN)
-      assert.equal(info.mock.callCount(), 0)
-    } finally {
-      wiki.restore()
-    }
+  test('a programmatic stop, which carries no Error at all, is reported but not warned about', () => {
+    // -> `WIKI.server.stop()` passes graceful-server neither a `type` nor a `body`, so it emits
+    //    both events with `undefined`. That is a deliberate shutdown, not an unexpected signal.
+    const { info, warn } = emitShutdown(undefined)
+    assert.deepEqual(info.mock.calls[0].arguments, ['boot', 'stopping', { reason: 'programmatic' }])
+    assert.equal(warn.mock.callCount(), 0)
   })
 })

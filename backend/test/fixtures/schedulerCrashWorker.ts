@@ -17,8 +17,8 @@ import { ThreadWorker } from 'poolifier'
  */
 export default new ThreadWorker(async (job: any) => {
   // -> The data `executeOnWorker` hands `workerPool.execute()` is the job shape itself
-  //    (`{ task, payload, INSTANCE_ID }`), so the mode this fixture switches on lives under
-  //    `job.payload`, not on `job` directly.
+  //    (`{ task, payload }`), so the mode this fixture switches on lives under `job.payload`, not on
+  //    `job` directly.
   if (job?.payload?.mode === 'crash') {
     process.exit(1)
   }

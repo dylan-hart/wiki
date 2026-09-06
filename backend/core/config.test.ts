@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { after, before, describe, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import { load } from 'js-yaml'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { sql } from 'drizzle-orm'
-import configSvc from './config.ts'
+import configSvc, { CONFIG_OVERRIDE_VARS } from './config.ts'
 import { resolvePoolSizeOptions } from './db.ts'
 import { relations } from '../db/relations.ts'
 import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
@@ -19,6 +19,7 @@ import {
   createCacheStub,
   createEventsStub,
   createSchedulerStub,
+  createSilentLogger,
   installTestWiki
 } from '../test/mocks.ts'
 import type { WikiDb } from './db.ts'
@@ -232,6 +233,170 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     assert.equal(warn.mock.callCount(), 0)
   })
 }
+
+/**
+ * `init()` returns where the configuration came from, rather than announcing it: it runs before
+ * `WIKI.logger` exists at every real call site (the logger reads `WIKI.config.logLevel`, so config
+ * has to be loaded first), which is the same constraint that puts the unknown-key warnings above on
+ * `console.warn`. `index.ts` renders what comes back as `config=` and `overrides=` on the
+ * `boot starting` line, so an operator can tell which file was actually read and which environment
+ * variables actually changed something (OpenProject #2671).
+ */
+describe('init() config provenance', () => {
+  const OVERRIDE_VARS = ['CONFIG_FILE', 'PORT', 'WIKI_PORT', 'DB_PASS_FILE'] as const
+
+  let fixtureDir: string
+  let saved: Partial<Record<(typeof OVERRIDE_VARS)[number], string | undefined>>
+
+  before(async () => {
+    fixtureDir = await mkdtemp(path.join(tmpdir(), 'wikijs-config-provenance-test-'))
+    await writeFile(
+      path.join(fixtureDir, 'base.yml'),
+      'defaults:\n  config:\n    port: 80\n    db:\n      host: localhost\n      pass: basedefaultpass\n'
+    )
+    await writeFile(path.join(fixtureDir, 'config.yml'), 'port: 3000\n')
+    await writeFile(path.join(fixtureDir, 'alt.yml'), 'port: 4000\n')
+    await writeFile(path.join(fixtureDir, 'no-port.yml'), 'port: 0\n')
+    await writeFile(path.join(fixtureDir, 'secret.txt'), 'sup3rSecret\n')
+    await writeFile(
+      path.join(fixtureDir, 'package.json'),
+      JSON.stringify({ version: '0.0.0-test', releaseDate: '2026-01-01', dev: true })
+    )
+  })
+
+  after(async () => {
+    await rm(fixtureDir, { recursive: true, force: true })
+  })
+
+  beforeEach(() => {
+    // -> The file-level `before()` exports DB_PASS_FILE for the whole run, so every one of these has
+    //    to start from a known-empty environment rather than inheriting it.
+    saved = {}
+    for (const name of OVERRIDE_VARS) {
+      saved[name] = process.env[name]
+      delete process.env[name]
+    }
+  })
+
+  afterEach(() => {
+    for (const name of OVERRIDE_VARS) {
+      if (saved[name] === undefined) {
+        delete process.env[name]
+      } else {
+        process.env[name] = saved[name]
+      }
+    }
+  })
+
+  async function initInFixture() {
+    const previous = (globalThis as any).WIKI
+    installTestWiki({ ROOTPATH: fixtureDir, SERVERPATH: fixtureDir })
+    try {
+      return await configSvc.init(true)
+    } finally {
+      ;(globalThis as any).WIKI = previous
+    }
+  }
+
+  test('reports the resolved config path and no overrides when the environment sets none', async () => {
+    const { configPath, overrides } = await initInFixture()
+    // -> The absolute path actually read, not the literal `config.yml` the old line printed.
+    assert.equal(configPath, path.join(fixtureDir, 'config.yml'))
+    assert.deepEqual(overrides, [])
+  })
+
+  test('reports CONFIG_FILE, resolved against ROOTPATH, when it redirected the read', async () => {
+    process.env.CONFIG_FILE = 'alt.yml'
+    const { configPath, overrides } = await initInFixture()
+    assert.equal(configPath, path.join(fixtureDir, 'alt.yml'))
+    assert.deepEqual(overrides, ['CONFIG_FILE'])
+  })
+
+  test('reports WIKI_PORT when it took the port', async () => {
+    process.env.WIKI_PORT = '4321'
+    const { overrides } = await initInFixture()
+    assert.deepEqual(overrides, ['WIKI_PORT'])
+  })
+
+  test('does NOT report PORT when the configured port already stands, since nothing read it', async () => {
+    // -> `PORT` is only consulted on the `appconfig.port < 1` branch. Reporting it merely because
+    //    the variable exists would claim an override that changed nothing.
+    process.env.PORT = '9999'
+    const { overrides } = await initInFixture()
+    assert.deepEqual(overrides, [])
+  })
+
+  test('reports PORT when the configured port is below 1 and it actually supplied one', async () => {
+    process.env.CONFIG_FILE = 'no-port.yml'
+    process.env.PORT = '9999'
+    const { overrides } = await initInFixture()
+    assert.deepEqual(overrides, ['CONFIG_FILE', 'PORT'])
+  })
+
+  test('reports DB_PASS_FILE only once the secret has actually been read', async () => {
+    process.env.DB_PASS_FILE = path.join(fixtureDir, 'secret.txt')
+    const { overrides } = await initInFixture()
+    assert.deepEqual(overrides, ['DB_PASS_FILE'])
+  })
+
+  test('lists several honoured overrides together, in the order init() reads them', async () => {
+    process.env.CONFIG_FILE = 'alt.yml'
+    process.env.WIKI_PORT = '4321'
+    process.env.DB_PASS_FILE = path.join(fixtureDir, 'secret.txt')
+    const { overrides } = await initInFixture()
+    assert.deepEqual(overrides, ['CONFIG_FILE', 'WIKI_PORT', 'DB_PASS_FILE'])
+  })
+
+  test('every name it can report is a member of the closed CONFIG_OVERRIDE_VARS vocabulary', () => {
+    assert.deepEqual([...CONFIG_OVERRIDE_VARS], [...OVERRIDE_VARS])
+  })
+})
+
+/**
+ * `config loaded` reports how much of the running configuration came out of the `settings` table and
+ * whether this boot is the one that seeded it — replacing the bare `source=db`, which said neither.
+ */
+describe('the config loaded line', () => {
+  test('counts the DB blob top-level keys, not the merged WIKI.config', async () => {
+    const info = mock.fn()
+    const previous = (globalThis as any).WIKI
+    installTestWiki({
+      config: { existingKeyFromYaml: true },
+      logger: { ...createSilentLogger(), info },
+      models: {
+        settings: {
+          getConfig: async () => ({ auth: {}, mail: {}, security: {} })
+        }
+      } as any
+    })
+
+    try {
+      assert.equal(await configSvc.loadFromDb(), true)
+      assert.equal(configSvc.dbKeyCount, 3)
+      // -> The merged config has the yaml key too; the line reports 3, what the DB supplied.
+      assert.ok(Object.keys((globalThis as any).WIKI.config).length > 3)
+    } finally {
+      ;(globalThis as any).WIKI = previous
+    }
+  })
+
+  test('leaves the count alone when there is nothing in the settings table to read', async () => {
+    const previous = (globalThis as any).WIKI
+    configSvc.dbKeyCount = 7
+    installTestWiki({
+      config: {},
+      models: { settings: { getConfig: async () => null } } as any
+    })
+
+    try {
+      assert.equal(await configSvc.loadFromDb(), false)
+      assert.equal(configSvc.dbKeyCount, 7)
+    } finally {
+      configSvc.dbKeyCount = 0
+      ;(globalThis as any).WIKI = previous
+    }
+  })
+})
 
 /**
  * DB-backed regression coverage for OpenProject #2044: `ensureSeeded()` holds one advisory lock
