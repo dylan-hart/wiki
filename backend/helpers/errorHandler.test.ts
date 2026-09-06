@@ -53,7 +53,7 @@ describe('sendNonApiError', () => {
   let app: FastifyInstance
 
   before(async () => {
-    wikiHandle = installTestWiki({ logger: { warn: mock.fn() } })
+    wikiHandle = installTestWiki({ logger: { error: mock.fn(), warn: mock.fn() } })
     app = fastify()
     await app.register(fastifySensible)
     app.setErrorHandler((error: any, _req, reply) => sendNonApiError(error, reply))
@@ -71,7 +71,8 @@ describe('sendNonApiError', () => {
     wikiHandle.restore()
   })
 
-  test('an unmarked error answers a generic 500 with no leaked detail, and is logged via WIKI.logger.warn', async () => {
+  test('an unmarked error answers a generic 500 with no leaked detail, and is logged via WIKI.logger.error', async () => {
+    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
     ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/boom-generic' })
     assert.equal(res.statusCode, 500)
@@ -83,23 +84,27 @@ describe('sendNonApiError', () => {
     })
     assert.ok(!res.body.includes('secret-path'))
     assert.ok(!res.body.includes('ENOENT'))
-    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 1)
+    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 1)
     assert.equal(
-      (globalThis as any).WIKI.logger.warn.mock.calls[0].arguments[0].message.includes(
+      (globalThis as any).WIKI.logger.error.mock.calls[0].arguments[0].message.includes(
         'secret-path'
       ),
       true
     )
+    // -> Bug #2650: this used to be `warn`, one level below the threshold an operator alerts on, so
+    //    a crashed request was invisible to them. Asserted as a level, not merely as "something was
+    //    logged".
+    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
   })
 
-  test('a deliberate @fastify/sensible error answers its own status and message, and is logged via WIKI.logger.warn', async () => {
-    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+  test('a deliberate @fastify/sensible error answers its own status and message, and is logged via WIKI.logger.error', async () => {
+    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/boom-sensible' })
     assert.equal(res.statusCode, 404)
     const body = res.json()
     assert.equal(body.statusCode, 404)
     assert.equal(body.message, 'This page could not be found.')
-    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 1)
+    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 1)
   })
 })
 
@@ -113,7 +118,7 @@ describe('apiErrorHandler', () => {
   let app: FastifyInstance
 
   before(async () => {
-    wikiHandle = installTestWiki({ logger: { warn: mock.fn() } })
+    wikiHandle = installTestWiki({ logger: { error: mock.fn(), warn: mock.fn() } })
     app = fastify()
     await app.register(fastifySensible)
     app.setErrorHandler(apiErrorHandler)
@@ -132,6 +137,7 @@ describe('apiErrorHandler', () => {
   })
 
   test('an error carrying a statusCode answers that status with the { ok, error, statusCode, message } body', async () => {
+    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
     ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/_api/boom-sensible' })
     assert.equal(res.statusCode, 403)
@@ -142,12 +148,14 @@ describe('apiErrorHandler', () => {
       statusCode: 403,
       message: 'You may not do that.'
     })
-    // -> Deliberate refusals are not warnings: only the bare-500 branch logs
+    // -> A deliberate refusal is not an operator's problem: only the bare-500 branch logs, and
+    //    Phase 1's access line (#2660) is what will account for 4xx.
+    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 0)
     assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
   })
 
   test('an unmarked error answers a generic 500 whose body leaks nothing from the original', async () => {
-    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/_api/boom-generic' })
     assert.equal(res.statusCode, 500)
     assert.equal(res.headers['content-type'], 'application/json; charset=utf-8')
@@ -161,10 +169,13 @@ describe('apiErrorHandler', () => {
   })
 
   test('the bare-500 branch logs the error with the request context that correlates it', async () => {
+    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
     ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
     await app.inject({ method: 'GET', url: '/_api/boom-generic' })
-    const calls = (globalThis as any).WIKI.logger.warn.mock.calls
+    const calls = (globalThis as any).WIKI.logger.error.mock.calls
     assert.equal(calls.length, 1)
+    // -> Bug #2650: at `error`, never at `warn`.
+    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
     const [error, context] = calls[0].arguments
     assert.match(error.message, /relation "pages" does not exist/)
     assert.equal(context.method, 'GET')
