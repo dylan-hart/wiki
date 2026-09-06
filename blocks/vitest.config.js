@@ -1,4 +1,11 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
+
+// The default run's one file glob, and the quarantine lane carved out of it
+// (`docs/decisions/flaky-test-quarantine.md`). Exported so `vitest.flaky.config.js` derives the
+// lane from the same list rather than keeping a second copy that goes stale.
+export const TEST_INCLUDE = ['**/*.test.js']
+export const FLAKY_GLOB = '**/*.flaky.test.js'
+export const FLAKY_INCLUDE = ['**/*.flaky.test.js']
 
 /**
  * Blocks have no app framework around them — no Vue, no build-time SFC compilation, nothing but a
@@ -21,7 +28,15 @@ export default defineConfig({
     // `config`, `diagram-image`, `figure`, `i18n`, `icons`, `props`, `render`, `site`, `styles`,
     // `theme`, `url-limit`, `video-embed` — every module but `compress.js`, which has none) plus the
     // repo-level `definitions.test.js`, none of which that glob would have run.
-    include: ['**/*.test.js'],
+    include: TEST_INCLUDE,
+    /*
+      Vitest's `exclude` REPLACES its defaults rather than extending them, so `configDefaults` has to
+      be spread back in -- and here that matters more than anywhere else in the repo, since the
+      `include` above is a bare workspace-wide glob and dropping the default `node_modules`
+      exclusion would put every dependency's own shipped tests in scope. `FLAKY_GLOB` is the
+      quarantine lane (`docs/decisions/flaky-test-quarantine.md`), run by `npm run test:flaky`.
+    */
+    exclude: [...configDefaults.exclude, FLAKY_GLOB],
     /*
       `test/setup.js` -- jsdom implements `CSSStyleSheet` but not `Document.prototype.
       adoptedStyleSheets` itself (confirmed against the pinned jsdom 30: `'adoptedStyleSheets' in

@@ -1,7 +1,38 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
+
+// The default run's four file roots. The first covers everything under `src/`. The `scripts/` root
+// holds build-time Node tools (icon/emoji generation, the locales check, the notify()-err.message
+// drift check) with the same co-located `*.test.js` convention as `src/` -- these need no
+// `test/setup.js` fixtures (no API_CLIENT, EVENT_BUS, or w-* components to stand in for), but do
+// need to be picked up by `npm run test`. The `test/` root is the shared harness's own coverage --
+// `test/i18n.js`, `router.js`, `mount.js`, `fixtures.js`, `mocks.js` and `sourceFiles.js` are
+// imported by most of the suite, so a break in one of them should fail as its own named test rather
+// than as a hundred unrelated component failures. `index.html` sits at the workspace root
+// (co-located per this repo's test convention means `index.test.js` alongside it), so it's named
+// explicitly rather than widened with a root-level wildcard that would also sweep in any future
+// stray root-level test file.
+//
+// Exported because `vitest.flaky.config.js` derives the quarantine lane's own globs from this one
+// list rather than keeping a second copy that goes stale the first time a root is added here.
+export const TEST_INCLUDE = [
+  'src/**/*.test.js',
+  'scripts/**/*.test.js',
+  'test/**/*.test.js',
+  'index.test.js'
+]
+
+// The quarantine lane, per `docs/decisions/flaky-test-quarantine.md`: a `*.flaky.test.js` file is
+// excluded from the default run and picked up by `npm run test:flaky`
+// (`vitest.flaky.config.js`) instead, which CI runs as its own report-only step. Note that
+// `TEST_INCLUDE`'s own globs DO match a `.flaky.` filename, so `FLAKY_GLOB` in the `exclude` below
+// is what actually keeps the lane out of the default run -- not the shape of the include list.
+export const FLAKY_GLOB = '**/*.flaky.test.js'
+export const FLAKY_INCLUDE = TEST_INCLUDE.map((glob) =>
+  glob.replace(/\.test\.js$/, '.flaky.test.js')
+)
 
 /**
  * A dedicated Vitest config, deliberately NOT `vite.config.js` — that file also wires up the
@@ -80,18 +111,13 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: [fileURLToPath(new URL('./test/setup.js', import.meta.url))],
-    // The first glob covers everything under `src/`. `scripts/**/*.test.js` holds build-time Node
-    // tools (icon/emoji generation, the locales check, the notify()-err.message drift check) with
-    // the same co-located `*.test.js` convention as `src/` -- these need no `test/setup.js` fixtures
-    // (no API_CLIENT, EVENT_BUS, or w-* components to stand in for), but do need to be picked up by
-    // `npm run test`. `test/**/*.test.js` is the shared harness's own coverage -- `test/i18n.js`,
-    // `router.js`, `mount.js`, `fixtures.js`, `mocks.js` and `sourceFiles.js` are imported by most of
-    // the suite, so a break in one of them should fail as its own named test rather than as a
-    // hundred unrelated component failures. `index.html` sits at the workspace root (co-located per
-    // this repo's test convention means `index.test.js` alongside it), so it's named explicitly
-    // rather than widened with a root-level wildcard that would also sweep in any future stray
-    // root-level test file.
-    include: ['src/**/*.test.js', 'scripts/**/*.test.js', 'test/**/*.test.js', 'index.test.js'],
+    // See `TEST_INCLUDE` at the top of this file for what each of the four roots covers.
+    include: TEST_INCLUDE,
+    // Vitest's `exclude` REPLACES its defaults rather than extending them, so `configDefaults`
+    // has to be spread back in -- dropping it would put `node_modules` and `dist` back in scope.
+    // `FLAKY_GLOB` is the quarantine lane (`docs/decisions/flaky-test-quarantine.md`), run by
+    // `npm run test:flaky` instead.
+    exclude: [...configDefaults.exclude, FLAKY_GLOB],
     css: true,
     server: {
       deps: {

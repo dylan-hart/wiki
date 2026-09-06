@@ -123,13 +123,3 @@ white label on it. That pair is 2.9:1, and the brief that opened this work set a
 for body text. Where a fill carries white text the app therefore uses `#c14a52` — the same hue, the
 tone `css/tailwind.css` and `helpers/accessibility.test.js` already reserve for exactly this job —
 and keeps `#e4676b` for fills that carry no text, or ink: the active-nav bar, an icon, a plate edge.
-
-## Known flaky
-
-- `backend/mcp/http.test.ts`'s "an active session is not evicted while it is still being used" is
-  timing-sensitive and fails intermittently under the full `node --test` run. Passes alone, twice.
-  Not a product defect, and not in code this pass touched.
-
-The two `— real layout` describes that drive a real headless Chromium used to fail the same way; they
-were timing out on the browser LAUNCH under the full suite's eight workers, not on anything they
-measure, and now carry a 30s timeout.
