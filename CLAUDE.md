@@ -614,7 +614,8 @@ Consequences worth knowing:
 
 - **The `WIKI` global.** Set up in `index.ts`, typed in `types/global.d.ts`, available everywhere
   without importing:
-  `WIKI.db` (Drizzle), `WIKI.models.*`, `WIKI.config`, `WIKI.logger`, `WIKI.cache`, `WIKI.scheduler`,
+  `WIKI.db` (Drizzle), `WIKI.models.*`, `WIKI.config`, `WIKI.logger` (see
+  [Logging](#logging) — every line takes a scope), `WIKI.cache`, `WIKI.scheduler`,
   `WIKI.events.{inbound,outbound}` (Emittery), `WIKI.sites` / `WIKI.sitesMappings` (cached site
   configs), `WIKI.ROOTPATH`, `WIKI.SERVERPATH`, `WIKI.INSTANCE_ID`.
 - **Routes** are Fastify plugins: `async function routes(app) { ... }` with a default export.
@@ -739,6 +740,73 @@ regression the split existed to prevent.
     "Testing (backend)" for the convention; that copy is intentionally separate from
     `core/temporal.ts`'s (test code should not import from the app's own boot path).
 
+### Logging
+
+Everything the backend writes to stdout goes through `WIKI.logger`, in one shape:
+
+```ts
+WIKI.logger.info('db', 'connected', { postgres: '18.6', schema, migrations: 0, ms })
+WIKI.logger.error('jobs', 'purgeUploads failed, no attempts left', { job: job.id, attempts: 3, error: err })
+WIKI.logger.debug('jobs', 'storageSyncTick found nothing due')
+```
+
+`(scope, message, fields?)` on each of the four levels — `error`, `warn`, `info`, `debug`. A file
+that logs a lot from one subsystem binds a child instead, and every line it emits carries the
+standing fields:
+
+```ts
+const log = WIKI.logger.scope('storage', { module: 'git', target: target.id })
+log.debug('pulling from origin', { branch })
+```
+
+- **Every line has a scope, from the closed vocabulary in `core/logScopes.ts`** (re-exported from
+  `core/logger.ts`, so either import reads the same values). It is a `LogScope` union, so a string
+  outside it is a type error at the call site. **Do not add, rename or reorder one to describe a
+  narrower subsystem** — that is a *field* (`{ module: 'git' }`, `{ engine: 'elasticsearch' }`), never
+  a new scope. A genuinely new subsystem is a one-line addition there, and `docs/operations.md#logs`
+  is the operator-facing table of what each name owns.
+- **The level is the status**, in four lines: `error` — broken, and a person has to act. `warn` —
+  degraded, self-healing, or a configuration smell. `info` — a state change worth having in the
+  record (boot milestones, a job that *did* something, lifecycle events). `debug` — per-item,
+  per-request, per-tick (the access log, every job start/finish, the `sql` and `auth` firehoses). A
+  scheduled tick that found nothing to do is `debug` or nothing at all, never `info`.
+- **Voice: a lowercase fragment, no trailing period.** No `[ OK ]` / `[ COMPLETED ]` / `[ FAILED ]` /
+  `[ SKIPPED ]` tags, no `...` announcement suffix, no `successfully` — the level already says
+  whether it worked, and nothing is announced before it starts unless it can plausibly take seconds,
+  in which case the announcement is `debug`.
+- **Facts are fields, not prose.** Counts, ids, durations, paths and hostnames go in `fields`; the
+  message stays a sentence. One call site produces both outputs — the `key=value` tail in
+  `logFormat: text`, sibling keys in `logFormat: json`.
+- **Two field keys are rendered, not printed.** Pass `ms` as a **number** and the renderer humanises
+  it (`in 528ms`, `in 3.7s`) and moves it to the end of the tail. Pass `error` as the **`Error`
+  itself** — never `err.message`, never `String(err)`, never a pre-formatted string: the renderer
+  puts the message inline as `error="…"` and the stack on following lines (always at `error`; at
+  `warn` only when `logLevel: debug`), and JSON mode gets `{ name, message, stack }`. One failure is
+  **one record**, not a `warn(context)` followed by a `warn(err)`.
+- **Identifiers, never identities.** User ids, group ids, site ids — not e-mail addresses, and not a
+  hostname where the hostname is a person's. The one deliberate exception is the seeded admin address
+  on a first run, which is the only credential the operator has at that point.
+- **No bare `console.log` in `backend/`.** The exceptions are the places that genuinely have no
+  logger yet, cannot share the stream, or are talking to a person at a terminal rather than writing
+  a log: `core/config.ts` (runs before `logger.init()`), `core/logger.ts` itself (it *is* the sink),
+  `mcp/stdio.ts` (stdout is JSON-RPC there) and the CLI entry points under `scripts/` and
+  `tasks/*.ts`. Each carries a file-level disable and a one-line reason; a new one anywhere else
+  goes through `WIKI.logger`.
+
+`logLevel` (`error|warn|info|debug`) and `logFormat` (`text|json`) are validated at boot
+case-sensitively: an unrecognised value is a one-line refusal and `exit(1)`, not a value that quietly
+logs everything. Per-scope thresholds (`logScopes:`) and the `sqlLog`/`authDebug` flags as runtime
+scope overrides are planned under Epic #2643 and are **not** config keys yet — do not write one.
+
+Enforcement is being landed alongside the call-site sweep (Epic #2643): `no-console` as an oxlint
+error in `backend/`, and a structural `test/logging-conventions.test.ts` that walks the source tree
+and fails on status tags, a message ending in `.` or `...`, a message opening with a capital letter
+that is not an identifier, a `logger.x(err)` one-liner, and a first argument outside the scope
+vocabulary. A line that genuinely needs an exception will carry `// log-conventions: allow` with a
+reason. Until those land, the rules above are enforced by review — and the logger still accepts a
+legacy `(msg, context?)` call, which renders under a `legacy` sentinel scope purely so the remaining
+un-swept sites are greppable. **Never write a new one.**
+
 ### Testing (backend)
 
 `backend/`'s test runner is Node's built-in **`node:test`**, run via `npm run test` (→ `node --test
@@ -818,6 +886,13 @@ separate transpile or worker config.
   `cache.set.mock.calls` directly), rather than reaching for the real `NodeCache`/`Emittery` instances
   the app boots with. Follow the same pattern for any other `WIKI` member a future model test
   needs present but does not care about.
+  - **`createSilentLogger()` swallows both call shapes and answers `scope()` with itself**, so a
+    suite asserting on a log line spies the level method it cares about (`WIKI.logger.warn =
+    mock.fn()`) rather than building its own logger. Assert on the **scope and the fields** a call
+    passed, not on the rendered string: the renderer is `core/logger.ts`'s business, and a test that
+    matches formatted text breaks the moment a column widens. **Never assert against
+    `WIKI.logger.backlog()` or subscribe to `WIKI.logger.ws`** — both carry structured frames whose
+    shape belongs to the logger, not to the code under test.
   - **A new test never writes a `WIKI = {…}` literal.** `installTestWiki(overrides)` installs
     `createWikiStub(overrides)` as the global and returns a `{ restore() }` to call in
     `after()`/`afterEach()` — `node --test` isolates each matched FILE into its own process but not
