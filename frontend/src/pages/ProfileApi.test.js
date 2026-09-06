@@ -251,4 +251,31 @@ describe('ProfileApi', () => {
       .find((btn) => btn.attributes('aria-label') === 'Revoke')
     expect(revoke.attributes('disabled')).toBeDefined()
   })
+
+  /**
+   * OpenProject #2714: the header band used to be a flex-row cell beside the action buttons, which
+   * collapsed it to the text column's width instead of running edge to edge like every other Profile
+   * page's `.w-section-header`. It must render as `<w-page>`'s own first child, with the buttons in a
+   * separate container below it (the shared `.actions-bar` treatment `ProfileOverlay.vue` styles),
+   * not squeezed into the same flex row.
+   */
+  it('runs the header band full width as the page root’s first child, with the actions below it', async () => {
+    stubApi({ 'users/profile/api-keys': [], sites: [] }, { fallback: [] })
+
+    const wrapper = mountPage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    const header = wrapper.find('h1.w-section-header')
+    expect(header.exists()).toBe(true)
+    // -> Direct child of the page root, not nested under a flex cell alongside the buttons
+    expect(header.element.parentElement).toBe(wrapper.element)
+
+    const actionsBar = wrapper.find('.actions-bar')
+    expect(actionsBar.exists()).toBe(true)
+    // -> The band itself carries no button -- both live in the actions row below it
+    expect(header.findAll('button')).toHaveLength(0)
+    expect(actionsBar.find('[aria-label="common.actions.refresh"]').exists()).toBe(true)
+    expect(actionsBar.text()).toContain('profile.api.newKeyButton')
+  })
 })
