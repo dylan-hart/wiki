@@ -2171,7 +2171,7 @@
   "common.footerCopyright": "© {year} {company}",
   "common.footerGeneric": "Powered by {link}, an open source project.",
   "common.footerLicense": "© {year} {company} · {license}",
-  "common.footerPoweredBy": "powered by {link}",
+  "common.footerPoweredBy": "Powered by {link}",
   "common.header.account": "Account",
   "common.header.admin": "Administration",
   "common.header.assets": "Assets",
