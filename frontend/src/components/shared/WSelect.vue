@@ -46,7 +46,7 @@
     -->
     <input
       v-if="useInput"
-      v-bind="$attrs"
+      v-bind="controlAttrs"
       :id="selectId"
       ref="input"
       v-model="query"
@@ -337,16 +337,14 @@ const isDisabled = computed(() => props.disabled)
 
 /**
  * Everything the caller passed through as a plain HTML attribute -- `name`, `data-*`, ... --
- * forwarded onto the real control rather than left stranded on the wrapper. For the plain variant
- * that's the frame's `<button>`; `class`/`style` are carved out because they're handed to the frame
- * as `rootClass`/`rootStyle` instead, see the matching note in `WInput`. For the `useInput` variant
- * the real control is the nested `<input>` instead (it binds `$attrs` itself, below) -- forwarding
- * here too would land every attribute on both elements, so this resolves to nothing in that case.
+ * forwarded onto the real control rather than left stranded on the wrapper. The real control is
+ * the frame's `<button>` for a plain select or the nested `<input>` for the `useInput` variant,
+ * and both bind this same computed rather than `$attrs` directly: `class`/`style` are carved out
+ * because they're handed to the frame as `rootClass`/`rootStyle` instead (see the matching note in
+ * `WInput`), and binding either element straight to `$attrs` would land the caller's class on that
+ * element a second time, on top of the wrapper.
  */
 const controlAttrs = computed(() => {
-  if (props.useInput) {
-    return {}
-  }
   const { class: _class, style: _style, ...rest } = attrs
   return rest
 })
@@ -432,10 +430,6 @@ const standoutClass = computed(() => {
   The field chrome, shared with WInput -- see `composables/fieldFrame.js`. "Active" here is the open
   dropdown, which is this control's equivalent of focus; `standout` is the variant that draws no
   frame at all and so takes no floating label either.
-
-  The `pt-0.5` on the value span is optical centring, matching WInput -- Roboto's ascent exceeds
-  its descent, so a geometrically centred line box renders its glyphs 2px high. See WInput for the
-  full note.
 */
 const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = useFieldFrame({
   props,
@@ -459,12 +453,14 @@ const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = us
 /**
  * Everything bound onto the frame's control element.
  *
- * A plain select IS the combobox, so it carries the role and every `aria-*` that goes with it; the
- * filtering variant's control is an inert `<div>` and hands all of that to its nested `<input>`
- * instead, which is why each entry reads `useInput ? undefined : …`.
+ * A plain select IS the combobox, so it carries the role, every `aria-*` that goes with it, and the
+ * caller's forwarded attrs (`controlAttrs`); the filtering variant's control is an inert `<div>` and
+ * hands all of that to its nested `<input>` instead (which binds `controlAttrs` itself), so this
+ * spreads it in only for the plain variant -- otherwise a forwarded attribute would land on both
+ * elements, which is why each entry below also reads `useInput ? undefined : …`.
  */
 const controlProps = computed(() => ({
-  ...controlAttrs.value,
+  ...(props.useInput ? {} : controlAttrs.value),
   id: props.useInput ? undefined : selectId,
   type: props.useInput ? undefined : 'button',
   role: props.useInput ? undefined : 'combobox',
