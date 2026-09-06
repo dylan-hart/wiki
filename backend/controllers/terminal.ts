@@ -43,14 +43,21 @@ async function routes(app: FastifyInstance) {
         return socket.close(4403, 'You are not allowed to read the server logs')
       }
 
-      const user = req.session.user?.email ?? req.session.user?.id ?? 'unknown'
+      /*
+        The id, never the e-mail address (OpenProject #2648): every line below goes to stdout, into the
+        100-line backlog, and from there to every admin terminal that connects afterwards, so an
+        address written here is an address replayed to whoever reads the logs next. The id is how the
+        rest of the codebase names an actor. Non-null because the `authenticated` check above has
+        already run — a session that passed it always carries a user.
+      */
+      const userId = req.session.user!.id
 
       /*
         Logged before the listener is attached, so the line is already in the backlog by the time it
         is replayed below and the terminal opens on its own arrival. Every other connected terminal
         sees it live, which is the point: who is reading the logs is itself worth logging.
       */
-      WIKI.logger.info(`Streaming server logs to user ${user}... [ CONNECTED ]`)
+      WIKI.logger.info(`Terminal attached user=${userId} [ CONNECTED ]`)
 
       const send = (line: string) => {
         if (socket.readyState !== socket.OPEN || socket.bufferedAmount > MAX_BUFFERED) {
@@ -77,9 +84,7 @@ async function routes(app: FastifyInstance) {
         // -> Off the stream first, so this instance's own goodbye is not sent down a socket that is
         //    already closing
         WIKI.logger.ws.off('log', send)
-        WIKI.logger.info(
-          `User ${user} has disconnected from server logs streaming. [ DISCONNECTED ]`
-        )
+        WIKI.logger.info(`Terminal detached user=${userId} [ DISCONNECTED ]`)
       })
     }
   )
