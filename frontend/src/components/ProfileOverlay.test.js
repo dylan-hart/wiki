@@ -32,6 +32,7 @@ const MESSAGES = {
   },
   profile: {
     title: 'Profile',
+    identity: 'About Me',
     avatar: 'Avatar',
     auth: 'Login & Security',
     groups: 'Groups',
@@ -96,6 +97,31 @@ describe('ProfileOverlay section rail', () => {
       .find((item) => item.text().includes('Groups'))
 
     expect(groupsItem.classes()).toContain('is-active')
+  })
+
+  /**
+   * OpenProject #2721: "Identity" becomes "About Me" with `tabler:id`, Avatar draws `tabler:photo`,
+   * API Access draws `tabler:api` -- pinning the rail's label/icon pairs so a future icon swap has
+   * to touch this test deliberately, not drift silently. `data-icon` is `WIcon.vue`'s own hook for
+   * exactly this (see its template comment): the rendered `<svg>`/`<iconify-icon>` is otherwise
+   * anonymous DOM with no `icon` attribute to read.
+   */
+  it('pins the rail label/icon pairs, including the info/avatar/api trio from OpenProject #2721', () => {
+    const { wrapper } = mountOverlay()
+
+    const iconFor = (label) =>
+      wrapper
+        .findAll('.layout-profile-sd .w-item')
+        .find((item) => item.text().includes(label))
+        .find('[data-icon]')
+        .attributes('data-icon')
+
+    expect(iconFor('About Me')).toBe('tabler:id')
+    expect(iconFor('Avatar')).toBe('tabler:photo')
+    expect(iconFor('Login & Security')).toBe('tabler:key')
+    expect(iconFor('Groups')).toBe('tabler:users')
+    expect(iconFor('API Keys')).toBe('tabler:api')
+    expect(iconFor('Notifications')).toBe('tabler:bell')
   })
 
   it('renders the Activity row disabled, and hides it unless flagsStore.experimental', () => {

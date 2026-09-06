@@ -156,14 +156,15 @@ const sidenav = computed(() => [
     key: 'info',
     // -> `profile.identity`, not `profile.title`: the overlay itself is "Profile", so a first rail
     //    entry by the same name read as a link back to the thing you are already in. It is the
-    //    reader's own identity -- name, address, location, job title -- which is what it now says.
+    //    reader's own identity -- name, address, location, job title -- which is what it now says
+    //    ("About Me" in English).
     label: t('profile.identity'),
-    icon: 'tabler:user-circle'
+    icon: 'tabler:id'
   },
   {
     key: 'avatar',
     label: t('profile.avatar'),
-    icon: 'tabler:paw'
+    icon: 'tabler:photo'
   },
   {
     key: 'auth',
@@ -178,7 +179,7 @@ const sidenav = computed(() => [
   {
     key: 'api',
     label: t('profile.api.title'),
-    icon: 'tabler:key'
+    icon: 'tabler:api'
   },
   {
     key: 'notifications',
