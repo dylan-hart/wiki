@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  304 icons.
+  305 icons.
 */
 export const BUNDLED_ICONS = {
   "tabler:address-book": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M20 6v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2M10 16h6\"/><path d=\"M11 11a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 8h3m-3 4h3m-3 4h3\"/></g>","width":24,"height":24},
@@ -228,6 +228,7 @@ export const BUNDLED_ICONS = {
   "tabler:photo-cog": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M12 21H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v6\"/><path stroke-linecap=\"round\" d=\"M15 8h.01\"/><path d=\"m3 16l5-5c.928-.893 2.072-.893 3 0l3 3m0 0l1-1c.48-.461 1.016-.684 1.551-.67m.45 6.67a2 2 0 1 0 4 0a2 2 0 1 0-4 0m2-3.5V17m0 4v1.5m3.031-5.25l-1.299.75m-3.463 2l-1.3.75m0-3.5l1.3.75m3.463 2l1.3.75\"/></g>","width":24,"height":24},
   "tabler:photo-plus": {"body":"<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M12.5 21H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v6.5\"/><path stroke-linecap=\"round\" d=\"M15 8h.01\"/><path d=\"m3 16l5-5c.928-.893 2.072-.893 3 0l4 4\"/><path d=\"m14 14l1-1c.67-.644 1.45-.824 2.182-.54M16 19h6m-3-3v6\"/></g>","width":24,"height":24},
   "tabler:pilcrow": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M13 4v16m4-16v16m2-16H9.5a4.5 4.5 0 0 0 0 9H13\"/>","width":24,"height":24},
+  "tabler:player-pause": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M6 6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zm8 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1z\"/>","width":24,"height":24},
   "tabler:player-play": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M7 4v16l13-8z\"/>","width":24,"height":24},
   "tabler:player-stop": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M5 7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z\"/>","width":24,"height":24},
   "tabler:player-track-next": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M3 5v14l8-7zm11 0v14l8-7z\"/>","width":24,"height":24},

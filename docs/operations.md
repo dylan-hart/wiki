@@ -300,7 +300,7 @@ responsibility. `logFormat: json` exists precisely so that capture can be machin
 
 `backend/core/logger.ts` also keeps an in-memory ring buffer of the last **500** lines
 (`BACKLOG_SIZE`), replayed the moment an admin opens the live log view — the admin area's
-**Terminal** page (`frontend/src/pages/AdminTerminal.vue`, over the `/_terminal/logs` websocket in
+**Live Log** page (`frontend/src/pages/AdminLiveLog.vue`, over the `/_terminal/logs` websocket in
 `backend/controllers/terminal.ts`, gated on `manage:system`). It is a window onto what just happened,
 not storage: it is lost on restart, and a clustered deployment's view only ever shows whichever
 instance the websocket happened to land on — it is not an aggregated multi-instance view.
@@ -313,8 +313,13 @@ What travels over that websocket is a **structured frame**, not pre-rendered tex
 
 Rendering is the browser's job, which is why the page's colours never have to survive a non-TTY
 stdout to reach it (`util.styleText` strips them in a container, so a stream of pre-rendered ANSI
-arrived colourless). Level and scope filters, click-to-expand stacks and copy-as-JSON are what the
-frame makes possible; the Live Log rework tracked under Epic #2643 is what builds them.
+arrived colourless). The page draws each frame as a row — timestamp, level, scope, message, then the
+fields as `key=value` chips — and off that shape it offers a level threshold, a scope multi-select
+built from the scopes it has actually seen, a free-text filter over message and fields, pause (which
+buffers rather than drops), click-to-expand stacks on anything carrying one, and copy-as-JSON for a
+single record or for everything currently showing. Filtering is client-side over what the page has
+retained (up to 5,000 records, oldest dropped): the server sends whatever the instance's own
+threshold lets through, and narrowing the view here does not change that.
 
 The **audit log** is a different thing entirely: a durable, queryable table of who did what
 (`models/auditLog.ts`, the admin area's Audit Log page, retention configurable there). Security

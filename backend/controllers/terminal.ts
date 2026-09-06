@@ -37,7 +37,7 @@ async function routes(app: FastifyInstance) {
       /*
         Refusals close the socket with a code in the private 4000 range, where the browser hands both
         code and reason to the page — which is how the terminal can print why it was turned away and
-        know not to offer a reconnect. See `pages/AdminTerminal.vue`.
+        know not to offer a reconnect. See `pages/AdminLiveLog.vue`.
       */
       if (!req.session?.authenticated) {
         return socket.close(4401, 'Authentication is required')

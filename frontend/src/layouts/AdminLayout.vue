@@ -351,6 +351,12 @@
                   :class="countBadgeClass(adminStore.info.clusterTotal)" />
               </w-item-section>
             </w-item>
+            <w-item to="/_admin/livelog" active-class="admin-nav-active">
+              <w-item-section avatar>
+                <w-icon name="tabler:terminal-2" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.liveLog.title') }}</w-item-section>
+            </w-item>
             <w-item to="/_admin/mail" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="tabler:mail" />
@@ -422,12 +428,6 @@
               <w-item-section side>
                 <status-light :color="adminStore.isVersionLatest ? `positive` : `warning`" />
               </w-item-section>
-            </w-item>
-            <w-item to="/_admin/terminal" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:terminal-2" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.terminal.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/utilities" active-class="admin-nav-active">
               <w-item-section avatar>
