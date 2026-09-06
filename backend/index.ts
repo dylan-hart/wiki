@@ -80,7 +80,13 @@ await WIKI.configSvc.init()
 // Init Logger
 // ----------------------------------------
 
-WIKI.logger = logger.init()
+// -> The thunk is the LIVE half of the per-scope thresholds (OpenProject #2663): re-read on every
+//    line, so flipping `sqlLog` or `authDebug` in the admin area raises that scope from the next
+//    line onwards with no restart. `WIKI.models` does not exist yet — `preBoot()` below builds it —
+//    which is exactly why this is a thunk and not a value.
+WIKI.logger = logger.init({
+  scopeOverrides: () => WIKI.models?.flags?.logScopeOverrides() ?? {}
+})
 
 // -> Registered as early as `WIKI.logger` exists, so nothing between here and the end of boot can
 //    crash the process unlogged via a rejection nobody's `.catch` caught. Exits deliberately rather

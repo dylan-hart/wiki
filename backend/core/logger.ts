@@ -1,6 +1,6 @@
 import { styleText } from 'node:util'
 import EventEmitter from 'node:events'
-import type { LogScope } from './logScopes.ts'
+import { LOG_SCOPES, type LogScope } from './logScopes.ts'
 
 // -> The closed subsystem vocabulary every line is filed under, re-exported so it is reachable from
 //    the logger itself, which is where a caller looks for it. `core/logScopes.ts` holds the one
@@ -9,6 +9,21 @@ export { LOG_SCOPES, type LogScope } from './logScopes.ts'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 export type LogFormat = 'text' | 'json'
+
+/**
+ * A partial map of scope to the level that scope is emitted at, overriding the global `logLevel`
+ * floor for that scope alone.
+ *
+ * Two things produce one: the `logScopes:` config key (a file setting, validated at boot) and the
+ * `scopeOverrides` thunk `init()` is handed (a live setting, re-read on every line — which is what
+ * lets the `sqlLog`/`authDebug` admin flags take effect on the next line with no restart). A scope
+ * absent from both falls back to `logLevel`, so an empty map is exactly today's behaviour.
+ *
+ * An entry may LOWER a scope as well as raise it: `{ sql: 'error' }` silences a chatty subsystem
+ * below the global floor. The global floor is not a floor in the arithmetic sense — it is the
+ * default for a scope that says nothing.
+ */
+export type ScopeOverrides = Partial<Record<LogScope, LogLevel>>
 
 /**
  * The `key=value` tail of a text line, and the sibling fields of a JSON record — one call site,
@@ -400,6 +415,23 @@ export interface LoggerInitOptions {
    * killing the test runner; production hands it `process.exit`, which never returns.
    */
   exit?: (code: number) => void
+
+  /**
+   * The live half of the per-scope threshold: consulted on EVERY line, ahead of the `logScopes:`
+   * config map, so a scope it names is emitted at that level from the next line onwards with no
+   * restart.
+   *
+   * A thunk rather than a value because that is the whole point — `index.ts` hands one reading
+   * `WIKI.models.flags`, whose `sqlLog`/`authDebug` switches an administrator flips in the admin
+   * area mid-run. It is injected rather than imported because `logger.init()` runs long before
+   * `WIKI.models` exists, and the logger has no business importing a model in either case.
+   *
+   * Optional, and empty by default: the other five `init()` callers (`worker.ts`,
+   * `tasks/promoteAdminRuntime.ts`, `mcp/bootstrap.ts`, `scripts/audit-site-scoped-rules.ts`,
+   * `migration/bootstrap.ts`) have no flags model to read and inherit no overrides, which is what
+   * they did before this existed too.
+   */
+  scopeOverrides?: () => ScopeOverrides
 }
 
 /**
@@ -417,7 +449,7 @@ export interface LoggerInitOptions {
  * documents for itself. One line per rejected value, naming the value and the valid set, then exit.
  */
 function assertValidLogConfig(exit: (code: number) => void): void {
-  const { logLevel, logFormat } = WIKI.config
+  const { logLevel, logFormat, logScopes } = WIKI.config
   if (!LEVELS.includes(logLevel)) {
     console.error(
       styleText(
@@ -436,17 +468,80 @@ function assertValidLogConfig(exit: (code: number) => void): void {
     )
     exit(1)
   }
+  assertValidLogScopes(logScopes, exit)
+}
+
+/**
+ * Refuses a `logScopes:` map this logger cannot honour — same one-line-refusal-then-exit shape as
+ * `logLevel`/`logFormat` above, and for the same reason: a typo'd scope name is a scope that is
+ * never consulted, so an operator who mistyped one would see nothing traced and be told nothing
+ * about why.
+ *
+ * `undefined` and `null` are the default (`base.yml` declares the key as an explicit null, so that
+ * `core/config.ts#warnUnknownConfigKeys` does not descend into a free-form map and flag every entry
+ * in it as unknown). Anything else must be a plain object of `LogScope` to `LogLevel`.
+ */
+function assertValidLogScopes(logScopes: unknown, exit: (code: number) => void): void {
+  if (logScopes === undefined || logScopes === null) {
+    return
+  }
+  if (typeof logScopes !== 'object' || Array.isArray(logScopes)) {
+    console.error(
+      styleText(
+        ['red', 'bold'],
+        `>>> Invalid \`logScopes\` value ${JSON.stringify(logScopes)} in config.yml — must be a map of scope to level.`
+      )
+    )
+    exit(1)
+    return
+  }
+  for (const [scope, level] of Object.entries(logScopes as Record<string, unknown>)) {
+    if (!(LOG_SCOPES as readonly string[]).includes(scope)) {
+      console.error(
+        styleText(
+          ['red', 'bold'],
+          `>>> Unknown \`logScopes\` scope ${JSON.stringify(scope)} in config.yml — must be one of: ${LOG_SCOPES.join(', ')}.`
+        )
+      )
+      exit(1)
+    } else if (!LEVELS.includes(level as LogLevel)) {
+      console.error(
+        styleText(
+          ['red', 'bold'],
+          `>>> Invalid \`logScopes.${scope}\` value ${JSON.stringify(level)} in config.yml — must be one of: ${LEVELS.join(', ')}.`
+        )
+      )
+      exit(1)
+    }
+  }
 }
 
 export default {
   loggers: {},
-  init({ exit = (code: number) => process.exit(code) }: LoggerInitOptions = {}): Logger {
+  init({
+    exit = (code: number) => process.exit(code),
+    scopeOverrides = () => ({})
+  }: LoggerInitOptions = {}): Logger {
     assertValidLogConfig(exit)
 
     const primaryLogger = new Logger()
 
-    let ignoreNextLevels = false
     const backlog: LogFrame[] = []
+
+    /*
+      The threshold a line is measured against, resolved PER CALL rather than baked in here
+      (OpenProject #2663). Three sources, most specific first: the live override thunk (the
+      `sqlLog`/`authDebug` admin flags, which is why this cannot be a value), then the `logScopes:`
+      config map, then the global `logLevel` floor.
+
+      `legacy` — the sentinel an un-swept `(msg, context?)` call renders under — is not a member of
+      the vocabulary, so it matches neither map and falls through to `logLevel`, which is exactly
+      what it did before per-scope thresholds existed.
+    */
+    const effectiveLevel = (scope: string): LogLevel =>
+      scopeOverrides()[scope as LogScope] ??
+      (WIKI.config.logScopes as ScopeOverrides | null | undefined)?.[scope as LogScope] ??
+      WIKI.config.logLevel
 
     primaryLogger.ws = new EventEmitter()
     // -> One listener per connected admin terminal, so the default cap of 10 is a leak warning rather
@@ -454,46 +549,60 @@ export default {
     primaryLogger.ws.setMaxListeners(0)
     primaryLogger.backlog = () => [...backlog]
 
+    /*
+      A listener on EVERY level, with the threshold applied inside it (OpenProject #2663).
+
+      This used to be structural: the loop stopped attaching listeners once it passed `logLevel`, so
+      a `debug` call at `logLevel: info` reached no listener at all. Per-scope thresholds cannot work
+      that way — which threshold applies is not known until `normalizeCall` has read the scope off
+      the arguments — so the decision moves one line inside, immediately after the call is
+      normalized and before any frame is built. With `logScopes` unset and no override thunk, this
+      is behaviour-identical to the loop it replaced.
+    */
     LEVELS.forEach((lvl) => {
       primaryLogger[lvl] = ((a: unknown, b?: unknown, c?: LogFields) => {
         primaryLogger.emit(lvl, a, b, c)
       }) as LogFn
 
-      if (!ignoreNextLevels) {
-        primaryLogger.on(lvl, (a: unknown, b?: unknown, c?: LogFields) => {
-          const record = normalizeCall(a, b, c)
-          const frame = buildFrame(record, lvl, new Date().toISOString(), WIKI.INSTANCE_ID)
-          // -> A stack is noise on a warning an operator has already decided to live with, and the
-          //    whole point of the record on an error. `warn` gets one only when the operator has
-          //    asked for everything.
-          const withStack = lvl === 'error' || (lvl === 'warn' && WIKI.config.logLevel === 'debug')
+      primaryLogger.on(lvl, (a: unknown, b?: unknown, c?: LogFields) => {
+        const record = normalizeCall(a, b, c)
+        if (LEVELS.indexOf(lvl) > LEVELS.indexOf(effectiveLevel(record.scope))) {
+          return
+        }
 
-          console.log(
-            WIKI.config.logFormat === 'json' ? renderJson(frame) : renderText(frame, { withStack })
-          )
+        const frame = buildFrame(record, lvl, new Date().toISOString(), WIKI.INSTANCE_ID)
+        // -> A stack is noise on a warning an operator has already decided to live with, and the
+        //    whole point of the record on an error. `warn` gets one only when the operator has
+        //    asked for everything. Deliberately the GLOBAL level, not this scope's: "show me
+        //    everything" is a property of the run, and reading it per scope would also strip the
+        //    stack off a warning in a scope an operator had quietened for unrelated reasons.
+        const withStack = lvl === 'error' || (lvl === 'warn' && WIKI.config.logLevel === 'debug')
 
-          /*
-            The backlog and the socket carry the FRAME, not the rendered line (OpenProject #2679):
-            the admin Live Log filters by level and scope and expands a stack on demand, none of
-            which it can do against a string it would have to parse back apart — and doing so would
-            also mean shipping this process's stdout format and its ANSI escapes to a browser that
-            has its own opinion about both.
-          */
-          backlog.push(frame)
-          if (backlog.length > BACKLOG_SIZE) {
-            backlog.shift()
-          }
-          primaryLogger.ws.emit('log', frame)
-        })
-      }
-      if (lvl === WIKI.config.logLevel) {
-        ignoreNextLevels = true
-      }
+        console.log(
+          WIKI.config.logFormat === 'json' ? renderJson(frame) : renderText(frame, { withStack })
+        )
+
+        /*
+          The backlog and the socket carry the FRAME, not the rendered line (OpenProject #2679):
+          the admin Live Log filters by level and scope and expands a stack on demand, none of
+          which it can do against a string it would have to parse back apart — and doing so would
+          also mean shipping this process's stdout format and its ANSI escapes to a browser that
+          has its own opinion about both.
+
+          A scope raised by `logScopes` or by a flag therefore reaches the admin terminal as well as
+          stdout, which is the point: #2660 raised `BACKLOG_SIZE` to 500 so that turning `sqlLog` on
+          for one page load no longer evicts the whole window.
+        */
+        backlog.push(frame)
+        if (backlog.length > BACKLOG_SIZE) {
+          backlog.shift()
+        }
+        primaryLogger.ws.emit('log', frame)
+      })
     })
 
     // -> Assigned after the level loop above, so a child forwards to the *final* level methods and
-    //    is therefore gated by `logLevel` exactly as a direct call is: a level past the configured
-    //    threshold still emits, but has no listener rendering it.
+    //    is therefore gated by `effectiveLevel` exactly as a direct call is.
     primaryLogger.scope = (name: LogScope, fields?: LogFields) =>
       createScopedLogger(primaryLogger, name, fields ?? {})
 

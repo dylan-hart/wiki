@@ -10,7 +10,6 @@ import { parse } from 'pg-connection-string'
 import semver from 'semver'
 
 import { relations } from '../db/relations.ts'
-import { flags } from '../models/flags.ts'
 import { createDeferred } from '../helpers/common.ts'
 import {
   connectListener,
@@ -78,28 +77,23 @@ const LEGACY_TABLES = ['knex_migrations', 'searchEngines']
 /**
  * Query logger, consulted by Drizzle on every query.
  *
- * The decision is made per query rather than when the instance is built, so that the `sqlLog` system
- * flag can be turned on in the admin area and take effect on the next query — a logger chosen at boot
- * would need a restart.
+ * It emits unconditionally, at `debug` on the `sql` scope, and owns no gate of its own (OpenProject
+ * #2663). Whether the line survives is the logger's decision, made per call against the `sql` scope's
+ * effective threshold: the `sqlLog` admin flag raises it to `debug` from the next query onwards with
+ * no restart, `logScopes: { sql: debug }` in config.yml does the same for a whole run, and at the
+ * default `logLevel: info` it is dropped before a frame is even built.
  *
  * Bound parameter *values* are never logged, only redacted below. A bound parameter routinely carries
  * a secret — `models/settings.ts#updateConfig` binds a whole settings blob as one JSONB parameter, and
  * that blob can hold the API signing private key and its passphrase, the session secret, SMTP/LDAP/
- * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and this line reaches
- * the log unconditionally whenever either trigger below is on: the container log pipeline
- * for `sqlLog`/`dev.logQueries`, and every connected admin terminal client via
- * `controllers/terminal.ts`'s backlog replay. Redaction lives inside `logQuery` itself rather than
- * behind either trigger's `if`, so both are covered identically. See OpenProject #2205.
- *
- * The `sqlLog`/`dev.logQueries` gate stays in place on top of the `debug` level: until per-scope
- * thresholds exist (OpenProject #2663), dropping it would either flood `logLevel: debug` with every
- * query or leave the admin flag doing nothing at all.
+ * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and once the threshold does
+ * let this line through it reaches both the container log pipeline and every connected admin terminal
+ * client, via `controllers/terminal.ts`'s backlog replay. Redaction therefore lives inside `logQuery`
+ * itself rather than behind any trigger, so every route out is covered identically. See OpenProject
+ * #2205.
  */
 export const queryLogger = {
   logQuery(query: string, params: unknown[]): void {
-    if (!flags.isEnabled('sqlLog') && !WIKI.config.dev?.logQueries) {
-      return
-    }
     WIKI.logger.debug(
       'sql',
       query,
@@ -410,8 +404,10 @@ export default {
    * silently doing nothing, so a developer running with the wrong `NODE_ENV` is not left wondering
    * why their schema was not dropped.
    *
-   * `dev.logQueries` (the other member of `dev`, consulted by `queryLogger` above) is intentionally
-   * left ungated here -- it is handled by the `sqlLog` redaction work tracked separately.
+   * `dropSchema` is the only member of `dev` this file reads. The `dev.logQueries` key it used to
+   * read alongside it is gone: `logScopes: { sql: debug }` says the same thing in the vocabulary the
+   * logger already validates, and a second, dev-only trigger for one scope's threshold was one
+   * switch too many (OpenProject #2663).
    */
   async dropSchemaIfDev(db: WikiDb): Promise<void> {
     if (!WIKI.config.dev?.dropSchema) {

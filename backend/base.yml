@@ -39,6 +39,14 @@ defaults:
     # exit(1) rather than a silently ignored value logging everything at debug.
     logLevel: info
     logFormat: text
+    # Optional per-scope thresholds: a map of log scope (core/logScopes.ts) to level, overriding
+    # logLevel for that scope alone -- `logScopes: { http: debug, sql: error }`. Validated at boot
+    # alongside the two keys above: an unknown scope name or level is a one-line refusal and exit(1).
+    # Declared as an explicit null rather than `{}` on purpose: core/config.ts#warnUnknownConfigKeys
+    # descends into any key that is a plain object on BOTH sides, and this one is a free-form map
+    # whose entries cannot be enumerated here -- with `{}` every real entry would warn as an unknown
+    # key on every boot.
+    logScopes: ~
     offline: false
     dataPath: ./data
     # In BYTES. Fastify's `bodyLimit` takes an integer and refuses anything else at boot, unlike the
@@ -208,13 +216,12 @@ defaults:
     # two in sync if this ever changes.
     docsBase: 'https://beta.js.wiki/docs'
     # Settings when running in dev mode only -- read directly off WIKI.config.dev by core/db.ts
-    # (dropSchema, logQueries) and by frontend/vite.config.js (port, hmrClientPort) for its dev-server
-    # proxy target. Declared here so config.sample.yml's `dev:` block (which every dev checkout ships)
-    # has a schema counterpart -- without one, `warnUnknownConfigKeys()` flagged it as unrecognized on
-    # every single dev boot.
+    # (dropSchema) and by frontend/vite.config.js (port, hmrClientPort) for its dev-server proxy
+    # target. Declared here so config.sample.yml's `dev:` block (which every dev checkout ships) has a
+    # schema counterpart -- without one, `warnUnknownConfigKeys()` flagged it as unrecognized on every
+    # single dev boot.
     dev:
       dropSchema: false
-      logQueries: false
       port: 3001
       hmrClientPort: 3001
 systemIds:

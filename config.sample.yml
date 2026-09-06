@@ -143,9 +143,29 @@ logFormat: text
 
 # There is no log FILE, by design: lines go to stdout and nowhere else, plus an
 # in-memory ring buffer of the last 500 replayed to the admin log view.
-# Capturing them durably is the operator's job. Per-scope thresholds
-# (`logScopes:`) are planned but NOT a config key yet -- setting one today is an
-# unknown key, not a quieter `http`.
+# Capturing them durably is the operator's job.
+
+# Optional per-scope thresholds. Every line names exactly one subsystem, from
+# the closed vocabulary in backend/core/logScopes.ts (documented as a table in
+# docs/operations.md#logs), and an entry here sets the level for that scope
+# alone -- `logLevel` above stays the default for every scope that says nothing.
+# An entry can quieten a scope as well as raise it.
+#
+# The worked example: the HTTP access log is a `debug http` line, so at the
+# default `logLevel: info` there is no access log at all. This is how you turn
+# one on without also turning on every other per-request line in the server:
+#
+# logScopes:
+#   http: debug
+#   sql: error
+#
+# Validated at boot the same way as logLevel and logFormat: an unknown scope
+# name or an unknown level is a one-line refusal and exit(1), not a typo that
+# quietly traces nothing.
+#
+# The two admin system flags are the live counterpart, for a scope you want to
+# raise without a restart: `sqlLog` raises `sql` to debug and `authDebug` raises
+# `auth` to debug, from the next line onwards. A flag wins over an entry here.
 
 # ---------------------------------------------------------------------
 # Offline Mode
@@ -226,6 +246,5 @@ update:
 
 dev:
   dropSchema: false
-  logQueries: false
   port: 3001
   hmrClientPort: 3001

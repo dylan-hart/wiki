@@ -9,7 +9,7 @@ import { installTestWiki } from '../test/mocks.ts'
  * Pure unit test: `logger.ts` reads only `WIKI.config.{logFormat,logLevel}` and `WIKI.INSTANCE_ID`,
  * so a minimal stand-in global is enough — no database, no other model.
  */
-function setWiki(config: { logFormat?: unknown; logLevel?: unknown }) {
+function setWiki(config: { logFormat?: unknown; logLevel?: unknown; logScopes?: unknown }) {
   installTestWiki({
     config,
     INSTANCE_ID: 'test-instance'
@@ -192,6 +192,144 @@ describe('logger threshold', () => {
   })
 })
 
+/**
+ * Per-scope thresholds (OpenProject #2663). `logLevel` is the default for a scope that says nothing;
+ * a `logScopes` entry or a live override thunk answers for that scope instead.
+ *
+ * The gate that decides this had to move from the level loop (which stopped attaching listeners past
+ * `logLevel`) to inside the listener, since the scope is not known until the call has been
+ * normalized — so the first claim below is the behaviour-preservation one: with no overrides at all,
+ * nothing about the old threshold changed.
+ */
+describe('logger per-scope thresholds', () => {
+  afterEach(() => {
+    mock.restoreAll()
+  })
+
+  /** Every line the run emitted, as `<level> <scope>` pairs, in order. */
+  function emitted(logSpy: { mock: { calls: { arguments: unknown[] }[] } }): string[] {
+    return logSpy.mock.calls.map((call) => {
+      const parsed = JSON.parse(call.arguments[0] as string)
+      return `${parsed.level} ${parsed.scope}`
+    })
+  }
+
+  test('with no logScopes and no thunk, the global level still decides everything', () => {
+    setWiki({ logFormat: 'json', logLevel: 'info' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.warn('storage', 'a warning')
+    primaryLogger.info('storage', 'some info')
+    primaryLogger.debug('storage', 'a debug line')
+    primaryLogger.debug('jobs', 'another debug line')
+
+    assert.deepEqual(emitted(logSpy), ['warn storage', 'info storage'])
+  })
+
+  test('a logScopes entry raises one scope and leaves every other one at the global level', () => {
+    setWiki({ logFormat: 'json', logLevel: 'info', logScopes: { storage: 'debug' } })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.debug('storage', 'a storage debug line')
+    primaryLogger.debug('jobs', 'a jobs debug line')
+    primaryLogger.info('jobs', 'a jobs info line')
+
+    assert.deepEqual(emitted(logSpy), ['debug storage', 'info jobs'])
+  })
+
+  test('a logScopes entry can quieten a scope below the global level too', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug', logScopes: { sql: 'error' } })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.debug('sql', 'select 1')
+    primaryLogger.warn('sql', 'a slow query')
+    primaryLogger.error('sql', 'a broken query')
+    primaryLogger.debug('jobs', 'still chatty')
+
+    assert.deepEqual(emitted(logSpy), ['error sql', 'debug jobs'])
+  })
+
+  test('the override thunk wins over the config map, and is re-read on every line', () => {
+    setWiki({ logFormat: 'json', logLevel: 'info', logScopes: { sql: 'error' } })
+    let sqlOn = false
+    const primaryLogger = logger.init({
+      scopeOverrides: () => (sqlOn ? { sql: 'debug' as const } : {})
+    })
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.debug('sql', 'before the flag')
+    // -> The point of the thunk: an administrator flips `sqlLog` mid-run and the very next query
+    //    line is logged, with no restart and no second logger.
+    sqlOn = true
+    primaryLogger.debug('sql', 'after the flag')
+    sqlOn = false
+    primaryLogger.debug('sql', 'after turning it back off')
+
+    assert.deepEqual(emitted(logSpy), ['debug sql'])
+    assert.equal(JSON.parse(logSpy.mock.calls[0]!.arguments[0] as string).message, 'after the flag')
+  })
+
+  test('a scope the thunk does not name still falls through to the config map', () => {
+    setWiki({ logFormat: 'json', logLevel: 'info', logScopes: { storage: 'debug' } })
+    const primaryLogger = logger.init({ scopeOverrides: () => ({ sql: 'debug' as const }) })
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.debug('sql', 'from the thunk')
+    primaryLogger.debug('storage', 'from the config map')
+    primaryLogger.debug('jobs', 'from neither')
+
+    assert.deepEqual(emitted(logSpy), ['debug sql', 'debug storage'])
+  })
+
+  test('a legacy (msg, context?) call is measured against the global level, not a scope', () => {
+    // -> `legacy` is a renderer sentinel, not a member of the vocabulary, so it can never appear in
+    //    either map — raising one scope must not drag the un-swept call sites along with it.
+    setWiki({ logFormat: 'json', logLevel: 'info', logScopes: { storage: 'debug' } })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.debug('an un-swept debug line')
+    primaryLogger.info('an un-swept info line')
+
+    assert.deepEqual(emitted(logSpy), ['info legacy'])
+  })
+
+  test('a scoped child is gated by its own scope, exactly as a direct call is', () => {
+    setWiki({ logFormat: 'json', logLevel: 'info', logScopes: { storage: 'debug' } })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.scope('storage', { module: 'git' }).debug('pulling from the remote')
+    primaryLogger.scope('jobs').debug('nothing due')
+
+    assert.deepEqual(emitted(logSpy), ['debug storage'])
+    assert.equal(JSON.parse(logSpy.mock.calls[0]!.arguments[0] as string).module, 'git')
+  })
+
+  test('a raised scope reaches the backlog and the terminal socket, not just stdout', () => {
+    setWiki({ logFormat: 'json', logLevel: 'info', logScopes: { sql: 'debug' } })
+    const primaryLogger = logger.init()
+    mock.method(console, 'log', () => {})
+    const frames: LogFrame[] = []
+    primaryLogger.ws.on('log', (frame: LogFrame) => frames.push(frame))
+
+    primaryLogger.debug('sql', 'select 1')
+    primaryLogger.debug('jobs', 'nothing due')
+
+    assert.deepEqual(
+      frames.map((frame) => frame.scope),
+      ['sql']
+    )
+    assert.deepEqual(
+      primaryLogger.backlog().map((frame) => frame.scope),
+      ['sql']
+    )
+  })
+})
+
 describe('logger config validation', () => {
   afterEach(() => {
     mock.restoreAll()
@@ -280,6 +418,112 @@ describe('logger config validation', () => {
     assert.equal(errorSpy.mock.calls.length, 2)
     assert.match(errorSpy.mock.calls[0]!.arguments[0] as string, /logLevel/)
     assert.match(errorSpy.mock.calls[1]!.arguments[0] as string, /logFormat/)
+  })
+
+  /**
+   * `logScopes` is validated the same way and for the same reason as `logLevel` (OpenProject #2647's
+   * shape): a typo'd scope name is a scope nothing is ever measured against, so an operator who
+   * asked to trace `storge` would see nothing and be told nothing about why.
+   */
+  test('accepts a logScopes map naming real scopes and real levels', () => {
+    setWiki({
+      logFormat: 'text',
+      logLevel: 'info',
+      logScopes: { http: 'debug', sql: 'error', storage: 'debug' }
+    })
+    const errorSpy = mock.method(console, 'error', () => {})
+    const exit = mock.fn()
+
+    logger.init({ exit })
+
+    assert.equal(exit.mock.calls.length, 0)
+    assert.equal(errorSpy.mock.calls.length, 0)
+  })
+
+  for (const logScopes of [undefined, null, {}]) {
+    test(`accepts an absent logScopes map (${JSON.stringify(logScopes)})`, () => {
+      setWiki({ logFormat: 'text', logLevel: 'info', logScopes })
+      const errorSpy = mock.method(console, 'error', () => {})
+      const exit = mock.fn()
+
+      logger.init({ exit })
+
+      assert.equal(exit.mock.calls.length, 0)
+      assert.equal(errorSpy.mock.calls.length, 0)
+    })
+  }
+
+  for (const scope of ['storge', 'HTTP', 'legacy', '']) {
+    test(`refuses to boot on an unknown logScopes scope ${JSON.stringify(scope)}`, () => {
+      setWiki({ logFormat: 'text', logLevel: 'info', logScopes: { [scope]: 'debug' } })
+      const errorSpy = mock.method(console, 'error', () => {})
+      const exit = mock.fn()
+
+      logger.init({ exit })
+
+      assert.deepEqual(
+        exit.mock.calls.map((call) => call.arguments),
+        [[1]]
+      )
+      assert.equal(errorSpy.mock.calls.length, 1)
+      const line = errorSpy.mock.calls[0]!.arguments[0] as string
+      assert.match(line, /logScopes/)
+      assert.ok(line.includes(JSON.stringify(scope)), 'names the rejected scope')
+      // -> The whole vocabulary, so the operator can find the name they meant without opening the
+      //    source.
+      assert.match(line, /boot, config, db, sql, http/)
+    })
+  }
+
+  for (const level of ['Debug', 'verbose', 'trace', '', null]) {
+    test(`refuses to boot on an invalid logScopes level ${JSON.stringify(level)}`, () => {
+      setWiki({ logFormat: 'text', logLevel: 'info', logScopes: { storage: level } })
+      const errorSpy = mock.method(console, 'error', () => {})
+      const exit = mock.fn()
+
+      logger.init({ exit })
+
+      assert.deepEqual(
+        exit.mock.calls.map((call) => call.arguments),
+        [[1]]
+      )
+      const line = errorSpy.mock.calls[0]!.arguments[0] as string
+      assert.match(line, /logScopes\.storage/)
+      assert.match(line, /error, warn, info, debug/)
+    })
+  }
+
+  for (const logScopes of ['debug', 42, ['storage']]) {
+    test(`refuses to boot when logScopes is not a map (${JSON.stringify(logScopes)})`, () => {
+      setWiki({ logFormat: 'text', logLevel: 'info', logScopes })
+      const errorSpy = mock.method(console, 'error', () => {})
+      const exit = mock.fn()
+
+      logger.init({ exit })
+
+      assert.deepEqual(
+        exit.mock.calls.map((call) => call.arguments),
+        [[1]]
+      )
+      assert.match(errorSpy.mock.calls[0]!.arguments[0] as string, /logScopes/)
+    })
+  }
+
+  test('reports every bad logScopes entry, not just the first', () => {
+    setWiki({
+      logFormat: 'text',
+      logLevel: 'info',
+      logScopes: { storge: 'debug', storage: 'verbose' }
+    })
+    const errorSpy = mock.method(console, 'error', () => {})
+    const exit = mock.fn()
+
+    logger.init({ exit })
+
+    // -> Production's `exit` is `process.exit` and never returns, so only the first is ever reached
+    //    there; the injected stub returning is what lets this prove neither entry is skipped.
+    assert.equal(exit.mock.calls.length, 2)
+    assert.equal(errorSpy.mock.calls.length, 2)
   })
 
   test('the returned logger has no verbose or silly method', () => {

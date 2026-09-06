@@ -195,24 +195,44 @@ describe('docs/operations.md — operations reference', () => {
       )
     })
 
-    test('documents logLevel and logFormat as the two validated config keys', () => {
+    test('documents logLevel, logFormat and logScopes as the three validated config keys', () => {
       assert.match(raw, /`logLevel`/)
       assert.match(raw, /`logFormat`/)
+      assert.match(raw, /`logScopes`/)
       assert.match(raw, /`text`/)
       assert.match(raw, /`json`/)
     })
 
-    test('does not present logScopes as a config key that exists today', () => {
-      // -> Per-scope thresholds are planned (Epic #2643) but are not a key the boot validator
-      //    understands. The doc may name them as forthcoming; it must not read as a live setting.
+    test('presents logScopes as a live config key, not a planned one', () => {
+      // -> The inverse of the assertion this replaced: per-scope thresholds landed in OpenProject
+      //    #2663, so `base.yml` declaring the key is what makes the doc's claim true, and the doc
+      //    must no longer read as forward-looking.
       const logsSection = raw.slice(raw.indexOf('## Logs'), raw.indexOf('## Metrics'))
-      if (logsSection.includes('logScopes')) {
-        assert.match(
-          logsSection,
-          /planned/i,
-          'if docs/operations.md mentions logScopes it must say it is not implemented yet'
-        )
-      }
+      assert.ok(logsSection.includes('logScopes'), 'the Logs section must document logScopes')
+      assert.doesNotMatch(
+        logsSection,
+        /logScopes[^.]*\bplanned\b|\bplanned\b[^.]*logScopes/i,
+        'per-scope thresholds are implemented — the doc must not still call them planned'
+      )
+
+      const baseYml = fs.readFileSync(path.join(REPO_ROOT, 'backend/base.yml'), 'utf8')
+      assert.match(
+        baseYml,
+        /^ {4}logScopes:/m,
+        'docs/operations.md documents logScopes, so base.yml must declare it — otherwise ' +
+          'core/config.ts#warnUnknownConfigKeys flags a documented key as unrecognized on every boot'
+      )
+    })
+
+    test('documents the two admin flags as scope overrides rather than separate switches', () => {
+      const logsSection = raw.slice(raw.indexOf('## Logs'), raw.indexOf('## Metrics'))
+      assert.match(logsSection, /`sqlLog`/)
+      assert.match(logsSection, /`authDebug`/)
+      assert.match(
+        logsSection,
+        /no restart/i,
+        'the point of the flags being thresholds is that they take effect without a restart'
+      )
     })
 
     test('states the in-memory backlog size, matching BACKLOG_SIZE in core/logger.ts', () => {

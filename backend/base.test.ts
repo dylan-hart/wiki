@@ -95,3 +95,40 @@ test('base.yml declares an explicit, positive pool.max', async () => {
   assert.equal(typeof parsed.defaults.config.pool.max, 'number')
   assert.ok(parsed.defaults.config.pool.max > 0, 'pool.max must be a positive integer')
 })
+
+/**
+ * OpenProject #2663: `logScopes` is a free-form map of scope to level, and `core/config.ts`'s
+ * `warnUnknownConfigKeys` descends into any key that is a plain object on BOTH sides. Declared as
+ * `{}` it would therefore warn "Unknown configuration key `logScopes.http`" for every real entry an
+ * operator wrote, on every boot; declared as an explicit null the walk stops at the key itself, and
+ * `toMerged` still lets a config.yml map replace it wholesale.
+ *
+ * Also locks that it stays DECLARED at all: without a counterpart here, a documented, validated key
+ * would be flagged as unrecognized by the very same walk.
+ */
+test('base.yml declares logScopes as an explicit null, not an empty map', async () => {
+  const raw = await fs.readFile(BASE_YML_PATH, 'utf8')
+  const parsed = load(raw) as any
+  const config = parsed.defaults?.config
+
+  assert.ok(Object.hasOwn(config, 'logScopes'), 'defaults.config.logScopes must be declared')
+  assert.equal(
+    config.logScopes,
+    null,
+    'logScopes must be null, not {} -- see warnUnknownConfigKeys in core/config.ts'
+  )
+})
+
+/**
+ * The same task removed `dev.logQueries`: it was a second, dev-only trigger for one scope's log
+ * threshold, and `logScopes: { sql: debug }` now says the same thing in a vocabulary the boot
+ * validator already checks. Nothing reads the key any more, so a reappearance would be a switch that
+ * silently does nothing.
+ */
+test('base.yml has no dev.logQueries key', async () => {
+  const raw = await fs.readFile(BASE_YML_PATH, 'utf8')
+  const parsed = load(raw) as any
+
+  assert.ok(parsed.defaults?.config?.dev, 'expected defaults.config.dev to exist in base.yml')
+  assert.equal(Object.hasOwn(parsed.defaults.config.dev, 'logQueries'), false)
+})
