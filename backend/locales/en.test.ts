@@ -135,3 +135,34 @@ describe('backend/locales/en.json — dead key clusters stay removed', () => {
     assert.equal(Object.hasOwn(parsed, 'admin.utilities.invalidApiCertificates'), true)
   })
 })
+
+/**
+ * Regression guard for OpenProject WP #2620: `common.footerPoweredBy` shipped as the lowercase
+ * `"powered by {link}"` while its sibling `common.footerGeneric` — the same credit, rendered by the
+ * same `FooterNav.vue` on the generic branch — already read `"Powered by {link}, an open source
+ * project."`. The two therefore drew the footer credit two different ways depending on which
+ * keypath the component picked, which is what the WP corrects.
+ *
+ * This lives here rather than in `frontend/`'s own suites deliberately. `FooterNav.test.js` and
+ * `AuthLayout.test.js` each build their i18n fixture by hand and both hardcode the *capitalised*
+ * form, so neither one reads `en.json` at all — reverting the source string leaves the whole
+ * frontend suite green. This file is the only place the actual shipped string is asserted.
+ */
+describe('backend/locales/en.json — footer credit casing', () => {
+  const localePath = path.join(import.meta.dirname, 'en.json')
+
+  test('both footer credit strings open with a capitalised "Powered by"', async () => {
+    const raw = await readFile(localePath, 'utf8')
+    const parsed = JSON.parse(raw) as Record<string, string>
+
+    for (const key of ['common.footerPoweredBy', 'common.footerGeneric']) {
+      const value = parsed[key]
+      assert.equal(typeof value, 'string', `${key} must exist in en.json`)
+      assert.ok(
+        value.startsWith('Powered by '),
+        `${key} must open with the capitalised "Powered by " -- the two footer credit strings are ` +
+          `rendered by the same component and must not disagree on casing (got: ${JSON.stringify(value)})`
+      )
+    }
+  })
+})

@@ -2,7 +2,7 @@
   <div class="site-footer">
     <!--
       The colophon reads as one line of separated parts -- `© 2026 Cardinal wiki · CC BY-SA 4.0 ·
-      powered by Cardinal.js` -- which is what the design draws. The separator is a real character
+      Powered by Cardinal.js` -- which is what the design draws. The separator is a real character
       between spans rather than a border or a gap, so it wraps with them on a narrow screen.
     -->
     <div class="site-footer-line">
@@ -42,7 +42,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 /**
- * Where "powered by Cardinal.js" points. The repository, which is this project's own home -- the
+ * Where "Powered by Cardinal.js" points. The repository, which is this project's own home -- the
  * fork is not Wiki.js and no longer links to js.wiki.
  */
 const PROJECT_URL = 'https://github.com/dylan-hart/wiki'
