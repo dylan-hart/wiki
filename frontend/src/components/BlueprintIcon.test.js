@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 
@@ -30,5 +33,47 @@ describe('BlueprintIcon indicator', () => {
   it('renders a badge when indicator names a color', () => {
     const wrapper = mount(BlueprintIcon, { props: { icon: 'home', indicator: 'red' } })
     expect(wrapper.find('.w-badge').exists()).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #2694. Handoff 2 draws exactly two plates: the 34px one every settings row and the
+ * anchored create menu wear, and a 28px one for a menu opened at the pointer, which "should not be
+ * taller than the tree it covers".
+ *
+ * `compact` is additive and OFF by default on purpose -- `WSettingsRow`, `AdminGeneral` and every
+ * other call site depend on 34px staying what you get for asking for nothing, so a regression that
+ * shrank the default would move the whole admin area at once.
+ *
+ * The two measurements are read out of the component's own stylesheet rather than off
+ * `getComputedStyle`: jsdom runs no layout engine and resolves nothing from a scoped `<style>` block,
+ * so a rendered-box assertion here would pass against any numbers at all.
+ */
+describe('BlueprintIcon plate size', () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'BlueprintIcon.vue'),
+    'utf-8'
+  )
+
+  it('takes the full-size plate by default, with no compact modifier on the element', () => {
+    const wrapper = mount(BlueprintIcon, { props: { icon: 'tabler:markdown' } })
+    expect(wrapper.find('.blueprint-icon').classes()).not.toContain('blueprint-icon--compact')
+  })
+
+  it('takes the compact modifier when asked for it', () => {
+    const wrapper = mount(BlueprintIcon, { props: { icon: 'tabler:markdown', compact: true } })
+    expect(wrapper.find('.blueprint-icon').classes()).toContain('blueprint-icon--compact')
+  })
+
+  it('declares 34px as the base plate and 28px as the compact one', () => {
+    const base = source.match(/\.blueprint-icon \{([\s\S]*?)\}/)?.[1] ?? ''
+    expect(base).toMatch(/width:\s*34px/)
+    expect(base).toMatch(/height:\s*34px/)
+    expect(base).toMatch(/font-size:\s*17px/)
+
+    const compact = source.match(/\.blueprint-icon--compact \{([\s\S]*?)\}/)?.[1] ?? ''
+    expect(compact).toMatch(/width:\s*28px/)
+    expect(compact).toMatch(/height:\s*28px/)
+    expect(compact).toMatch(/font-size:\s*15px/)
   })
 })

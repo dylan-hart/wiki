@@ -2228,6 +2228,7 @@
   "common.newPageMenu.code": "New Code Page",
   "common.newPageMenu.markdown": "New Markdown Page",
   "common.newPageMenu.redirect": "New Redirection",
+  "common.newPageMenu.targetFolder": "Create in {path}",
   "common.newPageMenu.uploadAsset": "Upload Media Asset",
   "common.newpage.create": "Create Page",
   "common.newpage.goback": "Go back",

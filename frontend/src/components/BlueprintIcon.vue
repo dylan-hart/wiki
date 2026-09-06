@@ -1,6 +1,6 @@
 <template>
   <w-item-section avatar>
-    <div class="blueprint-icon">
+    <div class="blueprint-icon" :class="{ 'blueprint-icon--compact': props.compact }">
       <w-badge v-if="indicatorDot" :color="indicatorDot" floating>
         <w-tooltip v-if="props.indicatorText">{{ props.indicatorText }}</w-tooltip>
       </w-badge>
@@ -49,6 +49,21 @@ const props = defineProps({
   text: {
     type: String,
     default: null
+  },
+  /**
+   * The smaller of the two plates the design draws: 28px rather than 34px.
+   *
+   * A menu opened at the pointer takes it (`PageNewMenu.vue`, in `contextMenu` mode) -- "a menu at
+   * the finger should not be taller than the tree it covers", per handoff 2's own screen notes. A
+   * boolean rather than a free-form `size`, because the design names exactly these two plates and
+   * nothing should be able to introduce a third by passing a number.
+   *
+   * Off by default, so every settings row -- which is most of this component's call sites -- keeps
+   * the 34px the primitives sheet measures.
+   */
+  compact: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -81,6 +96,16 @@ const indicatorDot = computed(() => {
   background-color: var(--color-paper);
   color: var(--color-slate);
   font-size: 17px;
+}
+
+/*
+  The pointer-anchored variant. 28px with a 15px glyph -- the same ratio held a little tighter, which
+  is what the design draws rather than a proportional scale of the 34px plate.
+*/
+.blueprint-icon--compact {
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
 }
 
 :global(body.body--dark) .blueprint-icon {

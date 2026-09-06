@@ -17,7 +17,7 @@ import { createTestI18n } from '../../test/i18n.js'
  * (task 489) entirely, and hid its now-unconditional `asciidoc` row (task 491) behind the experimental
  * flag it no longer needs.
  */
-function mountMenu({ editors = {}, experimental = false } = {}) {
+function mountMenu({ editors = {}, experimental = false, props = {} } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.editors = { asciidoc: false, code: false, markdown: true, wysiwyg: false, ...editors }
@@ -36,12 +36,14 @@ function mountMenu({ editors = {}, experimental = false } = {}) {
         code: 'New Code Page',
         asciidoc: 'New AsciiDoc Page',
         redirect: 'New Redirection',
+        targetFolder: 'Create in {path}',
         uploadAsset: 'Upload Media Asset'
       }
     }
   })
 
   const wrapper = mount(PageNewMenu, {
+    props,
     global: {
       plugins: [i18n],
       // -> `w-menu` only renders its slot once opened by whatever `w-btn` wraps it in the real app
@@ -111,6 +113,96 @@ describe('PageNewMenu', () => {
       global: { plugins: [i18n], stubs: { WMenu: CapturingWMenu } }
     })
     expect(on.findComponent(CapturingWMenu).props('contextMenu')).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #2694 -- handoff 2's "Menus and pickers" screen, both halves of it.
+ *
+ * This one component draws BOTH menus the design treats: the anchored create menu and, with
+ * `contextMenu` on, the pointer-anchored one the sidebar opens on right-click. The design gives them
+ * deliberately different metrics -- 34px plates against 28px, both imports against one -- so what is
+ * asserted here is the split, on both sides, rather than either shape on its own.
+ *
+ * The plate SIZE is `BlueprintIcon`'s own (its co-located suite pins the two measurements); what
+ * belongs here is that the menu asks for the right one on each row.
+ */
+describe('PageNewMenu: the Cardinal plate treatment', () => {
+  const ALL_EDITORS = { asciidoc: true, code: true, markdown: true, wysiwyg: false }
+
+  it('draws the full-size plate on every create-menu row, and no target-folder line', async () => {
+    const { wrapper } = mountMenu({ editors: ALL_EDITORS, props: { showNewFolder: true } })
+    await flushPromises()
+
+    const plates = wrapper.findAll('.blueprint-icon')
+    // -> One per row: markdown, code, asciidoc, redirect, import, batch import, upload, new folder
+    expect(plates).toHaveLength(8)
+    for (const plate of plates) {
+      expect(plate.classes()).not.toContain('blueprint-icon--compact')
+    }
+    expect(wrapper.find('.page-new-menu__target').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('drops every plate to the compact one at the pointer, and trims the batch import row', async () => {
+    const { wrapper } = mountMenu({
+      editors: ALL_EDITORS,
+      props: { contextMenu: true, showNewFolder: true, basePath: 'docs/ingest' }
+    })
+    await flushPromises()
+
+    const plates = wrapper.findAll('.blueprint-icon')
+    // -> The same eight rows less the batch import, which the pointer-anchored menu does not carry
+    expect(plates).toHaveLength(7)
+    for (const plate of plates) {
+      expect(plate.classes()).toContain('blueprint-icon--compact')
+    }
+
+    // -> One import row survives, not both: "the imports thin out to one row"
+    expect(wrapper.text()).toContain('pages.import.menuLabel')
+    expect(wrapper.text()).not.toContain('pages.importBatch.menuLabel')
+
+    wrapper.unmount()
+  })
+
+  it('names the folder the new page will land in, which is the sibling folder for a page row', async () => {
+    const { wrapper } = mountMenu({
+      props: { contextMenu: true, basePath: 'docs/ingest' }
+    })
+    await flushPromises()
+
+    // -> `basePath` is what `pageCreate` builds `${basePath}/new-page` from, so this line is the
+    //    real destination -- and for a right-clicked PAGE row, NavSidebarItem passes the folder that
+    //    page lives in, which is the whole reason the line exists.
+    expect(wrapper.find('.page-new-menu__target').text()).toBe('Create in /docs/ingest')
+
+    wrapper.unmount()
+  })
+
+  it('names the site root as a bare slash rather than an empty path', async () => {
+    const { wrapper } = mountMenu({ props: { contextMenu: true, basePath: '' } })
+    await flushPromises()
+
+    expect(wrapper.find('.page-new-menu__target').text()).toBe('Create in /')
+
+    wrapper.unmount()
+  })
+
+  it('marks two opposite corners on both menus -- a menu is a light object, not a dialog', async () => {
+    const anchored = mountMenu()
+    await flushPromises()
+    expect(anchored.wrapper.findAll('.page-new-menu__mark')).toHaveLength(2)
+    expect(anchored.wrapper.find('.page-new-menu__mark--start').attributes('aria-hidden')).toBe(
+      'true'
+    )
+    expect(anchored.wrapper.find('.page-new-menu__mark--end').exists()).toBe(true)
+    anchored.wrapper.unmount()
+
+    const pointer = mountMenu({ props: { contextMenu: true } })
+    await flushPromises()
+    expect(pointer.wrapper.findAll('.page-new-menu__mark')).toHaveLength(2)
+    pointer.wrapper.unmount()
   })
 })
 
