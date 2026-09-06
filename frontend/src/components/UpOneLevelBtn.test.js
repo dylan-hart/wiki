@@ -8,7 +8,7 @@ import UpOneLevelBtn from './UpOneLevelBtn.vue'
 
 import { mountWithApp } from '../../test/mount.js'
 import { createTestRouter } from '../../test/router.js'
-import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
+import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
  * OpenProject #2695 -- the up-one-level plate, as ONE control across its three call sites.
@@ -261,11 +261,11 @@ describe('UpOneLevelBtn adoption', () => {
 })
 
 /**
- * The measured half. `{ skip: !hasChromium() }` so a `npm run test` after a plain `npm ci` reports
+ * The measured half. `{ skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT }` so a `npm run test` after a plain `npm ci` reports
  * these as skipped rather than failing on a missing browser binary -- `npm run install-browsers`
  * fetches it, once per machine.
  */
-describe('UpOneLevelBtn real layout', { skip: !hasChromium() }, () => {
+describe('UpOneLevelBtn real layout', { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT }, () => {
   let browser
   let appCss
 

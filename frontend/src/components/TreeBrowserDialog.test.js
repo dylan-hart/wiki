@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import TreeBrowserDialog from './TreeBrowserDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 import { mountWithApp } from '../../test/mount.js'
-import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
+import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
   `w-dialog` teleports its panel to `document.body`, and a mounted wrapper that is never unmounted
@@ -484,137 +484,143 @@ describe('TreeBrowserDialog e2e save-dialog contract', () => {
  * `<style lang="scss">` block, which is where the column tint, the browser height and the corner
  * marks live. Both halves are needed: neither describes the dialog on its own.
  */
-describe('TreeBrowserDialog Cardinal geometry', { skip: !hasChromium() }, () => {
-  let browser
+describe(
+  'TreeBrowserDialog Cardinal geometry',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    let browser
 
-  beforeAll(async () => {
-    browser = await chromium.launch()
-  })
-
-  afterAll(async () => {
-    await browser?.close()
-  })
-
-  /** A folder tree and a file list far taller than the 300px they have to live inside. */
-  function crowdedTree(count = 40) {
-    const folders = Array.from({ length: count }, (_, i) => ({
-      id: `folder-${i}`,
-      type: 'folder',
-      folderPath: '',
-      fileName: `folder-${i}`,
-      title: `Folder ${i}`
-    }))
-    const pages = Array.from({ length: count }, (_, i) => ({
-      id: `page-${i}`,
-      type: 'page',
-      folderPath: '',
-      fileName: `page-${i}`,
-      title: `Page ${i}`,
-      editor: 'markdown'
-    }))
-    return [...folders, ...pages]
-  }
-
-  /**
-   * Mounts the dialog, then re-renders the panel Chromium-side out of the markup and stylesheets the
-   * mount actually produced.
-   */
-  async function measure({ entries = [], viewport = { width: 1280, height: 900 } } = {}) {
-    // -> The file-level `afterEach` only fires BETWEEN tests, and a test that measures twice (empty
-    //    against crowded) mounts twice inside one. Without this the second `querySelector` below
-    //    would resolve the first mount's panel and quietly measure the same dialog twice.
-    document.body.innerHTML = ''
-    globalThis.API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue(entries) })
-    mountWithApp(TreeBrowserDialog, {
-      props: { mode: 'savePage', itemTitle: 'A page', itemFileName: 'a-page' },
-      stores: { site: { id: 'site-1' } },
-      stubs: {}
+    beforeAll(async () => {
+      browser = await chromium.launch()
     })
-    await flushPromises()
 
-    const markup = document.body.querySelector('.w-dialog-viewport').outerHTML
-    const sfcStyles = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n')
-    const css = await buildAppCss()
+    afterAll(async () => {
+      await browser?.close()
+    })
 
-    const page = await browser.newPage({ viewport })
-    try {
-      await page.setContent(
-        `<!doctype html><html><head><style>${css}</style><style>${sfcStyles}</style></head>` +
-          `<body class="body--light">${markup}</body></html>`
-      )
-      return await page.evaluate(() => {
-        const rect = (selector) => {
-          const el = document.querySelector(selector)
-          if (!el) {
-            return null
-          }
-          const r = el.getBoundingClientRect()
-          return { x: r.x, y: r.y, width: r.width, height: r.height }
-        }
-        const scrollers = [...document.querySelectorAll('.page-save-dialog-browser .w-scroll-area')]
-        return {
-          panel: rect('.w-dialog-panel'),
-          card: rect('.page-save-dialog'),
-          browser: rect('.page-save-dialog-browser'),
-          tree: rect('.page-save-dialog-tree'),
-          list: rect('.page-save-dialog-browser > div:nth-child(2)'),
-          corners: ['ss', 'se', 'es', 'ee'].map((c) => rect(`.page-save-dialog-corner--${c}`)),
-          overflowing: scrollers.map((el) => el.scrollHeight > el.clientHeight),
-          scrollerHeights: scrollers.map((el) => el.clientHeight)
-        }
+    /** A folder tree and a file list far taller than the 300px they have to live inside. */
+    function crowdedTree(count = 40) {
+      const folders = Array.from({ length: count }, (_, i) => ({
+        id: `folder-${i}`,
+        type: 'folder',
+        folderPath: '',
+        fileName: `folder-${i}`,
+        title: `Folder ${i}`
+      }))
+      const pages = Array.from({ length: count }, (_, i) => ({
+        id: `page-${i}`,
+        type: 'page',
+        folderPath: '',
+        fileName: `page-${i}`,
+        title: `Page ${i}`,
+        editor: 'markdown'
+      }))
+      return [...folders, ...pages]
+    }
+
+    /**
+     * Mounts the dialog, then re-renders the panel Chromium-side out of the markup and stylesheets the
+     * mount actually produced.
+     */
+    async function measure({ entries = [], viewport = { width: 1280, height: 900 } } = {}) {
+      // -> The file-level `afterEach` only fires BETWEEN tests, and a test that measures twice (empty
+      //    against crowded) mounts twice inside one. Without this the second `querySelector` below
+      //    would resolve the first mount's panel and quietly measure the same dialog twice.
+      document.body.innerHTML = ''
+      globalThis.API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue(entries) })
+      mountWithApp(TreeBrowserDialog, {
+        props: { mode: 'savePage', itemTitle: 'A page', itemFileName: 'a-page' },
+        stores: { site: { id: 'site-1' } },
+        stubs: {}
       })
-    } finally {
-      await page.close()
+      await flushPromises()
+
+      const markup = document.body.querySelector('.w-dialog-viewport').outerHTML
+      const sfcStyles = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n')
+      const css = await buildAppCss()
+
+      const page = await browser.newPage({ viewport })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${css}</style><style>${sfcStyles}</style></head>` +
+            `<body class="body--light">${markup}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const rect = (selector) => {
+            const el = document.querySelector(selector)
+            if (!el) {
+              return null
+            }
+            const r = el.getBoundingClientRect()
+            return { x: r.x, y: r.y, width: r.width, height: r.height }
+          }
+          const scrollers = [
+            ...document.querySelectorAll('.page-save-dialog-browser .w-scroll-area')
+          ]
+          return {
+            panel: rect('.w-dialog-panel'),
+            card: rect('.page-save-dialog'),
+            browser: rect('.page-save-dialog-browser'),
+            tree: rect('.page-save-dialog-tree'),
+            list: rect('.page-save-dialog-browser > div:nth-child(2)'),
+            corners: ['ss', 'se', 'es', 'ee'].map((c) => rect(`.page-save-dialog-corner--${c}`)),
+            overflowing: scrollers.map((el) => el.scrollHeight > el.clientHeight),
+            scrollerHeights: scrollers.map((el) => el.clientHeight)
+          }
+        })
+      } finally {
+        await page.close()
+      }
     }
+
+    it('is an 860px card whose browser splits 1/3 to 2/3', async () => {
+      const m = await measure()
+
+      expect(Math.round(m.card.width)).toBe(860)
+      // -> The columns divide the card's CONTENT box, i.e. 860 less its two 1px edges
+      const content = m.browser.width
+      expect(Math.round(m.tree.width)).toBe(Math.round(content / 3))
+      expect(Math.round(m.list.width)).toBe(Math.round((content * 2) / 3))
+      expect(Math.round(m.tree.width + m.list.width)).toBe(Math.round(content))
+    }, 30000)
+
+    it('holds the browser at 300px and scrolls both columns inside it, however much they hold', async () => {
+      const empty = await measure()
+      const crowded = await measure({ entries: crowdedTree() })
+
+      expect(Math.round(empty.browser.height)).toBe(300)
+      expect(Math.round(crowded.browser.height)).toBe(300)
+      expect(crowded.scrollerHeights.map(Math.round)).toEqual([300, 300])
+
+      // -> Both columns really are overflowing, so the 300px above is a clamp being exercised rather
+      //    than a row that simply had nothing in it
+      expect(crowded.overflowing).toEqual([true, true])
+
+      // -> And the card itself does not grow with them
+      expect(Math.round(crowded.card.height)).toBe(Math.round(empty.card.height))
+    }, 30000)
+
+    it('draws all four corner marks outside the card and still inside the panel that scrolls it', async () => {
+      const m = await measure()
+
+      for (const corner of m.corners) {
+        expect(corner).not.toBeNull()
+        expect(corner.width).toBeGreaterThan(0)
+        expect(corner.height).toBeGreaterThan(0)
+        // -> The reason the card carries a margin: the panel is `overflow-auto`, so a mark drawn past
+        //    its edge would be clipped away rather than read as registration around the sheet
+        expect(corner.x).toBeGreaterThanOrEqual(m.panel.x - 0.5)
+        expect(corner.y).toBeGreaterThanOrEqual(m.panel.y - 0.5)
+        expect(corner.x + corner.width).toBeLessThanOrEqual(m.panel.x + m.panel.width + 0.5)
+        expect(corner.y + corner.height).toBeLessThanOrEqual(m.panel.y + m.panel.height + 0.5)
+      }
+
+      // -> Outside the card's own edge, which is what a crop mark is
+      const [startStart, , , endEnd] = m.corners
+      expect(startStart.x).toBeLessThan(m.card.x)
+      expect(startStart.y).toBeLessThan(m.card.y)
+      expect(endEnd.x + endEnd.width).toBeGreaterThan(m.card.x + m.card.width)
+      expect(endEnd.y + endEnd.height).toBeGreaterThan(m.card.y + m.card.height)
+    }, 30000)
   }
-
-  it('is an 860px card whose browser splits 1/3 to 2/3', async () => {
-    const m = await measure()
-
-    expect(Math.round(m.card.width)).toBe(860)
-    // -> The columns divide the card's CONTENT box, i.e. 860 less its two 1px edges
-    const content = m.browser.width
-    expect(Math.round(m.tree.width)).toBe(Math.round(content / 3))
-    expect(Math.round(m.list.width)).toBe(Math.round((content * 2) / 3))
-    expect(Math.round(m.tree.width + m.list.width)).toBe(Math.round(content))
-  }, 30000)
-
-  it('holds the browser at 300px and scrolls both columns inside it, however much they hold', async () => {
-    const empty = await measure()
-    const crowded = await measure({ entries: crowdedTree() })
-
-    expect(Math.round(empty.browser.height)).toBe(300)
-    expect(Math.round(crowded.browser.height)).toBe(300)
-    expect(crowded.scrollerHeights.map(Math.round)).toEqual([300, 300])
-
-    // -> Both columns really are overflowing, so the 300px above is a clamp being exercised rather
-    //    than a row that simply had nothing in it
-    expect(crowded.overflowing).toEqual([true, true])
-
-    // -> And the card itself does not grow with them
-    expect(Math.round(crowded.card.height)).toBe(Math.round(empty.card.height))
-  }, 30000)
-
-  it('draws all four corner marks outside the card and still inside the panel that scrolls it', async () => {
-    const m = await measure()
-
-    for (const corner of m.corners) {
-      expect(corner).not.toBeNull()
-      expect(corner.width).toBeGreaterThan(0)
-      expect(corner.height).toBeGreaterThan(0)
-      // -> The reason the card carries a margin: the panel is `overflow-auto`, so a mark drawn past
-      //    its edge would be clipped away rather than read as registration around the sheet
-      expect(corner.x).toBeGreaterThanOrEqual(m.panel.x - 0.5)
-      expect(corner.y).toBeGreaterThanOrEqual(m.panel.y - 0.5)
-      expect(corner.x + corner.width).toBeLessThanOrEqual(m.panel.x + m.panel.width + 0.5)
-      expect(corner.y + corner.height).toBeLessThanOrEqual(m.panel.y + m.panel.height + 0.5)
-    }
-
-    // -> Outside the card's own edge, which is what a crop mark is
-    const [startStart, , , endEnd] = m.corners
-    expect(startStart.x).toBeLessThan(m.card.x)
-    expect(startStart.y).toBeLessThan(m.card.y)
-    expect(endEnd.x + endEnd.width).toBeGreaterThan(m.card.x + m.card.width)
-    expect(endEnd.y + endEnd.height).toBeGreaterThan(m.card.y + m.card.height)
-  }, 30000)
-})
+)

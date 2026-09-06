@@ -7,9 +7,9 @@
 ## The question
 
 This repository has more test code than source code in one workspace and roughly two-thirds as much
-in another, and until now no written statement of what any of it is *for*. Every convention that
+in another, and until now no written statement of what any of it is _for_. Every convention that
 exists — co-located `*.test.ts`, the `*.db.test.ts` suffix, `test/` reserved for harness code, the
-two contract runners — describes *where a test file goes*. None of them says which code earns a
+two contract runners — describes _where a test file goes_. None of them says which code earns a
 test, which layer answers which question, or what this project deliberately does not test.
 
 The absence has a cost that is now measured rather than asserted. Two hand-classification passes
@@ -25,13 +25,13 @@ cited here, never restated.
 
 ## The evidence this is written from
 
-| Document | Covers | Task |
-| --- | --- | --- |
-| `docs/testing-audit/README.md` | the shared classification schema | #2687 |
-| `docs/testing-audit/backend.md` | every `backend/` suite, one row each | #2687 |
-| `docs/testing-audit/frontend.md` | every `frontend/` suite, one row each | #2688 |
-| `docs/testing-audit/metrics.mjs` | the objective counts, all four workspaces | #2687 |
-| `docs/decisions/flaky-test-quarantine.md` | the `*.flaky.*` lane | #2691 |
+| Document                                  | Covers                                    | Task  |
+| ----------------------------------------- | ----------------------------------------- | ----- |
+| `docs/testing-audit/README.md`            | the shared classification schema          | #2687 |
+| `docs/testing-audit/backend.md`           | every `backend/` suite, one row each      | #2687 |
+| `docs/testing-audit/frontend.md`          | every `frontend/` suite, one row each     | #2688 |
+| `docs/testing-audit/metrics.mjs`          | the objective counts, all four workspaces | #2687 |
+| `docs/decisions/flaky-test-quarantine.md` | the `*.flaky.*` lane                      | #2691 |
 
 Both classifications used Feature #2602's four categories verbatim — **product behaviour**,
 **framework behaviour**, **implementation restatement**, **environment** — and both are read here
@@ -48,16 +48,16 @@ instead: **79 of 397** suites open a real Postgres schema, and only 9 of those c
 
 Re-measured on this branch at `66a224a86` with `node docs/testing-audit/metrics.mjs`:
 
-| | `backend/` | `frontend/` | `blocks/` | `e2e/` |
-| --- | ---: | ---: | ---: | ---: |
-| test files | 412 | 330 | 40 | 10 |
-| test LOC | 129,030 | 66,558 | 5,659 | 1,415 |
-| test LOC / source LOC | **1.24** | 0.73 | 0.52 | — |
-| suites opening a real Postgres schema | **81** | 0 | 0 | 0 |
-| …of those, named `*.db.test.*` | **11** | — | — | — |
-| suites behind a `{ skip: !… }` gate | **84** | 14 | 0 | 0 |
-| suites booting Fastify | 74 | — | — | — |
-| suites scanning repo files | 34 | 16 whole-tree | 0 | 0 |
+|                                       | `backend/` |   `frontend/` | `blocks/` | `e2e/` |
+| ------------------------------------- | ---------: | ------------: | --------: | -----: |
+| test files                            |        412 |           330 |        40 |     10 |
+| test LOC                              |    129,030 |        66,558 |     5,659 |  1,415 |
+| test LOC / source LOC                 |   **1.24** |          0.73 |      0.52 |      — |
+| suites opening a real Postgres schema |     **81** |             0 |         0 |      0 |
+| …of those, named `*.db.test.*`        |     **11** |             — |         — |      — |
+| suites behind a `{ skip: !… }` gate   |     **84** |            14 |         0 |      0 |
+| suites booting Fastify                |         74 |             — |         — |      — |
+| suites scanning repo files            |         34 | 16 whole-tree |         0 |      0 |
 
 The audits' own denominators were taken at `3b3635f74` (397 backend, 308 frontend); the difference
 is this run's other work packages, not a re-measurement dispute. **These figures supersede
@@ -128,8 +128,8 @@ and its 400s, what is and is not serialised into a response, encapsulation bound
 parser or `preHandler` scoped to one sub-plugin), and the site-pin / disabled-site guards.
 
 **Wrong for:** business logic reachable without HTTP — that is layer 1 or 2 — and for the single
-most common restatement shape in the workspace, *"the handler forwards the body to the model
-unchanged"*, which is [not tested at all](#what-gets-no-test-at-all).
+most common restatement shape in the workspace, _"the handler forwards the body to the model
+unchanged"_, which is [not tested at all](#what-gets-no-test-at-all).
 
 ### 4. Component — a real mount through each workspace's harness
 
@@ -154,7 +154,7 @@ suites never have occasion to assert that the stack works.
 
 **Right for:** exactly the questions no DOM emulator can answer, because neither jsdom nor
 happy-dom runs a layout engine. How many columns an `auto-fit`/`minmax()` grid renders at a given
-width is the worked example; PR #43's overlay scroll/dismiss defect — invisible to jsdom *and* to
+width is the worked example; PR #43's overlay scroll/dismiss defect — invisible to jsdom _and_ to
 careful CSS reasoning, exposed only by a real engine — is the case that settled it, and it is
 recorded here because it was previously written down nowhere under `docs/decisions/`.
 
@@ -181,7 +181,7 @@ an `aria-live` announcement, an RTL-mirrored gutter or a `javascript:` refusal, 
 here is paid for on every run. `frontend.md` states the consequence plainly: delete the frontend
 unit suite and essentially everything it covers goes ungated, because `e2e/` cannot reach it.
 
-**Rule:** a flow gets an e2e spec when its failure mode is *the pieces not fitting together*.
+**Rule:** a flow gets an e2e spec when its failure mode is _the pieces not fitting together_.
 Anything that is a case within one piece belongs above.
 
 ### Not a layer: structural and source scans
@@ -189,8 +189,8 @@ Anything that is a case within one piece belongs above.
 A scan reads source text or a repo file off disk and asserts a property across a whole tree
 (`api/routeTags.test.ts`, `frontend/src/imgAlt.test.js`, the 34 backend repo-file scans, the 16
 frontend whole-tree gates). It is a **mechanism**, available at any layer, and it is the right one
-for exactly one question: *is this property true of every file, including a file nobody wrote a
-test for?* That is the class of defect a per-file test structurally cannot see, because the failure
+for exactly one question: _is this property true of every file, including a file nobody wrote a
+test for?_ That is the class of defect a per-file test structurally cannot see, because the failure
 is an omission in a file that does not exist yet.
 
 Neither classification gave scans a category of their own, and this document does not either. See
@@ -214,7 +214,7 @@ correct, wearing a different hat.
    SSRF-reachable fetches, open-redirect containment, secret masking, and per-site scoping are
    tested where an attacker's request arrives — layer 3 for an API surface, layer 2 where the filter
    is SQL. A unit test of the helper is not a substitute, because the question is whether the route
-   *calls* it.
+   _calls_ it.
 4. **A shared surface is tested once, at the shared surface.** `composables/adminSettings.js`,
    `components/ModuleConfigForm.vue`, `helpers/moduleConfig.js`, `helpers/pageAccess.ts`,
    `helpers/clusterCache.ts`, the two contract runners
@@ -236,8 +236,8 @@ correct, wearing a different hat.
    set here, but a suite past roughly a thousand lines **splits by subject on its next substantive
    touch**, into the sibling files `CLAUDE.md` already sanctions
    (`models/users.test.ts` / `users.crud.test.ts` / `users.profile.test.ts`), with coverage
-   unchanged. Splitting is not pruning and does not need #2690's authority. *(This settles
-   `backend.md`'s third open question.)*
+   unchanged. Splitting is not pruning and does not need #2690's authority. _(This settles
+   `backend.md`'s third open question.)_
 
 ## The DB-backed rule
 
@@ -282,33 +282,33 @@ is something this project **deliberately does not test**. Each entry names the r
 it cannot earn its keep, and — where one exists — the narrow exception that is not an instance of
 it.
 
-Both audits found that the waste is overwhelmingly *inside* files worth keeping: 50 mixed rows in
+Both audits found that the waste is overwhelmingly _inside_ files worth keeping: 50 mixed rows in
 `backend/`, ~2,900 LOC of stated restatement share inside category-1 `frontend/` files. So these
 are written as assertion shapes to stop writing, not as files to delete. Deleting the shape wherever
 it appears is #2690's mandate.
 
 1. **"The handler forwards the body to the model unchanged."** The single largest restatement shape
    in `backend/`, spread across `api/`. It restates the handler line by line and can only fail on a
-   deliberate rewrite. *No exception.* Whatever the handler validates, gates or reshapes **is**
+   deliberate rewrite. _No exception._ Whatever the handler validates, gates or reshapes **is**
    tested; the passthrough is not.
 
 2. **"The `definition.yml` declares the props it declares."** The second named shape, spread across
-   `modules/`. An admin filling the form would see a missing prop immediately. *Exception:* a scan
+   `modules/`. An admin filling the form would see a missing prop immediately. _Exception:_ a scan
    asserting a module **has** a required file or handler at all is a structural claim about files
    that do not exist yet, and is kept.
 
 3. **A JSON Schema's field list, re-typed as an assertion.** `api/schemas/group.test.ts`'s
    enum-equals-the-union and `api/schemas/hook.test.ts`'s description-contains-a-sentence are the
    pure cases. Drift here surfaces as a 400 the first time an admin saves — annoying, never silent.
-   *Exception, and it is a real one:* a schema **branch that has shipped a bug** is product
+   _Exception, and it is a real one:_ a schema **branch that has shipped a bug** is product
    behaviour, not schema restatement. The boolean-or-string union of #2366
    (`api/schemas/security.test.ts`, `api/schemas/storage.test.ts`) locks an admin out of a setting
    when it is wrong, and stays.
 
 4. **Prose in a document.** Asserting that a Markdown file contains a sentence, a heading or a
    phrasing is prose linting through a test runner. Roughly 4,600 test LOC and ~350 assertions in
-   `backend/` are this shape, and **not one of them can fail on a product defect.** *Exception, and
-   this is the whole of it:* a doc scan that binds a document to a **machine-readable fact in code
+   `backend/` are this shape, and **not one of them can fail on a product defect.** _Exception, and
+   this is the whole of it:_ a doc scan that binds a document to a **machine-readable fact in code
    that can diverge silently** is kept, because that divergence has no other detector. The six
    named by `backend.md` are the set — the MCP tool list against `registerAllTools()`, `dataPath`
    subdirectories against what models populate, documented CSS classes against real selectors in
@@ -319,7 +319,7 @@ it appears is #2690's mandate.
 
 5. **Process discipline that is not a property of the code.** `docs-todo-fixme-drift`,
    `docs-variances` and `release-checklist-doc` enforce project conventions through `node --test`
-   because there is nowhere else to put them. *Ruled here, since `backend.md` left it open:* they
+   because there is nowhere else to put them. _Ruled here, since `backend.md` left it open:_ they
    are legitimate and they stay, but they are **capped by rule 4** — a process check survives only
    where it binds a document to a machine-readable fact, and the test suite does not grow new ones.
    The test runner is where they live because it is the only always-run gate, not because they are
@@ -329,7 +329,7 @@ it appears is #2690's mandate.
    `autofocus` attribute), `frontend/src/css/_base.test.js` (deleted Quasar selectors),
    `frontend/src/components/EditorMarkdown.deadcode.test.js` (three identifiers removed in task
    477). By construction nothing a user could observe changes if the dead thing returns. A deletion
-   is verified once, by the diff that performs it. *No exception.*
+   is verified once, by the diff that performs it. _No exception._
 
 7. **Field-by-field payload mapping.** `stores/site.test.js`'s twelve "adopts X from the payload" /
    "defaults to Y when omitted" pairs, ~260 LOC. One table-driven `it.each` over the field list
@@ -343,9 +343,9 @@ it appears is #2690's mandate.
 
 9. **Framework behaviour — category 2.** That both workspaces are at zero is the result to defend.
    No test asserts that Vue re-renders, that Pinia patches, that drizzle builds SQL, that
-   `node:test` runs. *Exception:* a **documented framework behaviour this codebase's design
+   `node:test` runs. _Exception:_ a **documented framework behaviour this codebase's design
    actually leans on**, where getting it wrong is a live hazard — Fastify's `register()`
-   encapsulation boundary is the case, and `api/users/profile.test.ts` tests it as *our* wiring, not
+   encapsulation boundary is the case, and `api/users/profile.test.ts` tests it as _our_ wiring, not
    as Fastify's promise.
 
 10. **Getters and derived state with no branch**, and a mock's exact call arguments where the call
@@ -353,7 +353,7 @@ it appears is #2690's mandate.
     breaks them and a behaviour break does not reliably fail them.
 
 11. **Appearance.** Exact spacing, colour values, class-name presence with no behavioural
-    consequence. *Exceptions, and they are narrow:* a layout **behaviour** no emulator can compute
+    consequence. _Exceptions, and they are narrow:_ a layout **behaviour** no emulator can compute
     (layer 5), an accessibility property (a name, a role, a focus order), and RTL mirroring, which
     is a correctness property expressed through logical CSS properties and is gated as such.
 
@@ -393,7 +393,7 @@ mostly in product behaviour — and the difference is real but not a conflict. A
 document is not a defect a person hits, so the scan is restatement. Applying it to `frontend/`'s
 tree scans yields product behaviour, because a missing `alt`, an unnamed dialog, an untranslated
 literal or a physical `margin-left` that will not mirror under RTL is a defect a person hits. **One
-rule, two answers, both correct.** The scan is a *proxy* for the behaviour and the proxy's
+rule, two answers, both correct.** The scan is a _proxy_ for the behaviour and the proxy's
 imprecision — it can pass while the behaviour breaks another way, and fail on a refactor that
 changed text without changing behaviour — is a cost recorded in the reason, never a category of its
 own. **No fifth category is created**, for the reason `frontend.md` gives: mechanism-shaped
@@ -413,7 +413,7 @@ Placement rule 5. The gap is application, not the rule.
 `ApiKeyCreateDialog.test.js` and `ProfileApiKeyCreateDialog.test.js`'s "real layout" describes are
 the most expensive assertions in the repository and are worth it: no cheaper mechanism answers the
 question at all, the cost is two `describe` blocks behind `{ skip: !hasChromium() }`, and the
-recorded failures were browser *launch* timeouts under eight Vitest workers — an environment
+recorded failures were browser _launch_ timeouts under eight Vitest workers — an environment
 problem Feature #2601's pinned image and an applied 30 s timeout both address — not unstable
 measurements. `docs/decisions/flaky-test-quarantine.md` argues the same conclusion at length and is
 the authority on the quarantine half of it.
@@ -474,12 +474,12 @@ The ruling, in three parts:
    `DATABASE_URL` already provides. The 11 existing names stay as they are; the suffix is **not
    required** of a new DB-backed file and carries no claim if used.
 
-The consequence for `#2691`'s lane is that the `*.flaky.*` suffix is a *different* kind of marker
+The consequence for `#2691`'s lane is that the `*.flaky.*` suffix is a _different_ kind of marker
 and does not inherit this problem: it selects a set that is deliberately tiny, is the sole input to
 its own runner, and would announce its own drift by the lane quietly rejoining the default run.
 
-*(This settles `backend.md`'s second open question. Its first is settled by "what gets no test at
-all" rule 5, its third by placement rule 7, and its fourth — any deletion — is #2690's.)*
+_(This settles `backend.md`'s second open question. Its first is settled by "what gets no test at
+all" rule 5, its third by placement rule 7, and its fourth — any deletion — is #2690's.)_
 
 ## How this interacts with the quarantine lane
 
@@ -488,11 +488,11 @@ nothing about it and restates none of its rules.
 
 The two answer different questions, and the distinction is the reason both exist:
 
-| | This document | The quarantine record |
-| --- | --- | --- |
-| Asks | what a test is **for** | what a test **depends on** |
-| Decides | which layer, and whether it is written at all | whether it blocks a run |
-| Vocabulary | the four classification categories | eligible / not eligible |
+|            | This document                                 | The quarantine record      |
+| ---------- | --------------------------------------------- | -------------------------- |
+| Asks       | what a test is **for**                        | what a test **depends on** |
+| Decides    | which layer, and whether it is written at all | whether it blocks a run    |
+| Vocabulary | the four classification categories            | eligible / not eligible    |
 
 Four consequences, stated so neither document has to be read against the other:
 
@@ -520,7 +520,7 @@ For each file, in order:
 1. **Read its row in `docs/testing-audit/backend.md` or `frontend.md`.** The category and column 4
    ("what gates this behaviour if the file goes away") are the starting point, not the verdict.
 2. **Is it harness coverage, or one of the four route-surface scans?** → **Keep, whole.** Both
-   exemptions above are unconditional. Harness coverage means a suite whose *subject* is a module
+   exemptions above are unconditional. Harness coverage means a suite whose _subject_ is a module
    under `test/` (`test/fastify.ts` → `test/fastify.test.ts`); **living under `test/` is not the
    criterion** — the 31 doc scans that also sit there have a document as their subject, not the
    harness, and go to step 3.
@@ -544,7 +544,7 @@ For each file, in order:
 Each resolves to a verdict, and each is a case one of the audits flagged as awkward.
 
 - **`backend/api/glossary.test.ts`** (classified `3 restatement / 1 product (~70/30)`). Step 3:
-  most of its twenty-four tests are shape 1, *the handler forwards these fields to the model*. Its
+  most of its twenty-four tests are shape 1, _the handler forwards these fields to the model_. Its
   unknown-site 404s come free from `siteEnabledPreHandler` and are covered once in
   `api/index.test.ts`; its body validation is enforced by the route's JSON Schema. **Verdict:**
   delete the forwarding assertions, keep the file with whatever is genuinely route-level. Column 4
@@ -560,8 +560,8 @@ Each resolves to a verdict, and each is a case one of the audits flagged as awkw
   and one of the six named. **Verdict:** keep that assertion; delete any prose assertions sitting
   beside it.
 
-- **`backend/models/analytics.test.ts`** (classified `3 restatement`). Step 3: shape 2, *the
-  `definition.yml` declares the props it declares*, plus a disk-scan count. But its "a failed scan
+- **`backend/models/analytics.test.ts`** (classified `3 restatement`). Step 3: shape 2, _the
+  `definition.yml` declares the props it declares_, plus a disk-scan count. But its "a failed scan
   leaves an empty array, not `undefined`" test is a real branch with a real consumer. **Verdict:**
   keep the file, reduced to that assertion.
 
@@ -589,6 +589,42 @@ Each resolves to a verdict, and each is a case one of the audits flagged as awkw
 - **`backend/mcp/http.flaky.test.ts`.** Not this document's call at all — it is in the lane, with
   an expiry of 2026-12-06. When that date arrives, this document decides whether it is worth
   keeping; until then the lane record governs.
+
+## Bounded test concurrency
+
+Added 2026-09-06, after PR #52's CI produced five different single-test/step failures across six
+consecutive attempts on one unchanged commit -- a wedged runner, a same-file DB race
+(`contentSync.test.ts`, see its own fix), a component test whose fake-timer-driven render never
+flushed before its assertion (`block-countdown`), and a locale test that failed twice for a reason
+never pinned down. A local run of the exact same commit passed clean, which rules out the code; what
+it does not rule out is the suite's own resource shape.
+
+`backend/`'s `npm run test` and `frontend/`/`blocks/`'s `vitest run` all ran with **unbounded**
+internal concurrency before this: `node --test` with no `--test-concurrency` spawns roughly
+`availableParallelism() - 1` OS processes at once, each capable of its own DB connections and (for
+backend) its own poolifier thread pool, and Vitest's worker count similarly scales off the host's
+core count with no ceiling of its own. On a developer machine with many cores that is mostly headroom;
+on a GitHub-hosted standard runner (4 vCPUs) running a suite this size (6000+ backend tests, 4000+
+frontend tests, plus `blocks/`), it means dozens of CPU/DB-bound processes contending for four cores.
+Every test whose correctness assumes a wall-clock or scheduling margin -- a DOM update landing before
+an assertion runs, two DB writes not overlapping -- becomes a probability rather than a certainty
+under that contention, and a different one loses the lottery each run.
+
+**Decision:** `backend/`'s `test`/`test:flaky` scripts pass `--test-concurrency=4`, and
+`frontend/`/`blocks/`'s `vitest.config.js` set `maxWorkers: 4, minWorkers: 1` (inherited by each
+workspace's `vitest.flaky.config.js` automatically, since it spreads `...baseConfig.test`). `4`
+is not a tuning knob to raise for a faster local run -- it is chosen to match a GitHub-hosted
+standard runner's actual core count, so CI and a bounded local run hit the same real ceiling instead
+of a runner-dependent one. This does not fix any test's own correctness (`contentSync.test.ts`'s
+race still needed its own fix; a genuinely fragile test still belongs in the quarantine lane per
+`docs/decisions/flaky-test-quarantine.md`) -- it makes the suite's resource consumption sensible and
+predictable, and it should substantially lower how often contention-sensitive tests get to flake at
+all, whatever their individual cause.
+
+This is deliberately separate from `timeout-minutes` (tracked in OpenProject #2736 as of this
+writing): a bound on concurrency addresses the resource contention that makes a timing-sensitive
+test flaky; a job timeout is the backstop for the case where something wedges outright regardless of
+how much headroom it had.
 
 ## What this document does not do
 

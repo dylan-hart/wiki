@@ -4,7 +4,7 @@ import { flushPromises } from '@vue/test-utils'
 import ProfileInfo from './ProfileInfo.vue'
 import ProfileOverlay from '@/components/ProfileOverlay.vue'
 import { mountWithApp } from '../../test/mount.js'
-import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
+import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
  * OpenProject #2074: `ProfileInfo.vue`'s "Save Changes" button used to draw a different check from the
@@ -167,12 +167,12 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
  * `ProfileOverlay.vue` is the card these sections render inside, and its stylesheet is the single
  * owner of the content column's padding.
  *
- * `{ skip: !hasChromium() }` for the same reason the two API-key dialog suites take it: `npm ci`
+ * `{ skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT }` for the same reason the two API-key dialog suites take it: `npm ci`
  * installs the Playwright library, not the browser binary.
  */
 describe(
   'ProfileInfo settings-row rhythm, real layout (OpenProject #2623)',
-  { skip: !hasChromium() },
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
   () => {
     let browser
     let metrics

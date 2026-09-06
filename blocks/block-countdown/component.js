@@ -208,7 +208,20 @@ export class BlockCountdownElement extends LitElement {
   }
 
   _tick() {
-    const now = Temporal.Now.zonedDateTimeISO(this._target.timeZoneId)
+    // -> Through `Date.now()` rather than `Temporal.Now` directly: a native `Temporal.Now` (Node
+    //    26+) reads the system clock through its own binding, not through the `Date` global, so
+    //    `vi.setSystemTime()` -- which only mocks `Date` -- has no effect on it at all. That made
+    //    every test below 100% reproducibly fail on real Node 26 while passing on this sandbox's
+    //    Node 25.9 (where `Temporal` is the `temporal-polyfill` package) -- an
+    //    environment-specific bug, not a flake (OpenProject #2739). `Date.prototype
+    //    .toTemporalInstant()` (CLAUDE.md's documented bridge elsewhere in this repo) isn't an
+    //    option here -- `temporal-polyfill` doesn't implement it, only `@js-temporal/polyfill`
+    //    does -- so this goes through `Temporal.Instant.fromEpochMilliseconds`, core spec API
+    //    every implementation provides, fed by the one thing every implementation and `vi
+    //    .setSystemTime()` agree on: `Date.now()`.
+    const now = Temporal.Instant.fromEpochMilliseconds(Date.now()).toZonedDateTimeISO(
+      this._target.timeZoneId
+    )
     if (Temporal.ZonedDateTime.compare(now, this._target) >= 0) {
       this._remaining = null
       this._stop()

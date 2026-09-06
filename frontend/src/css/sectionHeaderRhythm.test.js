@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
+import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 import { listSourceFiles } from '../../test/sourceFiles.js'
 
 /**
@@ -72,94 +72,98 @@ const SHAPES = [
   }
 ]
 
-describe('.w-section-header renders one rhythm in a real browser', { skip: !hasChromium() }, () => {
-  let measured
+describe(
+  '.w-section-header renders one rhythm in a real browser',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    let measured
 
-  beforeAll(async () => {
-    const css = await buildAppCss()
-    const browser = await chromium.launch()
-    try {
-      const page = await browser.newPage()
-      await page.setContent(
-        `<!doctype html><html><head><style>${css}</style></head><body style="margin:0">` +
-          SHAPES.map(
-            (shape, index) =>
-              `<div class="shape" data-index="${index}" style="width:520px">${shape.html}</div>`
-          ).join('') +
-          `</body></html>`
-      )
-      measured = await page.evaluate(() =>
-        [...document.querySelectorAll('.shape')].map((shape) => {
-          const band = shape.querySelector('.w-section-header')
-          const style = getComputedStyle(band)
-          const bandRect = band.getBoundingClientRect()
-          const shapeRect = shape.getBoundingClientRect()
-          return {
-            height: bandRect.height,
-            paddingInlineStart: style.paddingInlineStart,
-            paddingInlineEnd: style.paddingInlineEnd,
-            marginBlockEnd: style.marginBlockEnd,
-            fontSize: style.fontSize,
-            insetStart: bandRect.left - shapeRect.left,
-            insetEnd: shapeRect.right - bandRect.right
-          }
+    beforeAll(async () => {
+      const css = await buildAppCss()
+      const browser = await chromium.launch()
+      try {
+        const page = await browser.newPage()
+        await page.setContent(
+          `<!doctype html><html><head><style>${css}</style></head><body style="margin:0">` +
+            SHAPES.map(
+              (shape, index) =>
+                `<div class="shape" data-index="${index}" style="width:520px">${shape.html}</div>`
+            ).join('') +
+            `</body></html>`
+        )
+        measured = await page.evaluate(() =>
+          [...document.querySelectorAll('.shape')].map((shape) => {
+            const band = shape.querySelector('.w-section-header')
+            const style = getComputedStyle(band)
+            const bandRect = band.getBoundingClientRect()
+            const shapeRect = shape.getBoundingClientRect()
+            return {
+              height: bandRect.height,
+              paddingInlineStart: style.paddingInlineStart,
+              paddingInlineEnd: style.paddingInlineEnd,
+              marginBlockEnd: style.marginBlockEnd,
+              fontSize: style.fontSize,
+              insetStart: bandRect.left - shapeRect.left,
+              insetEnd: shapeRect.right - bandRect.right
+            }
+          })
+        )
+        await page.close()
+      } finally {
+        await browser.close()
+      }
+    }, 60000)
+
+    afterAll(() => {
+      measured = undefined
+    })
+
+    it('measures a band in every shape', () => {
+      expect(measured).toHaveLength(SHAPES.length)
+    })
+
+    it.each(SHAPES.map((shape, index) => [shape.name, index]))(
+      'is 34px tall with its text 16px in, as a %s',
+      (_name, index) => {
+        const band = measured[index]
+        expect({
+          height: band.height,
+          start: band.paddingInlineStart,
+          end: band.paddingInlineEnd
+        }).toEqual({
+          height: BAND_HEIGHT,
+          start: `${BAND_INSET}px`,
+          end: `${BAND_INSET}px`
         })
-      )
-      await page.close()
-    } finally {
-      await browser.close()
-    }
-  }, 60000)
+      }
+    )
 
-  afterAll(() => {
-    measured = undefined
-  })
+    it('trails the design rhythm everywhere, so the body under it never adds a second gap', () => {
+      for (const band of measured) {
+        expect(band.marginBlockEnd).toBe(`${BAND_TRAILING_GAP}px`)
+      }
+    })
 
-  it('measures a band in every shape', () => {
-    expect(measured).toHaveLength(SHAPES.length)
-  })
-
-  it.each(SHAPES.map((shape, index) => [shape.name, index]))(
-    'is 34px tall with its text 16px in, as a %s',
-    (_name, index) => {
-      const band = measured[index]
-      expect({
-        height: band.height,
-        start: band.paddingInlineStart,
-        end: band.paddingInlineEnd
-      }).toEqual({
-        height: BAND_HEIGHT,
-        start: `${BAND_INSET}px`,
-        end: `${BAND_INSET}px`
-      })
-    }
-  )
-
-  it('trails the design rhythm everywhere, so the body under it never adds a second gap', () => {
-    for (const band of measured) {
-      expect(band.marginBlockEnd).toBe(`${BAND_TRAILING_GAP}px`)
-    }
-  })
-
-  it('reaches its container edges, whether that container pads itself or not', () => {
-    measured.forEach((band, index) => {
-      /*
-       * A bleeding band's own inline margin cancels its parent's padding exactly, so its edges land
-       * on the OUTER container's -- which is the whole point of the band being full-bleed, and the
-       * thing every hand-written `-mx-4` was reaching for.
-       */
-      expect({ shape: SHAPES[index].name, start: band.insetStart, end: band.insetEnd }).toEqual({
-        shape: SHAPES[index].name,
-        start: 0,
-        end: 0
+    it('reaches its container edges, whether that container pads itself or not', () => {
+      measured.forEach((band, index) => {
+        /*
+         * A bleeding band's own inline margin cancels its parent's padding exactly, so its edges land
+         * on the OUTER container's -- which is the whole point of the band being full-bleed, and the
+         * thing every hand-written `-mx-4` was reaching for.
+         */
+        expect({ shape: SHAPES[index].name, start: band.insetStart, end: band.insetEnd }).toEqual({
+          shape: SHAPES[index].name,
+          start: 0,
+          end: 0
+        })
       })
     })
-  })
 
-  it('leaves every band on the same type', () => {
-    expect([...new Set(measured.map((band) => band.fontSize))]).toEqual(['10px'])
-  })
-})
+    it('leaves every band on the same type', () => {
+      expect([...new Set(measured.map((band) => band.fontSize))]).toEqual(['10px'])
+    })
+  }
+)
 
 /*
  * The band's metrics are written down once, in `css/tailwind.css`. These two scans are what stops a
