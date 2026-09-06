@@ -26,7 +26,7 @@ vi.mock('@/composables/loading', async (importOriginal) => ({
 }))
 
 /**
- * Regression coverage for the admin "Content Blocks" page's per-block "Server" field: only a block
+ * Regression coverage for the admin "Blocks" page's per-block "Server" field: only a block
  * whose definition declares one via `props` (block-kroki, block-plantuml) gets one, editing it writes
  * into that block's `config`, and Apply sends `config` alongside `isEnabled` for every block — the
  * PUT-side wiring `models/blocks.ts#setBlocksState` and `api/blocks.ts` persist (see their own tests

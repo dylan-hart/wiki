@@ -105,7 +105,7 @@ export class BlockLiveDataElement extends LitElement {
         name: 'credential-id',
         type: 'string',
         label: 'Credential ID',
-        hint: "A stored credential's id, from this site's Content Blocks admin page. The url above must be within that credential's allowed domains, or the fetch is refused. Leave blank for an endpoint that takes no authentication."
+        hint: "A stored credential's id, from this site's Blocks admin page. The url above must be within that credential's allowed domains, or the fetch is refused. Leave blank for an endpoint that takes no authentication."
       },
       {
         name: 'refresh-interval',
