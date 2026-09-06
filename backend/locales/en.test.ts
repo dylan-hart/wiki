@@ -166,3 +166,57 @@ describe('backend/locales/en.json — footer credit casing', () => {
     }
   })
 })
+
+/**
+ * Regression guard for WP #2653 (rebrand: user-facing strings and locales). `en.json` is the
+ * Localazy source every other locale file re-syncs from, so a product name typed once here ends up
+ * in 56 files; its 17 `Wiki.js` occurrences were rewritten to `Cardinal.js`.
+ *
+ * Deliberately scoped to this one file rather than being the repo-wide grep Feature #2617 argues
+ * against. That argument is about the exclusion list: a whole-repo gate would have to encode every
+ * legitimate upstream reference (`backend/migration/`, the AGPL notices, the opencollective and
+ * requarks/wiki links, the importer dialogs' "Wiki.js's own Markdown" copy) and would fail the day
+ * a new one is written. Here the exclusion list is one named constant covering the only category of
+ * English string that could legitimately name upstream -- copy about importing from a real Wiki.js
+ * 2.5.x instance -- and adding to it is one line with the reason beside it.
+ */
+describe('backend/locales/en.json -- product name', () => {
+  const localePath = path.join(import.meta.dirname, 'en.json')
+
+  /**
+   * Keys whose English text is ALLOWED to name Wiki.js, because it means the real upstream product
+   * rather than this fork -- the same test Feature #2617 sets for the sweep as a whole: does the
+   * sentence remain true after the rename?
+   *
+   * Empty today. A string about the 2.5.x importer ("Import from a Wiki.js 2.5.x database...") is
+   * the expected first entry; add the key here with its reason rather than loosening the assertion.
+   */
+  const upstreamReferenceKeys: readonly string[] = []
+
+  async function loadParsed() {
+    const raw = await readFile(localePath, 'utf8')
+    return JSON.parse(raw) as Record<string, string>
+  }
+
+  test('names this product Cardinal.js, never upstream Wiki.js', async () => {
+    const parsed = await loadParsed()
+    const offenders = Object.entries(parsed)
+      .filter(([key, value]) => !upstreamReferenceKeys.includes(key) && /wiki\.?js/i.test(value))
+      .map(([key]) => key)
+
+    assert.deepEqual(
+      offenders,
+      [],
+      'these en.json strings still name Wiki.js -- rename them to Cardinal.js, or, if one genuinely ' +
+        `describes upstream Wiki.js, add its key to upstreamReferenceKeys: ${offenders.join(', ')}`
+    )
+  })
+
+  test('still carries the renamed strings, so the check above cannot pass vacuously', async () => {
+    const parsed = await loadParsed()
+    // -> Deleting the keys rather than rewriting them would also satisfy the assertion above while
+    //    removing the copy entirely. Two of the seventeen, one from each end of the file.
+    assert.equal(parsed['admin.dashboard.wikiVersion'], 'Cardinal.js version')
+    assert.equal(parsed['welcome.title'], 'Welcome to Cardinal.js!')
+  })
+})

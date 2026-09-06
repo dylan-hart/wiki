@@ -57,7 +57,7 @@ export function generateGraph(targets, t) {
       color: '#3f51b5',
       icon: '/_assets/icons/fluent-document-in-folder.svg'
     },
-    pages_wiki: { name: 'Wiki.js', icon: '/_assets/logo-wikijs.svg', color: '#161b22' }
+    pages_wiki: { name: 'Cardinal.js', icon: '/_assets/logo-cardinal.svg', color: '#161b22' }
   }
   const edges = {
     user_pages: { source: 'user', target: 'pages' },
@@ -98,8 +98,8 @@ export function generateGraph(targets, t) {
     if (dt) {
       nodes[`${tp.key}_${dt.module}`] = { name: dt.title, icon: dt.icon }
       nodes[`${tp.key}_wiki`] = {
-        name: 'Wiki.js',
-        icon: '/_assets/logo-wikijs.svg',
+        name: 'Cardinal.js',
+        icon: '/_assets/logo-cardinal.svg',
         color: '#161b22'
       }
       layouts.nodes[`${tp.key}_${dt.module}`] = { x: 60, y: (i + 1) * 15 }
@@ -136,8 +136,8 @@ export function generateGraph(targets, t) {
     if (st) {
       nodes[`${tp.key}_${st.module}`] = { name: st.title, icon: st.icon }
       nodes[`${tp.key}_wiki`] = {
-        name: 'Wiki.js',
-        icon: '/_assets/logo-wikijs.svg',
+        name: 'Cardinal.js',
+        icon: '/_assets/logo-cardinal.svg',
         color: '#161b22'
       }
       layouts.nodes[`${tp.key}_${st.module}`] = { x: 120, y: (i + 1) * 15 }
@@ -166,8 +166,8 @@ export function generateGraph(targets, t) {
     const dbt = targets.find((tgt) => tgt.module === 'db')
     if (dbt?.contentTypes?.activeTypes?.includes(tp.key)) {
       nodes[`${tp.key}_wiki`] = {
-        name: 'Wiki.js',
-        icon: '/_assets/logo-wikijs.svg',
+        name: 'Cardinal.js',
+        icon: '/_assets/logo-cardinal.svg',
         color: '#161b22'
       }
       layouts.nodes[`${tp.key}_wiki`] = { x: 60, y: (i + 1) * 15 }

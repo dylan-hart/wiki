@@ -50,7 +50,7 @@
         <!-- WIKI.JS -->
         <!-- ----------------------- -->
         <w-card class="pb-2">
-          <w-card-header>Wiki.js</w-card-header>
+          <w-card-header>Cardinal.js</w-card-header>
           <w-item>
             <blueprint-icon icon="tabler:alert-triangle" />
             <w-item-section>
@@ -403,7 +403,7 @@ function checkForUpdates() {
 }
 
 async function copySysInfo() {
-  const text = `Wiki.js ${state.info.currentVersion}
+  const text = `Cardinal.js ${state.info.currentVersion}
 Postgres ${dbVersion.value}
 Node.js ${state.info.nodeVersion}
 OS: ${state.info.operatingSystem}
