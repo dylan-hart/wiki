@@ -1,5 +1,10 @@
 import { styleText } from 'node:util'
 import EventEmitter from 'node:events'
+import type { LogScope } from './logScopes.ts'
+
+// -> Re-exported so the vocabulary is reachable from the logger itself, which is where a caller
+//    looks for it. `core/logScopes.ts` holds the one declaration; this adds no second copy.
+export { LOG_SCOPES, type LogScope } from './logScopes.ts'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 export type IgnoredLogLevel = 'verbose' | 'silly'
@@ -7,6 +12,23 @@ export type IgnoredLogLevel = 'verbose' | 'silly'
 //    === 'json'` branch below). Ignored entirely in text mode.
 export type LogContext = Record<string, unknown>
 export type LogFn = (msg: unknown, context?: LogContext) => void
+
+/**
+ * A logger bound to one scope and a constant set of fields, for a file that logs a lot from one
+ * subsystem: `modules/storage/*` with its `target`/`module`, `modules/search/*` with its `engine`,
+ * `core/collab.ts` with its `page`. Every line it emits carries them, so the call site writes only
+ * what is new about that line.
+ *
+ * `scope()` on a child yields a further child: the new name replaces the old one (a line is filed
+ * under exactly one scope) while the fields merge, the newer winning.
+ */
+export interface ScopedLogger {
+  error: LogFn
+  warn: LogFn
+  info: LogFn
+  debug: LogFn
+  scope: (name: LogScope, fields?: LogContext) => ScopedLogger
+}
 
 /**
  * Formatted lines kept in memory, replayed to an admin terminal the moment it connects
@@ -23,6 +45,36 @@ const LEVELCOLORS: Record<LogLevel, 'red' | 'yellow' | 'green' | 'cyan'> = {
   debug: 'cyan'
 }
 
+/**
+ * Build a child bound to `name` and `fields`.
+ *
+ * It forwards to the parent's own level methods rather than emitting on its own, so a child inherits
+ * the level gating, the backlog and the terminal socket for free and there is still exactly one
+ * renderer. Field precedence is fixed here and nowhere else: the scope first, then the child's
+ * standing fields, then the call's own — so a call may override a field it inherited, and a call
+ * that says nothing still carries everything the child was built with.
+ */
+function createScopedLogger(
+  emitters: Record<LogLevel, LogFn>,
+  name: LogScope,
+  fields: LogContext
+): ScopedLogger {
+  const at =
+    (lvl: LogLevel): LogFn =>
+    (msg: unknown, context?: LogContext) => {
+      emitters[lvl](msg, { scope: name, ...fields, ...context })
+    }
+
+  return {
+    error: at('error'),
+    warn: at('warn'),
+    info: at('info'),
+    debug: at('debug'),
+    scope: (childName: LogScope, childFields?: LogContext) =>
+      createScopedLogger(emitters, childName, { ...fields, ...childFields })
+  }
+}
+
 class Logger extends EventEmitter {
   // -> Assigned dynamically in init(). `declare` keeps these type-only so that no class field is
   //    emitted, leaving the runtime shape of the instance untouched.
@@ -34,6 +86,7 @@ class Logger extends EventEmitter {
   declare debug: LogFn
   declare verbose: LogFn
   declare silly: LogFn
+  declare scope: (name: LogScope, fields?: LogContext) => ScopedLogger
 }
 
 export default {
@@ -99,6 +152,12 @@ export default {
     LEVELSIGNORED.forEach((lvl) => {
       primaryLogger[lvl] = () => {}
     })
+
+    // -> Assigned after the level loop above, so a child forwards to the *final* level methods and
+    //    is therefore gated by `logLevel` exactly as a direct call is: a level past the configured
+    //    threshold still emits, but has no listener rendering it.
+    primaryLogger.scope = (name: LogScope, fields?: LogContext) =>
+      createScopedLogger(primaryLogger, name, fields ?? {})
 
     return primaryLogger
   }
