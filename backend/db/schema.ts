@@ -1743,7 +1743,22 @@ export const users = pgTable(
   {
     id: uuid().primaryKey().defaultRandom(),
     email: varchar({ length: 255 }).notNull().unique(),
+    // -> The display name. DERIVED from `firstName`/`lastName` on write -- see
+    //    `models/users.ts#deriveDisplayName`, the one place that composes it -- unless
+    //    `nameLocallyEdited` says a human authored it outright.
     name: varchar({ length: 255 }).notNull(),
+    // -> The two authored halves of a person's name (Feature #2608). Separated rather than parsed out
+    //    of `name` at render time because sorting an admin user list by surname, and addressing a user
+    //    by first name in notification copy, both want the split stored. An empty string means "not
+    //    set", which is what a provider sign-in fills: it populates a half that is still empty and
+    //    never overwrites one that is not.
+    firstName: varchar({ length: 255 }).notNull().default(''),
+    lastName: varchar({ length: 255 }).notNull().default(''),
+    // -> The stored "a human on this instance authored this account's name" marker. Two consequences,
+    //    both owned by `models/users.ts`: `name` stops being derived from the two halves above, and a
+    //    provider re-login leaves all three fields alone. Stored rather than inferred by comparing a
+    //    provider's claim against the current value -- see Feature #2608's resolved scope.
+    nameLocallyEdited: boolean().notNull().default(false),
     auth: jsonb().notNull().default({}),
     meta: jsonb().notNull().default({}),
     passkeys: jsonb().notNull().default({}),

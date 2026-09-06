@@ -64,9 +64,22 @@ export interface FallbackAccount {
   createdAt: Date
 }
 
-/** The subset of user fields that may be modified. `isSystem` is deliberately absent. */
+/**
+ * The subset of user fields that may be modified. `isSystem` is deliberately absent.
+ *
+ * `name`, `firstName`, `lastName` and `nameLocallyEdited` are interpreted rather than written
+ * through verbatim — see {@link Users.updateUser}, the one place the derivation invariant lives.
+ */
 export interface UserPatch {
   name?: string
+  firstName?: string
+  lastName?: string
+  /**
+   * Normally left out: `updateUser()` maintains it. Set it explicitly only to override that — a
+   * provider sign-in writing claim-sourced names passes `false` so filling an empty half does not
+   * mark the account as locally authored (Tasks #2640/#2641).
+   */
+  nameLocallyEdited?: boolean
   email?: string
   isActive?: boolean
   isVerified?: boolean
@@ -134,6 +147,60 @@ const profilePrefsKeys = [
 const avatarSize = 180
 
 /**
+ * The display name a pair of authored name halves derives to (Feature #2608).
+ *
+ * This is the whole rule: `` `${firstName} ${lastName}`.trim() ``. A mononym — an account with an
+ * empty `lastName` — derives to its first name alone, and an account with neither half derives to
+ * the empty string, which is what a federated account whose provider issued no name at all gets
+ * until someone fills one in.
+ *
+ * Exported because it is the ONE place a display name is composed. A call site that writes
+ * `` `${first} ${last}` `` of its own is the drift this function exists to prevent — the three
+ * columns are only guaranteed to agree because every write goes through here.
+ */
+export function deriveDisplayName(firstName: string, lastName: string): string {
+  return `${firstName} ${lastName}`.trim()
+}
+
+/**
+ * Resolve the four name columns for an INSERT. The update-path counterpart is
+ * {@link Users.updateUser}, which has a stored row to reconcile against and so cannot share this.
+ *
+ * Callers hand over whatever they have — two halves, a single display name, or both:
+ *
+ * - **Halves only** (what the profile, admin-create and admin-edit forms submit, Task #2642): `name`
+ *   is derived and the row is NOT marked locally edited, so it keeps tracking later half edits.
+ * - **A single name only** (a federated provider that issues one string, and nothing else): stored
+ *   verbatim, with both halves empty and the row marked locally edited — there is nothing for it to
+ *   be derived from, so it is authored by definition. Splitting such a string into halves is Task
+ *   #2641's, deliberately not done here.
+ * - **Both**: the halves are stored as given and `name` is stored as given. The row is marked
+ *   locally edited only when the given `name` is not what those halves derive to. Note this is a
+ *   value comparison *at the moment of the write*, which is a different thing from the re-login
+ *   inference Feature #2608's scope rules out: a sign-in consults the stored boolean and never
+ *   re-compares. It is what lets a caller pass a name alongside the halves it already derives from
+ *   (`init()`'s seeded accounts) without the row being born "authored".
+ */
+export function resolveNameFields(input: {
+  name?: string
+  firstName?: string
+  lastName?: string
+}): { name: string; firstName: string; lastName: string; nameLocallyEdited: boolean } {
+  const firstName = (input.firstName ?? '').trim()
+  const lastName = (input.lastName ?? '').trim()
+  const derived = deriveDisplayName(firstName, lastName)
+  if (input.name === undefined) {
+    return { name: derived, firstName, lastName, nameLocallyEdited: false }
+  }
+  return {
+    name: input.name,
+    firstName,
+    lastName,
+    nameLocallyEdited: input.name.trim() !== derived
+  }
+}
+
+/**
  * One local-provider user row, as an insert value.
  *
  * The same literal — a six-key local auth entry, the three `meta` fields, the five `prefs` fields —
@@ -152,7 +219,10 @@ function localUserRow(input: {
   id?: string
   strategyId: string
   email: string
-  name: string
+  /** Omitted when the caller has the two halves below instead — see {@link resolveNameFields}. */
+  name?: string
+  firstName?: string
+  lastName?: string
   /** Already hashed — nothing here calls `bcrypt.hash()`; every caller hashes (or carries) its own. */
   passwordHash: string
   mustChangePassword: boolean
@@ -172,10 +242,11 @@ function localUserRow(input: {
 }): typeof usersTable.$inferInsert {
   const meta = input.meta ?? {}
   const prefs = input.prefs ?? {}
+  const names = resolveNameFields(input)
   return {
     id: input.id,
     email: input.email.toLowerCase(),
-    name: input.name,
+    ...names,
     auth: {
       [input.strategyId]: {
         password: input.passwordHash,
@@ -418,13 +489,21 @@ class Users {
    */
   async createUser({
     name,
+    firstName,
+    lastName,
     email,
     password,
     groups = [],
     mustChangePassword = false,
     isVerified = true
   }: {
-    name: string
+    /**
+     * The display name. Optional: a caller with the two halves below instead lets it derive
+     * ({@link resolveNameFields}), which is what the admin-create and self-registration forms do.
+     */
+    name?: string
+    firstName?: string
+    lastName?: string
     email: string
     password: string
     groups?: string[]
@@ -436,6 +515,10 @@ class Users {
     isVerified?: boolean
   }): Promise<string> {
     const localStrategyId = WIKI.data.systemIds.localAuthId
+    // -> Resolved here as well as inside `localUserRow` (the call is idempotent) purely so the
+    //    `user:join` hook below reports the display name that was actually stored, rather than the
+    //    `undefined` a halves-only caller passed for it.
+    const names = resolveNameFields({ name, firstName, lastName })
     // -> Hashed before the transaction opens rather than inside it: bcrypt is CPU-bound, not a query,
     //    and there is no reason to hold the checked-out connection idle while it runs.
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
@@ -453,7 +536,9 @@ class Users {
           localUserRow({
             strategyId: localStrategyId,
             email,
-            name,
+            name: names.name,
+            firstName: names.firstName,
+            lastName: names.lastName,
             passwordHash,
             mustChangePassword,
             isActive: true,
@@ -479,7 +564,7 @@ class Users {
     await WIKI.models.hooks.emit('user:join', null, {
       userId,
       metadata: {
-        name,
+        name: names.name,
         email: email.toLowerCase()
       }
     })
@@ -541,6 +626,8 @@ class Users {
    */
   async importLocalUser({
     name,
+    firstName,
+    lastName,
     email,
     passwordHash,
     groups = [],
@@ -553,7 +640,14 @@ class Users {
     updatedAt,
     lastLoginAt
   }: {
-    name: string
+    /**
+     * The 2.5.x source's single `name` column. A source with no separated halves to give simply omits
+     * the two below, and the account is imported with an authored display name — no split is guessed
+     * at here (Feature #2608 rejects name parsing on an account this instance owns).
+     */
+    name?: string
+    firstName?: string
+    lastName?: string
     email: string
     /** The source install's already-hashed local password (bcryptjs, 12 rounds) — copied verbatim. */
     passwordHash: string
@@ -588,6 +682,9 @@ class Users {
     }
 
     const localStrategyId = WIKI.data.systemIds.localAuthId
+    // -> Resolved here as well as inside `localUserRow` (the call is idempotent) so the `user:join`
+    //    hook below reports the display name that was actually stored — same reason as `createUser()`.
+    const names = resolveNameFields({ name, firstName, lastName })
     let result
     try {
       result = await WIKI.db
@@ -596,7 +693,9 @@ class Users {
           localUserRow({
             strategyId: localStrategyId,
             email: normalizedEmail,
-            name,
+            name: names.name,
+            firstName: names.firstName,
+            lastName: names.lastName,
             passwordHash,
             mustChangePassword,
             isActive,
@@ -630,7 +729,7 @@ class Users {
     await WIKI.models.hooks.emit('user:join', null, {
       userId,
       metadata: {
-        name,
+        name: names.name,
         email: normalizedEmail
       }
     })
@@ -641,6 +740,28 @@ class Users {
   /**
    * Update a user's own fields. Group membership is handled by `setUserGroups()`.
    *
+   * ## The `name` derivation invariant (Feature #2608)
+   *
+   * This method is the ONE place an update reconciles `name` against `firstName`/`lastName`; the
+   * insert-side counterpart is {@link resolveNameFields}. Every write path that changes a name goes
+   * through here — `updateProfile()`, `applyUserUpdate()` (and therefore `PUT /users/:userId`), and
+   * the provider sign-in paths — so the three columns cannot silently disagree.
+   *
+   * - A patch that changes `firstName` and/or `lastName` and carries **no** `name` **re-derives**
+   *   `name` from the resulting pair — unless the row is already marked `nameLocallyEdited`, in
+   *   which case the authored name stands and only the two halves move.
+   * - A patch carrying an explicit `name` stores it verbatim and **sets** `nameLocallyEdited`,
+   *   because a hand-authored display name must survive every later half edit. Writing a `name`
+   *   that is exactly what the halves derive to clears the marker instead — that is the same write
+   *   as "put this account back on derivation", and it is what stops a form that always submits all
+   *   three fields from marking every account it touches.
+   * - A caller may pass `nameLocallyEdited` itself to override both rules. That is the seam a
+   *   provider sign-in uses (Tasks #2640/#2641): it fills an empty half with `false`, so filling a
+   *   gap from a claim never counts as a local edit.
+   *
+   * A patch touching none of the three fields does not read the row at all — the common case
+   * (`isVerified`, `prefs`, `meta`, …) still costs exactly one statement.
+   *
    * @param patch Fields to change — must not be empty
    * @returns Whether a user was updated
    */
@@ -649,8 +770,60 @@ class Users {
     if (typeof values.email === 'string') {
       values.email = values.email.toLowerCase()
     }
+    if (typeof values.firstName === 'string') {
+      values.firstName = values.firstName.trim()
+    }
+    if (typeof values.lastName === 'string') {
+      values.lastName = values.lastName.trim()
+    }
+    if (patch.name !== undefined || patch.firstName !== undefined || patch.lastName !== undefined) {
+      await this.reconcileNameValues(id, patch, values, db)
+    }
     const result = await db.update(usersTable).set(values).where(eq(usersTable.id, id))
     return (result.rowCount ?? 0) > 0
+  }
+
+  /**
+   * The name half of {@link Users.updateUser}, split out only to keep that method readable — it is
+   * not a second owner of the rule and nothing else calls it. Mutates `values` in place.
+   *
+   * The current row is read on the caller's own `db` handle, so a call inside an open transaction
+   * (`applyUserUpdate()`) sees that transaction's uncommitted state rather than the pre-transaction
+   * row. A user that has since been deleted simply leaves `values` alone: the `UPDATE` that follows
+   * matches nothing and `updateUser()` answers `false`, which is what it already did.
+   */
+  private async reconcileNameValues(
+    id: string,
+    patch: UserPatch,
+    values: Record<string, any>,
+    db: WikiDbOrTx
+  ): Promise<void> {
+    const [current] = await db
+      .select({
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        nameLocallyEdited: usersTable.nameLocallyEdited
+      })
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1)
+    if (!current) {
+      return
+    }
+    const derived = deriveDisplayName(
+      values.firstName ?? current.firstName,
+      values.lastName ?? current.lastName
+    )
+    if (patch.name === undefined) {
+      const authored = patch.nameLocallyEdited ?? current.nameLocallyEdited
+      if (!authored) {
+        values.name = derived
+      }
+      return
+    }
+    if (patch.nameLocallyEdited === undefined) {
+      values.nameLocallyEdited = patch.name.trim() !== derived
+    }
   }
 
   /**
@@ -1256,7 +1429,10 @@ class Users {
         //    comes from the ids being seeded rather than from that global
         strategyId: ids.authModuleId,
         email: process.env.ADMIN_EMAIL ?? 'admin@example.com',
-        name: 'Administrator',
+        // -> A mononym: `firstName` alone derives `name` to 'Administrator' and leaves the row
+        //    unmarked, so an administrator who later fills in a real first and last name gets the
+        //    display name re-derived rather than being stuck behind an "authored" marker.
+        firstName: 'Administrator',
         passwordHash: await bcrypt.hash(process.env.ADMIN_PASS || '12345678', BCRYPT_ROUNDS),
         mustChangePassword: !process.env.ADMIN_PASS,
         isActive: true,
@@ -1266,7 +1442,7 @@ class Users {
         id: ids.userGuestId,
         email: 'guest@example.com',
         auth: {},
-        name: 'Guest',
+        ...resolveNameFields({ firstName: 'Guest' }),
         isSystem: true,
         isActive: true,
         isVerified: true,
