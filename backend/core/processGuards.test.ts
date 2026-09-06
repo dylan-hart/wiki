@@ -12,7 +12,7 @@ describe('runBootPhaseOrExit', () => {
     const logger = createLoggerStub()
     const exit = mock.fn()
 
-    await runBootPhaseOrExit(async () => {}, 'Post-Boot Initialization Error', logger, { exit })
+    await runBootPhaseOrExit(async () => {}, 'post-boot initialization', logger, { exit })
 
     assert.equal(logger.error.mock.calls.length, 0)
     assert.equal(exit.mock.calls.length, 0)
@@ -22,25 +22,31 @@ describe('runBootPhaseOrExit', () => {
     const logger = createLoggerStub()
     const exit = mock.fn()
 
+    const err = new Error('remote storage unreachable')
     await runBootPhaseOrExit(
       async () => {
-        throw new Error('remote storage unreachable')
+        throw err
       },
-      'Post-Boot Initialization Error',
+      'post-boot initialization',
       logger,
       { exit }
     )
 
     assert.equal(logger.error.mock.calls.length, 1)
-    assert.equal(
-      logger.error.mock.calls[0].arguments[0],
-      'Post-Boot Initialization Error: remote storage unreachable'
-    )
+    assert.deepEqual(logger.error.mock.calls[0].arguments, [
+      'boot',
+      'post-boot initialization failed',
+      { error: err }
+    ])
     assert.equal(exit.mock.calls.length, 1)
     assert.equal(exit.mock.calls[0].arguments[0], 1)
   })
 
-  test('logs the underlying error too when debug is on', async () => {
+  test('reports the failure as ONE record carrying the error, not a second debug-gated call', async () => {
+    // -> The old shape logged `${label}: ${err.message}` and then, only when `IS_DEBUG` was on, a
+    //    bare second `error(err)` for the stack — so in production the stack was simply absent, and
+    //    in development the two halves could be split apart by an interleaved line. `fields.error`
+    //    puts the situation and the stack in one record at every level (OpenProject #2660).
     const logger = createLoggerStub()
     const exit = mock.fn()
     const err = new Error('boom')
@@ -49,13 +55,13 @@ describe('runBootPhaseOrExit', () => {
       async () => {
         throw err
       },
-      'Post-Boot Initialization Error',
+      'post-boot initialization',
       logger,
-      { exit, debug: true }
+      { exit }
     )
 
-    assert.equal(logger.error.mock.calls.length, 2)
-    assert.equal(logger.error.mock.calls[1].arguments[0], err)
+    assert.equal(logger.error.mock.calls.length, 1)
+    assert.equal(logger.error.mock.calls[0].arguments[2].error, err)
   })
 
   test('does not swallow a rejection propagating past the phase—exit is still called, not thrown out', async () => {
@@ -83,14 +89,16 @@ describe('registerUnhandledRejectionHandler', () => {
     const logger = createLoggerStub()
     const target = new EventEmitter()
 
+    const err = new Error('search engine init failed')
     registerUnhandledRejectionHandler(logger, { target })
-    target.emit('unhandledRejection', new Error('search engine init failed'))
+    target.emit('unhandledRejection', err)
 
     assert.equal(logger.error.mock.calls.length, 1)
-    assert.equal(
-      logger.error.mock.calls[0].arguments[0],
-      'Unhandled Promise Rejection: search engine init failed'
-    )
+    assert.deepEqual(logger.error.mock.calls[0].arguments, [
+      'boot',
+      'unhandled promise rejection: search engine init failed',
+      { error: err }
+    ])
   })
 
   test('stringifies a non-Error rejection reason', () => {
@@ -101,22 +109,25 @@ describe('registerUnhandledRejectionHandler', () => {
     target.emit('unhandledRejection', 'plain string reason')
 
     assert.equal(logger.error.mock.calls.length, 1)
-    assert.equal(
-      logger.error.mock.calls[0].arguments[0],
-      'Unhandled Promise Rejection: plain string reason'
-    )
+    // -> No `error` field: there is no `Error` to lift a name or stack out of, and inventing one
+    //    would put a fabricated stack in front of an operator.
+    assert.deepEqual(logger.error.mock.calls[0].arguments, [
+      'boot',
+      'unhandled promise rejection: plain string reason',
+      {}
+    ])
   })
 
-  test('logs the underlying Error object too when debug is on', () => {
+  test('carries the Error in one record rather than a second debug-gated call', () => {
     const logger = createLoggerStub()
     const target = new EventEmitter()
     const err = new Error('boom')
 
-    registerUnhandledRejectionHandler(logger, { target, debug: true })
+    registerUnhandledRejectionHandler(logger, { target })
     target.emit('unhandledRejection', err)
 
-    assert.equal(logger.error.mock.calls.length, 2)
-    assert.equal(logger.error.mock.calls[1].arguments[0], err)
+    assert.equal(logger.error.mock.calls.length, 1)
+    assert.equal(logger.error.mock.calls[0].arguments[2].error, err)
   })
 
   test('calls exit(1) after logging when an exit is injected', () => {

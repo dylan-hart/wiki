@@ -264,7 +264,7 @@ describe('API-key population hook wiring (index.ts)', () => {
  * OpenProject #2048: `WIKI.db = await dbManager.init()` used to run *before* `preBoot()`'s
  * `try` opened, and nothing in `backend/` installs an `unhandledRejection` handler -- so a
  * migration or connection failure at boot killed the process with a bare unhandled-rejection
- * stack instead of the same deliberate "Database Initialization Error" + `WIKI.logger.error` +
+ * stack instead of the same deliberate "database initialization failed" + `WIKI.logger.error` +
  * `process.exit(1)` every other preBoot failure (e.g. an empty settings table) already got.
  * Fixed by moving the `try` up to wrap the db init calls too.
  *
@@ -344,12 +344,16 @@ test(
     )
     assert.match(
       output,
-      /Database Initialization Error/,
+      /database initialization failed/,
       `expected the deliberate error message in the output\n--- output ---\n${output}`
     )
+    // -> Node's own warning spells it `UnhandledPromiseRejection`; `core/processGuards.ts` spells
+    //    its deliberate line `unhandled promise rejection`. Neither belongs here: this failure is
+    //    caught and reported by `preBoot()` itself, so a rejection reaching either path means the
+    //    catch stopped covering it.
     assert.doesNotMatch(
       output,
-      /Unhandled(Promise)?Rejection/i,
+      /Unhandled(Promise)?Rejection|unhandled promise rejection/i,
       `expected no unhandled-rejection stack in the output\n--- output ---\n${output}`
     )
   }

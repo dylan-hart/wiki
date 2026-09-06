@@ -68,12 +68,27 @@ describe('installTestWiki', () => {
 })
 
 describe('createSilentLogger', () => {
-  test('answers every level the app logs at, all no-ops', () => {
+  test('answers every level the app logs at, all no-ops, in either call shape', () => {
     const logger = createSilentLogger()
     for (const level of ['error', 'warn', 'info', 'debug']) {
       assert.equal(typeof logger[level], 'function')
+      // -> The new `(scope, message, fields?)` shape and the legacy `(msg, context?)` one a Phase 2
+      //    sweep has not reached yet — a no-op cares about neither, and a stub that accepted only
+      //    one would fail suites for the wrong reason.
+      assert.equal(logger[level]('db', 'connected', { ms: 12 }), undefined)
       assert.equal(logger[level]('anything'), undefined)
     }
+  })
+
+  test('scope() answers the stub itself, so a child logger is silent the same way', () => {
+    const logger = createSilentLogger()
+
+    assert.equal(typeof logger.scope, 'function')
+    // -> Itself, not a fresh object: a code path that keeps narrowing
+    //    (`log.scope('storage').scope('git')`) can never run out of stub, and a test asserting
+    //    against the parent sees the child's calls too.
+    assert.equal(logger.scope('storage', { target: 'git' }), logger)
+    assert.equal(logger.scope('storage').scope('git').info('x', 'y'), undefined)
   })
 
   test('answers no level the app does not log at', () => {

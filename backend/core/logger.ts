@@ -2,25 +2,226 @@ import { styleText } from 'node:util'
 import EventEmitter from 'node:events'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
-export type LogFormat = 'default' | 'json'
-// -> In JSON mode, merged into the payload as siblings of `message` (see the `WIKI.config.logFormat
-//    === 'json'` branch below). Ignored entirely in text mode.
-export type LogContext = Record<string, unknown>
-export type LogFn = (msg: unknown, context?: LogContext) => void
+export type LogFormat = 'text' | 'json'
+
+/**
+ * The closed subsystem vocabulary every line is filed under.
+ *
+ * PLACEHOLDER, owned by sibling task #2661: that task adds `core/logScopes.ts` (the `LOG_SCOPES`
+ * `as const` array plus the narrowed union) and replaces this declaration with
+ * `export { LOG_SCOPES, type LogScope } from './logScopes.ts'`. It is a bare `string` only because
+ * #2660 lands first and cannot import a file that does not exist yet — DELETE this line when the
+ * re-export arrives rather than keeping both.
+ */
+export type LogScope = string
+
+/**
+ * The `key=value` tail of a text line, and the sibling fields of a JSON record — one call site,
+ * both outputs.
+ *
+ * Two keys are rendered rather than printed verbatim: `error` (an `Error`) becomes `error="…"` plus,
+ * where the level warrants it, the stack; `ms` (a duration in milliseconds) becomes a humanised
+ * `in 12ms` / `in 3.7s`. Everything else is a plain `key=value`.
+ */
+export type LogFields = Record<string, unknown>
+
+/**
+ * Both call shapes a level accepts for the duration of Phase 2.
+ *
+ * `(scope, message, fields?)` is the real one. The legacy `(msg, context?)` overload is what the
+ * remaining un-swept call sites still use; it renders under the sentinel scope `legacy`, so a grep
+ * over the output says how much of the sweep is left. Phase 2's last task (OpenProject #2668)
+ * deletes the overload and the branch behind it together.
+ *
+ * A bare `Error` as the `message` of the new shape is a type error, on purpose: an error goes in
+ * `fields.error`, where the renderer can put the situation and the stack in ONE record.
+ */
+export type LogFn = {
+  (scope: LogScope, message: string, fields?: LogFields): void
+  (msg: unknown, context?: LogFields): void
+}
 
 /**
  * Formatted lines kept in memory, replayed to an admin terminal the moment it connects
  * (`controllers/terminal.ts`). Enough to see how the instance got to where it is, not a log file.
+ *
+ * 500 rather than 100: with the heartbeat lines demoted to `debug`, a quiet instance adds a handful
+ * of lines an hour, so this is hours of real history instead of minutes of ticks.
  */
-const BACKLOG_SIZE = 100
+const BACKLOG_SIZE = 500
+
+/**
+ * The scope a legacy `(msg, context?)` call is filed under. Deliberately NOT a member of the
+ * `LOG_SCOPES` vocabulary: it is a renderer-internal sentinel, so passing `'legacy'` as a real first
+ * argument stays something the Phase 2 structural test can refuse.
+ */
+const LEGACY_SCOPE = 'legacy'
 
 const LEVELS: LogLevel[] = ['error', 'warn', 'info', 'debug']
-const LOG_FORMATS: LogFormat[] = ['default', 'json']
-const LEVELCOLORS: Record<LogLevel, 'red' | 'yellow' | 'green' | 'cyan'> = {
+const LOG_FORMATS: LogFormat[] = ['text', 'json']
+
+/**
+ * Red / yellow / plain / dim. The level IS the status, so `info` needs no colour of its own and
+ * `debug` recedes — the point being that a `warn` is still visible after a week of tailing.
+ */
+const LEVELCOLORS: Record<LogLevel, 'red' | 'yellow' | 'dim' | null> = {
   error: 'red',
   warn: 'yellow',
-  info: 'green',
-  debug: 'cyan'
+  info: null,
+  debug: 'dim'
+}
+
+const LEVEL_WIDTH = 5
+const SCOPE_WIDTH = 8
+
+/**
+ * One call, normalized: whichever shape the caller used, the renderers see the same three things.
+ *
+ * The discriminator is `typeof b === 'string'` on top of `typeof a === 'string'` — the new shape's
+ * second argument is always a message, the legacy shape's is always a context object or absent, and
+ * a grep over `backend/` confirms no legacy call site passes a string there.
+ */
+interface LogRecord {
+  scope: string
+  message: string
+  fields: LogFields
+  error?: Error
+}
+
+function isError(value: unknown): value is Error {
+  return value instanceof Error
+}
+
+function normalizeCall(a: unknown, b?: unknown, c?: LogFields): LogRecord {
+  const isNewShape = typeof a === 'string' && typeof b === 'string'
+  const scope = isNewShape ? a : LEGACY_SCOPE
+  const rawFields = (isNewShape ? c : (b as LogFields | undefined)) ?? {}
+
+  // -> The legacy shape's message may be anything, `Error` included, and the stack-as-message trick
+  //    (OpenProject #939) is what kept that call readable before there was an `error` field. Route
+  //    it into `fields.error` instead, so both shapes reach the renderers with the situation in
+  //    `message` and the error in one place.
+  let message: string
+  let error: Error | undefined
+  if (isNewShape) {
+    message = b as string
+  } else if (isError(a)) {
+    message = a.message
+    error = a
+  } else {
+    message = String(a)
+  }
+
+  const { error: fieldError, ...rest } = rawFields
+  if (isError(fieldError)) {
+    error = fieldError
+  } else if (fieldError !== undefined) {
+    // -> Not an `Error`, so there is no name or stack to lift out; keep it as an ordinary field
+    //    rather than inventing one.
+    rest.error = fieldError
+  }
+
+  return { scope, message, fields: rest, error }
+}
+
+/**
+ * `528` -> `in 528ms`, `3900` -> `in 3.9s`. Sub-second durations stay in milliseconds because that
+ * is the resolution the operator cares about there; anything longer reads better as seconds.
+ */
+export function humanizeDuration(ms: number): string {
+  return ms < 1000 ? `in ${ms}ms` : `in ${(ms / 1000).toFixed(1)}s`
+}
+
+/**
+ * A tail value: quoted when it contains a space (or a quote of its own), bare otherwise, so
+ * `error="fetching locale metadata failed: 404"` survives being split on whitespace.
+ */
+function renderValue(value: unknown): string {
+  const text =
+    value === null || value === undefined
+      ? String(value)
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value)
+  return /[\s"]/.test(text) ? JSON.stringify(text) : text
+}
+
+/**
+ * `<ISO timestamp> <level padded 5> <scope padded 8>  <message>  <k=v …>`, with the stack — when the
+ * level warrants one — on following lines indented two spaces.
+ *
+ * No instance id: text mode is a person tailing one process, where the id is dead weight. It stays
+ * on every JSON record for aggregators, and the admin terminal gets it in its handshake frame.
+ */
+function renderText(
+  record: LogRecord,
+  lvl: LogLevel,
+  timestamp: string,
+  { withStack }: { withStack: boolean }
+): string {
+  const color = LEVELCOLORS[lvl]
+  const parts: string[] = []
+  for (const [key, value] of Object.entries(record.fields)) {
+    if (key === 'ms' && typeof value === 'number') {
+      continue
+    }
+    parts.push(`${styleText('dim', key)}=${renderValue(value)}`)
+  }
+  if (record.error) {
+    parts.push(`${styleText('dim', 'error')}=${renderValue(record.error.message)}`)
+  }
+  // -> Last in the tail, per the spec's own sample lines (`migrations=0 in 528ms`): the duration
+  //    reads as a closing clause on the sentence, not as one field among the others.
+  if (typeof record.fields.ms === 'number') {
+    parts.push(styleText('dim', humanizeDuration(record.fields.ms)))
+  }
+
+  const message = color ? styleText(color, record.message) : record.message
+  const head = [
+    styleText('dim', timestamp),
+    color ? styleText(color, lvl.padEnd(LEVEL_WIDTH)) : lvl.padEnd(LEVEL_WIDTH),
+    styleText('dim', record.scope.padEnd(SCOPE_WIDTH))
+  ].join(' ')
+
+  let line = `${head}  ${message}`
+  if (parts.length > 0) {
+    line += `  ${parts.join(' ')}`
+  }
+  if (withStack && record.error?.stack) {
+    line += `\n${record.error.stack
+      .split('\n')
+      .map((stackLine) => `  ${stackLine}`)
+      .join('\n')}`
+  }
+  return line
+}
+
+/**
+ * `{ ...fields, timestamp, instance, level, scope, message, error? }`.
+ *
+ * Fields are spread first so a caller can only ever ADD siblings: a field named `message` or `level`
+ * loses the collision rather than corrupting the record. `error` is an object rather than a
+ * stack pasted over `message` — the fix #939 needed at the time, now that there is somewhere proper
+ * to put it, which lets `message` stay a sentence.
+ */
+function renderJson(record: LogRecord, lvl: LogLevel, timestamp: string): string {
+  return JSON.stringify({
+    ...record.fields,
+    timestamp,
+    instance: WIKI.INSTANCE_ID,
+    level: lvl,
+    scope: record.scope,
+    message: record.message,
+    ...(record.error
+      ? {
+          error: {
+            name: record.error.name,
+            message: record.error.message,
+            stack: record.error.stack
+          }
+        }
+      : {})
+  })
 }
 
 class Logger extends EventEmitter {
@@ -95,36 +296,22 @@ export default {
     primaryLogger.backlog = () => [...backlog]
 
     LEVELS.forEach((lvl) => {
-      primaryLogger[lvl] = (msg: unknown, context?: LogContext) => {
-        primaryLogger.emit(lvl, msg, context)
-      }
+      primaryLogger[lvl] = ((a: unknown, b?: unknown, c?: LogFields) => {
+        primaryLogger.emit(lvl, a, b, c)
+      }) as LogFn
 
       if (!ignoreNextLevels) {
-        primaryLogger.on(lvl, (msg: unknown, context?: LogContext) => {
-          let formatted = ''
-          // -> Normalized before the format branch below: `Error` has no enumerable own properties, so
-          //    `JSON.stringify`-ing one straight (the JSON branch used to) serialized it as `{}`,
-          //    losing the stack and message exactly where structured logging was requested. Both
-          //    branches need the same stand-in, since `logger.warn(err)` / `logger.error(err)` is the
-          //    dominant call pattern across the codebase (OpenProject #939).
-          if (msg instanceof Error) {
-            msg = msg.stack
-          }
-          if (WIKI.config.logFormat === 'json') {
-            formatted = JSON.stringify({
-              // -> Spread first so `context` can only ever add sibling fields, never override the four
-              //    fixed ones below — a context key named e.g. `message` or `level` loses the collision
-              //    rather than corrupting the record. A context-free call spreads nothing, leaving this
-              //    byte-identical to the pre-context-support payload.
-              ...context,
-              timestamp: new Date().toISOString(),
-              instance: WIKI.INSTANCE_ID,
-              level: lvl,
-              message: msg
-            })
-          } else {
-            formatted = `${new Date().toISOString()} ${styleText('dim', '[' + WIKI.INSTANCE_ID + ']')} ${styleText([LEVELCOLORS[lvl], 'bold'], lvl)}: ${msg}`
-          }
+        primaryLogger.on(lvl, (a: unknown, b?: unknown, c?: LogFields) => {
+          const record = normalizeCall(a, b, c)
+          const timestamp = new Date().toISOString()
+          // -> A stack is noise on a warning an operator has already decided to live with, and the
+          //    whole point of the record on an error. `warn` gets one only when the operator has
+          //    asked for everything.
+          const withStack = lvl === 'error' || (lvl === 'warn' && WIKI.config.logLevel === 'debug')
+          const formatted =
+            WIKI.config.logFormat === 'json'
+              ? renderJson(record, lvl, timestamp)
+              : renderText(record, lvl, timestamp, { withStack })
 
           console.log(formatted)
 

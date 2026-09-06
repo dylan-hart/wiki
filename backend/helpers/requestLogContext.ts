@@ -1,4 +1,4 @@
-import type { LogContext } from '../core/logger.ts'
+import type { LogFields } from '../core/logger.ts'
 
 /**
  * The slice of a Fastify request `setErrorHandler`'s bare-500 branch needs to build a log context
@@ -28,7 +28,7 @@ export interface ErrorLogContextRequest {
  * the failing route happens to be site-scoped, and leaves it `undefined` otherwise rather than
  * guessing at one.
  */
-export function buildErrorLogContext(req: ErrorLogContextRequest): LogContext {
+export function buildErrorLogContext(req: ErrorLogContextRequest): LogFields {
   const params = req.params as Record<string, unknown> | undefined
   const siteId = typeof params?.siteId === 'string' ? params.siteId : undefined
   const userId = req.session?.authenticated ? (req.session.user?.id ?? undefined) : undefined

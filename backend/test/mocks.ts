@@ -115,10 +115,17 @@ export function createSiteAdminAccessStub(
  * partial literal (`{ debug }`, `{ warn }`, `{ info, warn, error, debug }`, …), so adding one
  * `WIKI.logger.info()` call to a route broke every suite whose stub happened to omit `info` — and
  * failed naming the logger rather than the change.
+ *
+ * Every level takes both call shapes the real logger does — `(scope, message, fields?)` and the
+ * legacy `(msg, context?)` — since a no-op cares about neither. `scope()` answers the stub itself
+ * rather than a fresh object, so a child logger a code path builds is silent the same way and
+ * `log.scope('x').scope('y').info(…)` cannot run out of stub.
  */
 export function createSilentLogger(): any {
   const noop = () => {}
-  return { error: noop, warn: noop, info: noop, debug: noop }
+  const stub: any = { error: noop, warn: noop, info: noop, debug: noop }
+  stub.scope = () => stub
+  return stub
 }
 
 /**

@@ -122,10 +122,10 @@ bindIP: 0.0.0.0
 
 logLevel: info
 
-# Output format for logging, possible values: default, json
+# Output format for logging, possible values: text, json
 # Enforced the same way as logLevel above.
 
-logFormat: default
+logFormat: text
 
 # ---------------------------------------------------------------------
 # Offline Mode

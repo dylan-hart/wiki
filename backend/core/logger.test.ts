@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { styleText } from 'node:util'
 import { afterEach, describe, mock, test } from 'node:test'
 import logger from './logger.ts'
 import { installTestWiki } from '../test/mocks.ts'
@@ -14,12 +15,29 @@ function setWiki(config: { logFormat?: unknown; logLevel?: unknown }) {
   })
 }
 
+/**
+ * `node:util`'s `styleText` emits escapes only when it believes the stream is a colour-capable TTY,
+ * which is true under a local `node --test` in a terminal and false in CI (and under `NO_COLOR`).
+ * Every text-mode assertion runs through this so a suite proves the LAYOUT rather than the
+ * environment's colour support — the colouring itself is asserted separately, and skipped when the
+ * runner is not producing any.
+ */
+function stripAnsi(line: string): string {
+  // oxlint-disable-next-line no-control-regex -- stripping ANSI escapes is the whole point
+  return line.replaceAll(/\u001b\[[0-9;]*m/g, '')
+}
+
+/** Whether `styleText` is emitting escapes at all in this runner — see `stripAnsi` above. */
+function colorsEnabled(): boolean {
+  return styleText('dim', 'x') !== 'x'
+}
+
 describe('logger', () => {
   afterEach(() => {
     mock.restoreAll()
   })
 
-  test('json format serializes an Error with its stack, not {}', () => {
+  test('json format serializes an Error into the error object, not {}', () => {
     setWiki({ logFormat: 'json', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
@@ -30,13 +48,19 @@ describe('logger', () => {
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
     assert.equal(parsed.level, 'error')
-    assert.equal(typeof parsed.message, 'string')
-    assert.notEqual(parsed.message, '{}')
-    assert.match(parsed.message, /Error: boom/)
+    // -> `Error` has no enumerable own properties, so `JSON.stringify`-ing one straight serialized
+    //    it as `{}`, losing the stack exactly where structured logging was requested
+    //    (OpenProject #939). The stack-as-message stand-in that fixed it is gone now that there is
+    //    a real `error` field to put it in, so `message` can stay a sentence.
+    assert.notEqual(JSON.stringify(parsed.error), '{}')
+    assert.equal(parsed.message, 'boom')
+    assert.equal(parsed.error.name, 'Error')
+    assert.equal(parsed.error.message, 'boom')
+    assert.match(parsed.error.stack, /Error: boom/)
   })
 
   test('text format still renders an Error as its stack', () => {
-    setWiki({ logFormat: 'default', logLevel: 'debug' })
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
@@ -77,11 +101,12 @@ describe('logger', () => {
       'level',
       'message',
       'requestId',
+      'scope',
       'timestamp'
     ])
   })
 
-  test("json format: a context-free call is byte-identical to today's output", () => {
+  test('json format: a context-free call carries the five fixed fields and nothing else', () => {
     setWiki({ logFormat: 'json', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
@@ -90,9 +115,10 @@ describe('logger', () => {
 
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
-    // -> Exactly the four fields the pre-context implementation ever produced, in the same order,
-    //    with no stray `context` key left behind by an `undefined` merge.
-    assert.deepEqual(Object.keys(parsed), ['timestamp', 'instance', 'level', 'message'])
+    // -> The four the pre-scope implementation produced plus `scope`, in the same order, with no
+    //    stray `context` key left behind by an `undefined` merge and no `error` key on a call that
+    //    carried no error.
+    assert.deepEqual(Object.keys(parsed), ['timestamp', 'instance', 'level', 'scope', 'message'])
     assert.equal(parsed.message, 'hello world')
     assert.equal(parsed.level, 'info')
     assert.equal(parsed.instance, 'test-instance')
@@ -111,17 +137,19 @@ describe('logger', () => {
     assert.equal(parsed.level, 'info')
   })
 
-  test('text mode ignores a context object, unchanged from a context-free call', () => {
-    setWiki({ logFormat: 'default', logLevel: 'debug' })
+  test('text mode renders a context object as a key=value tail (C1)', () => {
+    // -> This assertion used to say the opposite: text mode threw the context away, so the one
+    //    place the fork added request context (`apiErrorHandler`'s `{ reqId, method, url, … }`) was
+    //    invisible unless the operator ran in JSON mode. Facts belong in fields in BOTH modes.
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
 
     primaryLogger.info('hello world', { requestId: 'abc-123' })
 
     assert.equal(logSpy.mock.calls.length, 1)
-    const line = logSpy.mock.calls[0]!.arguments[0] as string
-    assert.match(line, /hello world$/)
-    assert.doesNotMatch(line, /abc-123/)
+    const line = stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string)
+    assert.match(line, /hello world {2}requestId=abc-123$/)
   })
 })
 
@@ -174,7 +202,7 @@ describe('logger config validation', () => {
    * production.
    */
   for (const logLevel of ['error', 'warn', 'info', 'debug']) {
-    for (const logFormat of ['default', 'json']) {
+    for (const logFormat of ['text', 'json']) {
       test(`accepts logLevel '${logLevel}' with logFormat '${logFormat}'`, () => {
         setWiki({ logFormat, logLevel })
         const errorSpy = mock.method(console, 'error', () => {})
@@ -196,7 +224,7 @@ describe('logger config validation', () => {
    */
   for (const logLevel of ['Info', 'INFO', 'warning', 'verbose', 'silly', 'trace', '', undefined]) {
     test(`refuses to boot on logLevel ${JSON.stringify(logLevel)}`, () => {
-      setWiki({ logFormat: 'default', logLevel })
+      setWiki({ logFormat: 'text', logLevel })
       const errorSpy = mock.method(console, 'error', () => {})
       const exit = mock.fn()
 
@@ -218,7 +246,7 @@ describe('logger config validation', () => {
     })
   }
 
-  for (const logFormat of ['text', 'Default', 'JSON', 'jsno', '', undefined]) {
+  for (const logFormat of ['default', 'Text', 'JSON', 'jsno', '', undefined]) {
     test(`refuses to boot on logFormat ${JSON.stringify(logFormat)}`, () => {
       setWiki({ logFormat, logLevel: 'info' })
       const errorSpy = mock.method(console, 'error', () => {})
@@ -233,7 +261,7 @@ describe('logger config validation', () => {
       assert.equal(errorSpy.mock.calls.length, 1)
       const line = errorSpy.mock.calls[0]!.arguments[0] as string
       assert.match(line, /logFormat/)
-      assert.match(line, /default, json/)
+      assert.match(line, /text, json/)
     })
   }
 
@@ -254,12 +282,268 @@ describe('logger config validation', () => {
   })
 
   test('the returned logger has no verbose or silly method', () => {
-    setWiki({ logFormat: 'default', logLevel: 'debug' })
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init() as any
 
     // -> They were no-op stubs, which is what made `logLevel: verbose` look like a supported
     //    configuration rather than the ignored value it was (OpenProject #2647).
     assert.equal(primaryLogger.verbose, undefined)
     assert.equal(primaryLogger.silly, undefined)
+  })
+})
+
+/**
+ * The text renderer: `<ISO ts> <level padded 5> <scope padded 8>  <message>  <k=v …>`, with the
+ * stack — where the level warrants one — on following lines indented two spaces.
+ *
+ * Every layout assertion runs the line through `stripAnsi` so it proves the shape rather than the
+ * runner's colour support; the colouring itself has its own describe below.
+ */
+describe('logger text renderer', () => {
+  afterEach(() => {
+    mock.restoreAll()
+  })
+
+  function renderOne(
+    call: (log: ReturnType<typeof logger.init>) => void,
+    logLevel = 'debug'
+  ): string {
+    setWiki({ logFormat: 'text', logLevel })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+    call(primaryLogger)
+    assert.equal(logSpy.mock.calls.length, 1)
+    return stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string)
+  }
+
+  test('lays out timestamp, level, scope and message in fixed columns', () => {
+    const line = renderOne((log) => log.info('db', 'connected'))
+
+    // -> `level` padded to 5 plus a separator space, `scope` padded to 8 plus TWO — which is what
+    //    puts the message at a fixed offset whatever the scope's length, so a tailed log reads as
+    //    columns. Checked against the spec's own sample block (2.1), not re-derived.
+    assert.match(line, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z info {2}db {8}connected$/)
+  })
+
+  test('the message column starts at the same offset whatever the scope', () => {
+    const short = renderOne((log) => log.info('db', 'connected'))
+    const long = renderOne((log) => log.info('terminal', 'connected'))
+
+    assert.equal(short.indexOf('connected'), long.indexOf('connected'))
+  })
+
+  test('carries no instance id — that stays on the JSON record', () => {
+    const line = renderOne((log) => log.info('boot', 'ready'))
+
+    assert.doesNotMatch(line, /test-instance/)
+  })
+
+  test('renders fields as a space-separated key=value tail, two spaces after the message', () => {
+    const line = renderOne((log) =>
+      log.info('jobs', 'scheduler started', { workers: 7, planned: 11 })
+    )
+
+    assert.match(line, /scheduler started {2}workers=7 planned=11$/)
+  })
+
+  test('quotes a value containing a space, leaves a bare one alone', () => {
+    const line = renderOne((log) =>
+      log.warn('storage', 'daily backup failed', { target: 'git', reason: 'remote not reachable' })
+    )
+
+    assert.match(line, /target=git reason="remote not reachable"$/)
+  })
+
+  test('humanises ms, and puts it last in the tail', () => {
+    const sub = renderOne((log) => log.info('db', 'connected', { migrations: 0, ms: 528 }))
+    const over = renderOne((log) => log.info('boot', 'ready', { sites: 1, ms: 3900 }))
+
+    // -> Sub-second stays in milliseconds (the resolution that matters there); anything longer
+    //    reads as seconds to one decimal. Never `ms=528`, which is the JSON spelling.
+    assert.match(sub, /migrations=0 in 528ms$/)
+    assert.match(over, /sites=1 in 3\.9s$/)
+    assert.doesNotMatch(sub, /ms=528/)
+  })
+
+  test('renders an error inline as error="<message>" and the stack indented two spaces', () => {
+    const err = new Error('fetching locale metadata failed: 404')
+    const line = renderOne((log) =>
+      log.error('jobs', 'updateLocales failed, no attempts left', { attempts: 3, error: err })
+    )
+
+    const [head, ...stack] = line.split('\n')
+    assert.match(head!, /attempts=3 error="fetching locale metadata failed: 404"$/)
+    assert.ok(stack.length > 0, 'expected the stack on following lines')
+    // -> Two spaces, so the trace reads as a continuation of the record above it rather than as
+    //    another record.
+    assert.ok(
+      stack.every((stackLine) => stackLine.startsWith('  ')),
+      `expected every stack line indented two spaces, got ${JSON.stringify(stack)}`
+    )
+    assert.match(stack[0]!, /^ {2}Error: fetching locale metadata failed: 404$/)
+  })
+
+  test('suppresses a warn stack at logLevel info, and prints it at debug', () => {
+    const err = new Error('remote unreachable')
+    const atInfo = renderOne((log) => log.warn('storage', 'sync degraded', { error: err }), 'info')
+    const atDebug = renderOne(
+      (log) => log.warn('storage', 'sync degraded', { error: err }),
+      'debug'
+    )
+
+    // -> A stack is noise on a warning the operator has already decided to live with; it is the
+    //    whole record on an error. `warn` gets one only when they have asked for everything.
+    assert.match(atInfo, /error="remote unreachable"$/)
+    assert.doesNotMatch(atInfo, /\n/)
+    assert.match(atDebug, /\n {2}Error: remote unreachable/)
+  })
+
+  test('always prints an error stack at error level, even at logLevel error', () => {
+    const err = new Error('boom')
+    const line = renderOne((log) => log.error('db', 'connection lost', { error: err }), 'error')
+
+    assert.match(line, /\n {2}Error: boom/)
+  })
+
+  test('a non-Error `error` field stays an ordinary field, with no invented stack', () => {
+    const line = renderOne((log) => log.warn('auth', 'strategy refused', { error: 'bad_request' }))
+
+    assert.match(line, /error=bad_request$/)
+    assert.doesNotMatch(line, /\n/)
+  })
+
+  test('dims the timestamp, scope and keys and colours the level and an error message', (t) => {
+    if (!colorsEnabled()) {
+      t.skip('styleText is not emitting escapes in this runner')
+      return
+    }
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.error('db', 'connection lost', { host: 'db1' })
+    primaryLogger.info('db', 'connected')
+
+    const errorLine = logSpy.mock.calls[0]!.arguments[0] as string
+    const infoLine = logSpy.mock.calls[1]!.arguments[0] as string
+
+    assert.ok(errorLine.includes(styleText('dim', 'db'.padEnd(8))), 'scope should be dim')
+    assert.ok(errorLine.includes(styleText('dim', 'host')), 'a tail key should be dim')
+    assert.ok(errorLine.includes(styleText('red', 'error')), 'error level should be red')
+    assert.ok(
+      errorLine.includes(styleText('red', 'connection lost')),
+      'error message should be red'
+    )
+    // -> `info` is deliberately plain, level and message both: the level IS the status, so the
+    //    quiet case needs no colour of its own and a `warn` stays visible after a week of tailing.
+    assert.ok(infoLine.includes(' info  '), 'info level should be written unwrapped')
+    assert.ok(!infoLine.includes(styleText('dim', 'info ')))
+    assert.ok(!infoLine.includes(styleText('red', 'connected')))
+  })
+})
+
+/**
+ * The legacy `(msg, context?)` shape stays accepted for the duration of Phase 2 — 480-odd call
+ * sites still use it — and is filed under the sentinel scope `legacy` so a grep over the output
+ * says how much of the sweep is left. Phase 2's last task (#2668) deletes it.
+ */
+describe('logger dual call shape', () => {
+  afterEach(() => {
+    mock.restoreAll()
+  })
+
+  test('text: a legacy call renders under scope legacy, context and all', () => {
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.warn('Something Happened.', { reqId: 'req-1q' })
+
+    const line = stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string)
+    assert.match(line, / warn {2}legacy {4}Something Happened\. {2}reqId=req-1q$/)
+  })
+
+  test('json: a legacy call carries scope "legacy"', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.info('Something Happened.')
+
+    const parsed = JSON.parse(logSpy.mock.calls[0]!.arguments[0] as string)
+    assert.equal(parsed.scope, 'legacy')
+    assert.equal(parsed.message, 'Something Happened.')
+  })
+
+  test('both shapes render off the same call, in the same format', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.info('db', 'connected', { schema: 'public' })
+    primaryLogger.info('connected', { schema: 'public' })
+
+    const [scoped, legacy] = logSpy.mock.calls.map(
+      (call) => JSON.parse(call.arguments[0] as string) as Record<string, unknown>
+    )
+    assert.equal(scoped!.scope, 'db')
+    assert.equal(legacy!.scope, 'legacy')
+    assert.equal(scoped!.message, legacy!.message)
+    assert.equal(scoped!.schema, legacy!.schema)
+    assert.deepEqual(Object.keys(scoped!), Object.keys(legacy!))
+  })
+
+  test('a legacy Error argument becomes the error field, message and stack intact', () => {
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    primaryLogger.warn(new Error('kaboom'), { reqId: 'req-1q' })
+
+    const parsed = JSON.parse(logSpy.mock.calls[0]!.arguments[0] as string)
+    assert.equal(parsed.scope, 'legacy')
+    assert.equal(parsed.message, 'kaboom')
+    assert.equal(parsed.reqId, 'req-1q')
+    assert.match(parsed.error.stack, /Error: kaboom/)
+  })
+})
+
+describe('logger backlog', () => {
+  afterEach(() => {
+    mock.restoreAll()
+  })
+
+  test('keeps the last 500 rendered lines and drops the oldest beyond that', () => {
+    // -> 100 was minutes of heartbeat ticks; with those demoted to `debug`, 500 is hours of real
+    //    history for an admin terminal that connects after the fact.
+    setWiki({ logFormat: 'json', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    mock.method(console, 'log', () => {})
+
+    for (let i = 0; i < 505; i += 1) {
+      primaryLogger.info('jobs', `line ${i}`)
+    }
+
+    const backlog = primaryLogger.backlog()
+    assert.equal(backlog.length, 500)
+    assert.equal(JSON.parse(backlog[0]!).message, 'line 5')
+    assert.equal(JSON.parse(backlog[499]!).message, 'line 504')
+  })
+
+  test('the ws frame is the rendered string, byte-identical to the backlog entry', () => {
+    // -> Phase 4 (#2679) replaces this with a structured frame the Live log page renders itself;
+    //    until then the admin terminal receives exactly what stdout got.
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+    const frames: unknown[] = []
+    primaryLogger.ws.on('log', (frame: unknown) => frames.push(frame))
+
+    primaryLogger.info('db', 'connected', { ms: 528 })
+
+    assert.equal(frames.length, 1)
+    assert.equal(typeof frames[0], 'string')
+    assert.equal(frames[0], logSpy.mock.calls[0]!.arguments[0])
+    assert.equal(frames[0], primaryLogger.backlog()[0])
   })
 })
