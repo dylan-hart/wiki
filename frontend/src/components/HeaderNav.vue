@@ -101,15 +101,18 @@
             OpenProject #2024: this badge counts unread page-watch notifications
             (`unreadNotifications` below), so it has to open onto the tab that actually lists them --
             the Inbox overlay's Watching tab (OpenProject #2531 converted `/_inbox/*` from routes to a
-            `MainOverlayDialog` entry). `tabler:bell` matches the icon `InboxOverlay`'s sidenav uses for
-            that tab, so the glyph agrees with the destination instead of pointing at the unrelated
-            `tabler:inbox` glyph.
+            `MainOverlayDialog` entry). The glyph follows the destination: `tabler:inbox` is what
+            `InboxOverlay` draws for itself (its own header icon, and the `watching` sidenav entry this
+            button lands on), so the two agree (OpenProject #2619 -- they had drifted apart, this
+            button still on `tabler:bell` after the overlay moved, with `inboxGlyph.test.js` now
+            asserting the equality against `InboxOverlay.vue` rather than against a fixed name --
+            for `HeaderActionsMenu.vue`'s collapsed copy of this same row too).
           -->
           <w-btn
             v-if="userStore.authenticated"
             class="header-nav-btn"
             flat
-            icon="tabler:bell"
+            icon="tabler:inbox"
             color="slate-soft"
             :aria-label="t(`inbox.title`)"
             @click="openInbox">
