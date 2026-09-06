@@ -8,10 +8,12 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
  * metadata rail draws, derived per page read from the history table itself.
  *
  * DB-backed rather than mocked because the whole method IS two SQL reads: a `count(*)` and a
- * two-row, `(versionDate DESC, id DESC)`-ordered fetch of the newest sources. A stubbed query
- * builder would only re-describe the statements rather than verify that the count matches the rows
- * present or that the ordering picks the right pair. What it wraps around those reads — the floor of
- * 1, the omitted change count, the line arithmetic — is exercised through the same calls.
+ * two-row, `(versionDate DESC, id DESC)`-ordered fetch of the newest sources (now including `via`,
+ * OpenProject #2719's MCP provenance badge). A stubbed query builder would only re-describe the
+ * statements rather than verify that the count matches the rows present or that the ordering picks
+ * the right pair. What it wraps around those reads — the floor of 1, the omitted change count, the
+ * line arithmetic, the `via` fallback for a page with no rows left to read one off of — is exercised
+ * through the same calls.
  *
  * `pageHistory.pageId` is deliberately not a foreign key (the history of a deleted page outlives the
  * page — see its column note in `db/schema.ts`), so these rows are seeded against a random page id
@@ -32,9 +34,13 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
 
   /**
    * Seeds one history row per entry of `contents`, oldest first, each a minute after the last so the
-   * `(versionDate DESC, id DESC)` ordering has a real timeline to sort rather than a tie.
+   * `(versionDate DESC, id DESC)` ordering has a real timeline to sort rather than a tie. `via`
+   * defaults to `'editor'` for every entry that doesn't name one, matching the column's own default.
    */
-  async function seedHistory(contents: (string | null)[]): Promise<string> {
+  async function seedHistory(
+    contents: (string | null)[],
+    { via }: { via?: (string | null)[] } = {}
+  ): Promise<string> {
     const pageId = crypto.randomUUID()
     const base = Date.UTC(2026, 0, 1, 12, 0, 0)
     for (const [index, content] of contents.entries()) {
@@ -43,6 +49,7 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
         siteId: fixtures.siteId,
         authorId: fixtures.userId,
         action: index === 0 ? 'created' : 'updated',
+        via: via?.[index] ?? 'editor',
         locale: 'en',
         path: `revision-test/${pageId}`,
         title: 'Revision test page',
@@ -59,17 +66,19 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(summary.ordinal, 5)
   })
 
-  test('a page with no history reports ordinal 1 and no change count', async () => {
+  test('a page with no history reports ordinal 1, no change count, and via editor', async () => {
     const summary = await pageHistoryModel.revisionSummary(crypto.randomUUID())
     assert.equal(summary.ordinal, 1)
     // -> Absent, not zero: `rev 1` renders alone, and `· 0 changes` must never be reachable
     assert.equal('changeCount' in summary, false)
+    // -> No row to answer from: falls back to the column's own default rather than being undefined
+    assert.equal(summary.via, 'editor')
   })
 
   test('a page whose only version is its creation reports ordinal 1 and no change count', async () => {
     const pageId = await seedHistory(['# Just created\n'])
     const summary = await pageHistoryModel.revisionSummary(pageId)
-    assert.deepEqual(summary, { ordinal: 1 })
+    assert.deepEqual(summary, { ordinal: 1, via: 'editor' })
   })
 
   test('the change count is added plus removed lines between the two newest versions', async () => {
@@ -84,19 +93,31 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
     const two = 'alpha\nBETA\ngamma\ndelta\n'
     const pageId = await seedHistory([zero, one, two])
     const summary = await pageHistoryModel.revisionSummary(pageId)
-    assert.deepEqual(summary, { ordinal: 3, changeCount: 3 })
+    assert.deepEqual(summary, { ordinal: 3, changeCount: 3, via: 'editor' })
   })
 
   test('an unchanged save reports a real zero, distinct from an absent count', async () => {
     const pageId = await seedHistory(['same\n', 'same\n'])
     const summary = await pageHistoryModel.revisionSummary(pageId)
-    assert.deepEqual(summary, { ordinal: 2, changeCount: 0 })
+    assert.deepEqual(summary, { ordinal: 2, changeCount: 0, via: 'editor' })
   })
 
   test('a null-source version counts as no lines rather than throwing', async () => {
     const pageId = await seedHistory(['one\ntwo\n', null])
     const summary = await pageHistoryModel.revisionSummary(pageId)
-    assert.deepEqual(summary, { ordinal: 2, changeCount: 2 })
+    assert.deepEqual(summary, { ordinal: 2, changeCount: 2, via: 'editor' })
+  })
+
+  test('the newest row is mcp reports via mcp, regardless of earlier rows', async () => {
+    const pageId = await seedHistory(['alpha\n', 'alpha\nbeta\n'], { via: ['editor', 'mcp'] })
+    const summary = await pageHistoryModel.revisionSummary(pageId)
+    assert.deepEqual(summary, { ordinal: 2, changeCount: 1, via: 'mcp' })
+  })
+
+  test('the newest row is editor reports via editor, even when an earlier row was mcp', async () => {
+    const pageId = await seedHistory(['alpha\n', 'alpha\nbeta\n'], { via: ['mcp', 'editor'] })
+    const summary = await pageHistoryModel.revisionSummary(pageId)
+    assert.deepEqual(summary, { ordinal: 2, changeCount: 1, via: 'editor' })
   })
 
   test('versions written in the same millisecond still resolve to one newest pair', async () => {

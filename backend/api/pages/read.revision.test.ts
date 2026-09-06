@@ -30,7 +30,10 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — revision (OpenProject #2651
   const PAGE_HASH = 'c0ffee01'
 
   let revisionSummaryCalls: string[] = []
-  let revisionSummaryResult: { ordinal: number; changeCount?: number } = { ordinal: 1 }
+  let revisionSummaryResult: { ordinal: number; changeCount?: number; via: string } = {
+    ordinal: 1,
+    via: 'editor'
+  }
 
   /** Minimal stand-in for what `getPage` hands back — only what the handler and `Page#` touch. */
   function makeFakePage() {
@@ -99,7 +102,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — revision (OpenProject #2651
 
   beforeEach(() => {
     revisionSummaryCalls = []
-    revisionSummaryResult = { ordinal: 1 }
+    revisionSummaryResult = { ordinal: 1, via: 'editor' }
   })
 
   function sessionHeader(pagePermissions: string[]) {
@@ -125,27 +128,39 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — revision (OpenProject #2651
   }
 
   test('read:history carries the ordinal and change count back with the page', async () => {
-    revisionSummaryResult = { ordinal: 14, changeCount: 6 }
+    revisionSummaryResult = { ordinal: 14, changeCount: 6, via: 'editor' }
     const body = await readPage(['read:pages', 'read:history'])
-    assert.deepEqual(body.revision, { ordinal: 14, changeCount: 6 })
+    assert.deepEqual(body.revision, { ordinal: 14, changeCount: 6, via: 'editor' })
     assert.deepEqual(revisionSummaryCalls, [PAGE_ID])
   })
 
   test('a page with nothing to compare against reports the ordinal with no change count', async () => {
-    revisionSummaryResult = { ordinal: 1 }
+    revisionSummaryResult = { ordinal: 1, via: 'editor' }
     const body = await readPage(['read:pages', 'read:history'])
     // -> Absent, not zeroed: `rev 1` renders alone, and a `· 0 changes` clause never occurs
-    assert.deepEqual(body.revision, { ordinal: 1 })
+    assert.deepEqual(body.revision, { ordinal: 1, via: 'editor' })
     assert.equal('changeCount' in body.revision, false)
   })
 
   test('without read:history the page still reads, with no revision block at all', async () => {
-    revisionSummaryResult = { ordinal: 14, changeCount: 6 }
+    revisionSummaryResult = { ordinal: 14, changeCount: 6, via: 'editor' }
     const body = await readPage(['read:pages'])
     assert.equal(body.title, 'Some Page')
     assert.equal(body.revision, undefined)
     // -> And the summary is never derived for a reader who could not be shown it
     assert.deepEqual(revisionSummaryCalls, [])
+  })
+
+  test('a newest row written via MCP answers revision.via mcp through the real Page# schema', async () => {
+    revisionSummaryResult = { ordinal: 3, via: 'mcp' }
+    const body = await readPage(['read:pages', 'read:history'])
+    assert.equal(body.revision.via, 'mcp')
+  })
+
+  test('a newest row written via the editor answers revision.via editor', async () => {
+    revisionSummaryResult = { ordinal: 3, via: 'editor' }
+    const body = await readPage(['read:pages', 'read:history'])
+    assert.equal(body.revision.via, 'editor')
   })
 
   test('read:history alone is not a way past the page read gate', async () => {
