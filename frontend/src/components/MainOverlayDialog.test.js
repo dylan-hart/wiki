@@ -1,6 +1,37 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { mountWithApp } from '../../test/mount.js'
+
+import WDialog from './shared/WDialog.vue'
+
+import MainOverlayDialog from './MainOverlayDialog.vue'
+
+/*
+  Every entry in `overlays` is a real, dynamically-imported SFC with its own mount cost and
+  network/store setup -- PageHistoryOverlay alone pulls in Monaco's diff viewer. The two the
+  behavioral describe at the bottom of this file actually opens are stubbed out, so what is under
+  test is `MainOverlayDialog`'s own dismissal wiring rather than whatever the child happens to do on
+  mount. Both specifiers are written exactly as `MainOverlayDialog.vue` writes them; this test file
+  sits in the same directory, so they resolve to the same module ids.
+
+  `__esModule: true` is required, not decoration: `defineAsyncComponent` unwraps `.default` only from
+  a namespace it recognises as an ES module, and without the flag it hands Vue the mocked namespace
+  itself as the component. Vitest wraps that namespace in a proxy that THROWS on any export the
+  factory did not declare, so the first internal `type.__isTeleport` probe rejects -- as three
+  unhandled rejections beside a fully green run, which is the hardest shape of this to notice.
+*/
+vi.mock('./PageHistoryOverlay.vue', () => ({
+  __esModule: true,
+  default: { template: '<div class="page-history-overlay-stub" />' }
+}))
+vi.mock('./NavEditOverlay.vue', () => ({
+  __esModule: true,
+  default: { template: '<div class="nav-edit-overlay-stub" />' }
+}))
 
 const source = readFileSync(join(import.meta.dirname, 'MainOverlayDialog.vue'), 'utf-8')
 
@@ -137,11 +168,12 @@ describe('MainOverlayDialog half-sized overlays', () => {
 })
 
 /**
- * Follow-up feedback on WP 2531/2532: Profile, Inbox and FileManager dismiss on a backdrop click or
- * Escape, like an ordinary modal, since none of the three can lose in-progress work to a stray click
- * (a settings save, an inbox action, a file op each commit immediately) -- every other entry
- * (BlockPicker, NavEdit, PageHistory, TableEditor, Welcome) keeps the persistent, Close-button-only
- * behavior it already had, since those genuinely can sit mid-edit with real state to lose.
+ * Follow-up feedback on WP 2531/2532, extended by OpenProject #2638: Profile, Inbox, FileManager and
+ * PageHistory dismiss on a backdrop click or Escape, like an ordinary modal, since none of the four
+ * can lose in-progress work to a stray click (a settings save, an inbox action, a file op each commit
+ * immediately; page history is read-only browsing). Every other entry (BlockPicker, NavEdit,
+ * TableEditor, Welcome) keeps the persistent, Close-button-only behavior it already had, since those
+ * genuinely can sit mid-edit with real state to lose.
  */
 describe('MainOverlayDialog dismissible overlays', () => {
   it('drives persistent off isDismissible, not a fixed true', () => {
@@ -149,9 +181,9 @@ describe('MainOverlayDialog dismissible overlays', () => {
     expect(source).not.toMatch(/<w-dialog[^>]*\bpersistent\b(?!="!isDismissible")/)
   })
 
-  it('only Profile, Inbox and FileManager are dismissible', () => {
+  it('only Profile, Inbox, FileManager and PageHistory are dismissible', () => {
     expect(source).toMatch(
-      /DISMISSIBLE_OVERLAYS = new Set\(\['Profile', 'Inbox', 'FileManager'\]\)/
+      /DISMISSIBLE_OVERLAYS = new Set\(\['Profile', 'Inbox', 'FileManager', 'PageHistory'\]\)/
     )
   })
 
@@ -170,5 +202,107 @@ describe('MainOverlayDialog dismissible overlays', () => {
     expect(source).toMatch(
       /function onDialogModelUpdate\(value\) \{\s*if \(!value\) \{\s*siteStore\.\$patch\(\{ overlay: '' \}\)/
     )
+  })
+})
+
+/**
+ * OpenProject #2638: the source scans above prove which names are in the set; this proves the set
+ * membership actually reaches the reader. `PageHistory` was persistent purely by omission, so Escape
+ * did nothing at all and its own Close button was the single way out of a read-only dialog that
+ * discards nothing when it closes.
+ *
+ * Driven through a real mount of `MainOverlayDialog` (with the two child overlays stubbed at the top
+ * of this file) rather than a source scan, because the behavior under test is a chain no assertion on
+ * the `new Set([...])` literal can stand in for: `isDismissible` -> `<w-dialog>`'s `persistent` prop
+ * -> `WDialog#handleEscape` consuming rather than declining the keypress -> `update:model-value`
+ * -> `onDialogModelUpdate`'s `$patch({ overlay: '' })`.
+ *
+ * The Escape is dispatched on `document`, which is where `composables/escapeStack.js` binds its one
+ * shared bubble-phase listener, so the harness's default `stubs: { teleport: true }` is not in the
+ * way and there is no reason to opt out of it.
+ */
+describe('MainOverlayDialog Escape dismissal', () => {
+  const mounted = []
+
+  afterEach(() => {
+    // -> `WDialog` reference-counts `body.dataset.wDialogDepth` and only releases on close or
+    //    unmount; an open dialog left mounted would carry its depth (and its Escape handler) into
+    //    the next test in this file.
+    while (mounted.length) {
+      mounted.pop().unmount()
+    }
+  })
+
+  async function openOverlay(overlay) {
+    const result = mountWithApp(MainOverlayDialog, {
+      stores: { site: { overlay } },
+      messages: {
+        'history.title': 'History',
+        'navEdit.editMenuItems': 'Edit Menu Items'
+      }
+    })
+    mounted.push(result.wrapper)
+    // -> Every `overlays` entry is a `defineAsyncComponent`, so the (mocked) loader still resolves a
+    //    tick later; without this the dialog is up but still rendering `LoadingGeneric`.
+    await flushPromises()
+    return result
+  }
+
+  function pressEscape() {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    return nextTick()
+  }
+
+  it('closes the page history overlay on Escape', async () => {
+    const { siteStore } = await openOverlay('PageHistory')
+    expect(siteStore.overlayIsShown).toBe(true)
+
+    await pressEscape()
+
+    expect(siteStore.overlay).toBe('')
+    expect(siteStore.overlayIsShown).toBe(false)
+  })
+
+  it('leaves an overlay that can hold unsaved edits open on Escape', async () => {
+    const { siteStore } = await openOverlay('NavEdit')
+    expect(siteStore.overlayIsShown).toBe(true)
+
+    await pressEscape()
+
+    expect(siteStore.overlay).toBe('NavEdit')
+  })
+
+  /**
+   * The one risk this Bug was told to verify rather than assume: rollback is destructive, so an
+   * Escape with `PageHistoryOverlay`'s restore confirmation open must close only the confirmation,
+   * never the overlay underneath it. Dismissal is routed through `composables/escapeStack.js` -- a
+   * LIFO stack, walked top-down, stopping at the first handler that does not decline -- and the
+   * confirm registers after the overlay, so it is strictly on top.
+   *
+   * Stood up here with a second, plain `WDialog` standing in for the confirm (`WConfirmDialog` wraps
+   * exactly one, non-persistent whenever a cancel button is shown, which the restore confirmation's
+   * `cancel: true` gives it). What matters is the stacking, not which component is on top.
+   */
+  it('a confirmation stacked on top takes the first Escape, the overlay only the second', async () => {
+    const { siteStore } = await openOverlay('PageHistory')
+
+    const confirmClosed = vi.fn()
+    const confirmOnTop = mountWithApp(WDialog, {
+      props: { modelValue: true, 'onUpdate:modelValue': confirmClosed }
+    })
+    mounted.push(confirmOnTop.wrapper)
+    await nextTick()
+
+    await pressEscape()
+    expect(confirmClosed).toHaveBeenCalledWith(false)
+    expect(siteStore.overlay).toBe('PageHistory')
+
+    // -> The confirm is driven by its own parent state in the real app; here, unmounting it is what
+    //    "it closed" means to the stack -- that is what releases its handler.
+    mounted.pop().unmount()
+    await nextTick()
+
+    await pressEscape()
+    expect(siteStore.overlay).toBe('')
   })
 })
