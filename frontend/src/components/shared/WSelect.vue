@@ -46,7 +46,7 @@
     -->
     <input
       v-if="useInput"
-      v-bind="$attrs"
+      v-bind="controlAttrs"
       :id="selectId"
       ref="input"
       v-model="query"
@@ -337,16 +337,13 @@ const isDisabled = computed(() => props.disabled)
 
 /**
  * Everything the caller passed through as a plain HTML attribute -- `name`, `data-*`, ... --
- * forwarded onto the real control rather than left stranded on the wrapper. For the plain variant
- * that's the frame's `<button>`; `class`/`style` are carved out because they're handed to the frame
- * as `rootClass`/`rootStyle` instead, see the matching note in `WInput`. For the `useInput` variant
- * the real control is the nested `<input>` instead (it binds `$attrs` itself, below) -- forwarding
- * here too would land every attribute on both elements, so this resolves to nothing in that case.
+ * forwarded onto the real control rather than left stranded on the wrapper. `class`/`style` are
+ * carved out because they're handed to the frame as `rootClass`/`rootStyle` instead, see the
+ * matching note in `WInput`. The real control is the frame's `<button>` for the plain variant or
+ * the nested `<input>` for the `useInput` variant (bound below); either way this is the one set of
+ * attrs that lands on it, so `class`/`style` reach the wrapper exactly once.
  */
 const controlAttrs = computed(() => {
-  if (props.useInput) {
-    return {}
-  }
   const { class: _class, style: _style, ...rest } = attrs
   return rest
 })
@@ -432,10 +429,6 @@ const standoutClass = computed(() => {
   The field chrome, shared with WInput -- see `composables/fieldFrame.js`. "Active" here is the open
   dropdown, which is this control's equivalent of focus; `standout` is the variant that draws no
   frame at all and so takes no floating label either.
-
-  The `pt-0.5` on the value span is optical centring, matching WInput -- Roboto's ascent exceeds
-  its descent, so a geometrically centred line box renders its glyphs 2px high. See WInput for the
-  full note.
 */
 const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = useFieldFrame({
   props,

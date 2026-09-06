@@ -383,6 +383,22 @@ describe('WSelect', () => {
       expect(wrapper.find('input').attributes('name')).toBe('group')
       expect(wrapper.element.getAttribute('name')).toBeNull()
     })
+
+    // -> Regression: the useInput branch used to bind raw $attrs onto the <input>, so a caller's
+    //    class (e.g. PageTags.vue's `mt-4`) landed there AS WELL AS on the wrapper, throwing off
+    //    the input's vertical centring inside its fixed-height control box.
+    it('sends class/style to the wrapper only, not the filter input, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
+        attrs: { class: 'mt-4', style: 'margin-top: 4px' }
+      })
+
+      const input = wrapper.find('input')
+      expect(input.classes()).not.toContain('mt-4')
+      expect(input.attributes('style') ?? '').not.toContain('margin-top')
+      expect(wrapper.classes()).toContain('mt-4')
+      expect(wrapper.attributes('style')).toContain('margin-top')
+    })
   })
 
   describe('validation message live region', () => {
