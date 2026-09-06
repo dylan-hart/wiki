@@ -90,18 +90,19 @@ describe('AdminGlossary: load()', () => {
     expect(wrapper.text()).toContain('admin.glossary.noTerms')
   })
 
-  it("places each term's definition in its own item-section, not under the term name", async () => {
+  it("places each term's definition in the row's hint, not run together with the term name", async () => {
     const wrapper = mountAdminGlossary()
     await flushPromises()
 
-    const row = wrapper.find('.w-item')
-    // -> The first section is `BlueprintIcon`'s own `<w-item-section avatar>` (registered globally
-    //    by `test/setup.js`, exactly as `boot/components.js` registers it in the app); the term and
-    //    its definition are the two after it.
-    const [, termSection, definitionSection] = row.findAll('.w-item-section')
+    // -> Wiki #2700: the definition used to be a second `WItemSection` in the middle of the row. A
+    //    `WSettingsRow` has one text column, so it sits in the hint under the term it defines --
+    //    the claim this test makes is unchanged, only where the two live.
+    const row = wrapper.find('.w-settings-row')
 
-    expect(termSection.text()).not.toContain('Application Programming Interface.')
-    expect(definitionSection.text()).toBe('Application Programming Interface.')
+    expect(row.find('.w-settings-row__label').text()).not.toContain(
+      'Application Programming Interface.'
+    )
+    expect(row.find('.w-settings-row__hint').text()).toContain('Application Programming Interface.')
   })
 
   it('is not dirty right after loading', async () => {

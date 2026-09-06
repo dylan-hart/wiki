@@ -47,246 +47,167 @@
         <!-- ----------------------- -->
         <!-- Configuration -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.mail.configuration') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:address-book" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.senderName`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.senderNameHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.senderName"
-                dense
-                hide-bottom-space
-                :aria-label="t(`admin.mail.senderName`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:mail" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.senderEmail`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.senderEmailHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.senderEmail"
-                dense
-                :aria-label="t(`admin.mail.senderEmail`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:world-www" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.defaultBaseURL`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.defaultBaseURLHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.defaultBaseURL"
-                dense
-                :aria-label="t(`admin.mail.defaultBaseURL`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.mail.configuration')">
+          <w-settings-row
+            icon="tabler:address-book"
+            :label="t(`admin.mail.senderName`)"
+            :hint="t(`admin.general.senderNameHint`)">
+            <w-input
+              v-model="state.config.senderName"
+              dense
+              hide-bottom-space
+              :aria-label="t(`admin.mail.senderName`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:mail"
+            :label="t(`admin.mail.senderEmail`)"
+            :hint="t(`admin.general.senderEmailHint`)">
+            <w-input
+              v-model="state.config.senderEmail"
+              dense
+              :aria-label="t(`admin.mail.senderEmail`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:world-www"
+            :label="t(`admin.mail.defaultBaseURL`)"
+            :hint="t(`admin.general.defaultBaseURLHint`)">
+            <w-input
+              v-model="state.config.defaultBaseURL"
+              dense
+              :aria-label="t(`admin.mail.defaultBaseURL`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- SMTP -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.mail.smtp') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:world-www" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.smtpHost`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.smtpHostHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.host"
-                dense
-                hide-bottom-space
-                :aria-label="t(`admin.mail.smtpHost`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:network-off" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.smtpPort`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.smtpPortHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section style="flex: 0 0 120px">
-              <w-input v-model="state.config.port" dense :aria-label="t(`admin.mail.smtpPort`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:shield-check" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.smtpTLS`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.smtpTLSHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle v-model="state.config.secure" :aria-label="t(`admin.mail.smtpTLS`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:certificate" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.smtpVerifySSL`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.smtpVerifySSLHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.verifySSL"
-                :aria-label="t(`admin.mail.smtpVerifySSL`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:user-check" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.smtpUser`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.smtpUserHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input v-model="state.config.user" dense :aria-label="t(`admin.mail.smtpUser`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:password" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.smtpPwd`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.smtpPwdHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input v-model="state.config.pass" dense :aria-label="t(`admin.mail.smtpPwd`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:server" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.smtpName`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.smtpNameHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.config.name"
-                dense
-                hide-bottom-space
-                :aria-label="t(`admin.mail.smtpName`)" />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" :title="t('admin.mail.smtp')">
+          <w-settings-row
+            icon="tabler:world-www"
+            :label="t(`admin.mail.smtpHost`)"
+            :hint="t(`admin.mail.smtpHostHint`)">
+            <w-input
+              v-model="state.config.host"
+              dense
+              hide-bottom-space
+              :aria-label="t(`admin.mail.smtpHost`)" />
+          </w-settings-row>
+          <w-settings-row
+            control-width="fixed"
+            icon="tabler:network-off"
+            :label="t(`admin.mail.smtpPort`)"
+            :hint="t(`admin.mail.smtpPortHint`)">
+            <w-input v-model="state.config.port" dense :aria-label="t(`admin.mail.smtpPort`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:shield-check"
+            :label="t(`admin.mail.smtpTLS`)"
+            :hint="t(`admin.mail.smtpTLSHint`)">
+            <w-toggle v-model="state.config.secure" :aria-label="t(`admin.mail.smtpTLS`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:certificate"
+            :label="t(`admin.mail.smtpVerifySSL`)"
+            :hint="t(`admin.mail.smtpVerifySSLHint`)">
+            <w-toggle
+              v-model="state.config.verifySSL"
+              :aria-label="t(`admin.mail.smtpVerifySSL`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:user-check"
+            :label="t(`admin.mail.smtpUser`)"
+            :hint="t(`admin.mail.smtpUserHint`)">
+            <w-input v-model="state.config.user" dense :aria-label="t(`admin.mail.smtpUser`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:password"
+            :label="t(`admin.mail.smtpPwd`)"
+            :hint="t(`admin.mail.smtpPwdHint`)">
+            <w-input v-model="state.config.pass" dense :aria-label="t(`admin.mail.smtpPwd`)" />
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:server"
+            :label="t(`admin.mail.smtpName`)"
+            :hint="t(`admin.mail.smtpNameHint`)">
+            <w-input
+              v-model="state.config.name"
+              dense
+              hide-bottom-space
+              :aria-label="t(`admin.mail.smtpName`)" />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- DKIM -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.mail.dkim') }}</w-card-header>
-          <w-item class="pt-0">
-            <w-item-section>
-              <w-card class="bg-info text-white rounded">
-                <w-card-section class="items-center" horizontal>
-                  <w-card-section class="flex-none pe-0">
-                    <w-icon name="tabler:info-circle" size="lg" />
-                  </w-card-section>
-                  <w-card-section class="text-caption">{{
-                    t('admin.mail.dkimHint')
-                  }}</w-card-section>
-                </w-card-section>
-              </w-card>
-            </w-item-section>
-          </w-item>
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:inbox" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.dkimUse`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.dkimUseHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle v-model="state.config.useDKIM" :aria-label="t(`admin.mail.dkimUse`)" />
-            </w-item-section>
-          </w-item>
+        <w-settings-card class="mt-4" :title="t('admin.mail.dkim')">
+          <template #hint>{{ t('admin.mail.dkimHint') }}</template>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:inbox"
+            :label="t(`admin.mail.dkimUse`)"
+            :hint="t(`admin.mail.dkimUseHint`)">
+            <w-toggle v-model="state.config.useDKIM" :aria-label="t(`admin.mail.dkimUse`)" />
+          </w-settings-row>
           <template v-if="state.config.useDKIM">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:world-www" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.mail.dkimDomainName`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.mail.dkimDomainNameHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-input
-                  v-model="state.config.dkimDomainName"
-                  dense
-                  :aria-label="t(`admin.mail.dkimDomainName`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:shield-lock" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.mail.dkimKeySelector`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.mail.dkimKeySelectorHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-input
-                  v-model="state.config.dkimKeySelector"
-                  dense
-                  :aria-label="t(`admin.mail.dkimKeySelector`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:key" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.mail.dkimPrivateKey`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.mail.dkimPrivateKeyHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-input
-                  v-model="state.config.dkimPrivateKey"
-                  dense
-                  :aria-label="t(`admin.mail.dkimPrivateKey`)"
-                  type="textarea" />
-              </w-item-section>
-            </w-item>
+            <w-settings-row
+              icon="tabler:world-www"
+              :label="t(`admin.mail.dkimDomainName`)"
+              :hint="t(`admin.mail.dkimDomainNameHint`)">
+              <w-input
+                v-model="state.config.dkimDomainName"
+                dense
+                :aria-label="t(`admin.mail.dkimDomainName`)" />
+            </w-settings-row>
+            <w-settings-row
+              icon="tabler:shield-lock"
+              :label="t(`admin.mail.dkimKeySelector`)"
+              :hint="t(`admin.mail.dkimKeySelectorHint`)">
+              <w-input
+                v-model="state.config.dkimKeySelector"
+                dense
+                :aria-label="t(`admin.mail.dkimKeySelector`)" />
+            </w-settings-row>
+            <w-settings-row
+              icon="tabler:key"
+              :label="t(`admin.mail.dkimPrivateKey`)"
+              :hint="t(`admin.mail.dkimPrivateKeyHint`)">
+              <w-input
+                v-model="state.config.dkimPrivateKey"
+                dense
+                :aria-label="t(`admin.mail.dkimPrivateKey`)"
+                type="textarea" />
+            </w-settings-row>
           </template>
-        </w-card>
+        </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-5">
         <!-- ----------------------- -->
         <!-- SMTP TEST -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.mail.test') }}</w-card-header>
-          <w-item>
-            <blueprint-icon class="self-start" icon="tabler:mail" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.mail.testRecipient`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.mail.testRecipientHint`) }}</w-item-label>
-              <w-input
-                class="mt-4"
-                v-model="state.testEmail"
-                dense
-                :aria-label="t(`admin.mail.testRecipient`)" />
-            </w-item-section>
-          </w-item>
-          <div class="flex justify-end pe-4 py-2">
+        <w-settings-card :title="t('admin.mail.test')">
+          <w-settings-row
+            icon="tabler:mail"
+            :label="t(`admin.mail.testRecipient`)"
+            :hint="t(`admin.mail.testRecipientHint`)">
+            <w-input v-model="state.testEmail" dense :aria-label="t(`admin.mail.testRecipient`)" />
+          </w-settings-row>
+          <!--
+            The send button acts on the field above rather than being a setting of its own, so it
+            takes a row of its own with no label and sits at the trailing edge under the field.
+          -->
+          <w-settings-row control-width="auto" icon="tabler:send">
             <w-btn
               color="primary"
               icon="tabler:send"
               :label="t(`admin.mail.testSend`)"
               @click="sendTest"
               :loading="state.testLoading" />
-          </div>
-        </w-card>
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>

@@ -49,258 +49,168 @@
         <!-- ----------------------- -->
         <!-- WIKI.JS -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>Cardinal.js</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:alert-triangle" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.currentVersion') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.currentVersionHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{
-                state.info.currentVersion
-              }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:cloud-check" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.latestVersion') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.latestVersionHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <div class="flex flex-wrap gap-2">
-                <div class="min-w-0 flex-1">
-                  <div class="text-caption dark-value">{{ state.info.latestVersion }}</div>
-                </div>
-                <div class="flex-none">
-                  <w-btn
-                    class="acrylic-btn"
-                    flat
-                    :color="dark.isActive ? `purple-3` : `purple`"
-                    @click="checkForUpdates"
-                    :label="t(`admin.system.checkUpdate`)" />
-                </div>
+        <w-settings-card title="Cardinal.js">
+          <w-settings-row
+            icon="tabler:alert-triangle"
+            :label="t('admin.system.currentVersion')"
+            :hint="t('admin.system.currentVersionHint')">
+            <div class="dark-value text-caption">{{ state.info.currentVersion }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:cloud-check"
+            :label="t('admin.system.latestVersion')"
+            :hint="t('admin.system.latestVersionHint')">
+            <div class="flex flex-wrap gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="text-caption dark-value">{{ state.info.latestVersion }}</div>
               </div>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon
-              icon="tabler:heart"
-              :indicator="state.info.isSchedulerHealthy ? 'positive' : 'negative'"
-              :indicator-text="
+              <div class="flex-none">
+                <w-btn
+                  class="acrylic-btn"
+                  flat
+                  :color="dark.isActive ? `purple-3` : `purple`"
+                  @click="checkForUpdates"
+                  :label="t(`admin.system.checkUpdate`)" />
+              </div>
+            </div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:heart"
+            :indicator="state.info.isSchedulerHealthy ? 'positive' : 'negative'"
+            :indicator-text="
+              state.info.isSchedulerHealthy
+                ? t('admin.system.schedulerHealthy')
+                : t('admin.system.schedulerUnhealthy')
+            "
+            :label="t('admin.system.schedulerHealth')"
+            :hint="t('admin.system.schedulerHealthHint')">
+            <div class="dark-value text-caption">
+              {{
                 state.info.isSchedulerHealthy
                   ? t('admin.system.schedulerHealthy')
                   : t('admin.system.schedulerUnhealthy')
-              " />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.schedulerHealth') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.schedulerHealthHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{
-                state.info.isSchedulerHealthy
-                  ? t('admin.system.schedulerHealthy')
-                  : t('admin.system.schedulerUnhealthy')
-              }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:automatic-gearbox" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.upgradeCapable') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.upgradeCapableHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{
+              }}
+            </div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:automatic-gearbox"
+            :label="t('admin.system.upgradeCapable')"
+            :hint="t('admin.system.upgradeCapableHint')">
+            <div class="dark-value text-caption">
+              {{
                 state.info.upgradeCapable
                   ? t('admin.system.upgradeCapableYes')
                   : t('admin.system.upgradeCapableNo')
-              }}</w-item-label>
-            </w-item-section>
-          </w-item>
-        </w-card>
+              }}
+            </div>
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- CLIENT -->
         <!-- ----------------------- -->
-        <w-card class="mt-4 pb-2">
-          <w-card-header>{{ t('admin.system.client') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:layout-navbar" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.browser') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.browserHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ clientBrowser }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:device-desktop" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.clientPlatform') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.clientPlatformHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ clientPlatform }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:language" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.clientLanguage') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.clientLanguageHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ clientLanguage }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:cookie" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.clientCookies') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.clientCookiesHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ clientCookies }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:aspect-ratio" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.clientViewport') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.clientViewportHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ clientViewport }}</w-item-label>
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card class="mt-4" :title="t('admin.system.client')">
+          <w-settings-row
+            icon="tabler:layout-navbar"
+            :label="t('admin.system.browser')"
+            :hint="t('admin.system.browserHint')">
+            <div class="dark-value text-caption">{{ clientBrowser }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:device-desktop"
+            :label="t('admin.system.clientPlatform')"
+            :hint="t('admin.system.clientPlatformHint')">
+            <div class="dark-value text-caption">{{ clientPlatform }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:language"
+            :label="t('admin.system.clientLanguage')"
+            :hint="t('admin.system.clientLanguageHint')">
+            <div class="dark-value text-caption">{{ clientLanguage }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:cookie"
+            :label="t('admin.system.clientCookies')"
+            :hint="t('admin.system.clientCookiesHint')">
+            <div class="dark-value text-caption">{{ clientCookies }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:aspect-ratio"
+            :label="t('admin.system.clientViewport')"
+            :hint="t('admin.system.clientViewportHint')">
+            <div class="dark-value text-caption">{{ clientViewport }}</div>
+          </w-settings-row>
+        </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
         <!-- ----------------------- -->
         <!-- ENGINES -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.system.engines') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:brand-nodejs" />
-            <w-item-section>
-              <w-item-label>Node.js</w-item-label>
-              <w-item-label caption>{{ t('admin.system.nodejsHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ state.info.nodeVersion }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:database" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.database') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.databaseHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>PostgreSQL {{ dbVersion }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:database" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.databaseHost') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.databaseHostHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ state.info.dbHost }}</w-item-label>
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card :title="t('admin.system.engines')">
+          <w-settings-row icon="tabler:brand-nodejs" :hint="t('admin.system.nodejsHint')">
+            <template #label> Node.js </template>
+
+            <div class="dark-value text-caption">{{ state.info.nodeVersion }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:database"
+            :label="t('admin.system.database')"
+            :hint="t('admin.system.databaseHint')">
+            <div class="dark-value text-caption">PostgreSQL {{ dbVersion }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:database"
+            :label="t('admin.system.databaseHost')"
+            :hint="t('admin.system.databaseHostHint')">
+            <div class="dark-value text-caption">{{ state.info.dbHost }}</div>
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- HOST INFORMATION -->
         <!-- ----------------------- -->
-        <w-card class="mt-4 pb-2">
-          <w-card-header>{{ t('admin.system.hostInfo') }}</w-card-header>
-          <w-item>
-            <blueprint-icon :icon="platformLogo" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.os') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.osHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{
+        <w-settings-card class="mt-4" :title="t('admin.system.hostInfo')">
+          <w-settings-row
+            :icon="platformLogo"
+            :label="t('admin.system.os')"
+            :hint="t('admin.system.osHint')">
+            <div class="dark-value text-caption">
+              {{
                 state.info.platform === 'docker'
                   ? 'Docker Container (Linux)'
                   : state.info.operatingSystem
-              }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:server" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.hostname') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.hostnameHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ state.info.hostname }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:cpu" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.cpuCores') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.cpuCoresHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ state.info.cpuCores }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:device-sd-card" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.totalRAM') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.totalRAMHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ state.info.ramTotal }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:app-window" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.workingDirectory') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.workingDirectoryHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{
-                state.info.workingDirectory
-              }}</w-item-label>
-            </w-item-section>
-          </w-item>
-          <w-separator inset />
-          <w-item>
-            <blueprint-icon icon="tabler:automatic-gearbox" />
-            <w-item-section>
-              <w-item-label>{{ t('admin.system.configFile') }}</w-item-label>
-              <w-item-label caption>{{ t('admin.system.configFileHint') }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-item-label class="dark-value" caption>{{ state.info.configFile }}</w-item-label>
-            </w-item-section>
-          </w-item>
-        </w-card>
+              }}
+            </div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:server"
+            :label="t('admin.system.hostname')"
+            :hint="t('admin.system.hostnameHint')">
+            <div class="dark-value text-caption">{{ state.info.hostname }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:cpu"
+            :label="t('admin.system.cpuCores')"
+            :hint="t('admin.system.cpuCoresHint')">
+            <div class="dark-value text-caption">{{ state.info.cpuCores }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:device-sd-card"
+            :label="t('admin.system.totalRAM')"
+            :hint="t('admin.system.totalRAMHint')">
+            <div class="dark-value text-caption">{{ state.info.ramTotal }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:app-window"
+            :label="t('admin.system.workingDirectory')"
+            :hint="t('admin.system.workingDirectoryHint')">
+            <div class="dark-value text-caption">{{ state.info.workingDirectory }}</div>
+          </w-settings-row>
+          <w-settings-row
+            icon="tabler:automatic-gearbox"
+            :label="t('admin.system.configFile')"
+            :hint="t('admin.system.configFileHint')">
+            <div class="dark-value text-caption">{{ state.info.configFile }}</div>
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>

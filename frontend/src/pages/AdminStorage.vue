@@ -88,163 +88,141 @@
             <!-- ----------------------- -->
             <!-- Content Types -->
             <!-- ----------------------- -->
-            <w-card class="pb-2">
-              <w-card-header>
-                {{ t('admin.storage.contentTypes') }}
-                <template #hint>{{ t('admin.storage.contentTypesHint') }}</template>
-              </w-card-header>
-              <w-item tag="label">
-                <w-item-section avatar>
-                  <w-checkbox
-                    v-model="state.target.contentTypes.activeTypes"
-                    :color="state.target.module === `db` ? `grey` : `primary`"
-                    val="pages"
-                    :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disabled="state.target.module === `db`" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.contentTypePages`) }}</w-item-label>
-                  <w-item-label caption>{{ t(`admin.storage.contentTypePagesHint`) }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-item tag="label">
-                <w-item-section avatar>
-                  <w-checkbox
-                    v-model="state.target.contentTypes.activeTypes"
-                    color="primary"
-                    val="images"
-                    :aria-label="t(`admin.storage.contentTypeImages`)" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.contentTypeImages`) }}</w-item-label>
-                  <w-item-label caption>{{
-                    t(`admin.storage.contentTypeImagesHint`)
-                  }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-item tag="label">
-                <w-item-section avatar>
-                  <w-checkbox
-                    v-model="state.target.contentTypes.activeTypes"
-                    color="primary"
-                    val="documents"
-                    :aria-label="t(`admin.storage.contentTypeDocuments`)" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.contentTypeDocuments`) }}</w-item-label>
-                  <w-item-label caption>{{
-                    t(`admin.storage.contentTypeDocumentsHint`)
-                  }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-item tag="label">
-                <w-item-section avatar>
-                  <w-checkbox
-                    v-model="state.target.contentTypes.activeTypes"
-                    color="primary"
-                    val="others"
-                    :aria-label="t(`admin.storage.contentTypeOthers`)" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.contentTypeOthers`) }}</w-item-label>
-                  <w-item-label caption>{{
-                    t(`admin.storage.contentTypeOthersHint`)
-                  }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-item tag="label">
-                <w-item-section avatar>
-                  <w-checkbox
-                    v-model="state.target.contentTypes.activeTypes"
-                    color="primary"
-                    val="large"
-                    :aria-label="t(`admin.storage.contentTypeLargeFiles`)" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.contentTypeLargeFiles`) }}</w-item-label>
-                  <w-item-label caption>{{
-                    t(`admin.storage.contentTypeLargeFilesHint`)
-                  }}</w-item-label>
-                  <w-item-label
-                    class="text-deep-orange"
-                    v-if="state.target.module === `db`"
-                    caption
-                    >{{ t(`admin.storage.contentTypeLargeFilesDBWarn`) }}</w-item-label
-                  >
-                </w-item-section>
-                <w-item-section side>
+            <w-settings-card :title="t('admin.storage.contentTypes')">
+              <template #hint>{{ t('admin.storage.contentTypesHint') }}</template>
+              <w-settings-row
+                tag="label"
+                control-width="auto"
+                icon="tabler:file-text"
+                :label="t(`admin.storage.contentTypePages`)"
+                :hint="t(`admin.storage.contentTypePagesHint`)">
+                <w-checkbox
+                  v-model="state.target.contentTypes.activeTypes"
+                  :color="state.target.module === `db` ? `grey` : `primary`"
+                  val="pages"
+                  :aria-label="t(`admin.storage.contentTypePages`)"
+                  :disabled="state.target.module === `db`" />
+              </w-settings-row>
+              <w-settings-row
+                tag="label"
+                control-width="auto"
+                icon="tabler:photo"
+                :label="t(`admin.storage.contentTypeImages`)"
+                :hint="t(`admin.storage.contentTypeImagesHint`)">
+                <w-checkbox
+                  v-model="state.target.contentTypes.activeTypes"
+                  color="primary"
+                  val="images"
+                  :aria-label="t(`admin.storage.contentTypeImages`)" />
+              </w-settings-row>
+              <w-settings-row
+                tag="label"
+                control-width="auto"
+                icon="tabler:file-typography"
+                :label="t(`admin.storage.contentTypeDocuments`)"
+                :hint="t(`admin.storage.contentTypeDocumentsHint`)">
+                <w-checkbox
+                  v-model="state.target.contentTypes.activeTypes"
+                  color="primary"
+                  val="documents"
+                  :aria-label="t(`admin.storage.contentTypeDocuments`)" />
+              </w-settings-row>
+              <w-settings-row
+                tag="label"
+                control-width="auto"
+                icon="tabler:files"
+                :label="t(`admin.storage.contentTypeOthers`)"
+                :hint="t(`admin.storage.contentTypeOthersHint`)">
+                <w-checkbox
+                  v-model="state.target.contentTypes.activeTypes"
+                  color="primary"
+                  val="others"
+                  :aria-label="t(`admin.storage.contentTypeOthers`)" />
+              </w-settings-row>
+              <!--
+                The one row here with two controls: whether large files are stored at all, and the
+                size at which a file counts as large. They travel together at the trailing edge --
+                the threshold means nothing without the checkbox beside it.
+              -->
+              <w-settings-row
+                tag="label"
+                control-width="auto"
+                icon="tabler:database-import"
+                :label="t(`admin.storage.contentTypeLargeFiles`)">
+                <template #hint>
+                  <div>{{ t(`admin.storage.contentTypeLargeFilesHint`) }}</div>
+                  <div class="text-deep-orange" v-if="state.target.module === `db`">
+                    {{ t(`admin.storage.contentTypeLargeFilesDBWarn`) }}
+                  </div>
+                </template>
+                <div class="flex items-center gap-3">
                   <w-input
                     :label="t(`admin.storage.contentTypeLargeFilesThreshold`)"
                     v-model="state.target.contentTypes.largeThreshold"
                     style="min-width: 150px"
                     dense />
-                </w-item-section>
-              </w-item>
-            </w-card>
+                  <w-checkbox
+                    v-model="state.target.contentTypes.activeTypes"
+                    color="primary"
+                    val="large"
+                    :aria-label="t(`admin.storage.contentTypeLargeFiles`)" />
+                </div>
+              </w-settings-row>
+            </w-settings-card>
             <!-- ----------------------- -->
             <!-- Content Delivery -->
             <!-- ----------------------- -->
-            <w-card class="pb-2 mt-4">
-              <w-card-header>
-                {{ t('admin.storage.assetDelivery') }}
-                <template #hint>{{ t('admin.storage.assetDeliveryHint') }}</template>
-              </w-card-header>
-              <w-item :tag="state.target.assetDelivery.isStreamingSupported ? `label` : null">
-                <w-item-section avatar>
-                  <w-checkbox
-                    v-model="state.target.assetDelivery.streaming"
-                    :color="
-                      state.target.module === `db` ||
-                      !state.target.assetDelivery.isStreamingSupported
-                        ? `grey`
-                        : `primary`
-                    "
-                    :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disabled="
-                      state.target.module === `db` ||
-                      !state.target.assetDelivery.isStreamingSupported
-                    " />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.assetStreaming`) }}</w-item-label>
-                  <w-item-label caption>{{ t(`admin.storage.assetStreamingHint`) }}</w-item-label>
-                  <w-item-label
+            <w-settings-card class="mt-4" :title="t('admin.storage.assetDelivery')">
+              <template #hint>{{ t('admin.storage.assetDeliveryHint') }}</template>
+              <w-settings-row
+                :tag="state.target.assetDelivery.isStreamingSupported ? `label` : `div`"
+                control-width="auto"
+                icon="tabler:player-play"
+                :label="t(`admin.storage.assetStreaming`)">
+                <template #hint>
+                  <div>{{ t(`admin.storage.assetStreamingHint`) }}</div>
+                  <div
                     class="text-deep-orange"
-                    v-if="!state.target.assetDelivery.isStreamingSupported"
-                    caption
-                    >{{ t(`admin.storage.assetStreamingNotSupported`) }}</w-item-label
-                  >
-                </w-item-section>
-              </w-item>
-              <w-item :tag="state.target.assetDelivery.isDirectAccessSupported ? `label` : null">
-                <w-item-section avatar>
-                  <w-checkbox
-                    v-model="state.target.assetDelivery.directAccess"
-                    :color="
-                      !state.target.assetDelivery.isDirectAccessSupported ? `grey` : `primary`
-                    "
-                    :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disabled="!state.target.assetDelivery.isDirectAccessSupported" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.assetDirectAccess`) }}</w-item-label>
-                  <w-item-label caption>{{
-                    t(`admin.storage.assetDirectAccessHint`)
-                  }}</w-item-label>
-                  <w-item-label
+                    v-if="!state.target.assetDelivery.isStreamingSupported">
+                    {{ t(`admin.storage.assetStreamingNotSupported`) }}
+                  </div>
+                </template>
+                <w-checkbox
+                  v-model="state.target.assetDelivery.streaming"
+                  :color="
+                    state.target.module === `db` || !state.target.assetDelivery.isStreamingSupported
+                      ? `grey`
+                      : `primary`
+                  "
+                  :aria-label="t(`admin.storage.assetStreaming`)"
+                  :disabled="
+                    state.target.module === `db` || !state.target.assetDelivery.isStreamingSupported
+                  " />
+              </w-settings-row>
+              <w-settings-row
+                :tag="state.target.assetDelivery.isDirectAccessSupported ? `label` : `div`"
+                control-width="auto"
+                icon="tabler:external-link"
+                :label="t(`admin.storage.assetDirectAccess`)">
+                <template #hint>
+                  <div>{{ t(`admin.storage.assetDirectAccessHint`) }}</div>
+                  <div
                     class="text-deep-orange"
-                    v-if="!state.target.assetDelivery.isDirectAccessSupported"
-                    caption
-                    >{{ t(`admin.storage.assetDirectAccessNotSupported`) }}</w-item-label
-                  >
-                </w-item-section>
-              </w-item>
-            </w-card>
+                    v-if="!state.target.assetDelivery.isDirectAccessSupported">
+                    {{ t(`admin.storage.assetDirectAccessNotSupported`) }}
+                  </div>
+                </template>
+                <w-checkbox
+                  v-model="state.target.assetDelivery.directAccess"
+                  :color="!state.target.assetDelivery.isDirectAccessSupported ? `grey` : `primary`"
+                  :aria-label="t(`admin.storage.assetDirectAccess`)"
+                  :disabled="!state.target.assetDelivery.isDirectAccessSupported" />
+              </w-settings-row>
+            </w-settings-card>
             <!-- ----------------------- -->
             <!-- Configuration -->
             <!-- ----------------------- -->
-            <w-card class="pb-2 mt-4">
-              <w-card-header>{{ t('admin.storage.config') }}</w-card-header>
+            <w-settings-card class="mt-4" :title="t('admin.storage.config')">
               <w-card-section>
                 <w-banner
                   class="mt-4"
@@ -261,7 +239,7 @@
                 place, is what `buildConfigPayload()` in `payloadFor()` below reads back.
               -->
               <module-config-form :config="state.target.config" />
-            </w-card>
+            </w-settings-card>
             <!-- ----------------------- -->
             <!-- Sync -->
             <!-- ----------------------- -->
@@ -270,104 +248,105 @@
               disk/s3/db): a push-only target already syncs on every write via the dispatch hook, so
               there is no mode to pick and no interval to override.
             -->
-            <w-card
-              class="pb-2 mt-4"
-              v-if="state.target.sync && state.target.sync.schedule !== false">
-              <w-card-header>
-                {{ t('admin.storage.sync') }}
-                <template #hint>{{ t('admin.storage.syncDirectionSubtitle') }}</template>
-              </w-card-header>
-              <w-item>
-                <w-item-section>
-                  <w-item-label class="text-grey">{{ t('admin.storage.status') }}</w-item-label>
-                  <w-item-label v-if="syncStatus === `error`" class="text-negative">
-                    {{ t('admin.storage.errorMsg') }}: {{ state.syncStatus.lastError }}
-                  </w-item-label>
-                  <w-item-label v-else-if="syncStatus === `never`" class="text-grey-7">
-                    {{ t('admin.storage.neverSynced') }}
-                  </w-item-label>
-                  <w-item-label v-else-if="syncStatus === `outOfDate`" class="text-deep-orange">
-                    {{ t('admin.storage.outOfDate') }}
-                  </w-item-label>
-                  <w-item-label v-else class="text-positive">
-                    {{
-                      t('admin.storage.lastSync', {
-                        time: relativeDate(state.syncStatus?.lastSyncedAt)
-                      })
-                    }}
-                  </w-item-label>
-                  <w-item-label
-                    caption
-                    v-if="syncStatus === `outOfDate` && state.syncStatus?.lastSyncedAt">
+            <w-settings-card
+              class="mt-4"
+              v-if="state.target.sync && state.target.sync.schedule !== false"
+              :title="t('admin.storage.sync')">
+              <template #hint>{{ t('admin.storage.syncDirectionSubtitle') }}</template>
+              <!--
+                A status readout rather than a setting: the label names it, the state of the last
+                sync sits at the trailing edge in its own colour, and the "when" line is the hint.
+              -->
+              <w-settings-row
+                control-width="auto"
+                icon="tabler:refresh"
+                :label="t('admin.storage.status')">
+                <template #hint>
+                  <div v-if="syncStatus === `outOfDate` && state.syncStatus?.lastSyncedAt">
                     {{
                       t('admin.storage.lastSync', {
                         time: relativeDate(state.syncStatus.lastSyncedAt)
                       })
                     }}
-                  </w-item-label>
-                  <w-item-label
-                    caption
-                    v-else-if="syncStatus === `error` && state.syncStatus?.lastAttemptAt">
+                  </div>
+                  <div v-else-if="syncStatus === `error` && state.syncStatus?.lastAttemptAt">
                     {{
                       t('admin.storage.lastSyncAttempt', {
                         time: relativeDate(state.syncStatus.lastAttemptAt)
                       })
                     }}
-                  </w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-separator class="my-2" inset />
-              <w-item>
-                <w-item-section>
-                  <w-item-label>{{ t('admin.storage.syncDirection') }}</w-item-label>
-                  <w-item-label
+                  </div>
+                </template>
+                <div v-if="syncStatus === `error`" class="text-negative">
+                  {{ t('admin.storage.errorMsg') }}: {{ state.syncStatus.lastError }}
+                </div>
+                <div v-else-if="syncStatus === `never`" class="text-grey-7">
+                  {{ t('admin.storage.neverSynced') }}
+                </div>
+                <div v-else-if="syncStatus === `outOfDate`" class="text-deep-orange">
+                  {{ t('admin.storage.outOfDate') }}
+                </div>
+                <div v-else class="text-positive">
+                  {{
+                    t('admin.storage.lastSync', {
+                      time: relativeDate(state.syncStatus?.lastSyncedAt)
+                    })
+                  }}
+                </div>
+              </w-settings-row>
+              <w-settings-row
+                control-width="auto"
+                icon="tabler:arrows-exchange"
+                :label="t('admin.storage.syncDirection')">
+                <template #hint>
+                  <span
                     class="text-deep-orange"
-                    v-if="state.target.sync.supportedModes.length <= 1"
-                    caption
-                    >{{ t('admin.storage.syncModeNotSupported') }}</w-item-label
-                  >
-                  <w-item-label v-else caption>{{ syncModeHint }}</w-item-label>
-                </w-item-section>
-                <w-item-section side>
-                  <w-btn-toggle
-                    v-model="state.target.sync.mode"
-                    toggle-color="primary"
-                    :options="syncModeOptions"
-                    :aria-label="t(`admin.storage.syncDirection`)"
-                    :disabled="state.target.sync.supportedModes.length <= 1" />
-                </w-item-section>
-              </w-item>
-              <w-separator class="my-2" inset />
-              <w-item>
-                <w-item-section>
-                  <w-item-label>{{ t('admin.storage.syncSchedule') }}</w-item-label>
-                  <w-item-label caption>{{ t('admin.storage.syncScheduleHint') }}</w-item-label>
-                  <w-item-label caption v-if="state.target.sync.scheduleOverride">{{
-                    t('admin.storage.syncScheduleCurrent', {
-                      schedule: humanizeIsoDuration(state.target.sync.scheduleOverride)
-                    })
-                  }}</w-item-label>
-                  <w-item-label caption>{{
-                    t('admin.storage.syncScheduleDefault', {
-                      schedule: humanizeIsoDuration(state.target.sync.schedule)
-                    })
-                  }}</w-item-label>
-                </w-item-section>
-                <w-item-section side>
-                  <w-input
-                    v-model="state.target.sync.scheduleOverride"
-                    :placeholder="state.target.sync.schedule || ``"
-                    style="min-width: 150px"
-                    dense
-                    :aria-label="t(`admin.storage.syncSchedule`)" />
-                </w-item-section>
-              </w-item>
-            </w-card>
+                    v-if="state.target.sync.supportedModes.length <= 1">
+                    {{ t('admin.storage.syncModeNotSupported') }}
+                  </span>
+                  <span v-else>{{ syncModeHint }}</span>
+                </template>
+                <w-btn-toggle
+                  v-model="state.target.sync.mode"
+                  toggle-color="primary"
+                  :options="syncModeOptions"
+                  :aria-label="t(`admin.storage.syncDirection`)"
+                  :disabled="state.target.sync.supportedModes.length <= 1" />
+              </w-settings-row>
+              <w-settings-row
+                control-width="auto"
+                icon="tabler:clock"
+                :label="t('admin.storage.syncSchedule')">
+                <template #hint>
+                  <div>{{ t('admin.storage.syncScheduleHint') }}</div>
+                  <div v-if="state.target.sync.scheduleOverride">
+                    {{
+                      t('admin.storage.syncScheduleCurrent', {
+                        schedule: humanizeIsoDuration(state.target.sync.scheduleOverride)
+                      })
+                    }}
+                  </div>
+                  <div>
+                    {{
+                      t('admin.storage.syncScheduleDefault', {
+                        schedule: humanizeIsoDuration(state.target.sync.schedule)
+                      })
+                    }}
+                  </div>
+                </template>
+
+                <w-input
+                  v-model="state.target.sync.scheduleOverride"
+                  :placeholder="state.target.sync.schedule || ``"
+                  style="min-width: 150px"
+                  dense
+                  :aria-label="t(`admin.storage.syncSchedule`)" />
+              </w-settings-row>
+            </w-settings-card>
             <!-- ----------------------- -->
             <!-- Actions -->
             <!-- ----------------------- -->
-            <w-card class="pb-2 mt-4">
-              <w-card-header>{{ t('admin.storage.actions') }}</w-card-header>
+            <w-settings-card class="mt-4" :title="t('admin.storage.actions')">
               <w-card-section>
                 <w-banner
                   class="mt-4"
@@ -400,37 +379,33 @@
               <template v-if="state.target.isEnabled">
                 <template v-for="(act, idx) in state.target.actions" :key="act.handler">
                   <w-separator class="my-2" inset v-if="idx > 0" />
-                  <w-item>
-                    <blueprint-icon class="self-start" :icon="act.icon" />
-                    <w-item-section>
-                      <w-item-label>{{ act.label }}</w-item-label>
-                      <w-item-label caption>{{ act.hint }}</w-item-label>
-                      <w-item-label class="text-red" v-if="act.warn" caption>
+                  <w-settings-row control-width="auto" :icon="act.icon" :label="act.label">
+                    <template #hint>
+                      <div>{{ act.hint }}</div>
+                      <div class="text-red" v-if="act.warn">
                         <strong>{{ act.warn }}</strong>
-                      </w-item-label>
-                    </w-item-section>
-                    <w-item-section side>
-                      <w-btn
-                        class="acrylic-btn"
-                        flat
-                        icon="tabler:circle-arrow-right"
-                        color="primary"
-                        @click="executeAction(act)"
-                        :label="t(`common.actions.proceed`)"
-                        :disabled="state.runningAction"
-                        :loading="state.runningActionHandler === act.handler" />
-                    </w-item-section>
-                  </w-item>
+                      </div>
+                    </template>
+
+                    <w-btn
+                      class="acrylic-btn"
+                      flat
+                      icon="tabler:circle-arrow-right"
+                      color="primary"
+                      @click="executeAction(act)"
+                      :label="t(`common.actions.proceed`)"
+                      :disabled="state.runningAction"
+                      :loading="state.runningActionHandler === act.handler" />
+                  </w-settings-row>
                 </template>
               </template>
-            </w-card>
+            </w-settings-card>
           </div>
           <div class="flex-none">
             <!-- ----------------------- -->
             <!-- Infobox -->
             <!-- ----------------------- -->
-            <w-card class="rounded pb-4" style="width: 300px">
-              <w-card-header>{{ state.target.title }}</w-card-header>
+            <w-settings-card class="rounded" style="width: 300px" :title="state.target.title">
               <w-card-section>
                 <img
                   class="w-full object-cover rounded"
@@ -438,99 +413,83 @@
                   :alt="state.target.title" />
                 <div class="text-body2 mt-4">{{ state.target.description }}</div>
               </w-card-section>
-              <w-separator class="mb-2" inset />
-              <w-item>
-                <w-item-section>
-                  <w-item-label class="text-grey">{{ t(`admin.storage.vendor`) }}</w-item-label>
-                  <w-item-label>{{ state.target.vendor }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-separator class="my-2" inset />
-              <w-item>
-                <w-item-section>
-                  <w-item-label class="text-grey">{{
-                    t(`admin.storage.vendorWebsite`)
-                  }}</w-item-label>
-                  <w-item-label>
-                    <a :href="state.target.website" target="_blank" rel="noreferrer">{{
-                      state.target.website
-                    }}</a>
-                  </w-item-label>
-                </w-item-section>
-              </w-item>
-            </w-card>
+              <!--
+                Two facts about the module, not two settings: the name of the thing is the row's
+                label and the value it reports sits at the trailing edge, the same way every
+                `AdminSystem` row reads.
+              -->
+              <w-settings-row
+                control-width="auto"
+                icon="tabler:building-store"
+                :label="t(`admin.storage.vendor`)">
+                <div class="text-caption">{{ state.target.vendor }}</div>
+              </w-settings-row>
+              <w-settings-row
+                control-width="auto"
+                icon="tabler:world-www"
+                :label="t(`admin.storage.vendorWebsite`)">
+                <div class="text-caption">
+                  <a :href="state.target.website" target="_blank" rel="noreferrer">{{
+                    state.target.website
+                  }}</a>
+                </div>
+              </w-settings-row>
+            </w-settings-card>
             <!-- ----------------------- -->
             <!-- Status -->
             <!-- ----------------------- -->
-            <w-card class="rounded pb-4 mt-4" style="width: 300px">
-              <w-card-header>{{ t('admin.storage.status') }}</w-card-header>
-              <template v-if="state.target.module !== `db`">
-                <w-item tag="label">
-                  <w-item-section>
-                    <w-item-label>{{ t(`admin.storage.enabled`) }}</w-item-label>
-                    <w-item-label caption>{{ t(`admin.storage.enabledHint`) }}</w-item-label>
-                    <w-item-label
-                      class="text-deep-orange"
-                      v-if="state.target.module === `db`"
-                      caption
-                      >{{ t(`admin.storage.enabledForced`) }}</w-item-label
-                    >
-                  </w-item-section>
-                  <w-item-section avatar>
-                    <w-toggle
-                      v-model="state.target.isEnabled"
-                      :disabled="state.target.module === `db`"
-                      :aria-label="t(`admin.storage.enabled`)" />
-                  </w-item-section>
-                </w-item>
-                <w-separator class="my-2" inset />
-              </template>
-              <w-item>
-                <w-item-section>
-                  <w-item-label class="text-grey">{{
-                    t(`admin.storage.currentState`)
-                  }}</w-item-label>
-                  <w-item-label class="text-positive">{{
-                    t('admin.storage.noIssues')
-                  }}</w-item-label>
-                </w-item-section>
-              </w-item>
-            </w-card>
+            <w-settings-card
+              class="rounded mt-4"
+              style="width: 300px"
+              :title="t('admin.storage.status')">
+              <w-settings-row
+                v-if="state.target.module !== `db`"
+                tag="label"
+                control-width="auto"
+                icon="tabler:power"
+                :label="t(`admin.storage.enabled`)"
+                :hint="t(`admin.storage.enabledHint`)">
+                <w-toggle
+                  v-model="state.target.isEnabled"
+                  :aria-label="t(`admin.storage.enabled`)" />
+              </w-settings-row>
+              <w-settings-row
+                control-width="auto"
+                icon="tabler:heart"
+                :label="t(`admin.storage.currentState`)">
+                <div class="text-positive text-caption">{{ t('admin.storage.noIssues') }}</div>
+              </w-settings-row>
+            </w-settings-card>
             <!-- ----------------------- -->
             <!-- Versioning -->
             <!-- ----------------------- -->
-            <w-card class="rounded pb-4 mt-4" style="width: 300px">
-              <w-card-header>
-                {{ t(`admin.storage.versioning`) }}
-                <template #hint>{{ t(`admin.storage.versioningHint`) }}</template>
-              </w-card-header>
-              <w-item :tag="state.target.versioning.isSupported ? `label` : null">
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.storage.useVersioning`) }}</w-item-label>
-                  <w-item-label caption>{{ t(`admin.storage.useVersioningHint`) }}</w-item-label>
-                  <w-item-label
-                    class="text-deep-orange"
-                    v-if="!state.target.versioning.isSupported"
-                    caption
-                    >{{ t(`admin.storage.versioningNotSupported`) }}</w-item-label
-                  >
-                  <w-item-label
-                    class="text-deep-orange"
-                    v-if="state.target.versioning.isForceEnabled"
-                    caption
-                    >{{ t(`admin.storage.versioningForceEnabled`) }}</w-item-label
-                  >
-                </w-item-section>
-                <w-item-section avatar>
-                  <w-toggle
-                    v-model="state.target.versioning.enabled"
-                    :disabled="
-                      !state.target.versioning.isSupported || state.target.versioning.isForceEnabled
-                    "
-                    :aria-label="t(`admin.storage.useVersioning`)" />
-                </w-item-section>
-              </w-item>
-            </w-card>
+            <w-settings-card
+              class="rounded mt-4"
+              style="width: 300px"
+              :title="t(`admin.storage.versioning`)">
+              <template #hint>{{ t(`admin.storage.versioningHint`) }}</template>
+              <w-settings-row
+                :tag="state.target.versioning.isSupported ? `label` : `div`"
+                control-width="auto"
+                icon="tabler:history"
+                :label="t(`admin.storage.useVersioning`)">
+                <template #hint>
+                  <div>{{ t(`admin.storage.useVersioningHint`) }}</div>
+                  <div class="text-deep-orange" v-if="!state.target.versioning.isSupported">
+                    {{ t(`admin.storage.versioningNotSupported`) }}
+                  </div>
+                  <div class="text-deep-orange" v-if="state.target.versioning.isForceEnabled">
+                    {{ t(`admin.storage.versioningForceEnabled`) }}
+                  </div>
+                </template>
+                <w-toggle
+                  v-model="state.target.versioning.enabled"
+                  :disabled="
+                    !state.target.versioning.isSupported || state.target.versioning.isForceEnabled
+                  "
+                  :aria-label="t(`admin.storage.useVersioning`)" />
+              </w-settings-row>
+            </w-settings-card>
           </div>
         </div>
       </div>

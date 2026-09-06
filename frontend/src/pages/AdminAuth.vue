@@ -154,78 +154,66 @@
       </div>
       <!-- -> `min-w-0`, or a long value inside a field would push the panel wider than the row -->
       <div class="min-w-0 flex-1" v-if="state.strategy.id">
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.auth.info') }}</w-card-header>
-          <w-item>
-            <blueprint-icon icon="tabler:info-circle" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.auth.infoName`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.auth.infoNameHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.strategy.displayName"
-                dense
-                hide-bottom-space
-                :aria-label="t(`admin.auth.infoName`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="tabler:power" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.auth.enabled`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.auth.enabledHint`) }}</w-item-label>
-              <w-item-label class="text-deep-orange" v-if="isBuiltInLocal" caption>{{
-                t(`admin.auth.enabledForced`)
-              }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.strategy.isEnabled"
-                :disabled="isBuiltInLocal"
-                :aria-label="t(`admin.auth.enabled`)" />
-            </w-item-section>
-          </w-item>
-          <w-item v-if="noVisibleSitesWarning">
-            <w-item-section>
-              <w-banner
-                :class="
-                  dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`
-                ">
-                {{ t('admin.auth.noVisibleSitesWarning') }}
-              </w-banner>
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
+        <w-settings-card :title="t('admin.auth.info')">
+          <w-settings-row
+            icon="tabler:info-circle"
+            :label="t(`admin.auth.infoName`)"
+            :hint="t(`admin.auth.infoNameHint`)">
+            <w-input
+              v-model="state.strategy.displayName"
+              dense
+              hide-bottom-space
+              :aria-label="t(`admin.auth.infoName`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
+            icon="tabler:power"
+            :label="t(`admin.auth.enabled`)">
+            <template #hint>
+              <div>{{ t(`admin.auth.enabledHint`) }}</div>
+              <div class="text-deep-orange" v-if="isBuiltInLocal">
+                {{ t(`admin.auth.enabledForced`) }}
+              </div>
+            </template>
+
+            <w-toggle
+              v-model="state.strategy.isEnabled"
+              :disabled="isBuiltInLocal"
+              :aria-label="t(`admin.auth.enabled`)" />
+          </w-settings-row>
+          <div class="p-3" v-if="noVisibleSitesWarning">
+            <w-banner
+              :class="dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`">
+              {{ t('admin.auth.noVisibleSitesWarning') }}
+            </w-banner>
+          </div>
           <!-- Exactly one registration control per module, matching what it actually does: a
                form-based module (Local, LDAP) registers visitors itself, a redirect-based provider
                auto-provisions whoever it signs in -- the two are enforced separately server-side, so
                only the one that applies to this module is ever shown. -->
-          <w-item tag="label" v-if="state.strategy.strategy.useForm">
-            <blueprint-icon icon="tabler:user-plus" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.auth.selfRegistration`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.auth.selfRegistrationHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.strategy.selfRegistration"
-                :aria-label="t(`admin.auth.selfRegistration`)" />
-            </w-item-section>
-          </w-item>
-          <w-item tag="label" v-else>
-            <blueprint-icon icon="tabler:user-plus" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.auth.autoProvision`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.auth.autoProvisionHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.strategy.autoProvision"
-                :aria-label="t(`admin.auth.autoProvision`)" />
-            </w-item-section>
-          </w-item>
+          <w-settings-row
+            tag="label"
+            v-if="state.strategy.strategy.useForm"
+            control-width="auto"
+            icon="tabler:user-plus"
+            :label="t(`admin.auth.selfRegistration`)"
+            :hint="t(`admin.auth.selfRegistrationHint`)">
+            <w-toggle
+              v-model="state.strategy.selfRegistration"
+              :aria-label="t(`admin.auth.selfRegistration`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            v-else
+            control-width="auto"
+            icon="tabler:user-plus"
+            :label="t(`admin.auth.autoProvision`)"
+            :hint="t(`admin.auth.autoProvisionHint`)">
+            <w-toggle
+              v-model="state.strategy.autoProvision"
+              :aria-label="t(`admin.auth.autoProvision`)" />
+          </w-settings-row>
           <!-- Meaningful for a redirect-based provider always, and for a form-based module too when
                it declares itself `provisionable`: linking by email is what findOrCreateProviderUser()
                does for a returning identity, a path a redirect-based provider always takes and LDAP
@@ -234,19 +222,16 @@
                against its own stored password -- so it stays excluded. -->
           <template
             v-if="!state.strategy.strategy.useForm || state.strategy.strategy.provisionable">
-            <w-separator class="my-2" inset />
-            <w-item tag="label">
-              <blueprint-icon icon="tabler:link" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.auth.trustEmailForLinking`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.auth.trustEmailForLinkingHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section avatar>
-                <w-toggle
-                  v-model="state.strategy.trustEmailForLinking"
-                  :aria-label="t(`admin.auth.trustEmailForLinking`)" />
-              </w-item-section>
-            </w-item>
+            <w-settings-row
+              tag="label"
+              control-width="auto"
+              icon="tabler:link"
+              :label="t(`admin.auth.trustEmailForLinking`)"
+              :hint="t(`admin.auth.trustEmailForLinkingHint`)">
+              <w-toggle
+                v-model="state.strategy.trustEmailForLinking"
+                :aria-label="t(`admin.auth.trustEmailForLinking`)" />
+            </w-settings-row>
           </template>
           <template
             v-if="
@@ -254,79 +239,69 @@
                 ? state.strategy.selfRegistration
                 : state.strategy.autoProvision
             ">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:users" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.auth.autoEnrollGroups`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.auth.autoEnrollGroupsHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-select
-                  :options="state.groups"
-                  v-model="state.strategy.autoEnrollGroups"
-                  multiple
-                  map-options
-                  emit-value
-                  option-value="id"
-                  option-label="name"
-                  options-dense
-                  dense
-                  hide-bottom-space
-                  :aria-label="t(`admin.users.groups`)"
-                  :loading="state.loadingGroups">
-                  <template #selected>
-                    <div class="text-caption" v-if="state.strategy.autoEnrollGroups?.length > 1">
-                      <i18n-t keypath="admin.users.groupsSelected">
-                        <template #count>
-                          <strong>{{ state.strategy.autoEnrollGroups?.length }}</strong>
-                        </template>
-                      </i18n-t>
-                    </div>
-                    <div
-                      class="text-caption"
-                      v-else-if="state.strategy.autoEnrollGroups?.length === 1">
-                      <i18n-t keypath="admin.users.groupSelected">
-                        <template #group
-                          ><strong>{{ selectedGroupName }}</strong></template
-                        >
-                      </i18n-t>
-                    </div>
-                    <span v-else />
-                  </template>
-                  <template #option="{ itemProps, opt, selected, toggleOption }">
-                    <w-item v-bind="itemProps">
-                      <w-item-section side>
-                        <w-checkbox
-                          dense
-                          :model-value="selected"
-                          @update:model-value="toggleOption(opt)" />
-                      </w-item-section>
-                      <w-item-section
-                        ><w-item-label>{{ opt.name }}</w-item-label></w-item-section
+            <w-settings-row
+              icon="tabler:users"
+              :label="t(`admin.auth.autoEnrollGroups`)"
+              :hint="t(`admin.auth.autoEnrollGroupsHint`)">
+              <w-select
+                :options="state.groups"
+                v-model="state.strategy.autoEnrollGroups"
+                multiple
+                map-options
+                emit-value
+                option-value="id"
+                option-label="name"
+                options-dense
+                dense
+                hide-bottom-space
+                :aria-label="t(`admin.users.groups`)"
+                :loading="state.loadingGroups">
+                <template #selected>
+                  <div class="text-caption" v-if="state.strategy.autoEnrollGroups?.length > 1">
+                    <i18n-t keypath="admin.users.groupsSelected">
+                      <template #count>
+                        <strong>{{ state.strategy.autoEnrollGroups?.length }}</strong>
+                      </template>
+                    </i18n-t>
+                  </div>
+                  <div
+                    class="text-caption"
+                    v-else-if="state.strategy.autoEnrollGroups?.length === 1">
+                    <i18n-t keypath="admin.users.groupSelected">
+                      <template #group
+                        ><strong>{{ selectedGroupName }}</strong></template
                       >
-                    </w-item>
-                  </template>
-                </w-select>
-              </w-item-section>
-            </w-item>
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:eye-off" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.auth.allowedEmailRegex`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.auth.allowedEmailRegexHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-input
-                  v-model="state.strategy.allowedEmailRegex"
-                  dense
-                  hide-bottom-space
-                  :aria-label="t(`admin.auth.allowedEmailRegex`)"
-                  prefix="/"
-                  suffix="/" />
-              </w-item-section>
-            </w-item>
+                    </i18n-t>
+                  </div>
+                  <span v-else />
+                </template>
+                <template #option="{ itemProps, opt, selected, toggleOption }">
+                  <w-item v-bind="itemProps">
+                    <w-item-section side>
+                      <w-checkbox
+                        dense
+                        :model-value="selected"
+                        @update:model-value="toggleOption(opt)" />
+                    </w-item-section>
+                    <w-item-section
+                      ><w-item-label>{{ opt.name }}</w-item-label></w-item-section
+                    >
+                  </w-item>
+                </template>
+              </w-select>
+            </w-settings-row>
+            <w-settings-row
+              icon="tabler:eye-off"
+              :label="t(`admin.auth.allowedEmailRegex`)"
+              :hint="t(`admin.auth.allowedEmailRegexHint`)">
+              <w-input
+                v-model="state.strategy.allowedEmailRegex"
+                dense
+                hide-bottom-space
+                :aria-label="t(`admin.auth.allowedEmailRegex`)"
+                prefix="/"
+                suffix="/" />
+            </w-settings-row>
             <!--
               A friendlier alternative to allowedEmailRegex above, for the common case of restricting
               self-registration by domain rather than a hand-written pattern. Scoped to self-registration
@@ -334,42 +309,36 @@
               matching selfRegistration's own scope (OpenProject #2469).
             -->
             <template v-if="state.strategy.strategy.useForm">
-              <w-separator class="my-2" inset />
-              <w-item>
-                <blueprint-icon icon="tabler:eye-off" />
-                <w-item-section>
-                  <w-item-label>{{ t(`admin.auth.allowedEmailDomains`) }}</w-item-label>
-                  <w-item-label caption>{{ t(`admin.auth.allowedEmailDomainsHint`) }}</w-item-label>
-                </w-item-section>
-                <w-item-section>
-                  <!--
-                    Free-entry list of strings, same pattern as PageTags.vue: no predefined options, `create`
-                    is what lets a domain that is not in the list yet be typed in.
-                  -->
-                  <w-select
-                    v-model="state.strategy.allowedEmailDomains"
-                    :options="[]"
-                    dense
-                    options-dense
-                    use-input
-                    create
-                    multiple
-                    use-chips
-                    hide-bottom-space
-                    hide-dropdown-icon
-                    @create="addAllowedEmailDomain"
-                    :placeholder="t(`admin.auth.allowedEmailDomainsPlaceholder`)"
-                    :aria-label="t(`admin.auth.allowedEmailDomains`)" />
-                </w-item-section>
-              </w-item>
+              <w-settings-row
+                icon="tabler:eye-off"
+                :label="t(`admin.auth.allowedEmailDomains`)"
+                :hint="t(`admin.auth.allowedEmailDomainsHint`)">
+                <!--
+                  Free-entry list of strings, same pattern as PageTags.vue: no predefined options, `create`
+                  is what lets a domain that is not in the list yet be typed in.
+                -->
+                <w-select
+                  v-model="state.strategy.allowedEmailDomains"
+                  :options="[]"
+                  dense
+                  options-dense
+                  use-input
+                  create
+                  multiple
+                  use-chips
+                  hide-bottom-space
+                  hide-dropdown-icon
+                  @create="addAllowedEmailDomain"
+                  :placeholder="t(`admin.auth.allowedEmailDomainsPlaceholder`)"
+                  :aria-label="t(`admin.auth.allowedEmailDomains`)" />
+              </w-settings-row>
             </template>
           </template>
-        </w-card>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Configuration -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4">
-          <w-card-header>{{ t('admin.auth.strategyConfiguration') }}</w-card-header>
+        <w-settings-card class="mt-4" :title="t('admin.auth.strategyConfiguration')">
           <w-card-section>
             <w-banner
               class="mt-4"
@@ -393,104 +362,91 @@
             against sibling config props, not against another top-level field).
           -->
           <template v-if="state.strategy.config?.mapGroups?.value">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon icon="tabler:users" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.auth.mappableGroups`) }}</w-item-label>
-                <w-item-label caption>{{ t(`admin.auth.mappableGroupsHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section>
-                <w-select
-                  :options="state.groups"
-                  v-model="state.strategy.mappableGroups"
-                  multiple
-                  map-options
-                  emit-value
-                  option-value="id"
-                  option-label="name"
-                  options-dense
-                  dense
-                  hide-bottom-space
-                  :aria-label="t(`admin.auth.mappableGroups`)"
-                  :loading="state.loadingGroups">
-                  <template #selected>
-                    <div class="text-caption" v-if="state.strategy.mappableGroups?.length > 1">
-                      <i18n-t keypath="admin.users.groupsSelected">
-                        <template #count>
-                          <strong>{{ state.strategy.mappableGroups?.length }}</strong>
-                        </template>
-                      </i18n-t>
-                    </div>
-                    <div
-                      class="text-caption"
-                      v-else-if="state.strategy.mappableGroups?.length === 1">
-                      <i18n-t keypath="admin.users.groupSelected">
-                        <template #group
-                          ><strong>{{ selectedMappableGroupName }}</strong></template
-                        >
-                      </i18n-t>
-                    </div>
-                    <span v-else />
-                  </template>
-                  <template #option="{ itemProps, opt, selected, toggleOption }">
-                    <w-item v-bind="itemProps">
-                      <w-item-section side>
-                        <w-checkbox
-                          :model-value="selected"
-                          @update:model-value="toggleOption(opt)" />
-                      </w-item-section>
-                      <w-item-section
-                        ><w-item-label>{{ opt.name }}</w-item-label></w-item-section
+            <w-settings-row
+              icon="tabler:users"
+              :label="t(`admin.auth.mappableGroups`)"
+              :hint="t(`admin.auth.mappableGroupsHint`)">
+              <w-select
+                :options="state.groups"
+                v-model="state.strategy.mappableGroups"
+                multiple
+                map-options
+                emit-value
+                option-value="id"
+                option-label="name"
+                options-dense
+                dense
+                hide-bottom-space
+                :aria-label="t(`admin.auth.mappableGroups`)"
+                :loading="state.loadingGroups">
+                <template #selected>
+                  <div class="text-caption" v-if="state.strategy.mappableGroups?.length > 1">
+                    <i18n-t keypath="admin.users.groupsSelected">
+                      <template #count>
+                        <strong>{{ state.strategy.mappableGroups?.length }}</strong>
+                      </template>
+                    </i18n-t>
+                  </div>
+                  <div class="text-caption" v-else-if="state.strategy.mappableGroups?.length === 1">
+                    <i18n-t keypath="admin.users.groupSelected">
+                      <template #group
+                        ><strong>{{ selectedMappableGroupName }}</strong></template
                       >
-                    </w-item>
-                  </template>
-                </w-select>
-              </w-item-section>
-            </w-item>
-            <w-item v-if="revocableMappableGroupNames.length > 0">
-              <w-item-section>
-                <w-banner
-                  :class="
-                    dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`
-                  ">
-                  <i18n-t keypath="admin.auth.mappableGroupsSyncWarning" tag="span">
-                    <template #groups
-                      ><strong>{{ revocableMappableGroupNames.join(', ') }}</strong></template
+                    </i18n-t>
+                  </div>
+                  <span v-else />
+                </template>
+                <template #option="{ itemProps, opt, selected, toggleOption }">
+                  <w-item v-bind="itemProps">
+                    <w-item-section side>
+                      <w-checkbox :model-value="selected" @update:model-value="toggleOption(opt)" />
+                    </w-item-section>
+                    <w-item-section
+                      ><w-item-label>{{ opt.name }}</w-item-label></w-item-section
                     >
-                  </i18n-t>
-                </w-banner>
-              </w-item-section>
-            </w-item>
+                  </w-item>
+                </template>
+              </w-select>
+            </w-settings-row>
+            <div class="p-3" v-if="revocableMappableGroupNames.length > 0">
+              <w-banner
+                :class="
+                  dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`
+                ">
+                <i18n-t keypath="admin.auth.mappableGroupsSyncWarning" tag="span">
+                  <template #groups
+                    ><strong>{{ revocableMappableGroupNames.join(', ') }}</strong></template
+                  >
+                </i18n-t>
+              </w-banner>
+            </div>
           </template>
-        </w-card>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- References -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mt-4" v-if="strategyRefs.length > 0">
-          <w-card-header>
-            {{ t('admin.auth.configReference') }}
-            <template #hint>{{ t('admin.auth.configReferenceSubtitle') }}</template>
-          </w-card-header>
-          <w-item v-for="strRef of strategyRefs" :key="strRef.key">
-            <blueprint-icon :icon="strRef.icon" />
-            <w-item-section>
-              <w-item-label>{{ strRef.title }}</w-item-label>
-              <w-item-label caption>{{ strRef.hint }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <!--
-                These carry the strategy's ID, which the server assigns — so until Apply has created
-                it there is no URL to register with the provider, and showing one built from the
-                placeholder ID would be showing the wrong one.
-              -->
-              <w-item-label v-if="state.strategy.isNew" caption>
-                {{ t('admin.auth.refAfterSave') }}
-              </w-item-label>
-              <w-input v-else v-model="strRef.value" dense :aria-label="strRef.title" readonly />
-            </w-item-section>
-          </w-item>
-        </w-card>
+        <w-settings-card
+          class="mt-4"
+          v-if="strategyRefs.length > 0"
+          :title="t('admin.auth.configReference')">
+          <template #hint>{{ t('admin.auth.configReferenceSubtitle') }}</template>
+          <w-settings-row
+            v-for="strRef of strategyRefs"
+            :key="strRef.key"
+            :icon="strRef.icon"
+            :label="strRef.title"
+            :hint="strRef.hint">
+            <!--
+              These carry the strategy's ID, which the server assigns — so until Apply has created
+              it there is no URL to register with the provider, and showing one built from the
+              placeholder ID would be showing the wrong one.
+            -->
+            <div v-if="state.strategy.isNew" class="text-caption">
+              {{ t('admin.auth.refAfterSave') }}
+            </div>
+            <w-input v-else v-model="strRef.value" dense :aria-label="strRef.title" readonly />
+          </w-settings-row>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Infobox -->
         <!-- ----------------------- -->

@@ -51,7 +51,9 @@ describe('AdminApi key list site caption', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.vm.$nextTick()
 
-    const captions = wrapper.findAll('.w-item-label--caption').map((c) => c.text())
+    // -> Wiki #2700: a key row is a `WSettingsRow`, so everything the key is scoped by stacks in
+    //    the row's hint rather than as a column of `WItemLabel` captions.
+    const captions = wrapper.findAll('.w-settings-row__hint').map((c) => c.text())
     expect(captions.some((c) => c.includes('Docs'))).toBe(true)
   })
 
