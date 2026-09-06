@@ -195,15 +195,130 @@ a break-glass action.
 
 ## Logs
 
-There is no log **file**. `backend/core/logger.ts` keeps only an in-memory ring buffer of the last 100
-formatted lines (`BACKLOG_SIZE`), replayed to an admin's browser the moment they open the live
-terminal — the admin area's **Terminal** page (`frontend/src/pages/AdminTerminal.vue`, over the
-`/_terminal` websocket in `backend/controllers/terminal.ts`, gated on `manage:system`). Beyond that
-buffer, every log line is written straight to the process's stdout/stderr via `console.log`/`console.error`
-and nothing else — capturing logs durably (a file, a log-shipping sidecar, `docker logs` retention,
-whatever your platform provides) is entirely the operator's responsibility; this application does not
-do it for you. A clustered deployment's terminal view only ever shows whichever instance the websocket
-happened to land on — it is not an aggregated multi-instance view.
+### The line
+
+Every line the backend writes has the same shape, in both output modes: an ISO-8601 UTC timestamp, a
+level, a **scope** (the subsystem the line is about), a lowercase message, and a `key=value` tail
+carrying the facts.
+
+```
+2026-09-04T19:19:51.052Z info  db        connected  postgres=18.6 schema=public migrations=0 in 528ms
+2026-09-04T19:19:53.901Z info  http      listening  host=0.0.0.0 port=3000
+2026-09-05T00:30:00.412Z warn  jobs      updateLocales failed, retrying  attempt=1/3 error="fetching locale metadata failed: 404"
+2026-09-05T00:45:00.900Z error jobs      updateLocales failed, no attempts left  attempts=3 error="fetching locale metadata failed: 404"
+  Error: fetching locale metadata failed: 404
+      at …
+```
+
+Three things to know when reading it:
+
+- **Counts, ids, durations, paths and hostnames are in the tail, not in the sentence.** Grep the tail
+  (`grep 'site=main'`), not the prose.
+- **A duration is humanised and always last** — `in 528ms`, `in 3.7s`. In JSON mode it is a plain
+  `ms` number.
+- **An error is one record, not two.** The message says what failed, `error="…"` says why, and the
+  stack follows on indented lines — always on `error`, and on `warn` only when `logLevel` is `debug`
+  (a stack is noise on a warning you have already decided to live with).
+
+The instance id is deliberately **not** on the text line: text mode is a person tailing one process,
+where the id is dead weight. It is on every JSON record, and the admin log page receives it in its
+handshake frame.
+
+### Levels
+
+| Level | What it means | Alert on it? |
+| --- | --- | --- |
+| `error` | Something is broken and will stay broken until a person acts — a boot failure, a job out of retries, an unhandled 5xx, an external system unreachable after its own retries. | Yes. |
+| `warn` | Degraded, self-healing, or a configuration smell — a job retrying, an unknown config key, mail unconfigured while a notification was due, a rate-limit ban, a refused API key. | Worth a dashboard, not a page. |
+| `info` | A state change worth having in the record — boot milestones and `ready`, config reload, a strategy or storage target activating, a job that actually did something, page/site lifecycle, cluster peers joining and leaving. | No. |
+| `debug` | Per-item, per-request, per-tick — the access log, every job start and finish, every locale loaded, icon fetches, tree operations, the SQL and auth firehoses. Quiet instances say nothing at `info` for minutes at a time; that is the design, not a stuck process. | No. |
+
+### Scopes
+
+Every line names exactly one subsystem, from a closed vocabulary
+(`backend/core/logScopes.ts`). It is what makes `grep ' storage '` a useful filter, and what
+per-scope verbosity will hang off (below).
+
+| Scope | Owns |
+| --- | --- |
+| `boot` | process start-up, the three boot phases, shutdown |
+| `config` | config load, settings seed and save, unknown-key warnings |
+| `db` | connection, migrations, pool errors, the LISTEN/NOTIFY channel |
+| `sql` | the query firehose, behind the `sqlLog` admin flag |
+| `http` | the access log, 5xx, the app-shell fallback |
+| `auth` | strategies, login/register/2FA/passkey outcomes, API-key and bearer refusals |
+| `session` | secret rotation, session purge |
+| `jobs` | scheduler lifecycle, job planning and outcomes |
+| `worker` | the worker thread pool coming online, going offline, erroring |
+| `mail` | outbound mail |
+| `storage` | storage targets and all seven storage modules (the module is a `target=` field) |
+| `search` | the search index and all five engines (the engine is a field) |
+| `render` | the render pipeline, the render queue, puppeteer |
+| `collab` | collaborative editing sessions |
+| `cluster` | cross-instance events, peer presence, maintenance broadcasts |
+| `locale` | locale load and update |
+| `icons` | icon resolution and set management |
+| `blocks` | custom block uploads and compilation |
+| `ext` | extensions |
+| `pages` | page, tree and folder lifecycle, drafts, approvals, watch notifications |
+| `assets` | uploads, thumbnails, the file cache |
+| `nav` | navigation rewrites |
+| `hooks` | webhook deliveries and notification fan-outs |
+| `mcp` | the in-process MCP server |
+| `terminal` | the admin log stream itself |
+| `migrate` | the 2.5.x → 3.0 migration CLI |
+| `audit` | the audit-log model's own failures (the audit *table* is a separate thing, see below) |
+
+A subsystem inside one of these is a **field**, not a new scope: a git storage target logs on
+`storage` with `target=…`, not on a `git` scope of its own.
+
+### Configuration
+
+Two keys in `config.yml`, both validated at boot **case-sensitively** — an unrecognised value is a
+one-line refusal and `exit(1)`, not a silently ignored setting:
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `logLevel` | `error`, `warn`, `info`, `debug` | `info` |
+| `logFormat` | `text` (human-readable, coloured on a TTY) or `json` (one object per line, for a log shipper) | `text` |
+
+The 2.x levels `verbose` and `silly` do not exist here, and neither does the old `default` format
+name — `text` is what that value is called.
+
+Two knobs are **planned but not yet implemented** (Epic #2643): a `logScopes:` map raising individual
+scopes above the global floor (`logScopes: { storage: debug }` to trace one subsystem without turning
+everything on), and the two admin flags (`sqlLog`, `authDebug`) becoming runtime overrides of the
+`sql` and `auth` scopes rather than separate switches. Until they land, `logLevel` is the only
+threshold and the two flags behave as they always have.
+
+### Where the lines go
+
+There is no log **file**, and the application will not write one for you. Every line goes to the
+process's stdout via `console.log` and nothing else — capturing them durably (a file, a log-shipping
+sidecar, `docker logs` retention, whatever your platform provides) is entirely the operator's
+responsibility. `logFormat: json` exists precisely so that capture can be machine-readable.
+
+`backend/core/logger.ts` also keeps an in-memory ring buffer of the last **500** lines
+(`BACKLOG_SIZE`), replayed the moment an admin opens the live log view — the admin area's
+**Terminal** page (`frontend/src/pages/AdminTerminal.vue`, over the `/_terminal/logs` websocket in
+`backend/controllers/terminal.ts`, gated on `manage:system`). It is a window onto what just happened,
+not storage: it is lost on restart, and a clustered deployment's view only ever shows whichever
+instance the websocket happened to land on — it is not an aggregated multi-instance view.
+
+What travels over that websocket is a **structured frame**, not pre-rendered text:
+
+```json
+{ "timestamp": "…", "instance": "46af6c1ac1", "level": "warn", "scope": "jobs", "message": "updateLocales failed, retrying", "fields": { "attempt": "1/3" }, "stack": "…" }
+```
+
+Rendering is the browser's job, which is why the page's colours never have to survive a non-TTY
+stdout to reach it (`util.styleText` strips them in a container, so a stream of pre-rendered ANSI
+arrived colourless). Level and scope filters, click-to-expand stacks and copy-as-JSON are what the
+frame makes possible; the Live Log rework tracked under Epic #2643 is what builds them.
+
+The **audit log** is a different thing entirely: a durable, queryable table of who did what
+(`models/auditLog.ts`, the admin area's Audit Log page, retention configurable there). Security
+questions are answered from it, not from stdout.
 
 ## Metrics
 
