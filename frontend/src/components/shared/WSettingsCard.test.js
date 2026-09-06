@@ -73,6 +73,42 @@ describe('WSettingsCard', () => {
     expect(wrapper.find('.w-section-header').exists()).toBe(false)
   })
 
+  /**
+   * Wiki #2700: the two things `WCardHeader` carries that the roll-out found a settings strip also
+   * needs. Both are additive -- a card that passes neither renders exactly the strip it did before,
+   * which is what the assertions above are still checking.
+   */
+  it('draws a hint under the title, in sentence-case body type rather than the band', () => {
+    const wrapper = mount(WSettingsCard, {
+      props: { title: 'Active locales' },
+      slots: { hint: 'Select the locales that can be used on this site.' }
+    })
+
+    const hint = wrapper.find('.w-settings-card__hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('Select the locales that can be used on this site.')
+    // -> Under the title, not beside it: the two share the strip's leading column.
+    expect(wrapper.find('.w-settings-card__title').element.nextElementSibling).toBe(hint.element)
+  })
+
+  it('draws an action at the strip trailing edge', () => {
+    const wrapper = mount(WSettingsCard, {
+      props: { title: 'Theme' },
+      slots: { action: '<button class="reset">Reset</button>' }
+    })
+
+    const action = wrapper.find('.w-settings-card__action')
+    expect(action.exists()).toBe(true)
+    expect(action.find('.reset').exists()).toBe(true)
+  })
+
+  it('draws neither when the card passes neither', () => {
+    const wrapper = mount(WSettingsCard, { props: { title: 'Site info' } })
+
+    expect(wrapper.find('.w-settings-card__hint').exists()).toBe(false)
+    expect(wrapper.find('.w-settings-card__action').exists()).toBe(false)
+  })
+
   it('stacks any number of rows, and each row after the first carries the rule', () => {
     const wrapper = mount(WSettingsCard, {
       props: { title: 'Features' },

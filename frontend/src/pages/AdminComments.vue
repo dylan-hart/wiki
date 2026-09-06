@@ -126,8 +126,11 @@
         <!-- ----------------------- -->
         <!-- Description -->
         <!-- ----------------------- -->
-        <w-card class="pb-2 mb-4">
-          <w-card-header>{{ selectedProvider.title }}</w-card-header>
+        <!--
+          Prose about the chosen provider, not a setting: it keeps a plain section under the strip
+          rather than becoming a row with a plate and nothing at its trailing edge.
+        -->
+        <w-settings-card class="mb-4" :title="selectedProvider.title">
           <w-card-section>
             <div class="text-body2">{{ selectedProvider.description }}</div>
             <div class="text-caption mt-2" v-if="selectedProvider.website">
@@ -136,18 +139,16 @@
               }}</a>
             </div>
           </w-card-section>
-        </w-card>
+        </w-settings-card>
         <!-- ----------------------- -->
         <!-- Configuration -->
         <!-- ----------------------- -->
-        <w-card class="pb-2">
-          <w-card-header>{{ t('admin.comments.providerConfig') }}</w-card-header>
-          <w-card-section>
-            <w-banner
-              v-if="!selectedProvider.config || Object.keys(selectedProvider.config).length < 1"
-              :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
-              >{{ t('admin.comments.providerNoConfig') }}</w-banner
-            >
+        <w-settings-card :title="t('admin.comments.providerConfig')">
+          <w-card-section
+            v-if="!selectedProvider.config || Object.keys(selectedProvider.config).length < 1">
+            <w-banner :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`">{{
+              t('admin.comments.providerNoConfig')
+            }}</w-banner>
           </w-card-section>
           <!--
             Generic per-prop config form, shared with `AdminAnalytics.vue`, `AdminAuth.vue`,
@@ -157,7 +158,7 @@
             is what `buildConfigPayload()` in `payloadFor()` below reads back.
           -->
           <module-config-form v-if="selectedProvider.config" :config="selectedProvider.config" />
-        </w-card>
+        </w-settings-card>
       </div>
     </div>
     <!-- ----------------------- -->

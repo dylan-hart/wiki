@@ -1,7 +1,24 @@
 <template>
   <w-card class="w-settings-card">
     <component :is="level" :id="headingId" class="w-settings-card__header">
-      <slot name="title">{{ title }}</slot>
+      <div class="w-settings-card__row">
+        <div class="min-w-0 flex-1">
+          <div class="w-settings-card__title">
+            <slot name="title">{{ title }}</slot>
+          </div>
+          <div v-if="$slots.hint" class="w-settings-card__hint">
+            <slot name="hint" />
+          </div>
+        </div>
+        <!--
+          A trailing control on the strip itself -- a reset button, a per-card save. It sits on the
+          heading's own baseline rather than in a section below it, which is where the pages that
+          have one already drew it.
+        -->
+        <div v-if="$slots.action" class="w-settings-card__action shrink-0">
+          <slot name="action" />
+        </div>
+      </div>
     </component>
     <slot />
   </w-card>
@@ -38,6 +55,15 @@
  *
  * `headingId` is exposed for the same reason `WCardHeader` exposes one: a dialog wrapping this card
  * can name itself off the heading already on screen instead of repeating it as an `aria-label`.
+ *
+ * The `hint` and `action` slots are the two things `WCardHeader` carries that a settings strip also
+ * has to, and they were added (Wiki #2700) when the roll-out reached the pages that use them: seven
+ * cards across `AdminLocale`, `AdminAuth`, `AdminSearch` and `AdminStorage` explain themselves under
+ * the title, and six across `AdminTheme`, `AdminSearch` and `AdminComments` put a control on the
+ * band. Both are additive and draw nothing when unused, so a card that passes neither renders the
+ * same strip it did before. The hint drops out of the band's tracked uppercase mono into ordinary
+ * sentence-case body type, and the action opts out of its colour and tracking, for the same reasons
+ * `WCardHeader` does both.
  */
 import { useId } from 'vue'
 
@@ -71,6 +97,47 @@ defineExpose({ headingId })
 */
 .w-settings-card {
   display: block;
+}
+
+.w-settings-card__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+/*
+  The hint is a sentence, not a label: at 0.18em tracking and uppercased it is unreadable, so it
+  drops back to sentence-case body type the way `WCardHeader`'s does.
+*/
+.w-settings-card__hint {
+  margin-top: 2px;
+  color: var(--color-text-caption);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.45;
+  text-transform: none;
+}
+
+:global(body.body--dark) .w-settings-card__hint {
+  color: var(--color-text-caption-dark);
+}
+
+/*
+  A control, not heading text -- without this a flat button with no colour of its own comes out
+  slate, uppercase and letter-spaced along with the title.
+*/
+.w-settings-card__action {
+  color: initial;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+:global(body.body--dark) .w-settings-card__action {
+  color: var(--color-text-dark);
 }
 
 .w-settings-card__header {

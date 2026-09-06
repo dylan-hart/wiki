@@ -94,19 +94,21 @@
         class="min-w-0"
         style="flex: 1 1 calc(50% - 8px); min-width: 260px"
         v-if="selectedEngine">
-        <w-card class="pb-2">
-          <w-card-header>
-            {{ t('admin.search.engineConfig') }}
-            <template #hint>{{ selectedEngine.description }}</template>
-            <template #action>
-              <w-btn
-                icon="tabler:check"
-                :label="t(`common.actions.apply`)"
-                color="slate"
-                @click="save()"
-                :loading="state.loading > 0" />
-            </template>
-          </w-card-header>
+        <!--
+          The card-local apply button stays exactly where it is: this page is a picker plus a panel
+          rather than one settings form top to bottom, which is the case
+          `docs/decisions/embedded-setting-save-affordance.md` gives a card-local control to.
+        -->
+        <w-settings-card :title="t('admin.search.engineConfig')">
+          <template #hint>{{ selectedEngine.description }}</template>
+          <template #action>
+            <w-btn
+              icon="tabler:check"
+              :label="t(`common.actions.apply`)"
+              color="slate"
+              @click="save()"
+              :loading="state.loading > 0" />
+          </template>
           <w-card-section v-if="!hasConfigurableProps">
             <w-banner :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`">{{
               t('admin.search.engineNoConfig')
@@ -129,27 +131,31 @@
             for GitHub's OAuth setup flow: a generic per-engine surface with one engine's panel adding
             something the generic form cannot.
           -->
-          <template v-if="selectedEngine.key === DB_ENGINE_KEY">
-            <w-separator class="my-2" inset />
-            <w-item>
-              <blueprint-icon class="self-start" icon="tabler:search" />
-              <w-item-section>
-                <w-item-label>{{ t('admin.search.dictOverrides') }}</w-item-label>
-                <util-code-editor
-                  class="my-2"
-                  v-model="selectedEngine.dictOverridesText"
-                  language="json"
-                  :min-height="250"
-                  :aria-label="t('admin.search.dictOverrides')" />
-                <w-item-label caption>
-                  <i18n-t keypath="admin.search.dictOverridesHint" tag="span">
-                    <span>{ "en": "english" }</span>
-                  </i18n-t>
-                </w-item-label>
-              </w-item-section>
-            </w-item>
-          </template>
-        </w-card>
+          <!--
+            A 250px JSON editor is not a control that fits at a row's trailing edge, so it takes the
+            `preview` slot and spans the row's whole width under the label -- the same slot
+            `AdminGeneral`'s logo preview uses. The hint follows the editor rather than preceding it,
+            as it did before, because it explains the shape of what has just been typed.
+          -->
+          <w-settings-row
+            v-if="selectedEngine.key === DB_ENGINE_KEY"
+            control-width="auto"
+            icon="tabler:search"
+            :label="t('admin.search.dictOverrides')">
+            <template #preview>
+              <util-code-editor
+                v-model="selectedEngine.dictOverridesText"
+                language="json"
+                :min-height="250"
+                :aria-label="t('admin.search.dictOverrides')" />
+              <div class="text-caption mt-2">
+                <i18n-t keypath="admin.search.dictOverridesHint" tag="span">
+                  <span>{ "en": "english" }</span>
+                </i18n-t>
+              </div>
+            </template>
+          </w-settings-row>
+        </w-settings-card>
       </div>
     </div>
   </w-page>
