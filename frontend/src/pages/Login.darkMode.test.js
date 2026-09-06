@@ -16,6 +16,11 @@ import { mountWithApp } from '../../test/mount.js'
  * Separately, `Login.vue`'s own `text-grey-7` subtitle had no `dark:` pairing at all, unlike the
  * identical color elsewhere in the app (`AccountMenu.vue`).
  *
+ * OpenProject #2627 took that subtitle off the Material grey entirely -- the design sets it in
+ * Cardinal's own secondary tier -- so it is now `.auth-lead` with a tone on each side rather than a
+ * `text-grey-7` / `dark:text-white` pair. The claim below is unchanged: whatever tone it takes, the
+ * two themes must differ and neither may be the browser default.
+ *
  * Mounts the real `Login.vue` page (its `<style lang="scss">` block is unscoped, so it applies
  * globally the same way it does in the app) attached to `document.body` -- required for the
  * `.body--dark <selector>` ancestor combinator to actually match -- and reads real, compiled
@@ -69,13 +74,13 @@ afterEach(() => {
 })
 
 describe('Login.vue dark mode (OpenProject #2550)', () => {
-  it('gives the hardcoded "text-grey-7" subtitle a legible, theme-distinct color', async () => {
+  it('gives the lead line under the wordmark a legible, theme-distinct color', async () => {
     const lightWrapper = await mountForTheme('light')
-    const lightColor = getComputedStyle(lightWrapper.find('.text-grey-7').element).color
+    const lightColor = getComputedStyle(lightWrapper.find('.auth-lead').element).color
     lightWrapper.unmount()
 
     const darkWrapper = await mountForTheme('dark')
-    const darkColor = getComputedStyle(darkWrapper.find('.text-grey-7').element).color
+    const darkColor = getComputedStyle(darkWrapper.find('.auth-lead').element).color
     darkWrapper.unmount()
 
     expect(darkColor).not.toBe(lightColor)
@@ -91,7 +96,7 @@ describe('Login.vue dark mode (OpenProject #2550)', () => {
     //    interaction a reader would use, not a synthetic screen switch. `t()` resolves an
     //    untranslated key to the key itself under this suite's i18n (see `test/i18n.js`), so the
     //    button's label is literally the translation key.
-    // -> Login.vue's own `<p class="text-grey-7">` is always rendered above `<auth-login-panel>`,
+    // -> Login.vue's own `<p class="auth-lead">` is always rendered above `<auth-login-panel>`,
     //    so once the screen has switched there are two `<p>`s in document order; the LAST one is
     //    the panel's forgot-password subtitle this assertion is actually after.
     await findButtonByText(lightWrapper, 'auth.forgotPasswordLink').trigger('click')
