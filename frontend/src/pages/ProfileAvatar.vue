@@ -1,54 +1,55 @@
 <template>
   <w-page class="py-4">
     <h1 class="w-section-header">{{ t('profile.avatar') }}</h1>
-    <!--
-      -> `min-w-*` on both columns is what lets `flex-wrap` actually wrap them: `flex-1` is
-         `flex: 1 1 0%`, and an item whose basis is zero never overflows its line, so on a narrow screen
-         the two just squeezed instead -- the 180px avatar spilling off the left edge and the upload
-         column's text off the right. With a floor on each, two of them no longer fit side by side in a
-         column this narrow and the second takes its own line.
-    -->
-    <!-- -> `px-4` only while stacked: beside the avatar this column has the card's width around it, but
-            on its own line it starts at the very edge of the screen -->
-    <div class="mt-10 flex flex-wrap gap-6 px-4 sm:px-0">
-      <div class="min-w-60 flex-1 text-center">
-        <w-avatar
-          class="profile-avatar-circ"
-          size="180px"
-          :color="userStore.hasAvatar ? `dark-1` : `primary`"
-          text-color="white"
-          :class="userStore.hasAvatar ? `is-image` : ``">
-          <img
-            v-if="userStore.hasAvatar"
-            :src="`/_user/current/avatar?` + state.assetTimestamp"
-            :alt="userStore.name" />
-          <w-icon v-else name="tabler:user" />
-        </w-avatar>
-      </div>
-      <div v-if="canEdit" class="min-w-60 flex-1 self-center">
-        <div class="text-body1">{{ t('profile.avatarUploadTitle') }}</div>
-        <div class="text-caption">{{ t('profile.avatarUploadHint') }}</div>
-        <div class="mt-4">
-          <w-btn
-            icon="tabler:upload"
-            :label="t(`profile.uploadNewAvatar`)"
-            color="primary"
-            @click="uploadImage" />
-        </div>
-        <div class="mt-4">
-          <w-btn
-            class="me-2"
-            icon="tabler:x"
-            outline
-            :label="t(`common.actions.clear`)"
-            color="primary"
-            :disabled="!userStore.hasAvatar"
-            @click="clearImage" />
-        </div>
-      </div>
-      <div v-else class="min-w-60 flex-1 self-center">
-        <div class="text-caption text-negative">{{ t('profile.avatarUploadDisabled') }}</div>
-      </div>
+    <div class="p-4">
+      <!--
+        The same stacked shape AdminGeneral's logo and favicon rows use -- the pair of buttons at the
+        trailing edge and the image itself in the row's `preview` slot, which spans the full width
+        under both halves. Not a second stacked variant: this is the one WSettingsRow already draws.
+      -->
+      <w-settings-card :title="t('profile.avatar')">
+        <w-settings-row
+          control-width="auto"
+          icon="tabler:user-circle"
+          :label="t(`profile.avatarUploadTitle`)"
+          :hint="t(`profile.avatarUploadHint`)">
+          <div v-if="canEdit" class="flex gap-2">
+            <w-btn
+              icon="tabler:upload"
+              :label="t(`profile.uploadNewAvatar`)"
+              color="primary"
+              text-color="white"
+              @click="uploadImage" />
+            <w-btn
+              icon="tabler:x"
+              outline
+              :label="t(`common.actions.clear`)"
+              color="primary"
+              :disabled="!userStore.hasAvatar"
+              @click="clearImage" />
+          </div>
+          <!-- -> Why the buttons are absent, in their place rather than as a silent omission -->
+          <div v-else class="text-caption text-negative">
+            {{ t('profile.avatarUploadDisabled') }}
+          </div>
+          <template #preview>
+            <div class="text-center">
+              <w-avatar
+                class="profile-avatar-circ"
+                size="180px"
+                :color="userStore.hasAvatar ? `dark-1` : `primary`"
+                text-color="white"
+                :class="userStore.hasAvatar ? `is-image` : ``">
+                <img
+                  v-if="userStore.hasAvatar"
+                  :src="`/_user/current/avatar?` + state.assetTimestamp"
+                  :alt="userStore.name" />
+                <w-icon v-else name="tabler:user" />
+              </w-avatar>
+            </div>
+          </template>
+        </w-settings-row>
+      </w-settings-card>
     </div>
 
     <w-inner-loading :showing="state.loading > 0" />
