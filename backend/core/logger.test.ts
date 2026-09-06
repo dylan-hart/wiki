@@ -1096,3 +1096,91 @@ describe('logger scopes', () => {
     )
   })
 })
+
+/**
+ * OpenProject #2678 (audit finding C7) - a regression guard, not a fix: the fix is #2679's frame,
+ * asserted above, plus the Live Log page that colours off `frame.level` rather than off escapes.
+ *
+ * The Bug was that `util.styleText` returns bare text when stdout is not a TTY (Node 22.13+
+ * validates the stream by default), so under Docker, systemd or any log pipe the admin Terminal --
+ * which was handed the rendered stdout line verbatim -- received no escapes at all and drew every
+ * level in one colour. `validateStream: false` was the tempting local patch and is the wrong one:
+ * it would put escapes into `docker logs` instead.
+ *
+ * What makes the page's colour independent of the server's TTY is that the two renderers are
+ * separate -- `renderText` writes for stdout, while the socket and the backlog carry the FRAME --
+ * so that is what this asserts, in text mode, the only mode where an escape could leak.
+ * Deliberately no assertion on rendered message text: the invariant is the shape and the absence of
+ * the escape byte, so a reworded line cannot break it.
+ */
+describe('the admin Live Log stream carries frames, never a rendered line (#2678)', () => {
+  /** The byte every ANSI sequence opens with, built rather than pasted so the source stays text. */
+  const ESC = String.fromCharCode(27)
+
+  afterEach(() => {
+    mock.restoreAll()
+  })
+
+  test('the socket and the backlog get the frame object, not the string console.log got', () => {
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    const emitted: LogFrame[] = []
+    primaryLogger.ws.on('log', (frame: LogFrame) => emitted.push(frame))
+    primaryLogger.warn('db', 'reconnecting', { attempt: 2 })
+
+    assert.equal(emitted.length, 1)
+    const frame = emitted[0]!
+    // -> The regression is exactly "the socket was handed the rendered line": a string here, equal
+    //    to what stdout got, is the pre-#2679 behaviour C7 described.
+    assert.equal(typeof frame, 'object')
+    assert.equal(typeof logSpy.mock.calls[0]!.arguments[0], 'string')
+    assert.equal(frame.level, 'warn')
+    assert.equal(frame.scope, 'db')
+    assert.equal(frame.message, 'reconnecting')
+    assert.deepEqual(frame.fields, { attempt: 2 })
+    assert.deepEqual(primaryLogger.backlog(), emitted)
+  })
+
+  test('no ANSI escape can reach the socket, at any level, in text mode', () => {
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    mock.method(console, 'log', () => {})
+
+    const emitted: LogFrame[] = []
+    primaryLogger.ws.on('log', (frame: LogFrame) => emitted.push(frame))
+    // -> Every level, because the colour was per-level: `error` red, `warn` yellow, `debug` dim.
+    //    The `error` field and its stack ride along too, being the longest strings on a frame and
+    //    the ones a renderer would have coloured.
+    primaryLogger.error('db', 'pool exhausted', { error: new Error('too many clients') })
+    primaryLogger.warn('db', 'reconnecting')
+    primaryLogger.info('db', 'connected')
+    primaryLogger.debug('db', 'LISTEN registered')
+
+    assert.equal(emitted.length, 4)
+    for (const frame of emitted) {
+      // -> `JSON.stringify(frame)` is byte-for-byte what `controllers/terminal.ts` sends down the
+      //    websocket, so asserting on it covers `message`, `scope` and every field at once --
+      //    including the stack -- rather than a property list that could grow past the test.
+      assert.equal(JSON.stringify(frame).includes(ESC), false)
+    }
+  })
+
+  test('the colour stays where it belongs, on the stdout line', { skip: !colorsEnabled() }, () => {
+    setWiki({ logFormat: 'text', logLevel: 'debug' })
+    const primaryLogger = logger.init()
+    const logSpy = mock.method(console, 'log', () => {})
+
+    const emitted: LogFrame[] = []
+    primaryLogger.ws.on('log', (frame: LogFrame) => emitted.push(frame))
+    primaryLogger.error('db', 'pool exhausted')
+
+    // -> The other half of the split, and the reason `validateStream: false` is not the fix: a
+    //    person tailing a real terminal still gets a red `error`. Skipped when the runner is not
+    //    colouring at all (CI, `NO_COLOR`) -- which is precisely the non-TTY condition the Bug was
+    //    about, and where the assertion above is the one that matters.
+    assert.equal((logSpy.mock.calls[0]!.arguments[0] as string).includes(ESC), true)
+    assert.equal(JSON.stringify(emitted[0]!).includes(ESC), false)
+  })
+})
