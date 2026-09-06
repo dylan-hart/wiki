@@ -909,14 +909,46 @@ function toGraphSpace(clientX, clientY) {
   }
 }
 
-/** The `12`px hit radius is a starting point matched to the `5`px node-dot radius plus some slack
- *  for an imprecise click -- tune visually. */
+/** Hit-tests a click/hover point against each candidate's OWN rendered size
+ *  (`collideRadiusFor()` -- `radiusFor()` plus the same small padding the collision force already
+ *  uses, rather than a second flat constant) instead of one flat radius for every node (OpenProject
+ *  #2748) -- a node's hit area now actually tracks its drawn size across the full
+ *  `MIN_NODE_RADIUS`..`MAX_NODE_RADIUS` range instead of only being roughly right at the (small,
+ *  pre-#2594) end of it. `d3-quadtree#find(x, y, radius)` only supports a single flat search radius,
+ *  so this walks the tree by hand via `visit()`: a quadrant is pruned only when its bounding box
+ *  cannot contain a point within `MAX_NODE_RADIUS` of the click -- the largest any node's own hit
+ *  radius can be -- and every surviving candidate is then checked against its OWN radius, not the
+ *  search bound. The nearest candidate that actually contains the point wins, the same nearest-wins
+ *  tie-break `d3-quadtree#find()` itself used. A quadrant's leaf may chain more than one node via
+ *  `.next` (`d3-quadtree`'s representation for coincident points), so every node in that chain is
+ *  checked, not just the first. */
 function findNodeAt(clientX, clientY) {
   if (!nodeQuadtree) {
     return null
   }
   const { x, y } = toGraphSpace(clientX, clientY)
-  return nodeQuadtree.find(x, y, 12)
+  let best = null
+  let bestDist = Infinity
+  nodeQuadtree.visit((quad, x0, y0, x1, y1) => {
+    if (!quad.length) {
+      let leaf = quad
+      do {
+        const node = leaf.data
+        const dist = Math.hypot(node.x - x, node.y - y)
+        if (dist <= collideRadiusFor(node) && dist < bestDist) {
+          bestDist = dist
+          best = node
+        }
+      } while ((leaf = leaf.next))
+    }
+    return (
+      x0 > x + MAX_NODE_RADIUS ||
+      x1 < x - MAX_NODE_RADIUS ||
+      y0 > y + MAX_NODE_RADIUS ||
+      y1 < y - MAX_NODE_RADIUS
+    )
+  })
+  return best
 }
 
 /** A node's in-app link (its page path plus locale prefix, per the site's locale-prefix rules) --
