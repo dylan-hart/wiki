@@ -2301,6 +2301,8 @@
   "common.page.viewingSourceVersion": "Viewing source as of {date} of page {path}",
   "common.page.watch": "Watch Page",
   "common.page.watchFailed": "Could not watch this page.",
+  "common.page.watching": "Watching",
+  "common.page.watchingMore": "{count} more",
   "common.pageSelector.createTitle": "Select New Page Location",
   "common.pageSelector.folderEmptyWarning": "This folder is empty.",
   "common.pageSelector.moveTitle": "Move / Rename Page Location",
