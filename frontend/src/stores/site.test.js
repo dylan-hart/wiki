@@ -176,6 +176,67 @@ describe('site store: applySiteInfo() pathDisplayCase', () => {
 
     expect(API_CLIENT.get).not.toHaveBeenCalled()
   })
+
+  /**
+   * Bug #2599: the acronym map is per-site, so `applySiteInfo` resets both it and its loaded flag
+   * before deciding whether to refetch. Without the reset, `fetchAcronymMap`'s
+   * `acronymMapLoaded && !forceRefresh` early return skips the new site's fetch entirely and site B
+   * renders site A's casing -- and on the `'off'` path, where no fetch runs at all, site A's map
+   * would simply stay put.
+   */
+  describe('site switch (#2599)', () => {
+    it('refetches the acronym map for the new site rather than keeping the previous one', async () => {
+      const store = useSiteStore()
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve({ uss: 'USS' })
+      })
+      store.applySiteInfo(siteInfoFixture({ id: 'site-a', pathDisplayCase: 'title' }))
+      await vi.waitFor(() => expect(store.acronymMap).toEqual({ uss: 'USS' }))
+
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve({ irv: 'IRV' })
+      })
+      store.applySiteInfo(siteInfoFixture({ id: 'site-b', pathDisplayCase: 'title' }))
+
+      expect(store.acronymMapLoaded).toBe(false)
+      expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-b/glossary/acronyms')
+      await vi.waitFor(() => expect(store.acronymMapLoaded).toBe(true))
+      expect(store.acronymMap).toEqual({ irv: 'IRV' })
+    })
+
+    it('replaces the map wholesale, dropping a key the new site does not carry', async () => {
+      const store = useSiteStore()
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve({ uss: 'USS', irv: 'IRV' })
+      })
+      store.applySiteInfo(siteInfoFixture({ id: 'site-a', pathDisplayCase: 'title' }))
+      await vi.waitFor(() => expect(store.acronymMapLoaded).toBe(true))
+
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve({ irv: 'IRV' })
+      })
+      store.applySiteInfo(siteInfoFixture({ id: 'site-b', pathDisplayCase: 'title' }))
+      await vi.waitFor(() => expect(store.acronymMapLoaded).toBe(true))
+
+      expect(store.acronymMap).toEqual({ irv: 'IRV' })
+    })
+
+    it('clears the previous map with no fetch when the new site has the setting off', async () => {
+      const store = useSiteStore()
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve({ uss: 'USS' })
+      })
+      store.applySiteInfo(siteInfoFixture({ id: 'site-a', pathDisplayCase: 'title' }))
+      await vi.waitFor(() => expect(store.acronymMapLoaded).toBe(true))
+      API_CLIENT.get.mockClear()
+
+      store.applySiteInfo(siteInfoFixture({ id: 'site-b', pathDisplayCase: 'off' }))
+
+      expect(store.acronymMap).toEqual({})
+      expect(store.acronymMapLoaded).toBe(false)
+      expect(API_CLIENT.get).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('site store: fetchAcronymMap()', () => {
