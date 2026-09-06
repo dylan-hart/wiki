@@ -1,10 +1,10 @@
 <template>
-  <div class="auth">
+  <div class="auth" :class="{ 'auth--exiting': exiting }">
     <div class="auth-content">
       <div class="auth-logo"><img :src="`/_site/current/logo`" :alt="siteStore.title" /></div>
       <h2 class="auth-site-title" v-if="siteStore.logoText">{{ siteStore.title }}</h2>
       <p class="auth-lead">{{ t('auth.loginToContinue') }}</p>
-      <auth-login-panel />
+      <auth-login-panel @exit-flourish="exiting = true" />
       <!--
         The colophon, inside the column rather than under the whole shell.
 
@@ -23,6 +23,7 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
@@ -39,6 +40,16 @@ const siteStore = useSiteStore()
 // I18N
 
 const { t } = useI18n()
+
+/*
+  OpenProject #2747/#2750: `AuthLoginPanel`'s `exit-flourish` emit (fired on a successful login, once
+  the `cardinal:justLoggedIn` sessionStorage flag is set and unless `prefers-reduced-motion` is set)
+  flips this to play the `.auth-content`/`.auth-bg` exit animation below, immediately before the
+  panel's own delayed `window.location.replace()` tears the SPA down. Never reset back to `false` --
+  the whole page is about to be replaced by the hard navigation, so there is no "after" state to
+  return to.
+*/
+const exiting = ref(false)
 
 // META
 
@@ -91,6 +102,17 @@ useMeta(() => ({
     justify-content: center;
     align-items: stretch;
     box-sizing: border-box;
+    /*
+      OpenProject #2747/#2750: the exit flourish -- `AuthLoginPanel`'s `exit-flourish` emit flips
+      `.auth--exiting` on, and this scales/fades the column out over the panel's own ~320ms navigation
+      budget (`AuthLoginPanel.vue`'s `EXIT_FLOURISH_MS`) so the hard reload doesn't cut a static screen
+      away with no transition at all. `transform-origin: center` keeps the scale-down concentric rather
+      than drifting toward a corner.
+    */
+    transition:
+      transform 320ms ease-out,
+      opacity 320ms ease-out;
+    transform-origin: center;
 
     @media (max-width: $breakpoint-xs-max) {
       padding: 1rem 2rem;
@@ -284,6 +306,8 @@ useMeta(() => ({
     background-color: $tint;
     min-height: 100vh;
     overflow: hidden;
+    // -> The exit flourish's fade, matching `.auth-content`'s own duration/easing
+    transition: opacity 320ms ease-out;
 
     @at-root .body--dark & {
       background-color: $dark-4;
@@ -300,6 +324,33 @@ useMeta(() => ({
       inset-inline-end: 0;
       margin: 0;
       padding: 0;
+    }
+  }
+
+  /*
+    OpenProject #2747/#2750: the exit flourish's end state, toggled by `AuthLoginPanel`'s
+    `exit-flourish` emit (see `script setup`'s `exiting` ref). `.auth-content` scales down and fades
+    out together; `.auth-bg` only fades -- the design calls for the background pane to dim rather than
+    shrink with the column in front of it.
+  */
+  &--exiting {
+    .auth-content {
+      transform: scale(0.94);
+      opacity: 0;
+    }
+
+    .auth-bg {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    // -> Defence in depth: `AuthLoginPanel.vue` already skips emitting `exit-flourish` under reduced
+    //    motion, so `&--exiting` is never applied here, but a transition duration of zero means this
+    //    holds even if that class were ever toggled some other way.
+    &-content,
+    &-bg {
+      transition: none;
     }
   }
 }

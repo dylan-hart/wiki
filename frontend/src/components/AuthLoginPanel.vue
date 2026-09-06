@@ -354,6 +354,14 @@ import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/br
 import AuthRegisterScreen from '@/components/AuthRegisterScreen.vue'
 import AuthTfaScreens from '@/components/AuthTfaScreens.vue'
 
+/**
+ * `exit-flourish` (OpenProject #2747/#2750): tells `Login.vue` to play the `.auth-content`/`.auth-bg`
+ * exit animation. Emitted only on the non-reduced-motion path in `handleLoginResponse()`'s `redirect`
+ * case below, immediately before the delayed `window.location.replace()` -- `Login.vue` owns the CSS,
+ * this component owns the trigger and the timing budget.
+ */
+const emit = defineEmits(['exit-flourish'])
+
 // COMPOSABLES
 
 const dark = useDark()
@@ -519,6 +527,12 @@ function authorizeUrl(str) {
   return `/_api/auth/${str.id}/authorize?${params.toString()}`
 }
 
+/** Read-and-cleared by `MainLayout.vue` on mount (task #2751) to gate the entrance flourish. */
+const JUST_LOGGED_IN_KEY = 'cardinal:justLoggedIn'
+
+/** Matches `Login.vue`'s `.auth-content`/`.auth-bg` exit-transition duration. */
+const EXIT_FLOURISH_MS = 320
+
 async function handleLoginResponse(resp) {
   state.continuationToken = resp.continuationToken
   switch (resp.nextAction) {
@@ -562,19 +576,33 @@ async function handleLoginResponse(resp) {
       loading.show({
         message: t('auth.loginSuccess')
       })
-      setTimeout(() => {
-        /*
-          `resp.redirect` is a group's `redirectOnLogin` (`models/users.ts`), validated server-side on
-          the way in (`api/groups.ts`) -- but checked again here, the same defence-in-depth reasoning
-          `api/auth/provider.ts#finishProviderLogin` applies server-side, against a row written before
-          that validation existed. `javascript:…` parses as a valid `URL` with no error, so this cannot
-          be a bare try/catch around `new URL()` -- it has to look at what scheme came back
-          (OpenProject #1360/#2208, 2026-08-24 security audit §2, §9).
-        */
-        window.location.replace(
-          resp.redirect && isFollowableRedirectTarget(resp.redirect) ? resp.redirect : '/'
-        )
-      }, 1000)
+      /*
+        `resp.redirect` is a group's `redirectOnLogin` (`models/users.ts`), validated server-side on
+        the way in (`api/groups.ts`) -- but checked again here, the same defence-in-depth reasoning
+        `api/auth/provider.ts#finishProviderLogin` applies server-side, against a row written before
+        that validation existed. `javascript:…` parses as a valid `URL` with no error, so this cannot
+        be a bare try/catch around `new URL()` -- it has to look at what scheme came back
+        (OpenProject #1360/#2208, 2026-08-24 security audit §2, §9).
+      */
+      const target =
+        resp.redirect && isFollowableRedirectTarget(resp.redirect) ? resp.redirect : '/'
+      /*
+        OpenProject #2747/#2750: the flag `MainLayout.vue` reads-and-clears on mount to gate its own
+        entrance flourish (sibling task #2751) -- set unconditionally, BEFORE either branch below
+        navigates, and regardless of `prefers-reduced-motion`, since Task B's read has to see it
+        either way even when neither side actually animates.
+      */
+      sessionStorage.setItem(JUST_LOGGED_IN_KEY, '1')
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        // -> No flourish to wait out: navigate straight away.
+        window.location.replace(target)
+      } else {
+        // -> `Login.vue` plays the `.auth-content`/`.auth-bg` exit animation off this emit.
+        emit('exit-flourish')
+        setTimeout(() => {
+          window.location.replace(target)
+        }, EXIT_FLOURISH_MS)
+      }
       break
     }
     default: {
