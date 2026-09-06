@@ -143,7 +143,7 @@
                   the stylesheet has `--content-bleed` to match -->
           <div
             class="page-container-body"
-            :class="{ 'is-centered': siteStore.theme.contentWidth === `centered` }">
+            :class="{ 'is-measured': siteStore.theme.contentWidth === `measured` }">
             <!--
               Delegated rather than bound per link: the anchors are written by `v-html`, so there is
               nothing here to put a handler on, and they are replaced wholesale on every render.
@@ -1322,18 +1322,20 @@ $toc-overlay-max: 749.98px;
 }
 
 /*
-  A measure, when the site asks for one. `contentWidth` has been a stored, editable setting with
-  nothing reading it -- so "Centered" in the theme settings did nothing at all -- and 720px is the
-  measure the design draws (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: the article pads
-  32/28/44 and then holds its text to 720px inside that).
+  A measure, when the site asks for one. 720px is the measure the design draws
+  (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: the article pads 32/28/44 and then holds its text
+  to 720px inside that) -- and it holds the text FLUSH to the padded column's leading edge, since the
+  mockup writes a bare `max-width: 720px` with no `margin: 0 auto` anywhere in the file. A measure is
+  a line length, not a position: the text starts where every other thing on this surface starts, and
+  simply stops early. Centring it instead left the article drifting away from the breadcrumbs and
+  header above it on a wide window, which is what this setting was reported for.
 
   On the contents rather than on this box, so the padding above stays the column's and only the text
   is bounded: a page of prose reads at a comfortable measure while the sheet it sits on still fills
   the window.
 */
-.page-container-body.is-centered > .page-contents {
+.page-container-body.is-measured > .page-contents {
   max-width: 720px;
-  margin-inline: auto;
 }
 
 /*

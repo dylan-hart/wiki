@@ -337,6 +337,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAdminSettings } from '@/composables/adminSettings'
@@ -393,7 +394,7 @@ function defaultConfig() {
     colorHeader: '#ffffff',
     colorSidebar: '#f0f2f7',
     codeBlocksTheme: 'github-dark',
-    contentWidth: 'centered',
+    contentWidth: 'measured',
     sidebarPosition: 'left',
     tocPosition: 'right',
     showPrintBtn: true,
@@ -464,10 +465,16 @@ const PAGE_BG_DARK = '#1b1f2a'
  */
 const CHROME_TEXT_COLOR = '#1c2233'
 
-const widthOptions = [
-  { label: 'Full Width', value: 'full' },
-  { label: 'Centered', value: 'centered' }
-]
+/*
+  "Measured", not "Centered": the setting holds page content to the design's 720px measure and leaves
+  it flush to the article column's leading edge -- it does not centre anything, and never should have
+  claimed to (see `Index.vue`'s `.page-container-body.is-measured` rule). Translated, unlike the other
+  option lists on this page, because these two labels had to be rewritten here anyway.
+*/
+const widthOptions = computed(() => [
+  { label: t('admin.theme.contentWidthFull'), value: 'full' },
+  { label: t('admin.theme.contentWidthMeasured'), value: 'measured' }
+])
 
 const rightLeftOptions = [
   { label: 'Hide', value: 'off' },
