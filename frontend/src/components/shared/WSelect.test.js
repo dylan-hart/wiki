@@ -37,6 +37,16 @@ describe('WSelect', () => {
     expect(control(wrapper).classes()).toContain('rounded-card')
   })
 
+  it('draws a read-only field off the dark-3-5 rung, not dark-4, matching WInput (OpenProject #2816)', () => {
+    const wrapper = mount(WSelect, {
+      props: { modelValue: null, options: ['a'], readonly: true, ariaLabel: 'Pick one' }
+    })
+
+    const classes = control(wrapper).classes()
+    expect(classes).toContain('dark:bg-dark-3-5')
+    expect(classes).not.toContain('dark:bg-dark-4')
+  })
+
   it('opens the listbox on click and lists every option', async () => {
     const wrapper = mount(WSelect, {
       props: { modelValue: null, options: ['a', 'b', 'c'], ariaLabel: 'Pick one' },
