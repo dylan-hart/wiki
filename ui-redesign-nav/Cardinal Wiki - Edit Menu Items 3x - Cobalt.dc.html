@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5ff;font-family:Barlow,system-ui,sans-serif}
+a{color:#1f4fd6;text-decoration:none}a:hover{color:#1a43bd}
+</style></helmet>
+
+<div style="min-height:100vh;background:linear-gradient(rgba(20,23,31,.72),rgba(20,23,31,.72)),repeating-linear-gradient(135deg,#3a4256 0 12px,#333b4d 12px 24px);padding:24px;box-sizing:border-box" data-screen-label="Edit menu items overlay 3.x — Cobalt">
+  <div style="background:#f2f5ff;border-radius:12px;overflow:hidden;box-shadow:0 0 30px rgba(0,0,0,.4);display:flex;flex-direction:column;min-height:calc(100vh - 48px);box-sizing:border-box">
+
+    <!-- header -->
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#1c2a70;flex:none;flex-wrap:wrap">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff7a84" stroke-width="1.6" style="flex:none"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg>
+      <span style="font:600 15px 'Barlow Condensed',sans-serif;letter-spacing:.08em;color:#fff;text-transform:uppercase;white-space:nowrap">Edit menu items</span>
+      <span style="font:400 11px 'Roboto Mono',monospace;color:#a7b3ea;white-space:nowrap">/docs/ingest/workers</span>
+      <sc-if value="{{ isInherited }}" hint-placeholder-val="{{ false }}">
+        <span style="display:flex;align-items:center;gap:6px;font:400 11.5px Barlow;color:#fff;background:rgba(255,255,255,.12);border-radius:12px;padding:3px 10px;white-space:nowrap"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ff8f97" stroke-width="1.8" style="flex:none"><path d="M12 8v5M12 16h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>Inherited menu &mdash; shared with every page using it</span>
+      </sc-if>
+      <sc-if value="{{ isAuto }}" hint-placeholder-val="{{ false }}">
+        <span style="display:flex;align-items:center;gap:6px;font:400 11.5px Barlow;color:#fff;background:rgba(255,255,255,.12);border-radius:12px;padding:3px 10px;white-space:nowrap">Generated from the page tree &mdash; read only</span>
+      </sc-if>
+      <span style="flex:1"></span>
+      <div style="width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a7b3ea" stroke-width="1.6"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"></path></svg></div>
+      <div style="display:flex;align-items:stretch;gap:6px;flex:none">
+        <div style="height:28px;background:#fff;color:#1e2a5e;border-radius:6px;display:flex;align-items:center;gap:7px;padding:0 12px;font:500 12.5px Barlow;white-space:nowrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.8" style="flex:none"><path d="M6 6l12 12M18 6L6 18"></path></svg>Cancel</div>
+        <div style="height:28px;background:{{ saveBg }};color:#fff;border-radius:6px;display:flex;align-items:center;gap:7px;padding:0 12px;font:500 12.5px Barlow;white-space:nowrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="flex:none"><path d="M5 12l4.5 4.5L19 7"></path></svg>Save</div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;align-items:stretch;min-height:0">
+
+      <!-- ITEM LIST -->
+      <div style="flex:0 0 295px;background:#10194a;display:flex;flex-direction:column">
+        <div style="height:40px;box-sizing:border-box;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;padding:0 14px 0 20px">
+          <span style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#7f8ed1;text-transform:uppercase">Menu items</span>
+          <span style="font:500 10.5px 'Roboto Mono',monospace;color:#d7deff;background:rgba(255,255,255,.1);border-radius:10px;padding:1px 8px">{{ itemCount }}</span>
+        </div>
+        <sc-if value="{{ isMixed }}" hint-placeholder-val="{{ false }}">
+          <div style="font:400 11.5px/1.45 Barlow;color:#a7b3ea;padding:10px 20px 0">Dimmed items are generated from the page tree and cannot be edited, removed or dragged.</div>
+        </sc-if>
+        <div style="flex:1;padding:14px 10px 0">
+
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px">
+            <span style="flex:1;font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#7f8ed1;text-transform:uppercase">Documentation</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;font:400 13.5px Barlow;color:#d7deff"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M3 7h6l2 2h10v10H3z"></path></svg><span style="flex:1;min-width:0">Platform</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;font:400 13.5px Barlow;color:#d7deff"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M3 7h6l2 2h10v10H3z"></path></svg><span style="flex:1;min-width:0">Runbooks</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+            <!-- selected parent -->
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:#1f4fd6;font:600 13.5px Barlow;color:#fff;box-shadow:inset 3px 0 0 #ff4d5a"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" style="flex:none"><rect x="5" y="3" width="14" height="18"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg><span style="flex:1;min-width:0">Ingest workers</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c9d6ff" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+            <!-- nested run -->
+            <div style="position:relative;margin-left:10px;border-left:10px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:0 6px 6px 0">
+              <i style="position:absolute;left:-10px;top:-10px;width:0;height:0;border-style:solid;border-width:0 10px 10px 0;border-color:transparent transparent rgba(255,255,255,.08) transparent"></i>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 10px 7px 14px;font:400 13px Barlow;color:#a7b3ea"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg><span style="flex:1;min-width:0">Queue topology</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 10px 7px 14px;font:400 13px Barlow;color:#a7b3ea"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg><span style="flex:1;min-width:0">Backfills</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;font:400 13.5px Barlow;color:#d7deff"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M3 7h6l2 2h10v10H3z"></path></svg><span style="flex:1;min-width:0">Style guide</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 10px"><span style="flex:1;height:1px;background:rgba(255,255,255,.18)"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px">
+            <span style="flex:1;font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#7f8ed1;text-transform:uppercase">External</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;font:400 13.5px Barlow;color:#d7deff"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="1.6" style="flex:none"><path d="M14 4h6v6M20 4l-9 9"></path><path d="M18 14v6H4V6h6"></path></svg><span style="flex:1;min-width:0">Status page</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a6699" stroke-width="1.6" style="flex:none"><path d="M5 9h14M5 15h14"></path></svg></div>
+
+          <sc-if value="{{ isMixed }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:8px;border-top:2px dashed rgba(255,255,255,.22);padding-top:6px">
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 10px 4px"><span style="flex:1;font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#5a6699;text-transform:uppercase">From the page tree</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;font:400 13.5px Barlow;color:#5a6699"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3a4680" stroke-width="1.6" style="flex:none"><path d="M3 7h6l2 2h10v10H3z"></path></svg><span style="flex:1;min-width:0">Operations</span></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;font:400 13.5px Barlow;color:#5a6699"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3a4680" stroke-width="1.6" style="flex:none"><path d="M14 3v5h5"></path><path d="M19 8v13H5V3h9z"></path></svg><span style="flex:1;min-width:0">Release calendar</span></div>
+            </div>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ notAuto }}" hint-placeholder-val="{{ true }}">
+          <div style="border-top:1px solid rgba(255,255,255,.08);display:flex;align-items:stretch;gap:8px;padding:12px 14px">
+            <div style="flex:1;height:34px;background:#c8303c;color:#fff;border-radius:6px;box-shadow:0 4px 14px rgba(200,48,60,.35);display:flex;align-items:center;justify-content:center;gap:8px;font:600 12.5px Barlow">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="flex:none"><path d="M12 5v14M5 12h14"></path></svg>Add item
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" style="flex:none"><path d="M6 10l6 6 6-6"></path></svg>
+            </div>
+            <div style="height:34px;width:36px;border-radius:6px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;box-sizing:border-box"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d7deff" stroke-width="1.6"><circle cx="12" cy="5.5" r="1.3"></circle><circle cx="12" cy="12" r="1.3"></circle><circle cx="12" cy="18.5" r="1.3"></circle></svg></div>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- DETAIL PANEL -->
+      <div style="flex:1;min-width:0;padding:20px 24px 28px;display:flex;flex-direction:column;gap:16px">
+        <sc-if value="{{ readOnly }}" hint-placeholder-val="{{ false }}">
+          <div style="border-radius:6px;background:#e6edff;border-left:3px solid #1f4fd6;display:flex;align-items:center;gap:12px;padding:12px 16px;max-width:760px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6" style="flex:none"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v5h1"></path></svg>
+            <p style="font:400 13.5px/1.55 Barlow;color:#1e2a5e;margin:0">This menu is generated automatically from the page tree. Switch the menu source to Mixed or Manual to edit items directly.</p>
+          </div>
+        </sc-if>
+
+        <div style="background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);max-width:760px;overflow:hidden;opacity:{{ panelOpacity }}">
+          <div style="height:40px;box-sizing:border-box;border-bottom:1px solid #eef1fb;display:flex;align-items:center;gap:10px;padding:0 16px">
+            <span style="font:600 16px 'Barlow Condensed',sans-serif;letter-spacing:.04em;color:#1f4fd6;text-transform:uppercase">Link</span>
+            <span style="flex:1"></span>
+            <span style="font:600 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;background:#e6edff;color:#1a3fb0;border-radius:4px;padding:3px 7px">Parent &middot; 2 children</span>
+          </div>
+
+          <!-- label -->
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #eef1fb;flex-wrap:wrap">
+            <div style="width:34px;height:34px;flex:none;border-radius:8px;background:#e6edff;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><path d="M4 6V4h16v2M12 4v16M9 20h6"></path></svg></div>
+            <div style="flex:1 1 180px;min-width:0"><div style="font:500 14px Barlow;color:#10194a">Label</div><div style="font:400 12.5px Barlow;color:#5a6699">The text shown in the sidebar.</div></div>
+            <div style="flex:1 1 220px;height:34px;box-sizing:border-box;border:1px solid #1e2a5e;border-radius:8px;background:#fff;display:flex;align-items:center;padding:0 10px;font:400 13.5px Barlow;color:#10194a">Ingest workers<span style="width:1px;height:16px;background:#ff4d5a;margin-left:1px"></span></div>
+          </div>
+          <!-- icon -->
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #eef1fb;flex-wrap:wrap">
+            <div style="width:34px;height:34px;flex:none;border-radius:8px;background:#e6edff;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"></path></svg></div>
+            <div style="flex:1 1 180px;min-width:0"><div style="font:500 14px Barlow;color:#10194a">Icon</div><div style="font:400 12.5px Barlow;color:#5a6699">Shown before the label.</div></div>
+            <div style="flex:1 1 220px;height:34px;box-sizing:border-box;border:1px solid #dfe5f5;border-radius:8px;background:#fff;display:flex;align-items:center;gap:8px;padding:0 0 0 10px;overflow:hidden">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1e2a5e" stroke-width="1.6" style="flex:none"><rect x="5" y="3" width="14" height="18"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>
+              <span style="flex:1;font:400 12.5px 'Roboto Mono',monospace;color:#1a2038">tabler:file-text</span>
+              <div style="width:32px;height:32px;border-left:1px solid #dfe5f5;display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.8"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5 21 21"></path></svg></div>
+            </div>
+          </div>
+          <sc-if value="{{ isParent }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #eef1fb">
+              <div style="width:34px;height:34px;flex:none;border-radius:8px;background:#e6edff;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><path d="M9 6l6 6-6 6"></path></svg></div>
+              <div style="flex:1;min-width:0"><div style="font:500 14px Barlow;color:#10194a">Expand by default</div><div style="font:400 12.5px Barlow;color:#5a6699">Open this group when the sidebar loads. A parent row opens its children instead of going anywhere, so it has no target.</div></div>
+              <span style="width:34px;height:18px;border:1px solid #c5cff5;background:#e6edff;border-radius:9px;display:flex;align-items:center;padding:2px;box-sizing:border-box;flex:none"><span style="width:14px;height:14px;border-radius:7px;background:#c5cff5"></span></span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ notParent }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #eef1fb;flex-wrap:wrap">
+              <div style="width:34px;height:34px;flex:none;border-radius:8px;background:#e6edff;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><path d="M10 14a4 4 0 0 1 0-5.7l2.3-2.3a4 4 0 0 1 5.7 5.7l-1.3 1.3"></path><path d="M14 10a4 4 0 0 1 0 5.7l-2.3 2.3a4 4 0 0 1-5.7-5.7l1.3-1.3"></path></svg></div>
+              <div style="flex:1 1 180px;min-width:0"><div style="font:500 14px Barlow;color:#10194a">Target</div><div style="font:400 12.5px Barlow;color:#5a6699">A page path or any URL.</div></div>
+              <div style="flex:1 1 220px;height:34px;box-sizing:border-box;border:1px solid #dfe5f5;border-radius:8px;background:#fff;display:flex;align-items:center;gap:8px;padding:0 0 0 10px;overflow:hidden">
+                <span style="flex:1;font:400 12.5px 'Roboto Mono',monospace;color:#1a2038">/docs/ingest/workers</span>
+                <div style="width:32px;height:32px;border-left:1px solid #dfe5f5;display:flex;align-items:center;justify-content:center;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7"><path d="M3 7h6l2 2h10v10H3z"></path></svg></div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #eef1fb">
+              <div style="width:34px;height:34px;flex:none;border-radius:8px;background:#e6edff;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><path d="M14 4h6v6M20 4l-9 9"></path><path d="M18 14v6H4V6h6"></path></svg></div>
+              <div style="flex:1;min-width:0"><div style="font:500 14px Barlow;color:#10194a">Open in a new window</div><div style="font:400 12.5px Barlow;color:#5a6699">Leave the wiki open behind the link.</div></div>
+              <span style="width:34px;height:18px;border:1px solid #c5cff5;background:#e6edff;border-radius:9px;display:flex;align-items:center;padding:2px;box-sizing:border-box;flex:none"><span style="width:14px;height:14px;border-radius:7px;background:#c5cff5"></span></span>
+            </div>
+          </sc-if>
+          <!-- visibility -->
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;flex-wrap:wrap">
+            <div style="width:34px;height:34px;flex:none;border-radius:8px;background:#e6edff;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.6"><circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9" r="2.4"></circle><path d="M3 19c0-3.3 2.7-6 6-6s6 2.7 6 6M15.5 14.5c2.8 0 5 2 5 4.5"></path></svg></div>
+            <div style="flex:1 1 180px;min-width:0"><div style="font:500 14px Barlow;color:#10194a">Visibility</div><div style="font:400 12.5px Barlow;color:#5a6699">Who sees this item in the sidebar.</div></div>
+            <div style="display:flex;align-items:stretch;flex:none">
+              <div style="height:30px;border:1px solid #dfe5f5;border-radius:6px 0 0 6px;color:#1e2a5e;display:flex;align-items:center;padding:0 12px;font:400 12px Barlow;box-sizing:border-box;white-space:nowrap">Everyone</div>
+              <div style="height:30px;background:#c8303c;color:#fff;border-radius:0 6px 6px 0;box-shadow:0 4px 14px rgba(200,48,60,.35);display:flex;align-items:center;padding:0 12px;font:500 12px Barlow;white-space:nowrap">Selected groups</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:0 16px 16px 62px;flex-wrap:wrap">
+            <div style="flex:1 1 220px;min-height:34px;box-sizing:border-box;border:1px solid #dfe5f5;border-radius:8px;background:#fff;display:flex;align-items:center;gap:6px;padding:3px 8px;flex-wrap:wrap">
+              <span style="display:flex;align-items:center;gap:6px;background:#dbe5ff;color:#1a3fb0;border-radius:12px;padding:3px 10px;font:500 12px Barlow;white-space:nowrap">Platform engineers<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1a3fb0" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"></path></svg></span>
+              <span style="display:flex;align-items:center;gap:6px;background:#dbe5ff;color:#1a3fb0;border-radius:12px;padding:3px 10px;font:500 12px Barlow;white-space:nowrap">On-call<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1a3fb0" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"></path></svg></span>
+              <span style="flex:1;min-width:60px;font:400 13px Barlow;color:#5a6699">Add a group&hellip;</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7f8ed1" stroke-width="2" style="flex:none"><path d="M6 10l6 6 6-6"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <sc-if value="{{ notReadOnly }}" hint-placeholder-val="{{ true }}">
+          <div style="background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08);display:flex;align-items:flex-start;gap:16px;padding:12px 16px;max-width:760px;flex-wrap:wrap">
+            <div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <div style="height:32px;border:1px solid #dfe5f5;border-radius:6px;color:#1f4fd6;display:flex;align-items:center;gap:8px;padding:0 12px;font:500 12.5px Barlow;box-sizing:border-box;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f4fd6" stroke-width="1.7" style="flex:none"><path d="M4 6h16M10 12h10M10 18h10M4 10l3 2-3 2"></path></svg>Nest under the item above</div>
+                <div style="height:32px;border:1px solid #e6edff;border-radius:6px;color:#c5cff5;display:flex;align-items:center;gap:8px;padding:0 12px;font:500 12.5px Barlow;box-sizing:border-box;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c5cff5" stroke-width="1.7" style="flex:none"><path d="M4 6h16M10 12h10M10 18h10M7 10l-3 2 3 2"></path></svg>Un-nest</div>
+              </div>
+              <div style="font:400 12px/1.5 Barlow;color:#5a6699">Only one level of nesting. A nested item with no link above it is flagged red in the list and blocks Save.</div>
+            </div>
+            <span style="flex:1"></span>
+            <div style="height:32px;color:#c8303c;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 8px;font:500 12.5px Barlow;white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8303c" stroke-width="1.7" style="flex:none"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"></path></svg>Delete item</div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;menuSource&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;manual&quot;,&quot;mixed&quot;,&quot;auto&quot;],&quot;default&quot;:&quot;manual&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Menu&quot;},&quot;isInherited&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Menu&quot;},&quot;selectedIsParent&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Selected item&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const source = this.props.menuSource ?? 'manual';
+    const isAuto = source === 'auto';
+    const isMixed = source === 'mixed';
+    const isParent = this.props.selectedIsParent ?? true;
+    return {
+      isAuto, notAuto: !isAuto, isMixed,
+      isInherited: this.props.isInherited ?? false,
+      isParent, notParent: !isParent,
+      readOnly: isAuto, notReadOnly: !isAuto,
+      panelOpacity: isAuto ? 0.55 : 1,
+      saveBg: isAuto ? '#5a6699' : '#22a37f',
+      itemCount: isMixed ? 12 : 10
+    };
+  }
+}
+</script>
+</body>
+</html>

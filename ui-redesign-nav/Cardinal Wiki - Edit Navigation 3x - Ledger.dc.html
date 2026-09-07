@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;font-family:Barlow,system-ui,sans-serif}
+a{color:#a83f45;text-decoration:none}a:hover{color:#c14a52}
+</style></helmet>
+
+<section style="background:#f5f6f9;padding:28px" data-screen-label="Edit navigation — Ledger options">
+  <div style="display:flex;align-items:center;gap:12px">
+    <svg width="30" height="30" viewBox="0 0 32 32" style="flex:none"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg>
+    <div>
+      <div style="font:700 22px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div>
+      <div style="font:500 8.5px/1.3 'Roboto Mono',monospace;letter-spacing:.22em;color:#4e5d7d;text-transform:uppercase">Edit navigation &mdash; Ledger (1a locked)</div>
+    </div>
+  </div>
+  <div style="font:400 13.5px/1.6 Barlow;color:#4e5d7d;max-width:760px;padding:10px 0 22px;text-wrap:pretty">Opened from the sidebar's Edit navigation footer. It settles two things for the page you are on: which sidebar this path shows (inherit the parent's, set its own, or hide it, each for this page alone or for everything below it) and where that menu's items come from. Editing the items themselves is a separate overlay it hands off to.</div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start">
+
+    <!-- ============ 1a POPOVER ============ -->
+    <div id="1a" style="flex:none;display:flex;flex-direction:column;gap:10px;width:900px;max-width:100%">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font:600 11px 'Roboto Mono',monospace;background:#1c2233;color:#fff;padding:3px 7px;letter-spacing:.08em">1a</span>
+        <span style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">Popover off the footer</span>
+        <span style="font:600 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;background:#fdeced;border:1px solid #e4676b;color:#c14a52;padding:3px 7px">Locked</span>
+      </div>
+      <div style="width:900px;height:620px;max-width:100%;border:1px solid #dbe1ec;background:#f5f6f9;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box">
+        <div style="height:48px;flex:none;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 14px;gap:10px">
+          <svg width="24" height="24" viewBox="0 0 32 32" style="flex:none"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg>
+          <div style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div>
+          <div style="flex:1"></div>
+          <div style="width:26px;height:26px;background:#38465f;color:#fff;font:600 10px 'Barlow Condensed',sans-serif;letter-spacing:.06em;display:flex;align-items:center;justify-content:center">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 255px;background:#f0f2f7;border-right:1px solid #dbe1ec;display:flex;flex-direction:column">
+            <div style="height:36px;flex:none;border-bottom:1px solid #dbe1ec;display:flex;align-items:stretch">
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"></path></svg>EN</div>
+              <span style="width:1px;background:#dbe1ec"></span>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.5"><path d="M3 6h6l2 2h10v12H3z"></path></svg>Browse</div>
+            </div>
+            <div style="flex:1;padding:16px 0">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:0 18px 10px">Documentation</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M3 7h6l2 2h10v10H3z"></path></svg>Platform</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M3 7h6l2 2h10v10H3z"></path></svg>Runbooks</div>
+              <div style="background:#fff;border-left:2px solid #e4676b;display:flex;align-items:center;gap:10px;padding:7px 18px 7px 16px;font:500 13.5px Barlow;color:#1c2233"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e4676b" stroke-width="1.5"><rect x="5" y="3" width="14" height="18"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>Ingest workers</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Queue topology</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Backfills</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M3 7h6l2 2h10v10H3z"></path></svg>Style guide</div>
+            </div>
+            <div style="border-top:1px solid #dbe1ec;height:38px;flex:none;background:#fff;box-shadow:inset 0 2px 0 #e4676b;display:flex;align-items:center;justify-content:center;gap:8px;font:500 11.5px Barlow;color:#1c2233"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c14a52" stroke-width="1.5"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 4v2M12 18v2M4 12h2M18 12h2"></path></svg>Edit navigation</div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff">
+            <div style="border-bottom:1px solid #dbe1ec;display:flex;align-items:center;gap:8px;padding:6px 16px;font:400 11.5px 'Roboto Mono',monospace;color:#57668a"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.6" style="flex:none"><path d="M4 11l8-7 8 7v9H4z"></path></svg><span style="color:#c9d2e2">/</span><span>docs</span><span style="color:#c9d2e2">/</span><span>ingest</span><span style="color:#c9d2e2">/</span><span style="color:#38465f">workers</span><span style="flex:1"></span><span>Last modified Tue 4:12 PM</span></div>
+            <div style="border-bottom:1px solid #dbe1ec;padding:18px 20px">
+              <h1 style="font:700 30px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin:0">Deploying the ingest workers</h1>
+              <div style="font:400 13.5px/1.45 Barlow;color:#4e5d7d;margin-top:5px">Rollout, draining and rollback for the ingest worker fleet.</div>
+            </div>
+            <div style="padding:26px 24px;display:flex;flex-direction:column;gap:12px;max-width:560px">
+              <div style="height:9px;background:#e4e9f2;width:88%"></div><div style="height:9px;background:#e4e9f2;width:96%"></div><div style="height:9px;background:#e4e9f2;width:72%"></div><div style="height:9px;background:#e4e9f2;width:40%;margin-top:14px"></div><div style="height:9px;background:#e4e9f2;width:92%"></div><div style="height:9px;background:#e4e9f2;width:64%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- the popover -->
+        <div style="position:absolute;left:8px;bottom:46px;width:344px;background:#fff;border:1px solid #dbe1ec;box-shadow:0 10px 28px rgba(28,34,51,.16)">
+          <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-top:1px solid #8a99b8;border-left:1px solid #8a99b8"></i>
+          <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-bottom:1px solid #8a99b8;border-right:1px solid #8a99b8"></i>
+          <div style="padding:11px 14px 9px;display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #eef1f7">
+            <span style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">Edit navigation</span>
+            <span style="flex:1"></span>
+            <span style="font:400 10.5px 'Roboto Mono',monospace;color:#57668a">/docs/ingest/workers</span>
+          </div>
+          <div style="padding:8px 0 4px">
+            <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:2px 14px 6px">Sidebar for this page</div>
+            <sc-if value="{{ notRoot }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 14px">
+                <span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none"></span>
+                <div style="width:28px;height:28px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke-width="1.2"><rect x="1.5" y="1.5" width="17" height="3.5" fill="#64789f" stroke="#64789f"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8"></rect></svg></div>
+                <div style="flex:1;min-width:0"><div style="font:400 13px Barlow;color:#2f3a4f">Inherit</div><div style="font:400 11.5px/1.35 Barlow;color:#57668a">Use the menu and settings from the parent path.</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 14px;background:#f0f2f7;box-shadow:inset 2px 0 0 #e4676b">
+                <span style="width:13px;height:13px;border:1px solid #e4676b;flex:none;display:flex;align-items:center;justify-content:center"><span style="width:7px;height:7px;background:#e4676b;display:block"></span></span>
+                <div style="width:28px;height:28px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke-width="1.2"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" fill="#e4676b" stroke="#e4676b"></rect></svg></div>
+                <div style="flex:1;min-width:0"><div style="font:500 13px Barlow;color:#1c2233">Override, this page and below</div><div style="font:400 11.5px/1.35 Barlow;color:#57668a">Set menu items and settings for this path and all descendants.</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 14px">
+                <span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none"></span>
+                <div style="width:28px;height:28px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke-width="1.2"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8"></rect></svg></div>
+                <div style="flex:1;min-width:0"><div style="font:400 13px Barlow;color:#2f3a4f">Override, this page only</div><div style="font:400 11.5px/1.35 Barlow;color:#57668a">Set menu items and settings only for this path.</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 14px">
+                <span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none"></span>
+                <div style="width:28px;height:28px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke-width="1.2"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect></svg></div>
+                <div style="flex:1;min-width:0"><div style="font:400 13px Barlow;color:#2f3a4f">Hide, this page and below</div><div style="font:400 11.5px/1.35 Barlow;color:#57668a">No sidebar for this path and all descendants.</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 14px">
+                <span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none"></span>
+                <div style="width:28px;height:28px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke-width="1.2"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8"></rect></svg></div>
+                <div style="flex:1;min-width:0"><div style="font:400 13px Barlow;color:#2f3a4f">Hide, this page only</div><div style="font:400 11.5px/1.35 Barlow;color:#57668a">No sidebar only for this path.</div></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ isRoot }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 14px;background:#f0f2f7;box-shadow:inset 2px 0 0 #e4676b">
+                <span style="width:13px;height:13px;border:1px solid #e4676b;flex:none;display:flex;align-items:center;justify-content:center"><span style="width:7px;height:7px;background:#e4676b;display:block"></span></span>
+                <div style="width:28px;height:28px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke-width="1.2"><rect x="1.5" y="1.5" width="17" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" fill="#e4676b" stroke="#e4676b"></rect></svg></div>
+                <div style="flex:1;min-width:0"><div style="font:500 13px Barlow;color:#1c2233">Show</div><div style="font:400 11.5px/1.35 Barlow;color:#57668a">Show the sidebar menu across the site.</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 14px">
+                <span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none"></span>
+                <div style="width:28px;height:28px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke-width="1.2"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect></svg></div>
+                <div style="flex:1;min-width:0"><div style="font:400 13px Barlow;color:#2f3a4f">Hide</div><div style="font:400 11.5px/1.35 Barlow;color:#57668a">Completely hide the sidebar menu.</div></div>
+              </div>
+            </sc-if>
+          </div>
+          <div style="height:1px;background:#eef1f7;margin:4px 14px"></div>
+          <div style="padding:8px 14px 10px">
+            <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:2px 0 8px">Menu source</div>
+            <div style="display:flex;align-items:stretch">
+              <div style="flex:1;height:30px;background:#e4676b;color:#fff;display:flex;align-items:center;justify-content:center;font:500 12px Barlow">Manual</div>
+              <div style="flex:1;height:30px;border:1px solid #dbe1ec;border-left:0;color:#38465f;display:flex;align-items:center;justify-content:center;font:400 12px Barlow;box-sizing:border-box">Automatic</div>
+              <div style="flex:1;height:30px;border:1px solid #dbe1ec;border-left:0;color:#38465f;display:flex;align-items:center;justify-content:center;font:400 12px Barlow;box-sizing:border-box">Mixed</div>
+            </div>
+            <div style="font:400 11.5px/1.4 Barlow;color:#57668a;padding-top:6px">Menu items are entered by hand.</div>
+          </div>
+          <div style="padding:0 14px 12px">
+            <div style="height:32px;border:1px solid #dbe1ec;display:flex;align-items:center;gap:8px;padding:0 10px;font:500 12.5px Barlow;color:#38465f;box-sizing:border-box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.6" style="flex:none"><path d="M9 6h11M9 12h11M9 18h11"></path><rect x="3" y="4.5" width="3" height="3"></rect><rect x="3" y="10.5" width="3" height="3"></rect><rect x="3" y="16.5" width="3" height="3"></rect></svg><span style="flex:1">Edit menu items&hellip;</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.8" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg></div>
+          </div>
+          <div style="border-top:1px solid #dbe1ec;background:#f8f9fc;display:flex;justify-content:flex-end;gap:8px;padding:10px 14px">
+            <div style="height:32px;border:1px solid #dbe1ec;background:#fff;color:#4e5d7d;display:flex;align-items:center;padding:0 14px;font:500 12.5px Barlow;box-sizing:border-box">Cancel</div>
+            <div style="height:32px;background:#38465f;color:#fff;display:flex;align-items:center;gap:8px;padding:0 14px;font:500 12.5px Barlow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" style="flex:none"><path d="M5 12l4.5 4.5L19 7"></path></svg>Save</div>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}">
+        <div style="font:400 12.5px/1.6 Barlow;color:#4e5d7d;max-width:720px;text-wrap:pretty">The lightest object: a popover rising off the footer button that opened it, in the create menu's material (two corner marks, 28px plates, one tinted row) so a menu and a settings menu read as the same thing. The footer keeps an accent top edge while it is open. Each mode carries a small cascade glyph: parent, this page, descendants, with the affected rows filled, the hidden ones dashed. Save is slate, because this commits a setting; nothing red is filled until you pick something.</div>
+      </sc-if>
+    </div>
+
+    <!-- ============ 1b TWO-STEP DIALOG ============ -->
+    <div id="1b" style="flex:none;display:flex;flex-direction:column;gap:10px;width:900px;max-width:100%">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font:600 11px 'Roboto Mono',monospace;background:#1c2233;color:#fff;padding:3px 7px;letter-spacing:.08em">1b</span>
+        <span style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">Two decisions, one dialog</span>
+      </div>
+      <div style="width:900px;height:620px;max-width:100%;border:1px solid #dbe1ec;background:#f5f6f9;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box">
+        <div style="height:48px;flex:none;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 14px;gap:10px">
+          <svg width="24" height="24" viewBox="0 0 32 32" style="flex:none"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg>
+          <div style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div>
+          <div style="flex:1"></div>
+          <div style="width:26px;height:26px;background:#38465f;color:#fff;font:600 10px 'Barlow Condensed',sans-serif;letter-spacing:.06em;display:flex;align-items:center;justify-content:center">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 255px;background:#f0f2f7;border-right:1px solid #dbe1ec;display:flex;flex-direction:column">
+            <div style="height:36px;flex:none;border-bottom:1px solid #dbe1ec;display:flex;align-items:stretch">
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"></path></svg>EN</div>
+              <span style="width:1px;background:#dbe1ec"></span>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.5"><path d="M3 6h6l2 2h10v12H3z"></path></svg>Browse</div>
+            </div>
+            <div style="flex:1;padding:16px 0">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:0 18px 10px">Documentation</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M3 7h6l2 2h10v10H3z"></path></svg>Platform</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M3 7h6l2 2h10v10H3z"></path></svg>Runbooks</div>
+              <div style="background:#fff;border-left:2px solid #e4676b;display:flex;align-items:center;gap:10px;padding:7px 18px 7px 16px;font:500 13.5px Barlow;color:#1c2233"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e4676b" stroke-width="1.5"><rect x="5" y="3" width="14" height="18"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>Ingest workers</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Queue topology</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Backfills</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13.5px Barlow;color:#38465f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><path d="M3 7h6l2 2h10v10H3z"></path></svg>Style guide</div>
+            </div>
+            <div style="border-top:1px solid #dbe1ec;height:38px;flex:none;display:flex;align-items:center;justify-content:center;gap:8px;font:500 11.5px Barlow;color:#4e5d7d"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.5"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 4v2M12 18v2M4 12h2M18 12h2"></path></svg>Edit navigation</div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff">
+            <div style="border-bottom:1px solid #dbe1ec;display:flex;align-items:center;gap:8px;padding:6px 16px;font:400 11.5px 'Roboto Mono',monospace;color:#57668a"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.6" style="flex:none"><path d="M4 11l8-7 8 7v9H4z"></path></svg><span style="color:#c9d2e2">/</span><span>docs</span><span style="color:#c9d2e2">/</span><span>ingest</span><span style="color:#c9d2e2">/</span><span style="color:#38465f">workers</span><span style="flex:1"></span><span>Last modified Tue 4:12 PM</span></div>
+            <div style="border-bottom:1px solid #dbe1ec;padding:18px 20px">
+              <h1 style="font:700 30px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin:0">Deploying the ingest workers</h1>
+              <div style="font:400 13.5px/1.45 Barlow;color:#4e5d7d;margin-top:5px">Rollout, draining and rollback for the ingest worker fleet.</div>
+            </div>
+            <div style="padding:26px 24px;display:flex;flex-direction:column;gap:12px;max-width:560px">
+              <div style="height:9px;background:#e4e9f2;width:88%"></div><div style="height:9px;background:#e4e9f2;width:96%"></div><div style="height:9px;background:#e4e9f2;width:72%"></div><div style="height:9px;background:#e4e9f2;width:40%;margin-top:14px"></div><div style="height:9px;background:#e4e9f2;width:92%"></div><div style="height:9px;background:#e4e9f2;width:64%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- scrim + dialog -->
+        <div style="position:absolute;inset:0;background:rgba(28,34,51,.28);display:flex;align-items:center;justify-content:center;padding:24px">
+          <div style="width:580px;max-width:100%;background:#fff;border:1px solid #c9d2e2;box-shadow:0 24px 60px rgba(28,34,51,.28);position:relative">
+            <i style="position:absolute;top:-5px;left:-5px;width:9px;height:9px;border-top:1px solid #f5f6f9;border-left:1px solid #f5f6f9"></i>
+            <i style="position:absolute;top:-5px;right:-5px;width:9px;height:9px;border-top:1px solid #f5f6f9;border-right:1px solid #f5f6f9"></i>
+            <i style="position:absolute;bottom:-5px;left:-5px;width:9px;height:9px;border-bottom:1px solid #f5f6f9;border-left:1px solid #f5f6f9"></i>
+            <i style="position:absolute;bottom:-5px;right:-5px;width:9px;height:9px;border-bottom:1px solid #f5f6f9;border-right:1px solid #f5f6f9"></i>
+            <div style="background:#242b3a;color:#fff;padding:11px 16px;display:flex;align-items:center;gap:10px">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f08287" stroke-width="1.5" style="flex:none"><rect x="3" y="4" width="18" height="16"></rect><path d="M9 4v16"></path></svg>
+              <span style="font:600 13px 'Barlow Condensed',sans-serif;letter-spacing:.09em;text-transform:uppercase">Edit navigation</span>
+              <span style="flex:1"></span>
+              <span style="font:400 10.5px 'Roboto Mono',monospace;color:#9aa6bd">/docs/ingest/workers</span>
+            </div>
+            <div style="padding:16px 18px 6px;display:flex;flex-direction:column;gap:16px">
+              <div>
+                <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase;padding-bottom:10px">01 &nbsp;What this page shows</div>
+                <sc-if value="{{ notRoot }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+                    <div style="border:1px solid #dbe1ec;padding:14px 14px 12px;display:flex;flex-direction:column;gap:8px;position:relative">
+                      <svg width="40" height="40" viewBox="0 0 20 20" fill="none" stroke-width="1"><rect x="1.5" y="1.5" width="17" height="3.5" fill="#64789f" stroke="#64789f"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8"></rect></svg>
+                      <div style="font:500 14px Barlow;color:#2f3a4f">Inherit</div>
+                      <div style="font:400 11.5px/1.4 Barlow;color:#57668a">The menu from the parent path, /docs/ingest.</div>
+                    </div>
+                    <div style="border:1px solid #e4676b;padding:14px 14px 12px;display:flex;flex-direction:column;gap:8px;position:relative">
+                      <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-top:1px solid #e4676b;border-left:1px solid #e4676b"></i>
+                      <i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-top:1px solid #e4676b;border-right:1px solid #e4676b"></i>
+                      <i style="position:absolute;bottom:-4px;left:-4px;width:7px;height:7px;border-bottom:1px solid #e4676b;border-left:1px solid #e4676b"></i>
+                      <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-bottom:1px solid #e4676b;border-right:1px solid #e4676b"></i>
+                      <svg width="40" height="40" viewBox="0 0 20 20" fill="none" stroke-width="1"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" fill="#e4676b" stroke="#e4676b"></rect></svg>
+                      <div style="font:500 14px Barlow;color:#1c2233">Its own menu</div>
+                      <div style="font:400 11.5px/1.4 Barlow;color:#57668a">Menu items and settings set here, for this path.</div>
+                    </div>
+                    <div style="border:1px solid #dbe1ec;padding:14px 14px 12px;display:flex;flex-direction:column;gap:8px;position:relative">
+                      <svg width="40" height="40" viewBox="0 0 20 20" fill="none" stroke-width="1"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect></svg>
+                      <div style="font:500 14px Barlow;color:#2f3a4f">No sidebar</div>
+                      <div style="font:400 11.5px/1.4 Barlow;color:#57668a">The left navigation is hidden entirely.</div>
+                    </div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ isRoot }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+                    <div style="border:1px solid #e4676b;padding:14px 14px 12px;display:flex;flex-direction:column;gap:8px;position:relative">
+                      <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-top:1px solid #e4676b;border-left:1px solid #e4676b"></i>
+                      <i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-top:1px solid #e4676b;border-right:1px solid #e4676b"></i>
+                      <i style="position:absolute;bottom:-4px;left:-4px;width:7px;height:7px;border-bottom:1px solid #e4676b;border-left:1px solid #e4676b"></i>
+                      <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-bottom:1px solid #e4676b;border-right:1px solid #e4676b"></i>
+                      <svg width="40" height="40" viewBox="0 0 20 20" fill="none" stroke-width="1"><rect x="1.5" y="1.5" width="17" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" fill="#e4676b" stroke="#e4676b"></rect></svg>
+                      <div style="font:500 14px Barlow;color:#1c2233">Show</div>
+                      <div style="font:400 11.5px/1.4 Barlow;color:#57668a">The site menu, shown everywhere that does not set its own.</div>
+                    </div>
+                    <div style="border:1px solid #dbe1ec;padding:14px 14px 12px;display:flex;flex-direction:column;gap:8px;position:relative">
+                      <svg width="40" height="40" viewBox="0 0 20 20" fill="none" stroke-width="1"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect></svg>
+                      <div style="font:500 14px Barlow;color:#2f3a4f">No sidebar</div>
+                      <div style="font:400 11.5px/1.4 Barlow;color:#57668a">The left navigation is hidden across the site.</div>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+              <sc-if value="{{ notRoot }}" hint-placeholder-val="{{ true }}">
+                <div>
+                  <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase;padding-bottom:10px">02 &nbsp;How far it reaches</div>
+                  <div style="display:flex;align-items:stretch;width:fit-content;max-width:100%">
+                    <div style="height:30px;flex:none;white-space:nowrap;background:#e4676b;color:#fff;display:flex;align-items:center;padding:0 14px;font:500 12px Barlow">This page and everything below it</div>
+                    <div style="height:30px;flex:none;white-space:nowrap;border:1px solid #dbe1ec;border-left:0;color:#38465f;display:flex;align-items:center;padding:0 14px;font:400 12px Barlow;box-sizing:border-box">This page only</div>
+                  </div>
+                  <div style="font:400 11.5px/1.4 Barlow;color:#57668a;padding-top:6px">Pages under <span style="font:400 11px 'Roboto Mono',monospace;color:#38465f">/docs/ingest/workers</span> take this menu unless they set their own.</div>
+                </div>
+              </sc-if>
+              <div>
+                <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase;padding-bottom:10px">{{ sourceStep }} &nbsp;Where the items come from</div>
+                <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+                  <div style="display:flex;align-items:flex-start;gap:9px">
+                    <span style="width:13px;height:13px;border:1px solid #e4676b;flex:none;display:flex;align-items:center;justify-content:center;margin-top:2px"><span style="width:7px;height:7px;background:#e4676b;display:block"></span></span>
+                    <div style="min-width:0"><div style="font:500 13px Barlow;color:#1c2233">Manual</div><div style="font:400 11.5px/1.4 Barlow;color:#57668a">Items are entered by hand.</div></div>
+                  </div>
+                  <div style="display:flex;align-items:flex-start;gap:9px">
+                    <span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none;margin-top:2px"></span>
+                    <div style="min-width:0"><div style="font:400 13px Barlow;color:#2f3a4f">Automatic</div><div style="font:400 11.5px/1.4 Barlow;color:#57668a">Generated from the page tree below.</div></div>
+                  </div>
+                  <div style="display:flex;align-items:flex-start;gap:9px">
+                    <span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none;margin-top:2px"></span>
+                    <div style="min-width:0"><div style="font:400 13px Barlow;color:#2f3a4f">Mixed</div><div style="font:400 11.5px/1.4 Barlow;color:#57668a">Generated items, plus items entered by hand.</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style="border-top:1px solid #dbe1ec;display:flex;align-items:center;gap:8px;padding:10px 16px;margin-top:12px">
+              <div style="height:32px;color:#c14a52;display:flex;align-items:center;gap:8px;padding:0 4px;font:500 12.5px Barlow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c14a52" stroke-width="1.6" style="flex:none"><path d="M9 6h11M9 12h11M9 18h11"></path><rect x="3" y="4.5" width="3" height="3"></rect><rect x="3" y="10.5" width="3" height="3"></rect><rect x="3" y="16.5" width="3" height="3"></rect></svg>Edit menu items<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c14a52" stroke-width="1.8" style="flex:none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></div>
+              <span style="flex:1"></span>
+              <div style="height:32px;border:1px solid #dbe1ec;background:#fff;color:#4e5d7d;display:flex;align-items:center;padding:0 14px;font:500 12.5px Barlow;box-sizing:border-box">Cancel</div>
+              <div style="height:32px;background:#38465f;color:#fff;display:flex;align-items:center;gap:8px;padding:0 14px;font:500 12.5px Barlow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" style="flex:none"><path d="M5 12l4.5 4.5L19 7"></path></svg>Save</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}">
+        <div style="font:400 12.5px/1.6 Barlow;color:#4e5d7d;max-width:720px;text-wrap:pretty">The five modes are really two questions, so the dialog asks them as two: what the page shows, then how far that reaches. Inherit has no reach, so step 02 drops out when it is picked. Selection is the block picker's: an accent hairline with four marks, no fill. A centred dialog with the dark eyebrow, because this changes what every page below sees and deserves the heavier object. Edit menu items becomes a flat link in the footer, next to the actions it leads on from.</div>
+      </sc-if>
+    </div>
+
+    <!-- ============ 1c SIDEBAR TAKEOVER ============ -->
+    <div id="1c" style="flex:none;display:flex;flex-direction:column;gap:10px;width:900px;max-width:100%">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font:600 11px 'Roboto Mono',monospace;background:#1c2233;color:#fff;padding:3px 7px;letter-spacing:.08em">1c</span>
+        <span style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">The sidebar edits itself</span>
+      </div>
+      <div style="width:900px;height:620px;max-width:100%;border:1px solid #dbe1ec;background:#f5f6f9;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box">
+        <div style="height:48px;flex:none;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 14px;gap:10px">
+          <svg width="24" height="24" viewBox="0 0 32 32" style="flex:none"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg>
+          <div style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div>
+          <div style="flex:1"></div>
+          <div style="width:26px;height:26px;background:#38465f;color:#fff;font:600 10px 'Barlow Condensed',sans-serif;letter-spacing:.06em;display:flex;align-items:center;justify-content:center">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 255px;background:#f0f2f7;border-right:1px solid #dbe1ec;display:flex;flex-direction:column;position:relative">
+            <i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-top:1px solid #8a99b8;border-right:1px solid #8a99b8;z-index:1"></i>
+            <div style="height:36px;flex:none;border-bottom:1px solid #dbe1ec;background:#fff;box-shadow:inset 0 2px 0 #e4676b;display:flex;align-items:center;gap:8px;padding:0 12px 0 18px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c14a52" stroke-width="1.5" style="flex:none"><rect x="3" y="4" width="18" height="16"></rect><path d="M9 4v16"></path></svg>
+              <span style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase;flex:1">Edit navigation</span>
+              <div style="width:24px;height:24px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.7"><path d="M6 6l12 12M18 6L6 18"></path></svg></div>
+            </div>
+            <div style="padding:12px 18px 0;font:400 10.5px 'Roboto Mono',monospace;color:#57668a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">/docs/ingest/workers</div>
+            <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:14px 18px 6px">Sidebar for this page</div>
+            <sc-if value="{{ notRoot }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13px Barlow;color:#38465f"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke-width="1.2" style="flex:none"><rect x="1.5" y="1.5" width="17" height="3.5" fill="#64789f" stroke="#64789f"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8"></rect></svg>Inherit from /docs/ingest</div>
+              <div style="background:#fff;border-left:2px solid #e4676b;padding:7px 18px 8px 16px">
+                <div style="display:flex;align-items:center;gap:10px;font:500 13px Barlow;color:#1c2233"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke-width="1.2" style="flex:none"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" fill="#e4676b" stroke="#e4676b"></rect></svg>Override, this page and below</div>
+                <div style="font:400 11.5px/1.4 Barlow;color:#57668a;padding:3px 0 0 27px">Menu items and settings for this path and all descendants.</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13px Barlow;color:#38465f"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke-width="1.2" style="flex:none"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8"></rect></svg>Override, this page only</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13px Barlow;color:#38465f"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke-width="1.2" style="flex:none"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect></svg>Hide, this page and below</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13px Barlow;color:#38465f"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke-width="1.2" style="flex:none"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8"></rect></svg>Hide, this page only</div>
+            </sc-if>
+            <sc-if value="{{ isRoot }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#fff;border-left:2px solid #e4676b;padding:7px 18px 8px 16px">
+                <div style="display:flex;align-items:center;gap:10px;font:500 13px Barlow;color:#1c2233"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke-width="1.2" style="flex:none"><rect x="1.5" y="1.5" width="17" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="5.5" y="8.25" width="13" height="3.5" fill="#e4676b" stroke="#e4676b"></rect><rect x="9.5" y="15" width="9" height="3.5" fill="#e4676b" stroke="#e4676b"></rect></svg>Show</div>
+                <div style="font:400 11.5px/1.4 Barlow;color:#57668a;padding:3px 0 0 27px">The site menu, everywhere that does not set its own.</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13px Barlow;color:#38465f"><svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke-width="1.2" style="flex:none"><rect x="1.5" y="1.5" width="17" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="5.5" y="8.25" width="13" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect><rect x="9.5" y="15" width="9" height="3.5" stroke="#8a99b8" stroke-dasharray="1.6 1.4"></rect></svg>Hide</div>
+            </sc-if>
+            <div style="height:38px;box-sizing:border-box;margin-top:12px;background:#eef1f7;border-top:1px solid #dbe1ec;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 18px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#38465f;text-transform:uppercase">Menu source</div>
+            <div style="padding:6px 0 0">
+              <div style="padding:7px 18px 8px">
+                <div style="display:flex;align-items:center;gap:10px;font:500 13px Barlow;color:#1c2233"><span style="width:13px;height:13px;border:1px solid #e4676b;flex:none;display:flex;align-items:center;justify-content:center"><span style="width:7px;height:7px;background:#e4676b;display:block"></span></span>Manual</div>
+                <div style="font:400 11.5px/1.4 Barlow;color:#57668a;padding:3px 0 0 23px">Menu items are entered by hand.</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13px Barlow;color:#38465f"><span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none"></span>Automatic</div>
+              <div style="display:flex;align-items:center;gap:10px;padding:7px 18px;font:400 13px Barlow;color:#38465f"><span style="width:13px;height:13px;border:1px solid #a9b7d0;flex:none"></span>Mixed</div>
+            </div>
+            <div style="margin-top:12px;border-top:1px solid #dbe1ec;border-bottom:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;gap:10px;padding:10px 18px;font:500 13px Barlow;color:#c14a52"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c14a52" stroke-width="1.6" style="flex:none"><path d="M9 6h11M9 12h11M9 18h11"></path><rect x="3" y="4.5" width="3" height="3"></rect><rect x="3" y="10.5" width="3" height="3"></rect><rect x="3" y="16.5" width="3" height="3"></rect></svg><span style="flex:1">Edit menu items&hellip;</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c14a52" stroke-width="1.8" style="flex:none"><path d="M9 6l6 6-6 6"></path></svg></div>
+            <div style="flex:1"></div>
+            <div style="border-top:1px solid #dbe1ec;height:38px;flex:none;display:flex;align-items:stretch">
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;font:500 11.5px Barlow;color:#4e5d7d">Cancel</div>
+              <div style="flex:1;background:#38465f;color:#fff;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="flex:none"><path d="M5 12l4.5 4.5L19 7"></path></svg>Save</div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff">
+            <div style="border-bottom:1px solid #dbe1ec;display:flex;align-items:center;gap:8px;padding:6px 16px;font:400 11.5px 'Roboto Mono',monospace;color:#57668a"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64789f" stroke-width="1.6" style="flex:none"><path d="M4 11l8-7 8 7v9H4z"></path></svg><span style="color:#c9d2e2">/</span><span>docs</span><span style="color:#c9d2e2">/</span><span>ingest</span><span style="color:#c9d2e2">/</span><span style="color:#38465f">workers</span><span style="flex:1"></span><span>Last modified Tue 4:12 PM</span></div>
+            <div style="border-bottom:1px solid #dbe1ec;padding:18px 20px">
+              <h1 style="font:700 30px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin:0">Deploying the ingest workers</h1>
+              <div style="font:400 13.5px/1.45 Barlow;color:#4e5d7d;margin-top:5px">Rollout, draining and rollback for the ingest worker fleet.</div>
+            </div>
+            <div style="padding:26px 24px;display:flex;flex-direction:column;gap:12px;max-width:560px">
+              <div style="height:9px;background:#e4e9f2;width:88%"></div><div style="height:9px;background:#e4e9f2;width:96%"></div><div style="height:9px;background:#e4e9f2;width:72%"></div><div style="height:9px;background:#e4e9f2;width:40%;margin-top:14px"></div><div style="height:9px;background:#e4e9f2;width:92%"></div><div style="height:9px;background:#e4e9f2;width:64%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}">
+        <div style="font:400 12.5px/1.6 Barlow;color:#4e5d7d;max-width:720px;text-wrap:pretty">No floating layer. The footer button flips the sidebar column itself into the form, at exactly the width the result will occupy, and the page stays readable beside it. Rows are the tree's own rows: the chosen one lifts to white with the 2px accent edge, the same mark the active page wears, and the hint appears only there. The Menu source header is the settings-row primitive. The footer that opened this becomes Cancel and Save, split down the middle; there is nothing to dismiss and nothing to drag out of the way.</div>
+      </sc-if>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;isRoot&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Page context&quot;},&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Board&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const isRoot = this.props.isRoot ?? false;
+    return {
+      isRoot,
+      notRoot: !isRoot,
+      showNotes: this.props.showNotes ?? true,
+      sourceStep: isRoot ? '02' : '03'
+    };
+  }
+}
+</script>
+</body>
+</html>
