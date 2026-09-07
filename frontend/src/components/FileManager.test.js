@@ -948,13 +948,16 @@ describe('FileManager design conformance (WP #2625)', () => {
 
 /**
  * OpenProject #2742: the "+ New" trigger's `color` prop was a flat `slate`, with no dark-mode
- * counterpart -- unlike `.fileman-left` two sections up in this same file, which swaps `$slate` for
- * `$text-secondary-dark` under `.body--dark`. Because this is an OUTLINE `w-btn`, `WBtn.vue` turns a
- * non-solid `color` into a bare `color: var(--color-<name>)` inline style with nothing else drawing
- * a foreground, so `--color-slate` (`#38465f`, no dark override) is what both the label text and the
- * `tabler:plus` icon (inheriting `currentColor`) rendered in against a dark toolbar.
+ * counterpart. Because this is an OUTLINE `w-btn`, `WBtn.vue` turns a non-solid `color` into a bare
+ * `color: var(--color-<name>)` inline style with nothing else drawing a foreground, so
+ * `--color-slate` (`#38465f`, no dark override) is what both the label text and the `tabler:plus`
+ * icon (inheriting `currentColor`) rendered in against a dark toolbar.
+ *
+ * OpenProject #2797: the dark-mode counterpart #2742 introduced was the ad-hoc `text-secondary-dark`
+ * token rather than `slate-light`, the pairing this codebase uses everywhere else for slate's
+ * dark-mode tone (see `AdminBlocks.vue` and `tailwind.css`'s `--color-slate`/`--color-slate-light`).
  */
-describe('FileManager "+ New" trigger dark mode (OpenProject #2742)', () => {
+describe('FileManager "+ New" trigger dark mode (OpenProject #2742, #2797)', () => {
   afterEach(() => {
     useDark().set(false)
   })
@@ -964,17 +967,17 @@ describe('FileManager "+ New" trigger dark mode (OpenProject #2742)', () => {
 
     const style = wrapper.find('.fileman-new-btn').attributes('style') ?? ''
     expect(style).toContain('var(--color-slate)')
-    expect(style).not.toContain('var(--color-text-secondary-dark)')
+    expect(style).not.toContain('var(--color-slate-light)')
 
     wrapper.unmount()
   })
 
-  it('swaps to a dark-aware tone in dark mode, matching .fileman-left', async () => {
+  it('swaps to the standard slate-light dark-mode pairing in dark mode', async () => {
     useDark().set(true)
     const { wrapper } = await mountFileManager()
 
     const style = wrapper.find('.fileman-new-btn').attributes('style') ?? ''
-    expect(style).toContain('var(--color-text-secondary-dark)')
+    expect(style).toContain('var(--color-slate-light)')
     expect(style).not.toContain('var(--color-slate)')
 
     wrapper.unmount()
