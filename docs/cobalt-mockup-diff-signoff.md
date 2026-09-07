@@ -83,8 +83,12 @@ Carried forward unchanged from #2772/#2773's own logging, per the epic coordinat
 instruction that none of the 7 parallel screen-diff Tasks should independently "fix" a frozen shared
 primitive:
 
-- `WCard.vue`'s border reads `border-hairline`/`dark:border-hairline-dark` rather than a
-  `--border-card` token (no dark-mode-specific value exists for one yet).
+- ~~`WCard.vue`'s border reads `border-hairline`/`dark:border-hairline-dark` rather than a
+  `--border-card` token (no dark-mode-specific value exists for one yet).~~ Fixed — Task #2811,
+  2026-09-07: `tailwind.css` gained a `body.body--dark { --border-card: 1px solid
+var(--color-hairline-dark); }` block (placed before `body.body--cobalt` so the latter's `0` still
+  wins the cascade tie on a Cobalt+dark page), and `WCard.vue` now reads `border: var(--border-card)`
+  from its own scoped `<style>` block instead of the old utility pair.
 - `WDialog.vue` hardcodes Tailwind's `rounded-lg` instead of `--radius-dialog`, and already
   contradicts Ledger's own `--radius-dialog: 0` — a fix here is app-wide, not Cobalt-only.
 - `--shadow-primary` needs an app-level decision ("which `color` prop value means the page's own
