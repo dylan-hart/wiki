@@ -176,7 +176,7 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.timeFormat"
-          toggle-color="primary"
+          toggle-color="accent"
           :options="timeFormats"
           :disabled="!canEdit"
           :aria-label="t(`profile.timeFormat`)" />
@@ -193,13 +193,13 @@
         <div class="flex items-center gap-2 flex-wrap">
           <w-btn-toggle
             v-model="state.config.aesthetic"
-            toggle-color="primary"
+            toggle-color="accent"
             :options="aesthetics"
             :disabled="!canEdit"
             :aria-label="t(`profile.aesthetic`)" />
           <w-btn-toggle
             v-model="state.config.appearance"
-            toggle-color="primary"
+            toggle-color="accent"
             :options="appearances"
             :disabled="!canEdit"
             :aria-label="t(`profile.appearance`)" />
@@ -216,7 +216,7 @@
       <w-item-section side>
         <w-btn-toggle
           v-model="state.config.cvd"
-          toggle-color="primary"
+          toggle-color="accent"
           :options="cvdChoices"
           :disabled="!canEdit"
           :aria-label="t(`profile.cvd`)" />
