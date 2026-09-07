@@ -711,6 +711,23 @@
     cursor: help;
   }
 
+  /*
+    Glossary terms (OpenProject #870/#2789), whichever of the two forms the renderer emitted
+    (`renderers/modules/markdown-it-glossary.js`): an unlinked term (`<abbr class="glossary-term">`)
+    happens to already get a dotted underline from the `abbr[title]` rule just above -- both share
+    the `abbr` tag -- but a linked term (`<a class="glossary-term">`, when the entry has a canonical
+    page) inherits the plain link rule's `text-decoration: none` instead, with nothing to override
+    it. This rule is `.glossary-term`'s own, keyed off the class rather than the tag, so both forms
+    get the identical dotted underline and "help" cursor -- a higher specificity than the bare `a`
+    rule above is what lets it win there without disturbing any other link.
+  */
+  .glossary-term {
+    text-decoration: underline dotted;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    cursor: help;
+  }
+
   sub,
   sup {
     font-size: 0.75em;

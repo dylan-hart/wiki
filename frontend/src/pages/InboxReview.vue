@@ -323,10 +323,10 @@ async function load() {
   state.loading++
   try {
     // -> The markdown renderer is configured per site (line breaks, typographer, and so on), and that
-    //    configuration comes with the editor configs rather than on its own
-    if (!editorStore.configIsLoaded) {
-      await editorStore.fetchConfigs()
-    }
+    //    configuration comes with the editor configs rather than on its own. `ensureConfigs()`, not a
+    //    bare `configIsLoaded` check: it also refreshes the glossary term list even when the rest of
+    //    the config is already loaded (OpenProject #2789)
+    await editorStore.ensureConfigs()
     state.submissions =
       (await API_CLIENT.get(`sites/${siteStore.id}/approvals/submissions`).json()) ?? []
   } catch (err) {

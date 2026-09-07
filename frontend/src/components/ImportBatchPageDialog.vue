@@ -618,9 +618,9 @@ function defaultPath(file) {
  *   same as a failed save.
  */
 async function renderMarkdown(markdown, pagePath) {
-  if (!editorStore.configIsLoaded) {
-    await editorStore.fetchConfigs()
-  }
+  // -> `ensureConfigs()`, not a bare `configIsLoaded` check: it also refreshes the glossary term
+  //    list even when the rest of the config is already loaded (OpenProject #2789)
+  await editorStore.ensureConfigs()
   const md = new MarkdownRenderer(editorStore.editors.markdown ?? {})
   return md.render(markdown, { pagePath })
 }

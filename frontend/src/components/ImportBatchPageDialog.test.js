@@ -34,8 +34,14 @@ async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
   // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking --
-  //    same pattern `InboxReview.test.js` uses for the same `MarkdownRenderer` config dependency
-  useEditorStore().configIsLoaded = true
+  //    same pattern `InboxReview.test.js` uses for the same `MarkdownRenderer` config dependency.
+  //    `refreshGlossaryTerms()` is stubbed out too (OpenProject #2789): `ensureConfigs()` calls it
+  //    unconditionally now, even with `configIsLoaded` already true, and this suite's heavy use of
+  //    positional `mockReturnValueOnce` queues on `API_CLIENT.get` has no slack for an extra,
+  //    unaccounted call landing between two of its own.
+  const editorStore = useEditorStore()
+  editorStore.configIsLoaded = true
+  vi.spyOn(editorStore, 'refreshGlossaryTerms').mockResolvedValue()
   globalThis.API_CLIENT.get.mockReturnValueOnce({
     json: vi.fn().mockResolvedValue({ pandoc: pandocInstalled })
   })
