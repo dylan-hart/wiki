@@ -5,6 +5,17 @@
     :aria-label="title || null"
     @hide="onDialogHide">
     <w-card style="min-width: 380px; max-width: 480px">
+      <!--
+        `.card-header` (`css/_base.scss`) draws this band from the compile-time SCSS constant
+        `theme.$dark-2` (`#242b3a`), not the runtime `--color-dark-2` custom property -- so it never
+        picks up `body.body--cobalt.body--dark`'s override (`#1a43bd`, wired by OpenProject #2771
+        specifically for "Confirm dialog header band" against `Primitives Dark 3x - Cobalt.dc.html`).
+        Every dialog in the app shares this same class for the same near-black band regardless of
+        theme or aesthetic (see `NavEditOverlay.vue`'s own comment on it), so this is a pre-existing,
+        deliberate app-wide convention, not a defect introduced or fixable here: reconciling it with
+        the Cobalt mockup needs a `_base.scss` change affecting 60+ dialogs, which is out of this
+        Task's file ownership (OpenProject #2773). Logged, not fixed.
+      -->
       <w-card-section class="card-header">
         <span>{{ title }}</span>
       </w-card-section>

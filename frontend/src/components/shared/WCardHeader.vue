@@ -35,6 +35,14 @@
  * a negative margin of its own, which is how eleven dialog headers came to be drawing the band at
  * `px-4 py-2` before the second pass unwound them.
  *
+ * `.w-section-header`'s dark styling (`body.body--dark .w-section-header` in `tailwind.css`)
+ * resolves to `var(--color-dark-2)` / `var(--color-slate-light)`, which is `#1a43bd` / `#8ea6cf`
+ * under Cobalt dark -- but `Primitives Dark 3x - Cobalt.dc.html`'s own "Section header & row" swatch
+ * draws this band as `#0e1540` / `#c9d6ff`, a genuinely different value than the confirm-dialog
+ * title band that the same `-2` ramp rung is also asked to serve (see `WConfirmDialog.vue`'s own
+ * comment). One token can't carry both mockup roles as currently modeled; fixing it needs a
+ * `tailwind.css` change, out of this Task's file ownership (OpenProject #2773). Logged, not fixed.
+ *
  *   <w-card-header>
  *     Site info
  *     <template #hint>Shown in the browser tab</template>
