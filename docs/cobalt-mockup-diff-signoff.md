@@ -89,8 +89,12 @@ primitive:
   contradicts Ledger's own `--radius-dialog: 0` — a fix here is app-wide, not Cobalt-only.
 - `--shadow-primary` needs an app-level decision ("which `color` prop value means the page's own
   primary action") that no single component can make on its own.
-- `--q-info`/`-negative`/`-positive`/`-warning` are un-seeded by `aestheticDefaults.js`, so
-  toast/banner fill colors stay Ledger-colored under Cobalt until that lands.
+- `--q-info`/`-negative`/`-positive`/`-warning` were un-seeded by `aestheticDefaults.js`, so
+  toast/banner fill colors stayed Ledger-colored under Cobalt. **Fixed** by OpenProject #2814:
+  `helpers/aestheticDefaults.js#aestheticStatusColors()` seeds Cobalt values for all four, applied by
+  `App.vue#applyTheme()` keyed off the resolved aesthetic. No dark-mode-specific override yet (same
+  acknowledged `--q-*` architecture gap as `--q-header`/`--q-sidebar`) -- one Cobalt value is used in
+  both light and dark.
 - `WConfirmDialog.vue`'s `.card-header` title band (`_base.scss`) draws from a compile-time Sass
   constant shared by 60+ non-shared dialogs app-wide, not the runtime CSS custom property system.
 - `WCardHeader.vue`'s `.w-section-header` dark color and `WInput.vue`'s read-only dark background
