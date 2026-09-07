@@ -48,7 +48,7 @@
                   v-for="block of blocks"
                   :key="block.id"
                   type="button"
-                  class="block-picker-card"
+                  class="block-picker-card rounded-card shadow-card"
                   :class="{ 'is-selected': state.selected?.id === block.id }"
                   @click="select(block)">
                   <!--
@@ -60,7 +60,7 @@
                     fallback glyph instead. It sits inside the hairline plate the design draws
                     around it, rather than loose on the card.
                   -->
-                  <span class="block-picker-plate">
+                  <span class="block-picker-plate rounded-card shadow-card">
                     <w-icon :name="block.isCustom ? 'tabler:puzzle' : block.icon" size="21px" />
                   </span>
                   <div class="min-w-0 flex-1 text-left">
@@ -306,6 +306,14 @@ onMounted(async () => {
     moves as selection travels from one card to another. A border that appeared on selection, or a
     thicker one, would widen the card and reflow the row -- see `blockPickerLayout.test.js`, which
     measures exactly this in a real browser.
+
+    `rounded-card`/`shadow-card` (template classes, OpenProject #2767/#2775): `0`/`none` under
+    Ledger, so this changes nothing there; an unselected card under Cobalt draws the same soft
+    radius/shadow every other card-shaped surface does. The 1px hairline border above stays either
+    way -- dropping it to match the Cobalt mockup's borderless card would leave `.is-selected`'s
+    accent border as the only thing distinguishing a 0px-wide edge from a 1px one, which is exactly
+    the box-geometry invariant this comment (and `blockPickerLayout.test.js`) exists to rule out.
+    Logged as a gap rather than guessed at, not fixed here.
   */
   &-card {
     position: relative;

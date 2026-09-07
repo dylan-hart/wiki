@@ -137,10 +137,15 @@
               >
               <w-item-label caption>{{ rel.caption }}</w-item-label>
             </w-item-section>
+            <!--
+              -> A status indicator, not a tag/filter chip: the radii-sweep role assignment
+                 (`css/tailwind.css`'s Cobalt shape-token comment, OpenProject #2767/#2775) puts
+                 badges on `--radius-mark`, distinct from the `--radius-pill` a `w-chip` always
+                 draws (WChip.vue's own doc: "one token, no aesthetic branch"). `0` under Ledger
+                 either way, so this only changes what Cobalt draws.
+            -->
             <w-item-section side>
-              <w-chip class="px-2" dense color="primary" text-color="white">
-                <div class="text-caption">{{ rel.position }}</div>
-              </w-chip>
+              <w-badge color="primary" :label="rel.position" />
             </w-item-section>
             <w-item-section side>
               <w-btn

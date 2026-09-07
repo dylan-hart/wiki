@@ -2263,6 +2263,7 @@
   "common.loading": "Loading...",
   "common.modernBrowser": "modern browser",
   "common.newPageMenu.asciidoc": "New AsciiDoc Page",
+  "common.newPageMenu.beta": "Beta",
   "common.newPageMenu.code": "New Code Page",
   "common.newPageMenu.markdown": "New Markdown Page",
   "common.newPageMenu.redirect": "New Redirection",

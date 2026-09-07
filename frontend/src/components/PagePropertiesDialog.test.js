@@ -172,4 +172,23 @@ describe('PagePropertiesDialog', () => {
     expect(pageStore.password).toBe('')
     expect(pageStore.removePassword).toBe(true)
   })
+
+  /**
+   * OpenProject #2775: a relation's position ("sidebar"/"footer") is a status indicator, not a
+   * tag/filter chip -- the radii-sweep role assignment puts badges on `--radius-mark`, distinct
+   * from the pill `w-chip` always draws. Regression coverage for the `w-chip` -> `w-badge` swap.
+   */
+  it('draws a relation position as a badge, not a chip', async () => {
+    const { wrapper, pageStore } = mountDialog()
+    pageStore.relations = [
+      { id: 1, icon: 'tabler:link', label: 'Queue topology', caption: '/docs', position: 'sidebar' }
+    ]
+    await flushPromises()
+
+    expect(wrapper.find('.w-chip').exists()).toBe(false)
+    const badge = wrapper.find('.w-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('sidebar')
+    expect(badge.classes()).toContain('rounded-mark')
+  })
 })
