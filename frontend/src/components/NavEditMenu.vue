@@ -656,7 +656,7 @@ onMounted(() => {
 }
 
 .nav-edit-menu__menu-source-hint {
-  padding-top: 6px;
+  padding: 6px 14px 0;
   font: 400 11.5px/1.4 var(--font-sans);
   color: var(--color-text-caption);
 }

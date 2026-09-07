@@ -40,7 +40,12 @@ const MESSAGES = {
 
 const SERVER_ITEMS = [{ id: 'fresh', type: 'link', label: 'Fresh' }]
 
-function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inherit' } = {}) {
+function mountMenu({
+  path = '',
+  navigationId = 'nav-1',
+  navigationMode = 'inherit',
+  attachTo
+} = {}) {
   setActivePinia(createPinia())
 
   const siteStore = useSiteStore()
@@ -70,7 +75,8 @@ function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inheri
 
   const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(NavEditMenu, {
-    global: { plugins: [i18n] }
+    global: { plugins: [i18n] },
+    ...(attachTo ? { attachTo } : {})
   })
 
   return { wrapper, siteStore, pageStore }
@@ -238,6 +244,31 @@ describe('NavEditMenu', () => {
 
     expect(wrapper.text()).not.toContain('Menu Source')
     expect(wrapper.findAll('button').find((b) => b.text().includes('Edit Menu Items'))).toBeFalsy()
+  })
+
+  /**
+   * OpenProject #2818: `.nav-edit-menu__menu-source-hint` only declared `padding-top`, leaving the
+   * hint text flush against the menu card's border -- unlike its siblings in the same
+   * `.nav-edit-menu__section` (`.nav-edit-menu__section-label` and `.nav-edit-menu__row`), which
+   * both establish 14px horizontal padding as the section's convention. Read back through the real,
+   * compiled `getComputedStyle` (this workspace's `test.css: true` + happy-dom environment actually
+   * runs the SFC's `<style scoped>` block), following `NavSidebar.test.js`'s established pattern for
+   * this exact kind of assertion -- a source-text grep can't tell "14px" apart from "any other
+   * value", which is what this needs to pin down, unlike the border-presence checks that pattern
+   * itself asserts.
+   */
+  it('gives the menu-source hint the same 14px horizontal padding as its section siblings (OpenProject #2818)', async () => {
+    const { wrapper } = mountMenu({ attachTo: document.body })
+    await flushPromises()
+
+    const hint = wrapper.find('.nav-edit-menu__menu-source-hint')
+    expect(hint.exists()).toBe(true)
+
+    const style = getComputedStyle(hint.element)
+    expect(style.paddingLeft).toBe('14px')
+    expect(style.paddingRight).toBe('14px')
+
+    wrapper.unmount()
   })
 
   /**
