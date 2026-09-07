@@ -813,9 +813,14 @@ onMounted(async () => {
   text-transform: uppercase;
 }
 
-/* -> See the button's own comment: the accent fill bounds the box, the lightened accent labels it */
+/*
+  See the button's own comment: the accent fill bounds the box, the lightened accent labels it.
+  `--color-accent-fill` rather than `$accent-fill` -- the two are the same value for Ledger
+  (`#e4676b`, verified against `tailwind.css`'s `:root` block), and the custom property is what
+  lets a Cobalt site's `#ff4d5a` reach this border at all (OpenProject #2780).
+*/
 .admin-contribute-btn {
-  border-color: $accent-fill !important;
+  border-color: var(--color-accent-fill) !important;
 }
 
 /* -> "Admin area", in Cardinal's chrome overline */
@@ -1038,6 +1043,105 @@ onMounted(async () => {
     font-weight: 600;
     letter-spacing: 0.2em;
     text-transform: uppercase;
+  }
+}
+
+/*
+  Cobalt aesthetic overrides (OpenProject #2780, diffed against `ui-redesign-cobalt/Cardinal Wiki -
+  Admin[/General/Blocks] 3x - Cobalt.dc.html` and the HANDOFF's Chrome table). Scoped to
+  `body.body--cobalt` rather than folded into the rules above, for two reasons specific to this
+  layout:
+
+  1. The admin sidebar's Cobalt tokens (`--color-admin-sidebar-*`, `tailwind.css`'s
+     `body.body--cobalt` block) are ALSO declared once at `:root` with generic Ledger-ish defaults
+     (`--color-text-dark` / `--color-slate-light`) that do not exactly reproduce this file's own
+     hand-tuned Ledger values above (`$slate-pale` text, `$slate-nav-icon` icons) -- consuming them
+     unscoped would quietly shift Ledger's sidebar tone rather than leave it alone.
+  2. `--q-header` and `--color-accent` are the SITE's own admin-editable brand colours. Reading them
+     unscoped would make the admin header and page eyebrow start following a Ledger site's custom
+     colours too, which they have never done -- `.admin-header` and `.admin-page-eyebrow` above are
+     deliberately fixed regardless of `--q-*`.
+
+  A Cobalt-only override sidesteps both: it changes nothing for Ledger (including a Ledger site
+  with a customised `--q-header` / `--q-accent`) and gives Cobalt its own header-bar treatment plus
+  the sidebar's single, always-dark set of values -- matching "the admin sidebar is already dark in
+  Ledger and gets its own distinct Cobalt values" from the task's own scope.
+
+  Contribute button label/icon and Exit/EN header buttons are left as-is: `color="accent-dark"` /
+  `color="accent"` / `color="slate"` already resolve through `var(--color-*)` (WBtn's own
+  mechanism), so they are not literal-colour gaps -- their exact mockup treatment (a translucent
+  white outline on the header bar) is a secondary chrome nuance, logged rather than guessed at
+  here, same as the "beta" badge the mockup draws beside "Admin area" that this layout does not
+  render at all -- adding one is a product decision (is the admin area still beta?), not a visual
+  parity fix.
+*/
+body.body--cobalt {
+  .admin-header {
+    background-color: var(--q-header);
+    color: var(--color-white);
+    border-bottom-color: transparent;
+  }
+
+  .admin-area-label {
+    color: var(--color-header-eyebrow);
+  }
+
+  .admin-page-eyebrow {
+    color: var(--color-accent);
+  }
+
+  .admin-sidebar {
+    background-color: var(--color-admin-sidebar-bg);
+    border-inline-end-color: var(--color-admin-sidebar-hairline);
+
+    .admin-nav-list {
+      color: var(--color-admin-sidebar-text);
+
+      .w-icon,
+      iconify-icon {
+        color: var(--color-admin-sidebar-icon);
+      }
+    }
+
+    .admin-nav-active {
+      background-color: var(--color-admin-sidebar-raised);
+      border-inline-start-color: var(--color-accent-fill);
+
+      .w-icon,
+      iconify-icon {
+        color: var(--color-accent-fill);
+      }
+    }
+
+    .admin-nav-section,
+    .w-item-label--header {
+      border-top-color: var(--color-admin-sidebar-hairline);
+      color: var(--color-sidebar-kicker);
+    }
+
+    /*
+      The nav count badges: `w-badge` sets its background/text as an inline `:style`, which only an
+      `!important` class rule can beat -- same reasoning as `.admin-contribute-btn`'s border above.
+      Left off `.count-badge`'s own trailing-edge stripe (`$negative-fill` / `$positive-fill`):
+      that colour has to keep matching `StatusLight`, which is a frozen shared primitive outside
+      this task's scope (OpenProject #2772/#2773) and stays on its fixed SCSS tones regardless of
+      aesthetic.
+    */
+    .count-badge {
+      background-color: var(--color-admin-sidebar-raised) !important;
+      color: var(--color-sidebar-text-secondary) !important;
+    }
+  }
+}
+
+/*
+  Cobalt dark mode: the page eyebrow is the one piece of this layout that already varies with
+  `.body--dark` (see `.admin-page-eyebrow`'s own dark rule above), so its Cobalt override needs the
+  compound selector rather than living inside `body.body--cobalt` above.
+*/
+body.body--cobalt.body--dark {
+  .admin-page-eyebrow {
+    color: var(--color-accent-dark);
   }
 }
 
