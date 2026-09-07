@@ -239,4 +239,19 @@ describe('NavEditMenu', () => {
     expect(wrapper.text()).not.toContain('Menu Source')
     expect(wrapper.findAll('button').find((b) => b.text().includes('Edit Menu Items'))).toBeFalsy()
   })
+
+  /**
+   * Cobalt restyle (Task #2800): the Save button's fill is `color="slate"`, resolved as an inline
+   * style `WBtn` sets itself -- the only way `body.body--cobalt`'s own CSS can override it to the
+   * handoff's distinct Cobalt slate-button tone is a class-scoped `!important` rule, so this class
+   * is the one stable anchor that override needs. Not a color/style assertion (jsdom doesn't resolve
+   * the aesthetic's `var()` cascade reliably) -- just proof the anchor survives future edits.
+   */
+  it("keeps the Save button's Cobalt-override class anchor", async () => {
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    expect(saveBtn.classes()).toContain('nav-edit-menu__save-btn')
+  })
 })
