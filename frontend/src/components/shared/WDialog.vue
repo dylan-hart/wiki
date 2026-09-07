@@ -156,9 +156,13 @@ const viewportClasses = computed(() => VIEWPORTS[props.position] ?? VIEWPORTS.st
 const panelClasses = computed(() => [
   // -> Rounded, not square: the panel no longer touches the window, see VIEWPORTS above. A panel
   //    against the bottom edge keeps its own bottom corners square, since they sit on that edge.
-  props.position === 'right' ? 'h-full rounded-lg' : '',
-  props.position === 'bottom' ? 'rounded-b-none max-h-full rounded-t-lg' : '',
-  props.position === 'standard' ? 'rounded-lg max-h-full' : '',
+  //    `rounded-dialog`/`rounded-t-dialog` track `--radius-dialog` (0 under Ledger, 12px under
+  //    Cobalt -- OpenProject #2812) rather than Tailwind's fixed `rounded-lg` scale rung, which
+  //    both hardcoded a radius no aesthetic asked for and contradicted Ledger's own
+  //    `--radius-dialog: 0`.
+  props.position === 'right' ? 'h-full rounded-dialog' : '',
+  props.position === 'bottom' ? 'rounded-b-none max-h-full rounded-t-dialog' : '',
+  props.position === 'standard' ? 'rounded-dialog max-h-full' : '',
   props.fullHeight && props.position === 'standard' ? 'h-full' : '',
   props.fullWidth ? 'w-full' : ''
 ])

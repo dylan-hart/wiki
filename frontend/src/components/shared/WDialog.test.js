@@ -603,6 +603,49 @@ describe('WDialog', () => {
 })
 
 /**
+ * OpenProject #2812: the panel's corner radius tracks `--radius-dialog` (`rounded-dialog` /
+ * `rounded-t-dialog`, published by `tailwind.css`'s `@theme static` block -- 0 under Ledger, 12px
+ * under Cobalt) rather than Tailwind's fixed `rounded-lg` scale rung, which used to hardcode a
+ * radius no aesthetic asked for and contradicted Ledger's own `--radius-dialog: 0`. Asserted per
+ * `position`, since each takes a different corner treatment (see `panelClasses`).
+ */
+describe('WDialog corner radius', () => {
+  it('rounds all corners with rounded-dialog for the standard position', () => {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, position: 'standard' },
+      global: { stubs: { teleport: true } }
+    })
+
+    const panel = wrapper.find('.w-dialog-panel')
+    expect(panel.classes()).toContain('rounded-dialog')
+    expect(panel.classes()).not.toContain('rounded-lg')
+  })
+
+  it('rounds all corners with rounded-dialog for the right (side panel) position', () => {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, position: 'right' },
+      global: { stubs: { teleport: true } }
+    })
+
+    const panel = wrapper.find('.w-dialog-panel')
+    expect(panel.classes()).toContain('rounded-dialog')
+    expect(panel.classes()).not.toContain('rounded-lg')
+  })
+
+  it('rounds only the top corners with rounded-t-dialog for the bottom position', () => {
+    const wrapper = mount(WDialog, {
+      props: { modelValue: true, position: 'bottom' },
+      global: { stubs: { teleport: true } }
+    })
+
+    const panel = wrapper.find('.w-dialog-panel')
+    expect(panel.classes()).toContain('rounded-t-dialog')
+    expect(panel.classes()).toContain('rounded-b-none')
+    expect(panel.classes()).not.toContain('rounded-t-lg')
+  })
+})
+
+/**
  * `width`/`height` (OpenProject #2543 follow-up): a caller wanting something between "fits its
  * content" and `fullWidth`/`fullHeight`'s edge-to-edge panel -- `MainOverlayDialog.vue`'s Profile and
  * Inbox entries, sized at roughly half the viewport instead of full-screen.
