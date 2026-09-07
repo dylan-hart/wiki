@@ -102,6 +102,19 @@ const bars = computed(() => {
   background-color: var(--color-dark-4);
 }
 
+/*
+  Cobalt (ui-redesign-nav/HANDOFF.md §1): 30px, radius 8px, no border -- the shadow (`--shadow-card`,
+  #2767) substitutes for the hairline the same way every Cobalt card material drops its border for a
+  shadow elsewhere in this file's sibling `.nav-edit-menu`.
+*/
+:global(body.body--cobalt .nav-cascade-glyph) {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
 .nav-cascade-glyph__bar--accent {
   fill: var(--color-accent-fill);
   stroke: var(--color-accent-fill);
@@ -126,5 +139,17 @@ const bars = computed(() => {
 :global(body.body--dark .nav-cascade-glyph__bar--plain),
 :global(body.body--dark .nav-cascade-glyph__bar--dashed) {
   stroke: var(--color-text-secondary-dark);
+}
+
+/*
+  Cobalt's "inherit" row draws its parent bar in the cobalt identity blue rather than a desaturated
+  slate (handoff: "inherit: parent bar filled slate (#64789f Ledger, #1f4fd6 Cobalt)") -- reusing
+  `--color-accent-strong`, #2767's exact value for this role, rather than `--color-slate-soft` (which
+  #2767 leaves at its Ledger value under Cobalt, since a slate tone is still correct everywhere else
+  `--color-slate-soft` is used).
+*/
+:global(body.body--cobalt .nav-cascade-glyph__bar--slate) {
+  fill: var(--color-accent-strong);
+  stroke: var(--color-accent-strong);
 }
 </style>

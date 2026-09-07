@@ -61,6 +61,7 @@
         padding="xs md"
         @click="props.menuHideHandler" />
       <w-btn
+        class="nav-edit-menu__save-btn"
         icon="tabler:check"
         :label="t('common.actions.save')"
         color="slate"
@@ -320,7 +321,14 @@ onMounted(() => {
   width: 344px;
   max-width: 100%;
   background-color: var(--color-surface);
-  border: 1px solid var(--color-hairline);
+  /*
+    `--border-card`/`--radius-card` (#2767) are exactly the Ledger-hairline-card /
+    Cobalt-shadow-card pair this card material needs -- Ledger's `1px solid var(--color-hairline)`
+    and `0` radius are the token's own Ledger no-op default, so reading through the token changes
+    nothing here and picks up Cobalt's borderless, radius-8px value with no override below.
+  */
+  border: var(--border-card);
+  border-radius: var(--radius-card);
   box-shadow: 0 10px 28px rgba(28, 34, 51, 0.16);
 }
 
@@ -330,9 +338,26 @@ onMounted(() => {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
 }
 
-/* -> Two opposite corner marks only -- see PageNewMenu.vue's own identical construction/comment. */
+/*
+  Cobalt (handoff): `0 10px 28px rgba(16,25,74,.18)` -- (16,25,74) is `--color-ink`'s Cobalt value
+  (#10194a) at 18% alpha, the same way Ledger's own literal above is `--color-ink`'s Ledger value
+  (#1c2233 = rgb(28,34,51)) at 16%. No rgb-channel token exists to reference this through `var()`, so
+  both stay literals -- same convention the dark-mode block above already uses for its own shadow.
+  `overflow: hidden` is Cobalt-only, per the handoff ("no marks").
+*/
+:global(body.body--cobalt .nav-edit-menu) {
+  overflow: hidden;
+  box-shadow: 0 10px 28px rgba(16, 25, 74, 0.18);
+}
+
+/*
+  -> Two opposite corner marks only -- see PageNewMenu.vue's own identical construction/comment.
+     `--corner-marks` (#2767) is `block` for Ledger (a no-op here) and `none` for Cobalt, which the
+     handoff calls for ("no corner marks") without a separate override block needed.
+*/
 .nav-edit-menu__mark {
   position: absolute;
+  display: var(--corner-marks);
   width: 7px;
   height: 7px;
   pointer-events: none;
@@ -362,6 +387,18 @@ onMounted(() => {
 
 :global(body.body--dark .nav-edit-menu__header) {
   border-bottom-color: var(--color-hairline-dark);
+}
+
+/*
+  Cobalt's faint rule (#eef1fb, per the handoff's header/hairline-between-sections/footer rows) has
+  no dedicated token -- #2767's `--color-tint` Cobalt value (#e6edff) is the SELECTED-ROW tint role,
+  not this faint-divider role, and using it here would visibly tint every rule instead of drawing a
+  hairline. `--color-hairline` (#dfe5f5) is the closest existing token both in value and in role (it
+  is what the footer's own rule already uses in Ledger) -- flagging the gap rather than hardcoding
+  #eef1fb; a follow-up to #2767 should add a distinct Cobalt "faint rule" token.
+*/
+:global(body.body--cobalt .nav-edit-menu__header) {
+  border-bottom-color: var(--color-hairline);
 }
 
 .nav-edit-menu__eyebrow {
@@ -438,6 +475,16 @@ onMounted(() => {
   background-color: var(--color-dark-2);
 }
 
+/*
+  Cobalt widens the selected row's inset bar from 2px to 3px (handoff: "inset 3px 0 0 #ff4d5a"),
+  same color role (`--color-accent-fill`) as Ledger -- not `--nav-active-inset` (#2767), which is
+  built for `NavSidebar`'s own active item and carries `--color-accent` (the admin brand accent),
+  a different role from this row's accent-FILL highlight.
+*/
+:global(body.body--cobalt .nav-edit-menu__row--selected) {
+  box-shadow: inset 3px 0 0 var(--color-accent-fill);
+}
+
 /* -> Shape only -- colour comes from the `color="accent-fill"` prop, which sets it inline. */
 .nav-edit-menu :deep(.w-radio) {
   flex: none;
@@ -458,6 +505,42 @@ onMounted(() => {
   width: 7px;
   height: 7px;
   border-radius: 0;
+}
+
+/*
+  Cobalt radio (handoff): 14px circle, unchecked border `#c5cff5`, selected ring/dot `#c8303c`.
+  #2767 doesn't redefine `--color-slate-pale` for Cobalt (it stays the Ledger #a9b7d0, correct
+  everywhere else that token is used), so there is no dedicated "pale/disabled" Cobalt token for the
+  unchecked border -- `--color-admin-sidebar-text` happens to carry the exact #c5cff5 value already,
+  reused here rather than a hardcoded hex; flagging the gap for a follow-up to give #2767 a properly-
+  named token for this role.
+
+  The selected ring/dot uses `--color-accent` (the admin white-text-accent role, `#c8303c` by
+  default under Cobalt) rather than `--color-accent-fill` (`#ff4d5a`) -- the handoff's own Cobalt
+  cell, and the same "don't reuse accent-fill for this role" rule `tailwind.css`'s token block
+  documents. `WRadio` sets the selected color as an inline style, which only plain CSS classes can
+  beat with `!important` (same convention `PageHeader.vue` already uses against `WBtn`'s own inline
+  styles).
+*/
+:global(body.body--cobalt .nav-edit-menu .w-radio > span:first-child) {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border-color: var(--color-admin-sidebar-text);
+}
+
+:global(body.body--cobalt .nav-edit-menu .w-radio .size-2\.5) {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+:global(body.body--cobalt .nav-edit-menu .w-radio[aria-checked='true'] > span:first-child) {
+  border-color: var(--color-accent) !important;
+}
+
+:global(body.body--cobalt .nav-edit-menu .w-radio[aria-checked='true'] .size-2\.5) {
+  background-color: var(--color-accent) !important;
 }
 
 .nav-edit-menu__row-text {
@@ -481,6 +564,11 @@ onMounted(() => {
   color: var(--color-text-dark);
 }
 
+/* Cobalt's selected label is 600, not 500 (handoff: "label 600 #10194a") -- color already matches. */
+:global(body.body--cobalt .nav-edit-menu__row--selected .nav-edit-menu__row-label) {
+  font-weight: 600;
+}
+
 .nav-edit-menu__row-hint {
   font: 400 11.5px/1.35 var(--font-sans);
   color: var(--color-text-caption);
@@ -488,6 +576,14 @@ onMounted(() => {
 
 :global(body.body--dark .nav-edit-menu__row-hint) {
   color: var(--color-text-caption-dark);
+}
+
+/*
+  Cobalt is the only aesthetic that darkens the SELECTED row's hint text (handoff: "hint #4a5580" on
+  the selected row only) -- `--color-text-secondary`'s Cobalt value is exactly that.
+*/
+:global(body.body--cobalt .nav-edit-menu__row--selected .nav-edit-menu__row-hint) {
+  color: var(--color-text-secondary);
 }
 
 .nav-edit-menu__rule {
@@ -498,6 +594,11 @@ onMounted(() => {
 
 :global(body.body--dark .nav-edit-menu__rule) {
   background-color: var(--color-hairline-dark);
+}
+
+/* Same faint-rule token gap as the header's own rule above -- see that comment. */
+:global(body.body--cobalt .nav-edit-menu__rule) {
+  background-color: var(--color-hairline);
 }
 
 /*
@@ -515,6 +616,43 @@ onMounted(() => {
 .nav-edit-menu :deep(.nav-edit-menu__menu-source .w-btn-toggle__segment) {
   flex: 1 1 0;
   height: 30px;
+}
+
+/*
+  Cobalt (handoff): selected fill `#c8303c` with a shadow, unselected text `#1e2a5e`, outer corners
+  6px (never each segment -- see tailwind.css's own "radii sweep" comment on `--radius-control`).
+
+  The selected fill uses `--color-accent` (the white-text-accent role, `#c8303c`), not
+  `--color-accent-fill` (`#ff4d5a`) that `toggle-color="accent-fill"` sets inline -- same "known
+  mockup defect" the token file documents, and the same `!important` convention as the radio above,
+  since `WBtnToggle` sets the selected segment's fill/border as inline styles too.
+
+  Unselected text (`#1e2a5e`) has no dedicated Cobalt token -- #2767 doesn't redefine `--color-slate`
+  for Cobalt (it stays the Ledger #38465f everywhere else that token is used correctly). `--color-ink`
+  (#10194a) is the closest existing token by both value and "dark, assertive UI tone" role; reused
+  here and on the footer Save button below rather than a hardcoded hex, flagging the gap for a
+  follow-up to give #2767 a proper "slate button" token (the handoff's own name for this role).
+*/
+:global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='true']) {
+  background-color: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+  box-shadow: var(--shadow-primary);
+}
+
+:global(
+  body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='false']
+) {
+  color: var(--color-ink);
+}
+
+:global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment:first-child) {
+  border-start-start-radius: var(--radius-control);
+  border-end-start-radius: var(--radius-control);
+}
+
+:global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment:last-child) {
+  border-start-end-radius: var(--radius-control);
+  border-end-end-radius: var(--radius-control);
 }
 
 .nav-edit-menu__menu-source-hint {
@@ -546,8 +684,21 @@ onMounted(() => {
   color: var(--color-text-dark);
 }
 
+/*
+  Cobalt (handoff): radius 6px, glyph and label `#1f4fd6` -- exactly `--color-accent-strong`'s Cobalt
+  value, already a real token, no gap.
+*/
+:global(body.body--cobalt .nav-edit-menu__edit-btn) {
+  border-radius: var(--radius-control);
+  color: var(--color-accent-strong);
+}
+
 .nav-edit-menu__edit-icon {
   color: var(--color-slate-soft);
+}
+
+:global(body.body--cobalt .nav-edit-menu__edit-icon) {
+  color: var(--color-accent-strong);
 }
 
 .nav-edit-menu__edit-label {
@@ -557,6 +708,15 @@ onMounted(() => {
 
 .nav-edit-menu__edit-chevron {
   color: var(--color-slate-faint);
+}
+
+/*
+  Cobalt (handoff): chevron `#7f8ed1` -- `--color-slate-faint` isn't redefined for Cobalt, but
+  `--color-sidebar-icon` (#2767) already carries this exact value for the same "muted icon on a
+  Cobalt surface" role, reused here rather than a hardcoded hex.
+*/
+:global(body.body--cobalt .nav-edit-menu__edit-chevron) {
+  color: var(--color-sidebar-icon);
 }
 
 .nav-edit-menu__footer {
@@ -571,5 +731,16 @@ onMounted(() => {
 :global(body.body--dark .nav-edit-menu__footer) {
   background-color: var(--color-dark-2);
   border-top-color: var(--color-hairline-dark);
+}
+
+/*
+  Cobalt Save fill (handoff: "slate, not red -- #38465f Ledger / #1e2a5e Cobalt"). Same missing
+  "slate button" token as the segmented control's unselected text above -- `--color-ink` reused as
+  the closest existing approximation rather than a hardcoded hex; `color="slate"` sets the fill as an
+  inline style on `WBtn`, hence `!important` (see the radio/segmented-control comments above for the
+  same convention).
+*/
+:global(body.body--cobalt .nav-edit-menu__save-btn) {
+  background-color: var(--color-ink) !important;
 }
 </style>
