@@ -50,7 +50,6 @@
           @click="openAddSet" />
       </div>
     </div>
-    <w-separator inset />
     <div class="flex flex-wrap gap-4 p-4">
       <div class="w-full lg:min-w-0 lg:flex-1">
         <!-- ----------------------- -->
