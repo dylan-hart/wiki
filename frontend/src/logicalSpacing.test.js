@@ -65,8 +65,6 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       "collaboration cursor label: a flag anchored to the caret's fixed left edge, its bottom-left border-radius corner cut square to touch the caret line -- border-radius's 4-value shorthand has no logical corner name that would follow `left` under RTL without a redesign",
     'components/LoadingGeneric.vue':
       'centered rotating spinner (top/left: 50% + margin-top/margin-left: -12px centring, border-top/border-right forming the rotation notch) -- decorative geometry, not a gutter',
-    'components/NavItemEditor.vue':
-      'nested nav item connector wedges: a border-left indent bar plus border-color/border-width 4-value physical shorthands (top/right/bottom/left order) cutting the diagonal corner nibs that join adjacent items -- no logical equivalent preserves this shape without a redesign',
     'components/PageHistoryOverlay.vue':
       'centered page title over the header (left: 50% + translateX(-50%)), not a reading-direction lean',
     'components/PageRelationDialog.vue':
