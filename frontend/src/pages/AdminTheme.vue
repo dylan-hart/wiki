@@ -58,6 +58,18 @@
               @click="resetColors" />
           </template>
           <w-settings-row
+            control-width="auto"
+            icon="tabler:layout-grid"
+            :label="t(`admin.theme.aesthetic`)"
+            :hint="t(`admin.theme.aestheticHint`)">
+            <w-btn-toggle
+              :model-value="state.config.aesthetic"
+              toggle-color="primary"
+              :aria-label="t(`admin.theme.aesthetic`)"
+              :options="aesthetics"
+              @update:model-value="onAestheticChange" />
+          </w-settings-row>
+          <w-settings-row
             tag="label"
             control-width="auto"
             icon="tabler:bulb"
@@ -337,6 +349,7 @@ useMeta(() => ({
  */
 function defaultConfig() {
   return {
+    aesthetic: 'ledger',
     dark: false,
     injectCSS: '',
     injectHead: '',
@@ -359,6 +372,7 @@ function defaultConfig() {
 /** The theme as the API expects it -- every control's field, and nothing else. */
 function payload(config) {
   return {
+    aesthetic: config.aesthetic,
     dark: config.dark,
     codeBlocksTheme: config.codeBlocksTheme,
     colorPrimary: config.colorPrimary,
@@ -427,6 +441,16 @@ const CHROME_TEXT_COLOR = '#1c2233'
 const widthOptions = computed(() => [
   { label: t('admin.theme.contentWidthFull'), value: 'full' },
   { label: t('admin.theme.contentWidthMeasured'), value: 'measured' }
+])
+
+/*
+  Translated, unlike `rightLeftOptions`/`fonts`/`codeThemes` below -- the confirmed spec (OpenProject
+  #2769) calls for dedicated `admin.theme.aestheticLedger`/`aestheticCobalt` keys rather than reusing
+  a raw literal the way those lists do.
+*/
+const aesthetics = computed(() => [
+  { label: t('admin.theme.aestheticLedger'), value: 'ledger' },
+  { label: t('admin.theme.aestheticCobalt'), value: 'cobalt' }
 ])
 
 const rightLeftOptions = [
@@ -751,14 +775,25 @@ function contrastWarningRatio(cl) {
 }
 
 /**
+ * The Aesthetic row's own change handler, rather than a plain `v-model` -- `useAdminSettings#load()`
+ * replaces `state.config` wholesale with the fetched theme (`composables/adminSettings.js`'s
+ * `load()`), so a `watch` on `state.config.aesthetic` would also fire (and wrongly call
+ * `resetColors()`) the moment a Cobalt site's theme loads. Driving the toggle off its own
+ * `update:model-value` event means this only runs on a genuine admin click.
+ */
+function onAestheticChange(value) {
+  state.config.aesthetic = value
+  resetColors()
+}
+
+/**
  * Resets `dark` and every admin-editable color to their defaults. `colorPrimary`/`colorAccent`/
  * `colorHeader`/`colorSidebar` reset to the CURRENT aesthetic's own defaults
  * (`helpers/aestheticDefaults.js`, OpenProject #2768), not a single hardcoded set -- so a Cobalt
- * site's "Reset defaults" (and, once OpenProject #2769 wires the aesthetic switch to call this same
- * function, switching aesthetic itself) lands on Cobalt's colors, not Ledger's. `colorSecondary` and
- * `dark` stay a single default regardless of aesthetic -- dark mode is a wholly separate axis
- * (`composables/dark.js`) and the Cobalt handoff never calls for the positive color to move with the
- * aesthetic switch.
+ * site's "Reset defaults" button, and switching aesthetic itself (`onAestheticChange`, OpenProject
+ * #2769), both land on Cobalt's colors, not Ledger's. `colorSecondary` and `dark` stay a single
+ * default regardless of aesthetic -- dark mode is a wholly separate axis (`composables/dark.js`) and
+ * the Cobalt handoff never calls for the positive color to move with the aesthetic switch.
  */
 function resetColors() {
   state.config.dark = false
