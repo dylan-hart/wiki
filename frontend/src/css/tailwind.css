@@ -495,17 +495,193 @@ html.theme-transition-suppress *::after {
   --text-overline--letter-spacing: 0.16667em;
   --text-overline--font-weight: 500;
 
-  /* -- Elevation ----------------------------------------------------------- */
-  --shadow-card:
-    0 1px 3px rgb(0 0 0 / 0.2), 0 1px 1px rgb(0 0 0 / 0.14), 0 2px 1px -1px rgb(0 0 0 / 0.12);
+  /*
+    -- Elevation --------------------------------------------------------------
+    `--shadow-card`/`--shadow-dialog` are the Ledger halves of the Cobalt aesthetic's shape-token
+    pair (OpenProject #2767, `ui-redesign-cobalt/HANDOFF.md`'s "Shape tokens Cobalt needs that Ledger
+    never had"): Ledger separates a surface from its ground with a hairline, never elevation (see
+    `WCard.vue`'s own comment), so its card shadow is `none` and its dialog shadow is a single soft
+    glow rather than the three-layer Material stack this used to carry -- the values below replace
+    that stack outright, they do not sit beside it. `--shadow-menu` is unrelated to the aesthetic
+    system and is untouched. `--shadow-primary` is new: no Ledger button carries a shadow at all, so
+    it is `none` there and only gets a value under Cobalt's `body.body--cobalt` block below.
+  */
+  --shadow-card: none;
+  --shadow-primary: none;
   --shadow-menu:
     0 1px 5px rgb(0 0 0 / 0.2), 0 2px 2px rgb(0 0 0 / 0.14), 0 3px 1px -2px rgb(0 0 0 / 0.12);
-  --shadow-dialog:
-    0 11px 15px -7px rgb(0 0 0 / 0.2), 0 24px 38px 3px rgb(0 0 0 / 0.14),
-    0 9px 46px 8px rgb(0 0 0 / 0.12);
+  --shadow-dialog: 0 0 30px rgb(0 0 0 / 0.4);
+
+  /*
+    -- Cobalt aesthetic: shape tokens (OpenProject #2767) --------------------
+    New radii the Ledger scale never needed -- Cardinal draws square (see the `--radius-*` scale
+    zeroing further down), so every one of these is `0` here and picks up its real value only under
+    `body.body--cobalt` below. Declared in `@theme static` (not bare `:root`) so each also publishes
+    a matching Tailwind utility for a future screen-level task to reach for directly --
+    `rounded-card`, `rounded-control`, `rounded-dialog`, `rounded-pill`, `rounded-mark` -- with no
+    new component-level CSS of its own. Role assignment (the "radii sweep"): cards and fields take
+    `--radius-card`; buttons, toasts, banners and callouts take `--radius-control`; chips, tags and
+    toggles take `--radius-pill`; badges, checkboxes, inline code and count marks take
+    `--radius-mark`. A segmented control rounds only its outer edges (`rounded-s-control` /
+    `rounded-e-control`), never each segment.
+  */
+  --radius-card: 0;
+  --radius-control: 0;
+  --radius-dialog: 0;
+  --radius-pill: 0;
+  --radius-mark: 0;
+
+  /*
+    -- Cobalt aesthetic: chrome and surface color tokens (OpenProject #2767) -
+    New, narrowly-scoped tokens for chrome surfaces the existing generic palette does not name on its
+    own -- the header eyebrow/search field, the sidebar's own text tiers, the admin sidebar (already
+    dark in Ledger), the footer strip, the h2/inner-rule treatment, the avatar plate and the tag chip.
+    Each Ledger default below is either the literal Ledger value from the handoff's tables or a
+    `var()` onto the existing generic token that already carries that exact value, so Ledger is
+    provably unchanged; Cobalt's own value is declared once, in the `body.body--cobalt` block.
+
+    Deliberately NOT here: `--q-header`/`--q-sidebar` and the rest of the `--q-*` brand colors
+    (header bar, sidebar ground, "primary color" / `colorPrimary`, positive TEXT). Those are
+    site-admin-configurable already, and Cobalt's own default for each is a per-aesthetic ADMIN
+    default (`helpers/aestheticDefaults.js`, `resetColors()`) that OpenProject #2768 owns, not a
+    `body.body--cobalt` override here -- overriding a `--q-*` token in this file would silently beat
+    whatever color an admin had actually chosen for their site.
+  */
+  --color-header-eyebrow: var(--color-text-secondary);
+  --color-header-search-bg: var(--color-paper);
+  --color-header-search-placeholder: var(--color-text-caption);
+  --color-sidebar-text: var(--color-slate);
+  --color-sidebar-text-secondary: var(--color-text-secondary);
+  --color-sidebar-kicker: var(--color-text-caption);
+  --color-sidebar-icon: var(--color-slate-faint);
+  --color-sidebar-active-bg: var(--color-white);
+  --color-sidebar-active-text: var(--color-ink);
+  --color-sidebar-hairline: var(--color-hairline);
+  --color-admin-sidebar-bg: var(--color-ink);
+  --color-admin-sidebar-raised: var(--color-dark-2);
+  --color-admin-sidebar-hairline: var(--color-hairline-dark);
+  --color-admin-sidebar-text: var(--color-text-dark);
+  --color-admin-sidebar-icon: var(--color-slate-light);
+  --color-footer-bg: var(--color-tint);
+  --color-footer-text: var(--color-text-caption);
+  --color-footer-link: var(--color-accent-strong);
+  --color-inner-rule: #e4e9f2;
+  --color-heading-h2: var(--color-ink);
+  --color-heading-rule: var(--color-hairline);
+  --color-avatar-plate-bg: #e9edf5;
+  --color-avatar-plate-text: var(--color-ink);
+  --color-tag-chip-bg: transparent;
+  --color-tag-chip-text: var(--color-accent-strong);
+  --color-tag-chip-border: var(--color-hairline);
+  --color-tag-chip-accent-bg: var(--color-accent-wash);
+  --color-tag-chip-accent-text: var(--color-accent-strong);
 
   /* -- Motion -------------------------------------------------------------- */
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+  -- Cobalt aesthetic: composite shape tokens (OpenProject #2767) ------------
+  These describe a whole declaration's value (a border shorthand, a `display`, a multi-stop
+  gradient) rather than a single Tailwind-scale rung, so they live in plain `:root` rather than
+  `@theme static` -- there is no Tailwind utility namespace a `border`/`box-shadow`/`display`
+  shorthand could publish itself as. Ledger's values below reproduce what the app already draws
+  today (a hairline-bordered card, the corner marks always shown, a 2px accent-colored left inset on
+  the active nav item, a plain white page header); Cobalt's own values live in the
+  `body.body--cobalt` block further down.
+*/
+:root {
+  --border-card: 1px solid var(--color-hairline);
+  --corner-marks: block;
+  --nav-active-inset: inset 2px 0 0 var(--color-accent);
+  --page-header-bg: var(--color-white);
+  --page-header-fg: var(--color-ink);
+  --page-header-radius: 0;
+  --page-header-shadow: none;
+  --page-header-margin: 0;
+}
+
+/*
+  -- Cobalt aesthetic: light token block (OpenProject #2767) -----------------
+  The Cobalt half of every token declared above, scoped to `body.body--cobalt` rather than a
+  `cobalt:` Tailwind variant -- see `ui-redesign-cobalt/HANDOFF.md`'s "Architecture" section. A
+  component keeps writing the same `rounded-card` / `bg-paper` / `text-ink` utility (or `var()`
+  reference) it always has; the token itself is what changes value once the class is on `<body>`
+  (`composables/aesthetic.js`, OpenProject #2766). Cobalt DARK is a further, more specific
+  `body.body--cobalt.body--dark` block layered on top of this one (OpenProject #2764) -- nothing
+  here is dark-mode-aware.
+
+  Every accent color below keeps the three roles the handoff's tables keep distinct: `--color-accent-
+  fill` is the UNTEXTED fill (a dot, an inset bar, a toggle) and is `#ff4d5a`; a fill carrying WHITE
+  text (an Edit button, a count badge, a Draft badge) is the `--q-accent` admin default, seeded
+  `#c8303c` by OpenProject #2768's `aestheticDefaults.js`, never this file; `--color-accent-strong`
+  (accent TEXT on a non-white ground -- links, in this codebase) is `#1f4fd6` here. Do not reuse
+  `--color-accent-fill`'s `#ff4d5a` for a white-text surface -- the mockups shipped with that exact
+  defect and `#c8303c` is the corrected value (handoff, "Known mockup defect, not a spec").
+*/
+body.body--cobalt {
+  /* Reused generic tokens, redefined */
+  --color-ink: #10194a;
+  --color-paper: #f2f5ff;
+  --color-tint: #e6edff;
+  --color-tint-alt: #e6edff;
+  --color-hairline: #dfe5f5;
+  --color-text-body: #1a2038;
+  --color-text-secondary: #4a5580;
+  --color-text-caption: #5a6699;
+  --color-accent-fill: #ff4d5a;
+  --color-accent-wash: #ffe9eb;
+  --color-accent-strong: #1f4fd6;
+  --color-positive-fill: #22a37f;
+
+  /* Shape */
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-dialog: 12px;
+  --radius-pill: 12px;
+  --radius-mark: 4px;
+  --shadow-card: 0 2px 10px rgb(16 25 74 / 0.08);
+  --shadow-primary: 0 4px 14px rgb(200 48 60 / 0.35);
+  --border-card: 0;
+  --corner-marks: none;
+  --nav-active-inset: inset 3px 0 0 #ff4d5a;
+
+  /* Page header banner */
+  --page-header-bg: linear-gradient(120deg, #1f4fd6, #3d6df7);
+  --page-header-fg: var(--color-white);
+  --page-header-radius: 8px;
+  --page-header-shadow: 0 8px 24px rgb(31 79 214 / 0.28);
+  --page-header-margin: 24px;
+
+  /* Chrome and surface colors */
+  --color-header-eyebrow: #dfe6ff;
+  --color-header-search-bg: rgb(255 255 255 / 0.16);
+  --color-header-search-placeholder: #e6ecff;
+  --color-sidebar-text: #d7deff;
+  --color-sidebar-text-secondary: #a7b3ea;
+  --color-sidebar-kicker: #7f8ed1;
+  --color-sidebar-icon: #7f8ed1;
+  --color-sidebar-active-bg: #1f4fd6;
+  --color-sidebar-active-text: var(--color-white);
+  --color-sidebar-hairline: rgb(255 255 255 / 0.08);
+  --color-admin-sidebar-bg: #10194a;
+  --color-admin-sidebar-raised: #1c2a70;
+  --color-admin-sidebar-hairline: #27337a;
+  --color-admin-sidebar-text: #c5cff5;
+  --color-admin-sidebar-icon: #7f8ed1;
+  --color-footer-bg: #10194a;
+  --color-footer-text: #a7b3ea;
+  --color-footer-link: #ff7a84;
+  --color-inner-rule: #e6edff;
+  --color-heading-h2: #1f4fd6;
+  --color-heading-rule: transparent;
+  --color-avatar-plate-bg: #dbe5ff;
+  --color-avatar-plate-text: #1a3fb0;
+  --color-tag-chip-bg: #dbe5ff;
+  --color-tag-chip-text: #1a3fb0;
+  --color-tag-chip-border: transparent;
+  --color-tag-chip-accent-bg: #ffe9eb;
+  --color-tag-chip-accent-text: #c8303c;
 }
 
 /*
