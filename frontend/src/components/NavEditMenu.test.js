@@ -84,6 +84,33 @@ function mountMenu({
 }
 
 describe('NavEditMenu', () => {
+  afterEach(() => {
+    document.documentElement.classList.remove('theme-transition-suppress')
+  })
+
+  /**
+   * OpenProject #2819: `loadMenuMode()`'s resolve used to flip `state.menuMode` from its hardcoded
+   * `'static'` default to the real value while the `w-btn-toggle` was still animating the popup's
+   * open, producing a visible Manual -> Automatic (or -> Mixed) jump. Same fix, same proof, as
+   * `dark.test.js`'s "adds the transition-suppress class synchronously with the flip" case: the
+   * class is still on `<html>` right after the load resolves (it only clears on the next
+   * `requestAnimationFrame`), and `state.menuMode` has already landed by then too.
+   */
+  it("suppresses transitions around loadMenuMode's own state.menuMode assignment", async () => {
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    expect(document.documentElement.classList.contains('theme-transition-suppress')).toBe(true)
+    const autoSegment = wrapper
+      .findAll('button[role="radio"]')
+      .find((b) => b.text() === 'Automatic')
+    expect(autoSegment.attributes('aria-checked')).toBe('true')
+
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    expect(document.documentElement.classList.contains('theme-transition-suppress')).toBe(false)
+  })
+
   it("loads the resolved menu's source mode on mount and saves it alongside the cascade mode", async () => {
     const { wrapper } = mountMenu()
     await flushPromises()
