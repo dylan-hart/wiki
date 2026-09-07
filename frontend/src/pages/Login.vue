@@ -74,8 +74,16 @@ useMeta(() => ({
   Reference: `ui-redesign/Cardinal Wiki - Login 3x.dc.html` and `- Auth Screens 3x.dc.html`.
 */
 .auth {
-  background-color: $surface;
-  color: $text-body;
+  /*
+    OpenProject #2779: every color below moved off `_theme.scss`'s literal `$`-prefixed SCSS
+    variables onto the equivalent `var(--color-*)` custom property. The Ledger value each token
+    resolves to is unchanged (`_theme.scss` and `tailwind.css`'s `:root`/`@theme static` blocks are
+    the same palette in two faces), so this is a no-op under Ledger -- the SCSS variables never
+    followed `body.body--cobalt`'s token overrides, so under Cobalt this whole screen used to render
+    with Ledger's white/ink/slate literals regardless of the site's aesthetic.
+  */
+  background-color: var(--color-surface);
+  color: var(--color-text-body);
   display: flex;
   align-items: stretch;
   /*
@@ -87,8 +95,8 @@ useMeta(() => ({
   min-height: 100vh;
 
   @at-root .body--dark & {
-    background-color: $dark-6;
-    color: $text-dark;
+    background-color: var(--color-dark-6);
+    color: var(--color-text-dark);
   }
 
   &-content {
@@ -141,10 +149,10 @@ useMeta(() => ({
     letter-spacing: 0.05em;
     text-transform: uppercase;
     margin: 0;
-    color: $ink;
+    color: var(--color-ink);
 
     @at-root .body--dark & {
-      color: $text-dark;
+      color: var(--color-text-dark);
     }
   }
 
@@ -152,11 +160,11 @@ useMeta(() => ({
   &-lead {
     font-size: 14px;
     line-height: 1.5;
-    color: $text-secondary;
+    color: var(--color-text-secondary);
     margin: 6px 0 20px;
 
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
     }
   }
 
@@ -167,11 +175,11 @@ useMeta(() => ({
   &-subtitle {
     font-size: 13.5px;
     line-height: 1.5;
-    color: $text-secondary;
+    color: var(--color-text-secondary);
     margin: 0 0 14px;
 
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
     }
   }
 
@@ -183,11 +191,11 @@ useMeta(() => ({
   &-notice {
     font-size: 13.5px;
     line-height: 1.6;
-    color: $slate;
+    color: var(--color-slate);
     margin: 0;
 
     @at-root .body--dark & {
-      color: $text-dark;
+      color: var(--color-text-dark);
     }
   }
 
@@ -202,11 +210,11 @@ useMeta(() => ({
   &-hint {
     font-size: 13px;
     line-height: 1.4;
-    color: $text-secondary;
+    color: var(--color-text-secondary);
     margin: 0 0 8px;
 
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
     }
   }
 
@@ -240,7 +248,12 @@ useMeta(() => ({
     top-left and bottom-right corners. The same mark the page header's icon plate draws, and for the
     same reason -- this is the thing being pointed at. Two corners rather than four is what both auth
     sheets draw. Drawn in the bright accent, which is what a mark is (ink, carrying no text); the
-    button's own fill carries a white label and therefore stays on `$primary`.
+    button's own fill carries a white label and therefore stays on the accent fill role (see
+    `.auth-cta` below).
+
+    OpenProject #2779: `display: var(--corner-marks)` on each pseudo-element is `block` (a no-op)
+    under Ledger and `none` under Cobalt, matching `NavEditMenu.vue`/`NavItemEditor.vue`'s identical
+    construction -- Cobalt's cards and controls carry no registration marks at all.
   */
   &-marks {
     position: relative;
@@ -249,6 +262,7 @@ useMeta(() => ({
     &::after {
       content: '';
       position: absolute;
+      display: var(--corner-marks);
       width: 6px;
       height: 6px;
       pointer-events: none;
@@ -257,16 +271,28 @@ useMeta(() => ({
     &::before {
       top: -3px;
       inset-inline-start: -3px;
-      border-top: 1px solid $accent-fill;
-      border-inline-start: 1px solid $accent-fill;
+      border-top: 1px solid var(--color-accent-fill);
+      border-inline-start: 1px solid var(--color-accent-fill);
     }
 
     &::after {
       bottom: -3px;
       inset-inline-end: -3px;
-      border-bottom: 1px solid $accent-fill;
-      border-inline-end: 1px solid $accent-fill;
+      border-bottom: 1px solid var(--color-accent-fill);
+      border-inline-end: 1px solid var(--color-accent-fill);
     }
+  }
+
+  /*
+    OpenProject #2779: the glow both auth mockups draw under every primary action (the selected
+    strategy chip, every form's submit, both TFA verify buttons) -- `--shadow-primary` (#2767/#2772)
+    is `none` under Ledger, so this is a no-op there, and Cobalt's own
+    `0 4px 14px rgb(200 48 60 / 0.35)` under it. Kept separate from `.auth-marks` above: the two
+    travel together on five of the seven primary actions, but the TFA verify buttons take the shadow
+    with no corner marks, matching what both design files draw.
+  */
+  &-cta {
+    box-shadow: var(--shadow-primary);
   }
 
   /*
@@ -303,14 +329,14 @@ useMeta(() => ({
       here, a site that has never uploaded one showed a white pane beside a white column and the
       split read as a rendering fault rather than as a screen.
     */
-    background-color: $tint;
+    background-color: var(--color-tint);
     min-height: 100vh;
     overflow: hidden;
     // -> The exit flourish's fade, matching `.auth-content`'s own duration/easing
     transition: opacity 320ms ease-out;
 
     @at-root .body--dark & {
-      background-color: $dark-4;
+      background-color: var(--color-dark-4);
     }
 
     img {

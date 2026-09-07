@@ -26,9 +26,16 @@
         :hint="t(`auth.tfa.recoveryCodeHint`)"
         placeholder="XXXX-XXXX-XXXX-XXXX"
         @keyup:enter="verifyTFA" />
+      <!--
+        OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw this as the
+        "accent fill carrying white text" role (`--color-accent`, `#c8303c` under Cobalt), which
+        Ledger's `colorPrimary`/`colorAccent` sharing one value had made indistinguishable from
+        `primary` until now. `auth-cta` (`Login.vue`'s stylesheet) is the matching Cobalt glow, with
+        no corner marks -- neither design file draws marks on this button.
+      -->
       <w-btn
-        class="w-full mt-4"
-        color="primary"
+        class="auth-cta w-full mt-4"
+        color="accent"
         size="13.5px"
         padding="9.5px 16px"
         :label="t(`auth.tfa.verifyToken`)"
@@ -72,9 +79,10 @@
           input-type="number"
           separator="" />
       </div>
+      <!-- -> OpenProject #2779: see the `tfa` screen's Verify button above for the accent/auth-cta note -->
       <w-btn
-        class="w-full mt-4"
-        color="primary"
+        class="auth-cta w-full mt-4"
+        color="accent"
         size="13.5px"
         padding="9.5px 16px"
         :label="t(`auth.tfa.verifyToken`)"
@@ -275,6 +283,10 @@ async function finishSetupTFA() {
   `SetupTfaDialog.vue` (the profile's own 2FA activation) uses the same class on an undesigned
   surface and should not silently inherit this screen's treatment. A scoped `:deep()` rule is
   unlayered, so it beats `@layer components` without needing `!important`.
+
+  OpenProject #2779: every color in this block moved off `_theme.scss`'s literal SCSS variables onto
+  the matching `var(--color-*)` custom property -- see `Login.vue`'s identical note on its own
+  `.auth` block for why (this screen never followed `body.body--cobalt`'s token overrides before).
 */
 .auth-otp :deep(.otp-input-container) {
   display: flex;
@@ -289,11 +301,11 @@ async function finishSetupTFA() {
   min-width: 0;
   height: 48px;
   margin: 0;
-  border: 1px solid $hairline;
+  border: 1px solid var(--color-hairline);
   font-family: var(--font-mono);
   font-size: 20px;
   font-weight: 500;
-  color: $ink;
+  color: var(--color-ink);
 }
 
 /* -> The setup screen's row is one step shorter than the sign-in screen's */
@@ -305,7 +317,7 @@ async function finishSetupTFA() {
 /* -> The box being typed into, which is the one the design marks */
 .auth-otp :deep(.otp-input:focus),
 .auth-otp :deep(.otp-input:focus-visible) {
-  border-color: $accent-fill;
+  border-color: var(--color-accent-fill);
   outline: none;
 }
 
@@ -314,16 +326,16 @@ async function finishSetupTFA() {
   boxes and left the one still wanted looking the same as an empty one.
 */
 .auth-otp :deep(.otp-input.is-complete) {
-  border-color: $hairline;
+  border-color: var(--color-hairline);
 }
 
 :global(body.body--dark .auth-otp .otp-input) {
-  border-color: $hairline-dark;
-  color: $text-dark;
+  border-color: var(--color-hairline-dark);
+  color: var(--color-text-dark);
 }
 
 :global(body.body--dark .auth-otp .otp-input.is-complete) {
-  border-color: $hairline-dark;
+  border-color: var(--color-hairline-dark);
 }
 
 /*
@@ -335,8 +347,8 @@ async function finishSetupTFA() {
   width: 150px;
   height: 150px;
   padding: 10px;
-  border: 1px solid $hairline;
-  background-color: $surface;
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-surface);
   box-sizing: border-box;
 }
 
@@ -348,6 +360,6 @@ async function finishSetupTFA() {
 }
 
 :global(body.body--dark .auth-qr) {
-  border-color: $hairline-dark;
+  border-color: var(--color-hairline-dark);
 }
 </style>

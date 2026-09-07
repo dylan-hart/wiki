@@ -78,10 +78,16 @@
           lazy-rules="ondemand">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
+        <!--
+          OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw this in the
+          "accent fill carrying white text" role (`--color-accent`, `#c8303c` under Cobalt), distinct
+          from `--color-primary` now that Ledger's `colorPrimary`/`colorAccent` no longer stand in for
+          one another. `auth-cta` (`Login.vue`'s stylesheet) is the matching Cobalt glow.
+        -->
         <w-btn
-          class="auth-marks w-full mt-2.5"
+          class="auth-marks auth-cta w-full mt-2.5"
           type="submit"
-          color="primary"
+          color="accent"
           size="13.5px"
           padding="9.5px 16px"
           :label="t(`auth.actions.register`)"
@@ -203,7 +209,13 @@ const form = ref(null)
 
 const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword, t))
 
-/** See `AuthLoginPanel`'s own `chromeColor`: the chrome tone, lightened for the ink ground. */
+/**
+ * See `AuthLoginPanel`'s own `chromeColor`: the chrome tone, lightened for the ink ground.
+ *
+ * OpenProject #2779: left as the generic, non-aesthetic `slate`/`slate-light` under Cobalt too -- see
+ * `AuthLoginPanel.vue`'s identical note on its own `chromeColor` for why this is flagged rather than
+ * fixed here.
+ */
 const chromeColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
 
 // VALIDATION RULES

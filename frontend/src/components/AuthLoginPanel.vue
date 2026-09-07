@@ -11,17 +11,24 @@
           fill, and the others are hairline outline plates in the chrome tone. They used to be a
           Material grey FILL (`grey-1` / `blue-grey-9`), which read as three buttons of equal weight
           rather than as one selection among several.
+
+          OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw the selected
+          chip in the "accent fill carrying white text" role (`--color-accent`, `#c8303c` under
+          Cobalt), which Ledger's `colorPrimary`/`colorAccent` sharing one value had made
+          indistinguishable from `primary` until now. `auth-cta` (`Login.vue`'s stylesheet) applies
+          the matching Cobalt glow only while this chip is the selected one, same as the mockup.
         -->
         <div class="auth-strategies">
           <w-btn
             v-for="str of formStrategies"
             :key="str.id"
+            :class="{ 'auth-cta': str.id === state.selectedStrategyId }"
             :label="str.activeStrategy.displayName"
             :icon="`img:` + str.activeStrategy.strategy.icon"
             size="13px"
             padding="7px 12px"
             :outline="str.id !== state.selectedStrategyId"
-            :color="str.id === state.selectedStrategyId ? `primary` : chromeColor"
+            :color="str.id === state.selectedStrategyId ? `accent` : chromeColor"
             @click="state.selectedStrategyId = str.id" />
         </div>
       </template>
@@ -60,10 +67,11 @@
           autocomplete="current-password">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
+        <!-- -> OpenProject #2779: see the strategy selector's own note above for the accent/auth-cta swap -->
         <w-btn
-          class="auth-marks w-full mt-2.5"
+          class="auth-marks auth-cta w-full mt-2.5"
           type="submit"
-          color="primary"
+          color="accent"
           size="14px"
           padding="10px 16px"
           :label="t(`auth.actions.login`)"
@@ -82,11 +90,16 @@
           border, which turned the whole lower half of the column into a stack of tinted slabs. The
           passkey row keeps the accent tone -- it is still a way IN -- while the provider, register
           and forgot rows below take the chrome tone the design gives them.
+
+          OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw this row's
+          text/icon in the "accent text on white" role (`#c8303c` under Cobalt), a distinct
+          `--color-*` token from `--color-primary` (`#1f4fd6`, Cobalt's link/icon-stroke color) now
+          that Ledger's `colorPrimary`/`colorAccent` no longer stand in for one another.
         -->
         <w-btn
           class="w-full"
           outline
-          color="primary"
+          color="accent"
           size="13.5px"
           padding="8.5px 14px"
           :label="t(`auth.passkeys.signin`)"
@@ -164,10 +177,11 @@
           autocomplete="email">
           <template #prepend><w-icon name="tabler:mail" /></template>
         </w-input>
+        <!-- -> OpenProject #2779: see the login submit button's own note for the accent/auth-cta swap -->
         <w-btn
-          class="auth-marks w-full mt-2.5"
+          class="auth-marks auth-cta w-full mt-2.5"
           type="submit"
-          color="primary"
+          color="accent"
           size="13.5px"
           padding="9.5px 16px"
           :label="t(`auth.sendResetPassword`)"
@@ -221,10 +235,11 @@
           lazy-rules="ondemand">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
+        <!-- -> OpenProject #2779: see the login submit button's own note for the accent/auth-cta swap -->
         <w-btn
-          class="auth-marks w-full mt-2.5"
+          class="auth-marks auth-cta w-full mt-2.5"
           type="submit"
-          color="primary"
+          color="accent"
           size="13.5px"
           padding="9.5px 16px"
           :label="t(`auth.resetPassword.proceed`)"
@@ -303,10 +318,11 @@
           lazy-rules="ondemand">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
+        <!-- -> OpenProject #2779: see the login submit button's own note for the accent/auth-cta swap -->
         <w-btn
-          class="auth-marks w-full mt-2.5"
+          class="auth-marks auth-cta w-full mt-2.5"
           type="submit"
-          color="primary"
+          color="accent"
           size="13.5px"
           padding="9.5px 16px"
           :label="t(`auth.changePwd.proceed`)"
@@ -438,6 +454,14 @@ const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword,
  * the ink ground it disappears into the panel, so dark mode takes the lightened rung the language
  * already names for exactly this. A `dark:` utility cannot do it: `WBtn` resolves `color` to an
  * inline `var(--color-…)`, so the switch has to happen at the prop.
+ *
+ * OpenProject #2779: `--color-slate` is a generic, non-aesthetic token, so this stays the same
+ * `#38465f` under Cobalt too -- the Cobalt mockups draw these rows in a distinct `#1e2a5e`/`#1f4fd6`
+ * treatment that has no token of its own yet. Left unchanged rather than guessed at: this is the same
+ * already-logged "no Cobalt slate-button token" gap `NavEditMenu.vue`'s and `NavEditOverlay.vue`'s
+ * own `body.body--cobalt` overrides flag (each picked a different nearest-existing-token stand-in,
+ * `--color-ink` and `--color-text-secondary` respectively), so a third guess here would only add a
+ * third answer to a question this task's coordination note defers to Feature #2763.
  */
 const chromeColor = computed(() => (dark.isActive ? 'slate-light' : 'slate'))
 
