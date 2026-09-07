@@ -95,7 +95,7 @@
                exists to divide the two, so it goes with them -->
           <template v-if="siteStore.locales.showMenu">
             <w-btn
-              class="flex-1 px-2"
+              class="icon-lg px-2"
               flat
               dense
               icon="tabler:language"
@@ -108,7 +108,7 @@
           </template>
           <w-btn
             v-if="canBrowse"
-            class="flex-1 px-2"
+            class="icon-lg flex-1 px-2"
             flat
             dense
             icon="tabler:sitemap"
@@ -578,6 +578,15 @@ function openSidebar() {
   //    an inline `color`, which would outrank this rule
   .w-btn {
     color: $slate;
+  }
+
+  // -> OpenProject #2788: WBtn's own `.w-icon` rule (`.w-btn :deep(.w-icon) { font-size: 1.715em }`)
+  //    scales off `size="sm"`'s 10px button font-size, landing at ~17px -- undersized next to the
+  //    label here. `.icon-lg` (Locale and Browse only, not the sibling Collapse button below) pins
+  //    those two icons to 20px explicitly. `!important` because this plain rule and WBtn's own
+  //    scoped one tie on specificity, and which stylesheet loads later is not something to rely on.
+  .icon-lg .w-icon {
+    font-size: 20px !important;
   }
 }
 
