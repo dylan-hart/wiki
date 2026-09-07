@@ -190,12 +190,20 @@
         <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
       </w-item-section>
       <w-item-section side>
-        <w-btn-toggle
-          v-model="state.config.appearance"
-          toggle-color="primary"
-          :options="appearances"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.appearance`)" />
+        <div class="flex items-center gap-2 flex-wrap">
+          <w-btn-toggle
+            v-model="state.config.aesthetic"
+            toggle-color="primary"
+            :options="aesthetics"
+            :disabled="!canEdit"
+            :aria-label="t(`profile.aesthetic`)" />
+          <w-btn-toggle
+            v-model="state.config.appearance"
+            toggle-color="primary"
+            :options="appearances"
+            :disabled="!canEdit"
+            :aria-label="t(`profile.appearance`)" />
+        </div>
       </w-item-section>
     </w-item>
     <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
@@ -269,6 +277,7 @@ const state = reactive({
     timezone: '',
     dateFormat: '',
     timeFormat: '12h',
+    aesthetic: 'site',
     appearance: 'site',
     cvd: 'none'
   },
@@ -286,6 +295,11 @@ const dateFormats = [
 const timeFormats = [
   { value: '12h', label: t('admin.general.defaultTimeFormat12h') },
   { value: '24h', label: t('admin.general.defaultTimeFormat24h') }
+]
+const aesthetics = [
+  { value: 'site', label: t('profile.aestheticDefault') },
+  { value: 'ledger', label: t('profile.aestheticLedger') },
+  { value: 'cobalt', label: t('profile.aestheticCobalt') }
 ]
 const appearances = [
   { value: 'site', label: t('profile.appearanceDefault') },
@@ -343,6 +357,7 @@ function applyProfile(profile) {
   state.config.timezone = profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || ''
   state.config.dateFormat = profile.dateFormat || ''
   state.config.timeFormat = profile.timeFormat || '12h'
+  state.config.aesthetic = profile.aesthetic || 'site'
   state.config.appearance = profile.appearance || 'site'
   state.config.cvd = profile.cvd || 'none'
   // -> After the whole record is in the fields, not per-field: the answer depends on all three.
@@ -373,6 +388,7 @@ async function save() {
         timezone: state.config.timezone,
         dateFormat: state.config.dateFormat,
         timeFormat: state.config.timeFormat,
+        aesthetic: state.config.aesthetic,
         appearance: state.config.appearance,
         cvd: state.config.cvd,
         // -> No dedicated form control: `LocaleSelectorMenu` already owns picking the UI language,
@@ -390,6 +406,7 @@ async function save() {
       timezone: state.config.timezone,
       dateFormat: state.config.dateFormat,
       timeFormat: state.config.timeFormat,
+      aesthetic: state.config.aesthetic,
       appearance: state.config.appearance,
       cvd: state.config.cvd
     })
