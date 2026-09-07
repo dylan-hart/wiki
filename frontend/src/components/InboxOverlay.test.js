@@ -147,23 +147,91 @@ describe('InboxOverlay: dark mode', () => {
     'utf-8'
   )
 
+  /*
+   * OpenProject #2778: these used to read the `$surface`/`$text-body`/`$dark-3`/`$text-dark` SCSS
+   * literals -- Ledger-only constants (`css/_theme.scss`'s own header says so) that never pick up
+   * Cobalt's `body.body--cobalt`/`body.body--cobalt.body--dark` overrides. Moved onto the matching
+   * `var(--color-*)` custom properties, which resolve to the identical Ledger values (this assertion
+   * still passes unchanged there) and to Cobalt's own values once `body--cobalt` is on `<body>`.
+   */
   it('gives .inbox-overlay a background + color pairing for both themes', () => {
     const overlayRule = source.match(/\.inbox-overlay\s*\{[\s\S]*?\n\}\n/)[0]
 
     expect(overlayRule).toMatch(
-      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*\$surface/
+      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*var\(--color-surface\)/
     )
-    expect(overlayRule).toMatch(/@at-root\s+\.body--light\s+&\s*\{[^}]*color:\s*\$text-body/)
-    expect(overlayRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*\$dark-3/)
-    expect(overlayRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*\$text-dark/)
+    expect(overlayRule).toMatch(
+      /@at-root\s+\.body--light\s+&\s*\{[^}]*color:\s*var\(--color-text-body\)/
+    )
+    expect(overlayRule).toMatch(
+      /@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*var\(--color-dark-3\)/
+    )
+    expect(overlayRule).toMatch(
+      /@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*var\(--color-text-dark\)/
+    )
   })
 
   it('gives .inbox-overlay-sidebar its own themed background too, not just its nav item text', () => {
-    const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*\}\n<\/style>/)[0]
+    const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
 
     expect(sidebarRule).toMatch(
       /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*\$tint-alt/
     )
     expect(sidebarRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*\$dark-4/)
+  })
+})
+
+/**
+ * OpenProject #2778: diffed against `Cardinal Wiki - Inbox 3x - Cobalt.dc.html`. Cobalt draws this
+ * rail as the site's own sidebar chrome (same tokens `NavItemEditor.vue`'s Cobalt active row already
+ * uses for the identical role) rather than a light/dark-following tint, and stays the same across the
+ * light/dark toggle -- one `body--cobalt` block covers both, so these assertions don't need a
+ * `body--dark` variant the way the Ledger ones above do.
+ */
+describe('InboxOverlay: Cobalt aesthetic', () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'InboxOverlay.vue'),
+    'utf-8'
+  )
+
+  it('gives .inbox-overlay-sidebar a Cobalt background + hairline off --color-sidebar', () => {
+    const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
+
+    expect(sidebarRule).toMatch(
+      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*background-color:\s*var\(--color-sidebar\)/
+    )
+    expect(sidebarRule).toMatch(
+      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*border-inline-end-color:\s*var\(--color-sidebar-hairline\)/
+    )
+  })
+
+  it('gives an inactive rail row Cobalt text + icon colour', () => {
+    const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
+
+    expect(sidebarRule).toMatch(
+      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*color:\s*var\(--color-sidebar-text\)/
+    )
+    expect(sidebarRule).toMatch(/var\(--color-sidebar-icon\)/)
+  })
+
+  it('gives the active rail row Cobalt’s pill shape -- radius, inset margin and inset-shadow accent, not a border', () => {
+    const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
+
+    expect(sidebarRule).toMatch(
+      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*background-color:\s*var\(--color-sidebar-active-bg\)/
+    )
+    expect(sidebarRule).toMatch(/border-inline-start-color:\s*transparent/)
+    expect(sidebarRule).toMatch(/border-radius:\s*var\(--radius-control\)/)
+    expect(sidebarRule).toMatch(/box-shadow:\s*var\(--nav-active-inset\)/)
+    expect(sidebarRule).toMatch(/margin-inline:\s*10px/)
+  })
+
+  it('gives the decline button Cobalt’s own accent-fill border', () => {
+    const negativeRule = source.match(/\.inbox-square-btn--negative\.w-btn\s*\{[\s\S]*?\n\}\n/)[0]
+
+    expect(negativeRule).toMatch(/border-color:\s*\$accent-fill/)
+    expect(negativeRule).toMatch(
+      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*border-color:\s*var\(--color-accent-fill\)/
+    )
   })
 })

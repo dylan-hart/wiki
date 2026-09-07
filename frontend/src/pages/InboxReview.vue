@@ -719,6 +719,12 @@ onBeforeUnmount(disposeEditor)
     `$slate-soft`; the design file wins on a colour, so it goes in as written rather than being
     rounded to the nearest token -- and it stays a literal here rather than becoming a new token,
     since one chip on one screen is not a palette entry.
+
+    OpenProject #2778: `Cardinal Wiki - Inbox Review 3x - Cobalt.dc.html` reads this chip's text as
+    `#1e2a5e`, not `$slate` (`#38465f`) -- but that Cobalt pair has no dedicated dark mockup, and
+    `#1e2a5e` is a light-ground tone with no documented Cobalt-dark counterpart to pair it with, so
+    guessing one here (rather than confirming against a real mockup) is exactly what the acceptance
+    criteria ask not to do. `$slate`/`$slate-light` stay as the fallback; logged, not fixed.
   */
   &-count {
     border: 1px solid #5f78a8;
