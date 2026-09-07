@@ -100,14 +100,21 @@ export const useEditorStore = defineStore('editor', {
       this.lastChangeTimestamp = Temporal.Now.instant()
     },
     /**
-     * Fetch the editor configs unless they are already loaded.
+     * Fetch the editor configs unless they are already loaded, but always refresh the glossary term
+     * list regardless (OpenProject #2789).
      *
      * Every editor-session entry point in `stores/page.js` needs them and none of them wants a
-     * second request for a site whose configs are already in hand.
+     * second request for a site whose configs are already in hand -- but a glossary term added or
+     * edited after this session's first editor open must still show up the next time an editor
+     * session starts, not only after a full page reload. `configIsLoaded` intentionally gates only
+     * the rest of the markdown editor's config (tab width, quote style, ...), which changes far less
+     * often and is not worth a request on every editor open.
      */
     async ensureConfigs() {
       if (!this.configIsLoaded) {
         await this.fetchConfigs()
+      } else {
+        await this.refreshGlossaryTerms()
       }
     },
     /**
@@ -172,24 +179,49 @@ export const useEditorStore = defineStore('editor', {
         // -> The editor configs are part of the site config, which is one request rather than a
         //    dedicated endpoint
         const siteInfo = await API_CLIENT.get(`sites/${siteStore.id}`).json()
-        // -> The resolved glossary term list (OpenProject #870): folded into the markdown editor's own
-        //    config bag rather than fetched separately at each `MarkdownRenderer` call site, since
-        //    every one of those already reads `editorStore.editors.markdown` for its config.
-        const glossaryTerms = await API_CLIENT.get(`sites/${siteStore.id}/glossary/terms`).json()
         this.$patch({
           editors: {
             asciidoc: siteInfo?.editors?.asciidoc?.config ?? {},
-            markdown: {
-              ...siteInfo?.editors?.markdown?.config,
-              glossaryTerms: glossaryTerms ?? []
-            },
+            markdown: { ...siteInfo?.editors?.markdown?.config },
             wysiwyg: siteInfo?.editors?.wysiwyg?.config ?? {}
           },
           configIsLoaded: true
         })
+        // -> Folded in separately, but as part of the same initial load -- see `refreshGlossaryTerms`
+        await this.refreshGlossaryTerms()
       } catch (err) {
         log.warn('editor', 'could not load the editor configuration', err)
         throw err
+      }
+    },
+    /**
+     * Re-fetches the resolved glossary term list and folds it into the markdown editor's own config
+     * bag, independent of `configIsLoaded` (OpenProject #870, #2789).
+     *
+     * Not fetched separately at each `MarkdownRenderer` call site, since every one of those already
+     * reads `editorStore.editors.markdown` for its config -- but also not gated behind
+     * `configIsLoaded` the way the rest of that config is: a term added, edited or deleted after this
+     * SPA session's first editor open has to be visible the next time an editor session starts
+     * (`ensureConfigs()`, called by every entry point in `stores/page.js`), not only after a full page
+     * reload. The backend route this calls is itself cached and invalidated on every glossary write,
+     * so this is a cheap request, not a full re-fetch of the term list from the database each time.
+     */
+    async refreshGlossaryTerms() {
+      const siteStore = useSiteStore()
+      if (!siteStore.id) {
+        return
+      }
+      try {
+        const glossaryTerms = await API_CLIENT.get(`sites/${siteStore.id}/glossary/terms`).json()
+        this.editors.markdown = {
+          ...this.editors.markdown,
+          glossaryTerms: glossaryTerms ?? []
+        }
+      } catch (err) {
+        // -> Not fatal to opening the editor: worst case the term list is whatever this session
+        //    already had (possibly none), the same degrade-to-plain-text behavior an empty glossary
+        //    always has.
+        log.warn('editor', 'could not refresh the glossary term list', err)
       }
     },
     /**

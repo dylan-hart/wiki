@@ -311,6 +311,29 @@ describe('_page-contents.scss rendered content beyond prose', () => {
     })
   })
 
+  /*
+   * OpenProject #870/#2789: `.glossary-term` is `renderers/modules/markdown-it-glossary.js`'s own
+   * class, put on BOTH forms it can emit -- an unlinked `<abbr class="glossary-term">` and a linked
+   * `<a class="glossary-term">`. The unlinked form happened to already get a dotted underline from
+   * the pre-existing `abbr[title]` rule (both share the `abbr` tag), which is why this went
+   * unnoticed for the linked form: the generic `a` rule sets `text-decoration: none` and nothing
+   * overrode it for this class specifically, until this rule was added.
+   */
+  describe('glossary term', () => {
+    const block = blockFor('.glossary-term {')
+
+    it('gets its own dotted underline and "help" cursor, independent of which tag the renderer chose', () => {
+      expect(block).toMatch(/text-decoration:\s*underline dotted/)
+      expect(block).toMatch(/text-decoration-thickness:\s*1px/)
+      expect(block).toMatch(/text-underline-offset:\s*3px/)
+      expect(block).toMatch(/cursor:\s*help/)
+    })
+
+    it('is keyed off the class, not the `abbr` tag, so it also reaches the linked `<a>` form', () => {
+      expect(block.startsWith('.glossary-term')).toBe(true)
+    })
+  })
+
   describe('footnotes', () => {
     it('bleeds the separator back through the container padding, like the title rule', () => {
       const sep = blockFor('.footnotes-sep {')

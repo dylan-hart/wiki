@@ -577,10 +577,10 @@ async function renderOf(version, content) {
     return content
   }
   // -> The renderer is configured per site (line breaks, typographer, …), and that configuration
-  //    arrives with the editor configs rather than on its own
-  if (!editorStore.configIsLoaded) {
-    await editorStore.fetchConfigs()
-  }
+  //    arrives with the editor configs rather than on its own. `ensureConfigs()`, not a bare
+  //    `configIsLoaded` check: it also refreshes the glossary term list even when the rest of the
+  //    config is already loaded (OpenProject #2789)
+  await editorStore.ensureConfigs()
   // -> Rendered as the page it is a version of, so a relative image in it resolves the way it does
   //    in the page view rather than against the site root
   return new MarkdownRenderer(editorStore.editors.markdown ?? {}).render(content, {
