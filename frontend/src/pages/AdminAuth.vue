@@ -41,7 +41,6 @@
           :loading="state.loading > 0" />
       </div>
     </div>
-    <w-separator inset />
     <!--
       The same shape the storage view uses for a list beside what it selects: the list is as wide as
       it needs to be and the panel takes what is left, wrapping onto its own row when there is no room

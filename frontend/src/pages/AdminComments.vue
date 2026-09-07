@@ -45,7 +45,6 @@
           :loading="state.loading > 0" />
       </div>
     </div>
-    <w-separator inset />
     <div class="px-4 pt-4">
       <w-tabs v-model="state.mode" no-caps>
         <w-tab name="provider" :label="t('admin.comments.provider')" />

@@ -44,7 +44,6 @@
         </w-btn>
       </div>
     </div>
-    <w-separator inset />
     <!--
       List-beside-panel shape like `AdminStorage.vue`'s targets and `AdminAuth.vue`'s strategies, but
       the sizing below is deliberately NOT the same (OpenProject #857 fixed only this page; those two
