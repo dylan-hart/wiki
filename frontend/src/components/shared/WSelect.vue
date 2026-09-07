@@ -17,7 +17,7 @@
     :label-for="selectId"
     :control-tag="useInput ? 'div' : 'button'"
     :control-props="controlProps"
-    control-base-class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 text-start"
+    control-base-class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded-card text-start"
     :control-classes="controlClasses"
     :control-style="controlStyle"
     :shows-bottom="showsBottom"

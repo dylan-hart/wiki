@@ -16,7 +16,7 @@
     :hint="hint"
     :label-for="inputId"
     :control-props="controlEvents"
-    control-base-class="w-input-control flex flex-nowrap items-center gap-2"
+    control-base-class="w-input-control flex flex-nowrap items-center gap-2 rounded-card"
     :control-classes="controlClasses"
     :control-style="controlStyle"
     :shows-bottom="showsBottom"

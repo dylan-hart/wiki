@@ -61,8 +61,9 @@ const props = defineProps({
 })
 
 const classes = computed(() => [
-  // -> Square unless a caller explicitly asks for the pill; see WChip for the same reasoning
-  props.rounded ? 'rounded-full' : 'rounded-none',
+  // -> Pill when a caller explicitly asks; otherwise `--radius-mark` (0 under Ledger, a real value
+  //    under Cobalt -- OpenProject #2767/#2772), never a hardcoded corner
+  props.rounded ? 'rounded-full' : 'rounded-mark',
   props.outline ? 'border border-current bg-transparent' : '',
   // -> `right-0` (not `end-0`) is deliberate, reviewed under OpenProject #1590's
   //    physical-positioning triage: the straddle is `translate-x-1/2`, a physical transform that

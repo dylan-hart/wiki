@@ -10,6 +10,16 @@ describe('WBadge', () => {
     expect(wrapper.text()).toBe('3')
   })
 
+  it('draws its corner off --radius-mark unless rounded is set', () => {
+    // -> `0` under Ledger (unchanged), a real value under Cobalt (OpenProject #2767/#2772)
+    const mark = mount(WBadge, { props: { label: 1 } })
+    expect(mark.classes()).toContain('rounded-mark')
+    expect(mark.classes()).not.toContain('rounded-none')
+
+    const pill = mount(WBadge, { props: { label: 1, rounded: true } })
+    expect(pill.classes()).toContain('rounded-full')
+  })
+
   it('is not positioned by default', () => {
     const wrapper = mount(WBadge, { props: { label: 1 } })
 
