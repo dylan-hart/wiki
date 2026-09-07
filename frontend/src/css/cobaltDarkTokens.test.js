@@ -143,3 +143,33 @@ describe('admin-configurable brand colors are left alone', () => {
     expect(darkSource).not.toMatch(/--q-[a-z]/)
   })
 })
+
+/**
+ * OpenProject #2817 ("Fix WFieldFrame.vue's error-ring dark color to match the Cobalt dark mockup's
+ * brighter value"). The generic `body.body--dark .w-input-control` rule points
+ * `--w-input-ring-error` at `--color-accent-dark` (the lightened value), but the Cobalt dark mockup
+ * wants the same bright value light mode uses -- so a Cobalt-dark-specific override re-points it at
+ * `--color-accent-fill`, which resolves to Cobalt light's `#ff4d5a` since it isn't restated in the
+ * `body.body--cobalt.body--dark` token block above. This rule lives as a separate selector next to
+ * the other `.w-input-control` rules (outside the token block itself), so it isn't part of
+ * `darkSource` above -- read directly from the full source text instead.
+ */
+describe('Cobalt-dark .w-input-control error-ring override', () => {
+  it('re-points --w-input-ring-error at --color-accent-fill under body.body--cobalt.body--dark', () => {
+    const ruleStart = source.indexOf('body.body--cobalt.body--dark .w-input-control {')
+    expect(ruleStart, 'body.body--cobalt.body--dark .w-input-control rule').toBeGreaterThan(-1)
+
+    const ruleEnd = source.indexOf('\n  }', ruleStart)
+    const ruleSource = source.slice(ruleStart, ruleEnd)
+
+    expect(declaredValue(ruleSource, 'w-input-ring-error')).toBe('var(--color-accent-fill)')
+  })
+
+  it('leaves the generic body.body--dark .w-input-control rule pointed at --color-accent-dark', () => {
+    const genericStart = source.indexOf('body.body--dark .w-input-control {')
+    const genericEnd = source.indexOf('\n  }', genericStart)
+    const genericSource = source.slice(genericStart, genericEnd)
+
+    expect(declaredValue(genericSource, 'w-input-ring-error')).toBe('var(--color-accent-dark)')
+  })
+})

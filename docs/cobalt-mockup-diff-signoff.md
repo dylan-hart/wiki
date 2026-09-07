@@ -152,8 +152,11 @@ var(--color-hairline-dark); }` block (placed before `body.body--cobalt` so the l
   `WInput.vue`/`WSelect.vue`'s read-only surface moved off `dark:bg-dark-4` onto `dark:bg-dark-3-5`
   (`WSelect.vue` carried the identical mockup mismatch, undiffed by name in row 18 above but sharing
   `WInput.vue`'s exact code shape — fixed alongside rather than left half-done).
-- `WFieldFrame.vue`'s error-ring dark color lightens per the generic pre-Cobalt convention, but the
-  mockup wants the same bright value light uses.
+- ~~`WFieldFrame.vue`'s error-ring dark color lightens per the generic pre-Cobalt convention, but the
+  mockup wants the same bright value light uses.~~ **Fixed** — OpenProject #2817 added a
+  `body.body--cobalt.body--dark .w-input-control` override in `tailwind.css` re-pointing
+  `--w-input-ring-error` at `--color-accent-fill` (Cobalt's own bright `#ff4d5a`) for Cobalt dark
+  specifically, leaving every other dark aesthetic's ring unchanged.
 - `BlueprintIcon.vue`'s settings-row plate (shared across ~35 admin/profile pages) has no
   Cobalt-specific styling at all — a hardcoded hairline border, `--color-paper` fill and
   `--color-slate` glyph under both aesthetics, versus the mockup's borderless, `#e6edff`-tinted,
@@ -167,5 +170,7 @@ var(--color-hairline-dark); }` block (placed before `body.body--cobalt` so the l
   wiring is otherwise reserved to #2813's `WBtn`-scoped decision this round; this is a second,
   `WBtnToggle`-scoped instance of the same open question.
 
-Of the six gaps originally logged here, one is fixed (above); the rest are still Feature #2763's to
-resolve, tracked here so the deferral stays visible rather than buried in individual task comments.
+Of the nine gaps logged here (the original six, plus `BlueprintIcon.vue` and `WBtnToggle.vue`
+surfaced by the Profile/Aesthetic-setting diffs), seven are now fixed (above); `BlueprintIcon.vue`'s
+settings-row plate and `WBtnToggle.vue`'s selected-segment glow remain Feature #2763's to resolve,
+tracked here so the deferral stays visible rather than buried in individual task comments.
