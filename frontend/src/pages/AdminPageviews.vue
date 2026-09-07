@@ -112,12 +112,30 @@
             {{ relativeDate(state.summary.mostRecentAt) }}
           </div>
         </div>
+        <div class="col-span-12">
+          <w-card class="rounded">
+            <w-table
+              :rows="pageviewsTable.rows"
+              :columns="pageviewsColumns"
+              row-key="pageId"
+              flat
+              :loading="pageviewsTable.loading">
+              <template #body-cell-title="props">
+                <w-td :props="props">
+                  <div>{{ props.row.title }}</div>
+                  <div class="text-caption text-grey">/{{ props.row.path }}</div>
+                </w-td>
+              </template>
+            </w-table>
+          </w-card>
+        </div>
       </template>
     </div>
   </w-page>
 </template>
 
 <script setup>
+import { onMounted, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAdminSettings } from '@/composables/adminSettings'
@@ -181,6 +199,78 @@ const { state, load, refresh } = useAdminSettings({
     }
   }
 })
+
+// PER-PAGE TABLE
+//
+// Kept independent of `useAdminSettings` above: the toggle/summary panel is instance-wide
+// (`siteScoped: false`), but a per-page breakdown only makes sense for one site's own pages, so
+// this fetches and reloads off `adminStore.currentSiteId` -- the admin-wide site switcher every
+// admin page shares -- without pulling the toggle/summary into a reload on every site switch too.
+
+const pageviewsColumns = [
+  {
+    label: t('admin.pageviews.columnPage'),
+    align: 'left',
+    field: 'title',
+    name: 'title',
+    sortable: true
+  },
+  {
+    label: t('admin.pageviews.columnTotal'),
+    align: 'right',
+    field: 'total',
+    name: 'total',
+    sortable: true
+  },
+  {
+    label: t('admin.pageviews.columnBrowser'),
+    align: 'right',
+    field: 'browser',
+    name: 'browser',
+    sortable: true
+  },
+  {
+    label: t('admin.pageviews.columnMcp'),
+    align: 'right',
+    field: 'mcp',
+    name: 'mcp',
+    sortable: true
+  },
+  {
+    label: t('admin.pageviews.columnApi'),
+    align: 'right',
+    field: 'api',
+    name: 'api',
+    sortable: true
+  }
+]
+
+const pageviewsTable = reactive({
+  rows: [],
+  loading: false
+})
+
+async function loadPageviewsTable() {
+  // -> Same "no site chosen, nothing to address a request to" guard `useAdminSettings` applies to
+  //    a site-scoped page's own load.
+  if (!adminStore.currentSiteId) {
+    return
+  }
+  pageviewsTable.loading = true
+  try {
+    pageviewsTable.rows = await API_CLIENT.get(`sites/${adminStore.currentSiteId}/pageviews`).json()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.pageviews.tableLoadFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  pageviewsTable.loading = false
+}
+
+watch(() => adminStore.currentSiteId, loadPageviewsTable)
+onMounted(loadPageviewsTable)
 
 // METHODS
 

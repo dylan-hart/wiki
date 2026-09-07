@@ -141,4 +141,98 @@ describe('AdminPageviews', () => {
 
     wrapper.unmount()
   })
+
+  /**
+   * OpenProject #2791: the per-page sortable table, fetched independently of the instance-wide
+   * toggle/summary above -- off `adminStore.currentSiteId`, since a per-page breakdown only makes
+   * sense scoped to one site's own pages.
+   */
+  describe('per-page table (OpenProject #2791)', () => {
+    it('does not fetch the table with no site chosen (no extra system/pageviews-adjacent call)', async () => {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
+
+      const wrapper = mountPage()
+      await wrapper.vm.$nextTick()
+      await Promise.resolve()
+      await wrapper.vm.$nextTick()
+
+      expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+      expect(wrapper.vm.pageviewsTable.rows).toEqual([])
+
+      wrapper.unmount()
+    })
+
+    it('fetches sites/:siteId/pageviews once a site is chosen, and renders the rows', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve({
+            isEnabled: true,
+            summary: { totalViews: 8, last24h: 1, last7d: 2, distinctPages: 1, mostRecentAt: null }
+          })
+      })
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve([
+            {
+              pageId: 'p1',
+              path: 'docs/intro',
+              locale: 'en',
+              title: 'Intro',
+              total: 8,
+              browser: 5,
+              mcp: 1,
+              api: 2
+            }
+          ])
+      })
+
+      const wrapper = mountWithApp(AdminPageviews, {
+        stores: { admin: { currentSiteId: 'site-1' } }
+      }).wrapper
+      await wrapper.vm.$nextTick()
+      await Promise.resolve()
+      await wrapper.vm.$nextTick()
+      await Promise.resolve()
+      await wrapper.vm.$nextTick()
+
+      expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pageviews')
+      expect(wrapper.vm.pageviewsTable.rows).toEqual([
+        {
+          pageId: 'p1',
+          path: 'docs/intro',
+          locale: 'en',
+          title: 'Intro',
+          total: 8,
+          browser: 5,
+          mcp: 1,
+          api: 2
+        }
+      ])
+      expect(wrapper.text()).toContain('Intro')
+      expect(wrapper.text()).toContain('docs/intro')
+
+      wrapper.unmount()
+    })
+
+    it('notifies on a failed table load, without disturbing the toggle/summary state', async () => {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
+      API_CLIENT.get.mockImplementationOnce(() => {
+        throw new Error('network')
+      })
+
+      const wrapper = mountWithApp(AdminPageviews, {
+        stores: { admin: { currentSiteId: 'site-1' } }
+      }).wrapper
+      await wrapper.vm.$nextTick()
+      await Promise.resolve()
+      await wrapper.vm.$nextTick()
+      await Promise.resolve()
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.vm.pageviewsTable.rows).toEqual([])
+      expect(wrapper.vm.pageviewsTable.loading).toBe(false)
+
+      wrapper.unmount()
+    })
+  })
 })
