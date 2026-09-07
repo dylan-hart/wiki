@@ -209,6 +209,41 @@ describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', 
     expect(wrapper.vm.state.config.colorSidebar).toBe('#10194a')
     expect(wrapper.vm.state.config.colorSecondary).toBe('#3f7a66')
   })
+
+  // OpenProject #2806: dark mode is a separate, orthogonal axis (`helpers/aestheticDefaults.js:16`)
+  // that neither "Reset defaults" nor switching aesthetic may touch. A fixture starting `dark: false`
+  // can't distinguish "preserved" from "forced off" -- this one starts `dark: true` so a regression
+  // back to `state.config.dark = false` in `resetColors()` would actually be caught.
+  it('leaves dark mode untouched by Reset Defaults', async () => {
+    const wrapper = await mountPage({
+      dark: true,
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.findAll('.acrylic-btn')[0].trigger('click')
+
+    expect(wrapper.vm.state.config.dark).toBe(true)
+  })
+
+  it('leaves dark mode untouched by switching aesthetic', async () => {
+    const wrapper = await mountPage({
+      dark: true,
+      aesthetic: 'ledger',
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.vm.onAestheticChange('cobalt')
+
+    expect(wrapper.vm.state.config.dark).toBe(true)
+  })
 })
 
 // OpenProject #2769: the Appearance card's own Aesthetic row -- the FIRST row, above Dark mode --
