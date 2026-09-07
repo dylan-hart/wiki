@@ -63,7 +63,7 @@ describe('WTable', () => {
     expect(cellTexts(wrapper, 0)).toEqual(['40y', '30y', '20y'])
   })
 
-  it('clicking a sortable header sorts ascending, then descending on a second click', async () => {
+  it('clicking a sortable header cycles ascending -> descending -> unsorted -> ascending', async () => {
     const wrapper = mount(WTable, { props: { rows: ROWS, columns: COLUMNS, rowKey: 'id' } })
     const nameHeader = wrapper.findAll('thead th')[0]
 
@@ -74,6 +74,17 @@ describe('WTable', () => {
     await nameHeader.trigger('click')
     expect(cellTexts(wrapper, 0)).toEqual(['Charlie', 'Bob', 'Alice'])
     expect(nameHeader.attributes('aria-sort')).toBe('descending')
+
+    // -> Third click on the same column returns to the unsorted/default row order, rather than
+    //    toggling asc<->desc forever.
+    await nameHeader.trigger('click')
+    expect(cellTexts(wrapper, 0)).toEqual(['Charlie', 'Alice', 'Bob'])
+    expect(nameHeader.attributes('aria-sort')).toBe('none')
+
+    // -> A fourth click starts the cycle over at ascending.
+    await nameHeader.trigger('click')
+    expect(cellTexts(wrapper, 0)).toEqual(['Alice', 'Bob', 'Charlie'])
+    expect(nameHeader.attributes('aria-sort')).toBe('ascending')
   })
 
   it('switching the sort column resets to ascending on the new column', async () => {
