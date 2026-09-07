@@ -3,8 +3,6 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-import { contrastRatio, WCAG_AA_CONTRAST } from '../helpers/accessibility.js'
-
 /**
  * OpenProject #2767 ("Cobalt light token block in tailwind.css (shape + color, including the radii
  * sweep)"). `tailwind.css` is plain CSS, not a module anything here can import and read live custom
@@ -22,6 +20,10 @@ import { contrastRatio, WCAG_AA_CONTRAST } from '../helpers/accessibility.js'
  *   3. no `cobalt:` Tailwind variant was introduced, and no `--q-*` admin-configurable brand color
  *      was given a `body.body--cobalt` override (that would silently beat a site's own saved color --
  *      see the token block's own comment, and OpenProject #2768's `aestheticDefaults.js`).
+ *
+ * WCAG AA contrast over these tokens is `cobaltContrast.test.js`'s job (OpenProject #2782), not
+ * this file's -- it used to carry its own small hardcoded-hex "clears AA" describe block here, which
+ * was consolidated into that dedicated, token-sourced suite rather than kept as a second copy.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
@@ -176,48 +178,5 @@ describe('Cobalt color tokens', () => {
 describe('admin-configurable brand colors are left alone', () => {
   it('declares no --q-* override inside body.body--cobalt', () => {
     expect(cobaltSource).not.toMatch(/--q-[a-z]/)
-  })
-})
-
-describe('Cobalt color pairs clear WCAG AA where the handoff specifies a surface', () => {
-  const meetsAA = (fg, bg) => contrastRatio(fg, bg) >= WCAG_AA_CONTRAST
-
-  it('sidebar text tiers clear AA on the Cobalt sidebar ground (#10194a)', () => {
-    const sidebarGround = '#10194a'
-    expect(meetsAA('#d7deff', sidebarGround)).toBe(true)
-    expect(meetsAA('#a7b3ea', sidebarGround)).toBe(true)
-    expect(meetsAA('#7f8ed1', sidebarGround)).toBe(true)
-  })
-
-  it('sidebar active item white text clears AA on its own fill (#1f4fd6)', () => {
-    expect(meetsAA('#ffffff', '#1f4fd6')).toBe(true)
-  })
-
-  it('footer text clears AA on the Cobalt footer strip (#10194a)', () => {
-    expect(meetsAA('#a7b3ea', '#10194a')).toBe(true)
-  })
-
-  it('header eyebrow text clears AA on the Cobalt header bar (#1f4fd6)', () => {
-    expect(meetsAA('#dfe6ff', '#1f4fd6')).toBe(true)
-  })
-
-  it('admin sidebar text/icon clear AA on the Cobalt admin sidebar ground (#10194a)', () => {
-    expect(meetsAA('#c5cff5', '#10194a')).toBe(true)
-    expect(meetsAA('#7f8ed1', '#10194a')).toBe(true)
-  })
-
-  it('avatar plate text clears AA on the avatar plate background', () => {
-    expect(meetsAA('#1a3fb0', '#dbe5ff')).toBe(true)
-  })
-
-  it('tag chip text clears AA on the tag chip background, in both its default and accent forms', () => {
-    expect(meetsAA('#1a3fb0', '#dbe5ff')).toBe(true)
-    expect(meetsAA('#c8303c', '#ffe9eb')).toBe(true)
-  })
-
-  it('heading h2 and body text clear AA on the Cobalt paper ground', () => {
-    expect(meetsAA('#1f4fd6', '#f2f5ff')).toBe(true)
-    expect(meetsAA('#1a2038', '#f2f5ff')).toBe(true)
-    expect(meetsAA('#5a6699', '#f2f5ff')).toBe(true)
   })
 })
