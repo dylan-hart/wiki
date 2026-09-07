@@ -930,7 +930,7 @@ onMounted(load)
   border-inline-end: 1px solid $hairline;
 }
 
-:global(body.body--dark) .nav-edit-drawer {
+:global(body.body--dark .nav-edit-drawer) {
   background-color: $dark-4;
   border-inline-end-color: $hairline-dark;
 }
@@ -946,7 +946,7 @@ onMounted(load)
   border-bottom: 1px solid $hairline;
 }
 
-:global(body.body--dark) .nav-edit-drawer-header {
+:global(body.body--dark .nav-edit-drawer-header) {
   border-bottom-color: $hairline-dark;
 }
 
@@ -959,7 +959,7 @@ onMounted(load)
   color: $slate;
 }
 
-:global(body.body--dark) .nav-edit-drawer-eyebrow {
+:global(body.body--dark .nav-edit-drawer-eyebrow) {
   color: $slate-light;
 }
 
@@ -973,7 +973,7 @@ onMounted(load)
   padding: 1px 6px;
 }
 
-:global(body.body--dark) .nav-edit-drawer-count {
+:global(body.body--dark .nav-edit-drawer-count) {
   color: $text-dark;
   background-color: $dark-3;
   border-color: $hairline-dark;
@@ -993,7 +993,7 @@ onMounted(load)
   }
 }
 
-:global(body.body--dark) .nav-edit .nav-edit-item-separator .w-separator {
+:global(body.body--dark .nav-edit .nav-edit-item-separator .w-separator) {
   --w-hairline-color: #{$border-dark};
 }
 
@@ -1004,7 +1004,7 @@ onMounted(load)
   color: $text-caption;
 }
 
-:global(body.body--dark) .nav-edit-mixed-hint {
+:global(body.body--dark .nav-edit-mixed-hint) {
   color: $text-secondary-dark;
 }
 
@@ -1055,7 +1055,7 @@ onMounted(load)
   }
 }
 
-:global(body.body--dark) .nav-edit-item {
+:global(body.body--dark .nav-edit-item) {
   color: $text-secondary-dark;
 
   &.is-active {
@@ -1091,7 +1091,7 @@ onMounted(load)
   display: block;
 }
 
-:global(body.body--dark) .nav-edit-generated-eyebrow {
+:global(body.body--dark .nav-edit-generated-eyebrow) {
   color: $text-caption-dark;
 }
 
@@ -1159,13 +1159,13 @@ onMounted(load)
   }
 }
 
-:global(body.body--dark) .nav-edit-item-link.is-nested {
+:global(body.body--dark .nav-edit-item-link.is-nested) {
   background-color: $dark-2;
 }
 
-:global(body.body--dark)
-  .nav-edit-item-link:not(.is-nested)
-  + .nav-edit-item-link.is-nested::before {
+:global(
+  body.body--dark .nav-edit-item-link:not(.is-nested) + .nav-edit-item-link.is-nested::before
+) {
   border-block-end-color: $hairline-dark;
   border-inline-start-color: $hairline-dark;
 }
@@ -1198,9 +1198,9 @@ onMounted(load)
   }
 }
 
-:global(body.body--dark) .nav-edit-item-header + .nav-edit-item-link.is-nested,
-:global(body.body--dark) .nav-edit-item-separator + .nav-edit-item-link.is-nested,
-:global(body.body--dark) .nav-edit-list .nav-edit-item-link.is-nested:first-child {
+:global(body.body--dark .nav-edit-item-header + .nav-edit-item-link.is-nested),
+:global(body.body--dark .nav-edit-item-separator + .nav-edit-item-link.is-nested),
+:global(body.body--dark .nav-edit-list .nav-edit-item-link.is-nested:first-child) {
   background-color: $accent-wash-dark !important;
   border-inline-start-color: $accent-dark !important;
   color: $accent-dark;
@@ -1221,7 +1221,7 @@ onMounted(load)
   border-top: 1px solid $hairline;
 }
 
-:global(body.body--dark) .nav-edit-bottombar {
+:global(body.body--dark .nav-edit-bottombar) {
   border-top-color: $hairline-dark;
 }
 
@@ -1259,18 +1259,18 @@ onMounted(load)
   }
 }
 
-:global(body.body--dark) .nav-edit-callout {
+:global(body.body--dark .nav-edit-callout) {
   border-color: $hairline-dark;
   background-color: $dark-3;
 }
 
-:global(body.body--dark) .nav-edit-callout__icon {
+:global(body.body--dark .nav-edit-callout__icon) {
   background-color: $dark-4;
   border-inline-end-color: $hairline-dark;
   color: $text-secondary-dark;
 }
 
-:global(body.body--dark) .nav-edit-callout p {
+:global(body.body--dark .nav-edit-callout p) {
   color: $text-dark;
 }
 
@@ -1344,7 +1344,7 @@ onMounted(load)
   text-transform: uppercase;
 }
 
-:global(body.body--dark) .nav-edit-card__header {
+:global(body.body--dark .nav-edit-card__header) {
   background-color: $dark-2;
   border-bottom-color: $hairline-dark;
   color: $slate-light;
@@ -1391,7 +1391,7 @@ onMounted(load)
   color: $text-caption;
 }
 
-:global(body.body--dark) .nav-edit-structure-card__caption {
+:global(body.body--dark .nav-edit-structure-card__caption) {
   color: $text-secondary-dark;
 }
 </style>

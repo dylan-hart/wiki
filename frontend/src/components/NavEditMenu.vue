@@ -450,7 +450,7 @@ onMounted(() => {
   border-color: var(--color-slate-pale);
 }
 
-:global(body.body--dark) .nav-edit-menu :deep(.w-radio[aria-checked='false'] > span:first-child) {
+:global(body.body--dark .nav-edit-menu .w-radio[aria-checked='false'] > span:first-child) {
   border-color: var(--color-disabled-dark);
 }
 
