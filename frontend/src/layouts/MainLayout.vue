@@ -1,5 +1,5 @@
 <template>
-  <w-layout>
+  <w-layout :class="{ 'main-layout--entrance-flourish': playEntranceFlourish }">
     <!--
       The way past every sidebar link and header control on a keyboard, per WCAG 2.4.1 (Bypass
       Blocks) -- the first focusable element in the whole layout, ahead of even `header-nav`. Still
@@ -525,6 +525,38 @@ watch(
 function openSidebar() {
   isNarrowSidebarOpen.value = true
 }
+
+// ENTRANCE FLOURISH
+
+/**
+ * OpenProject #2747/#2751: whether to play the authenticated shell's staggered entrance flourish --
+ * true only when this mount is a landing straight off a successful login (Task A, #2750:
+ * `AuthLoginPanel.vue` sets `ENTRANCE_FLOURISH_KEY` in `sessionStorage` immediately before its hard
+ * `window.location.replace()`) and `prefers-reduced-motion` is not set. `false` for a plain page
+ * refresh within the same session -- the flag is read-and-cleared below, so it isn't there to find a
+ * second time -- and `false` under reduced motion regardless, matching the skip on the login side.
+ *
+ * Set once in `onMounted` and never toggled back: this layout is not remounted by an in-SPA
+ * navigation (`router-view` swaps underneath it), so there is no subsequent "arrival" to gate.
+ */
+const ENTRANCE_FLOURISH_KEY = 'cardinal:justLoggedIn'
+const playEntranceFlourish = ref(false)
+
+onMounted(() => {
+  let justLoggedIn = false
+  try {
+    justLoggedIn = sessionStorage.getItem(ENTRANCE_FLOURISH_KEY) !== null
+    if (justLoggedIn) {
+      sessionStorage.removeItem(ENTRANCE_FLOURISH_KEY)
+    }
+  } catch {
+    // -> A sandboxed/privacy-hardened browser that throws on storage access renders with no
+    //    animation, same as the plain-refresh case -- there is nothing more this can safely check.
+  }
+  if (justLoggedIn && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    playEntranceFlourish.value = true
+  }
+})
 </script>
 
 <style lang="scss">
@@ -737,6 +769,88 @@ body.body--dark {
   }
   100% {
     opacity: 1;
+  }
+}
+
+/*
+  OpenProject #2747/#2751: the authenticated shell's entrance flourish, played once on arrival
+  straight from a successful login -- see `script setup`'s `playEntranceFlourish` for when the class
+  below is actually added (never under `prefers-reduced-motion`, never on a plain same-session
+  refresh).
+
+  Plain `@keyframes` `animation`s rather than `transition`s: a transition only runs on a property
+  CHANGE, which would need a two-step "render hidden, then flip to visible next tick" dance. An
+  animation runs the moment the class carrying it is present in the DOM, so it's enough that the
+  class is added once in `onMounted` and never removed again -- this layout is not remounted by an
+  in-SPA navigation, so there is no second "arrival" to replay it for.
+*/
+.main-layout--entrance-flourish {
+  .site-header-wrap {
+    animation: main-layout-entrance-header 280ms ease-out both;
+  }
+
+  /*
+    -> The drawer's own contents (full panel or mini rail) -- not its open/close slide, which
+       `WDrawer`'s own `<transition name="w-drawer">` already owns and does not fire on initial
+       mount regardless.
+  */
+  .bg-sidebar {
+    animation: main-layout-entrance-fade 280ms ease-out 80ms both;
+  }
+
+  /*
+    -> The routed page's content. Its own opacity fade already carries a nested `FooterNav` along
+       for free (an ancestor's opacity composites its whole subtree); the extra rule below adds that
+       footer's OWN slide-up on top of the same fade, where the landed route renders one at all.
+  */
+  .w-page-container {
+    animation: main-layout-entrance-fade 280ms ease-out 160ms both;
+
+    .site-footer {
+      animation: main-layout-entrance-footer 280ms ease-out 160ms both;
+    }
+  }
+}
+
+@keyframes main-layout-entrance-header {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes main-layout-entrance-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes main-layout-entrance-footer {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  // -> Defence in depth: `playEntranceFlourish` is already false whenever this media query matches,
+  //    so `.main-layout--entrance-flourish` is never added in the first place -- this holds even if
+  //    it were ever toggled some other way, matching the same convention `Login.vue`'s `&--exiting`
+  //    block follows on the login side of this feature.
+  .main-layout--entrance-flourish {
+    .site-header-wrap,
+    .bg-sidebar,
+    .w-page-container,
+    .w-page-container .site-footer {
+      animation: none;
+    }
   }
 }
 </style>
