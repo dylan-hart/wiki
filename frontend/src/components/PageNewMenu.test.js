@@ -32,6 +32,7 @@ function mountMenu({ editors = {}, experimental = false, props = {} } = {}) {
     common: {
       actions: { newPage: 'New Page', newFolder: 'New Folder' },
       newPageMenu: {
+        beta: 'Beta',
         markdown: 'New Markdown Page',
         code: 'New Code Page',
         asciidoc: 'New AsciiDoc Page',
@@ -88,6 +89,26 @@ describe('PageNewMenu', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('New AsciiDoc Page')
+
+    wrapper.unmount()
+  })
+
+  /**
+   * OpenProject #2775: the Cobalt mockup ("Menus 3x - Cobalt.dc.html", row 01) marks the
+   * experimental WYSIWYG row with a "Beta" eyebrow -- missing entirely before this task, even
+   * though the row itself was already gated behind the same `flagsStore.experimental` flag.
+   */
+  it('marks the WYSIWYG row Beta only while it is actually offered', async () => {
+    const hidden = mountMenu({ editors: { wysiwyg: true }, experimental: false })
+    await flushPromises()
+    expect(hidden.wrapper.text()).not.toContain('Beta')
+    hidden.wrapper.unmount()
+
+    const { wrapper } = mountMenu({ editors: { wysiwyg: true }, experimental: true })
+    await flushPromises()
+
+    const wysiwygItem = wrapper.findAll('.w-item').find((i) => i.text().includes('New Page'))
+    expect(wysiwygItem.find('.page-new-menu__beta').text()).toBe('Beta')
 
     wrapper.unmount()
   })
