@@ -190,6 +190,31 @@ const canEditMenuItems = computed(() => {
   return ['inherit', 'override', 'overrideExact'].includes(state.mode)
 })
 
+/**
+ * Suppresses every CSS transition for one frame while a load-driven assignment lands.
+ *
+ * Identical to `composables/dark.js`'s / `composables/aesthetic.js`'s `withoutTransitions()` --
+ * duplicated rather than shared, same reasoning as those two: this owns exactly one flip (the
+ * Menu Source segmented control's initial value) and doesn't depend on either of them. Without
+ * this, `loadMenuMode()`'s resolve lands on `state.menuMode` while `w-btn-toggle`'s
+ * `transition-[background-color,border-color,color]` utility is still animating the popup's open,
+ * so the control visibly slides from the hardcoded `'static'` default to the real value
+ * (OpenProject #2819) instead of just appearing already-correct.
+ */
+function withoutTransitions(fn) {
+  const root = document.documentElement
+  root.classList.add('theme-transition-suppress')
+  fn()
+
+  // -> Load-bearing: forces a synchronous style recalc so the browser commits the new color WHILE
+  //    transitions are still off -- see `dark.js`'s identical comment for the full reasoning.
+  void getComputedStyle(document.body).transitionDuration
+
+  requestAnimationFrame(() => {
+    root.classList.remove('theme-transition-suppress')
+  })
+}
+
 // WATCHERS
 
 watch(
@@ -242,7 +267,9 @@ async function loadMenuMode() {
     const resp = await API_CLIENT.get(
       `sites/${siteStore.id}/navigation/${pageStore.navigationId}/mode`
     ).json()
-    state.menuMode = resp?.mode ?? 'static'
+    withoutTransitions(() => {
+      state.menuMode = resp?.mode ?? 'static'
+    })
   } catch (err) {
     log.warn('nav', "could not resolve the menu's source mode", err)
   }
