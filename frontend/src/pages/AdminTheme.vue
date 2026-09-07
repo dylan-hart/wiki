@@ -787,16 +787,17 @@ function onAestheticChange(value) {
 }
 
 /**
- * Resets `dark` and every admin-editable color to their defaults. `colorPrimary`/`colorAccent`/
- * `colorHeader`/`colorSidebar` reset to the CURRENT aesthetic's own defaults
+ * Resets every admin-editable color to its default. `colorPrimary`/`colorAccent`/`colorHeader`/
+ * `colorSidebar` reset to the CURRENT aesthetic's own defaults
  * (`helpers/aestheticDefaults.js`, OpenProject #2768), not a single hardcoded set -- so a Cobalt
  * site's "Reset defaults" button, and switching aesthetic itself (`onAestheticChange`, OpenProject
- * #2769), both land on Cobalt's colors, not Ledger's. `colorSecondary` and `dark` stay a single
- * default regardless of aesthetic -- dark mode is a wholly separate axis (`composables/dark.js`) and
- * the Cobalt handoff never calls for the positive color to move with the aesthetic switch.
+ * #2769), both land on Cobalt's colors, not Ledger's. `colorSecondary` stays a single default
+ * regardless of aesthetic -- the Cobalt handoff never calls for the positive color to move with the
+ * aesthetic switch. `dark` is left untouched: it is a wholly separate axis
+ * (`composables/dark.js`, `helpers/aestheticDefaults.js:16`) that neither a color-defaults reset nor
+ * an aesthetic switch may drive (OpenProject #2806).
  */
 function resetColors() {
-  state.config.dark = false
   state.config.colorSecondary = '#3f7a66'
   Object.assign(state.config, aestheticDefaultColors(state.config.aesthetic))
 }
