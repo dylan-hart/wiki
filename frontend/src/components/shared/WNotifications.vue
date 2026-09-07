@@ -16,7 +16,7 @@
           :key="n.id"
           role="alert"
           aria-live="polite"
-          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-2.5 px-3 py-2.5"
+          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-2.5 rounded-control px-3 py-2.5"
           :class="n.classes">
           <w-icon :name="n.icon" size="sm" class="shrink-0" />
           <div class="min-w-0 flex-1 py-1">
@@ -88,6 +88,10 @@ import { dismiss, queue } from '@/composables/notify'
 /**
  * Renders the notification stack. Mounted once, in App.vue -- notifications are pushed from
  * anywhere via `notify()` in `composables/notify.js`.
+ *
+ * Each toast's corner takes `--radius-control` -- `0` under Ledger (unchanged from before) and a
+ * real value under Cobalt (`body.body--cobalt`, OpenProject #2767/#2772), matching "toasts ... take
+ * `--radius-control`".
  */
 
 // I18N

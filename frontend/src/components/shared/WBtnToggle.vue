@@ -14,6 +14,11 @@
       :class="[
         // -> Every segment carries a border, selected included, so selection never shifts the row
         idx > 0 ? 'border-s-0' : '',
+        // -> Only the OUTER edges round -- `--radius-control` (0 under Ledger, a real value under
+        //    Cobalt, OpenProject #2767/#2772) -- never each segment; the logical `-s-`/`-e-`
+        //    corners keep this correct under RTL
+        idx === 0 ? 'rounded-s-control' : '',
+        idx === options.length - 1 ? 'rounded-e-control' : '',
         opt.value === modelValue
           ? 'font-medium'
           : 'border-hairline font-normal dark:border-border-dark',
@@ -36,8 +41,10 @@ import { computed } from 'vue'
  *
  * `options` is `[{ label, value, icon? }]`, the same shape the templates already build.
  *
- * Cardinal draws it as a run of square hairline boxes sharing their edges, with the selected one
- * filled in the accent and the rest left as outline. The engraved treatment this replaces -- a
+ * Cardinal draws it as a run of hairline boxes sharing their edges, with the selected one filled in
+ * the accent and the rest left as outline. Only the strip's own outer corners round (never each
+ * segment), off `--radius-control` -- square under Ledger, a real radius under Cobalt (OpenProject
+ * #2767/#2772). The engraved treatment this replaces -- a
  * bevelled seam between segments, a letterpress text shadow, an optional raised ledge and gloss --
  * is gone with the rest of the app's relief, and the `push`/`glossy`/`noCaps` props that selected
  * those variants went with it.

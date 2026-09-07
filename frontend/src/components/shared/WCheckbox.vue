@@ -9,9 +9,10 @@
     :class="isDisabled ? 'pointer-events-none opacity-60' : 'cursor-pointer'"
     @click="toggle">
     <!--
-      A square box with a hairline edge, matching the switch's track: off is an empty outline in the
-      palest slate, on is a solid accent square with a white tick. The recessed-well relief this
-      replaces -- a rim, paired inset shadows and a cast shadow, tuned separately from the switch's
+      A box with a hairline edge, matching the switch's track: off is an empty outline in the
+      palest slate, on is a solid accent fill with a white tick. Its corner takes `--radius-mark`
+      (0 under Ledger -- square, unchanged from before -- a real value under Cobalt, OpenProject
+      #2767/#2772). The recessed-well relief this replaces -- a rim, paired inset shadows and a cast shadow, tuned separately from the switch's
       because a 20px box shows less gradient than a 48px channel -- is gone with the rest of it.
 
       Indeterminate fills the same as checked (an empty box reads as unchecked, not as a third
@@ -23,7 +24,7 @@
       white on that is 4.81:1, where dark ink would be 1.9:1.
     -->
     <span
-      class="w-checkbox__box inline-flex shrink-0 items-center justify-center border transition-colors"
+      class="w-checkbox__box inline-flex shrink-0 items-center justify-center rounded-mark border transition-colors"
       :class="[
         dense ? 'size-3' : 'size-[13px]',
         isOn || indeterminate

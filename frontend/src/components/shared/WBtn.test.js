@@ -58,6 +58,26 @@ describe('WBtn', () => {
     expect(wrapper.text()).toBe('')
     expect(wrapper.attributes('aria-label')).toBe('Settings')
   })
+
+  it('takes its default corner from --radius-control, not a hardcoded value', () => {
+    // -> `0` under Ledger, a real value under Cobalt (OpenProject #2767/#2772) -- one class, no
+    //    aesthetic branch
+    const wrapper = mount(WBtn, { props: { label: 'Save' } })
+
+    expect(wrapper.classes()).toContain('rounded-control')
+    expect(wrapper.classes()).not.toContain('rounded-none')
+  })
+
+  it('keeps round/rounded as explicit shapes, not the aesthetic corner style', () => {
+    const round = mount(WBtn, {
+      props: { icon: 'tabler:settings', round: true },
+      attrs: { 'aria-label': 'Settings' }
+    })
+    expect(round.classes()).toContain('rounded-full')
+
+    const pill = mount(WBtn, { props: { label: 'Save', rounded: true } })
+    expect(pill.classes()).toContain('rounded-[28px]')
+  })
 })
 
 describe('WBtn solid-button foreground contrast', () => {

@@ -28,6 +28,15 @@ afterEach(() => {
 })
 
 describe('WSelect', () => {
+  it('draws its control off --radius-card, not left unrounded', () => {
+    // -> `0` under Ledger (unchanged), a real value under Cobalt (OpenProject #2767/#2772)
+    const wrapper = mount(WSelect, {
+      props: { modelValue: null, options: ['a', 'b'], ariaLabel: 'Pick one' }
+    })
+
+    expect(control(wrapper).classes()).toContain('rounded-card')
+  })
+
   it('opens the listbox on click and lists every option', async () => {
     const wrapper = mount(WSelect, {
       props: { modelValue: null, options: ['a', 'b', 'c'], ariaLabel: 'Pick one' },

@@ -86,15 +86,17 @@ const resolvedRemoveLabel = computed(
 const SIZES = { xs: '10px', sm: '12px', md: '14px', lg: '16px' }
 
 /*
-  Square, always. Cardinal has no pill: a tag, a status mark and a selected value are all the same
-  rectangle, which is why the `square` prop -- once the opt-IN to sharp corners -- is gone.
+  `--radius-pill`, always -- one token, no aesthetic branch. Ledger's own value is `0` (the `square`
+  prop -- once the opt-IN to sharp corners -- is gone, since square IS the only Ledger corner style),
+  so this renders exactly as before there; Cobalt's `body.body--cobalt` block (OpenProject
+  #2767/#2772) gives tags, chips and toggles a real pill radius instead.
 
   An uncoloured chip is an OUTLINE (white with a hairline edge), not a grey fill. That is what makes
   the tag row in the design read as a row of small documents rather than a row of pills, and it is
   what leaves the solid fill free to mean "selected".
 */
 const classes = computed(() => [
-  'rounded-none',
+  'rounded-pill',
   props.dense ? 'px-1.5 py-0.5' : 'px-2 py-[3px]',
   props.clickable ? 'cursor-pointer hover:brightness-110' : '',
   props.color
