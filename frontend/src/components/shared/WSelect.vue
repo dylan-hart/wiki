@@ -439,10 +439,11 @@ const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = us
   hasLeadingAdornment: computed(() => Boolean(slots.prepend)),
   noFrame: computed(() => props.standout),
   // -> Its own surface, white or the dark panel tone, matching WInput; see the note there
+  //    (readonly's dark class is `dark-3-5`, not `dark-4` -- OpenProject #2816)
   surface: computed(
     () =>
       standoutClass.value ??
-      (props.readonly ? 'bg-[#f8f9fc] dark:bg-dark-4' : 'bg-surface dark:bg-dark-3')
+      (props.readonly ? 'bg-[#f8f9fc] dark:bg-dark-3-5' : 'bg-surface dark:bg-dark-3')
   ),
   // -> readonly keeps full contrast; only the pointer affordance goes away
   extraClasses: computed(() =>

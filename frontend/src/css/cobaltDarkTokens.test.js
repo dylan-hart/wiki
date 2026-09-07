@@ -51,6 +51,8 @@ describe('Ledger dark-suffixed / ramp tokens, restated for Cobalt dark', () => {
     dark: { ledger: '#14171f', cobalt: '#0a0f2c' },
     'dark-2': { ledger: '#242b3a', cobalt: '#1a43bd' },
     'dark-3': { ledger: '#1b1f2a', cobalt: '#141c4f' },
+    'dark-3-5': { ledger: '#171b24', cobalt: '#0e1540' },
+    'dark-3-5-text': { ledger: '#8ea6cf', cobalt: '#c9d6ff' },
     'dark-4': { ledger: '#171b24', cobalt: '#070b22' },
     'dark-5': { ledger: '#14171f', cobalt: '#0a0f2c' },
     'hairline-dark': { ledger: '#2a3040', cobalt: 'rgb(255 255 255 / 0.08)' },

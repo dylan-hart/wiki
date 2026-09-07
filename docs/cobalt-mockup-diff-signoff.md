@@ -93,11 +93,16 @@ primitive:
   toast/banner fill colors stay Ledger-colored under Cobalt until that lands.
 - `WConfirmDialog.vue`'s `.card-header` title band (`_base.scss`) draws from a compile-time Sass
   constant shared by 60+ non-shared dialogs app-wide, not the runtime CSS custom property system.
-- `WCardHeader.vue`'s `.w-section-header` dark color and `WInput.vue`'s read-only dark background
-  both want a ramp rung (`#0e1540`) that neither currently has.
+- ~~`WCardHeader.vue`'s `.w-section-header` dark color and `WInput.vue`'s read-only dark background
+  both want a ramp rung (`#0e1540`) that neither currently has.~~ **Fixed — OpenProject #2816.** A
+  new `--color-dark-3-5`/`-text` rung (`tailwind.css`) carries `#0e1540`/`#c9d6ff` under Cobalt dark
+  (a Ledger-default no-op equal to `-4`'s own value, so Ledger dark is unaffected); `WCardHeader.vue`
+  reads it through a new `body.body--cobalt.body--dark .w-section-header` override, and
+  `WInput.vue`/`WSelect.vue`'s read-only surface moved off `dark:bg-dark-4` onto `dark:bg-dark-3-5`
+  (`WSelect.vue` carried the identical mockup mismatch, undiffed by name in row 18 above but sharing
+  `WInput.vue`'s exact code shape — fixed alongside rather than left half-done).
 - `WFieldFrame.vue`'s error-ring dark color lightens per the generic pre-Cobalt convention, but the
   mockup wants the same bright value light uses.
 
-None of these were fixed by this WP or by any of the 7 screen-diff Tasks — they are Feature #2763's
-to resolve, tracked here so the deferral is visible in the consolidated log rather than only buried
-in individual task comments.
+Of the six gaps originally logged here, one is fixed (above); the rest are still Feature #2763's to
+resolve, tracked here so the deferral stays visible rather than buried in individual task comments.

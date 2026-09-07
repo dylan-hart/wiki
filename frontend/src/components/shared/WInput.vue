@@ -272,15 +272,15 @@ const { controlStyle, controlClasses, showsBottom, errorMessage, validate } = us
       return ''
     }
     // -> A read-only field is recessed rather than merely uneditable: the design gives it its own
-    //    slightly-sunken ground (#f8f9fc / the dark ramp's `-4`) so it reads as displayed, not typed
+    //    slightly-sunken ground (#f8f9fc / the dark ramp's `-3-5`) so it reads as displayed, not typed
     //
-    // `--color-dark-4` is `#070b22` under Cobalt dark, but `Primitives Dark 3x - Cobalt.dc.html`'s
-    // own read-only field swatch renders `#0e1540` -- the same value `WCardHeader.vue`'s own comment
-    // flags as missing from the current ramp for the section-header band, suggesting a real gap
-    // (a "recessed, less extreme than -4" rung) rather than a one-off. Needs a `tailwind.css` token
-    // change, out of this Task's file ownership (OpenProject #2773). Logged, not fixed.
+    // `--color-dark-4` is `#070b22` under Cobalt dark -- too extreme; `Primitives Dark 3x -
+    // Cobalt.dc.html`'s own read-only field swatch renders `#0e1540`, the same value
+    // `WCardHeader.vue`'s section-header band wants. `--color-dark-3-5` names that rung once
+    // (OpenProject #2816); its Ledger default equals `-4`'s own Ledger value, so this class swap is a
+    // no-op under Ledger and only changes rendering under Cobalt dark.
     if (props.readonly) {
-      return 'bg-[#f8f9fc] dark:bg-dark-4'
+      return 'bg-[#f8f9fc] dark:bg-dark-3-5'
     }
     return 'bg-surface dark:bg-dark-3'
   })

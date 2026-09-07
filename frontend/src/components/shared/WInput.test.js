@@ -19,6 +19,14 @@ describe('WInput', () => {
     expect(wrapper.find('.w-input-control').classes()).toContain('rounded-card')
   })
 
+  it('draws a read-only field off the dark-3-5 rung, not dark-4 (OpenProject #2816)', () => {
+    const wrapper = mount(WInput, { props: { modelValue: '', readonly: true } })
+
+    const classes = wrapper.find('.w-input-control').classes()
+    expect(classes).toContain('dark:bg-dark-3-5')
+    expect(classes).not.toContain('dark:bg-dark-4')
+  })
+
   it('renders a textarea instead of an input when type="textarea"', () => {
     const wrapper = mount(WInput, { props: { modelValue: '', type: 'textarea' } })
 
