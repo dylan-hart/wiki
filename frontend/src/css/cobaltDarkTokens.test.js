@@ -51,6 +51,8 @@ describe('Ledger dark-suffixed / ramp tokens, restated for Cobalt dark', () => {
     dark: { ledger: '#14171f', cobalt: '#0a0f2c' },
     'dark-2': { ledger: '#242b3a', cobalt: '#1a43bd' },
     'dark-3': { ledger: '#1b1f2a', cobalt: '#141c4f' },
+    'dark-3-5': { ledger: '#171b24', cobalt: '#0e1540' },
+    'dark-3-5-text': { ledger: '#8ea6cf', cobalt: '#c9d6ff' },
     'dark-4': { ledger: '#171b24', cobalt: '#070b22' },
     'dark-5': { ledger: '#14171f', cobalt: '#0a0f2c' },
     'hairline-dark': { ledger: '#2a3040', cobalt: 'rgb(255 255 255 / 0.08)' },
@@ -139,5 +141,35 @@ describe('no shape token is redeclared', () => {
 describe('admin-configurable brand colors are left alone', () => {
   it('declares no --q-* override inside body.body--cobalt.body--dark', () => {
     expect(darkSource).not.toMatch(/--q-[a-z]/)
+  })
+})
+
+/**
+ * OpenProject #2817 ("Fix WFieldFrame.vue's error-ring dark color to match the Cobalt dark mockup's
+ * brighter value"). The generic `body.body--dark .w-input-control` rule points
+ * `--w-input-ring-error` at `--color-accent-dark` (the lightened value), but the Cobalt dark mockup
+ * wants the same bright value light mode uses -- so a Cobalt-dark-specific override re-points it at
+ * `--color-accent-fill`, which resolves to Cobalt light's `#ff4d5a` since it isn't restated in the
+ * `body.body--cobalt.body--dark` token block above. This rule lives as a separate selector next to
+ * the other `.w-input-control` rules (outside the token block itself), so it isn't part of
+ * `darkSource` above -- read directly from the full source text instead.
+ */
+describe('Cobalt-dark .w-input-control error-ring override', () => {
+  it('re-points --w-input-ring-error at --color-accent-fill under body.body--cobalt.body--dark', () => {
+    const ruleStart = source.indexOf('body.body--cobalt.body--dark .w-input-control {')
+    expect(ruleStart, 'body.body--cobalt.body--dark .w-input-control rule').toBeGreaterThan(-1)
+
+    const ruleEnd = source.indexOf('\n  }', ruleStart)
+    const ruleSource = source.slice(ruleStart, ruleEnd)
+
+    expect(declaredValue(ruleSource, 'w-input-ring-error')).toBe('var(--color-accent-fill)')
+  })
+
+  it('leaves the generic body.body--dark .w-input-control rule pointed at --color-accent-dark', () => {
+    const genericStart = source.indexOf('body.body--dark .w-input-control {')
+    const genericEnd = source.indexOf('\n  }', genericStart)
+    const genericSource = source.slice(genericStart, genericEnd)
+
+    expect(declaredValue(genericSource, 'w-input-ring-error')).toBe('var(--color-accent-dark)')
   })
 })

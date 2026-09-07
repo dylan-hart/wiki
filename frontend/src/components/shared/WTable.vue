@@ -160,9 +160,18 @@ function cellValue(row, col) {
   return col.format ? col.format(value, row) : value
 }
 
+/**
+ * Cycles ascending -> descending -> unsorted (default row order) on repeated clicks of the same
+ * column header; clicking a different sortable column always starts that column at ascending.
+ */
 function sortBy(col) {
   if (sort.name === col.name) {
-    sort.descending = !sort.descending
+    if (sort.descending) {
+      sort.name = null
+      sort.descending = false
+    } else {
+      sort.descending = true
+    }
   } else {
     sort.name = col.name
     sort.descending = false

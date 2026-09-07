@@ -13,6 +13,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { aestheticStatusColors } from '@/helpers/aestheticDefaults'
 import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
 import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
@@ -282,15 +283,21 @@ async function applyTheme() {
   setCssVar('header', userStore.getAccessibleColor('header', siteStore.theme.colorHeader))
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
   /*
-    The two status colours are fixed rather than site-configurable, but they still go through
-    `setCssVar` so the colour-vision-deficiency remapping reaches them. Cardinal's positive and
-    negative TEXT tones -- the darker half of each pair -- because both are drawn under a white
-    label here (a toast, a solid button); the brighter fills they pair with are
+    The four status colours are fixed rather than site-configurable, but -- unlike `primary`/`accent`/
+    `header`/`sidebar` above -- they still follow the resolved aesthetic
+    (`helpers/aestheticDefaults.js#aestheticStatusColors()`, OpenProject #2814) rather than site
+    config, and still go through `setCssVar` so the colour-vision-deficiency remapping reaches them.
+    Cardinal's positive and negative TEXT tones -- the darker half of each pair -- because both are
+    drawn under a white label here (a toast, a solid button); the brighter fills they pair with are
     `--color-positive-fill` / `--color-negative-fill`, which nothing resolves through this path.
-    Kept equal to `css/tailwind.css`'s `:root`, and pinned in `helpers/accessibility.test.js`.
+    Ledger's values are kept equal to `css/tailwind.css`'s `:root`, and pinned in
+    `helpers/accessibility.test.js`.
   */
-  setCssVar('positive', userStore.getAccessibleColor('positive', '#3f7a66'))
-  setCssVar('negative', userStore.getAccessibleColor('negative', '#c14a52'))
+  const statusColors = aestheticStatusColors(aesthetic.current)
+  setCssVar('positive', userStore.getAccessibleColor('positive', statusColors.colorPositive))
+  setCssVar('negative', userStore.getAccessibleColor('negative', statusColors.colorNegative))
+  setCssVar('info', userStore.getAccessibleColor('info', statusColors.colorInfo))
+  setCssVar('warning', userStore.getAccessibleColor('warning', statusColors.colorWarning))
 
   // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)

@@ -2,7 +2,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 /*
@@ -45,6 +45,7 @@ import { fileSave } from 'browser-fs-access'
 import PageHistoryOverlay from './PageHistoryOverlay.vue'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+import { useDark } from '@/composables/dark'
 
 import { buildTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
@@ -544,6 +545,35 @@ describe('PageHistoryOverlay: the header band (OpenProject #2637)', () => {
     } finally {
       baseSheet.remove()
     }
+  })
+})
+
+/**
+ * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
+ * the close button drew the same bright light-mode tone against a dark ground. Fixed by resolving
+ * `color` through `dark.isActive` instead of the static `accent-fill` prop.
+ */
+describe('PageHistoryOverlay close button dark mode (OpenProject #2807)', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark', 'body--light')
+  })
+
+  it('draws accent-fill under light mode', async () => {
+    useDark().set(false)
+    await mountOverlay()
+
+    const closeBtn = document.body.querySelector('[aria-label="common.actions.close"]')
+    expect(closeBtn.getAttribute('style')).toContain('var(--color-accent-fill)')
+    expect(closeBtn.getAttribute('style')).not.toContain('var(--color-accent-dark)')
+  })
+
+  it('swaps to accent-dark under dark mode', async () => {
+    useDark().set(true)
+    await mountOverlay()
+
+    const closeBtn = document.body.querySelector('[aria-label="common.actions.close"]')
+    expect(closeBtn.getAttribute('style')).toContain('var(--color-accent-dark)')
+    expect(closeBtn.getAttribute('style')).not.toContain('var(--color-accent-fill)')
   })
 })
 

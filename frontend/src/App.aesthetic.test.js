@@ -132,4 +132,55 @@ describe('App.vue aesthetic resolution', () => {
     expect(document.body.classList.contains('body--cobalt')).toBe(true)
     expect(document.body.classList.contains('body--ledger')).toBe(false)
   })
+
+  /*
+   * OpenProject #2814: `--q-positive`/`-negative`/`-info`/`-warning` used to be Ledger-literal
+   * (two hardcoded, two never even set) regardless of aesthetic, so toast/banner fills stayed
+   * Ledger-colored under Cobalt. They now follow the resolved aesthetic the same way `--q-primary`/
+   * `-accent`/`-header`/`-sidebar` already did.
+   */
+  describe('status color CSS vars follow the resolved aesthetic', () => {
+    afterEach(() => {
+      document.documentElement.style.removeProperty('--q-positive')
+      document.documentElement.style.removeProperty('--q-negative')
+      document.documentElement.style.removeProperty('--q-info')
+      document.documentElement.style.removeProperty('--q-warning')
+    })
+
+    it('sets the Ledger values under the ledger aesthetic', async () => {
+      const { siteStore } = await mountApp()
+      siteStore.theme.aesthetic = 'ledger'
+      await triggerApplyTheme()
+
+      const style = document.documentElement.style
+      expect(style.getPropertyValue('--q-positive')).toBe('#3f7a66')
+      expect(style.getPropertyValue('--q-negative')).toBe('#c14a52')
+      expect(style.getPropertyValue('--q-info')).toBe('#38465f')
+      expect(style.getPropertyValue('--q-warning')).toBe('#d9a441')
+    })
+
+    it('sets the Cobalt values under the cobalt aesthetic', async () => {
+      const { siteStore } = await mountApp()
+      siteStore.theme.aesthetic = 'cobalt'
+      await triggerApplyTheme()
+
+      const style = document.documentElement.style
+      expect(style.getPropertyValue('--q-positive')).toBe('#177a5e')
+      expect(style.getPropertyValue('--q-negative')).toBe('#c8303c')
+      expect(style.getPropertyValue('--q-info')).toBe('#1e2a5e')
+      // -> Warning deliberately stays the same value in both aesthetics
+      expect(style.getPropertyValue('--q-warning')).toBe('#d9a441')
+    })
+
+    it('re-resolves the status colors when switching aesthetic at runtime', async () => {
+      const { siteStore } = await mountApp()
+      siteStore.theme.aesthetic = 'ledger'
+      await triggerApplyTheme()
+      expect(document.documentElement.style.getPropertyValue('--q-negative')).toBe('#c14a52')
+
+      siteStore.theme.aesthetic = 'cobalt'
+      await triggerApplyTheme()
+      expect(document.documentElement.style.getPropertyValue('--q-negative')).toBe('#c8303c')
+    })
+  })
 })

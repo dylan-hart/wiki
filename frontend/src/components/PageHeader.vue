@@ -28,11 +28,17 @@
           one `aria-hidden` element drawn with four background gradients rather than four nodes.
         -->
         <i class="page-header-icon__marks" aria-hidden="true" />
+        <!--
+          `dark.isActive` swaps `accent-fill` for `accent-dark` on both branches below:
+          `--color-accent-fill` has no dark-mode override of its own (OpenProject #2807), so left
+          alone this plate drew the light-mode bright tone against a dark ground, the same swap
+          `w-input-control`'s error ring already makes in `tailwind.css`.
+        -->
         <w-btn
           v-if="isEditing"
           padding="none"
           :size="glyphSize"
-          color="accent-fill"
+          :color="dark.isActive ? `accent-dark` : `accent-fill`"
           flat
           :aria-label="t(`editor.props.icon`)"
           :style="{ minHeight: glyphSize, width: glyphSize }">
@@ -44,7 +50,11 @@
             <icon-picker-dialog :model-value="pageStore.icon" @update:model-value="setIcon" />
           </w-menu>
         </w-btn>
-        <w-icon v-else :name="pageStore.icon" :size="glyphSize" color="accent-fill" />
+        <w-icon
+          v-else
+          :name="pageStore.icon"
+          :size="glyphSize"
+          :color="dark.isActive ? `accent-dark` : `accent-fill`" />
       </div>
     </div>
     <!-- PAGE HEADER -->
@@ -400,6 +410,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
+import { useDark } from '@/composables/dark'
 import { useDirection } from '@/composables/direction'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
@@ -425,6 +436,10 @@ import { directionalAnchor } from '@/helpers/directionalAnchor'
  * has to come off once it has played, or the next watch would not play it again.
  */
 const BELL_RING_MS = 700
+
+// DARK MODE
+
+const dark = useDark()
 
 // DIRECTION
 

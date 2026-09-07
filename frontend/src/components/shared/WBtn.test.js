@@ -145,6 +145,42 @@ describe('WBtn solid-button foreground contrast', () => {
   })
 })
 
+// -> OpenProject #2813: `accent` is the decided "page's own primary action" color, so a solid
+//    `color="accent"` button bakes in `--shadow-primary` -- `none` under Ledger, the mockups' glow
+//    under Cobalt -- with no per-page CSS needed any more (see the deleted `.auth-cta` class this
+//    task retired).
+describe('WBtn --shadow-primary wiring', () => {
+  it('applies --shadow-primary to a solid accent button', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Go', color: 'accent' } })
+
+    expect(wrapper.element.style.boxShadow).toBe('var(--shadow-primary)')
+  })
+
+  it('does not apply it to a solid button in any other color', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Go', color: 'primary' } })
+
+    expect(wrapper.element.style.boxShadow).toBe('')
+  })
+
+  it('does not apply it to an outline accent button', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Go', color: 'accent', outline: true } })
+
+    expect(wrapper.element.style.boxShadow).toBe('')
+  })
+
+  it('does not apply it to a flat accent button', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Go', color: 'accent', flat: true } })
+
+    expect(wrapper.element.style.boxShadow).toBe('')
+  })
+
+  it('does not apply it to an unthemed accent button (no color prop)', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Go' } })
+
+    expect(wrapper.element.style.boxShadow).toBe('')
+  })
+})
+
 // -> OpenProject #1805: title/tabindex are declared props (not left to $attrs fallthrough) so a
 //    call site's use of them is visible in the drift-check test, e.g. AdminGeneral.vue's inert
 //    logo preview button (`tabindex="-1"` alongside `aria-hidden="true"`, so it isn't a real link

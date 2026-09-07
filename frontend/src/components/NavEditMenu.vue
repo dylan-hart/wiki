@@ -18,11 +18,17 @@
         :key="entry.value"
         class="nav-edit-menu__row"
         :class="{ 'nav-edit-menu__row--selected': state.mode === entry.value }">
+        <!--
+          `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
+          dark-mode override of its own (OpenProject #2807), so left alone the radio's ring/dot drew
+          the light-mode bright tone against a dark ground -- same swap `w-input-control`'s error
+          ring already makes in `tailwind.css`.
+        -->
         <w-radio
           class="nav-edit-menu__radio"
           v-model="state.mode"
           :val="entry.value"
-          color="accent-fill"
+          :color="dark.isActive ? `accent-dark` : `accent-fill`"
           :aria-label="t(entry.label)" />
         <nav-cascade-glyph :mode="entry.value" :root="isRoot" />
         <span class="nav-edit-menu__row-text">
@@ -36,11 +42,16 @@
       <div class="nav-edit-menu__rule" />
       <div class="nav-edit-menu__section">
         <div class="nav-edit-menu__section-label">{{ t('navEdit.menuSourceLabel') }}</div>
+        <!--
+          `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
+          dark-mode override of its own (OpenProject #2807), so left alone the selected segment
+          filled with the light-mode bright tone against a dark ground.
+        -->
         <w-btn-toggle
           class="nav-edit-menu__menu-source"
           v-model="state.menuMode"
           :options="menuSourceOptions"
-          toggle-color="accent-fill"
+          :toggle-color="dark.isActive ? `accent-dark` : `accent-fill`"
           :aria-label="t('navEdit.menuSourceLabel')" />
         <div class="nav-edit-menu__menu-source-hint">{{ menuSourceHint }}</div>
       </div>
@@ -76,6 +87,7 @@
 import { computed, onMounted, reactive, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
 import { usePageStore } from '@/stores/page'
@@ -97,6 +109,10 @@ const props = defineProps({
     default: () => ({})
   }
 })
+
+// DARK MODE
+
+const dark = useDark()
 
 // STORES
 
@@ -190,6 +206,31 @@ const canEditMenuItems = computed(() => {
   return ['inherit', 'override', 'overrideExact'].includes(state.mode)
 })
 
+/**
+ * Suppresses every CSS transition for one frame while a load-driven assignment lands.
+ *
+ * Identical to `composables/dark.js`'s / `composables/aesthetic.js`'s `withoutTransitions()` --
+ * duplicated rather than shared, same reasoning as those two: this owns exactly one flip (the
+ * Menu Source segmented control's initial value) and doesn't depend on either of them. Without
+ * this, `loadMenuMode()`'s resolve lands on `state.menuMode` while `w-btn-toggle`'s
+ * `transition-[background-color,border-color,color]` utility is still animating the popup's open,
+ * so the control visibly slides from the hardcoded `'static'` default to the real value
+ * (OpenProject #2819) instead of just appearing already-correct.
+ */
+function withoutTransitions(fn) {
+  const root = document.documentElement
+  root.classList.add('theme-transition-suppress')
+  fn()
+
+  // -> Load-bearing: forces a synchronous style recalc so the browser commits the new color WHILE
+  //    transitions are still off -- see `dark.js`'s identical comment for the full reasoning.
+  void getComputedStyle(document.body).transitionDuration
+
+  requestAnimationFrame(() => {
+    root.classList.remove('theme-transition-suppress')
+  })
+}
+
 // WATCHERS
 
 watch(
@@ -242,7 +283,9 @@ async function loadMenuMode() {
     const resp = await API_CLIENT.get(
       `sites/${siteStore.id}/navigation/${pageStore.navigationId}/mode`
     ).json()
-    state.menuMode = resp?.mode ?? 'static'
+    withoutTransitions(() => {
+      state.menuMode = resp?.mode ?? 'static'
+    })
   } catch (err) {
     log.warn('nav', "could not resolve the menu's source mode", err)
   }
@@ -619,6 +662,24 @@ onMounted(() => {
 }
 
 /*
+  OpenProject #2820: `WBtnToggle.vue`'s shared segment styling draws a border on every segment and
+  only suppresses a middle/last segment's START border -- the group's own two OUTER edges (the
+  first segment's start border, the last segment's end border) still draw. Here those sit directly
+  against `.nav-edit-menu`'s own `border: var(--border-card)` (above), double-bordering Manual's
+  left edge and Mixed's right edge. Scoped to this instance only, not the shared primitive -- no
+  other reported instance of this -- and unconditional across every theme/aesthetic, since the card
+  border it collides with is always present, unlike the Cobalt-only corner-radius rules below whose
+  `:first-child`/`:last-child` selector *pattern* this reuses.
+*/
+.nav-edit-menu :deep(.nav-edit-menu__menu-source .w-btn-toggle__segment:first-child) {
+  border-inline-start-width: 0;
+}
+
+.nav-edit-menu :deep(.nav-edit-menu__menu-source .w-btn-toggle__segment:last-child) {
+  border-inline-end-width: 0;
+}
+
+/*
   Cobalt (handoff): selected fill `#c8303c` with a shadow, unselected text `#1e2a5e`, outer corners
   6px (never each segment -- see tailwind.css's own "radii sweep" comment on `--radius-control`).
 
@@ -632,6 +693,10 @@ onMounted(() => {
   (#10194a) is the closest existing token by both value and "dark, assertive UI tone" role; reused
   here and on the footer Save button below rather than a hardcoded hex, flagging the gap for a
   follow-up to give #2767 a proper "slate button" token (the handoff's own name for this role).
+
+  OpenProject #2813: this segment is a `w-btn-toggle__segment`, not a `WBtn`, so it can't pick up
+  `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
+  hand-wired consumer on purpose, already keyed off the same `--color-accent` role #2813 decided on.
 */
 :global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='true']) {
   background-color: var(--color-accent) !important;
@@ -656,7 +721,7 @@ onMounted(() => {
 }
 
 .nav-edit-menu__menu-source-hint {
-  padding-top: 6px;
+  padding: 6px 14px 0;
   font: 400 11.5px/1.4 var(--font-sans);
   color: var(--color-text-caption);
 }

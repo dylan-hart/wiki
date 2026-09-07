@@ -253,6 +253,17 @@ html.theme-transition-suppress *::after {
   --color-dark-1: #2f374a; /* raised, hovered */
   --color-dark-2: #242b3a; /* raised: a card header, a menu, a filled chip */
   --color-dark-3: #1b1f2a; /* panel: a card, a dialog body */
+  /*
+    Half-rung between panel (-3) and recessed (-4), added for OpenProject #2816. Ledger has no gap
+    here -- its own dark mockup diff (#2773) found `-2`/`-4` already correct for both consumers below
+    -- so this pair's Ledger default is just `-4`'s own value, restated, which keeps Ledger dark
+    pixel-identical before and after this token existed. Cobalt dark overrides both to the distinct
+    value its own primitives mockup draws (`#0e1540`/`#c9d6ff`), which is neither `-2` nor `-4` --
+    see `body.body--cobalt.body--dark`'s block below. Two consumers: `.w-section-header`'s Cobalt-dark
+    band (this file, below) and `WInput.vue`/`WSelect.vue`'s read-only field surface.
+  */
+  --color-dark-3-5: #171b24;
+  --color-dark-3-5-text: #8ea6cf;
   --color-dark-4: #171b24; /* recessed: a read-only field, an inset gutter */
   --color-dark-5: #14171f; /* ink: the page ground */
   --color-dark-6: #0f1219; /* below ink: the deepest well */
@@ -602,6 +613,26 @@ html.theme-transition-suppress *::after {
 }
 
 /*
+  -- Ledger dark: --border-card (OpenProject #2811) --------------------------
+  `--border-card` above is declared once, in bare `:root`, against `--color-hairline` -- the LIGHT
+  hairline colour only, since `--color-hairline` itself is never redefined for plain (non-Cobalt)
+  dark mode, only for `body.body--cobalt`/`body.body--cobalt.body--dark`. Left as-is, a consumer
+  reading `--border-card` on a Ledger dark page would draw the light hairline colour. This gives
+  Ledger dark its own real value, off `--color-hairline-dark` (the token every other `dark:` hairline
+  utility already reads), so `WCard.vue` can consume `--border-card` unconditionally in both modes.
+
+  Placed BEFORE `body.body--cobalt` below on purpose: `body.body--dark` and `body.body--cobalt` are
+  equal-specificity selectors (`body` + one class each), so which one wins on a page carrying both
+  classes is decided by source order, not specificity -- and Cobalt's own `--border-card: 0` (it
+  wants a borderless, shadow-only card in both its light and dark forms, so it doesn't restate this
+  again under `body.body--cobalt.body--dark`) needs to be the one that wins there. Keeping this block
+  earlier than Cobalt's is what makes that hold.
+*/
+body.body--dark {
+  --border-card: 1px solid var(--color-hairline-dark);
+}
+
+/*
   -- Cobalt aesthetic: light token block (OpenProject #2767) -----------------
   The Cobalt half of every token declared above, scoped to `body.body--cobalt` rather than a
   `cobalt:` Tailwind variant -- see `ui-redesign-cobalt/HANDOFF.md`'s "Architecture" section. A
@@ -728,6 +759,8 @@ body.body--cobalt.body--dark {
   --color-dark: #0a0f2c;
   --color-dark-2: #1a43bd;
   --color-dark-3: #141c4f;
+  --color-dark-3-5: #0e1540;
+  --color-dark-3-5-text: #c9d6ff;
   --color-dark-4: #070b22;
   --color-dark-5: #0a0f2c;
   --color-hairline-dark: rgb(255 255 255 / 0.08);
@@ -918,6 +951,19 @@ body.body--cobalt.body--dark {
   }
 
   /*
+    Cobalt dark's own "bad address" mockup swatch (`Primitives Dark 3x - Cobalt.dc.html`) draws its
+    error ring at the same bright value Cobalt light uses, not the lightened value the generic rule
+    above applies for every other dark aesthetic. `--color-accent-fill` isn't restated in the Cobalt
+    dark token block (`body.body--cobalt.body--dark` above), so it still resolves to Cobalt light's
+    `#ff4d5a` here -- this rule just re-points the ring var at it. Higher specificity (4 classes vs.
+    3) than the generic rule above, so it wins regardless of source order. OpenProject #2817, fixing
+    the gap #2773 logged as a frozen-primitive deferral to Feature #2763.
+  */
+  body.body--cobalt.body--dark .w-input-control {
+    --w-input-ring-error: var(--color-accent-fill);
+  }
+
+  /*
     A rule that stays exactly one device pixel thick under fractional display scaling.
 
     The element keeps its 1px CSS box (so layout and margins behave normally) but paints nothing
@@ -1023,6 +1069,19 @@ body.body--cobalt.body--dark {
     background-color: var(--color-dark-2);
     border-block-color: var(--color-hairline-dark);
     color: var(--color-slate-light);
+  }
+
+  /*
+    Cobalt dark draws this band a rung darker than the generic rule above -- the design's own
+    primitives sheet ("Section header & row" swatch) renders `#0e1540`/`#c9d6ff`, not `--color-dark-2`'s
+    `#1a43bd` -- the value the confirm-dialog title band is drawn in instead (see `WConfirmDialog.vue`'s
+    own comment; the two bands are deliberately different roles, not the same one twice). `--color-
+    dark-3-5`/`-text` name that rung once (OpenProject #2816); this selector's extra `.body--cobalt`
+    class outranks the generic rule above by specificity, so Ledger dark is unaffected.
+  */
+  body.body--cobalt.body--dark .w-section-header {
+    background-color: var(--color-dark-3-5);
+    color: var(--color-dark-3-5-text);
   }
 
   .w-unstyled {
