@@ -121,8 +121,10 @@ primitive:
 var(--color-hairline-dark); }` block (placed before `body.body--cobalt` so the latter's `0` still
   wins the cascade tie on a Cobalt+dark page), and `WCard.vue` now reads `border: var(--border-card)`
   from its own scoped `<style>` block instead of the old utility pair.
-- `WDialog.vue` hardcodes Tailwind's `rounded-lg` instead of `--radius-dialog`, and already
-  contradicts Ledger's own `--radius-dialog: 0` — a fix here is app-wide, not Cobalt-only.
+- ~~`WDialog.vue` hardcodes Tailwind's `rounded-lg` instead of `--radius-dialog`, and already
+  contradicts Ledger's own `--radius-dialog: 0` — a fix here is app-wide, not Cobalt-only.~~ Fixed
+  by OpenProject #2812: `panelClasses` now uses `rounded-dialog`/`rounded-t-dialog`, the Tailwind
+  utilities `--radius-dialog` already publishes via `@theme static`.
 - `--shadow-primary` needs an app-level decision ("which `color` prop value means the page's own
   primary action") that no single component can make on its own.
 - `--q-info`/`-negative`/`-positive`/`-warning` are un-seeded by `aestheticDefaults.js`, so
