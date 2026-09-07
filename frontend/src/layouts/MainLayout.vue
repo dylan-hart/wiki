@@ -1,5 +1,5 @@
 <template>
-  <w-layout>
+  <w-layout :class="{ 'main-layout--entrance-flourish': playEntranceFlourish }">
     <!--
       The way past every sidebar link and header control on a keyboard, per WCAG 2.4.1 (Bypass
       Blocks) -- the first focusable element in the whole layout, ahead of even `header-nav`. Still
@@ -95,7 +95,7 @@
                exists to divide the two, so it goes with them -->
           <template v-if="siteStore.locales.showMenu">
             <w-btn
-              class="flex-1 px-2"
+              class="icon-lg px-2"
               flat
               dense
               icon="tabler:language"
@@ -108,7 +108,7 @@
           </template>
           <w-btn
             v-if="canBrowse"
-            class="flex-1 px-2"
+            class="icon-lg flex-1 px-2"
             flat
             dense
             icon="tabler:sitemap"
@@ -525,6 +525,38 @@ watch(
 function openSidebar() {
   isNarrowSidebarOpen.value = true
 }
+
+// ENTRANCE FLOURISH
+
+/**
+ * OpenProject #2747/#2751: whether to play the authenticated shell's staggered entrance flourish --
+ * true only when this mount is a landing straight off a successful login (Task A, #2750:
+ * `AuthLoginPanel.vue` sets `ENTRANCE_FLOURISH_KEY` in `sessionStorage` immediately before its hard
+ * `window.location.replace()`) and `prefers-reduced-motion` is not set. `false` for a plain page
+ * refresh within the same session -- the flag is read-and-cleared below, so it isn't there to find a
+ * second time -- and `false` under reduced motion regardless, matching the skip on the login side.
+ *
+ * Set once in `onMounted` and never toggled back: this layout is not remounted by an in-SPA
+ * navigation (`router-view` swaps underneath it), so there is no subsequent "arrival" to gate.
+ */
+const ENTRANCE_FLOURISH_KEY = 'cardinal:justLoggedIn'
+const playEntranceFlourish = ref(false)
+
+onMounted(() => {
+  let justLoggedIn = false
+  try {
+    justLoggedIn = sessionStorage.getItem(ENTRANCE_FLOURISH_KEY) !== null
+    if (justLoggedIn) {
+      sessionStorage.removeItem(ENTRANCE_FLOURISH_KEY)
+    }
+  } catch {
+    // -> A sandboxed/privacy-hardened browser that throws on storage access renders with no
+    //    animation, same as the plain-refresh case -- there is nothing more this can safely check.
+  }
+  if (justLoggedIn && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    playEntranceFlourish.value = true
+  }
+})
 </script>
 
 <style lang="scss">
@@ -570,6 +602,14 @@ function openSidebar() {
   all (`showSidebarActions` false), `NavSidebar` sits flush under `HeaderNav`'s own `.site-header`
   bottom edge instead, so the line is still there -- just drawn by the header rather than by this.
 */
+/*
+  Diffed against `Page View 3x - Cobalt` (OpenProject #2774): the mockup's own "EN"/"Browse" row draws
+  its text at `#c5cff5`, the exact value `--color-admin-sidebar-text` already carries -- but nothing
+  currently declares that pairing for the READER sidebar's own locale-switcher row specifically, and
+  guessing at reusing an admin-scoped token for a reader-facing surface is exactly the kind of call
+  this Task's acceptance criteria ask to log rather than make. Left unchanged; `.sidebar-footerbtns`
+  below is a clean case since it reuses that section's OWN dedicated token instead.
+*/
 .sidebar-actions {
   height: 38px;
   border-bottom: 1px solid $hairline;
@@ -578,6 +618,15 @@ function openSidebar() {
   //    an inline `color`, which would outrank this rule
   .w-btn {
     color: $slate;
+  }
+
+  // -> OpenProject #2788: WBtn's own `.w-icon` rule (`.w-btn :deep(.w-icon) { font-size: 1.715em }`)
+  //    scales off `size="sm"`'s 10px button font-size, landing at ~17px -- undersized next to the
+  //    label here. `.icon-lg` (Locale and Browse only, not the sibling Collapse button below) pins
+  //    those two icons to 20px explicitly. `!important` because this plain rule and WBtn's own
+  //    scoped one tie on specificity, and which stylesheet loads later is not something to rely on.
+  .icon-lg .w-icon {
+    font-size: 20px !important;
   }
 }
 
@@ -618,6 +667,15 @@ function openSidebar() {
   flex-shrink: 0;
   border-top: 1px solid $hairline;
   color: $text-secondary;
+
+  /*
+    Cobalt's own "Edit navigation" row is `--color-sidebar-text-secondary` (`#a7b3ea`, identical in
+    both mockups) rather than the general `$text-secondary` this reused -- additive, since Ledger's
+    own default for the token is a different generic tone, not this one (OpenProject #2774).
+  */
+  body.body--cobalt & {
+    color: var(--color-sidebar-text-secondary);
+  }
 
   .sidebar-footerbtns-spacer {
     flex: 0 0 0;
@@ -708,6 +766,22 @@ body.body--dark {
         background-color: $dark-5;
         border-top-color: $dark-6;
       }
+
+      /*
+        Cobalt (DESIGN-DECISIONS.md "Themes": "Dialogs and overlays ... take a 12px radius with
+        `overflow:hidden` ... No dark eyebrow bar on dialog tops -- the rounded corner is the
+        edge") -- OpenProject #2776 found every full-bleed overlay (File Manager, Page History
+        alongside the rest `MainOverlayDialog.vue` mounts) still drawing Ledger's flat panel with
+        its 10px ink strip regardless of aesthetic, since nothing here branched on it. The strip
+        is removed rather than recoloured: Cobalt's own mockups (`Cardinal Wiki - File Manager 3x
+        - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) draw a plain rounded
+        panel with no title-band edge at all.
+      */
+      @at-root .body--cobalt & {
+        border-top: 0;
+        border-radius: var(--radius-dialog);
+        overflow: hidden;
+      }
     }
   }
 
@@ -737,6 +811,88 @@ body.body--dark {
   }
   100% {
     opacity: 1;
+  }
+}
+
+/*
+  OpenProject #2747/#2751: the authenticated shell's entrance flourish, played once on arrival
+  straight from a successful login -- see `script setup`'s `playEntranceFlourish` for when the class
+  below is actually added (never under `prefers-reduced-motion`, never on a plain same-session
+  refresh).
+
+  Plain `@keyframes` `animation`s rather than `transition`s: a transition only runs on a property
+  CHANGE, which would need a two-step "render hidden, then flip to visible next tick" dance. An
+  animation runs the moment the class carrying it is present in the DOM, so it's enough that the
+  class is added once in `onMounted` and never removed again -- this layout is not remounted by an
+  in-SPA navigation, so there is no second "arrival" to replay it for.
+*/
+.main-layout--entrance-flourish {
+  .site-header-wrap {
+    animation: main-layout-entrance-header 280ms ease-out both;
+  }
+
+  /*
+    -> The drawer's own contents (full panel or mini rail) -- not its open/close slide, which
+       `WDrawer`'s own `<transition name="w-drawer">` already owns and does not fire on initial
+       mount regardless.
+  */
+  .bg-sidebar {
+    animation: main-layout-entrance-fade 280ms ease-out 80ms both;
+  }
+
+  /*
+    -> The routed page's content. Its own opacity fade already carries a nested `FooterNav` along
+       for free (an ancestor's opacity composites its whole subtree); the extra rule below adds that
+       footer's OWN slide-up on top of the same fade, where the landed route renders one at all.
+  */
+  .w-page-container {
+    animation: main-layout-entrance-fade 280ms ease-out 160ms both;
+
+    .site-footer {
+      animation: main-layout-entrance-footer 280ms ease-out 160ms both;
+    }
+  }
+}
+
+@keyframes main-layout-entrance-header {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes main-layout-entrance-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes main-layout-entrance-footer {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  // -> Defence in depth: `playEntranceFlourish` is already false whenever this media query matches,
+  //    so `.main-layout--entrance-flourish` is never added in the first place -- this holds even if
+  //    it were ever toggled some other way, matching the same convention `Login.vue`'s `&--exiting`
+  //    block follows on the login side of this feature.
+  .main-layout--entrance-flourish {
+    .site-header-wrap,
+    .bg-sidebar,
+    .w-page-container,
+    .w-page-container .site-footer {
+      animation: none;
+    }
   }
 }
 </style>

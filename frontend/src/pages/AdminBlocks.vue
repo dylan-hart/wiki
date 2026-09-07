@@ -57,7 +57,6 @@
           :disabled="state.loading > 0" />
       </div>
     </div>
-    <w-separator inset />
     <div class="p-4 gap-4">
       <!--
         OpenProject #829 item 5: upstream discussions #3275/#7258/#7229 all describe the same

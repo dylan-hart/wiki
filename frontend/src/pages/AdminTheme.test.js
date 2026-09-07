@@ -164,3 +164,157 @@ describe('AdminTheme — WCAG AA contrast warning checks secondary and accent (t
     }
   })
 })
+
+// OpenProject #2768: `resetColors()` reads its `colorPrimary`/`colorAccent`/`colorHeader`/
+// `colorSidebar` defaults from the CURRENT aesthetic (`helpers/aestheticDefaults.js`), not one
+// hardcoded set -- so a Cobalt site's "Reset defaults" button lands on Cobalt's colors.
+describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', () => {
+  it("resets to Ledger's defaults when the loaded theme has no aesthetic (today's/pre-#2769 shape)", async () => {
+    const wrapper = await mountPage({
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    // -> Index 0: the Theme Options card's own "Reset defaults" button -- Code Blocks and Fonts
+    // each render their own sibling with the same label further down the page.
+    await wrapper.findAll('.acrylic-btn')[0].trigger('click')
+
+    expect(wrapper.vm.state.config.colorPrimary).toBe('#c14a52')
+    expect(wrapper.vm.state.config.colorAccent).toBe('#c14a52')
+    expect(wrapper.vm.state.config.colorHeader).toBe('#ffffff')
+    expect(wrapper.vm.state.config.colorSidebar).toBe('#f0f2f7')
+    // -> Unaffected by the aesthetic -- reset to their own single default either way.
+    expect(wrapper.vm.state.config.colorSecondary).toBe('#3f7a66')
+    expect(wrapper.vm.state.config.dark).toBe(false)
+  })
+
+  it("resets to Cobalt's own defaults when the loaded theme is on the cobalt aesthetic", async () => {
+    const wrapper = await mountPage({
+      aesthetic: 'cobalt',
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.findAll('.acrylic-btn')[0].trigger('click')
+
+    expect(wrapper.vm.state.config.colorPrimary).toBe('#1f4fd6')
+    expect(wrapper.vm.state.config.colorAccent).toBe('#c8303c')
+    expect(wrapper.vm.state.config.colorHeader).toBe('#1f4fd6')
+    expect(wrapper.vm.state.config.colorSidebar).toBe('#10194a')
+    expect(wrapper.vm.state.config.colorSecondary).toBe('#3f7a66')
+  })
+})
+
+// OpenProject #2769: the Appearance card's own Aesthetic row -- the FIRST row, above Dark mode --
+// wires `state.config.aesthetic` through to the theme payload and, on a genuine admin click, resets
+// the admin-editable colors to the newly-picked aesthetic's own defaults (#2768's `resetColors()`).
+describe('AdminTheme — Aesthetic setting row (OpenProject #2769)', () => {
+  it('renders Aesthetic as the first row of the Appearance card, above Dark mode', async () => {
+    const wrapper = await mountPage({
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
+      colorHeader: '#ffffff',
+      colorSidebar: '#f0f2f7'
+    })
+
+    const rows = wrapper.findAll('.admin-theme .w-settings-card')[0].findAll('.w-settings-row')
+    expect(rows.length).toBeGreaterThanOrEqual(2)
+    // -> The row order the mockup and the acceptance criteria both call for: Aesthetic first.
+    expect(rows[0].find('[data-icon="tabler:layout-grid"]').exists()).toBe(true)
+    expect(rows[1].find('[data-icon="tabler:bulb"]').exists()).toBe(true)
+  })
+
+  it('defaults to the ledger aesthetic when the loaded theme carries none', async () => {
+    const wrapper = await mountPage({
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
+      colorHeader: '#ffffff',
+      colorSidebar: '#f0f2f7'
+    })
+
+    expect(wrapper.vm.state.config.aesthetic).toBe('ledger')
+  })
+
+  it('does not reset the colors merely from loading a Cobalt theme', async () => {
+    const wrapper = await mountPage({
+      aesthetic: 'cobalt',
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    expect(wrapper.vm.state.config.aesthetic).toBe('cobalt')
+    // -> Unchanged from the loaded (non-default) values: merely loading the page must not have
+    // called `resetColors()` on the admin's behalf.
+    expect(wrapper.vm.state.config.colorPrimary).toBe('#123456')
+    expect(wrapper.vm.state.config.colorAccent).toBe('#abcdef')
+    expect(wrapper.vm.state.config.colorHeader).toBe('#000000')
+    expect(wrapper.vm.state.config.colorSidebar).toBe('#1976D2')
+  })
+
+  it('switching to Cobalt resets the color pickers to Cobalt defaults before save', async () => {
+    const wrapper = await mountPage({
+      aesthetic: 'ledger',
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.vm.onAestheticChange('cobalt')
+
+    expect(wrapper.vm.state.config.aesthetic).toBe('cobalt')
+    expect(wrapper.vm.state.config.colorPrimary).toBe('#1f4fd6')
+    expect(wrapper.vm.state.config.colorAccent).toBe('#c8303c')
+    expect(wrapper.vm.state.config.colorHeader).toBe('#1f4fd6')
+    expect(wrapper.vm.state.config.colorSidebar).toBe('#10194a')
+  })
+
+  it('switching back to Ledger resets the color pickers to Ledger defaults before save', async () => {
+    const wrapper = await mountPage({
+      aesthetic: 'cobalt',
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.vm.onAestheticChange('ledger')
+
+    expect(wrapper.vm.state.config.aesthetic).toBe('ledger')
+    expect(wrapper.vm.state.config.colorPrimary).toBe('#c14a52')
+    expect(wrapper.vm.state.config.colorAccent).toBe('#c14a52')
+    expect(wrapper.vm.state.config.colorHeader).toBe('#ffffff')
+    expect(wrapper.vm.state.config.colorSidebar).toBe('#f0f2f7')
+  })
+
+  it('includes aesthetic in the save payload', async () => {
+    const wrapper = await mountPage({
+      aesthetic: 'cobalt',
+      colorPrimary: '#1f4fd6',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c8303c',
+      colorHeader: '#1f4fd6',
+      colorSidebar: '#10194a'
+    })
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+
+    expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+    const [, options] = API_CLIENT.put.mock.calls[0]
+    expect(options.json.theme.aesthetic).toBe('cobalt')
+  })
+})

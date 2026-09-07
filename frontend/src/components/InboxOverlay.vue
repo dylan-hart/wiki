@@ -122,21 +122,39 @@ function close() {
   preferences) inherited the document's default black text -- readable in light mode purely by
   accident, illegible against this overlay's own dark background in dark mode. The light value is the
   black it was already inheriting, so only dark mode actually changes.
+
+  Written as `var(--color-*)` rather than the `$surface`/`$text-body`/`$dark-3`/`$text-dark` SCSS
+  literals this used to read (OpenProject #2778, diffed against `Cardinal Wiki - Inbox 3x -
+  Cobalt.dc.html`): those constants are Ledger-only (`css/_theme.scss`'s own header says so), so
+  Cobalt light rendered this panel in Ledger's body text colour and Cobalt dark in Ledger's panel
+  colour -- both silently wrong once `body--cobalt` is on `<body>`, since neither literal picks up
+  `body.body--cobalt`'s `--color-text-body: #1a2038` or `body.body--cobalt.body--dark`'s
+  `--color-dark-3: #141c4f` overrides. The custom properties resolve to the exact same values in
+  Ledger (no visible change there), which is what makes this a pure token-layer fix rather than a new
+  rule.
 */
 .inbox-overlay {
   @at-root .body--light & {
-    background-color: $surface;
-    color: $text-body;
+    background-color: var(--color-surface);
+    color: var(--color-text-body);
   }
   @at-root .body--dark & {
-    background-color: $dark-3;
-    color: $text-dark;
+    background-color: var(--color-dark-3);
+    color: var(--color-text-dark);
   }
 }
 
 /*
   The overlay's own section rail. Cardinal's tint, ruled off -- the same column the profile overlay
   and the file manager's folder tree draw, so the three overlays that have one all read alike.
+
+  Cobalt (OpenProject #2778, `Cardinal Wiki - Inbox 3x - Cobalt.dc.html`) draws this rail as the
+  site's own sidebar chrome rather than a light/dark-following tint -- background, row text/icon and
+  the active item's fill all read off the exact tokens `HeaderNav.vue`'s sidebar-tinted mobile header
+  (`--color-sidebar`) and `NavItemEditor.vue`'s Cobalt active row (`--color-sidebar-text`,
+  `--color-sidebar-icon`, `--nav-active-inset`) already establish for this same "reader sidebar" role,
+  and stay identical across the light/dark toggle -- the handoff's own dark-tokens section says the
+  sidebar treatment "stays unchanged from Cobalt light", so one `body--cobalt` block below covers both.
 */
 .inbox-overlay-sidebar {
   @at-root .body--light & {
@@ -146,6 +164,10 @@ function close() {
   @at-root .body--dark & {
     background-color: $dark-4;
     border-inline-end: 1px solid $hairline-dark;
+  }
+  @at-root .body--cobalt & {
+    background-color: var(--color-sidebar);
+    border-inline-end-color: var(--color-sidebar-hairline);
   }
 
   .w-list .w-item {
@@ -158,6 +180,15 @@ function close() {
 
     @at-root .body--dark & {
       color: $text-secondary-dark;
+    }
+
+    @at-root .body--cobalt & {
+      color: var(--color-sidebar-text);
+
+      .w-icon,
+      iconify-icon {
+        color: var(--color-sidebar-icon);
+      }
     }
 
     /*
@@ -184,6 +215,27 @@ function close() {
         .w-icon,
         iconify-icon {
           color: $accent-dark;
+        }
+      }
+
+      /*
+        Cobalt's active row is a plate, not a bordered strip: the handoff's radii sweep gives it
+        `--radius-control` and a 10px side margin so it reads as a pill sitting on the rail rather
+        than spanning it edge to edge, and the leading accent moves from a border to `--nav-active-
+        inset`'s inset box-shadow -- the same shape `NavItemEditor.vue`'s own Cobalt active row
+        already draws for the identical "selected sidebar item" role.
+      */
+      @at-root .body--cobalt & {
+        background-color: var(--color-sidebar-active-bg);
+        border-inline-start-color: transparent;
+        border-radius: var(--radius-control);
+        box-shadow: var(--nav-active-inset);
+        color: var(--color-sidebar-active-text);
+        margin-inline: 10px;
+
+        .w-icon,
+        iconify-icon {
+          color: var(--color-sidebar-active-text);
         }
       }
     }
@@ -222,5 +274,46 @@ function close() {
   @at-root .body--dark & {
     border-color: $accent-dark;
   }
+
+  /*
+    Cobalt's own accent-fill is `#ff4d5a`, not Ledger's `$accent-fill` (`#e4676b`) -- confirmed
+    against both `Cardinal Wiki - Inbox Review 3x - Ledger.dc.html` and its Cobalt twin, whose only
+    difference on this button is that one border colour. `--color-accent-fill` carries the same
+    value in Cobalt light and dark (the handoff's dark-tokens section leaves it unrestated), so one
+    rule after both Ledger blocks above covers both.
+  */
+  @at-root .body--cobalt & {
+    border-color: var(--color-accent-fill);
+  }
 }
+
+/*
+  Diffed against the Cobalt pair (OpenProject #2778) and logged rather than fixed, since each needs a
+  change outside this file's ownership:
+
+  - `.card-header` (`css/_base.scss`) draws this overlay's own title band from the compile-time
+    `theme.$dark-2` SCSS constant, never picking up `--color-dark-2`'s Cobalt override -- the same
+    pre-existing, app-wide gap #2772/#2773 already logged for `WConfirmDialog.vue`'s identical band.
+    Still `#1c2a70` in the Cobalt mockup vs whatever `$dark-2` renders as here.
+  - The panel's own rounded/clipped `--radius-dialog` + `overflow:hidden` treatment (12px, no eyebrow
+    bar) is `WDialog.vue`'s `rounded-lg` (a fixed Tailwind radius, not `--radius-dialog`) plus
+    `MainLayout.vue`'s `.main-overlay > .w-dialog-panel` rule, which still draws Ledger's 10px ink
+    eyebrow bar unconditionally -- the exact `--radius-dialog` gap #2772 already logged on `WDialog`.
+    The 50%-viewport centering itself (`MainOverlayDialog.vue`'s `HALF_SIZE`, `MainLayout.vue`'s
+    `.is-half-sized` floor) is unaffected and already correct in both aesthetics.
+  - `<w-avatar square>`'s 36px plates (`InboxWatching.vue`/`InboxReview.vue`) render literally
+    square in every aesthetic; the mockups round them to 6px (`--radius-control`) under Cobalt.
+    `WAvatar.vue`'s `square` prop is a shared-component concern, not this file's.
+  - The "slate" plate fill (the file-icon avatar in both pages) reads `--color-slate`, which Cobalt
+    never redefines -- the mockups want `#1e2a5e` there (the handoff's "Commit"/"selected-tag fill"
+    tone), a role with no token yet. `--color-accent-fill`'s plate is already correct, since Cobalt
+    does redefine that one.
+  - The diff editor's `cardinaljs` Monaco theme (`InboxReview.vue`) is deliberately literal hex,
+    since Monaco cannot resolve a custom property -- but the two mockups' code panes are not
+    identical either: gutter/label tones and the removed-line marker text shift between them
+    (`#8792ab`/`#f08287` Ledger vs `#7f8ed1`/`#ff7a84` Cobalt) while the actual insert/remove line
+    fills stay Ledger's raw `#5f9c86`/`#e4676b` in both files. Making the editor aesthetic-reactive
+    (a second theme plus a watcher on `composables/aesthetic.js`) is a real feature addition, not a
+    token swap, so it is left flagged rather than guessed at.
+*/
 </style>

@@ -114,6 +114,112 @@ describe('editor store: fetchConfigs() glossary terms (OpenProject #870)', () =>
 })
 
 /*
+ * OpenProject #2789: a glossary term added or edited after this SPA session's first editor open used
+ * to never appear in that session again, however many times an editor was subsequently opened --
+ * `ensureConfigs()` treated the whole editor config bag, glossary terms included, as a one-time-per-
+ * session fetch behind `configIsLoaded`. `refreshGlossaryTerms()` is fetched every time instead, since
+ * the backend route it calls is itself cached and cheap, and a stale term list here is indistinguishable
+ * from "zero rendered markup" to a reader -- the very symptom reported.
+ */
+describe('editor store: ensureConfigs() keeps the glossary term list fresh (OpenProject #2789)', () => {
+  it('fetches the full config on the first call, when nothing is loaded yet', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ editors: { markdown: { config: { underline: true } } } })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve([
+          { term: 'API', definition: 'Application Programming Interface', link: null }
+        ])
+    })
+
+    await store.ensureConfigs()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
+    expect(store.configIsLoaded).toBe(true)
+    expect(store.editors.markdown).toEqual({
+      underline: true,
+      glossaryTerms: [{ term: 'API', definition: 'Application Programming Interface', link: null }]
+    })
+  })
+
+  it('re-fetches only the glossary terms on a later call, once the config is already loaded', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    store.$patch({
+      configIsLoaded: true,
+      editors: { markdown: { underline: true, glossaryTerms: [] } }
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve([{ term: 'Widget', definition: 'A small reusable thing.', link: null }])
+    })
+
+    await store.ensureConfigs()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/terms')
+    expect(store.editors.markdown).toEqual({
+      underline: true,
+      glossaryTerms: [{ term: 'Widget', definition: 'A small reusable thing.', link: null }]
+    })
+  })
+
+  it('a second, later session refresh sees a term added after the first fetch', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    await store.ensureConfigs()
+    expect(store.editors.markdown.glossaryTerms).toEqual([])
+
+    // -> An administrator adds a term to the glossary, in the same SPA session, no page reload
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve([
+          { term: 'API', definition: 'Application Programming Interface', link: null }
+        ])
+    })
+
+    await store.ensureConfigs()
+
+    expect(store.editors.markdown.glossaryTerms).toEqual([
+      { term: 'API', definition: 'Application Programming Interface', link: null }
+    ])
+  })
+
+  it('refreshGlossaryTerms() does not throw when the request fails, degrading to whatever this session already had', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    store.$patch({
+      configIsLoaded: true,
+      editors: { markdown: { underline: true, glossaryTerms: [{ term: 'API' }] } }
+    })
+    API_CLIENT.get.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+
+    await expect(store.ensureConfigs()).resolves.toBeUndefined()
+
+    expect(store.editors.markdown.glossaryTerms).toEqual([{ term: 'API' }])
+  })
+
+  it('refreshGlossaryTerms() is a no-op with no siteId to ask', async () => {
+    const store = useEditorStore()
+
+    await store.refreshGlossaryTerms()
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+})
+
+/*
   OpenProject #806 follow-up: every browser hands a clipboard-pasted file the same literal name,
   "image.png", so every paste on every page used to upload to the same asset path -- and the site's
   default overwrite conflict behavior made each one clobber the last, leaving every pasted image

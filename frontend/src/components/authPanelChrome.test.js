@@ -168,11 +168,14 @@ describe('AuthLoginPanel — the login screen', () => {
     const wrapper = await mountPanel([LOCAL_STRATEGY])
     const submit = btnByLabel(wrapper, 'Log In')
 
-    expect(submit.props('color')).toBe('primary')
+    // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this
+    //    button for why the two are no longer interchangeable under Cobalt.
+    expect(submit.props('color')).toBe('accent')
     expect(submit.props('outline')).toBe(false)
     expect(submit.props('size')).toBe('14px')
     expect(submit.props('padding')).toBe('10px 16px')
     expect(submit.classes()).toContain('auth-marks')
+    expect(submit.classes()).toContain('auth-cta')
   })
 
   it('draws every secondary row as a hairline outline plate, never the old acrylic wash', async () => {
@@ -196,7 +199,8 @@ describe('AuthLoginPanel — the login screen', () => {
   it('keeps the accent on the passkey row and the chrome tone on the other three', async () => {
     const wrapper = await mountPanel([LOCAL_STRATEGY, OKTA_STRATEGY])
 
-    expect(btnByLabel(wrapper, 'Log In with a Passkey').props('color')).toBe('primary')
+    // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this row
+    expect(btnByLabel(wrapper, 'Log In with a Passkey').props('color')).toBe('accent')
     for (const label of ['Continue with Okta', 'Create an Account', 'Forgot Password']) {
       expect(btnByLabel(wrapper, label).props('color'), label).toBe('slate')
     }
@@ -212,10 +216,13 @@ describe('AuthLoginPanel — the login screen', () => {
 
     const selected = btnByLabel(wrapper, 'Local')
     const other = btnByLabel(wrapper, 'LDAP')
-    expect(selected.props('color')).toBe('primary')
+    // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this chip
+    expect(selected.props('color')).toBe('accent')
     expect(selected.props('outline')).toBe(false)
+    expect(selected.classes()).toContain('auth-cta')
     expect(other.props('color')).toBe('slate')
     expect(other.props('outline')).toBe(true)
+    expect(other.classes()).not.toContain('auth-cta')
   })
 
   it("spaces every rule on the login screen at the design's 18px", async () => {
@@ -238,7 +245,10 @@ describe('AuthLoginPanel — the login screen', () => {
     const field = wrapper.findComponent({ name: 'WInput' })
     expect(field.classes()).toContain('auth-field--sm')
     expect(field.props('label')).toBe(null)
-    expect(btnByLabel(wrapper, 'Reset Password').classes()).toContain('auth-marks')
+    const resetSubmit = btnByLabel(wrapper, 'Reset Password')
+    expect(resetSubmit.classes()).toContain('auth-marks')
+    expect(resetSubmit.classes()).toContain('auth-cta')
+    expect(resetSubmit.props('color')).toBe('accent')
     expect(btnByLabel(wrapper, 'Cancel').props('outline')).toBe(true)
   })
 })
@@ -259,6 +269,9 @@ describe('AuthRegisterScreen', () => {
 
     const submit = btnByLabel(wrapper, 'Register')
     expect(submit.classes()).toContain('auth-marks')
+    expect(submit.classes()).toContain('auth-cta')
+    // -> OpenProject #2779: `accent`, not `primary` -- see AuthRegisterScreen.vue's own note
+    expect(submit.props('color')).toBe('accent')
     expect(submit.props('size')).toBe('13.5px')
     expect(submit.props('padding')).toBe('9.5px 16px')
   })
@@ -291,6 +304,19 @@ describe('AuthTfaScreens', () => {
     expect(wrapper.find('p.auth-subtitle').text()).toBe('Security code required:')
   })
 
+  /*
+   * OpenProject #2779: `accent`, not `primary` -- both auth mockups draw Verify in the "accent fill
+   * carrying white text" role, and `auth-cta` is `Login.vue`'s matching Cobalt glow. Neither design
+   * file draws corner marks on this button, so it deliberately has no `auth-marks`.
+   */
+  it('draws Verify as the accent CTA, with the primary glow and no corner marks', () => {
+    const verify = btnByLabel(mountTfa('tfa'), 'Verify')
+
+    expect(verify.props('color')).toBe('accent')
+    expect(verify.classes()).toContain('auth-cta')
+    expect(verify.classes()).not.toContain('auth-marks')
+  })
+
   it('draws the recovery-code alternative as a line of type, not a second button', () => {
     const wrapper = mountTfa('tfa')
     const toggle = btnByLabel(wrapper, 'Use a recovery code instead')
@@ -321,5 +347,10 @@ describe('AuthTfaScreens', () => {
     expect(qr.find('svg').exists()).toBe(true)
     // -> The setup row is the shorter of the two the design draws
     expect(wrapper.find('.auth-otp').classes()).toContain('auth-otp--sm')
+
+    // -> OpenProject #2779: same accent CTA as the `tfa` screen's own Verify button
+    const verify = btnByLabel(wrapper, 'Verify')
+    expect(verify.props('color')).toBe('accent')
+    expect(verify.classes()).toContain('auth-cta')
   })
 })

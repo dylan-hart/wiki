@@ -93,8 +93,17 @@
             <div class="page-history-body">
               <div class="flex items-center gap-2">
                 <strong>{{ actionLabel(version.action) }}</strong>
-                <!-- A square plate, not a pill: see the badge rule in this file's own stylesheet. -->
-                <w-badge v-if="idx === 0" color="primary">
+                <!--
+                  A square plate, not a pill: see the badge rule in this file's own stylesheet.
+
+                  `accent`, not `primary`: this carries white text, and the design's own badge
+                  (`ui-redesign-cobalt/Cardinal Wiki - History 3x - Cobalt.dc.html`) fills it
+                  `#c8303c` -- the white-text accent role, `--q-accent` -- not the site's primary
+                  brand colour, which under Cobalt is a different, unrelated blue (`#1f4fd6`). The
+                  two happen to be the same tone in Ledger, which is what let this go unnoticed
+                  until there was a second aesthetic to tell them apart (OpenProject #2776).
+                -->
+                <w-badge v-if="idx === 0" color="accent">
                   {{ t('history.current') }}
                 </w-badge>
               </div>
@@ -577,10 +586,10 @@ async function renderOf(version, content) {
     return content
   }
   // -> The renderer is configured per site (line breaks, typographer, …), and that configuration
-  //    arrives with the editor configs rather than on its own
-  if (!editorStore.configIsLoaded) {
-    await editorStore.fetchConfigs()
-  }
+  //    arrives with the editor configs rather than on its own. `ensureConfigs()`, not a bare
+  //    `configIsLoaded` check: it also refreshes the glossary term list even when the rest of the
+  //    config is already loaded (OpenProject #2789)
+  await editorStore.ensureConfigs()
   // -> Rendered as the page it is a version of, so a relative image in it resolves the way it does
   //    in the page view rather than against the site root
   return new MarkdownRenderer(editorStore.editors.markdown ?? {}).render(content, {
@@ -865,8 +874,18 @@ onBeforeUnmount(disposeEditor)
 </script>
 
 <style lang="scss">
-/** The subway line: its colour, and the radius of the turn it makes at the end. */
-$timeline-line: $hairline-dark;
+/**
+ * The subway line: its colour, and the radius of the turn it makes at the end.
+ *
+ * `var(--color-hairline-dark)`, not the bare `$hairline-dark` this held until OpenProject #2776:
+ * a Sass variable is a build-time literal, so it never varies with `body.body--cobalt` the way a
+ * CSS custom property does. Ledger is unaffected -- `--color-hairline-dark` starts at the exact
+ * same `#2a3040` -- but this line, and every other `$dark-*`/`$hairline-dark`/`$text-*-dark`
+ * reference in this file, were rendering the SAME fixed Ledger-dark tones under Cobalt too, which
+ * is the opposite of what "this overlay is drawn on ink in BOTH [site] THEMES" (below) was ever
+ * meant to say -- it was never meant to also mean "in both aesthetics."
+ */
+$timeline-line: var(--color-hairline-dark);
 $timeline-turn: 16px;
 
 .page-history {
@@ -911,17 +930,17 @@ $timeline-turn: 16px;
     branch: panel for the timeline column, the recessed tone for the diff beside it.
   */
   &-sidebar {
-    background-color: $dark-4;
-    color: $text-dark;
-    border-inline-end: 1px solid $hairline-dark;
+    background-color: var(--color-dark-4);
+    color: var(--color-text-dark);
+    border-inline-end: 1px solid var(--color-hairline-dark);
   }
 
   &-main {
     display: flex;
     flex-direction: column;
     /* -> Ink, a step BELOW the timeline rail beside it: the diff is the recessed half of the pair */
-    background-color: $dark-5;
-    color: $text-dark;
+    background-color: var(--color-dark-5);
+    color: var(--color-text-dark);
     /* -> The grid cell already has a height; this claims it so the diff can fill what is left */
     height: 100%;
     min-height: 0;
@@ -972,17 +991,25 @@ $timeline-turn: 16px;
     cursor: pointer;
 
     &:hover {
-      background-color: $dark-2;
+      background-color: var(--color-dark-2);
     }
 
     /*
       An inset shadow rather than a `border-left`, which is what this was: a border is part of the
       box, so it pushed the row's contents 3px across and took the dot of every picked entry off the
       line while the unpicked ones stayed on it.
+
+      `--color-accent-fill`, not `$primary`: this is an UNTEXTED highlight (a wash plus an inset
+      bar, the same pairing the file manager's own selected row and the site's active-nav item both
+      use), not a fill carrying text -- the design's own mockup draws it in the accent-fill tone in
+      both aesthetics (`#e4676b`/`#ff4d5a`), never the white-text accent this held instead
+      (OpenProject #2776). `color-mix()` derives the 16%-opacity wash from that same token rather
+      than adding a second, undeclared one -- `_base.scss`'s `.header-nav-btn:hover` rule already
+      establishes the pattern.
     */
     &.is-picked {
-      background-color: rgba($primary, 0.16);
-      box-shadow: inset 3px 0 0 $primary;
+      background-color: color-mix(in srgb, var(--color-accent-fill) 16%, transparent);
+      box-shadow: inset 3px 0 0 var(--color-accent-fill);
     }
   }
 
@@ -1002,7 +1029,7 @@ $timeline-turn: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 0 3px $dark-4;
+    box-shadow: 0 0 0 3px var(--color-dark-4);
   }
 
   /*
@@ -1019,7 +1046,7 @@ $timeline-turn: 16px;
     that is neither chrome nor a status. Naming it is a job for the token pass, not for this file.
   */
   &-dot.is-created {
-    background-color: $positive-fill;
+    background-color: var(--color-positive-fill);
     color: #fff;
   }
 
@@ -1029,18 +1056,18 @@ $timeline-turn: 16px;
   }
 
   &-dot.is-moved {
-    background-color: $warning-fill;
-    color: $ink;
+    background-color: var(--color-warning-fill);
+    color: var(--color-ink);
   }
 
   &-dot.is-deleted {
-    background-color: $negative-fill;
-    color: $ink;
+    background-color: var(--color-negative-fill);
+    color: var(--color-ink);
   }
 
   /* -> An action this build has no name for: chrome, so it reads as unclassified rather than as a status */
   &-dot.is-other {
-    background-color: $slate-soft;
+    background-color: var(--color-slate-soft);
     color: #fff;
   }
 
@@ -1053,7 +1080,7 @@ $timeline-turn: 16px;
 
   &-meta {
     font-size: 0.75rem;
-    color: $text-secondary-dark;
+    color: var(--color-text-secondary-dark);
   }
 
   /*
@@ -1093,7 +1120,7 @@ $timeline-turn: 16px;
     margin-top: 0.25rem;
     font-size: 0.78rem;
     font-style: italic;
-    color: $text-dark;
+    color: var(--color-text-dark);
     word-break: break-word;
   }
 
@@ -1102,7 +1129,7 @@ $timeline-turn: 16px;
     margin-top: 0.25rem;
     font-family: var(--font-mono);
     font-size: 0.7rem;
-    color: $text-caption-dark;
+    color: var(--color-text-caption-dark);
     word-break: break-word;
   }
 
@@ -1125,7 +1152,7 @@ $timeline-turn: 16px;
     align-items: center;
     /* -> No gap: each side owns exactly half the width, and its own padding keeps the two apart */
     padding: 0.75rem 0;
-    border-bottom: 1px solid $hairline-dark;
+    border-bottom: 1px solid var(--color-hairline-dark);
     font-size: 0.85rem;
   }
 
@@ -1140,11 +1167,17 @@ $timeline-turn: 16px;
     padding: 0 1rem;
   }
 
-  /* -> The accent under a white letter, and the mono the design sets both cursors in */
+  /*
+    -> The accent under a white letter, and the mono the design sets both cursors in.
+
+    `var(--color-accent)`, not `$primary`: same white-text-fill mixup as the "Current" badge above
+    (OpenProject #2776) -- the design's own A/B plates fill `#c8303c` under Cobalt, `--q-accent`'s
+    value, not the site's unrelated primary blue.
+  */
   &-letter {
     flex: 0 0 24px;
     height: 24px;
-    background-color: $primary;
+    background-color: var(--color-accent);
     color: #fff;
     display: flex;
     align-items: center;
@@ -1164,8 +1197,8 @@ $timeline-turn: 16px;
     flex: 0 0 auto;
     padding: 0.5rem 1rem;
     font-size: 0.8rem;
-    color: $text-secondary-dark;
-    background-color: $dark-2;
+    color: var(--color-text-secondary-dark);
+    background-color: var(--color-dark-2);
   }
 
   /* -> Takes the diff pane's own place rather than sitting alongside it, unlike `-same` above: there
@@ -1179,7 +1212,7 @@ $timeline-turn: 16px;
     gap: 0.75rem;
     padding: 2rem;
     text-align: center;
-    color: $text-secondary-dark;
+    color: var(--color-text-secondary-dark);
   }
 
   &-toolarge-text {

@@ -541,3 +541,91 @@ describe('AdminLayout beta badge removal (OpenProject #2635)', () => {
     expect(template).not.toMatch(/label="beta"/i)
   })
 })
+
+/**
+ * Diffed against the Cobalt mockups (OpenProject #2780): before this task, every colour in this
+ * layout's `<style>` block was a plain `$scss` constant or a hardcoded `#fff`, none of which vary
+ * with `body.body--cobalt` -- so the admin header stayed white and the sidebar stayed on Ledger's
+ * ink/dark-N tones under Cobalt too. Not a colour/computed-style assertion, for the same reason
+ * `NavEditMenu.test.js`'s own Cobalt-override coverage isn't one: jsdom doesn't resolve the
+ * aesthetic's `var()` cascade reliably. These check that the override rules exist, are scoped to
+ * `body.body--cobalt` (never touching the Ledger rule above them), and read the right custom
+ * properties -- the token *values* are `cobaltTokens.test.js`'s job, not this file's.
+ */
+describe('AdminLayout Cobalt aesthetic overrides (OpenProject #2780)', () => {
+  function cobaltOverrideBlock() {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'AdminLayout.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+
+    const start = styleBlock.indexOf('body.body--cobalt {')
+    expect(start).toBeGreaterThan(-1)
+    return styleBlock.slice(start)
+  }
+
+  it('gives the admin header the site header-bar colour instead of a fixed white plate', () => {
+    const block = cobaltOverrideBlock()
+
+    expect(block).toMatch(/\.admin-header\s*\{[^}]*background-color:\s*var\(--q-header\)/)
+    expect(block).toMatch(/\.admin-header\s*\{[^}]*color:\s*var\(--color-white\)/)
+  })
+
+  it('gives the admin sidebar its own distinct, non-inheriting Cobalt token set', () => {
+    const block = cobaltOverrideBlock()
+    const start = block.indexOf('.admin-sidebar {')
+    expect(start).toBeGreaterThan(-1)
+    const sidebar = block.slice(start, block.indexOf('\n}', start))
+
+    expect(sidebar).toMatch(/background-color:\s*var\(--color-admin-sidebar-bg\)/)
+    expect(sidebar).toMatch(/border-inline-end-color:\s*var\(--color-admin-sidebar-hairline\)/)
+    expect(sidebar).toMatch(/color:\s*var\(--color-admin-sidebar-text\)/)
+    expect(sidebar).toMatch(/color:\s*var\(--color-admin-sidebar-icon\)/)
+    expect(sidebar).toMatch(/background-color:\s*var\(--color-admin-sidebar-raised\)/)
+  })
+
+  it('marks the active nav row in the aesthetic-aware accent fill, not a fixed SCSS tone', () => {
+    const block = cobaltOverrideBlock()
+
+    expect(block).toMatch(
+      /\.admin-nav-active\s*\{[^}]*border-inline-start-color:\s*var\(--color-accent-fill\)/
+    )
+  })
+
+  it("overrides the nav count badges' inline style, keeping the frozen StatusLight stripe alone", () => {
+    const block = cobaltOverrideBlock()
+    const start = block.indexOf('.count-badge {')
+    expect(start).toBeGreaterThan(-1)
+    const countBadge = block.slice(start, block.indexOf('\n    }', start))
+
+    expect(countBadge).toMatch(
+      /background-color:\s*var\(--color-admin-sidebar-raised\)\s*!important/
+    )
+    expect(countBadge).toMatch(/color:\s*var\(--color-sidebar-text-secondary\)\s*!important/)
+    // -> Left alone: the trailing-edge stripe has to keep matching StatusLight, a frozen shared
+    //    primitive (#2772/#2773) that stays on $negative-fill / $positive-fill regardless of aesthetic
+    expect(countBadge).not.toMatch(/negative-fill|positive-fill/)
+  })
+
+  it('gives the page eyebrow the admin-editable accent colour, light and dark', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'AdminLayout.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+
+    expect(styleBlock).toMatch(
+      /body\.body--cobalt\s*\{[\s\S]*?\.admin-page-eyebrow\s*\{\s*color:\s*var\(--color-accent\);/
+    )
+    expect(styleBlock).toMatch(
+      /body\.body--cobalt\.body--dark\s*\{\s*\.admin-page-eyebrow\s*\{\s*color:\s*var\(--color-accent-dark\);/
+    )
+  })
+
+  it('reads the Contribute button border off the same custom property as its Ledger value', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'AdminLayout.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+
+    expect(styleBlock).toMatch(
+      /\.admin-contribute-btn\s*\{\s*border-color:\s*var\(--color-accent-fill\)\s*!important;/
+    )
+  })
+})

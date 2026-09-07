@@ -212,6 +212,23 @@
           </w-list>
         </w-menu>
       </w-btn>
+      <!--
+        -> Gated on `read:source`, the same permission the export endpoint's own `format=markdown`
+           branch checks -- no button that would just 403, per the convention `canRerenderPage`
+           documents above.
+      -->
+      <w-btn
+        class="h-12"
+        v-if="userStore.can(`read:source`)"
+        flat
+        icon="tabler:copy"
+        :color="editorStore.isActive ? `white` : `slate-soft`"
+        :aria-label="t('pageActions.copyPageContent')"
+        @click="copyPageContent">
+        <w-tooltip anchor="center left" self="center right">{{
+          t('pageActions.copyPageContent')
+        }}</w-tooltip>
+      </w-btn>
     </template>
     <template v-if="!isRedirect && !(editorStore.isActive && editorStore.mode === `create`)">
       <w-separator class="my-2" inset />
@@ -313,6 +330,7 @@ import { fileSave } from 'browser-fs-access'
 import { confirm, dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { copyToClipboard } from '@/helpers/clipboard'
 import {
   renameFileName,
   sanitizeBaseName,
@@ -489,6 +507,30 @@ async function exportPageText(format) {
         caption: apiErrorMessage(err)
       })
     }
+  }
+}
+
+/**
+ * Copies the page's raw stored content to the clipboard (OpenProject #2795) -- the same
+ * `format=markdown` export endpoint `exportPageText` uses, but copied via `copyToClipboard()`
+ * instead of downloaded via `fileSave()`. The endpoint hands back each editor's native raw
+ * `content` regardless of the `format` name, so this is literal Markdown only for a `markdown`
+ * page; for `code`/`wysiwyg` it's HTML source, and for `asciidoc` it's AsciiDoc source -- which is
+ * why the button/tooltip label reads generically rather than "Copy as Markdown".
+ */
+async function copyPageContent() {
+  try {
+    const text = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/export`, {
+      searchParams: { format: 'markdown' }
+    }).text()
+    await copyToClipboard(text)
+    notify({ type: 'positive', message: t('pages.copyContent.success') })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('pages.copyContent.failed'),
+      caption: apiErrorMessage(err)
+    })
   }
 }
 
@@ -783,6 +825,55 @@ $action-btn-height: 3rem;
     background-color: $dark-4;
     border-inline-start: 1px solid $hairline-dark;
   }
+
+  /*
+    Cobalt draws the READING rail as a short floating white card rather than Ledger's full-height
+    flush strip (`Page View 3x - Cobalt` mockup) -- `align-self: flex-start` is what lets it stop
+    being stretched to the row's full height by `.page-container`'s `align-items: stretch`, and the
+    margin/radius/shadow are the same card tokens every other floating panel on this screen already
+    uses. Scoped to `:not(.is-editor)` on purpose: the EDITOR's own rail (below) is a full-height
+    accent strip in both aesthetics, which is what `Editor 3x - Cobalt` draws instead -- the two
+    screens genuinely disagree here, and Cobalt's page view is authoritative for the reading rail
+    only (OpenProject #2774).
+  */
+  @at-root body.body--cobalt &:not(.is-editor) {
+    flex: 0 0 64px;
+    align-self: flex-start;
+    margin: 28px 24px 28px 0;
+    border-inline-start: 0;
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    background-color: var(--color-white);
+
+    /*
+      The rail's own primary action (Page Properties), lifted into a 40px rounded accent-fill plate --
+      the mockup's own "40px rounded primary action plate" -- rather than Ledger's square first cell.
+      `border-radius` alone rather than a fresh box: the cell is already square-aspect, so rounding it
+      is the whole of the difference.
+    */
+    > .aspect-square:first-child {
+      width: 40px;
+      height: 40px;
+      margin: 8px auto 4px;
+      border-radius: var(--radius-control);
+      border-block-end: 0;
+      background-color: var(--color-accent-fill);
+      box-shadow: var(--shadow-primary);
+      color: var(--color-white);
+    }
+  }
+  @at-root body.body--cobalt.body--dark &:not(.is-editor) {
+    background-color: var(--color-dark-3);
+  }
+
+  /*
+    NOT changed here: the mockup's reading rail shows four cells (Edit, History, Export, More) where
+    this component renders whatever the reader's permissions and the page's own state allow (Page
+    Properties, pending assets, history, export, copy content, more -- `write:pages` alone already
+    puts more on screen than the mockup's static four). Reducing the actual button set to match a
+    hero screenshot would be a functional regression dressed as a style fix, so this is a content
+    decision left alone rather than guessed at (OpenProject #2774's acceptance criterion 1).
+  */
 
   /*
     Editing fills the rail, which is what `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` draws: the

@@ -1,6 +1,6 @@
 <template>
   <w-page>
-    <div class="flex flex-wrap items-center p-4">
+    <div class="admin-page-header flex flex-wrap items-center">
       <div class="admin-page-icon flex-none animated fadeInLeft">
         <w-icon name="tabler:checkbox" size="34px" class="admin-icon" />
         <i class="admin-page-icon__marks" aria-hidden="true" />
@@ -30,7 +30,6 @@
           @click="createRule" />
       </div>
     </div>
-    <w-separator inset />
     <div class="p-4">
       <!--
         An empty list is the normal starting state rather than an error, and it is worth saying what

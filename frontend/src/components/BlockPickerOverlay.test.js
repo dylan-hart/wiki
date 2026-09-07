@@ -220,6 +220,22 @@ describe('the selection treatment', () => {
     expect(plate.find('.w-icon').exists()).toBe(true)
   })
 
+  /**
+   * OpenProject #2775: the card and its plate carried no shape-token classes at all, so neither
+   * ever drew Cobalt's `--radius-card`/`--shadow-card` (`0`/`none` under Ledger, unchanged there).
+   */
+  it('draws the card and its plate off --radius-card/--shadow-card', async () => {
+    const wrapper = await mountPicker([FIRST])
+
+    const card = wrapper.find('.block-picker-card')
+    expect(card.classes()).toContain('rounded-card')
+    expect(card.classes()).toContain('shadow-card')
+
+    const plate = wrapper.find('.block-picker-plate')
+    expect(plate.classes()).toContain('rounded-card')
+    expect(plate.classes()).toContain('shadow-card')
+  })
+
   it('draws the empty-state glyph and hint until something is picked', async () => {
     const wrapper = await mountPicker([FIRST])
 

@@ -10,9 +10,14 @@
     :class="isDisabled ? 'w-toggle--disabled pointer-events-none' : 'cursor-pointer'"
     @click="toggle">
     <!--
-      A square track with a square knob pushed to one end: on is a solid accent block with a white
-      knob at the trailing edge, off is a tinted box with a hairline edge and a pale slate knob at
-      the leading one. State is read from which end the knob sits at and from the fill behind it.
+      A track with a knob pushed to one end: on is a solid accent block with a white knob at the
+      trailing edge, off is a tinted box with a hairline edge and a pale slate knob at the leading
+      one. State is read from which end the knob sits at and from the fill behind it.
+
+      Both take `--radius-pill` (0 under Ledger -- square, unchanged from before -- a real value
+      under Cobalt, OpenProject #2767/#2772, matching "toggles take `--radius-pill`"): on the knob a
+      pill radius clamps to a full circle since it exceeds half the box, same as `rounded-full`
+      would draw, so one token covers both shapes with no separate case.
 
       No relief, no glow and no glyph in the knob. The switch this replaces was a recessed channel
       with a knob standing proud of it, lit from the top left, carrying a tick or a cross -- all of
@@ -20,7 +25,7 @@
       a hairline, not with light.
     -->
     <span
-      class="w-toggle__track relative inline-flex shrink-0 items-center border p-0.5 transition-colors"
+      class="w-toggle__track relative inline-flex shrink-0 items-center rounded-pill border p-0.5 transition-colors"
       :class="[
         dense ? 'h-4 w-7' : 'h-[18px] w-[34px]',
         isOn
@@ -37,7 +42,7 @@
       </span>
       <span
         v-else
-        class="w-toggle__knob transition-colors"
+        class="w-toggle__knob rounded-pill transition-colors"
         :class="[
           dense ? 'size-3' : 'size-3.5',
           isOn ? 'bg-white' : 'bg-slate-pale dark:bg-disabled-dark'
@@ -54,7 +59,8 @@ import { useToggleModel } from '@/composables/toggleModel'
 /**
  * On/off switch.
  *
- * A square track with a square knob at one end. On is the accent fill with a white knob pushed to
+ * A track with a knob at one end (square under Ledger, pill/circular under Cobalt -- both draw off
+ * `--radius-pill`). On is the accent fill with a white knob pushed to
  * the trailing edge; off is a tinted box with a hairline edge and a pale slate knob at the leading
  * one. Both the fill and the knob's position say the same thing, so the state survives a viewer who
  * cannot tell the two fills apart.

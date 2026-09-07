@@ -194,12 +194,14 @@ const linkAttrs = computed(() => {
 const isSolid = computed(() => !props.flat && !props.outline)
 
 /*
-  Cardinal geometry: a 32px band, square, with a 12.5px/500 label.
+  Cardinal geometry: a 32px band, with a 12.5px/500 label.
 
     font-size 12.5px · line-height 1.715em · padding 0 1.12em (14px) · dense padding 0 0.8em
     min-height 2.572em (32.15px), 2.24em dense (28px) · round 3em / 2.4em dense, unpadded
-    border-radius 0 -- except `round` (a circle) and `rounded` (a pill), which are shapes a caller
-    asks for, not a corner style
+    border-radius `--radius-control` -- except `round` (a circle) and `rounded` (a pill), which are
+    shapes a caller asks for outright, not the aesthetic's corner style. `--radius-control` is `0`
+    under Ledger (square, unchanged from before) and a real value under Cobalt
+    (`body.body--cobalt`, OpenProject #2767/#2772) -- one class, no aesthetic branch.
 
   `2.572em` is carried over from the metrics this replaces rather than recomputed: at Cardinal's
   12.5px it lands on the design's 32px band, and at 14px it lands on the 36px band the app used to
@@ -209,11 +211,12 @@ const isSolid = computed(() => !props.flat && !props.outline)
   No shadow and no gloss. Cardinal separates a control from its ground with a hairline, never with
   elevation -- so `unelevated`, `push` and `glossy` are gone along with `noCaps`, each having named a
   variant that is now the only one there is. A solid button IS unelevated; a label IS cased as
-  written.
+  written. (`--shadow-primary` exists for a future "this is the page's own primary action" wiring --
+  see OpenProject #2772's sign-off -- but nothing here reaches for it yet.)
 */
 const classes = computed(() => [
   props.size ? 'leading-[1.715em]' : 'text-[12.5px] leading-[1.715em]',
-  props.round ? 'rounded-full' : props.rounded ? 'rounded-[28px]' : 'rounded-none',
+  props.round ? 'rounded-full' : props.rounded ? 'rounded-[28px]' : 'rounded-control',
   // -> The hairline, not `border-current`: an outlined button's edge is chrome, its label is not
   props.outline ? 'border border-hairline dark:border-border-dark' : '',
   isDisabled.value ? 'pointer-events-none opacity-60' : 'cursor-pointer',

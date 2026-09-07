@@ -109,6 +109,25 @@ const isCopyright = computed(() => {
   color: var(--color-text-caption-dark);
 }
 
+/*
+  Cobalt draws the footer as a dark navy strip in BOTH themes (`Page View 3x - Cobalt`/`Page View
+  Dark 3x - Cobalt` -- the mockups draw the identical `#10194a` bar either way), not the light-blue
+  `--color-tint` this reused: `--color-footer-*` (`tailwind.css`, OpenProject #2767) is the dedicated
+  token set declared for exactly this and was never wired up. Additive rather than a base-rule swap,
+  since `--color-tint`'s own Ledger default is what the unscoped rule above still needs (OpenProject
+  #2774). The light mockup draws no rule at all above the bar; the dark one does, and
+  `--color-hairline-dark` already resolves correctly there via the existing `.body--dark` rule above,
+  so only the light case needs suppressing here.
+*/
+:global(body.body--cobalt .site-footer) {
+  background-color: var(--color-footer-bg);
+  color: var(--color-footer-text);
+}
+
+:global(body.body--cobalt:not(.body--dark) .site-footer) {
+  border-top: 0;
+}
+
 .site-footer-line {
   text-align: center;
   /*
@@ -131,6 +150,15 @@ const isCopyright = computed(() => {
 
 :global(body.body--dark .site-footer-line a) {
   color: var(--color-accent-dark);
+}
+
+/*
+  Cobalt's own footer link is `--color-footer-link` (`#ff7a84`, identical in both mockups), not the
+  general `--color-accent-strong` this reused -- a dark-navy bar in both themes needs its own link
+  tone rather than the page's own accent, which shifts between light and dark (OpenProject #2774).
+*/
+:global(body.body--cobalt .site-footer-line a) {
+  color: var(--color-footer-link);
 }
 
 .site-footer-sep {

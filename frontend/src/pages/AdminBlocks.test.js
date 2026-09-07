@@ -568,7 +568,10 @@ describe('AdminBlocks: Cardinal design conformance (Task #2629)', () => {
     const copyBtn = wrapper.find('[aria-label="admin.blocks.credentialCopyId"]')
     expect(copyBtn.exists()).toBe(true)
     expect(copyBtn.classes()).not.toContain('rounded-full')
-    expect(copyBtn.classes()).toContain('rounded-none')
+    // -> WBtn's own default corner is the aesthetic's `--radius-control` token (OpenProject
+    // #2772), not a hardcoded `rounded-none` -- this button asks for neither `round` nor
+    // `rounded`, so it follows that same token like every other default-shaped button.
+    expect(copyBtn.classes()).toContain('rounded-control')
   })
 
   it('sets the allowed origins in mono, and turns the globe accent alongside the message when there are none', async () => {

@@ -12,6 +12,14 @@ describe('WChip', () => {
     expect(wrapper.text()).toBe('Draft')
   })
 
+  it('draws its corner off --radius-pill, not a hardcoded square', () => {
+    // -> `0` under Ledger (unchanged), a real pill radius under Cobalt (OpenProject #2767/#2772)
+    const wrapper = mount(WChip, { props: { label: 'tag' } })
+
+    expect(wrapper.classes()).toContain('rounded-pill')
+    expect(wrapper.classes()).not.toContain('rounded-none')
+  })
+
   it('prefers slot content over the label prop', () => {
     const wrapper = mount(WChip, {
       props: { label: 'Draft' },

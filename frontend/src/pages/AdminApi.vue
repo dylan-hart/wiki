@@ -62,7 +62,6 @@
           :disabled="state.loading > 0" />
       </div>
     </div>
-    <w-separator inset />
     <div class="grid grid-cols-12 p-4 gap-4">
       <!--
         Task 2410: an admin-issued key here has no bearing on MCP page-authorship attribution --

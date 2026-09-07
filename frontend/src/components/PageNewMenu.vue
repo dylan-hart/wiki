@@ -37,6 +37,11 @@
         v-if="siteStore.editors.wysiwyg && flagsStore.experimental">
         <blueprint-icon :compact="props.contextMenu" icon="tabler:presentation" />
         <w-item-section class="pe-2">{{ t('common.actions.newPage') }}</w-item-section>
+        <!-- -> The row is only offered behind `flagsStore.experimental` in the first place; the
+                mockup's own label for that ("Menus 3x - Cobalt.dc.html", row 01) is this badge --
+                square rather than `--radius-mark`, matching its own no-radius corner even under
+                Cobalt (a plain outlined eyebrow, not a fill), so it takes no shape token at all. -->
+        <span class="page-new-menu__beta">{{ t('common.newPageMenu.beta') }}</span>
       </w-item>
       <w-item clickable @click="create(`markdown`)" v-if="siteStore.editors.markdown">
         <blueprint-icon :compact="props.contextMenu" icon="tabler:markdown" />
@@ -288,6 +293,28 @@ function openImportBatch() {
 }
 
 :global(body.body--dark .page-new-menu__target) {
+  color: var(--color-text-caption-dark);
+}
+
+/*
+  The experimental WYSIWYG row's own eyebrow, matching `.page-new-menu__target`'s tone -- see the
+  template comment: the mockup draws it with no corner at all, in either aesthetic, so it takes no
+  `--radius-*` token.
+*/
+.page-new-menu__beta {
+  flex: none;
+  padding: 2px 5px;
+  border: 1px solid var(--color-hairline);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-caption);
+}
+
+:global(body.body--dark .page-new-menu__beta) {
+  border-color: var(--color-hairline-dark);
   color: var(--color-text-caption-dark);
 }
 

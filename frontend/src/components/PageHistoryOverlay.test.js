@@ -1,3 +1,7 @@
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
@@ -680,8 +684,13 @@ describe('PageHistoryOverlay timeline entry: structure', () => {
   })
 
   /*
-    Cardinal zeroes every radius but a genuinely round shape, and the design draws both of the
-    entry's markers as square mono plates. `WBadge`'s `rounded` prop is the pill.
+    Cardinal zeroes every radius but a genuinely round shape (`0` under Ledger, `--radius-mark`'s
+    real value under Cobalt -- OpenProject #2767/#2772), and the design draws both of the entry's
+    markers as square mono plates. `WBadge`'s `rounded` prop is the pill.
+
+    `rounded-mark`, not `rounded-none`: OpenProject #2772's own radii sweep moved `WBadge`'s
+    non-pill corner from a hardcoded `rounded-none` onto the shared `--radius-mark` token (see
+    `WBadge.vue`'s own comment), which is what this assertion was still pinned to.
   */
   it('draws the current and via-MCP markers as square plates, not pills', async () => {
     await mountOverlay({
@@ -700,7 +709,7 @@ describe('PageHistoryOverlay timeline entry: structure', () => {
     const badges = [...document.body.querySelectorAll('.page-history-item .w-badge')]
     expect(badges).toHaveLength(2)
     for (const badge of badges) {
-      expect(badge.classList.contains('rounded-none')).toBe(true)
+      expect(badge.classList.contains('rounded-mark')).toBe(true)
       expect(badge.classList.contains('rounded-full')).toBe(false)
     }
   })
@@ -894,6 +903,73 @@ describe('PageHistoryOverlay: version-actions menu icons stay legible in dark mo
       expect(icon, name).not.toBeNull()
       expect([...icon.classList], name).toContain('text-blue-7')
       expect([...icon.classList], name).toContain('dark:text-blue-4')
+    }
+  })
+})
+
+/**
+ * OpenProject #2776 ("History + File manager: diff against Cobalt mockups, fix gaps"). Diffing
+ * this overlay against `Cardinal Wiki - History 3x - Cobalt.dc.html` at the same width found:
+ *
+ * 1. The "Current" badge and the A/B compare-bar letter plates filled `color="primary"` /
+ *    `$primary` -- the same tone as Cobalt's white-text accent (`--q-accent`, `#c8303c`) in
+ *    Ledger, but not `--q-primary` (Cobalt's unrelated site-brand blue, `#1f4fd6`), which is what
+ *    both actually resolved to once a second aesthetic told the two apart. The badge is covered
+ *    directly through `WBadge`'s own resolved inline style, the same way `WBtn.test.js` covers the
+ *    same mechanism on a button.
+ * 2. This overlay is drawn on ink in both site THEMES by design (see this file's own stylesheet
+ *    comment), but its `<style lang="scss">` block spelled that out with Sass compile-time
+ *    constants (`$dark-4`, `$hairline-dark`, `$primary`, ...) rather than the CSS custom
+ *    properties `css/tailwind.css` actually swaps per AESTHETIC (`--color-dark-4`,
+ *    `--color-hairline-dark`, `--color-accent-fill`/`--color-accent`, ...) -- identical in Ledger,
+ *    since a Sass constant and its custom-property twin start at the same value, but frozen there
+ *    under Cobalt too, which made "in both themes" quietly also mean "in both aesthetics." There is
+ *    no compiled stylesheet in this test environment for a computed-style assertion to resolve
+ *    `var()` cascades against (this file's own dark-mode `text-accent-dark` describe already notes
+ *    the same constraint), so this is checked the same way `css/cobaltTokens.test.js` checks a
+ *    hand-edited token file: against the component's own source text.
+ */
+describe('PageHistoryOverlay Cobalt aesthetic conformance (OpenProject #2776)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'PageHistoryOverlay.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+
+  it('fills the "Current" badge with the white-text accent, not the site primary color', async () => {
+    await mountOverlay()
+
+    const badge = document.body.querySelector('.page-history-item .w-badge')
+    expect(badge).not.toBeNull()
+    expect(badge.style.backgroundColor).toBe('var(--color-accent)')
+  })
+
+  it('marks a picked/current timeline row with the untexted accent fill, not the site primary color', () => {
+    expect(styleBlock).toMatch(
+      /&\.is-picked\s*{\s*background-color:\s*color-mix\(in srgb, var\(--color-accent-fill\) 16%, transparent\);\s*box-shadow:\s*inset 3px 0 0 var\(--color-accent-fill\);/
+    )
+  })
+
+  it('fills the A/B compare-bar letter plates with the white-text accent, not the site primary color', () => {
+    expect(styleBlock).toMatch(/&-letter\s*{[^}]*background-color:\s*var\(--color-accent\);/)
+  })
+
+  it('reads the aesthetic-aware dark custom properties, not the frozen Ledger Sass constants', () => {
+    // -> One representative per role this pass converted; a regression on any of them means the
+    //    ink-drawn diff/timeline stopped following the site's aesthetic again.
+    for (const token of [
+      '--color-dark-2',
+      '--color-dark-4',
+      '--color-dark-5',
+      '--color-hairline-dark',
+      '--color-text-dark',
+      '--color-text-secondary-dark',
+      '--color-text-caption-dark',
+      '--color-positive-fill',
+      '--color-warning-fill',
+      '--color-negative-fill',
+      '--color-slate-soft',
+      '--color-ink'
+    ]) {
+      expect(styleBlock).toContain(`var(${token})`)
     }
   })
 })

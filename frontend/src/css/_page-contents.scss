@@ -711,6 +711,23 @@
     cursor: help;
   }
 
+  /*
+    Glossary terms (OpenProject #870/#2789), whichever of the two forms the renderer emitted
+    (`renderers/modules/markdown-it-glossary.js`): an unlinked term (`<abbr class="glossary-term">`)
+    happens to already get a dotted underline from the `abbr[title]` rule just above -- both share
+    the `abbr` tag -- but a linked term (`<a class="glossary-term">`, when the entry has a canonical
+    page) inherits the plain link rule's `text-decoration: none` instead, with nothing to override
+    it. This rule is `.glossary-term`'s own, keyed off the class rather than the tag, so both forms
+    get the identical dotted underline and "help" cursor -- a higher specificity than the bare `a`
+    rule above is what lets it win there without disturbing any other link.
+  */
+  .glossary-term {
+    text-decoration: underline dotted;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    cursor: help;
+  }
+
   sub,
   sup {
     font-size: 0.75em;
@@ -1344,6 +1361,7 @@
     */
     border: 1px solid var(--content-code-frame);
     border-inline-start: 2px solid var(--content-code-edge);
+    border-radius: var(--radius-card);
     background-color: var(--content-surface-code);
     color: var(--content-code-block-ink);
     font-family: var(--font-mono);
@@ -1369,6 +1387,31 @@
       background: none;
       color: inherit;
       font-size: inherit;
+    }
+
+    /*
+      Cobalt's own code block draws no accent leading edge -- a plain, evenly-bordered panel in both
+      mockups (`Page View 3x - Cobalt`'s carries no border at all, drawn on the frame's own already-
+      transparent light default; `Editor 3x - Cobalt`'s render preview matches it; the two mockups'
+      DARK code blocks, not pictured in either of those two, are not this rule's concern). Radius
+      already comes from the unconditional `--radius-card` above; the frame itself (`border: 1px solid
+      var(--content-code-frame)`) is untouched, since `--content-code-frame` already resolves
+      correctly per theme (transparent in light, `--color-hairline-dark` in dark, which is itself
+      Cobalt-dark-aware) without anything Cobalt-specific here.
+
+      `--content-surface-code` already resolves to the mockups' exact `#10194a` in light (it is
+      `var(--color-ink)`, which Cobalt's own block overrides to that value) -- the DARK half is NOT
+      re-checked here: it stays `--color-dark-6`, a rung the Cobalt-dark token block never restates,
+      so it does not carry the Page View Dark mockup's own `#070b22` (that mockup's `--color-dark-4`).
+      Fixing that needs either a new `--content-surface-code` override in this file's own dark block
+      or a Cobalt value for `--color-dark-6` in `tailwind.css`, neither of which is this Task's file
+      ownership to add unreviewed -- logged, not fixed (OpenProject #2774). The mockups' own top-right
+      `bash` language label is a new render-pipeline affordance (`helpers/renderedContent.js` would
+      need to emit it, for every fenced block app-wide), not a style tweak, and is logged for the same
+      reason.
+    */
+    body.body--cobalt & {
+      border-inline-start-width: 0;
     }
   }
 

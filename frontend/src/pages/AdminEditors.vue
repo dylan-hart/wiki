@@ -41,7 +41,6 @@
           :disabled="state.loading > 0" />
       </div>
     </div>
-    <w-separator inset />
     <div class="p-4 gap-4">
       <w-settings-card :title="t('admin.editors.title')">
         <template v-for="editor of editors" :key="editor.id">

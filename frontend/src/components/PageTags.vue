@@ -190,6 +190,20 @@ function removeTag(tag) {
     background-color: $dark-3;
     color: $text-secondary-dark;
   }
+
+  /*
+    Cobalt draws a tag as a filled pill rather than Ledger's hairline outline (`Tags 3x - Cobalt`
+    mockup). The radius already comes from `WChip`'s own unconditional `--radius-pill`
+    (OpenProject #2767, see `WChip.vue`'s own comment); only the fill/border/ink need a Cobalt
+    override here, since Ledger's own `--color-tag-chip-bg` default is `transparent` (an outline
+    chip) while the rule above paints an opaque `$surface` plate instead -- swapping it outright
+    would visibly change Ledger, so this stays additive (OpenProject #2774).
+  */
+  body.body--cobalt & {
+    border-color: var(--color-tag-chip-border);
+    background-color: var(--color-tag-chip-bg);
+    color: var(--color-tag-chip-text);
+  }
 }
 
 .page-tag-hash {
@@ -203,6 +217,11 @@ function removeTag(tag) {
   }
   @at-root .body--dark & {
     color: $accent-dark;
+  }
+
+  /* -> Cobalt's filled pill carries no separately-accented hash mark (`Tags 3x - Cobalt` mockup) */
+  body.body--cobalt & {
+    color: inherit;
   }
 }
 </style>

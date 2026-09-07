@@ -76,6 +76,14 @@ import { ref } from 'vue'
  * inset shadow on it and `controlClasses` sizes it -- so `controlTag` and `controlProps` carry
  * whatever that element is and however the caller wires it, and `controlEl` is exposed for a caller
  * that has to focus it.
+ *
+ * The ring's error color (`.w-input-control`'s `--w-input-ring-error`, `tailwind.css`) resolves to
+ * `var(--color-accent-dark)` in generic dark mode -- `#ff8f97` under Cobalt dark -- but
+ * `Primitives Dark 3x - Cobalt.dc.html`'s own "bad address" field swatch draws its error border as
+ * `#ff4d5a`, the same bright value light mode uses (`--color-accent-fill`). The pre-Cobalt
+ * convention of lightening accent text/rings for a dark ground doesn't hold for this one Cobalt
+ * swatch. Needs a `tailwind.css` token change, out of this Task's file ownership (OpenProject
+ * #2773). Logged, not fixed.
  */
 defineProps({
   /** `w-input` / `w-select` — the hook the stylesheets and call-site selectors reach for. */

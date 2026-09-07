@@ -14,6 +14,15 @@ describe('WToggle', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[true]])
   })
 
+  it('draws the track and knob off --radius-pill, not a hardcoded square', () => {
+    // -> `0` under Ledger (unchanged), a real pill/circular radius under Cobalt (OpenProject
+    //    #2767/#2772), matching "toggles take `--radius-pill`"
+    const wrapper = mount(WToggle, { props: { modelValue: true, ariaLabel: 'Feature' } })
+
+    expect(wrapper.find('.w-toggle__track').classes()).toContain('rounded-pill')
+    expect(wrapper.find('.w-toggle__knob').classes()).toContain('rounded-pill')
+  })
+
   it('reflects an already-true modelValue immediately, with no separate mount transition', () => {
     const wrapper = mount(WToggle, { props: { modelValue: true, ariaLabel: 'Feature' } })
 

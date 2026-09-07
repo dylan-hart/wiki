@@ -40,7 +40,6 @@
           @click="createHook" />
       </div>
     </div>
-    <w-separator inset />
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12" v-if="state.hooks.length < 1">
         <w-card

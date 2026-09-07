@@ -21,6 +21,7 @@ import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
 import { log } from '@/helpers/log'
 import { parseLocalePrefix, resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
+import { useAesthetic } from '@/composables/aesthetic'
 import { useDark } from '@/composables/dark'
 import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
@@ -58,6 +59,10 @@ const DevQuickMenu = import.meta.env.DEV
 const dark = useDark()
 const direction = useDirection()
 
+// AESTHETIC (Cobalt: Feature #2753/#2766)
+
+const aesthetic = useAesthetic()
+
 // STORES
 
 const commonStore = useCommonStore()
@@ -93,6 +98,15 @@ watch(
     }
   }
 )
+
+/**
+ * The aesthetic axis's own resolution watch, parallel to the appearance one above -- same
+ * `site | ledger | cobalt` three-value resolution, an entirely independent class pair, and no read
+ * of the appearance/dark state on either side.
+ */
+watch([() => userStore.aesthetic, () => siteStore.theme.aesthetic], ([newValue, siteValue]) => {
+  aesthetic.set(newValue === 'site' ? siteValue : newValue)
+})
 
 watch(
   () => userStore.cvd,
@@ -257,6 +271,9 @@ async function applyTheme() {
   } else {
     dark.set(userStore.appearance === 'dark')
   }
+
+  // -> Aesthetic (Cobalt: Feature #2753/#2766) -- fully independent of dark mode above
+  aesthetic.set(userStore.aesthetic === 'site' ? siteStore.theme.aesthetic : userStore.aesthetic)
 
   // -> CSS Vars
   setCssVar('primary', userStore.getAccessibleColor('primary', siteStore.theme.colorPrimary))

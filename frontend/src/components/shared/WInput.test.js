@@ -12,6 +12,13 @@ describe('WInput', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([['hello']])
   })
 
+  it('draws its control off --radius-card, not left unrounded', () => {
+    // -> `0` under Ledger (unchanged), a real value under Cobalt (OpenProject #2767/#2772)
+    const wrapper = mount(WInput, { props: { modelValue: '' } })
+
+    expect(wrapper.find('.w-input-control').classes()).toContain('rounded-card')
+  })
+
   it('renders a textarea instead of an input when type="textarea"', () => {
     const wrapper = mount(WInput, { props: { modelValue: '', type: 'textarea' } })
 

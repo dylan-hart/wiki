@@ -245,6 +245,34 @@ describe('user store: applyProfile() / setToGuest()', () => {
     expect(store.jobTitle).toBe('')
     expect(store.pronouns).toBe('')
   })
+
+  /**
+   * Feature #2753 / Task #2766: `aesthetic` follows the exact same three-value
+   * (`site`/`ledger`/`cobalt`) pass-through `appearance` already gets from `applyProfile()` and
+   * `setToGuest()`.
+   */
+  it('adopts a per-user aesthetic override from the session response', () => {
+    const store = useUserStore()
+    store.applyProfile({ authenticated: true, id: 'abc-123', aesthetic: 'cobalt' })
+
+    expect(store.aesthetic).toBe('cobalt')
+  })
+
+  it('defaults aesthetic to site when the session response carries none', () => {
+    const store = useUserStore()
+    store.applyProfile({ authenticated: true, id: 'abc-123' })
+
+    expect(store.aesthetic).toBe('site')
+  })
+
+  it('resets aesthetic to site on setToGuest', () => {
+    const store = useUserStore()
+    store.applyProfile({ authenticated: true, id: 'abc-123', aesthetic: 'cobalt' })
+
+    store.setToGuest()
+
+    expect(store.aesthetic).toBe('site')
+  })
 })
 
 describe('user store: logout()', () => {

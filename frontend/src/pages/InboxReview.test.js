@@ -72,8 +72,14 @@ async function mountReview({ initialSubmissionId = SUBMISSION_ID, fromPage = fal
     routes: ['/:pathMatch(.*)*'],
     stores: {
       site: { id: 'site-1' },
-      // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking
-      editor: { configIsLoaded: true }
+      // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking.
+      //    `refreshGlossaryTerms()` is stubbed out too (OpenProject #2789): `ensureConfigs()` calls
+      //    it unconditionally now, even with `configIsLoaded` already true, and it would otherwise
+      //    show up as an unaccounted extra `API_CLIENT.get` call to every test in this file.
+      editor: (editorStore) => {
+        editorStore.configIsLoaded = true
+        vi.spyOn(editorStore, 'refreshGlossaryTerms').mockResolvedValue()
+      }
     }
   })
   await flushPromises()

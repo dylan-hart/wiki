@@ -1,117 +1,75 @@
 <template>
-  <w-card style="min-width: 350px">
-    <w-card-section class="card-header">
-      <w-icon name="tabler:layout-sidebar" left size="sm" />
-      <span>{{ t(`navEdit.title`) }}</span>
-    </w-card-section>
-    <w-list padding>
-      <template v-if="isRoot">
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.mode" val="inherit" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.modeShow') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.modeShowHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.mode" val="hide" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.modeHide') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.modeHideHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-      </template>
-      <template v-else>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.mode" val="inherit" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.modeInherit') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.modeInheritHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.mode" val="override" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.modeOverride') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.modeOverrideHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.mode" val="overrideExact" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.modeOverrideExact') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.modeOverrideExactHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.mode" val="hide" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.modeHideDescendants') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.modeHideDescendantsHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.mode" val="hideExact" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.modeHideExact') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.modeHideExactHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-      </template>
-    </w-list>
+  <div class="nav-edit-menu">
+    <!-- -> Two corner marks (start/end only, matching PageNewMenu.vue's own menu-material marks --
+            a menu is a light object, the full four belong to a dialog or a card), decorative and
+            drawn just inside the panel since WMenu's popup clips overflow past its padding edge. -->
+    <i class="nav-edit-menu__mark nav-edit-menu__mark--start" aria-hidden="true" />
+    <i class="nav-edit-menu__mark nav-edit-menu__mark--end" aria-hidden="true" />
+
+    <div class="nav-edit-menu__header">
+      <span class="nav-edit-menu__eyebrow">{{ t('navEdit.title') }}</span>
+      <span class="nav-edit-menu__path">{{ displayPath }}</span>
+    </div>
+
+    <div class="nav-edit-menu__section">
+      <div class="nav-edit-menu__section-label">{{ t('navEdit.modeSectionLabel') }}</div>
+      <label
+        v-for="entry in cascadeModes"
+        :key="entry.value"
+        class="nav-edit-menu__row"
+        :class="{ 'nav-edit-menu__row--selected': state.mode === entry.value }">
+        <w-radio
+          class="nav-edit-menu__radio"
+          v-model="state.mode"
+          :val="entry.value"
+          color="accent-fill"
+          :aria-label="t(entry.label)" />
+        <nav-cascade-glyph :mode="entry.value" :root="isRoot" />
+        <span class="nav-edit-menu__row-text">
+          <span class="nav-edit-menu__row-label">{{ t(entry.label) }}</span>
+          <span class="nav-edit-menu__row-hint">{{ t(entry.hint) }}</span>
+        </span>
+      </label>
+    </div>
+
     <template v-if="canEditMenuItems">
-      <w-separator inset />
-      <w-list padding>
-        <w-item-label class="text-caption" header>{{ t('navEdit.menuSourceLabel') }}</w-item-label>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.menuMode" val="static" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.menuSourceStatic') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.menuSourceStaticHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.menuMode" val="auto" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.menuSourceAuto') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.menuSourceAutoHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-        <w-item tag="label">
-          <w-item-section side><w-radio v-model="state.menuMode" val="mixed" /></w-item-section>
-          <w-item-section>
-            <w-item-label>{{ t('navEdit.menuSourceMixed') }}</w-item-label>
-            <w-item-label caption>{{ t('navEdit.menuSourceMixedHint') }}</w-item-label>
-          </w-item-section>
-        </w-item>
-      </w-list>
-      <w-separator inset />
-      <w-card-section>
-        <w-btn
-          class="w-full"
-          icon="tabler:list-details"
-          color="deep-orange-9"
-          :label="t(`navEdit.editMenuItems`)"
-          @click="startEditing" />
-      </w-card-section>
+      <div class="nav-edit-menu__rule" />
+      <div class="nav-edit-menu__section">
+        <div class="nav-edit-menu__section-label">{{ t('navEdit.menuSourceLabel') }}</div>
+        <w-btn-toggle
+          class="nav-edit-menu__menu-source"
+          v-model="state.menuMode"
+          :options="menuSourceOptions"
+          toggle-color="accent-fill"
+          :aria-label="t('navEdit.menuSourceLabel')" />
+        <div class="nav-edit-menu__menu-source-hint">{{ menuSourceHint }}</div>
+      </div>
+      <div class="nav-edit-menu__section nav-edit-menu__section--tight">
+        <button type="button" class="nav-edit-menu__edit-btn" @click="startEditing">
+          <w-icon name="tabler:list-details" class="nav-edit-menu__edit-icon" />
+          <span class="nav-edit-menu__edit-label">{{ t(`navEdit.editMenuItems`) }}</span>
+          <w-icon name="tabler:chevron-right" class="nav-edit-menu__edit-chevron" />
+        </button>
+      </div>
     </template>
-    <w-card-actions class="card-actions">
-      <w-space />
+
+    <div class="nav-edit-menu__footer">
       <w-btn
-        class="acrylic-btn"
-        flat
-        :label="t(`common.actions.cancel`)"
-        color="grey"
+        outline
+        :label="t('common.actions.cancel')"
+        color="text-secondary"
         padding="xs md"
         @click="props.menuHideHandler" />
       <w-btn
-        :label="t(`common.actions.save`)"
-        color="positive"
+        class="nav-edit-menu__save-btn"
+        icon="tabler:check"
+        :label="t('common.actions.save')"
+        color="slate"
         padding="xs md"
         @click="save"
         :loading="state.loading > 0" />
-    </w-card-actions>
-  </w-card>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -124,6 +82,8 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
+
+import NavCascadeGlyph from '@/components/NavCascadeGlyph.vue'
 
 // PROPS
 
@@ -172,10 +132,54 @@ const state = reactive({
   loading: 0
 })
 
+/*
+  The five non-root cascade rows and the root's own two, in display order -- each entry's `label`/
+  `hint` are i18n keys, not resolved strings, so `cascadeModes` below stays a cheap re-slice on
+  `isRoot` rather than a full re-translation. Copy is the handoff's own shorter table
+  (ui-redesign-nav/HANDOFF.md §1); see `backend/locales/en.json`'s `navEdit.mode*` keys.
+*/
+const CASCADE_MODES = [
+  { value: 'inherit', label: 'navEdit.modeInherit', hint: 'navEdit.modeInheritHint' },
+  { value: 'override', label: 'navEdit.modeOverride', hint: 'navEdit.modeOverrideHint' },
+  {
+    value: 'overrideExact',
+    label: 'navEdit.modeOverrideExact',
+    hint: 'navEdit.modeOverrideExactHint'
+  },
+  { value: 'hide', label: 'navEdit.modeHideDescendants', hint: 'navEdit.modeHideDescendantsHint' },
+  { value: 'hideExact', label: 'navEdit.modeHideExact', hint: 'navEdit.modeHideExactHint' }
+]
+
+const ROOT_CASCADE_MODES = [
+  { value: 'inherit', label: 'navEdit.modeShow', hint: 'navEdit.modeShowHint' },
+  { value: 'hide', label: 'navEdit.modeHide', hint: 'navEdit.modeHideHint' }
+]
+
 // COMPUTED
 
 const isRoot = computed(() => {
   return pageStore.path === '' || pageStore.path === 'home'
+})
+
+const displayPath = computed(() => (isRoot.value ? '/' : `/${pageStore.path}`))
+
+const cascadeModes = computed(() => (isRoot.value ? ROOT_CASCADE_MODES : CASCADE_MODES))
+
+const menuSourceOptions = computed(() => [
+  { value: 'static', label: t('navEdit.menuSourceStatic') },
+  { value: 'auto', label: t('navEdit.menuSourceAuto') },
+  { value: 'mixed', label: t('navEdit.menuSourceMixed') }
+])
+
+// -> The one hint line under the segmented control, changing with the selection -- see the handoff.
+const menuSourceHint = computed(() => {
+  return (
+    {
+      static: t('navEdit.menuSourceStaticHint'),
+      auto: t('navEdit.menuSourceAutoHint'),
+      mixed: t('navEdit.menuSourceMixedHint')
+    }[state.menuMode] ?? ''
+  )
 })
 
 const canEditMenuItems = computed(() => {
@@ -305,3 +309,438 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+/*
+  The Ledger card, per ui-redesign-nav/HANDOFF.md §1 -- 344px, square, a hairline edge and the
+  create-menu's own drop shadow. `position: relative` is what the corner marks below position
+  against, same reasoning as `PageNewMenu.vue`'s own `.page-new-menu`.
+*/
+.nav-edit-menu {
+  position: relative;
+  width: 344px;
+  max-width: 100%;
+  background-color: var(--color-surface);
+  /*
+    `--border-card`/`--radius-card` (#2767) are exactly the Ledger-hairline-card /
+    Cobalt-shadow-card pair this card material needs -- Ledger's `1px solid var(--color-hairline)`
+    and `0` radius are the token's own Ledger no-op default, so reading through the token changes
+    nothing here and picks up Cobalt's borderless, radius-8px value with no override below.
+  */
+  border: var(--border-card);
+  border-radius: var(--radius-card);
+  box-shadow: 0 10px 28px rgba(28, 34, 51, 0.16);
+}
+
+:global(body.body--dark .nav-edit-menu) {
+  background-color: var(--color-dark-3);
+  border-color: var(--color-hairline-dark);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+/*
+  Cobalt (handoff): `0 10px 28px rgba(16,25,74,.18)` -- (16,25,74) is `--color-ink`'s Cobalt value
+  (#10194a) at 18% alpha, the same way Ledger's own literal above is `--color-ink`'s Ledger value
+  (#1c2233 = rgb(28,34,51)) at 16%. No rgb-channel token exists to reference this through `var()`, so
+  both stay literals -- same convention the dark-mode block above already uses for its own shadow.
+  `overflow: hidden` is Cobalt-only, per the handoff ("no marks").
+*/
+:global(body.body--cobalt .nav-edit-menu) {
+  overflow: hidden;
+  box-shadow: 0 10px 28px rgba(16, 25, 74, 0.18);
+}
+
+/*
+  -> Two opposite corner marks only -- see PageNewMenu.vue's own identical construction/comment.
+     `--corner-marks` (#2767) is `block` for Ledger (a no-op here) and `none` for Cobalt, which the
+     handoff calls for ("no corner marks") without a separate override block needed.
+*/
+.nav-edit-menu__mark {
+  position: absolute;
+  display: var(--corner-marks);
+  width: 7px;
+  height: 7px;
+  pointer-events: none;
+}
+
+.nav-edit-menu__mark--start {
+  inset-block-start: 3px;
+  inset-inline-start: 3px;
+  border-block-start: 1px solid var(--color-slate-faint);
+  border-inline-start: 1px solid var(--color-slate-faint);
+}
+
+.nav-edit-menu__mark--end {
+  inset-block-end: 3px;
+  inset-inline-end: 3px;
+  border-block-end: 1px solid var(--color-slate-faint);
+  border-inline-end: 1px solid var(--color-slate-faint);
+}
+
+.nav-edit-menu__header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--color-tint);
+}
+
+:global(body.body--dark .nav-edit-menu__header) {
+  border-bottom-color: var(--color-hairline-dark);
+}
+
+/*
+  Cobalt's faint rule (#eef1fb, per the handoff's header/hairline-between-sections/footer rows) has
+  no dedicated token -- #2767's `--color-tint` Cobalt value (#e6edff) is the SELECTED-ROW tint role,
+  not this faint-divider role, and using it here would visibly tint every rule instead of drawing a
+  hairline. `--color-hairline` (#dfe5f5) is the closest existing token both in value and in role (it
+  is what the footer's own rule already uses in Ledger) -- flagging the gap rather than hardcoding
+  #eef1fb; a follow-up to #2767 should add a distinct Cobalt "faint rule" token.
+*/
+:global(body.body--cobalt .nav-edit-menu__header) {
+  border-bottom-color: var(--color-hairline);
+}
+
+.nav-edit-menu__eyebrow {
+  font: 600 10px/1.2 var(--font-mono);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+:global(body.body--dark .nav-edit-menu__eyebrow) {
+  color: var(--color-accent-dark);
+}
+
+.nav-edit-menu__path {
+  margin-inline-start: auto;
+  overflow: hidden;
+  font: 400 10.5px/1.2 var(--font-mono);
+  color: var(--color-text-caption);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:global(body.body--dark .nav-edit-menu__path) {
+  color: var(--color-text-caption-dark);
+}
+
+.nav-edit-menu__section {
+  padding: 8px 0 4px;
+}
+
+.nav-edit-menu__section--tight {
+  padding: 0 14px 12px;
+}
+
+.nav-edit-menu__section-label {
+  padding: 2px 14px 6px;
+  font: 600 10px/1.2 var(--font-mono);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-text-caption);
+}
+
+:global(body.body--dark .nav-edit-menu__section-label) {
+  color: var(--color-text-caption-dark);
+}
+
+.nav-edit-menu__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+
+.nav-edit-menu__row:hover:not(.nav-edit-menu__row--selected) {
+  background-color: var(--color-paper);
+}
+
+:global(body.body--dark .nav-edit-menu__row:hover:not(.nav-edit-menu__row--selected)) {
+  background-color: var(--color-dark-1);
+}
+
+.nav-edit-menu__row:focus-within {
+  outline: 2px solid var(--color-accent-fill);
+  outline-offset: -2px;
+}
+
+.nav-edit-menu__row--selected {
+  background-color: var(--color-tint-alt);
+  box-shadow: inset 2px 0 0 var(--color-accent-fill);
+}
+
+:global(body.body--dark .nav-edit-menu__row--selected) {
+  background-color: var(--color-dark-2);
+}
+
+/*
+  Cobalt widens the selected row's inset bar from 2px to 3px (handoff: "inset 3px 0 0 #ff4d5a"),
+  same color role (`--color-accent-fill`) as Ledger -- not `--nav-active-inset` (#2767), which is
+  built for `NavSidebar`'s own active item and carries `--color-accent` (the admin brand accent),
+  a different role from this row's accent-FILL highlight.
+*/
+:global(body.body--cobalt .nav-edit-menu__row--selected) {
+  box-shadow: inset 3px 0 0 var(--color-accent-fill);
+}
+
+/* -> Shape only -- colour comes from the `color="accent-fill"` prop, which sets it inline. */
+.nav-edit-menu :deep(.w-radio) {
+  flex: none;
+}
+
+.nav-edit-menu :deep(.w-radio > span:first-child) {
+  width: 13px;
+  height: 13px;
+  border-radius: 0;
+  border-color: var(--color-slate-pale);
+}
+
+:global(body.body--dark .nav-edit-menu .w-radio[aria-checked='false'] > span:first-child) {
+  border-color: var(--color-disabled-dark);
+}
+
+.nav-edit-menu :deep(.w-radio .size-2\.5) {
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+}
+
+/*
+  Cobalt radio (handoff): 14px circle, unchecked border `#c5cff5`, selected ring/dot `#c8303c`.
+  #2767 doesn't redefine `--color-slate-pale` for Cobalt (it stays the Ledger #a9b7d0, correct
+  everywhere else that token is used), so there is no dedicated "pale/disabled" Cobalt token for the
+  unchecked border -- `--color-admin-sidebar-text` happens to carry the exact #c5cff5 value already,
+  reused here rather than a hardcoded hex; flagging the gap for a follow-up to give #2767 a properly-
+  named token for this role.
+
+  The selected ring/dot uses `--color-accent` (the admin white-text-accent role, `#c8303c` by
+  default under Cobalt) rather than `--color-accent-fill` (`#ff4d5a`) -- the handoff's own Cobalt
+  cell, and the same "don't reuse accent-fill for this role" rule `tailwind.css`'s token block
+  documents. `WRadio` sets the selected color as an inline style, which only plain CSS classes can
+  beat with `!important` (same convention `PageHeader.vue` already uses against `WBtn`'s own inline
+  styles).
+*/
+:global(body.body--cobalt .nav-edit-menu .w-radio > span:first-child) {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border-color: var(--color-admin-sidebar-text);
+}
+
+:global(body.body--cobalt .nav-edit-menu .w-radio .size-2\.5) {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+:global(body.body--cobalt .nav-edit-menu .w-radio[aria-checked='true'] > span:first-child) {
+  border-color: var(--color-accent) !important;
+}
+
+:global(body.body--cobalt .nav-edit-menu .w-radio[aria-checked='true'] .size-2\.5) {
+  background-color: var(--color-accent) !important;
+}
+
+.nav-edit-menu__row-text {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.nav-edit-menu__row-label {
+  font: 400 13px/1.3 var(--font-sans);
+  color: var(--color-text-body);
+}
+
+.nav-edit-menu__row--selected .nav-edit-menu__row-label {
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+:global(body.body--dark .nav-edit-menu__row-label) {
+  color: var(--color-text-dark);
+}
+
+/* Cobalt's selected label is 600, not 500 (handoff: "label 600 #10194a") -- color already matches. */
+:global(body.body--cobalt .nav-edit-menu__row--selected .nav-edit-menu__row-label) {
+  font-weight: 600;
+}
+
+.nav-edit-menu__row-hint {
+  font: 400 11.5px/1.35 var(--font-sans);
+  color: var(--color-text-caption);
+}
+
+:global(body.body--dark .nav-edit-menu__row-hint) {
+  color: var(--color-text-caption-dark);
+}
+
+/*
+  Cobalt is the only aesthetic that darkens the SELECTED row's hint text (handoff: "hint #4a5580" on
+  the selected row only) -- `--color-text-secondary`'s Cobalt value is exactly that.
+*/
+:global(body.body--cobalt .nav-edit-menu__row--selected .nav-edit-menu__row-hint) {
+  color: var(--color-text-secondary);
+}
+
+.nav-edit-menu__rule {
+  height: 1px;
+  margin: 4px 14px;
+  background-color: var(--color-tint);
+}
+
+:global(body.body--dark .nav-edit-menu__rule) {
+  background-color: var(--color-hairline-dark);
+}
+
+/* Same faint-rule token gap as the header's own rule above -- see that comment. */
+:global(body.body--cobalt .nav-edit-menu__rule) {
+  background-color: var(--color-hairline);
+}
+
+/*
+  The "Menu source" segmented control -- `w-btn-toggle` already draws the shared hairline/accent
+  material this needs (see WBtnToggle.vue); only two things are added here: equal-width segments
+  (its own segments size to content by default) filling the section's own 14px gutters, and the
+  30px height the handoff calls for (its own default is a `min-height` at the same value, restated
+  here as the authority for this popover rather than relied on implicitly).
+*/
+.nav-edit-menu__menu-source {
+  display: flex;
+  width: 100%;
+}
+
+.nav-edit-menu :deep(.nav-edit-menu__menu-source .w-btn-toggle__segment) {
+  flex: 1 1 0;
+  height: 30px;
+}
+
+/*
+  Cobalt (handoff): selected fill `#c8303c` with a shadow, unselected text `#1e2a5e`, outer corners
+  6px (never each segment -- see tailwind.css's own "radii sweep" comment on `--radius-control`).
+
+  The selected fill uses `--color-accent` (the white-text-accent role, `#c8303c`), not
+  `--color-accent-fill` (`#ff4d5a`) that `toggle-color="accent-fill"` sets inline -- same "known
+  mockup defect" the token file documents, and the same `!important` convention as the radio above,
+  since `WBtnToggle` sets the selected segment's fill/border as inline styles too.
+
+  Unselected text (`#1e2a5e`) has no dedicated Cobalt token -- #2767 doesn't redefine `--color-slate`
+  for Cobalt (it stays the Ledger #38465f everywhere else that token is used correctly). `--color-ink`
+  (#10194a) is the closest existing token by both value and "dark, assertive UI tone" role; reused
+  here and on the footer Save button below rather than a hardcoded hex, flagging the gap for a
+  follow-up to give #2767 a proper "slate button" token (the handoff's own name for this role).
+*/
+:global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='true']) {
+  background-color: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+  box-shadow: var(--shadow-primary);
+}
+
+:global(
+  body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='false']
+) {
+  color: var(--color-ink);
+}
+
+:global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment:first-child) {
+  border-start-start-radius: var(--radius-control);
+  border-end-start-radius: var(--radius-control);
+}
+
+:global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment:last-child) {
+  border-start-end-radius: var(--radius-control);
+  border-end-end-radius: var(--radius-control);
+}
+
+.nav-edit-menu__menu-source-hint {
+  padding-top: 6px;
+  font: 400 11.5px/1.4 var(--font-sans);
+  color: var(--color-text-caption);
+}
+
+:global(body.body--dark .nav-edit-menu__menu-source-hint) {
+  color: var(--color-text-caption-dark);
+}
+
+.nav-edit-menu__edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  background-color: transparent;
+  border: 1px solid var(--color-hairline);
+  color: var(--color-slate);
+  font: 500 12.5px/1.2 var(--font-sans);
+  cursor: pointer;
+}
+
+:global(body.body--dark .nav-edit-menu__edit-btn) {
+  border-color: var(--color-hairline-dark);
+  color: var(--color-text-dark);
+}
+
+/*
+  Cobalt (handoff): radius 6px, glyph and label `#1f4fd6` -- exactly `--color-accent-strong`'s Cobalt
+  value, already a real token, no gap.
+*/
+:global(body.body--cobalt .nav-edit-menu__edit-btn) {
+  border-radius: var(--radius-control);
+  color: var(--color-accent-strong);
+}
+
+.nav-edit-menu__edit-icon {
+  color: var(--color-slate-soft);
+}
+
+:global(body.body--cobalt .nav-edit-menu__edit-icon) {
+  color: var(--color-accent-strong);
+}
+
+.nav-edit-menu__edit-label {
+  flex: 1 1 auto;
+  text-align: start;
+}
+
+.nav-edit-menu__edit-chevron {
+  color: var(--color-slate-faint);
+}
+
+/*
+  Cobalt (handoff): chevron `#7f8ed1` -- `--color-slate-faint` isn't redefined for Cobalt, but
+  `--color-sidebar-icon` (#2767) already carries this exact value for the same "muted icon on a
+  Cobalt surface" role, reused here rather than a hardcoded hex.
+*/
+:global(body.body--cobalt .nav-edit-menu__edit-chevron) {
+  color: var(--color-sidebar-icon);
+}
+
+.nav-edit-menu__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  background-color: var(--color-paper);
+  border-top: 1px solid var(--color-hairline);
+}
+
+:global(body.body--dark .nav-edit-menu__footer) {
+  background-color: var(--color-dark-2);
+  border-top-color: var(--color-hairline-dark);
+}
+
+/*
+  Cobalt Save fill (handoff: "slate, not red -- #38465f Ledger / #1e2a5e Cobalt"). Same missing
+  "slate button" token as the segmented control's unselected text above -- `--color-ink` reused as
+  the closest existing approximation rather than a hardcoded hex; `color="slate"` sets the fill as an
+  inline style on `WBtn`, hence `!important` (see the radio/segmented-control comments above for the
+  same convention).
+*/
+:global(body.body--cobalt .nav-edit-menu__save-btn) {
+  background-color: var(--color-ink) !important;
+}
+</style>

@@ -31,7 +31,18 @@ import { mountWithApp } from '../../test/mount.js'
  * `EditorWysiwyg.darkMode.test.js` for why (happy-dom returns a stale `getComputedStyle` on a second
  * read of the same element after only the `body` ancestor's class changed, under this suite's real,
  * full-size app stylesheet).
+ *
+ * OpenProject #2779 moved `.auth`'s and `.auth-lead`'s colors off `_theme.scss`'s literal SCSS
+ * variables onto the matching `var(--color-*)` custom property, so they now respond to
+ * `body.body--cobalt`'s token overrides -- but those custom properties are declared in
+ * `css/tailwind.css`, which (per that file's own header comment, and `WBtn.test.js`'s identical
+ * convention) is not loaded under Vitest. Seeding the four properties these two selectors reference
+ * by hand, with a different value per theme, is what keeps this suite asserting the same claim it
+ * always has -- light and dark genuinely differ, and neither is the unstyled browser default -- now
+ * that the values come from custom properties instead of baked-in Sass literals.
  */
+const TEXT_BODY_COLORS = { light: 'rgb(1, 2, 3)', dark: 'rgb(4, 5, 6)' }
+const TEXT_SECONDARY_COLORS = { light: 'rgb(7, 8, 9)', dark: 'rgb(10, 11, 12)' }
 
 const LOCAL_STRATEGY_WITH_FORGOT = {
   id: 'strat-1',
@@ -53,6 +64,15 @@ async function mountForTheme(theme) {
   //    why a direct `document.body.classList` write would leave reactive state stale.
   useDark().set(theme === 'dark')
 
+  // -> See the file header: `tailwind.css` isn't loaded here, so these are seeded by hand.
+  document.documentElement.style.setProperty('--color-text-body', TEXT_BODY_COLORS.light)
+  document.documentElement.style.setProperty('--color-text-dark', TEXT_BODY_COLORS.dark)
+  document.documentElement.style.setProperty('--color-text-secondary', TEXT_SECONDARY_COLORS.light)
+  document.documentElement.style.setProperty(
+    '--color-text-secondary-dark',
+    TEXT_SECONDARY_COLORS.dark
+  )
+
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY_WITH_FORGOT]) })
 
   const { wrapper } = mountWithApp(Login, {
@@ -71,6 +91,14 @@ function findButtonByText(wrapper, text) {
 
 afterEach(() => {
   document.body.classList.remove('body--dark', 'body--light')
+  for (const name of [
+    '--color-text-body',
+    '--color-text-dark',
+    '--color-text-secondary',
+    '--color-text-secondary-dark'
+  ]) {
+    document.documentElement.style.removeProperty(name)
+  }
 })
 
 describe('Login.vue dark mode (OpenProject #2550)', () => {

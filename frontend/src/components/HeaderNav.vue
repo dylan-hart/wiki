@@ -360,6 +360,16 @@ function openInbox() {
 }
 
 /*
+  Cobalt draws the header bar with no ruling line at all (`Page View 3x - Cobalt` mockup; the dark
+  mockup carries a 1px white-alpha `box-shadow` instead of a border, which is decoration this rule
+  does not attempt to reproduce) -- both mockups show the same borderless bar in light and dark, so
+  one selector covers both (OpenProject #2774).
+*/
+body.body--cobalt .site-header {
+  border-bottom: 0;
+}
+
+/*
   The wordmark. Barlow Condensed, tracked and upper-cased -- the one place in the interface where
   the display face is set as a logotype rather than as a heading.
 */
@@ -379,6 +389,14 @@ function openInbox() {
 
   `$text-secondary` rather than a caption tone: at this size the tracking already holds it back, and
   anything fainter stops resolving as letters at all on a non-retina display.
+
+  Through `--color-header-eyebrow` (`tailwind.css`, OpenProject #2767) rather than the bare
+  `$text-secondary` constant: Ledger's own default for the token is `var(--color-text-secondary)`,
+  the same value this carried, so Ledger is unchanged and Cobalt's own light-on-blue eyebrow
+  (`#dfe6ff`, identical in both its light and dark mockups) finally applies -- the dark override
+  below is scoped off `body.body--cobalt` for the same reason `NavSidebar.vue`'s equivalent rules
+  are: an aesthetic-blind `.body--dark` selector would otherwise outrank the token base regardless of
+  aesthetic (OpenProject #2774).
 */
 .site-subtitle {
   margin-top: 2px;
@@ -388,10 +406,10 @@ function openInbox() {
   line-height: 1.2;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: $text-secondary;
+  color: var(--color-header-eyebrow);
 }
 
-.body--dark .site-subtitle {
+.body--dark:not(.body--cobalt) .site-subtitle {
   color: $text-secondary-dark;
 }
 

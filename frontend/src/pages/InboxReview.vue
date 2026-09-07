@@ -323,10 +323,10 @@ async function load() {
   state.loading++
   try {
     // -> The markdown renderer is configured per site (line breaks, typographer, and so on), and that
-    //    configuration comes with the editor configs rather than on its own
-    if (!editorStore.configIsLoaded) {
-      await editorStore.fetchConfigs()
-    }
+    //    configuration comes with the editor configs rather than on its own. `ensureConfigs()`, not a
+    //    bare `configIsLoaded` check: it also refreshes the glossary term list even when the rest of
+    //    the config is already loaded (OpenProject #2789)
+    await editorStore.ensureConfigs()
     state.submissions =
       (await API_CLIENT.get(`sites/${siteStore.id}/approvals/submissions`).json()) ?? []
   } catch (err) {
@@ -719,6 +719,12 @@ onBeforeUnmount(disposeEditor)
     `$slate-soft`; the design file wins on a colour, so it goes in as written rather than being
     rounded to the nearest token -- and it stays a literal here rather than becoming a new token,
     since one chip on one screen is not a palette entry.
+
+    OpenProject #2778: `Cardinal Wiki - Inbox Review 3x - Cobalt.dc.html` reads this chip's text as
+    `#1e2a5e`, not `$slate` (`#38465f`) -- but that Cobalt pair has no dedicated dark mockup, and
+    `#1e2a5e` is a light-ground tone with no documented Cobalt-dark counterpart to pair it with, so
+    guessing one here (rather than confirming against a real mockup) is exactly what the acceptance
+    criteria ask not to do. `$slate`/`$slate-light` stay as the fallback; logged, not fixed.
   */
   &-count {
     border: 1px solid #5f78a8;

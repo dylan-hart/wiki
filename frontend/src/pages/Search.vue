@@ -38,10 +38,15 @@
               clickable
               :active="item.value === state.params.orderBy"
               @click="setOrderBy(item.value)">
+              <!--
+                `accent`, not `primary`: this is the white-text-fill role (the mockup's active
+                "Relevance" row is the accent red, `#c8303c`, not the link blue `--color-primary`
+                links use), same reasoning as the `.layout-search-plate` accent-color comment below.
+              -->
               <w-item-section side>
                 <w-icon
                   :name="item.icon"
-                  :color="item.value === state.params.orderBy ? `primary` : ``" />
+                  :color="item.value === state.params.orderBy ? `accent` : ``" />
               </w-item-section>
               <w-item-section
                 ><w-item-label>{{ item.label }}</w-item-label></w-item-section
@@ -54,7 +59,7 @@
                       : `tabler:arrow-bar-up`
                   "
                   size="sm"
-                  color="primary" />
+                  color="accent" />
               </w-item-section>
             </w-item>
           </w-list>
@@ -569,10 +574,10 @@ $strip-height: 37px;
     (OpenProject #2697).
   */
   @at-root .body--light & {
-    background-color: $paper;
+    background-color: var(--color-paper);
   }
   @at-root .body--dark & {
-    background-color: $dark-6;
+    background-color: var(--color-dark-6);
   }
 
   &-card {
@@ -603,14 +608,26 @@ $strip-height: 37px;
       `$shadow-2` that used to sit here was the other half of the dark band above.
     */
     @at-root .body--light & {
-      background-color: $surface;
-      border: 1px solid $hairline;
-      color: $text-body;
+      background-color: var(--color-white);
+      border: 1px solid var(--color-hairline);
+      color: var(--color-text-body);
     }
     @at-root .body--dark & {
-      background-color: $dark-3;
-      border: 1px solid $hairline-dark;
-      color: $text-dark;
+      background-color: var(--color-dark-3);
+      border: 1px solid var(--color-hairline-dark);
+      color: var(--color-text-dark);
+    }
+
+    /*
+      Cobalt draws this card as a shadowed sheet, not a hairline-bordered box (the mockup's
+      `border-radius:8px; box-shadow:0 2px 10px rgba(16,25,74,.08)`) -- both tokens are `0`/`none`
+      under Ledger, so the border above stays the only visible edge there, and the dark half needs
+      no override of its own since `--shadow-card` already carries its own Cobalt-dark value.
+    */
+    @at-root body.body--cobalt & {
+      border: 0;
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-card);
     }
   }
 
@@ -619,12 +636,12 @@ $strip-height: 37px;
     overflow: hidden;
 
     @at-root .body--light & {
-      background-color: $tint;
-      border-inline-end: 1px solid $hairline;
+      background-color: var(--color-tint);
+      border-inline-end: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-inline-end: 1px solid $hairline-dark;
+      background-color: var(--color-dark-4);
+      border-inline-end: 1px solid var(--color-hairline-dark);
     }
   }
 
@@ -655,24 +672,24 @@ $strip-height: 37px;
     text-transform: uppercase;
 
     @at-root .body--light & {
-      color: $accent-strong;
-      background-color: $tint-alt;
-      border-bottom: 1px solid $hairline;
+      color: var(--color-accent-strong);
+      background-color: var(--color-tint-alt);
+      border-bottom: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      color: $accent-dark;
-      background-color: $dark-2;
-      border-bottom: 1px solid $hairline-dark;
+      color: var(--color-accent-dark);
+      background-color: var(--color-dark-2);
+      border-bottom: 1px solid var(--color-hairline-dark);
     }
   }
 
   /* -> A strip that follows content is ruled off from it as well as from what comes after */
   .layout-search-sd .section-header:not(:first-child) {
     @at-root .body--light & {
-      border-top: 1px solid $hairline;
+      border-top: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      border-top: 1px solid $hairline-dark;
+      border-top: 1px solid var(--color-hairline-dark);
     }
   }
 
@@ -690,10 +707,10 @@ $strip-height: 37px;
     text-transform: none;
 
     @at-root .body--light & {
-      color: $text-caption;
+      color: var(--color-text-caption);
     }
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
     }
   }
 
@@ -715,18 +732,18 @@ $strip-height: 37px;
     color: inherit;
 
     @at-root .body--light & {
-      border-bottom: 1px solid $hairline;
+      border-bottom: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      border-bottom: 1px solid $hairline-dark;
+      border-bottom: 1px solid var(--color-hairline-dark);
     }
 
     &:hover {
       @at-root .body--light & {
-        background-color: $paper;
+        background-color: var(--color-paper);
       }
       @at-root .body--dark & {
-        background-color: $dark-2;
+        background-color: var(--color-dark-2);
       }
     }
   }
@@ -735,6 +752,11 @@ $strip-height: 37px;
     The plate. The same square hairline frame `BlueprintIcon` draws for a settings row and at the
     same 34px, but in the accent rather than the chrome tone -- what sits in it here is the page's
     OWN icon, which is the thing the reader is looking for, not the label of a setting.
+
+    `var(--color-accent)`, not `$primary`: the dark half of this same rule already used
+    `$accent-dark` for the identical role, so `$primary` here was the one Ledger literal quietly
+    standing in for the accent-text role rather than the (numerically equal, under Ledger) primary
+    one -- the Cobalt mockup's icon plate glyph is the accent red, not the link blue.
   */
   &-plate {
     display: flex;
@@ -745,14 +767,21 @@ $strip-height: 37px;
     height: $plate-size;
 
     @at-root .body--light & {
-      border: 1px solid $hairline;
-      background-color: $surface;
-      color: $primary;
+      border: 1px solid var(--color-hairline);
+      background-color: var(--color-white);
+      color: var(--color-accent);
     }
     @at-root .body--dark & {
-      border: 1px solid $hairline-dark;
-      background-color: $dark-4;
-      color: $accent-dark;
+      border: 1px solid var(--color-hairline-dark);
+      background-color: var(--color-dark-4);
+      color: var(--color-accent-dark);
+    }
+
+    /* Same shadowed-plate treatment as the card and results row above -- see that rule's comment. */
+    @at-root body.body--cobalt & {
+      border: 0;
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-card);
     }
   }
 
@@ -775,10 +804,10 @@ $strip-height: 37px;
     font-weight: 500;
 
     @at-root .body--light & {
-      color: $ink;
+      color: var(--color-ink);
     }
     @at-root .body--dark & {
-      color: $text-dark;
+      color: var(--color-text-dark);
     }
   }
 
@@ -788,10 +817,10 @@ $strip-height: 37px;
     line-height: 1.5;
 
     @at-root .body--light & {
-      color: $text-secondary;
+      color: var(--color-text-secondary);
     }
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
     }
   }
 
@@ -802,10 +831,10 @@ $strip-height: 37px;
     overflow-wrap: anywhere;
 
     @at-root .body--light & {
-      color: $text-caption;
+      color: var(--color-text-caption);
     }
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
     }
   }
 
@@ -815,10 +844,10 @@ $strip-height: 37px;
     line-height: 1.55;
 
     @at-root .body--light & {
-      color: $text-body;
+      color: var(--color-text-body);
     }
     @at-root .body--dark & {
-      color: $text-dark;
+      color: var(--color-text-dark);
     }
   }
 
@@ -837,10 +866,10 @@ $strip-height: 37px;
     text-align: end;
 
     @at-root .body--light & {
-      color: $text-caption;
+      color: var(--color-text-caption);
     }
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
     }
   }
 
@@ -898,12 +927,12 @@ $strip-height: 37px;
       justify-content: space-between;
 
       @at-root .body--light & {
-        background-color: $tint-alt;
-        border-bottom: 1px solid $hairline;
+        background-color: var(--color-tint-alt);
+        border-bottom: 1px solid var(--color-hairline);
       }
       @at-root .body--dark & {
-        background-color: $dark-2;
-        border-bottom: 1px solid $hairline-dark;
+        background-color: var(--color-dark-2);
+        border-bottom: 1px solid var(--color-hairline-dark);
       }
     }
 
@@ -933,11 +962,11 @@ $strip-height: 37px;
 
       @at-root .body--light & {
         border-inline-end: 0;
-        border-bottom: 1px solid $hairline;
+        border-bottom: 1px solid var(--color-hairline);
       }
       @at-root .body--dark & {
         border-inline-end: 0;
-        border-bottom: 1px solid $hairline-dark;
+        border-bottom: 1px solid var(--color-hairline-dark);
       }
     }
   }
@@ -1000,7 +1029,7 @@ $strip-height: 37px;
 }
 
 body.body--dark {
-  background-color: $dark-6;
+  background-color: var(--color-dark-6);
 }
 
 // -> The `.w-footer .q-bar` rule that used to sit here never matched: FooterNav renders
