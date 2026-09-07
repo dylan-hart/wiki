@@ -301,6 +301,7 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/accessibility'
+import { aestheticDefaultColors } from '@/helpers/aestheticDefaults'
 
 import { startCase } from 'es-toolkit/string'
 import UtilCodeEditor from '../components/UtilCodeEditor.vue'
@@ -749,13 +750,20 @@ function contrastWarningRatio(cl) {
   return pair ? `${contrastRatio(pair.fg, pair.bg).toFixed(1)}:1` : ''
 }
 
+/**
+ * Resets `dark` and every admin-editable color to their defaults. `colorPrimary`/`colorAccent`/
+ * `colorHeader`/`colorSidebar` reset to the CURRENT aesthetic's own defaults
+ * (`helpers/aestheticDefaults.js`, OpenProject #2768), not a single hardcoded set -- so a Cobalt
+ * site's "Reset defaults" (and, once OpenProject #2769 wires the aesthetic switch to call this same
+ * function, switching aesthetic itself) lands on Cobalt's colors, not Ledger's. `colorSecondary` and
+ * `dark` stay a single default regardless of aesthetic -- dark mode is a wholly separate axis
+ * (`composables/dark.js`) and the Cobalt handoff never calls for the positive color to move with the
+ * aesthetic switch.
+ */
 function resetColors() {
   state.config.dark = false
-  state.config.colorPrimary = '#c14a52'
   state.config.colorSecondary = '#3f7a66'
-  state.config.colorAccent = '#c14a52'
-  state.config.colorHeader = '#ffffff'
-  state.config.colorSidebar = '#f0f2f7'
+  Object.assign(state.config, aestheticDefaultColors(state.config.aesthetic))
 }
 
 function resetFonts() {

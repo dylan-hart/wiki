@@ -109,6 +109,14 @@ const DEFAULT_SITE_EDITORS = {
  * `helpers/accessibility.test.js` (frontend) and this file's own `sites.test.ts`. Picked to clear
  * 4.5:1 (WCAG AA) against white, the foreground a solid `WBtn` pairs a background this light or
  * darker with.
+ *
+ * `colorPrimary`/`colorAccent`/`colorHeader`/`colorSidebar` also agree with
+ * `frontend/src/helpers/aestheticDefaults.js`'s `ledger` entry (OpenProject #2768) -- not by
+ * importing it (`backend/` and `frontend/` are independently-installed workspaces with no
+ * cross-workspace JS-sharing convention) but because a fresh site is always seeded on the `ledger`
+ * aesthetic below, so the two literals have to read the same for that seed to actually match what
+ * `AdminTheme.vue`'s "Reset defaults" button would produce for a Ledger site. `colorSecondary` is
+ * outside that per-aesthetic set on purpose -- it does not change with the aesthetic switch.
  */
 export const DEFAULT_THEME_COLORS = {
   colorPrimary: '#c14a52',

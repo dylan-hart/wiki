@@ -164,3 +164,49 @@ describe('AdminTheme — WCAG AA contrast warning checks secondary and accent (t
     }
   })
 })
+
+// OpenProject #2768: `resetColors()` reads its `colorPrimary`/`colorAccent`/`colorHeader`/
+// `colorSidebar` defaults from the CURRENT aesthetic (`helpers/aestheticDefaults.js`), not one
+// hardcoded set -- so a Cobalt site's "Reset defaults" button lands on Cobalt's colors.
+describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', () => {
+  it("resets to Ledger's defaults when the loaded theme has no aesthetic (today's/pre-#2769 shape)", async () => {
+    const wrapper = await mountPage({
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    // -> Index 0: the Theme Options card's own "Reset defaults" button -- Code Blocks and Fonts
+    // each render their own sibling with the same label further down the page.
+    await wrapper.findAll('.acrylic-btn')[0].trigger('click')
+
+    expect(wrapper.vm.state.config.colorPrimary).toBe('#c14a52')
+    expect(wrapper.vm.state.config.colorAccent).toBe('#c14a52')
+    expect(wrapper.vm.state.config.colorHeader).toBe('#ffffff')
+    expect(wrapper.vm.state.config.colorSidebar).toBe('#f0f2f7')
+    // -> Unaffected by the aesthetic -- reset to their own single default either way.
+    expect(wrapper.vm.state.config.colorSecondary).toBe('#3f7a66')
+    expect(wrapper.vm.state.config.dark).toBe(false)
+  })
+
+  it("resets to Cobalt's own defaults when the loaded theme is on the cobalt aesthetic", async () => {
+    const wrapper = await mountPage({
+      aesthetic: 'cobalt',
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.findAll('.acrylic-btn')[0].trigger('click')
+
+    expect(wrapper.vm.state.config.colorPrimary).toBe('#1f4fd6')
+    expect(wrapper.vm.state.config.colorAccent).toBe('#c8303c')
+    expect(wrapper.vm.state.config.colorHeader).toBe('#1f4fd6')
+    expect(wrapper.vm.state.config.colorSidebar).toBe('#10194a')
+    expect(wrapper.vm.state.config.colorSecondary).toBe('#3f7a66')
+  })
+})
