@@ -229,16 +229,22 @@
             <template v-if="insertMode">
               <w-separator class="my-4" />
               <!--
-                -> `primary` (`#c14a52`), not the `#e4676b` the design fills this button with: the
-                   fill tone is 2.9:1 under a white label and `helpers/accessibility.test.js` pins it
-                   as never carrying one. Same call, for the same reason, as the segmented control in
-                   `PageHistoryOverlay.vue`.
+                -> `accent` (`--q-accent`, `#c14a52` in Ledger), not the `#e4676b` the Ledger design
+                   fills this button with: the fill tone is 2.9:1 under a white label and
+                   `helpers/accessibility.test.js` pins it as never carrying one.
+
+                   Not `primary` either (OpenProject #2776): the two happen to share Ledger's
+                   `#c14a52` default, which is what let this stay `primary` unnoticed, but Cobalt's
+                   own File Manager mockup (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`)
+                   fills this same button `#c8303c` -- `--q-accent`'s cobalt default -- not
+                   `--q-primary`'s unrelated blue (`#1f4fd6`). Same call, for the same reason, as
+                   the segmented control and the A/B markers in `PageHistoryOverlay.vue`.
               -->
               <w-btn
                 class="w-full fileman-insert-btn"
                 @click="insertItem()"
                 :label="t(`common.actions.insert`)"
-                color="primary"
+                color="accent"
                 icon="tabler:plus"
                 padding="sm" />
             </template>
@@ -1447,7 +1453,7 @@ $fileman-hdr-wrap-max: 899.98px;
     the variable rather than a `text-accent-dark` utility, which nothing in this repo emits.
   */
   &-hdr-icon {
-    color: $accent-dark;
+    color: var(--color-accent-dark);
   }
 
   /*
@@ -1503,19 +1509,19 @@ $fileman-hdr-wrap-max: 899.98px;
       typed on, whichever ground it happens to sit against. So this one goes lighter than its bar
       where the header's goes darker, and neither inverts on focus any more.
     */
-    background-color: $surface;
-    color: $text-caption;
+    background-color: var(--color-surface);
+    color: var(--color-text-caption);
     transition: color 0.2s var(--ease-standard);
 
     // -> Driven by a class rather than `:focus-within`, matching HeaderSearch
     &.is-focused {
-      color: $ink;
+      color: var(--color-ink);
     }
 
     &-lead {
       flex-shrink: 0;
       font-size: 16px;
-      color: $slate-faint;
+      color: var(--color-slate-faint);
     }
 
     &-input {
@@ -1559,9 +1565,9 @@ $fileman-hdr-wrap-max: 899.98px;
     &-kbd {
       flex-shrink: 0;
       padding: 2px 5px;
-      background-color: $surface;
-      border: 1px solid $hairline;
-      color: $text-caption;
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-hairline);
+      color: var(--color-text-caption);
       font-family: var(--font-mono);
       font-size: 10px;
       font-weight: 500;
@@ -1580,38 +1586,45 @@ $fileman-hdr-wrap-max: 899.98px;
   */
   &-left {
     @at-root .body--light & {
-      background-color: $tint-alt;
-      border-inline-end: 1px solid $hairline;
-      color: $slate;
+      background-color: var(--color-tint-alt);
+      border-inline-end: 1px solid var(--color-hairline);
+      color: var(--color-slate);
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-inline-end: 1px solid $hairline-dark;
-      color: $text-secondary-dark;
+      background-color: var(--color-dark-4);
+      border-inline-end: 1px solid var(--color-hairline-dark);
+      color: var(--color-text-secondary-dark);
     }
   }
 
   &-center {
     @at-root .body--light & {
-      background-color: $surface;
-      color: $text-body;
+      background-color: var(--color-surface);
+      color: var(--color-text-body);
     }
     @at-root .body--dark & {
-      background-color: $dark-3;
-      color: $text-dark;
+      background-color: var(--color-dark-3);
+      color: var(--color-text-dark);
     }
   }
 
   &-right {
+    /*
+      `#fbfcfe` stays a Ledger-only literal rather than `--color-surface` (OpenProject #2776): the
+      design draws this pane a hair off pure white in Ledger but pure white (`#ffffff`, matching
+      `--color-surface`) under Cobalt (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`'s right
+      pane). No token distinguishes "surface" from "surface, a shade warmer" -- logged rather than
+      guessed at with a new one-off selector.
+    */
     @at-root .body--light & {
       background-color: #fbfcfe;
-      border-inline-start: 1px solid $hairline;
-      color: $text-body;
+      border-inline-start: 1px solid var(--color-hairline);
+      color: var(--color-text-body);
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-inline-start: 1px solid $hairline-dark;
-      color: $text-dark;
+      background-color: var(--color-dark-4);
+      border-inline-start: 1px solid var(--color-hairline-dark);
+      color: var(--color-text-dark);
     }
   }
 
@@ -1623,12 +1636,12 @@ $fileman-hdr-wrap-max: 899.98px;
   */
   &-toolbar {
     @at-root .body--light & {
-      background-color: $tint;
-      border-block-end: 1px solid $hairline;
+      background-color: var(--color-tint);
+      border-block-end: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-block-end: 1px solid $hairline-dark;
+      background-color: var(--color-dark-4);
+      border-block-end: 1px solid var(--color-hairline-dark);
     }
   }
 
@@ -1640,7 +1653,7 @@ $fileman-hdr-wrap-max: 899.98px;
   &-upload-btn {
     // -> The fill tone in both appearances: it is a hairline here, not a label, so the "never under
     //    white text" constraint that separates `$positive-fill` from `$positive` does not apply.
-    border-color: $positive-fill;
+    border-color: var(--color-positive-fill);
   }
 
   &-path {
@@ -1648,14 +1661,14 @@ $fileman-hdr-wrap-max: 899.98px;
     font-size: 11.5px;
 
     @at-root .body--light & {
-      background-color: $tint !important;
-      border-block-start: 1px solid $hairline;
-      color: $text-caption;
+      background-color: var(--color-tint) !important;
+      border-block-start: 1px solid var(--color-hairline);
+      color: var(--color-text-caption);
     }
     @at-root .body--dark & {
-      background-color: $dark-4 !important;
-      border-block-start: 1px solid $hairline-dark;
-      color: $text-caption-dark;
+      background-color: var(--color-dark-4) !important;
+      border-block-start: 1px solid var(--color-hairline-dark);
+      color: var(--color-text-caption-dark);
     }
   }
 
@@ -1692,10 +1705,10 @@ $fileman-hdr-wrap-max: 899.98px;
     }
 
     @at-root .body--light & {
-      color: $text-caption;
+      color: var(--color-text-caption);
     }
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
 
       > img {
         filter: invert(1);
@@ -1730,11 +1743,11 @@ $fileman-hdr-wrap-max: 899.98px;
 
     @at-root .body--light & {
       background-color: rgba(255, 255, 255, 0.9);
-      color: $text-body;
+      color: var(--color-text-body);
     }
     @at-root .body--dark & {
       background-color: rgba(20, 23, 31, 0.85);
-      color: $text-dark;
+      color: var(--color-text-dark);
     }
   }
 
@@ -1766,7 +1779,7 @@ $fileman-hdr-wrap-max: 899.98px;
 
       // -> The design rules each row off from the next; the last one meets the pane's own edge
       &:not(:last-child) {
-        border-block-end: 1px solid $tint;
+        border-block-end: 1px solid var(--color-tint);
       }
 
       &.active {
@@ -1782,7 +1795,7 @@ $fileman-hdr-wrap-max: 899.98px;
 
       @at-root .body--dark & {
         &:not(:last-child) {
-          border-block-end-color: $hairline-dark;
+          border-block-end-color: var(--color-hairline-dark);
         }
       }
     }
@@ -1806,10 +1819,10 @@ $fileman-hdr-wrap-max: 899.98px;
       font-size: 11.5px;
 
       @at-root .body--light & {
-        color: $text-secondary;
+        color: var(--color-text-secondary);
       }
       @at-root .body--dark & {
-        color: $text-secondary-dark;
+        color: var(--color-text-secondary-dark);
       }
     }
 
@@ -1839,12 +1852,12 @@ $fileman-hdr-wrap-max: 899.98px;
     margin-block-end: 16px;
 
     @at-root .body--light & {
-      background-color: $tint;
-      border: 1px solid $hairline;
+      background-color: var(--color-tint);
+      border: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      background-color: $dark-3;
-      border: 1px solid $hairline-dark;
+      background-color: var(--color-dark-3);
+      border: 1px solid var(--color-hairline-dark);
     }
 
     // -> The image fills the plate it is framed by, so the frame's own aspect ratio is the one drawn
@@ -1855,23 +1868,32 @@ $fileman-hdr-wrap-max: 899.98px;
     }
 
     &-placeholder {
-      color: $slate-pale;
+      color: var(--color-slate-pale);
     }
 
     /*
       The four corner marks. Outside the frame by 4px, drawn as two edges of a 7px square each, so
       they read as registration ticks rather than as a second border. Positioned with logical
       insets, so each tick's two drawn edges stay on the corner it is named for under RTL.
+
+      `display: var(--corner-marks)` -- `block` in Ledger (a no-op), `none` in Cobalt
+      (OpenProject #2767/`NavEditMenu.vue`'s identical construction) -- is what this was missing:
+      Cobalt draws no corner marks anywhere ("white cards ... instead of hairlines and corner
+      marks", DESIGN-DECISIONS.md), and the File Manager mockup's own preview plate
+      (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`) confirms a plain hairline frame with no
+      ticks, but this frame kept drawing all four regardless of aesthetic until now
+      (OpenProject #2776).
     */
     &-tick {
       position: absolute;
+      display: var(--corner-marks);
       width: 7px;
       height: 7px;
-      border: 0 solid $slate-soft;
+      border: 0 solid var(--color-slate-soft);
       pointer-events: none;
 
       @at-root .body--dark & {
-        border-color: $slate-light;
+        border-color: var(--color-slate-light);
       }
 
       &--tl {
@@ -1913,10 +1935,10 @@ $fileman-hdr-wrap-max: 899.98px;
     padding: 7px 0;
 
     @at-root .body--light & {
-      border-block-end: 1px solid $tint;
+      border-block-end: 1px solid var(--color-tint);
     }
     @at-root .body--dark & {
-      border-block-end: 1px solid $hairline-dark;
+      border-block-end: 1px solid var(--color-hairline-dark);
     }
 
     label {
@@ -1930,10 +1952,10 @@ $fileman-hdr-wrap-max: 899.98px;
       text-transform: uppercase;
 
       @at-root .body--light & {
-        color: $text-caption;
+        color: var(--color-text-caption);
       }
       @at-root .body--dark & {
-        color: $text-caption-dark;
+        color: var(--color-text-caption-dark);
       }
     }
     span {
@@ -1944,10 +1966,10 @@ $fileman-hdr-wrap-max: 899.98px;
       word-break: break-word;
 
       @at-root .body--light & {
-        color: $ink;
+        color: var(--color-ink);
       }
       @at-root .body--dark & {
-        color: $text-dark;
+        color: var(--color-text-dark);
       }
     }
   }

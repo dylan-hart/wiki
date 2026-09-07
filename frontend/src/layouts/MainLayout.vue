@@ -749,6 +749,22 @@ body.body--dark {
         background-color: $dark-5;
         border-top-color: $dark-6;
       }
+
+      /*
+        Cobalt (DESIGN-DECISIONS.md "Themes": "Dialogs and overlays ... take a 12px radius with
+        `overflow:hidden` ... No dark eyebrow bar on dialog tops -- the rounded corner is the
+        edge") -- OpenProject #2776 found every full-bleed overlay (File Manager, Page History
+        alongside the rest `MainOverlayDialog.vue` mounts) still drawing Ledger's flat panel with
+        its 10px ink strip regardless of aesthetic, since nothing here branched on it. The strip
+        is removed rather than recoloured: Cobalt's own mockups (`Cardinal Wiki - File Manager 3x
+        - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) draw a plain rounded
+        panel with no title-band edge at all.
+      */
+      @at-root .body--cobalt & {
+        border-top: 0;
+        border-radius: var(--radius-dialog);
+        overflow: hidden;
+      }
     }
   }
 
