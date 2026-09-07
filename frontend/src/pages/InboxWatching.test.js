@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import InboxWatching from './InboxWatching.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+import { useDark } from '@/composables/dark'
 
 import { buildTestRouter, createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
@@ -537,6 +538,27 @@ describe('InboxWatching against its design file (#2621)', () => {
     expect(plate.attributes('style')).toContain('var(--color-accent-fill)')
     // -> Square, per the design; `rounded` would be a corner treatment the language never draws
     expect(plate.classes()).toContain('rounded-none')
+  })
+
+  /**
+   * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`,
+   * so this plate drew the same bright light-mode tone against a dark ground. Fixed by resolving
+   * `color` through `dark.isActive` instead of the static `accent-fill` prop.
+   */
+  it('swaps the plate to accent-dark under dark mode (OpenProject #2807)', async () => {
+    useDark().set(true)
+    try {
+      stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
+
+      const { wrapper } = await mountInboxWatching()
+
+      const plate = plates(wrapper)[0]
+      expect(plate.attributes('style')).toContain('var(--color-accent-dark)')
+      expect(plate.attributes('style')).not.toContain('var(--color-accent-fill)')
+    } finally {
+      useDark().set(false)
+      document.body.classList.remove('body--dark', 'body--light')
+    }
   })
 
   it("draws a watched page's plate as a 36px slate square", async () => {

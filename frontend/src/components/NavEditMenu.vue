@@ -18,11 +18,17 @@
         :key="entry.value"
         class="nav-edit-menu__row"
         :class="{ 'nav-edit-menu__row--selected': state.mode === entry.value }">
+        <!--
+          `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
+          dark-mode override of its own (OpenProject #2807), so left alone the radio's ring/dot drew
+          the light-mode bright tone against a dark ground -- same swap `w-input-control`'s error
+          ring already makes in `tailwind.css`.
+        -->
         <w-radio
           class="nav-edit-menu__radio"
           v-model="state.mode"
           :val="entry.value"
-          color="accent-fill"
+          :color="dark.isActive ? `accent-dark` : `accent-fill`"
           :aria-label="t(entry.label)" />
         <nav-cascade-glyph :mode="entry.value" :root="isRoot" />
         <span class="nav-edit-menu__row-text">
@@ -36,11 +42,16 @@
       <div class="nav-edit-menu__rule" />
       <div class="nav-edit-menu__section">
         <div class="nav-edit-menu__section-label">{{ t('navEdit.menuSourceLabel') }}</div>
+        <!--
+          `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
+          dark-mode override of its own (OpenProject #2807), so left alone the selected segment
+          filled with the light-mode bright tone against a dark ground.
+        -->
         <w-btn-toggle
           class="nav-edit-menu__menu-source"
           v-model="state.menuMode"
           :options="menuSourceOptions"
-          toggle-color="accent-fill"
+          :toggle-color="dark.isActive ? `accent-dark` : `accent-fill`"
           :aria-label="t('navEdit.menuSourceLabel')" />
         <div class="nav-edit-menu__menu-source-hint">{{ menuSourceHint }}</div>
       </div>
@@ -76,6 +87,7 @@
 import { computed, onMounted, reactive, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
 import { usePageStore } from '@/stores/page'
@@ -97,6 +109,10 @@ const props = defineProps({
     default: () => ({})
   }
 })
+
+// DARK MODE
+
+const dark = useDark()
 
 // STORES
 

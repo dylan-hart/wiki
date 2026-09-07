@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import AuthRegisterScreen from './AuthRegisterScreen.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+import { useDark } from '@/composables/dark'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
@@ -150,5 +151,50 @@ describe('AuthRegisterScreen first/last name fields', () => {
     expect(API_CLIENT.post).not.toHaveBeenCalled()
     expect(notifyQueue.at(-1)?.type).toBe('negative')
     expect(wrapper.emitted('registered')).toBeUndefined()
+  })
+})
+
+/**
+ * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
+ * the "check your email" glyph drew the same bright light-mode tone against a dark ground. Fixed by
+ * resolving `color` through `dark.isActive` instead of the static `accent-fill` prop.
+ */
+describe('AuthRegisterScreen check-email glyph dark mode (OpenProject #2807)', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark', 'body--light')
+  })
+
+  it('draws accent-fill under light mode', () => {
+    useDark().set(false)
+    const wrapper = mountWithApp(AuthRegisterScreen, {
+      props: { screen: 'registerCheckEmail', strategyId: 'strat-local' },
+      messages: MESSAGES,
+      stores: {
+        site: (store) => {
+          store.id = 'site-1'
+        }
+      }
+    }).wrapper
+
+    const icon = wrapper.find('[data-icon="tabler:mail-opened"]')
+    expect(icon.classes()).toContain('text-accent-fill')
+    expect(icon.classes()).not.toContain('text-accent-dark')
+  })
+
+  it('swaps to accent-dark under dark mode', () => {
+    useDark().set(true)
+    const wrapper = mountWithApp(AuthRegisterScreen, {
+      props: { screen: 'registerCheckEmail', strategyId: 'strat-local' },
+      messages: MESSAGES,
+      stores: {
+        site: (store) => {
+          store.id = 'site-1'
+        }
+      }
+    }).wrapper
+
+    const icon = wrapper.find('[data-icon="tabler:mail-opened"]')
+    expect(icon.classes()).toContain('text-accent-dark')
+    expect(icon.classes()).not.toContain('text-accent-fill')
   })
 })

@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import NavEditMenu from './NavEditMenu.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useDark } from '@/composables/dark'
 
 import { createTestI18n } from '../../test/i18n.js'
 
@@ -253,5 +254,53 @@ describe('NavEditMenu', () => {
 
     const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
     expect(saveBtn.classes()).toContain('nav-edit-menu__save-btn')
+  })
+})
+
+/**
+ * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
+ * the selected cascade-mode radio and the selected "Menu source" toggle segment both drew the same
+ * bright light-mode tone against a dark ground. Fixed by resolving `color`/`toggle-color` through
+ * `dark.isActive` instead of the static `accent-fill` prop.
+ */
+describe('NavEditMenu accent-fill dark mode (OpenProject #2807)', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark', 'body--light')
+  })
+
+  /*
+    The color is on the ring/dot spans inside `w-radio`'s root button (`WRadio.vue`'s own inline
+    `:style`), not on the button itself, which carries the `nav-edit-menu__radio` class.
+  */
+  it('draws the selected cascade-mode radio in accent-dark under dark mode', async () => {
+    useDark().set(true)
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const dot = wrapper.find('.nav-edit-menu__radio[aria-checked="true"] span[style]')
+    expect(dot.attributes('style')).toContain('var(--color-accent-dark)')
+    expect(dot.attributes('style')).not.toContain('var(--color-accent-fill)')
+  })
+
+  it('draws the selected cascade-mode radio in accent-fill under light mode', async () => {
+    useDark().set(false)
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const dot = wrapper.find('.nav-edit-menu__radio[aria-checked="true"] span[style]')
+    expect(dot.attributes('style')).toContain('var(--color-accent-fill)')
+    expect(dot.attributes('style')).not.toContain('var(--color-accent-dark)')
+  })
+
+  it('fills the selected "Menu source" segment with accent-dark under dark mode', async () => {
+    useDark().set(true)
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const selectedSegment = wrapper.find(
+      '.nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked="true"]'
+    )
+    expect(selectedSegment.attributes('style')).toContain('var(--color-accent-dark)')
+    expect(selectedSegment.attributes('style')).not.toContain('var(--color-accent-fill)')
   })
 })

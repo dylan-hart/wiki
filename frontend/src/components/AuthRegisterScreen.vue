@@ -113,9 +113,18 @@
         and the bright tone is the one the language reserves for exactly that (`primary` is the
         darkened tone, for accent TEXT and for a fill under a white label). The design draws it at
         `#e4676b`.
+
+        `dark.isActive` swaps it for `accent-dark` under dark mode -- `--color-accent-fill` has no
+        dark-mode override of its own (OpenProject #2807), so left alone this drew the same bright
+        Ledger/Cobalt tone against a dark ground that `--color-accent-dark` exists to replace it
+        with, the same swap `w-input-control`'s error ring makes in `tailwind.css`.
       -->
       <div class="flex flex-col items-center pt-3.5 text-center">
-        <w-icon name="tabler:mail-opened" size="48px" color="accent-fill" class="mb-3.5" />
+        <w-icon
+          name="tabler:mail-opened"
+          size="48px"
+          :color="dark.isActive ? `accent-dark` : `accent-fill`"
+          class="mb-3.5" />
         <p class="auth-notice">{{ t('auth.registerCheckEmail') }}</p>
       </div>
       <w-separator spaced="16px" />
