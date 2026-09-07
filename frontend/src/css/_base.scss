@@ -207,18 +207,25 @@ body.body--dark {
 // A dialog's own title band: the raised tone, in tracked uppercase Barlow Condensed. Flat -- the
 // radial gradient and the pair of edge shadows this replaces were elevation, which Cardinal draws
 // with a hairline instead.
+//
+// `background-color`/`border-bottom-color` read the runtime `--color-dark-2`/`--color-hairline-dark`
+// custom properties, not the compile-time `theme.$dark-2`/`$hairline-dark` Sass constants they were
+// baked from -- so this band follows the site's aesthetic (`body.body--cobalt` and friends) instead
+// of always drawing Ledger's own near-black, the same way every other `dark:`-aware surface in the
+// app already does. This is a shared class, used by 60+ dialogs beyond `WConfirmDialog.vue`
+// (`NavEditOverlay.vue` among them) -- the change is deliberately app-wide (OpenProject #2815).
 .card-header {
   display: flex;
   align-items: center;
   padding: 10px 14px;
-  background-color: theme.$dark-2;
+  background-color: var(--color-dark-2);
   color: #fff;
   font-family: var(--font-display);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  border-bottom: 1px solid theme.$hairline-dark;
+  border-bottom: 1px solid var(--color-hairline-dark);
 }
 
 // The same band in the chrome tone, for a side panel: the design draws the page-properties panel's

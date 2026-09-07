@@ -93,3 +93,29 @@ describe('_base.scss chrome background resolves through the token only', () => {
     expect(sidebarRule[1].trim()).toBe('background: var(--q-sidebar);')
   })
 })
+
+/**
+ * OpenProject #2815. `.card-header` -- the dialog title band shared by `WConfirmDialog.vue` and
+ * 60+ other dialogs -- used to draw its background/border from the compile-time
+ * `theme.$dark-2`/`$hairline-dark` Sass constants, which meant it could never pick up
+ * `body.body--cobalt.body--dark`'s runtime override and stayed Ledger-colored under every other
+ * aesthetic. Same source-scan rationale as the `--q-header`/`--q-sidebar` describe above: nothing
+ * compiles Sass in this test environment, so the regression this guards against (a literal or a
+ * Sass constant creeping back into the rule) is only visible by reading the rule body directly.
+ */
+describe('.card-header title band resolves through runtime tokens only', () => {
+  const source = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+  // -> `\s*\{` (no `--slate` in between) is what keeps this from matching `.card-header--slate`.
+  const cardHeaderRule = source.match(/\.card-header\s*\{([^}]*)\}/)
+
+  it('finds the .card-header rule', () => {
+    expect(cardHeaderRule, '.card-header rule found').toBeTruthy()
+  })
+
+  it('paints background-color and border-bottom with var(--color-*), not a theme.$ Sass constant', () => {
+    const body = cardHeaderRule[1]
+    expect(body).toMatch(/background-color:\s*var\(--color-dark-2\)/)
+    expect(body).toMatch(/border-bottom:\s*1px solid var\(--color-hairline-dark\)/)
+    expect(body).not.toMatch(/theme\.\$/)
+  })
+})
