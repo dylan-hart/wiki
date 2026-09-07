@@ -212,6 +212,23 @@
           </w-list>
         </w-menu>
       </w-btn>
+      <!--
+        -> Gated on `read:source`, the same permission the export endpoint's own `format=markdown`
+           branch checks -- no button that would just 403, per the convention `canRerenderPage`
+           documents above.
+      -->
+      <w-btn
+        class="h-12"
+        v-if="userStore.can(`read:source`)"
+        flat
+        icon="tabler:copy"
+        :color="editorStore.isActive ? `white` : `slate-soft`"
+        :aria-label="t('pageActions.copyPageContent')"
+        @click="copyPageContent">
+        <w-tooltip anchor="center left" self="center right">{{
+          t('pageActions.copyPageContent')
+        }}</w-tooltip>
+      </w-btn>
     </template>
     <template v-if="!isRedirect && !(editorStore.isActive && editorStore.mode === `create`)">
       <w-separator class="my-2" inset />
@@ -313,6 +330,7 @@ import { fileSave } from 'browser-fs-access'
 import { confirm, dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { copyToClipboard } from '@/helpers/clipboard'
 import {
   renameFileName,
   sanitizeBaseName,
@@ -489,6 +507,30 @@ async function exportPageText(format) {
         caption: apiErrorMessage(err)
       })
     }
+  }
+}
+
+/**
+ * Copies the page's raw stored content to the clipboard (OpenProject #2795) -- the same
+ * `format=markdown` export endpoint `exportPageText` uses, but copied via `copyToClipboard()`
+ * instead of downloaded via `fileSave()`. The endpoint hands back each editor's native raw
+ * `content` regardless of the `format` name, so this is literal Markdown only for a `markdown`
+ * page; for `code`/`wysiwyg` it's HTML source, and for `asciidoc` it's AsciiDoc source -- which is
+ * why the button/tooltip label reads generically rather than "Copy as Markdown".
+ */
+async function copyPageContent() {
+  try {
+    const text = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/export`, {
+      searchParams: { format: 'markdown' }
+    }).text()
+    await copyToClipboard(text)
+    notify({ type: 'positive', message: t('pages.copyContent.success') })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('pages.copyContent.failed'),
+      caption: apiErrorMessage(err)
+    })
   }
 }
 

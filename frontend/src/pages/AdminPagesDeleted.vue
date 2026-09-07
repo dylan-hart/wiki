@@ -27,7 +27,6 @@
         </w-btn>
       </div>
     </div>
-    <w-separator inset />
     <div class="p-4">
       <w-card>
         <w-table

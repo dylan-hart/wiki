@@ -1235,13 +1235,24 @@ class Navigation {
       if (menuMode) {
         set.mode = menuMode
       }
+      /*
+        A brand-new row's own `mode` is menuMode when given, else `static` when items are being
+        saved -- items with no explicit mode are always a hand-authored menu, and the bare schema
+        default (`auto`, since OpenProject #2745) would otherwise make `getNav()` ignore them
+        entirely in favor of a page-tree-generated menu (OpenProject #2796). This only affects the
+        INSERT branch: an existing row's mode is left alone unless `menuMode` is explicitly given
+        (see `set` above), and a bare mode switch with neither `items` nor `menuMode` never reaches
+        this block at all, so `ensureSiteNav`'s "no items at all defaults to auto" behavior is
+        unregressed.
+      */
+      const insertMode = menuMode ?? (items ? 'static' : undefined)
       await WIKI.db
         .insert(navigationTable)
         .values({
           id: targetNavId,
           siteId,
           items: items ?? [],
-          ...(menuMode && { mode: menuMode })
+          ...(insertMode && { mode: insertMode })
         })
         .onConflictDoUpdate({ target: navigationTable.id, set })
     }

@@ -25,7 +25,6 @@
         </w-btn>
       </div>
     </div>
-    <w-separator inset />
     <div class="p-4">
       <w-card class="rounded mb-4" :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
         <w-card-section class="flex flex-wrap gap-3 items-end">

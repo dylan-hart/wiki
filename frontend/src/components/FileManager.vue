@@ -417,7 +417,7 @@
             <w-btn
               class="fileman-new-btn me-2"
               outline
-              :color="dark.isActive ? `text-secondary-dark` : `slate`"
+              :color="dark.isActive ? `slate-light` : `slate`"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
               icon="tabler:plus">

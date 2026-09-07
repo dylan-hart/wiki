@@ -1,6 +1,12 @@
 <template>
-  <w-drawer class="bg-dark-6" :model-value="true" :width="295" dark>
-    <w-scroll-area class="nav-edit">
+  <w-drawer class="nav-edit-drawer" :model-value="true" :width="295">
+    <!-- -> The Ledger column header: an eyebrow plus the item count, matching the handoff's own
+            "Menu items" band above the tree (`ui-redesign-nav/HANDOFF.md` §2). -->
+    <div class="nav-edit-drawer-header">
+      <span class="nav-edit-drawer-eyebrow">{{ t('navEdit.itemsHeading') }}</span>
+      <span class="nav-edit-drawer-count">{{ state.items.length }}</span>
+    </div>
+    <w-scroll-area class="nav-edit flex-1 min-h-0">
       <!--
         The `q-list q-list--dense q-list--dark` this carried were the old framework's classes and
         nothing defines them any more, which is why the rows had drifted to full height: the density
@@ -53,7 +59,15 @@
             }"
             @click="setItem(element)"
             clickable>
-            <w-item-section side><w-icon :name="element.icon" color="white" /></w-item-section>
+            <!--
+              -> Shown only for the first generated row after a manual one (see the CSS): the eyebrow
+                 marking `isMixed`'s generated block, which the handoff draws once above the run rather
+                 than per row.
+            -->
+            <span class="nav-edit-generated-eyebrow" v-if="element.generated">
+              {{ t('navEdit.generatedFromTree') }}
+            </span>
+            <w-item-section side><w-icon :name="element.icon" /></w-item-section>
             <w-item-section class="text-wordbreak-all">{{ element.label }}</w-item-section>
             <w-item-section side>
               <w-icon
@@ -71,7 +85,7 @@
               'is-generated': element.generated
             }"
             @click="setItem(element)">
-            <w-separator dark inset style="flex: 1; margin-top: 11px" />
+            <w-separator inset style="flex: 1" />
             <w-item-section side>
               <w-icon
                 v-if="!element.generated"
@@ -82,404 +96,370 @@
           </div>
         </template>
       </sortable>
-      <div class="p-4 flex" v-if="!isAuto">
-        <w-btn
-          class="acrylic-btn"
-          style="flex: 1"
-          flat
-          color="positive"
-          :label="t(`common.actions.add`)"
-          :aria-label="t(`common.actions.add`)"
-          icon="tabler:plus">
-          <w-menu fit :offset="[0, 10]" auto-close>
-            <w-list separator>
-              <w-item clickable @click="addItem(`header`)">
-                <w-item-section side><w-icon name="tabler:heading" /></w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t('navEdit.header') }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-item clickable @click="addItem(`link`)">
-                <w-item-section side><w-icon name="tabler:link" /></w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t('navEdit.link') }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-item clickable @click="addItem(`separator`)">
-                <w-item-section side><w-icon name="tabler:minus" /></w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t('navEdit.separator') }}</w-item-label>
-                </w-item-section>
-              </w-item>
-            </w-list>
-          </w-menu>
-        </w-btn>
-        <w-btn
-          class="ms-2 acrylic-btn"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.add`)"
-          icon="tabler:dots-vertical"
-          padding="xs sm">
-          <w-menu :offset="[0, 10]" anchor="bottom right" self="top right" auto-close>
-            <w-list separator>
-              <w-item
-                clickable
-                @click="clearItems"
-                :disabled="!state.items.some((item) => !item.generated)">
-                <w-item-section side>
-                  <w-icon name="tabler:trash" color="negative" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t('navEdit.clearItems') }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <!--
-                Hidden rather than disabled when there is nothing to copy from -- a single-locale site
-                with no other enabled site has no picker this could open onto.
-              -->
-              <w-item clickable @click="openCopyDialog" v-if="canCopyFrom">
-                <w-item-section side>
-                  <w-icon name="tabler:file-import" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>{{ t('navEdit.copyFrom') }}</w-item-label>
-                </w-item-section>
-              </w-item>
-            </w-list>
-          </w-menu>
-        </w-btn>
-      </div>
     </w-scroll-area>
-  </w-drawer>
-  <w-page-container>
-    <w-page class="p-4">
-      <template v-if="state.items.length < 1">
-        <w-card>
-          <w-card-section>
-            <w-icon class="me-2" name="tabler:arrow-left" size="xs" />
-            <span>{{ t('navEdit.emptyMenuText') }}</span>
-          </w-card-section>
-        </w-card>
-      </template>
-      <template v-else-if="!state.selected">
-        <w-card>
-          <w-card-section>
-            <w-icon class="me-2" name="tabler:arrow-left" size="xs" />
-            <span>{{ t('navEdit.noSelection') }}</span>
-          </w-card-section>
-        </w-card>
-      </template>
-      <template v-if="state.current.type === `header`">
-        <w-banner
-          v-if="editingDisabled"
-          dense
-          class="mb-2"
-          :class="dark.isActive ? `bg-negative text-white` : `bg-grey-3 text-grey-9`">
-          {{ t('navEdit.menuSourceReadOnlyNotice') }}
-        </w-banner>
-        <w-card class="pb-2" :class="{ 'nav-edit-readonly': editingDisabled }">
-          <w-card-section>
-            <div class="text-subtitle1">{{ t('navEdit.header') }}</div>
-          </w-card-section>
-          <w-item>
-            <blueprint-icon icon="tabler:typography" />
-            <w-item-section>
-              <w-item-label>{{ t(`navEdit.label`) }}</w-item-label>
-              <w-item-label caption>{{ t(`navEdit.labelHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.current.label"
-                dense
-                hide-bottom-space
-                :aria-label="t(`navEdit.label`)" />
-            </w-item-section>
-          </w-item>
-          <w-item>
-            <blueprint-icon icon="tabler:users-group" />
-            <w-item-section>
-              <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
-              <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-btn-toggle
-                v-model="state.current.visibilityLimited"
-                toggle-color="primary"
-                :aria-label="t(`navEdit.visibility`)"
-                :options="visibilityOptions" />
-            </w-item-section>
-          </w-item>
-          <w-item class="items-center" v-if="state.current.visibilityLimited">
-            <w-space />
-            <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
-            <w-select
-              style="width: 100%; max-width: calc(50% - 34px)"
-              v-model="state.current.visibilityGroups"
-              :options="state.groups"
-              option-value="id"
-              option-label="name"
-              emit-value
-              map-options
-              dense
-              multiple
-              :aria-label="t(`navEdit.selectGroups`)" />
-          </w-item>
-        </w-card>
-        <w-card class="p-4 mt-4 flex" v-if="!editingDisabled">
-          <w-space />
-          <w-btn
-            class="acrylic-btn"
-            flat
-            icon="tabler:trash"
-            :label="t(`common.actions.delete`)"
-            color="negative"
-            padding="xs md"
-            @click="removeItem(state.current.id)" />
-        </w-card>
-      </template>
-      <template v-if="state.current.type === `link`">
-        <w-banner
-          v-if="editingDisabled"
-          dense
-          class="mb-2"
-          :class="dark.isActive ? `bg-negative text-white` : `bg-grey-3 text-grey-9`">
-          {{ t('navEdit.menuSourceReadOnlyNotice') }}
-        </w-banner>
-        <w-card class="pb-2" :class="{ 'nav-edit-readonly': editingDisabled }">
-          <w-card-section
-            ><div class="text-subtitle1">{{ t('navEdit.link') }}</div></w-card-section
-          >
-          <w-item>
-            <blueprint-icon icon="tabler:typography" />
-            <w-item-section>
-              <w-item-label>{{ t(`navEdit.label`) }}</w-item-label>
-              <w-item-label caption>{{ t(`navEdit.labelHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input
-                v-model="state.current.label"
-                dense
-                hide-bottom-space
-                :aria-label="t(`navEdit.label`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:star" />
-            <w-item-section>
-              <w-item-label>{{ t(`navEdit.icon`) }}</w-item-label>
-              <w-item-label caption>{{ t(`navEdit.iconHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section>
-              <w-input v-model="state.current.icon" dense :aria-label="t(`navEdit.icon`)">
-                <template #append>
-                  <!--
-                    A button, not a bare `w-icon`: for a bundled icon WIcon renders an <svg> whose
-                    body is set through `v-html`, and that branch renders no slot -- so the menu
-                    inside it never existed and the control did nothing. It was also just the glyph,
-                    with no hit area of its own. Same fix as the page-properties dialog.
-                  -->
-                  <w-btn
-                    flat
-                    dense
-                    round
-                    icon="tabler:search"
-                    color="primary"
-                    :aria-label="t(`iconPicker.open`)">
-                    <w-tooltip>{{ t('iconPicker.open') }}</w-tooltip>
-                    <w-menu content-class="shadow-7">
-                      <icon-picker-dialog v-model="state.current.icon" />
-                    </w-menu>
-                  </w-btn>
-                </template>
-              </w-input>
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <!--
-            A parent is a row that opens a submenu rather than a row that goes anywhere: the sidebar
-            renders it as an expansion item and never reads its target, so both fields below are
-            hidden rather than shown doing nothing. Hidden, not cleared -- unnesting the last child
-            turns the row back into an ordinary link, and it comes back with the address it had.
-          -->
-          <template v-if="currentIsParent">
-            <w-item tag="label">
-              <blueprint-icon icon="tabler:chevron-right" />
+    <!--
+      -> Pinned outside the scroll area rather than scrolling with the list (it used to be the last
+         child inside `w-scroll-area`): the handoff draws it as the drawer's own bottom bar, ruled off
+         above, present whenever there is something of this menu's own to add.
+    -->
+    <div class="nav-edit-bottombar" v-if="!isAuto">
+      <w-btn
+        style="flex: 1"
+        color="primary"
+        :label="t(`common.actions.add`)"
+        :aria-label="t(`common.actions.add`)"
+        icon="tabler:plus">
+        <w-icon name="tabler:chevron-down" size="xs" />
+        <w-menu fit :offset="[0, 10]" auto-close>
+          <w-list separator>
+            <w-item clickable @click="addItem(`header`)">
+              <w-item-section side><w-icon name="tabler:heading" /></w-item-section>
               <w-item-section>
-                <w-item-label>{{ t(`navEdit.expandByDefault`) }}</w-item-label>
-                <w-item-label caption>{{ t(`navEdit.expandByDefaultHint`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section avatar>
-                <w-toggle
-                  v-model="state.current.expandByDefault"
-                  :aria-label="t(`navEdit.expandByDefault`)" />
+                <w-item-label>{{ t('navEdit.header') }}</w-item-label>
               </w-item-section>
             </w-item>
-          </template>
-          <template v-else>
-            <w-item>
-              <blueprint-icon icon="tabler:link" />
+            <w-item clickable @click="addItem(`link`)">
+              <w-item-section side><w-icon name="tabler:link" /></w-item-section>
               <w-item-section>
-                <w-item-label>{{ t(`navEdit.target`) }}</w-item-label>
-                <w-item-label caption>{{ t(`navEdit.targetHint`) }}</w-item-label>
+                <w-item-label>{{ t('navEdit.link') }}</w-item-label>
+              </w-item-section>
+            </w-item>
+            <w-item clickable @click="addItem(`separator`)">
+              <w-item-section side><w-icon name="tabler:minus" /></w-item-section>
+              <w-item-section>
+                <w-item-label>{{ t('navEdit.separator') }}</w-item-label>
+              </w-item-section>
+            </w-item>
+          </w-list>
+        </w-menu>
+      </w-btn>
+      <w-btn
+        class="ms-2"
+        outline
+        color="slate"
+        :aria-label="t(`common.actions.add`)"
+        icon="tabler:dots-vertical"
+        padding="xs sm">
+        <w-menu :offset="[0, 10]" anchor="bottom right" self="top right" auto-close>
+          <w-list separator>
+            <w-item
+              clickable
+              @click="clearItems"
+              :disabled="!state.items.some((item) => !item.generated)">
+              <w-item-section side>
+                <w-icon name="tabler:trash" color="negative" />
+              </w-item-section>
+              <w-item-section>
+                <w-item-label>{{ t('navEdit.clearItems') }}</w-item-label>
+              </w-item-section>
+            </w-item>
+            <!--
+              Hidden rather than disabled when there is nothing to copy from -- a single-locale site
+              with no other enabled site has no picker this could open onto.
+            -->
+            <w-item clickable @click="openCopyDialog" v-if="canCopyFrom">
+              <w-item-section side>
+                <w-icon name="tabler:file-import" />
+              </w-item-section>
+              <w-item-section>
+                <w-item-label>{{ t('navEdit.copyFrom') }}</w-item-label>
+              </w-item-section>
+            </w-item>
+          </w-list>
+        </w-menu>
+      </w-btn>
+    </div>
+  </w-drawer>
+  <w-page-container>
+    <w-page class="nav-edit-panel">
+      <div class="nav-edit-callout" v-if="state.items.length < 1">
+        <div class="nav-edit-callout__icon"><w-icon name="tabler:arrow-left" size="18px" /></div>
+        <p>{{ t('navEdit.emptyMenuText') }}</p>
+      </div>
+      <div class="nav-edit-callout" v-else-if="!state.selected">
+        <div class="nav-edit-callout__icon"><w-icon name="tabler:arrow-left" size="18px" /></div>
+        <p>{{ t('navEdit.noSelection') }}</p>
+      </div>
+      <template v-else>
+        <!-- -> The read-only notice sits ABOVE the (dimmed) card, per the handoff, rather than as a
+                banner glued to its top edge. -->
+        <div class="nav-edit-callout" v-if="editingDisabled">
+          <div class="nav-edit-callout__icon"><w-icon name="tabler:info-circle" size="18px" /></div>
+          <p>{{ t('navEdit.menuSourceReadOnlyNotice') }}</p>
+        </div>
+
+        <!--
+          One property card for every item type, per the handoff's "settings-row primitive" (the same
+          `BlueprintIcon` plate + `w-item` row this app's settings pages already draw with) -- rather
+          than three near-duplicate `w-card`s, only the type name, the parent badge and the rows inside
+          differ.
+        -->
+        <w-card class="nav-edit-card" :class="{ 'nav-edit-card--disabled': editingDisabled }">
+          <i class="nav-edit-card__corner nav-edit-card__corner--tl" aria-hidden="true"></i>
+          <i class="nav-edit-card__corner nav-edit-card__corner--tr" aria-hidden="true"></i>
+          <i class="nav-edit-card__corner nav-edit-card__corner--bl" aria-hidden="true"></i>
+          <i class="nav-edit-card__corner nav-edit-card__corner--br" aria-hidden="true"></i>
+          <div class="nav-edit-card__header">
+            <span>{{ currentTypeLabel }}</span>
+            <span class="nav-edit-parent-badge" v-if="currentIsParent">
+              {{ t('navEdit.parentBadge', { count: currentChildCount }) }}
+            </span>
+          </div>
+
+          <template v-if="state.current.type === `header`">
+            <w-item>
+              <blueprint-icon icon="tabler:typography" />
+              <w-item-section>
+                <w-item-label>{{ t(`navEdit.label`) }}</w-item-label>
+                <w-item-label caption>{{ t(`navEdit.labelHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section>
                 <w-input
-                  v-model="state.current.target"
+                  v-model="state.current.label"
                   dense
                   hide-bottom-space
-                  :aria-label="t(`navEdit.target`)">
+                  :aria-label="t(`navEdit.label`)" />
+              </w-item-section>
+            </w-item>
+            <w-item>
+              <blueprint-icon icon="tabler:users-group" />
+              <w-item-section>
+                <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
+                <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section avatar>
+                <w-btn-toggle
+                  v-model="state.current.visibilityLimited"
+                  toggle-color="primary"
+                  :aria-label="t(`navEdit.visibility`)"
+                  :options="visibilityOptions" />
+              </w-item-section>
+            </w-item>
+            <w-item class="items-center" v-if="state.current.visibilityLimited">
+              <w-space />
+              <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
+              <w-select
+                style="width: 100%; max-width: calc(50% - 34px)"
+                v-model="state.current.visibilityGroups"
+                :options="state.groups"
+                option-value="id"
+                option-label="name"
+                emit-value
+                map-options
+                dense
+                multiple
+                :aria-label="t(`navEdit.selectGroups`)" />
+            </w-item>
+          </template>
+
+          <template v-if="state.current.type === `link`">
+            <w-item>
+              <blueprint-icon icon="tabler:typography" />
+              <w-item-section>
+                <w-item-label>{{ t(`navEdit.label`) }}</w-item-label>
+                <w-item-label caption>{{ t(`navEdit.labelHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section>
+                <w-input
+                  v-model="state.current.label"
+                  dense
+                  hide-bottom-space
+                  :aria-label="t(`navEdit.label`)" />
+              </w-item-section>
+            </w-item>
+            <w-item>
+              <blueprint-icon icon="tabler:star" />
+              <w-item-section>
+                <w-item-label>{{ t(`navEdit.icon`) }}</w-item-label>
+                <w-item-label caption>{{ t(`navEdit.iconHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section>
+                <w-input v-model="state.current.icon" dense :aria-label="t(`navEdit.icon`)">
                   <template #append>
                     <!--
-                      Beside the field rather than in place of it: a path someone knows is quicker
-                      typed than browsed to, and an external URL has nothing to browse. Same shape as
-                      the icon picker's button one row up, for the same reason -- both open a chooser
-                      for the field they sit in.
+                      A button, not a bare `w-icon`: for a bundled icon WIcon renders an <svg> whose
+                      body is set through `v-html`, and that branch renders no slot -- so the menu
+                      inside it never existed and the control did nothing. It was also just the glyph,
+                      with no hit area of its own. Same fix as the page-properties dialog.
                     -->
                     <w-btn
                       flat
                       dense
                       round
-                      icon="tabler:folder-open"
+                      icon="tabler:search"
                       color="primary"
-                      :aria-label="t(`common.actions.browse`)"
-                      @click="browseTarget">
-                      <w-tooltip>{{ t('common.actions.browse') }}</w-tooltip>
+                      :aria-label="t(`iconPicker.open`)">
+                      <w-tooltip>{{ t('iconPicker.open') }}</w-tooltip>
+                      <w-menu content-class="shadow-7">
+                        <icon-picker-dialog v-model="state.current.icon" />
+                      </w-menu>
                     </w-btn>
                   </template>
                 </w-input>
               </w-item-section>
             </w-item>
-            <w-separator class="my-2" inset />
-            <w-item tag="label">
-              <blueprint-icon icon="tabler:external-link" />
+            <!--
+              A parent is a row that opens a submenu rather than a row that goes anywhere: the sidebar
+              renders it as an expansion item and never reads its target, so both fields below are
+              hidden rather than shown doing nothing. Hidden, not cleared -- unnesting the last child
+              turns the row back into an ordinary link, and it comes back with the address it had.
+            -->
+            <template v-if="currentIsParent">
+              <w-item tag="label">
+                <blueprint-icon icon="tabler:chevron-right" />
+                <w-item-section>
+                  <w-item-label>{{ t(`navEdit.expandByDefault`) }}</w-item-label>
+                  <w-item-label caption>{{ t(`navEdit.expandByDefaultHint`) }}</w-item-label>
+                </w-item-section>
+                <w-item-section avatar>
+                  <w-toggle
+                    v-model="state.current.expandByDefault"
+                    :aria-label="t(`navEdit.expandByDefault`)" />
+                </w-item-section>
+              </w-item>
+            </template>
+            <template v-else>
+              <w-item>
+                <blueprint-icon icon="tabler:link" />
+                <w-item-section>
+                  <w-item-label>{{ t(`navEdit.target`) }}</w-item-label>
+                  <w-item-label caption>{{ t(`navEdit.targetHint`) }}</w-item-label>
+                </w-item-section>
+                <w-item-section>
+                  <w-input
+                    v-model="state.current.target"
+                    dense
+                    hide-bottom-space
+                    :aria-label="t(`navEdit.target`)">
+                    <template #append>
+                      <!--
+                        Beside the field rather than in place of it: a path someone knows is quicker
+                        typed than browsed to, and an external URL has nothing to browse. Same shape as
+                        the icon picker's button one row up, for the same reason -- both open a chooser
+                        for the field they sit in.
+                      -->
+                      <w-btn
+                        flat
+                        dense
+                        round
+                        icon="tabler:folder-open"
+                        color="primary"
+                        :aria-label="t(`common.actions.browse`)"
+                        @click="browseTarget">
+                        <w-tooltip>{{ t('common.actions.browse') }}</w-tooltip>
+                      </w-btn>
+                    </template>
+                  </w-input>
+                </w-item-section>
+              </w-item>
+              <w-item tag="label">
+                <blueprint-icon icon="tabler:external-link" />
+                <w-item-section>
+                  <w-item-label>{{ t(`navEdit.openInNewWindow`) }}</w-item-label>
+                  <w-item-label caption>{{ t(`navEdit.openInNewWindowHint`) }}</w-item-label>
+                </w-item-section>
+                <w-item-section avatar>
+                  <w-toggle
+                    v-model="state.current.openInNewWindow"
+                    :aria-label="t(`navEdit.openInNewWindow`)" />
+                </w-item-section>
+              </w-item>
+            </template>
+            <w-item>
+              <blueprint-icon icon="tabler:users-group" />
               <w-item-section>
-                <w-item-label>{{ t(`navEdit.openInNewWindow`) }}</w-item-label>
-                <w-item-label caption>{{ t(`navEdit.openInNewWindowHint`) }}</w-item-label>
+                <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
+                <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
               </w-item-section>
               <w-item-section avatar>
-                <w-toggle
-                  v-model="state.current.openInNewWindow"
-                  :aria-label="t(`navEdit.openInNewWindow`)" />
+                <w-btn-toggle
+                  v-model="state.current.visibilityLimited"
+                  toggle-color="primary"
+                  :aria-label="t(`navEdit.visibility`)"
+                  :options="visibilityOptions" />
               </w-item-section>
             </w-item>
+            <w-item class="items-center" v-if="state.current.visibilityLimited">
+              <w-space />
+              <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
+              <w-select
+                style="width: 100%; max-width: calc(50% - 34px)"
+                v-model="state.current.visibilityGroups"
+                :options="state.groups"
+                option-value="id"
+                option-label="name"
+                emit-value
+                map-options
+                dense
+                multiple
+                :aria-label="t(`navEdit.selectGroups`)" />
+            </w-item>
           </template>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="tabler:users-group" />
-            <w-item-section>
-              <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
-              <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-btn-toggle
-                v-model="state.current.visibilityLimited"
-                toggle-color="primary"
-                :aria-label="t(`navEdit.visibility`)"
-                :options="visibilityOptions" />
-            </w-item-section>
-          </w-item>
-          <w-item class="items-center" v-if="state.current.visibilityLimited">
-            <w-space />
-            <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
-            <w-select
-              style="width: 100%; max-width: calc(50% - 34px)"
-              v-model="state.current.visibilityGroups"
-              :options="state.groups"
-              option-value="id"
-              option-label="name"
-              emit-value
-              map-options
-              dense
-              multiple
-              :aria-label="t(`navEdit.selectGroups`)" />
-          </w-item>
+
+          <template v-if="state.current.type === `separator`">
+            <w-item>
+              <blueprint-icon icon="tabler:users-group" />
+              <w-item-section>
+                <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
+                <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section avatar>
+                <w-btn-toggle
+                  v-model="state.current.visibilityLimited"
+                  toggle-color="primary"
+                  :aria-label="t(`navEdit.visibility`)"
+                  :options="visibilityOptions" />
+              </w-item-section>
+            </w-item>
+            <w-item class="items-center" v-if="state.current.visibilityLimited">
+              <w-space />
+              <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
+              <w-select
+                style="width: 100%; max-width: calc(50% - 34px)"
+                v-model="state.current.visibilityGroups"
+                :options="state.groups"
+                option-value="id"
+                option-label="name"
+                emit-value
+                map-options
+                dense
+                multiple
+                :aria-label="t(`navEdit.selectGroups`)" />
+            </w-item>
+          </template>
         </w-card>
-        <w-card class="p-4 mt-4 flex items-start" v-if="!editingDisabled">
-          <div>
-            <w-btn
-              class="acrylic-btn"
-              v-if="state.current.isNested"
-              flat
-              :label="t(`navEdit.unnestItem`)"
-              icon="tabler:indent-decrease"
-              color="teal"
-              padding="xs md"
-              @click="state.current.isNested = false" />
-            <w-btn
-              class="acrylic-btn"
-              v-else
-              flat
-              :label="t(`navEdit.nestItem`)"
-              icon="tabler:indent-increase"
-              color="teal"
-              padding="xs md"
-              @click="state.current.isNested = true" />
-            <div class="text-caption mt-4 text-grey-7">{{ t('navEdit.nestingWarn') }}</div>
+
+        <!--
+          Structure card: nest/un-nest for a link, Delete for every type -- one card rather than the
+          per-type duplicate this used to be, matching the handoff's "header and separator items get
+          the same card with only Delete".
+        -->
+        <w-card class="nav-edit-structure-card" v-if="!editingDisabled">
+          <div class="nav-edit-structure-card__nest" v-if="state.current.type === `link`">
+            <div class="nav-edit-structure-card__buttons">
+              <w-btn
+                outline
+                color="slate"
+                icon="tabler:indent-increase"
+                :label="t(`navEdit.nestItem`)"
+                :disabled="state.current.isNested"
+                @click="state.current.isNested = true" />
+              <w-btn
+                outline
+                color="slate"
+                icon="tabler:indent-decrease"
+                :label="t(`navEdit.unnestItem`)"
+                :disabled="!state.current.isNested"
+                @click="state.current.isNested = false" />
+            </div>
+            <div class="nav-edit-structure-card__caption">{{ t('navEdit.nestingWarn') }}</div>
           </div>
           <w-space />
           <w-btn
-            class="acrylic-btn"
             flat
             icon="tabler:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
-            padding="xs md"
-            @click="removeItem(state.current.id)" />
-        </w-card>
-      </template>
-      <template v-if="state.current.type === `separator`">
-        <w-banner
-          v-if="editingDisabled"
-          dense
-          class="mb-2"
-          :class="dark.isActive ? `bg-negative text-white` : `bg-grey-3 text-grey-9`">
-          {{ t('navEdit.menuSourceReadOnlyNotice') }}
-        </w-banner>
-        <w-card class="pb-2" :class="{ 'nav-edit-readonly': editingDisabled }">
-          <w-card-section>
-            <div class="text-subtitle1">{{ t('navEdit.separator') }}</div>
-          </w-card-section>
-          <w-item>
-            <blueprint-icon icon="tabler:users-group" />
-            <w-item-section>
-              <w-item-label>{{ t(`navEdit.visibility`) }}</w-item-label>
-              <w-item-label caption>{{ t(`navEdit.visibilityHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-btn-toggle
-                v-model="state.current.visibilityLimited"
-                toggle-color="primary"
-                :aria-label="t(`navEdit.visibility`)"
-                :options="visibilityOptions" />
-            </w-item-section>
-          </w-item>
-          <w-item class="items-center" v-if="state.current.visibilityLimited">
-            <w-space />
-            <div class="text-caption me-4">{{ t('navEdit.selectGroups') }}</div>
-            <w-select
-              style="width: 100%; max-width: calc(50% - 34px)"
-              v-model="state.current.visibilityGroups"
-              :options="state.groups"
-              option-value="id"
-              option-label="name"
-              emit-value
-              map-options
-              dense
-              multiple
-              :aria-label="t(`navEdit.selectGroups`)" />
-          </w-item>
-        </w-card>
-        <w-card class="p-4 mt-4 flex" v-if="!editingDisabled">
-          <w-space />
-          <w-btn
-            class="acrylic-btn"
-            flat
-            icon="tabler:trash"
-            :label="t(`common.actions.delete`)"
-            color="negative"
-            padding="xs md"
             @click="removeItem(state.current.id)" />
         </w-card>
       </template>
@@ -499,7 +479,6 @@ import { Sortable } from 'sortablejs-vue3'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { flattenMenuItems, reconstructMenuItems } from '@/helpers/navigation.js'
-import { useDark } from '@/composables/dark'
 
 /**
  * The item-list-plus-detail-panel navigation editor: the sortable list of items on the left, and the
@@ -571,10 +550,6 @@ const emit = defineEmits([
 
 const { t } = useI18n()
 
-// DARK MODE
-
-const dark = useDark()
-
 // DATA
 
 const state = reactive({
@@ -629,6 +604,37 @@ const currentIsParent = computed(() => {
   }
   const idx = state.items.findIndex((it) => it.id === item.id)
   return idx >= 0 && Boolean(state.items[idx + 1]?.isNested)
+})
+
+/**
+ * How many items the selected parent link opens onto, for the property card's own "Parent · N
+ * children" badge. Counted off the flat list rather than a real tree, matching `currentIsParent`'s
+ * own reasoning: every consecutive `isNested` item right after this one belongs to it.
+ */
+const currentChildCount = computed(() => {
+  if (!currentIsParent.value) {
+    return 0
+  }
+  const idx = state.items.findIndex((it) => it.id === state.current.id)
+  let count = 0
+  for (let i = idx + 1; i < state.items.length && state.items[i]?.isNested; i++) {
+    count++
+  }
+  return count
+})
+
+/** The property card's own header label -- the item type being edited, translated. */
+const currentTypeLabel = computed(() => {
+  switch (state.current?.type) {
+    case 'header':
+      return t('navEdit.header')
+    case 'link':
+      return t('navEdit.link')
+    case 'separator':
+      return t('navEdit.separator')
+    default:
+      return ''
+  }
 })
 
 /** Whole menu is `getNav`'s generated preview -- nothing of this menu's own to add, remove or drag. */
@@ -913,60 +919,127 @@ onMounted(load)
 </script>
 
 <style lang="scss" scoped>
-@use 'sass:color';
-
 /*
-  Light ink on an always-dark surface.
-
-  This drawer is dark whatever the site theme is, but the shared components' own dark treatments are
-  `dark:` variants -- keyed off `body.body--dark`, i.e. the APP theme. On a light-themed site their
-  light-mode colours therefore applied here: `WItemLabel`'s header variant resolved to black at 54%
-  and `WItemSection`'s side variant likewise, which on `dark-6` is invisible. WDrawer's `dark` prop
-  covers plain inherited text, not a component that states a colour of its own, so each one that does
-  is restated here at the value its dark variant would have used.
+  The Ledger drawer: the sidebar's own tint (`$tint-alt`), not a fixed dark panel -- the drawer used
+  to be `bg-dark-6` regardless of the site's theme, which is gone along with the last hardcoded dark
+  surface in this file. `body--dark` gets its own step of the app's existing dark ramp instead, the
+  same way `TableEditorOverlay` does.
 */
+.nav-edit-drawer {
+  background-color: $tint-alt;
+  border-inline-end: 1px solid $hairline;
+}
+
+:global(body.body--dark .nav-edit-drawer) {
+  background-color: $dark-4;
+  border-inline-end-color: $hairline-dark;
+}
+
+.nav-edit-drawer-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 14px 0 18px;
+  border-bottom: 1px solid $hairline;
+}
+
+:global(body.body--dark .nav-edit-drawer-header) {
+  border-bottom-color: $hairline-dark;
+}
+
+.nav-edit-drawer-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: $slate;
+}
+
+:global(body.body--dark .nav-edit-drawer-eyebrow) {
+  color: $slate-light;
+}
+
+.nav-edit-drawer-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: $slate;
+  background-color: $surface;
+  border: 1px solid $hairline;
+  padding: 1px 6px;
+}
+
+:global(body.body--dark .nav-edit-drawer-count) {
+  color: $text-dark;
+  background-color: $dark-3;
+  border-color: $hairline-dark;
+}
+
 .nav-edit {
   height: 100%;
 
   .handle {
     cursor: grab;
-    color: rgba(255, 255, 255, 0.7);
+    color: $slate-faint;
   }
 
-  /*
-    Same padding NavSidebar gives its own headings: `WItemLabel`'s uniform `p-4` made this row 52px
-    against the sidebar's 40px, so a heading looked considerably heavier here than the thing being
-    edited.
-  */
-  .w-item-label--header {
-    color: rgba(255, 255, 255, 0.7);
-    padding-bottom: 4px;
-  }
-
-  /* -> A rule between nav items is content here, not trim: 15% white is too faint to aim at */
+  /* -> A rule between nav items is content here, not trim */
   .nav-edit-item-separator .w-separator {
-    --w-hairline-color: rgb(255 255 255 / 0.32);
+    --w-hairline-color: #{$rule};
   }
+}
+
+:global(body.body--dark .nav-edit .nav-edit-item-separator .w-separator) {
+  --w-hairline-color: #{$border-dark};
+}
+
+.nav-edit-mixed-hint {
+  padding: 10px 18px 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: $text-caption;
+}
+
+:global(body.body--dark .nav-edit-mixed-hint) {
+  color: $text-secondary-dark;
+}
+
+.nav-edit-list {
+  padding: 12px 0 0;
 }
 
 .nav-edit-item {
   position: relative;
+  color: $slate;
+  cursor: pointer;
+
   &.is-active {
-    background-color: $blue-8;
+    background-color: $surface;
+    border-inline-start: 2px solid $accent-fill;
+    color: $ink;
+    font-weight: 500;
+
+    .handle {
+      color: $slate-soft;
+    }
   }
 
   &.sortable-chosen {
-    background-color: $blue-5;
+    background-color: $tint;
   }
 
   /*
     A `mixed` menu's generated block, styled apart from what this menu actually owns: dimmed and not
-    grab-cursored (the handle icon is simply omitted for one -- see the template -- so there is nothing
-    left here to restyle for that), so a glance at the list already tells the two apart before reading
-    either `.nav-edit-mixed-hint` above the list or the detail panel's disabled fields.
+    grab-cursored (the handle icon is simply omitted for one -- see the template), so a glance at the
+    list already tells the two apart before reading either the mixed-hint above the list or the detail
+    panel's disabled fields.
   */
   &.is-generated {
-    opacity: 0.6;
+    color: $slate-faint;
     cursor: default;
   }
 
@@ -976,102 +1049,349 @@ onMounted(load)
   */
   &.is-generated + &:not(.is-generated),
   &:not(.is-generated) + &.is-generated {
-    border-top: 2px dashed rgba(255, 255, 255, 0.35);
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 2px dashed $slate-pale;
   }
 }
 
-.nav-edit-mixed-hint {
-  padding: 8px 16px 0;
-  color: rgba(255, 255, 255, 0.6);
+:global(body.body--dark .nav-edit-item) {
+  color: $text-secondary-dark;
+
+  &.is-active {
+    background-color: $dark-3;
+    color: $text-dark;
+  }
+
+  &.is-generated {
+    color: $text-caption-dark;
+  }
 }
 
 /*
-  Mutes and inerts a generated item's own detail panel -- `pointer-events: none` reaches every field
-  regardless of what the shared component library renders each one as underneath (a native `<input>`,
-  a `<button>`, a plain clickable `<div>`), which a native `disabled` attribute on each field could not
-  promise without auditing every one of them individually.
+  The generated block's own eyebrow ("From the page tree"), drawn once above the run rather than on
+  every generated row -- present in the DOM on every one (so there is exactly one root node per
+  `sortable` `#item`, per the template's own comment) and shown by CSS only on the row a manual item
+  (or nothing) precedes.
 */
-.nav-edit-readonly {
-  opacity: 0.6;
-  pointer-events: none;
+.nav-edit-generated-eyebrow {
+  display: none;
+  flex-basis: 100%;
+  padding-bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: $slate-faint;
+}
+
+.nav-edit-item:not(.is-generated) + .nav-edit-item.is-generated .nav-edit-generated-eyebrow,
+.nav-edit-list .nav-edit-item.is-generated:first-child .nav-edit-generated-eyebrow {
+  display: block;
+}
+
+:global(body.body--dark .nav-edit-generated-eyebrow) {
+  color: $text-caption-dark;
 }
 
 .nav-edit-item-header {
   display: flex;
-  cursor: pointer;
+  align-items: center;
+  padding: 6px 10px 6px 18px !important;
+
+  .w-item-label--header {
+    padding: 0;
+    color: inherit;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
 }
+
 .nav-edit-item-link {
+  padding: 7px 10px 7px 18px !important;
+  font-size: 13.5px;
+
+  &.is-active {
+    padding-inline-start: 16px !important;
+  }
+
+  /*
+    The nested run: the same 10px rail + elbow construction `NavSidebar.vue` draws for an open group
+    (see its own header comment), recoloured for this light drawer -- so both views of the tree look
+    like one tree. Applied per row rather than to a wrapping element (this list is flat, one root node
+    per row -- see the template comment), which is what makes a run of consecutive nested rows read as
+    one seamless block: same background, same rail, touching.
+  */
   &.is-nested {
-    border-left: 10px solid $dark-1;
-    background-color: $dark-4;
+    margin-inline-start: 18px;
+    padding: 7px 10px 7px 14px !important;
+    font-size: 13px;
+    border-inline-start: 10px solid $hairline;
+    background-color: #e8ecf4;
+
     &.is-active {
-      background-color: $primary;
-    }
-
-    & + div:not(.is-nested) {
-      &::before {
-        content: '';
-        display: 'block';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 10px;
-        height: 10px;
-        border-style: solid;
-        border-color: $dark-1 transparent transparent $dark-1;
-        border-width: 10px 10px 10px 0;
-      }
+      padding-inline-start: 12px !important;
     }
   }
 
-  &:not(.is-nested) + &.is-nested {
-    &::before {
-      content: '';
-      display: 'block';
-      position: absolute;
-      top: -10px;
-      left: -10px;
-      width: 10px;
-      height: 10px;
-      border-style: solid;
-      border-color: transparent transparent $dark-1 $dark-1;
-      border-width: 0 10px 10px 0;
-    }
+  /* -> Out of the row above: the rail's top end, turning toward inline-end into it. */
+  &:not(.is-nested) + &.is-nested::before {
+    content: '';
+    display: block;
+    position: absolute;
+    inset-inline-start: -10px;
+    top: -10px;
+    width: 10px;
+    height: 10px;
+    border-style: solid;
+    border-block-start-width: 0;
+    border-inline-end-width: 10px;
+    border-block-end-width: 10px;
+    border-inline-start-width: 0;
+    border-block-start-color: transparent;
+    border-inline-end-color: transparent;
+    border-block-end-color: $hairline;
+    border-inline-start-color: $hairline;
   }
 }
-.nav-edit-item-separator {
-  display: flex;
-  cursor: pointer;
+
+:global(body.body--dark .nav-edit-item-link.is-nested) {
+  background-color: $dark-2;
 }
 
+:global(
+  body.body--dark .nav-edit-item-link:not(.is-nested) + .nav-edit-item-link.is-nested::before
+) {
+  border-block-end-color: $hairline-dark;
+  border-inline-start-color: $hairline-dark;
+}
+
+/*
+  Orphaned nested row: a nested link with nothing valid above it to nest under (the very first item in
+  the list, or one immediately following a header/separator) -- flagged the way `nestingWarn` promises,
+  in the accent wash rather than the app's generic `$negative`.
+*/
 .nav-edit-item-header,
 .nav-edit-item-separator {
   & + .nav-edit-item-link.is-nested {
-    background-color: $negative !important;
-    border-left-color: color.adjust($negative, $lightness: -10%) !important;
+    background-color: $accent-wash !important;
+    border-inline-start-color: $accent-fill !important;
+    color: $primary;
 
-    & + div:not(.is-nested) {
-      &::before {
-        display: none !important;
-      }
+    & + .nav-edit-item-link:not(.is-nested)::before {
+      display: none !important;
     }
   }
 }
 
-.nav-edit-list {
-  .nav-edit-item-separator + .nav-edit-item-header > .w-item-label {
-    padding-top: 8px;
+.nav-edit-list .nav-edit-item-link.is-nested:first-child {
+  background-color: $accent-wash !important;
+  border-inline-start-color: $accent-fill !important;
+  color: $primary;
+
+  & + .nav-edit-item-link:not(.is-nested)::before {
+    display: none !important;
+  }
+}
+
+:global(body.body--dark .nav-edit-item-header + .nav-edit-item-link.is-nested),
+:global(body.body--dark .nav-edit-item-separator + .nav-edit-item-link.is-nested),
+:global(body.body--dark .nav-edit-list .nav-edit-item-link.is-nested:first-child) {
+  background-color: $accent-wash-dark !important;
+  border-inline-start-color: $accent-dark !important;
+  color: $accent-dark;
+}
+
+.nav-edit-item-separator {
+  display: flex;
+  align-items: center;
+  padding: 9px 10px 9px 18px !important;
+}
+
+.nav-edit-bottombar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid $hairline;
+}
+
+:global(body.body--dark .nav-edit-bottombar) {
+  border-top-color: $hairline-dark;
+}
+
+/* -- Right panel -------------------------------------------------------- */
+
+.nav-edit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.nav-edit-callout {
+  display: flex;
+  max-width: 760px;
+  border: 1px solid $hairline;
+  background-color: $surface;
+
+  &__icon {
+    flex: none;
+    width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: $tint;
+    border-inline-end: 1px solid $hairline;
+    color: $text-secondary;
   }
 
-  .is-nested:first-child {
-    background-color: $negative !important;
-    border-left-color: color.adjust($negative, $lightness: -10%) !important;
-
-    & + div:not(.is-nested) {
-      &::before {
-        display: none !important;
-      }
-    }
+  p {
+    margin: 0;
+    padding: 12px 16px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: $slate;
   }
+}
+
+:global(body.body--dark .nav-edit-callout) {
+  border-color: $hairline-dark;
+  background-color: $dark-3;
+}
+
+:global(body.body--dark .nav-edit-callout__icon) {
+  background-color: $dark-4;
+  border-inline-end-color: $hairline-dark;
+  color: $text-secondary-dark;
+}
+
+:global(body.body--dark .nav-edit-callout p) {
+  color: $text-dark;
+}
+
+.nav-edit-card {
+  max-width: 760px;
+}
+
+.nav-edit-card--disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/*
+  The property card's own corner marks -- four short strokes at 7px, overhanging the card by 4px, in
+  the icon-stroke slate. Real elements rather than a `::before`/`::after` pair (only two pseudo-
+  elements are available and four corners are needed), the same way the design's own reference draws
+  them.
+*/
+.nav-edit-card__corner {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-style: solid;
+  border-width: 0;
+  border-color: $slate-soft;
+  pointer-events: none;
+}
+
+.nav-edit-card__corner--tl {
+  top: -4px;
+  inset-inline-start: -4px;
+  border-top-width: 1px;
+  border-inline-start-width: 1px;
+}
+
+.nav-edit-card__corner--tr {
+  top: -4px;
+  inset-inline-end: -4px;
+  border-top-width: 1px;
+  border-inline-end-width: 1px;
+}
+
+.nav-edit-card__corner--bl {
+  bottom: -4px;
+  inset-inline-start: -4px;
+  border-bottom-width: 1px;
+  border-inline-start-width: 1px;
+}
+
+.nav-edit-card__corner--br {
+  bottom: -4px;
+  inset-inline-end: -4px;
+  border-bottom-width: 1px;
+  border-inline-end-width: 1px;
+}
+
+.nav-edit-card__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  background-color: $tint;
+  border-bottom: 1px solid $hairline;
+  color: $slate;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+:global(body.body--dark .nav-edit-card__header) {
+  background-color: $dark-2;
+  border-bottom-color: $hairline-dark;
+  color: $slate-light;
+}
+
+.nav-edit-parent-badge {
+  margin-inline-start: auto;
+  border: 1px solid $slate-soft;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.nav-edit-structure-card {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  max-width: 760px;
+  padding: 12px 14px;
+}
+
+.nav-edit-structure-card__nest {
+  display: flex;
+  flex: 1 1 280px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-edit-structure-card__buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nav-edit-structure-card__caption {
+  font-size: 12px;
+  line-height: 1.5;
+  color: $text-caption;
+}
+
+:global(body.body--dark .nav-edit-structure-card__caption) {
+  color: $text-secondary-dark;
 }
 </style>

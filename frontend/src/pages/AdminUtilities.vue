@@ -25,7 +25,6 @@
         </w-btn>
       </div>
     </div>
-    <w-separator inset />
     <div class="p-4 gap-4">
       <!--
         The settings row, not a hand-written `WItem` stack: each of these is a fixed, design-time

@@ -73,6 +73,10 @@ export const PAGE_ACTIONS_MESSAGES = {
       markdown: 'Markdown',
       html: 'HTML',
       pdf: 'PDF'
+    },
+    copyContent: {
+      success: 'Page content copied to the clipboard.',
+      failed: 'Failed to copy the page content to the clipboard.'
     }
   }
 }
@@ -181,6 +185,33 @@ export async function mountRailWithHistory({ pageId = 'page-1', creating = false
       user: { permissions: ['read:history'] },
       // -> The ticket's actual scenario: a brand-new, never-saved page, still open in the editor
       editor: creating ? { isActive: true, mode: 'create' } : {}
+    }
+  })
+
+  return { wrapper, pageStore, siteStore, userStore }
+}
+
+/**
+ * OpenProject #2795: "Copy Page Content" -- gated on `read:source`, the same permission the
+ * `format=markdown` export endpoint checks, mirroring `mountRailWithHistory`'s `read:history` gate
+ * above. `editor` defaults to `markdown`; pass `'redirect'` to prove the whole `!isRedirect` block
+ * (this button included) is absent.
+ */
+export async function mountRailWithCopyContent({
+  editor = 'markdown',
+  permissions = ['read:source']
+} = {}) {
+  const router = await createTestRouter(['/'])
+
+  const { wrapper, pageStore, siteStore, userStore } = mountWithApp(PageActionsCol, {
+    attachTo: document.body,
+    router,
+    messages: PAGE_ACTIONS_MESSAGES,
+    stubs: {},
+    stores: {
+      page: { id: 'page-1', path: 'docs/getting-started', editor },
+      site: { id: 'site-1' },
+      user: { permissions }
     }
   })
 

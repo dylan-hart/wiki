@@ -905,6 +905,93 @@ describe('navigation updateNavigation menuMode (DB-backed)', { skip: !hasTestDat
 })
 
 /**
+ * OpenProject #2796: the insert path used to only set the new row's `mode` column when `menuMode`
+ * was explicitly passed, so a brand-new override/inherit row saved with `items` but no `menuMode`
+ * fell through to the schema's own default (`auto`, since OpenProject #2745) instead of `static` --
+ * `getNav()` then ignored the just-saved `items` entirely and generated from the page tree instead.
+ */
+describe(
+  'navigation updateNavigation insert-path mode default (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let navigationModel: typeof import('./navigation.ts').navigation
+    let pagesModel: typeof import('./pages.ts').pages
+    let actor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ navigation: navigationModel } = await import('./navigation.ts'))
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('a new override row saved with items but no menuMode defaults to static and getNav returns those items', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'insert-mode-default-with-items-page',
+          title: 'Insert Mode Default With Items Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        actor
+      )
+      const items = [{ id: 'a', type: 'link' as const, label: 'Custom', target: '/' }]
+
+      const { navigationId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        mode: 'override',
+        items
+      })
+
+      const rows = await WIKI.db
+        .select({ mode: navigationTable.mode })
+        .from(navigationTable)
+        .where(eq(navigationTable.id, navigationId!))
+        .limit(1)
+      assert.equal(rows[0]?.mode, 'static')
+
+      const stored = await navigationModel.getNav(fixtures.siteId, navigationId!, {
+        actor: ADMIN_ACTOR
+      })
+      assert.deepEqual(stored, items)
+    })
+
+    test('a new override row saved with no items and no menuMode still defaults to auto (WP #2745 unregressed)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'insert-mode-default-no-items-page',
+          title: 'Insert Mode Default No Items Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        actor
+      )
+
+      const { navigationId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        mode: 'override'
+      })
+
+      const rows = await WIKI.db
+        .select({ mode: navigationTable.mode })
+        .from(navigationTable)
+        .where(eq(navigationTable.id, navigationId!))
+        .limit(1)
+      assert.equal(rows[0]?.mode, 'auto')
+    })
+  }
+)
+
+/**
  * `mode` (static/auto/mixed) is a column landed ahead of the tree-walk resolver that will read it --
  * this task only checks the schema default holds and that the column round-trips, not any resolution
  * behavior.

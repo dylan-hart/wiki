@@ -31,7 +31,6 @@
           :loading="state.loading > 0" />
       </div>
     </div>
-    <w-separator inset />
     <!--
       Same list-beside-a-panel shape AdminAuth uses: a fixed-width list of providers and a panel that
       takes what is left, wrapping onto its own row rather than squeezing into a 12-column grid.

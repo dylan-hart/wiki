@@ -23,18 +23,20 @@
           <div class="text-caption text-grey-8 dark:text-grey-5">{{ userStore.email }}</div>
         </w-card-section>
         <w-separator :dark="false" />
-        <w-card-actions align="center">
+        <w-card-actions class="account-actions">
           <w-btn
+            class="account-actions-btn"
             flat
             :label="t(`common.header.profile`)"
             icon="tabler:user"
             color="primary"
             @click="siteStore.openOverlay('Profile')" />
           <w-btn
+            class="account-actions-btn border-l border-hairline dark:border-hairline-dark"
             flat
             :label="t(`common.header.logout`)"
             icon="tabler:logout"
-            color="red"
+            color="negative"
             @click="userStore.logout()" />
         </w-card-actions>
       </w-card>
@@ -104,5 +106,23 @@ const initials = computed(() => initialsFor(userStore.name))
 
 .body--dark .account-avbtn {
   color: var(--color-slate-light);
+}
+
+/*
+  OpenProject #2787: Profile and Logout should each fill their own half of the actions row --
+  edge-to-edge, flush to the shared middle divider -- rather than sitting centered with a gap the
+  way `WCardActions`' shared default lays out every OTHER caller's confirm/cancel pair (~45 dialogs
+  that still want that). Scoped to this component's own markup/CSS only: `WCardActions` itself is
+  untouched, so nothing else regresses.
+*/
+.account-actions {
+  padding: 0;
+  gap: 0;
+  align-items: stretch;
+}
+
+.account-actions .account-actions-btn {
+  flex: 1 1 50%;
+  width: 50%;
 }
 </style>
