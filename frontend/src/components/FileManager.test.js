@@ -1,3 +1,7 @@
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -943,6 +947,91 @@ describe('FileManager design conformance (WP #2625)', () => {
     expect(path.html()).not.toContain('text-grey-7')
 
     wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2776 ("History + File manager: diff against Cobalt mockups, fix gaps"). Diffing this
+ * screen against `Cardinal Wiki - File Manager 3x - Cobalt.dc.html` at the same width found two
+ * kinds of gap, both left over from before a second aesthetic existed to tell Ledger's coincidences
+ * apart from its actual roles:
+ *
+ * 1. The details-pane "Insert" button (`color="primary"`) and Ledger's own `#c14a52` are the SAME
+ *    tone as Cobalt's white-text accent (`--q-accent`, `#c8303c`), but `--q-primary` (Cobalt's site
+ *    brand blue, `#1f4fd6`) is not -- so the button rendered the wrong colour the moment the two
+ *    aesthetics gave "primary" and "accent" different values. Covered directly through `WBtn`'s own
+ *    resolved inline style, the same way `WBtn.test.js` does.
+ * 2. Most of this file's `<style lang="scss">` block read Sass compile-time constants
+ *    (`$hairline`, `$dark-4`, `$tint`, ...) instead of the CSS custom properties `css/tailwind.css`
+ *    actually swaps per aesthetic (`--color-hairline`, `--color-dark-4`, `--color-tint`, ...) --
+ *    identical in Ledger, since a Sass constant and its custom-property twin start at the same
+ *    value, but frozen there under Cobalt too. There is no compiled stylesheet in this test
+ *    environment for a computed-style assertion to resolve `var()` cascades against (the same
+ *    constraint `css/cobaltTokens.test.js` documents), so this is checked the same way that suite
+ *    checks a hand-edited token file: against the component's own source text.
+ */
+describe('FileManager Cobalt aesthetic conformance (OpenProject #2776)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+
+  it('fills the details-pane Insert button with the white-text accent, not the site primary color', async () => {
+    const { wrapper } = await mountFileManager({ overlayOpts: { insertMode: true } })
+    wrapper.vm.state.fileList = [
+      {
+        id: 'a5',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'a5'
+    await flushPromises()
+
+    const insertBtn = wrapper.find('.fileman-insert-btn')
+    expect(insertBtn.exists()).toBe(true)
+    expect(insertBtn.element.style.backgroundColor).toBe('var(--color-accent)')
+
+    wrapper.unmount()
+  })
+
+  it('reads the aesthetic-aware color custom properties, not the frozen Ledger Sass constants', () => {
+    // -> One representative per role this pass converted; a regression on any of them means a
+    //    component-owned surface stopped following the site's aesthetic again.
+    for (const token of [
+      '--color-hairline',
+      '--color-hairline-dark',
+      '--color-tint',
+      '--color-tint-alt',
+      '--color-dark-3',
+      '--color-dark-4',
+      '--color-surface',
+      '--color-text-caption',
+      '--color-text-caption-dark',
+      '--color-text-secondary',
+      '--color-text-secondary-dark',
+      '--color-text-body',
+      '--color-slate',
+      '--color-slate-faint',
+      '--color-slate-pale',
+      '--color-slate-soft',
+      '--color-slate-light',
+      '--color-ink',
+      '--color-accent-dark',
+      '--color-positive-fill'
+    ]) {
+      expect(styleBlock).toContain(`var(${token})`)
+    }
+  })
+
+  it('hides the preview plate corner marks under Cobalt, which draws none', () => {
+    expect(styleBlock).toMatch(
+      /&-tick\s*{\s*position:\s*absolute;\s*display:\s*var\(--corner-marks\);/
+    )
   })
 })
 

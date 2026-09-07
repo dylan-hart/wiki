@@ -1,3 +1,7 @@
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
@@ -438,5 +442,39 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
 
     const collapseBtn = wrapper.get(`[aria-label="${messages.common.sidebar.collapse}"]`)
     expect(collapseBtn.classes()).not.toContain('icon-lg')
+  })
+})
+
+/**
+ * OpenProject #2776 ("History + File manager: diff against Cobalt mockups, fix gaps"). Diffing the
+ * File Manager and Page History overlays against their Cobalt mockups (`Cardinal Wiki - File
+ * Manager 3x - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) found every overlay
+ * `MainOverlayDialog.vue` mounts still drawing Ledger's flat panel and 10px ink title-band edge
+ * regardless of aesthetic, since `.main-overlay`'s stylesheet never branched on it -- the mockups
+ * draw a plain 12px-radius, clipped panel with no title-band edge at all (DESIGN-DECISIONS.md's
+ * "Themes": "Dialogs and overlays ... take a 12px radius with `overflow:hidden` ... No dark eyebrow
+ * bar on dialog tops").
+ *
+ * Sizing was the other half of this overlay's own acceptance criteria (confirm File Manager and
+ * Page History stay near-full-bleed rather than picking up the Inbox/Profile centred treatment) --
+ * already correct with no code change needed, since `MainOverlayDialog.vue`'s `isHalfSized` only
+ * ever names `Profile`/`Inbox`.
+ *
+ * `.main-overlay` is a plain (non-scoped) global style block, mounted through every overlay
+ * `MainOverlayDialog.vue` hosts rather than owned by any one of them -- a computed-style assertion
+ * would need a full app mount plus `tailwind.css`'s real `--radius-dialog` custom property, which
+ * (per `css/cobaltTokens.test.js`'s own note) is not loaded in this test environment. Checked
+ * against the component's own source text instead, the same technique that suite uses for a
+ * hand-edited stylesheet.
+ */
+describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2776)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+
+  it('drops the Ledger eyebrow bar and clips every overlay panel to the dialog radius under Cobalt', () => {
+    expect(styleBlock).toMatch(
+      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*overflow: hidden;\s*\}/
+    )
   })
 })
