@@ -169,13 +169,14 @@ describe('AuthLoginPanel — the login screen', () => {
     const submit = btnByLabel(wrapper, 'Log In')
 
     // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this
-    //    button for why the two are no longer interchangeable under Cobalt.
+    //    button for why the two are no longer interchangeable under Cobalt. `WBtn` itself applies
+    //    the matching --shadow-primary glow for a solid accent button (OpenProject #2813); see
+    //    WBtn.test.js for that coverage.
     expect(submit.props('color')).toBe('accent')
     expect(submit.props('outline')).toBe(false)
     expect(submit.props('size')).toBe('14px')
     expect(submit.props('padding')).toBe('10px 16px')
     expect(submit.classes()).toContain('auth-marks')
-    expect(submit.classes()).toContain('auth-cta')
   })
 
   it('draws every secondary row as a hairline outline plate, never the old acrylic wash', async () => {
@@ -219,10 +220,8 @@ describe('AuthLoginPanel — the login screen', () => {
     // -> OpenProject #2779: `accent`, not `primary` -- see AuthLoginPanel.vue's own note on this chip
     expect(selected.props('color')).toBe('accent')
     expect(selected.props('outline')).toBe(false)
-    expect(selected.classes()).toContain('auth-cta')
     expect(other.props('color')).toBe('slate')
     expect(other.props('outline')).toBe(true)
-    expect(other.classes()).not.toContain('auth-cta')
   })
 
   it("spaces every rule on the login screen at the design's 18px", async () => {
@@ -247,7 +246,6 @@ describe('AuthLoginPanel — the login screen', () => {
     expect(field.props('label')).toBe(null)
     const resetSubmit = btnByLabel(wrapper, 'Reset Password')
     expect(resetSubmit.classes()).toContain('auth-marks')
-    expect(resetSubmit.classes()).toContain('auth-cta')
     expect(resetSubmit.props('color')).toBe('accent')
     expect(btnByLabel(wrapper, 'Cancel').props('outline')).toBe(true)
   })
@@ -269,7 +267,6 @@ describe('AuthRegisterScreen', () => {
 
     const submit = btnByLabel(wrapper, 'Register')
     expect(submit.classes()).toContain('auth-marks')
-    expect(submit.classes()).toContain('auth-cta')
     // -> OpenProject #2779: `accent`, not `primary` -- see AuthRegisterScreen.vue's own note
     expect(submit.props('color')).toBe('accent')
     expect(submit.props('size')).toBe('13.5px')
@@ -306,14 +303,14 @@ describe('AuthTfaScreens', () => {
 
   /*
    * OpenProject #2779: `accent`, not `primary` -- both auth mockups draw Verify in the "accent fill
-   * carrying white text" role, and `auth-cta` is `Login.vue`'s matching Cobalt glow. Neither design
-   * file draws corner marks on this button, so it deliberately has no `auth-marks`.
+   * carrying white text" role; `WBtn` itself applies the matching --shadow-primary glow for a solid
+   * accent button (OpenProject #2813). Neither design file draws corner marks on this button, so it
+   * deliberately has no `auth-marks`.
    */
-  it('draws Verify as the accent CTA, with the primary glow and no corner marks', () => {
+  it('draws Verify as the accent CTA, with no corner marks', () => {
     const verify = btnByLabel(mountTfa('tfa'), 'Verify')
 
     expect(verify.props('color')).toBe('accent')
-    expect(verify.classes()).toContain('auth-cta')
     expect(verify.classes()).not.toContain('auth-marks')
   })
 
@@ -351,6 +348,5 @@ describe('AuthTfaScreens', () => {
     // -> OpenProject #2779: same accent CTA as the `tfa` screen's own Verify button
     const verify = btnByLabel(wrapper, 'Verify')
     expect(verify.props('color')).toBe('accent')
-    expect(verify.classes()).toContain('auth-cta')
   })
 })

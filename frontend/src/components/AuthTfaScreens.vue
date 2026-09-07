@@ -30,11 +30,11 @@
         OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw this as the
         "accent fill carrying white text" role (`--color-accent`, `#c8303c` under Cobalt), which
         Ledger's `colorPrimary`/`colorAccent` sharing one value had made indistinguishable from
-        `primary` until now. `auth-cta` (`Login.vue`'s stylesheet) is the matching Cobalt glow, with
+        `primary` until now. `WBtn` itself applies the matching Cobalt glow (OpenProject #2813), with
         no corner marks -- neither design file draws marks on this button.
       -->
       <w-btn
-        class="auth-cta w-full mt-4"
+        class="w-full mt-4"
         color="accent"
         size="13.5px"
         padding="9.5px 16px"
@@ -79,9 +79,9 @@
           input-type="number"
           separator="" />
       </div>
-      <!-- -> OpenProject #2779: see the `tfa` screen's Verify button above for the accent/auth-cta note -->
+      <!-- -> OpenProject #2779: see the `tfa` screen's Verify button above for the accent color note -->
       <w-btn
-        class="auth-cta w-full mt-4"
+        class="w-full mt-4"
         color="accent"
         size="13.5px"
         padding="9.5px 16px"

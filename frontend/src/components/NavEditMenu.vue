@@ -632,6 +632,10 @@ onMounted(() => {
   (#10194a) is the closest existing token by both value and "dark, assertive UI tone" role; reused
   here and on the footer Save button below rather than a hardcoded hex, flagging the gap for a
   follow-up to give #2767 a proper "slate button" token (the handoff's own name for this role).
+
+  OpenProject #2813: this segment is a `w-btn-toggle__segment`, not a `WBtn`, so it can't pick up
+  `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
+  hand-wired consumer on purpose, already keyed off the same `--color-accent` role #2813 decided on.
 */
 :global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='true']) {
   background-color: var(--color-accent) !important;

@@ -82,10 +82,10 @@
           OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw this in the
           "accent fill carrying white text" role (`--color-accent`, `#c8303c` under Cobalt), distinct
           from `--color-primary` now that Ledger's `colorPrimary`/`colorAccent` no longer stand in for
-          one another. `auth-cta` (`Login.vue`'s stylesheet) is the matching Cobalt glow.
+          one another. `WBtn` itself applies the matching Cobalt glow (OpenProject #2813).
         -->
         <w-btn
-          class="auth-marks auth-cta w-full mt-2.5"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="accent"
           size="13.5px"

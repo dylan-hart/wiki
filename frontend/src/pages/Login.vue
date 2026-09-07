@@ -248,8 +248,8 @@ useMeta(() => ({
     top-left and bottom-right corners. The same mark the page header's icon plate draws, and for the
     same reason -- this is the thing being pointed at. Two corners rather than four is what both auth
     sheets draw. Drawn in the bright accent, which is what a mark is (ink, carrying no text); the
-    button's own fill carries a white label and therefore stays on the accent fill role (see
-    `.auth-cta` below).
+    button's own fill carries a white label and therefore stays on the accent fill role (`WBtn`'s own
+    `--shadow-primary` glow for a solid `color="accent"` button, OpenProject #2813).
 
     OpenProject #2779: `display: var(--corner-marks)` on each pseudo-element is `block` (a no-op)
     under Ledger and `none` under Cobalt, matching `NavEditMenu.vue`/`NavItemEditor.vue`'s identical
@@ -281,18 +281,6 @@ useMeta(() => ({
       border-bottom: 1px solid var(--color-accent-fill);
       border-inline-end: 1px solid var(--color-accent-fill);
     }
-  }
-
-  /*
-    OpenProject #2779: the glow both auth mockups draw under every primary action (the selected
-    strategy chip, every form's submit, both TFA verify buttons) -- `--shadow-primary` (#2767/#2772)
-    is `none` under Ledger, so this is a no-op there, and Cobalt's own
-    `0 4px 14px rgb(200 48 60 / 0.35)` under it. Kept separate from `.auth-marks` above: the two
-    travel together on five of the seven primary actions, but the TFA verify buttons take the shadow
-    with no corner marks, matching what both design files draw.
-  */
-  &-cta {
-    box-shadow: var(--shadow-primary);
   }
 
   /*
