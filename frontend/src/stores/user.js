@@ -130,6 +130,12 @@ export const useUserStore = defineStore('user', {
     dateFormat: 'YYYY-MM-DD',
     timeFormat: '12h',
     appearance: 'site',
+    /**
+     * The Cobalt aesthetic setting (Feature #2753/#2766): `'site'` follows the site administrator's
+     * choice, or a per-user override of `'ledger'`/`'cobalt'` -- the same three-value shape
+     * `appearance` uses for dark mode, resolved the same way (see `App.vue`'s aesthetic watch).
+     */
+    aesthetic: 'site',
     cvd: 'none',
     permissions: [],
     pagePermissions: [],
@@ -177,6 +183,7 @@ export const useUserStore = defineStore('user', {
         dateFormat: resp.dateFormat || '',
         timeFormat: resp.timeFormat || '12h',
         appearance: resp.appearance || 'site',
+        aesthetic: resp.aesthetic || 'site',
         cvd: resp.cvd || 'none',
         permissions: resp.permissions || [],
         authenticated: true,
@@ -224,6 +231,7 @@ export const useUserStore = defineStore('user', {
         dateFormat: 'YYYY-MM-DD',
         timeFormat: '12h',
         appearance: 'site',
+        aesthetic: 'site',
         cvd: 'none',
         permissions: [],
         // -> Page permissions arrive with the page, so leaving them would keep edit buttons on screen
