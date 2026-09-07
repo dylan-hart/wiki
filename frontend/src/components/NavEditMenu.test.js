@@ -266,6 +266,27 @@ describe('NavEditMenu', () => {
     })
   })
 
+  /**
+   * OpenProject #2820: `WBtnToggle.vue`'s shared segment styling only suppresses a middle/last
+   * segment's START border -- the group's own two OUTER edges (the first segment's start border,
+   * the last segment's end border) still draw, and here they double up against `.nav-edit-menu`'s
+   * own card border. Scoped fix in `NavEditMenu.vue` alone, asserted via `getComputedStyle` the
+   * same way `GraphClientTypeFilter.test.js` checks a layout property.
+   */
+  it("removes the menu source toggle's own outer borders (no double-border with the menu card)", async () => {
+    const { wrapper } = mountMenu({ attachTo: document.body })
+    await flushPromises()
+
+    const segments = wrapper.findAll('.nav-edit-menu__menu-source button[role="radio"]')
+    expect(segments.length).toBeGreaterThanOrEqual(2)
+
+    const first = getComputedStyle(segments[0].element)
+    const last = getComputedStyle(segments[segments.length - 1].element)
+
+    expect(first.borderInlineStartWidth).toBe('0')
+    expect(last.borderInlineEndWidth).toBe('0')
+  })
+
   it('hides the menu source control and Edit Menu Items button when canEditMenuItems is false', async () => {
     const { wrapper } = mountMenu({ navigationId: null, navigationMode: 'hide' })
     await flushPromises()

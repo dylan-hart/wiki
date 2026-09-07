@@ -662,6 +662,24 @@ onMounted(() => {
 }
 
 /*
+  OpenProject #2820: `WBtnToggle.vue`'s shared segment styling draws a border on every segment and
+  only suppresses a middle/last segment's START border -- the group's own two OUTER edges (the
+  first segment's start border, the last segment's end border) still draw. Here those sit directly
+  against `.nav-edit-menu`'s own `border: var(--border-card)` (above), double-bordering Manual's
+  left edge and Mixed's right edge. Scoped to this instance only, not the shared primitive -- no
+  other reported instance of this -- and unconditional across every theme/aesthetic, since the card
+  border it collides with is always present, unlike the Cobalt-only corner-radius rules below whose
+  `:first-child`/`:last-child` selector *pattern* this reuses.
+*/
+.nav-edit-menu :deep(.nav-edit-menu__menu-source .w-btn-toggle__segment:first-child) {
+  border-inline-start-width: 0;
+}
+
+.nav-edit-menu :deep(.nav-edit-menu__menu-source .w-btn-toggle__segment:last-child) {
+  border-inline-end-width: 0;
+}
+
+/*
   Cobalt (handoff): selected fill `#c8303c` with a shadow, unselected text `#1e2a5e`, outer corners
   6px (never each segment -- see tailwind.css's own "radii sweep" comment on `--radius-control`).
 
