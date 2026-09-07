@@ -3,8 +3,6 @@ import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-import { contrastRatio, WCAG_AA_CONTRAST } from '../helpers/accessibility.js'
-
 /**
  * OpenProject #2771 ("Cobalt dark token block in tailwind.css, scoped to body.body--cobalt.body--
  * dark"). Same rationale as `cobaltTokens.test.js`: `tailwind.css` is plain CSS with no compiled
@@ -19,8 +17,11 @@ import { contrastRatio, WCAG_AA_CONTRAST } from '../helpers/accessibility.js'
  *      its own Cobalt-light value;
  *   4. no `--q-*` admin-configurable brand color is overridden here either (same boundary #2767
  *      drew for light);
- *   5. no shape token (radii, corner marks, header banner geometry) is redeclared;
- *   6. the restated text/surface pairs clear WCAG AA.
+ *   5. no shape token (radii, corner marks, header banner geometry) is redeclared.
+ *
+ * WCAG AA contrast over these tokens is `cobaltContrast.test.js`'s job (OpenProject #2782), not
+ * this file's -- it used to carry its own small hardcoded-hex "clears AA" describe block here, which
+ * was consolidated into that dedicated, token-sourced suite rather than kept as a second copy.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
@@ -138,41 +139,5 @@ describe('no shape token is redeclared', () => {
 describe('admin-configurable brand colors are left alone', () => {
   it('declares no --q-* override inside body.body--cobalt.body--dark', () => {
     expect(darkSource).not.toMatch(/--q-[a-z]/)
-  })
-})
-
-describe('Cobalt dark color pairs clear WCAG AA where the handoff specifies a surface', () => {
-  const meetsAA = (fg, bg) => contrastRatio(fg, bg) >= WCAG_AA_CONTRAST
-
-  it('body/secondary/caption text tiers clear AA on the Cobalt dark app ground (#0a0f2c)', () => {
-    const ground = '#0a0f2c'
-    expect(meetsAA('#e8ecff', ground)).toBe(true)
-    expect(meetsAA('#a7b3ea', ground)).toBe(true)
-    expect(meetsAA('#8b98d6', ground)).toBe(true)
-  })
-
-  it('body/secondary text tiers also clear AA on the card/raised surface (#141c4f)', () => {
-    const raised = '#141c4f'
-    expect(meetsAA('#e8ecff', raised)).toBe(true)
-    expect(meetsAA('#a7b3ea', raised)).toBe(true)
-  })
-
-  it('h2/link accent tones clear AA on the Cobalt dark app ground and raised surface', () => {
-    expect(meetsAA('#8fb0ff', '#0a0f2c')).toBe(true)
-    expect(meetsAA('#7fa0ff', '#0a0f2c')).toBe(true)
-    expect(meetsAA('#8fb0ff', '#141c4f')).toBe(true)
-    expect(meetsAA('#7fa0ff', '#141c4f')).toBe(true)
-  })
-
-  it('the lightened accent text clears AA on the card/raised surface it is specified against (#141c4f)', () => {
-    expect(meetsAA('#ff8f97', '#141c4f')).toBe(true)
-  })
-
-  it('tag chip and avatar plate text clear AA on their translucent fill composited over the app ground', () => {
-    // --color-tag-chip-bg / --color-avatar-plate-bg are rgb(61 109 247 / 0.22) -- a translucent fill,
-    // not a flat surface -- so composite it over the dark app ground (#0a0f2c) by hand before
-    // checking the text against the resulting flat color, the same as a browser paints it.
-    // rgb(61 109 247 / 0.22) over #0a0f2c ~= #152459.
-    expect(meetsAA('#a3bbff', '#152459')).toBe(true)
   })
 })
