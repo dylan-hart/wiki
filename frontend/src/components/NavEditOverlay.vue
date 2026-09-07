@@ -1,6 +1,6 @@
 <template>
   <w-layout container>
-    <w-header class="card-header">
+    <w-header class="card-header nav-edit-header">
       <w-icon name="tabler:layout-sidebar" left size="md" />
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
       <!--
@@ -30,8 +30,9 @@
         target="_blank">
         <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
       </w-btn>
-      <w-btn-group>
+      <w-btn-group class="nav-edit-header-actions">
         <w-btn
+          class="nav-edit-cancel-btn"
           color="white"
           text-color="slate"
           :label="t(`common.actions.cancel`)"
@@ -39,6 +40,7 @@
           icon="tabler:x"
           @click="close" />
         <w-btn
+          class="nav-edit-save-btn"
           color="positive"
           text-color="white"
           :label="t(`common.actions.save`)"
@@ -252,5 +254,62 @@ onBeforeUnmount(() => {
   color: var(--color-text-dark);
   font-size: 11.5px;
   white-space: nowrap;
+}
+
+/*
+  -- Cobalt (Task #2802) ---------------------------------------------------
+  The header band itself: Ledger's `$dark-2` (`#242b3a`, from the shared `.card-header` class every
+  full-bleed overlay uses) becomes the Cobalt overlay-header indigo `#1c2a70` here ONLY -- scoped to
+  this component's own `.nav-edit-header` class rather than touching `.card-header` itself, which
+  every other overlay (Profile, File Manager, Table Editor, ...) still shares and which is not this
+  task's to restyle.
+*/
+:global(body.body--cobalt .nav-edit-header) {
+  background-color: var(--color-admin-sidebar-raised);
+  border-bottom-color: var(--color-admin-sidebar-raised);
+}
+
+/*
+  The notice pill, Cobalt: a translucent pill on the indigo header rather than Ledger's bordered box
+  -- `--radius-pill` is the token layer's own "pill" radius (12px in Cobalt, 0 in Ledger, so this rule
+  is a no-op there), and the on-dark sidebar text tokens read cleanly against the header's own tint.
+*/
+:global(body.body--cobalt .nav-edit-header-notice) {
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  background-color: rgb(255 255 255 / 0.12);
+  color: var(--color-sidebar-text);
+}
+
+/*
+  Header action button group, Cobalt: rounded outer corners (`--radius-control`) rather than Ledger's
+  square pair -- `overflow: hidden` clips the two buttons' own square corners to the group's rounded
+  ones without needing to touch `WBtnGroup`'s own scoped divider rule, which stays exactly as it is
+  for every other caller.
+*/
+:global(body.body--cobalt .nav-edit-header-actions) {
+  overflow: hidden;
+  border-radius: var(--radius-control);
+}
+
+/*
+  Cancel text color, Cobalt: `text-color="slate"` resolves to the generic, non-aesthetic
+  `var(--color-slate)` (WBtn sets it as an inline style, which only `!important` can override from
+  outside). The handoff's own Cobalt "slate button" value (`#1e2a5e`) has no token in `tailwind.css`'s
+  Cobalt block yet -- `--color-text-secondary` (`#4a5580`) is the nearest existing one; flagging here
+  rather than adding a bespoke token or a hardcoded hex for a single button.
+*/
+:global(body.body--cobalt .nav-edit-cancel-btn) {
+  color: var(--color-text-secondary) !important;
+}
+
+/*
+  Save fill, Cobalt: `color="positive"` resolves to the generic, non-aesthetic `var(--color-positive)`
+  (also an inline style -- same `!important` reasoning as Cancel above). `--color-positive-fill` IS a
+  Cobalt-scoped token (`#22a37f`) and is the one the handoff actually specifies for this button.
+*/
+:global(body.body--cobalt .nav-edit-save-btn) {
+  background-color: var(--color-positive-fill) !important;
 }
 </style>
