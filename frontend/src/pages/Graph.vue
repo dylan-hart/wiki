@@ -1283,14 +1283,26 @@ onBeforeUnmount(() => {
   padding: 14px;
 
   @at-root .body--light & {
-    background-color: $surface;
-    border: 1px solid $hairline;
-    color: $text-body;
+    background-color: var(--color-white);
+    border: 1px solid var(--color-hairline);
+    color: var(--color-text-body);
   }
   @at-root .body--dark & {
-    background-color: $dark-3;
-    border: 1px solid $hairline-dark;
-    color: $text-dark;
+    background-color: var(--color-dark-3);
+    border: 1px solid var(--color-hairline-dark);
+    color: var(--color-text-dark);
+  }
+
+  /*
+    Both panels (`.graph-view-right-rail`, `.graph-view-filters`) are Cobalt's shadowed-sheet
+    treatment (`background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)` in the
+    mockup), not a hairline-bordered box -- `--radius-card`/`--shadow-card` are `0`/`none` under
+    Ledger, so the border above stays the only visible edge there.
+  */
+  @at-root body.body--cobalt & {
+    border: 0;
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 }
 
@@ -1328,10 +1340,10 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 
   @at-root .body--light & {
-    color: $text-caption;
+    color: var(--color-text-caption);
   }
   @at-root .body--dark & {
-    color: $text-caption-dark;
+    color: var(--color-text-caption-dark);
   }
 }
 
@@ -1354,14 +1366,25 @@ onBeforeUnmount(() => {
   text-align: center;
 
   @at-root .body--light & {
-    background-color: $surface;
-    border: 1px solid $accent-fill;
-    color: $slate;
+    background-color: var(--color-white);
+    border: 1px solid var(--color-accent-fill);
+    color: var(--color-slate);
   }
   @at-root .body--dark & {
-    background-color: $dark-3;
-    border: 1px solid $accent-dark;
-    color: $text-secondary-dark;
+    background-color: var(--color-dark-3);
+    border: 1px solid var(--color-accent-dark);
+    color: var(--color-text-secondary-dark);
+  }
+
+  /*
+    Cobalt's own truncation pill is a plain shadowed sheet with no accent border at all
+    (`background:#fff;border-radius:8px;box-shadow:0 4px 14px rgba(16,25,74,.14)` in the mockup) --
+    closest existing tokens rather than a new one-off shadow: `--radius-card`/`--shadow-card`.
+  */
+  @at-root body.body--cobalt & {
+    border: 0;
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 }
 
@@ -1377,12 +1400,12 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 
   @at-root .body--light & {
-    background-color: $tint;
-    border: 1px solid $hairline;
+    background-color: var(--color-tint);
+    border: 1px solid var(--color-hairline);
   }
   @at-root .body--dark & {
-    background-color: $dark-2;
-    border: 1px solid $hairline-dark;
+    background-color: var(--color-dark-2);
+    border: 1px solid var(--color-hairline-dark);
   }
 }
 
@@ -1421,13 +1444,18 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-/* -> Solid ink rather than a black wash: the design's own tooltip plate */
+/*
+  Solid ink rather than a black wash: the design's own tooltip plate. `var(--color-ink)`, not the
+  `$ink` literal it replaces: numerically identical under Ledger, and the Cobalt Graph mockup's own
+  tooltip (`background:#10194a;color:#fff`) is exactly Cobalt's `--color-ink`, so this now matches
+  it for free with no per-aesthetic branch.
+*/
 .graph-view-tooltip {
   position: absolute;
   z-index: 1;
   pointer-events: none;
   padding: 5px 9px;
-  background-color: $ink;
+  background-color: var(--color-ink);
   color: #fff;
   font-size: 12px;
   white-space: nowrap;

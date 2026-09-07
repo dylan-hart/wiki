@@ -26,15 +26,23 @@
               :label="t('tags.clearSelection')"
               @click="clearSelection" />
           </div>
-          <div class="tags-browse-chips flex flex-wrap items-center gap-[5px] p-2">
+          <div
+            class="tags-browse-chips tags-browse-chips--selected flex flex-wrap items-center gap-[5px] p-2">
             <!--
               The `#` is a mono glyph, not a drawn icon: the design sets it in Roboto Mono ahead of
               the label, exactly as the already-settled page tag plate (`PageTags.vue`) does.
+
+              `color="accent"`, not `primary`: this chip carries WHITE text over a solid fill, which
+              is the accent role's own job (see `css/tailwind.css`'s token-block comment) -- under
+              Ledger the two admin defaults are numerically equal so this was invisible, but Cobalt's
+              `colorPrimary` (`#1f4fd6`, links) and `colorAccent` (`#c8303c`, white-text fills) genuinely
+              diverge (`helpers/aestheticDefaults.js`), and the Cobalt Tags mockup's "current
+              selection" chip is the red accent, not the blue link color.
             -->
             <w-chip
               v-for="tag of state.selectedTags"
               :key="`selected-${tag}`"
-              color="primary"
+              color="accent"
               text-color="white"
               size="11.5px"
               removable
@@ -665,14 +673,27 @@ onMounted(async () => {
     padding: 12px 8px 0;
     font-size: 13px;
     font-weight: 500;
-    color: $primary;
+    /*
+      `var(--color-accent)`, not the `$primary` literal it replaces: numerically identical under
+      Ledger (both admin defaults are `#c14a52`), but the Cobalt Tags mockup's subheaders
+      ("Current selection", "Tags", "Locale", "Order by") are the accent red (`#c8303c`), which is
+      `--color-accent` under Cobalt -- `--color-primary` there is the unrelated link blue.
+    */
+    color: var(--color-accent);
 
     &:first-child {
       padding-block-start: 8px;
     }
 
+    /*
+      Dark counterpart of the same accent-text role, not `--color-primary-light` (a lightened
+      PRIMARY, the wrong hue under Cobalt) -- `--color-accent-dark` is the token this codebase
+      already uses for "accent text on a dark ground" (`css/tailwind.css`'s `.text-highlight b`
+      dark rule), with a real Cobalt-dark value of its own so this renders correctly with no
+      dedicated dark mockup.
+    */
     @at-root .body--dark & {
-      color: var(--color-primary-light);
+      color: var(--color-accent-dark);
     }
   }
 
@@ -693,31 +714,52 @@ onMounted(async () => {
     padding: 3px 7px;
   }
 
+  /*
+    Cobalt's own glow on the selected chips (`box-shadow:0 4px 14px rgba(200,48,60,.35)` in the
+    mockup, `--shadow-primary`'s exact value) -- `none` under Ledger, so this is a no-op there. A
+    dedicated modifier class rather than reaching for `.tags-browse-chips` alone: that class is
+    shared with the "available tags" block below, which stays a flat fill with no glow.
+  */
+  @at-root body.body--cobalt .tags-browse-chips--selected .w-chip {
+    box-shadow: var(--shadow-primary);
+  }
+
   &-count {
-    color: $text-secondary;
+    color: var(--color-text-secondary);
 
     strong {
-      color: $ink;
+      color: var(--color-ink);
       font-weight: 700;
     }
 
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
 
       strong {
-        color: $text-dark;
+        color: var(--color-text-dark);
       }
     }
   }
 
   &-plate {
     margin: 8px 8px 0;
-    border: 1px solid $hairline;
-    background-color: $surface;
+    border: 1px solid var(--color-hairline);
+    background-color: var(--color-white);
 
     @at-root .body--dark & {
-      border-color: $hairline-dark;
-      background-color: $dark-3;
+      border-color: var(--color-hairline-dark);
+      background-color: var(--color-dark-3);
+    }
+
+    /*
+      Cobalt draws this plate as a shadowed sheet, not a hairline-bordered box (`border-radius:8px;
+      box-shadow:0 2px 10px rgba(16,25,74,.08)` in the mockup) -- `--radius-card`/`--shadow-card`
+      are both `0`/`none` under Ledger, so the border above stays the only visible edge there.
+    */
+    @at-root body.body--cobalt & {
+      border: 0;
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-card);
     }
 
     .w-chip {
@@ -728,29 +770,29 @@ onMounted(async () => {
   &-result-title {
     font-size: 14.5px;
     font-weight: 500;
-    color: $ink;
+    color: var(--color-ink);
 
     @at-root .body--dark & {
-      color: $text-dark;
+      color: var(--color-text-dark);
     }
   }
 
   &-result-desc {
     font-size: 12.5px;
-    color: $text-secondary;
+    color: var(--color-text-secondary);
 
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
     }
   }
 
   &-result-meta {
     font-family: var(--font-mono);
     font-size: 11.5px;
-    color: $text-caption;
+    color: var(--color-text-caption);
 
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
     }
   }
 
@@ -819,10 +861,10 @@ onMounted(async () => {
     here rather than through `WList`'s `separator`, which paints black at 12%.
   */
   .w-item + .w-item {
-    border-block-start: 1px solid $tint;
+    border-block-start: 1px solid var(--color-tint);
 
     @at-root .body--dark & {
-      border-block-start-color: $hairline-dark;
+      border-block-start-color: var(--color-hairline-dark);
     }
   }
 
