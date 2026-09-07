@@ -38,7 +38,13 @@
       <w-icon v-if="indeterminate" name="tabler:minus" :size="dense ? '0.75em' : '0.85em'" />
       <w-icon v-else-if="isOn" name="tabler:check" :size="dense ? '0.75em' : '0.85em'" />
     </span>
-    <span v-if="label" class="pt-px text-caption">{{ label }}</span>
+    <!--
+      Explicit dark-mode-aware color, not `color: inherit` from `.w-unstyled` on the root button:
+      a container that sets no text color of its own (the `body` element itself sets none) left this
+      black in dark mode. `text-ink dark:text-text-dark` is the same pairing `HeaderNav.vue` uses for
+      the identical "must not depend on an ambient color" case.
+    -->
+    <span v-if="label" class="pt-px text-caption text-ink dark:text-text-dark">{{ label }}</span>
   </button>
 </template>
 

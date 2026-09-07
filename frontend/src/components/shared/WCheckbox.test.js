@@ -82,4 +82,15 @@ describe('WCheckbox', () => {
 
     expect(wrapper.find('[data-icon="tabler:check"]').attributes('style')).toContain('0.75em')
   })
+
+  it('gives the label its own dark-mode-aware text color, not ambient inheritance', () => {
+    const wrapper = mount(WCheckbox, {
+      props: { modelValue: false, label: 'Select all on this page' }
+    })
+
+    const label = wrapper.find('span.text-caption')
+    expect(label.text()).toBe('Select all on this page')
+    expect(label.classes()).toContain('text-ink')
+    expect(label.classes()).toContain('dark:text-text-dark')
+  })
 })
