@@ -438,6 +438,7 @@
           <div class="nav-edit-structure-card__nest" v-if="state.current.type === `link`">
             <div class="nav-edit-structure-card__buttons">
               <w-btn
+                class="nav-edit-structure-btn"
                 outline
                 color="slate"
                 icon="tabler:indent-increase"
@@ -445,6 +446,7 @@
                 :disabled="state.current.isNested"
                 @click="state.current.isNested = true" />
               <w-btn
+                class="nav-edit-structure-btn"
                 outline
                 color="slate"
                 icon="tabler:indent-decrease"
@@ -920,6 +922,30 @@ onMounted(load)
 
 <style lang="scss" scoped>
 /*
+  -- Cobalt (Task #2802) ----------------------------------------------------------------
+  `ui-redesign-nav/HANDOFF.md` §2, Cobalt column, on top of the Ledger restyle below (Task #2801) --
+  every value here is a `var(--color-*)`/`var(--radius-*)` reference onto `tailwind.css`'s
+  `body.body--cobalt` token block (Task #2767), the same way the Ledger rules read literal SCSS
+  `$variables` and the `body--dark` rules read the dark ones -- never a hardcoded hex.
+
+  Two values the handoff calls for have no token in that block yet, and are flagged rather than
+  hardcoded (see the two comments below that name them): the Cobalt "faint rule" `#eef1fb` (property
+  card internal rules) and the Cobalt "slate button" text `#1e2a5e` (this file's own outline-button
+  text and callout copy).
+
+  A THIRD, larger gap: this file's several `color="primary"` / `color="negative"` / `toggle-color=
+  "primary"` usages (the Add button, Delete button, and every Visibility segmented control) resolve
+  to `var(--q-primary)` / `var(--q-accent)` / `var(--q-negative)` -- the admin-configurable brand
+  colors, which `tailwind.css`'s own comment says get their per-aesthetic DEFAULT from
+  `helpers/aestheticDefaults.js` (Task #2768), not a `body.body--cobalt` block here. That file does
+  not exist yet, so none of those controls currently follow the aesthetic at all (they stay whatever
+  `--q-primary`/`--q-accent`/`--q-negative` resolve to site-wide) -- left untouched here rather than
+  hardcoding the handoff's `#c8303c` into this one file's buttons, which would only be right until an
+  admin picks a different accent and would still leave every OTHER `color="primary"` button on this
+  page (there are none besides Add/Delete/the segmented controls) inconsistent with it.
+*/
+
+/*
   The Ledger drawer: the sidebar's own tint (`$tint-alt`), not a fixed dark panel -- the drawer used
   to be `bg-dark-6` regardless of the site's theme, which is gone along with the last hardcoded dark
   surface in this file. `body--dark` gets its own step of the app's existing dark ramp instead, the
@@ -933,6 +959,17 @@ onMounted(load)
 :global(body.body--dark .nav-edit-drawer) {
   background-color: $dark-4;
   border-inline-end-color: $hairline-dark;
+}
+
+/*
+  Cobalt: the reader-facing sidebar's own indigo ground (`--color-admin-sidebar-bg`, `#10194a`),
+  matching the handoff's "the sidebar indigo, no border" -- the drawer's Ledger tint and Cobalt's dark
+  ground are different ROLES (a light tint strip vs. the sidebar itself), which is why this is a
+  `body--cobalt` override rather than the same token the Ledger rule above already reads.
+*/
+:global(body.body--cobalt .nav-edit-drawer) {
+  background-color: var(--color-admin-sidebar-bg);
+  border-inline-end: 0;
 }
 
 .nav-edit-drawer-header {
@@ -950,6 +987,11 @@ onMounted(load)
   border-bottom-color: $hairline-dark;
 }
 
+:global(body.body--cobalt .nav-edit-drawer-header) {
+  height: 40px;
+  border-bottom-color: var(--color-sidebar-hairline);
+}
+
 .nav-edit-drawer-eyebrow {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -961,6 +1003,10 @@ onMounted(load)
 
 :global(body.body--dark .nav-edit-drawer-eyebrow) {
   color: $slate-light;
+}
+
+:global(body.body--cobalt .nav-edit-drawer-eyebrow) {
+  color: var(--color-sidebar-kicker);
 }
 
 .nav-edit-drawer-count {
@@ -977,6 +1023,13 @@ onMounted(load)
   color: $text-dark;
   background-color: $dark-3;
   border-color: $hairline-dark;
+}
+
+:global(body.body--cobalt .nav-edit-drawer-count) {
+  color: var(--color-sidebar-text);
+  background-color: rgb(255 255 255 / 0.1);
+  border: 0;
+  border-radius: var(--radius-pill);
 }
 
 .nav-edit {
@@ -997,6 +1050,20 @@ onMounted(load)
   --w-hairline-color: #{$border-dark};
 }
 
+/*
+  Cobalt: the grip handle and the separator's own rule both sit on the dark drawer ground now, so
+  both move to a translucent-white tone rather than the light-drawer slate above -- the handle to the
+  handoff's own row-glyph "disabled" value (`--color-text-caption`, `#5a6699`), the rule to the same
+  on-dark translucency the generated block's dashed border uses below.
+*/
+:global(body.body--cobalt .nav-edit .handle) {
+  color: var(--color-text-caption);
+}
+
+:global(body.body--cobalt .nav-edit .nav-edit-item-separator .w-separator) {
+  --w-hairline-color: rgb(255 255 255 / 0.18);
+}
+
 .nav-edit-mixed-hint {
   padding: 10px 18px 0;
   font-size: 11.5px;
@@ -1008,8 +1075,29 @@ onMounted(load)
   color: $text-secondary-dark;
 }
 
+:global(body.body--cobalt .nav-edit-mixed-hint) {
+  color: var(--color-sidebar-text-secondary);
+}
+
 .nav-edit-list {
   padding: 12px 0 0;
+}
+
+/*
+  Cobalt: "padding/row-gap/radius matching `NavSidebar.vue` in Cobalt" (Task #2802's own description)
+  -- `--radius-control` gives each row Cobalt's 6px row radius (and is `0` in Ledger, so applying it
+  unconditionally below on `.nav-edit-item` is a no-op there). The row gap is approximated as a
+  bottom margin per row rather than a flex `gap`, since `sortable`'s items are plain block children
+  (see the template's own comment on why there is exactly one root node per item) rather than a flex
+  container this could add `gap` to directly.
+*/
+:global(body.body--cobalt .nav-edit-list) {
+  padding: 14px 10px 0;
+}
+
+:global(body.body--cobalt .nav-edit-item) {
+  margin-bottom: 2px;
+  border-radius: var(--radius-control);
 }
 
 .nav-edit-item {
@@ -1069,6 +1157,46 @@ onMounted(load)
 }
 
 /*
+  Cobalt: the row-type tables in the handoff give each row kind its own on-dark text tone (header
+  `#7f8ed1`, link `#d7deff`, generated `#5a6699`, ...) rather than one uniform row color the way
+  Ledger's `$slate` is -- the base color here is the Link row's own tone (`--color-sidebar-text`),
+  and the header/generated rows below override it more specifically. `.is-active`'s ground reuses
+  `--nav-active-inset` (already the exact composite box-shadow the handoff calls for) rather than a
+  border, since Cobalt's selected row is an inset accent bar, not a Ledger-style border.
+*/
+:global(body.body--cobalt .nav-edit-item) {
+  color: var(--color-sidebar-text);
+
+  &.is-active {
+    background-color: var(--color-accent-strong);
+    box-shadow: var(--nav-active-inset);
+    color: var(--color-white);
+    font-weight: 600;
+
+    /* -> Flagged: the handoff's own selected-row grip (`#c9d6ff`) has no token; nearest is the
+          sidebar's own on-dark text tone. */
+    .handle {
+      color: var(--color-sidebar-text);
+    }
+  }
+
+  &.sortable-chosen {
+    /* -> Not spec'd explicitly for Cobalt; a faint lift off the dark ground, matching the same
+          translucent-white treatment the generated block and nested run use below. */
+    background-color: rgb(255 255 255 / 0.06);
+  }
+
+  &.is-generated {
+    color: var(--color-text-caption);
+  }
+
+  &.is-generated + &:not(.is-generated),
+  &:not(.is-generated) + &.is-generated {
+    border-top-color: rgb(255 255 255 / 0.22);
+  }
+}
+
+/*
   The generated block's own eyebrow ("From the page tree"), drawn once above the run rather than on
   every generated row -- present in the DOM on every one (so there is exactly one root node per
   `sortable` `#item`, per the template's own comment) and shown by CSS only on the row a manual item
@@ -1095,6 +1223,10 @@ onMounted(load)
   color: $text-caption-dark;
 }
 
+:global(body.body--cobalt .nav-edit-generated-eyebrow) {
+  color: var(--color-text-caption);
+}
+
 .nav-edit-item-header {
   display: flex;
   align-items: center;
@@ -1109,6 +1241,11 @@ onMounted(load)
     letter-spacing: 0.2em;
     text-transform: uppercase;
   }
+}
+
+:global(body.body--cobalt .nav-edit-item-header) {
+  padding: 6px 10px !important;
+  color: var(--color-sidebar-kicker);
 }
 
 .nav-edit-item-link {
@@ -1159,6 +1296,25 @@ onMounted(load)
   }
 }
 
+/*
+  Cobalt: "Link | ... padding 7px 10px 7px 18px | `#d7deff`, icon `#7f8ed1`, 8px 10px" -- a shallower,
+  symmetric padding (no 18px indent) and a leading-icon color distinct from the row's own text color
+  (both currently paint with `currentColor` off `.nav-edit-item`'s single color -- see that rule's own
+  Cobalt override above for the text half). `:not(.handle)` excludes the trailing grip, which keeps
+  its own color from the `.handle` rule.
+*/
+:global(body.body--cobalt .nav-edit-item-link) {
+  padding: 8px 10px !important;
+
+  &.is-active {
+    padding-inline-start: 10px !important;
+  }
+}
+
+:global(body.body--cobalt .nav-edit-item-link .w-icon:not(.handle)) {
+  color: var(--color-sidebar-icon);
+}
+
 :global(body.body--dark .nav-edit-item-link.is-nested) {
   background-color: $dark-2;
 }
@@ -1168,6 +1324,27 @@ onMounted(load)
 ) {
   border-block-end-color: $hairline-dark;
   border-inline-start-color: $hairline-dark;
+}
+
+/*
+  Cobalt: "indented 10px, rail `rgba(255,255,255,.08)`, ground `rgba(255,255,255,.04)`, radius
+  0 6px 6px 0; rows `#a7b3ea`" -- a shallower indent than Ledger's 18px, an outer radius on the rail's
+  own corners (`--radius-control`, 0 in Ledger so unaffected there), and the run's own text tone
+  rather than the base row color.
+*/
+:global(body.body--cobalt .nav-edit-item-link.is-nested) {
+  margin-inline-start: 10px;
+  border-inline-start-color: rgb(255 255 255 / 0.08);
+  background-color: rgb(255 255 255 / 0.04);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: var(--color-sidebar-text-secondary);
+}
+
+:global(
+  body.body--cobalt .nav-edit-item-link:not(.is-nested) + .nav-edit-item-link.is-nested::before
+) {
+  border-block-end-color: rgb(255 255 255 / 0.08);
+  border-inline-start-color: rgb(255 255 255 / 0.08);
 }
 
 /*
@@ -1206,6 +1383,19 @@ onMounted(load)
   color: $accent-dark;
 }
 
+/*
+  Cobalt: "ground `rgba(255,77,90,.16)`, rail `#ff4d5a`" -- that rgba is `--color-accent-fill` itself
+  (`#ff4d5a` = `rgb(255 77 90)`) at 16% opacity, so it is written as the decomposed rgb() triplet
+  rather than a `color-mix()`/relative-color expression this codebase does not otherwise use.
+*/
+:global(body.body--cobalt .nav-edit-item-header + .nav-edit-item-link.is-nested),
+:global(body.body--cobalt .nav-edit-item-separator + .nav-edit-item-link.is-nested),
+:global(body.body--cobalt .nav-edit-list .nav-edit-item-link.is-nested:first-child) {
+  background-color: rgb(255 77 90 / 0.16) !important;
+  border-inline-start-color: var(--color-accent-fill) !important;
+  color: var(--color-accent-fill);
+}
+
 .nav-edit-item-separator {
   display: flex;
   align-items: center;
@@ -1223,6 +1413,11 @@ onMounted(load)
 
 :global(body.body--dark .nav-edit-bottombar) {
   border-top-color: $hairline-dark;
+}
+
+:global(body.body--cobalt .nav-edit-bottombar) {
+  padding: 12px 14px;
+  border-top-color: var(--color-sidebar-hairline);
 }
 
 /* -- Right panel -------------------------------------------------------- */
@@ -1274,8 +1469,48 @@ onMounted(load)
   color: $text-dark;
 }
 
+/*
+  Cobalt: "`#e6edff`, `border-left: 3px solid #1f4fd6`, radius 6px, text `#1e2a5e`" -- a flat tinted
+  card with an accent-colored start border, rather than Ledger's bordered box with a separate icon
+  gutter, so the gutter div's own background/divider are cleared below rather than restyled to match.
+  `#1e2a5e` (the same "slate button" gap the overlay header's Cancel button flags) has no token yet;
+  `--color-text-secondary` is the nearest existing one.
+*/
+:global(body.body--cobalt .nav-edit-callout) {
+  border: 0;
+  border-inline-start: 3px solid var(--color-accent-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--color-tint);
+}
+
+:global(body.body--cobalt .nav-edit-callout__icon) {
+  background-color: transparent;
+  border-inline-end: 0;
+  color: var(--color-accent-strong);
+}
+
+:global(body.body--cobalt .nav-edit-callout p) {
+  color: var(--color-text-secondary);
+}
+
+/*
+  Cobalt shape (Task #2767's own shape tokens): `--radius-card`/`--shadow-card` are `0`/`none` in
+  Ledger, so applying them here unconditionally (rather than behind a `body--cobalt` guard) changes
+  nothing there and gives Cobalt "white, radius 8px, `0 2px 10px rgba(16,25,74,.08)`" with no separate
+  override block needed. `overflow: hidden` is NOT included here, unlike `.nav-edit-structure-card`
+  below -- Ledger's own corner marks (`.nav-edit-card__corner`, right below) are absolutely positioned
+  OUTSIDE this card's box on purpose, to overhang the edge by 4px, and `overflow: hidden` would clip
+  them; it is added Cobalt-only instead, once the marks are already hidden there (`--corner-marks:
+  none`).
+*/
 .nav-edit-card {
   max-width: 760px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+:global(body.body--cobalt .nav-edit-card) {
+  overflow: hidden;
 }
 
 .nav-edit-card--disabled {
@@ -1288,9 +1523,14 @@ onMounted(load)
   the icon-stroke slate. Real elements rather than a `::before`/`::after` pair (only two pseudo-
   elements are available and four corners are needed), the same way the design's own reference draws
   them.
+
+  `display: var(--corner-marks)` is the same shape token every registration mark in the app answers
+  to (`block` in Ledger, `none` in Cobalt, where the card carries a radius and a shadow instead) --
+  not a `body--cobalt` override, since the token already IS the per-aesthetic switch.
 */
 .nav-edit-card__corner {
   position: absolute;
+  display: var(--corner-marks);
   width: 7px;
   height: 7px;
   border-style: solid;
@@ -1350,6 +1590,24 @@ onMounted(load)
   color: $slate-light;
 }
 
+/*
+  Cobalt: "40px white, rule `#eef1fb`; type name Barlow Condensed 600 16px `#1f4fd6`" -- white rather
+  than tinted, a taller band, and the display face/size/color the handoff gives the type name (Ledger
+  keeps the mono eyebrow treatment instead). `#eef1fb` (the Cobalt "faint rule") has no token yet;
+  `--color-hairline` is the nearest existing divider.
+*/
+:global(body.body--cobalt .nav-edit-card__header) {
+  height: 40px;
+  background-color: var(--color-white);
+  border-bottom-color: var(--color-hairline);
+  color: var(--color-accent-strong);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 .nav-edit-parent-badge {
   margin-inline-start: auto;
   border: 1px solid $slate-soft;
@@ -1361,6 +1619,14 @@ onMounted(load)
   text-transform: uppercase;
 }
 
+/* Cobalt: "badge `#e6edff` / `#1a3fb0`, radius 4px" -- a filled tag-style badge, not an outline. */
+:global(body.body--cobalt .nav-edit-parent-badge) {
+  border: 0;
+  border-radius: var(--radius-mark);
+  background-color: var(--color-tint);
+  color: var(--color-tag-chip-text);
+}
+
 .nav-edit-structure-card {
   display: flex;
   align-items: flex-start;
@@ -1368,6 +1634,9 @@ onMounted(load)
   gap: 16px;
   max-width: 760px;
   padding: 12px 14px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 
 .nav-edit-structure-card__nest {
@@ -1393,5 +1662,19 @@ onMounted(load)
 
 :global(body.body--dark .nav-edit-structure-card__caption) {
   color: $text-secondary-dark;
+}
+
+:global(body.body--cobalt .nav-edit-structure-card__caption) {
+  color: var(--color-text-secondary);
+}
+
+/*
+  Cobalt: "glyphs indent-increase / indent-decrease, text `#38465f` / `#1f4fd6`" -- `color="slate"`
+  sets `var(--color-slate)` as an inline style (same non-aesthetic-token reasoning as the overlay
+  header's Cancel button), so this needs the same `!important` override. Unlike Cancel's, this one
+  has a real Cobalt token: `--color-accent-strong` is exactly the `#1f4fd6` the handoff calls for.
+*/
+:global(body.body--cobalt .nav-edit-structure-btn) {
+  color: var(--color-accent-strong) !important;
 }
 </style>
