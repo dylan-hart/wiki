@@ -91,8 +91,11 @@ primitive:
   primary action") that no single component can make on its own.
 - `--q-info`/`-negative`/`-positive`/`-warning` are un-seeded by `aestheticDefaults.js`, so
   toast/banner fill colors stay Ledger-colored under Cobalt until that lands.
-- `WConfirmDialog.vue`'s `.card-header` title band (`_base.scss`) draws from a compile-time Sass
-  constant shared by 60+ non-shared dialogs app-wide, not the runtime CSS custom property system.
+- ~~`WConfirmDialog.vue`'s `.card-header` title band (`_base.scss`) draws from a compile-time Sass
+  constant shared by 60+ non-shared dialogs app-wide, not the runtime CSS custom property system.~~
+  **Fixed** — OpenProject #2815: `.card-header`'s `background-color`/`border-bottom` now read the
+  runtime `--color-dark-2`/`--color-hairline-dark` tokens (already Cobalt-dark-wired by #2771), so
+  the band follows the aesthetic app-wide with no per-dialog change needed.
 - `WCardHeader.vue`'s `.w-section-header` dark color and `WInput.vue`'s read-only dark background
   both want a ramp rung (`#0e1540`) that neither currently has.
 - `WFieldFrame.vue`'s error-ring dark color lightens per the generic pre-Cobalt convention, but the
