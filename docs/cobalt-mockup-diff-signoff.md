@@ -133,8 +133,12 @@ var(--color-hairline-dark); }` block (placed before `body.body--cobalt` so the l
   page-local `.auth-cta` class (task #2779), now redundant, was retired. `NavEditMenu.vue`'s
   `w-btn-toggle` segment, `PageActionsCol.vue`'s plate and `TagsBrowse.vue`'s selected `WChip` stay
   hand-wired (none is a `WBtn`), each now carrying a comment pointing back to this decision.
-- `--q-info`/`-negative`/`-positive`/`-warning` are un-seeded by `aestheticDefaults.js`, so
-  toast/banner fill colors stay Ledger-colored under Cobalt until that lands.
+- ~~`--q-info`/`-negative`/`-positive`/`-warning` were un-seeded by `aestheticDefaults.js`, so
+  toast/banner fill colors stayed Ledger-colored under Cobalt.~~ **Fixed** by OpenProject #2814:
+  `helpers/aestheticDefaults.js#aestheticStatusColors()` seeds Cobalt values for all four, applied by
+  `App.vue#applyTheme()` keyed off the resolved aesthetic. No dark-mode-specific override yet (same
+  acknowledged `--q-*` architecture gap as `--q-header`/`--q-sidebar`) -- one Cobalt value is used in
+  both light and dark.
 - `WConfirmDialog.vue`'s `.card-header` title band (`_base.scss`) draws from a compile-time Sass
   constant shared by 60+ non-shared dialogs app-wide, not the runtime CSS custom property system.
 - `WCardHeader.vue`'s `.w-section-header` dark color and `WInput.vue`'s read-only dark background
