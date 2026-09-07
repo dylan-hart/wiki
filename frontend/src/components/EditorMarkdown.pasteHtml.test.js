@@ -193,7 +193,13 @@ describe('EditorMarkdown HTML paste embedded images (OpenProject #2504)', () => 
     expect(editorStore.pendingAssets).toHaveLength(1)
     const value = editorState.fakeModel.getValue()
     expect(value).toContain(`![good](${editorStore.pendingAssets[0].blobUrl})`)
-    expect(value).not.toContain('bad')
+    // -> Not a bare `not.toContain('bad')`: the surviving good image's blob: URL is a random
+    //    lowercase-hex UUID (`URL.createObjectURL`, stores/editor.js), which can coincidentally
+    //    contain the substring "bad" (OpenProject #2805) since b/a/d are all valid hex digits.
+    //    Assert on the failed image's actual markdown/alt-text/source instead, which cannot collide.
+    expect(value).not.toContain('![bad]')
+    expect(value).not.toContain('alt="bad"')
+    expect(value).not.toContain('bad.png')
     expect(value).not.toContain('pending-image:')
   })
 
