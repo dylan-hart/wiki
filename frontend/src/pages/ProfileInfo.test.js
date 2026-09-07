@@ -429,6 +429,61 @@ describe('ProfileInfo first/last/display name (Feature #2608)', () => {
     expect(wrapper.find('input[aria-label="First Name"]').element.value).toBe('Janet')
   })
 
+  it('loads and sends the aesthetic choice the same way appearance already works', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, aesthetic: 'cobalt' })
+    await flushPromises()
+
+    // -> WBtnToggle draws each option as a labelled button; the test i18n resolves the untranslated
+    //    profile.aesthetic* keys to themselves, so the aesthetic toggle's own aria-label is distinct
+    //    from the appearance toggle's.
+    const aestheticToggle = wrapper.find('[aria-label="profile.aesthetic"]')
+    expect(aestheticToggle.exists()).toBe(true)
+    expect(wrapper.find('[aria-label="profile.appearance"]').exists()).toBe(true)
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      aesthetic: 'cobalt',
+      appearance: 'site'
+    })
+  })
+
+  it('patches userStore.aesthetic on save, the same way appearance already does', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({
+      json: () => Promise.resolve({ ...FULL_PROFILE, aesthetic: 'ledger' })
+    })
+    const { wrapper, userStore } = mountWithApp(ProfileInfo, {
+      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
+      stores: {
+        site: (store) => {
+          store.features.profile = true
+        }
+      }
+    })
+    await flushPromises()
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(userStore.aesthetic).toBe('ledger')
+  })
+
+  it('defaults the aesthetic choice to site when the profile carries none', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      aesthetic: 'site'
+    })
+  })
+
   it('carries a mononym through: an empty last name is loaded and sent as empty', async () => {
     const wrapper = mountProfile({
       ...FULL_PROFILE,

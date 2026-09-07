@@ -692,3 +692,35 @@ describe('UserEditOverlay first/last/display name (Feature #2608)', () => {
     })
   })
 })
+
+/**
+ * WP #2770: the Appearance row grows a second, sibling `w-btn-toggle` for the aesthetic setting
+ * (`site | ledger | cobalt`), aesthetic first -- mirroring exactly how `prefs.appearance` already
+ * behaves in this overlay (whole-`prefs`-object save, no separate init required).
+ */
+describe('UserEditOverlay aesthetic toggle (WP #2770)', () => {
+  it('shows the aesthetic toggle beside the appearance toggle', async () => {
+    const wrapper = await mountOverview()
+
+    expect(wrapper.find('[aria-label="profile.aesthetic"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="admin.users.appearance"]').exists()).toBe(true)
+  })
+
+  it("loads the user's stored aesthetic preference", async () => {
+    const wrapper = await mountOverview({ ...NAMED_USER, prefs: { aesthetic: 'cobalt' } })
+
+    expect(wrapper.vm.state.user.prefs.aesthetic).toBe('cobalt')
+  })
+
+  it('sends the aesthetic choice in the default save patch, same as appearance', async () => {
+    const wrapper = await mountOverview({ ...NAMED_USER, prefs: { aesthetic: 'ledger' } })
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(API_CLIENT.put.mock.calls.at(-1)[1].json.prefs).toMatchObject({
+      aesthetic: 'ledger'
+    })
+  })
+})
