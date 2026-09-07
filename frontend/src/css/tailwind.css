@@ -685,6 +685,86 @@ body.body--cobalt {
 }
 
 /*
+  -- Cobalt aesthetic: dark token block (OpenProject #2771) -----------------
+  Source: `ui-redesign-cobalt/HANDOFF.md`'s "Cobalt dark tokens" section. Layered on top of
+  `body.body--cobalt` above via the compound selector, so this wins by specificity regardless of
+  source order. Shape tokens (radii, corner marks, header banner geometry) are identical between
+  Cobalt light and dark and are NOT restated here -- see #2767's block above for those.
+
+  Two different families of custom property need overriding here, and they earn the role for
+  different reasons:
+
+  1. Ledger's own "-dark"-suffixed tokens and the `--color-dark-N` surface ramp
+     (`--color-dark`/`-2`/`-3`/`-4`/`-5`, `--color-hairline-dark`, `--color-border-dark`,
+     `--color-disabled-dark`, `--color-text(-secondary/-caption)-dark`, `--color-accent(-wash)-dark`).
+     These are what nearly every existing component's `dark:` utility variant already reads
+     (`.w-card`'s `dark:bg-dark-3`, `WCheckbox`'s `dark:border-disabled-dark`, the many
+     `color: var(--color-accent-dark)` call sites, ...) regardless of aesthetic -- overriding them
+     here is what makes every other screen inherit correct Cobalt-dark rendering with zero
+     per-screen code, per this task's acceptance criteria. Mapped using each ramp rung's own
+     documented role (`-5` "the page ground", `-4` "a read-only field, an inset gutter", `-3` "a
+     card, a dialog body", `-2` "a card header, a menu, a filled chip") against the handoff's
+     Surfaces table -- which is also how "Confirm dialog header band" is covered without touching
+     `--q-header`: it is `--color-dark-2`, a generic ramp rung, not the admin-configurable header
+     bar. `--color-dark-1` and `--color-dark-6` (the two rungs the handoff gives no Cobalt value
+     for) are deliberately left inherited from Ledger rather than guessed.
+  2. The plain, non-suffixed Cobalt tokens #2767 already declared for its own light block, restated
+     with their dark values for any consumer that reads them without a `dark:` pairing.
+
+  Deliberately NOT here, same boundary as #2767's block: `--q-header`/`--q-sidebar` and the rest of
+  the `--q-*` brand colors. The handoff's "Header bar" role (the main site toolbar, one step deeper
+  than Cobalt light's `#1f4fd6`) has no dark-specific override slot in the current `--q-*`
+  architecture at all and is left for future work alongside OpenProject #2768.
+
+  A few handoff rows have no landed token or component call site to attach to yet -- labels on
+  tinted rows, the "breadcrumb separator/off-state" value distinct from the checkbox-border use
+  `--color-disabled-dark` already carries, inline code/active TOC/section kicker/field error/flat
+  link accent treatments, filled-toast darkening, the info toast, and the callout/info banner. Left
+  undeclared rather than invented, since a token nothing reads is the same drift risk this block
+  exists to prevent.
+*/
+body.body--cobalt.body--dark {
+  /* Ledger dark-suffixed / ramp tokens most existing dark: utilities already read */
+  --color-dark: #0a0f2c;
+  --color-dark-2: #1a43bd;
+  --color-dark-3: #141c4f;
+  --color-dark-4: #070b22;
+  --color-dark-5: #0a0f2c;
+  --color-hairline-dark: rgb(255 255 255 / 0.08);
+  --color-border-dark: rgb(255 255 255 / 0.14);
+  --color-disabled-dark: #5a6699;
+  --color-text-dark: #e8ecff;
+  --color-text-secondary-dark: #a7b3ea;
+  --color-text-caption-dark: #8b98d6;
+  --color-accent-dark: #ff8f97;
+  --color-accent-wash-dark: rgb(255 77 90 / 0.16);
+
+  /* Plain Cobalt aesthetic tokens, restated for dark */
+  --color-paper: #0a0f2c;
+  --color-tint: #070b22;
+  --color-tint-alt: #141c4f;
+  --color-hairline: rgb(255 255 255 / 0.08);
+  --color-text-body: #e8ecff;
+  --color-text-secondary: #a7b3ea;
+  --color-text-caption: #8b98d6;
+  --color-accent-wash: rgb(255 77 90 / 0.16);
+  --color-accent-strong: #7fa0ff;
+  --color-heading-h2: #8fb0ff;
+  --color-inner-rule: rgb(255 255 255 / 0.06);
+  --color-sidebar-hairline: rgb(255 255 255 / 0.06);
+  --color-tag-chip-bg: rgb(61 109 247 / 0.22);
+  --color-tag-chip-text: #a3bbff;
+  --color-tag-chip-accent-bg: rgb(255 77 90 / 0.16);
+  --color-tag-chip-accent-text: #ff8f97;
+  --color-avatar-plate-bg: rgb(61 109 247 / 0.22);
+  --color-avatar-plate-text: #a3bbff;
+
+  /* Not a shape token despite living beside them in the light block: the handoff gives an explicit,
+     different shadow for the dark card/raised surface under "Surfaces", not under the radii sweep. */
+  --shadow-card: 0 2px 12px rgb(0 0 0 / 0.4);
+}
+
+/*
   Element reset for the shared components.
 
   Preflight is switched off above, so a bare <button> keeps its user-agent background, border and
