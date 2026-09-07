@@ -8,6 +8,7 @@ import PageHeader from './PageHeader.vue'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useDark } from '@/composables/dark'
 import { useDirection } from '@/composables/direction'
 import { openDialogs } from '@/composables/dialog'
 import { queue } from '@/composables/notify'
@@ -392,5 +393,47 @@ describe('PageHeader reviewSubmission (OpenProject #2531)', () => {
     const siteStore = useSiteStore()
     expect(siteStore.overlay).toBe('Inbox')
     expect(siteStore.overlayOpts).toEqual({ tab: 'review', submissionId: 'sub-1', from: 'page' })
+  })
+})
+
+/**
+ * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
+ * the page-icon plate's `accent-fill` color (both branches -- the editing button's icon and the
+ * reading icon) drew the same bright light-mode tone against a dark ground. Fixed by resolving the
+ * color through `dark.isActive` instead of a static prop, the same pattern already used elsewhere in
+ * the app (e.g. `AdminBlocks.vue`) for a prop-driven `var(--color-*)` reference.
+ */
+describe('PageHeader page-icon plate dark mode (OpenProject #2807)', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark', 'body--light')
+  })
+
+  it('draws the reading-mode icon in accent-fill under light mode', async () => {
+    useDark().set(false)
+    const wrapper = await mountHeader()
+
+    const icon = wrapper.find('.page-header-icon .w-icon')
+    expect(icon.classes()).toContain('text-accent-fill')
+    expect(icon.classes()).not.toContain('text-accent-dark')
+  })
+
+  it('swaps the reading-mode icon to accent-dark under dark mode', async () => {
+    useDark().set(true)
+    const wrapper = await mountHeader()
+
+    const icon = wrapper.find('.page-header-icon .w-icon')
+    expect(icon.classes()).toContain('text-accent-dark')
+    expect(icon.classes()).not.toContain('text-accent-fill')
+  })
+
+  it('swaps the editing-mode icon button to accent-dark under dark mode', async () => {
+    useDark().set(true)
+    const wrapper = await mountHeader()
+    useEditorStore().$patch({ isActive: true })
+    await wrapper.vm.$nextTick()
+
+    const btn = wrapper.find('.page-header-icon .w-btn')
+    expect(btn.attributes('style')).toContain('var(--color-accent-dark)')
+    expect(btn.attributes('style')).not.toContain('var(--color-accent-fill)')
   })
 })
