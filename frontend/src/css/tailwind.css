@@ -602,6 +602,26 @@ html.theme-transition-suppress *::after {
 }
 
 /*
+  -- Ledger dark: --border-card (OpenProject #2811) --------------------------
+  `--border-card` above is declared once, in bare `:root`, against `--color-hairline` -- the LIGHT
+  hairline colour only, since `--color-hairline` itself is never redefined for plain (non-Cobalt)
+  dark mode, only for `body.body--cobalt`/`body.body--cobalt.body--dark`. Left as-is, a consumer
+  reading `--border-card` on a Ledger dark page would draw the light hairline colour. This gives
+  Ledger dark its own real value, off `--color-hairline-dark` (the token every other `dark:` hairline
+  utility already reads), so `WCard.vue` can consume `--border-card` unconditionally in both modes.
+
+  Placed BEFORE `body.body--cobalt` below on purpose: `body.body--dark` and `body.body--cobalt` are
+  equal-specificity selectors (`body` + one class each), so which one wins on a page carrying both
+  classes is decided by source order, not specificity -- and Cobalt's own `--border-card: 0` (it
+  wants a borderless, shadow-only card in both its light and dark forms, so it doesn't restate this
+  again under `body.body--cobalt.body--dark`) needs to be the one that wins there. Keeping this block
+  earlier than Cobalt's is what makes that hold.
+*/
+body.body--dark {
+  --border-card: 1px solid var(--color-hairline-dark);
+}
+
+/*
   -- Cobalt aesthetic: light token block (OpenProject #2767) -----------------
   The Cobalt half of every token declared above, scoped to `body.body--cobalt` rather than a
   `cobalt:` Tailwind variant -- see `ui-redesign-cobalt/HANDOFF.md`'s "Architecture" section. A
