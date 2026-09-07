@@ -724,3 +724,36 @@ describe('UserEditOverlay aesthetic toggle (WP #2770)', () => {
     })
   })
 })
+
+/**
+ * OpenProject #2810: this overlay mirrors `ProfileInfo.vue`'s Preferences card exactly (WP #2770's
+ * own framing), so it shares that screen's never-diffed gap against
+ * `ui-redesign-cobalt/Cardinal Wiki - Profile 3x - Cobalt.dc.html`. Same fix, same reason: the
+ * mockup's selected-segment fill is the ACCENT role (`ui-redesign-cobalt/HANDOFF.md`'s chrome
+ * table), not primary.
+ */
+describe('UserEditOverlay settings-row toggles against the Cobalt mockup (OpenProject #2810)', () => {
+  it('fills every settings-row toggle selection from the accent role, not primary', async () => {
+    // -> Each `w-btn-toggle` here binds `state.user.prefs.<x>` directly with no template-side
+    //    default, so an empty `prefs` (as `fetchUser()` REPLACES `state.user` wholesale) leaves
+    //    every segment unchecked. Set one of each toggle's own valid values explicitly.
+    const wrapper = await mountOverview({
+      ...NAMED_USER,
+      prefs: { timeFormat: '12h', aesthetic: 'site', appearance: 'site', cvd: 'none' }
+    })
+
+    const toggleLabels = [
+      'admin.users.timeFormat',
+      'profile.aesthetic',
+      'admin.users.appearance',
+      'profile.cvd'
+    ]
+    expect.assertions(toggleLabels.length * 2)
+    for (const label of toggleLabels) {
+      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+      expect(toggle.exists()).toBe(true)
+      const selected = toggle.find('[aria-checked="true"]')
+      expect(selected.attributes('style')).toContain('background-color: var(--color-accent)')
+    }
+  })
+})
