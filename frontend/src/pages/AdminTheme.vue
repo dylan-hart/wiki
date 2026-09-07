@@ -80,10 +80,16 @@
               :loading="state.loading > 0"
               :aria-label="t(`admin.theme.darkMode`)" />
           </w-settings-row>
+          <!--
+            `tabler:palette`, not `tabler:color-swatch` (OpenProject #2809, the mockup diff this card
+            was never checked against by #2769): the Aesthetic Setting mockup's own row plate draws a
+            circle-with-dots-and-swirl glyph, which is Tabler's palette icon, not the ribbon/paint-tube
+            shape `color-swatch` draws.
+          -->
           <template v-for="cl of colorKeys" :key="cl">
             <w-settings-row
               control-width="auto"
-              icon="tabler:color-swatch"
+              icon="tabler:palette"
               :label="t(`admin.theme.` + cl + `Color`)"
               :hint="t(`admin.theme.` + cl + `ColorHint`)">
               <div class="flex items-center gap-2">

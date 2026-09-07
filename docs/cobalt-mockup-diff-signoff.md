@@ -74,8 +74,38 @@ This mirrors row 10 (Profile) above exactly, for the same reason: neither Featur
 #2756 was ever in this Feature's `blockedBy` set (only #2757-2762's Tasks were), so no Task in this
 round was positioned to catch either gap. Both surfaced only while assembling this consolidated log
 against `HANDOFF.md`'s full screens table, not from any single screen-diff Task's own acceptance
-criteria. Recommended follow-up: a Task under Feature #2763 (or new Tasks under #2755/#2756) to
-actually diff both screens against their mockups and log the result the same way the other 18 did.
+criteria.
+
+**Admin half — fixed, OpenProject #2809, 2026-09-07 (comment 7584).** `AdminTheme.vue`'s Appearance
+card (`WSettingsCard` + `WSettingsRow` + `BlueprintIcon`) diffed against options 1a (Ledger) / 1b
+(Cobalt). 1 fixed (genuine defect): every color row's plate icon was `tabler:color-swatch` (a
+paint-tube/ribbon glyph) where both mockup options draw a palette-circle glyph — swapped to
+`tabler:palette`, already used elsewhere in this codebase. Everything else checked either matches or
+is already covered by a completed sibling fix: the Aesthetic/Dark-mode-row toggle and the color
+rows' `WBtn`/`WToggle` rounding render correctly via token inheritance (#2772/#2773). 1 new deferral
+to Feature #2763: `BlueprintIcon.vue` (the settings-row icon plate, shared across ~35 admin/profile
+pages) has zero Cobalt-specific styling — it stays Ledger's square hairline plate under both
+aesthetics, where the Cobalt mockup draws a filled, 6px-rounded, indigo-tinted plate with a
+blue-accent glyph — a real visual disagreement, but a frozen-primitive-scale change outside a
+single-screen diffing task's file ownership (added to
+[Frozen-primitive gaps](#frozen-primitive-gaps-deferred-to-feature-2763) below). 2 reviewed and left
+as-is, not fixed: the Dark mode and Primary color rows' hint copy reads differently from the
+mockup's illustrative prose (the shipped copy correctly carries functional/accessibility information
+the mockup's abbreviated text omits, and no row in the 18-row table above ever rewrote hint wording
+to match mockup copy — that table's "genuine defect" category is explicitly
+token/prop/icon, not wording); and the hex-value caption next to each swatch uses the fixed neutral
+`text-grey-6` rather than an aesthetic-tracking blue-grey, which is the same shared "muted caption"
+convention four other components already use identically, so changing it here alone would be
+inconsistent rather than a fix. 2 logged as non-defects: the real screen renders 5 color rows where
+the mockup only illustrates one ("Primary color") — the same "mockup shows fewer than the real,
+data-driven count" pattern already established for row 1's rail icon count; and the mockup's Ledger
+corner marks around the card are not reproduced by `WSettingsCard` (shared, ~35 pages, no corner
+marks anywhere), consistent with every other settings-card mockup diff in the 18 rows never flagging
+this as missing.
+
+**Profile half — still open**, scoped to OpenProject #2810 (`ProfileInfo.vue` + `UserEditOverlay.vue`,
+the mockup's second, "Profile › Identity › Preferences" card) per the epic coordination note; not
+touched by #2809.
 
 ## Frozen-primitive gaps deferred to Feature #2763
 
@@ -97,6 +127,11 @@ primitive:
   both want a ramp rung (`#0e1540`) that neither currently has.
 - `WFieldFrame.vue`'s error-ring dark color lightens per the generic pre-Cobalt convention, but the
   mockup wants the same bright value light uses.
+- `BlueprintIcon.vue`'s settings-row plate (shared across ~35 admin/profile pages) has no
+  Cobalt-specific styling at all — square hairline plate, `--color-paper` fill, `--color-slate` glyph
+  under both aesthetics, where the Cobalt mockup wants a filled, radiused, indigo-tinted plate with a
+  blue-accent glyph. Found by OpenProject #2809 diffing `AdminTheme.vue`'s Appearance card (comment
+  7584); out of that task's single-file ownership to fix.
 
 None of these were fixed by this WP or by any of the 7 screen-diff Tasks — they are Feature #2763's
 to resolve, tracked here so the deferral is visible in the consolidated log rather than only buried

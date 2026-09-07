@@ -318,3 +318,28 @@ describe('AdminTheme — Aesthetic setting row (OpenProject #2769)', () => {
     expect(options.json.theme.aesthetic).toBe('cobalt')
   })
 })
+
+// OpenProject #2809: diffing the Appearance card against `Cardinal Wiki - Aesthetic Setting 3x.dc.html`
+// (options 1a/1b) -- never done by #2769, whose scope was rendering the row and wiring
+// `resetColors()`. The one genuine defect found: every color row's plate drew `tabler:color-swatch`
+// (a paint-tube/ribbon glyph) where both mockup options draw a palette-circle glyph.
+describe('AdminTheme — Appearance card color rows match the mockup icon (OpenProject #2809)', () => {
+  it('gives every color row the palette icon, not the color-swatch icon', async () => {
+    const wrapper = await mountPage({
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
+      colorHeader: '#ffffff',
+      colorSidebar: '#f0f2f7'
+    })
+
+    const rows = wrapper.findAll('.admin-theme .w-settings-card')[0].findAll('.w-settings-row')
+    // -> Aesthetic + Dark mode are the first two rows (#2769); every row after them is a color row.
+    const colorRows = rows.slice(2)
+    expect(colorRows.length).toBe(5)
+    for (const row of colorRows) {
+      expect(row.find('[data-icon="tabler:palette"]').exists()).toBe(true)
+      expect(row.find('[data-icon="tabler:color-swatch"]').exists()).toBe(false)
+    }
+  })
+})
