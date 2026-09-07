@@ -107,6 +107,19 @@ watch(
 $sidebar-overlay-max: 1199.98px;
 
 /*
+  Diffed against `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` (OpenProject #2774). The
+  column's own text, its section kicker and the active-row treatment now go through
+  `--color-sidebar-*`/`--nav-active-inset` below, matching the mockups' dark-navy chrome; the item
+  and expansion-arrow GLYPH colours (`<w-icon color="slate-faint">` in `NavSidebarItem.vue`, and
+  `.w-expansion-item__arrow` below) are logged rather than fixed here. Both would need a fresh
+  `text-sidebar-icon`-shaped Tailwind utility or an unlayered CSS override, since `WIcon`'s `color`
+  prop builds its class at runtime (`text-${color}`) and Tailwind only emits a utility it can see
+  spelled out literally somewhere in source (`PageActionsCol.vue`'s own comment documents the same
+  trap) -- a real fix belongs with whichever follow-up gives the token layer its own icon-safe entry
+  point, not a one-off unlayered rule reached for here.
+*/
+
+/*
   A section heading between groups of nav items -- the language's own chrome overline, the same voice
   the metadata rail's headings and the admin sidebar's section labels use
   (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html` sets "DOCUMENTATION" above the tree exactly this
@@ -133,8 +146,13 @@ $sidebar-overlay-max: 1199.98px;
     The column's own foreground, stated rather than inherited: the drawer takes the site's chosen
     sidebar colour (or, in dark mode, the ramp -- see `css/_base.scss`), and what a nav row inherits
     from the layout above it is the document's own ink either way.
+
+    Through `--color-sidebar-text` (`tailwind.css`, OpenProject #2767) rather than the bare `$slate`
+    constant: Ledger's own default for the token is `var(--color-slate)`, the same literal value, so
+    this is unchanged for Ledger and is what lets Cobalt's own light nav text (`#d7deff`, legible on
+    the dark navy sidebar ground its own `--q-sidebar` default paints) take over.
   */
-  color: $slate;
+  color: var(--color-sidebar-text);
   /* -> Fills whatever the drawer's flex column has left over, rather than subtracting the action bar
      and footer bar by hand: both are conditional, so a fixed `calc()` left dead space at the bottom
      for an anonymous reader (no footer bar) and for a site with no action bar at all. `min-height: 0`
@@ -239,6 +257,25 @@ $sidebar-overlay-max: 1199.98px;
 
         .w-icon {
           color: $accent-dark;
+        }
+      }
+
+      /*
+        Cobalt marks the active row with a solid accent fill and white ink rather than Ledger's
+        white-on-tint row (`Page View 3x - Cobalt` mockup), via `--nav-active-inset` -- an INSET
+        box-shadow rather than a real border, so it draws inside the row's own box and needs no
+        compensating `padding-inline-start` the way the border above does. One rule for both themes:
+        `tailwind.css`'s Cobalt-dark block does not restate either token, since both mockups draw the
+        identical treatment.
+      */
+      @at-root body.body--cobalt & {
+        background-color: var(--color-sidebar-active-bg);
+        color: var(--color-sidebar-active-text);
+        border-inline-start: 0;
+        box-shadow: var(--nav-active-inset);
+
+        .w-icon {
+          color: var(--color-sidebar-active-text);
         }
       }
     }
@@ -355,8 +392,13 @@ $sidebar-overlay-max: 1199.98px;
   /*
     A group heading: Cardinal's chrome overline, in tracked uppercase Roboto Mono. `!important`
     because `WItemLabel`'s `header` variant sets its own colour.
+
+    `:not(.body--cobalt)` on this and the `&-header` dark override below (OpenProject #2774): both
+    are aesthetic-blind `.body--dark` rules whose specificity would otherwise beat the token-based
+    base color regardless of aesthetic, clobbering Cobalt dark's own (already-correct, inherited
+    unchanged from Cobalt light) `--color-sidebar-*` values with Ledger's dark literals.
   */
-  @at-root .body--dark & {
+  @at-root .body--dark:not(.body--cobalt) & {
     color: $text-secondary-dark;
 
     .w-expansion-item__arrow {
@@ -365,7 +407,7 @@ $sidebar-overlay-max: 1199.98px;
   }
 
   &-header {
-    color: $text-caption !important;
+    color: var(--color-sidebar-kicker) !important;
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 600;
@@ -375,7 +417,7 @@ $sidebar-overlay-max: 1199.98px;
        above it; tightening the bottom side ties it to the links it labels */
     padding-bottom: 4px;
 
-    @at-root .body--dark & {
+    @at-root .body--dark:not(.body--cobalt) & {
       color: $text-caption-dark !important;
     }
   }

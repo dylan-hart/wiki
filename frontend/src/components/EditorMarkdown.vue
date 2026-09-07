@@ -1708,6 +1708,22 @@ onBeforeUnmount(() => {
 $toolbar-height: 40px;
 $toolbar-btn: 30px;
 
+/*
+  Diffed against `Editor 3x - Cobalt` (OpenProject #2774). This component's own chrome below --
+  both toolbar bands, the source pane's gutter/background, the preview pane's frame, and the
+  collab-presence host bar (`.collab-disconnected me-2 flex ...` in `PageHeader.vue`, drawn beside
+  `CollabPresence.vue`'s own bubbles) -- still styles itself against the pre-aesthetic-split
+  `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` referenced above, predating both Ledger and Cobalt,
+  and reads bare `$slate`/`$surface`/`$tint`/`$primary` SCSS constants throughout rather than the
+  `--color-*`/`--radius-*` tokens Cobalt overrides. Nothing here is illegible or broken under Cobalt
+  -- every constant is still a valid, contrasting Ledger colour -- but none of it takes on Cobalt's
+  own blue/pill language the way `_page-contents.scss`'s code-block panel (this Task's one fix here)
+  now does. A full pass is a much larger restructuring than this diff-and-fix Task's economical scope
+  covers (dozens of call sites across a 2000+ line file, none of them this Task's explicit "the work"
+  items), so it is logged here rather than attempted piecemeal: the render preview pane already
+  inherits `_page-contents.scss`'s own Cobalt-aware tokens correctly (it shares the `.page-contents`
+  class), which is the one place OpenProject #2774's acceptance criteria actually named.
+*/
 .editor-markdown {
   /*
     Percentage heights all the way down rather than a viewport calc (`100vh` minus every fixed-height

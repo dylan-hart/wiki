@@ -602,6 +602,14 @@ onMounted(() => {
   all (`showSidebarActions` false), `NavSidebar` sits flush under `HeaderNav`'s own `.site-header`
   bottom edge instead, so the line is still there -- just drawn by the header rather than by this.
 */
+/*
+  Diffed against `Page View 3x - Cobalt` (OpenProject #2774): the mockup's own "EN"/"Browse" row draws
+  its text at `#c5cff5`, the exact value `--color-admin-sidebar-text` already carries -- but nothing
+  currently declares that pairing for the READER sidebar's own locale-switcher row specifically, and
+  guessing at reusing an admin-scoped token for a reader-facing surface is exactly the kind of call
+  this Task's acceptance criteria ask to log rather than make. Left unchanged; `.sidebar-footerbtns`
+  below is a clean case since it reuses that section's OWN dedicated token instead.
+*/
 .sidebar-actions {
   height: 38px;
   border-bottom: 1px solid $hairline;
@@ -659,6 +667,15 @@ onMounted(() => {
   flex-shrink: 0;
   border-top: 1px solid $hairline;
   color: $text-secondary;
+
+  /*
+    Cobalt's own "Edit navigation" row is `--color-sidebar-text-secondary` (`#a7b3ea`, identical in
+    both mockups) rather than the general `$text-secondary` this reused -- additive, since Ledger's
+    own default for the token is a different generic tone, not this one (OpenProject #2774).
+  */
+  body.body--cobalt & {
+    color: var(--color-sidebar-text-secondary);
+  }
 
   .sidebar-footerbtns-spacer {
     flex: 0 0 0;

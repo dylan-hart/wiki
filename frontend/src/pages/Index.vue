@@ -1461,10 +1461,22 @@ $toc-overlay-max: 749.98px;
   than hiding it. That is variance, but with a cause a reader can see in front of them, not one that
   turns on whether an author happened to fill in a field. A description long enough to wrap grows it
   the same way and for the same reason; a description of ordinary length never does.
+
+  Cobalt draws this band as a raised gradient card rather than Ledger's flush white plate --
+  `--page-header-*` (`tailwind.css`, OpenProject #2767/#2771) is exactly the token set this was
+  supposed to consume and never did: Ledger's own defaults (`--color-white`/`--color-ink`/`0`/`none`/
+  `0`) reproduce the two rules just below unchanged, so wiring them in is additive for Ledger and is
+  what finally lights up Cobalt's gradient/radius/shadow/margin (OpenProject #2774).
 */
 .page-header {
   min-height: 120px;
   padding-block: 8px;
+  margin-inline: var(--page-header-margin);
+  margin-block-start: var(--page-header-margin);
+  border-radius: var(--page-header-radius);
+  box-shadow: var(--page-header-shadow);
+  background: var(--page-header-bg);
+  color: var(--page-header-fg);
 
   /*
     Sized by its contents on a phone instead, which comes out around 96px: the 120px is pitched for a
@@ -1479,6 +1491,11 @@ $toc-overlay-max: 749.98px;
     padding-block: 10px;
   }
 
+  /*
+    Ledger's own flush plate: a hairline border rather than the radius/shadow/margin the tokens above
+    resolve to `0`/`none`/`0` for anyway -- kept as literal rules rather than folded into the tokens
+    since Ledger draws no card at all, just a ruled-off band.
+  */
   @at-root .body--light & {
     background-color: $surface;
     border-bottom: 1px solid $hairline;
@@ -1486,6 +1503,17 @@ $toc-overlay-max: 749.98px;
   @at-root .body--dark & {
     background-color: $dark-3;
     border-bottom: 1px solid $hairline-dark;
+  }
+
+  /*
+    Cobalt overrides both of the rules just above: the gradient/radius/shadow/margin already set by
+    the tokens at the top of this block replace Ledger's flush plate entirely, in both themes -- the
+    mockups draw the identical banner in light and dark (`tailwind.css`'s Cobalt-dark block does not
+    restate `--page-header-*`, so this is one rule for both).
+  */
+  @at-root body.body--cobalt & {
+    border-bottom: 0;
+    background-color: transparent;
   }
 
   /*
@@ -1628,6 +1656,21 @@ $toc-overlay-max: 749.98px;
   }
 }
 
+/*
+  Diffed against `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` (OpenProject #2774): the
+  mockups draw Contents, Tags/Revision and the actions rail as THREE separate floating white cards on
+  the page's own paper ground, rather than this one continuous rail sharing the article's white
+  surface with hairline rules between its own sections -- `.page-container`'s own background stays
+  `$surface` unconditionally for the same reason (the article relies on it as its own ambient white,
+  with no card of its own to carry that colour instead). Splitting the rail into per-section cards is
+  a real DOM/layout restructuring (a wrapper per section, a paper-coloured `.page-container` ground,
+  and the article gaining its own card treatment to keep its current white-on-white look) rather than
+  a token-consumption fix, and is logged here rather than attempted as part of this diff-and-fix pass
+  -- the token layer this WOULD consume (`--radius-card`/`--shadow-card`) already exists and needs no
+  further primitive work first. The headings/revision text INSIDE this rail are fixed below
+  regardless (`--color-text-caption`/`--color-text-body`), since those are plain colour swaps
+  independent of the larger card question.
+*/
 .page-sidebar {
   flex: 0 0 300px;
 
@@ -1751,6 +1794,17 @@ $toc-overlay-max: 749.98px;
 }
 
 /*
+  Cobalt's own Contents/Tags/Revision headings (`Page View 3x - Cobalt` mockup) are `--color-text-
+  caption`, not `$text-caption` -- the same hex in Ledger (`#57668a`, so this changes nothing there)
+  but a genuinely different, Cobalt-aware value once the aesthetic overrides it. One rule for both
+  themes: `--color-text-caption` already carries the correct light/dark Cobalt values on its own
+  (OpenProject #2774).
+*/
+body.body--cobalt .page-sidebar-heading {
+  color: var(--color-text-caption);
+}
+
+/*
   The Revision section's three lines (OpenProject #2652). One type size and one leading for all
   three -- 13px/1.7 in the body face, as the design draws them -- because they are one statement
   about the page read top to bottom, not a list of three fields: the version, who wrote it, and
@@ -1763,6 +1817,15 @@ $toc-overlay-max: 749.98px;
   color: $slate;
   font-size: 13px;
   line-height: 1.7;
+}
+
+/*
+  Cobalt's own revision text is `--color-text-body`, not `$slate` -- the two are close but not equal
+  (`#38465f` vs Ledger's own `#2f3a4f`), so this is additive rather than a base-rule swap, matching
+  the sibling heading rule above (OpenProject #2774).
+*/
+body.body--cobalt .page-sidebar-revision {
+  color: var(--color-text-body);
 }
 
 .page-sidebar-revision-time {

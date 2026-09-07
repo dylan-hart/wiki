@@ -426,6 +426,8 @@ describe(
     let browser
     let light
     let dark
+    let cobaltLight
+    let cobaltDark
 
     /*
      * One sample of each construct, in the markup the renderers actually emit:
@@ -474,14 +476,23 @@ describe(
       return { appCss, contentCss: content.css }
     }
 
-    /** Every computed value the assertions below need, read in one pass off one rendered page. */
-    async function measure(darkMode) {
+    /**
+     * Every computed value the assertions below need, read in one pass off one rendered page.
+     *
+     * `cobalt` (OpenProject #2774) stacks `body--cobalt` alongside `body--dark` the same way the app
+     * itself does (`composables/aesthetic.js`) -- both classes on the one `<body>`, not a separate
+     * page per combination beyond what `dark` already gives this function.
+     */
+    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
       const { appCss, contentCss } = stylesheets
       const page = await browser.newPage()
       try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
         await page.setContent(
           `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
-            `<body class="${darkMode ? 'body--dark' : ''}">${SAMPLE}</body></html>`
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
         )
         return await page.evaluate(() => {
           const at = (selector) => document.querySelector(selector)
@@ -518,7 +529,9 @@ describe(
               keyword: styleOf('.hljs-keyword').color,
               string: styleOf('.hljs-string').color,
               number: styleOf('.hljs-number').color,
-              comment: styleOf('.hljs-comment').color
+              comment: styleOf('.hljs-comment').color,
+              radius: styleOf('pre.codeblock').borderTopLeftRadius,
+              leadingEdgeWidth: styleOf('pre.codeblock').borderInlineStartWidth
             },
             footnotes: {
               refFamily: styleOf('.footnote-ref > a').fontFamily,
@@ -541,8 +554,10 @@ describe(
     beforeAll(async () => {
       browser = await chromium.launch()
       stylesheets = await buildStylesheets()
-      light = await measure(false)
-      dark = await measure(true)
+      light = await measure({ dark: false })
+      dark = await measure({ dark: true })
+      cobaltLight = await measure({ dark: false, cobalt: true })
+      cobaltDark = await measure({ dark: true, cobalt: true })
     })
 
     afterAll(async () => {
@@ -600,6 +615,26 @@ describe(
       }
       expect(light.codeBlock.keyword).toBe('rgb(240, 130, 135)')
       expect(dark.codeBlock.keyword).toBe('rgb(255, 155, 160)')
+    })
+
+    /**
+     * OpenProject #2774: the code block gains an 8px rounded panel and drops its accent leading edge
+     * under Cobalt (`Page View 3x - Cobalt`/`Editor 3x - Cobalt`), while Ledger keeps its own square,
+     * accent-edged treatment unchanged in both themes.
+     */
+    it('rounds the code block and drops its accent edge under Cobalt, leaving Ledger square', () => {
+      expect(light.codeBlock.radius).toBe('0px')
+      expect(dark.codeBlock.radius).toBe('0px')
+      expect(light.codeBlock.leadingEdgeWidth).toBe('2px')
+      expect(dark.codeBlock.leadingEdgeWidth).toBe('2px')
+
+      expect(cobaltLight.codeBlock.radius).toBe('8px')
+      expect(cobaltDark.codeBlock.radius).toBe('8px')
+      expect(cobaltLight.codeBlock.leadingEdgeWidth).toBe('0px')
+      expect(cobaltDark.codeBlock.leadingEdgeWidth).toBe('0px')
+
+      // -> `--color-ink`'s own Cobalt override, `#10194a`
+      expect(cobaltLight.codeBlock.background).toBe('rgb(16, 25, 74)')
     })
 
     it('bleeds the footnote separator back past the article text, as the title rule does', () => {
