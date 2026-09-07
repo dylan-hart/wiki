@@ -47,7 +47,7 @@ const classes = computed(() => [
 ])
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 /*
   Ports Quasar's item-section rules. These live in the component's own stylesheet rather than in a
   Tailwind layer on purpose: Quasar declares `.q-icon { font-size: inherit }` unlayered, and a
@@ -74,6 +74,33 @@ const classes = computed(() => [
 /* Two adjacent main sections get a small gutter, as they did before. */
 .w-item-section--main + .w-item-section--main {
   margin-inline-start: 8px;
+}
+
+/*
+  RESPONSIVE ROW STACKING (OpenProject #2822)
+  =============================================
+  Two adjacent MAIN sections -- an icon/label section and an input section, the shape every
+  settings-style row built from `WItem`/`WItemSection` shares -- divide the row's width equally and
+  run out of room long before either can be usefully narrower. Below the row's own available width
+  (queried via `.w-item`'s `container-type: inline-size`, see that component), the second one drops
+  onto a line of its own, full width, and the side-by-side gutter becomes the gap between two lines.
+
+  This used to be `ProfileOverlay.vue`'s own scoped copy, keyed off the viewport rather than the
+  row -- which only fired below 600px and missed the 600-900px range where `ProfileOverlay`'s own
+  nav rail has already collapsed and freed width back to the row, and did nothing at all for any
+  other `WItem` row elsewhere in the app. A container query reacts to the row's REAL rendered width
+  regardless of what squeezed it, so the one rule now covers every caller.
+
+  `flex-basis` (via the `flex` shorthand), not `width`: the section carries `flex-1`, i.e. `flex: 1
+  1 0%`, and a flex item is sized by its basis -- a bare `width: 100%` is ignored while the row's
+  `flex-wrap` (see `WItem.vue`) is what actually lets a `flex-basis` of 100% claim a line of its own.
+*/
+@container w-item (max-width: #{$breakpoint-xs-max}) {
+  .w-item-section--main + .w-item-section--main {
+    flex: 1 0 100%;
+    margin-top: 0.5rem;
+    margin-inline-start: 0;
+  }
 }
 
 .w-item-section--avatar {

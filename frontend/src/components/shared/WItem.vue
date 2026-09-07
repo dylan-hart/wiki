@@ -176,7 +176,38 @@ function onKeydown(ev) {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+/*
+  RESPONSIVE ROW STACKING (OpenProject #2822)
+  =============================================
+  A settings-style row (an icon/label section beside an input section) runs out of room whenever
+  something ELSE has squeezed the row -- a nav rail, a sidebar, a narrow dialog -- not necessarily
+  the viewport itself. `container-type: inline-size` makes `.w-item` a query container keyed off
+  its own rendered width, so `WItemSection`'s stacking rule (see that component, and its matching
+  comment) reacts to the row actually running out of room rather than to `window.innerWidth`, and
+  works the same way in every `WItem` row in the app instead of being one dialog's local,
+  viewport-based copy.
+
+  `flex-wrap: wrap` here is UNCONDITIONAL, not itself behind a container query -- a same-element
+  container query (`.w-item` querying its own container) was tried first and verified, in a real
+  browser, to never actually take effect: Chromium silently leaves a query container's own styling
+  unaffected by a query against itself, so a rule inside `@container w-item { .w-item { ... } }`
+  never applied no matter how narrow the row was measured. Leaving `flex-wrap: wrap` permanently on
+  is not a workaround for that -- it is inert on its own: every `WItemSection` here defaults to
+  `flex: 1 1 0%` (a zero flex-basis), and the flex line-wrapping algorithm decides whether to break
+  onto a new line from items' flex-BASIS sizes, not their post-shrink rendered width, so a row of
+  zero-basis sections never wraps regardless of how little room they end up sharing. The ONLY thing
+  that ever asks this row to wrap is `WItemSection`'s own container query giving a stacked section a
+  flex-basis of 100% -- which is also what proves this is still driven by the row's real width, not
+  by `flex-wrap` alone: without that companion rule matching, nothing here ever produces a second
+  line.
+*/
+.w-item {
+  container-type: inline-size;
+  container-name: w-item;
+  flex-wrap: wrap;
+}
+
 .w-item--clickable {
   cursor: pointer;
 }
