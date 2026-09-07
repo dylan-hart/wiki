@@ -125,8 +125,14 @@ var(--color-hairline-dark); }` block (placed before `body.body--cobalt` so the l
   contradicts Ledger's own `--radius-dialog: 0` — a fix here is app-wide, not Cobalt-only.~~ Fixed
   by OpenProject #2812: `panelClasses` now uses `rounded-dialog`/`rounded-t-dialog`, the Tailwind
   utilities `--radius-dialog` already publishes via `@theme static`.
-- `--shadow-primary` needs an app-level decision ("which `color` prop value means the page's own
-  primary action") that no single component can make on its own.
+- ~~`--shadow-primary` needs an app-level decision ("which `color` prop value means the page's own
+  primary action") that no single component can make on its own.~~ **Fixed — OpenProject #2813**:
+  `color="accent"` is the decided value (`tailwind.css` already documented it as "the one a button
+  or chip resolves to", and every hand-wired consumer already agreed). `WBtn.vue` now bakes
+  `box-shadow: var(--shadow-primary)` into every solid `color="accent"` button; the auth screens'
+  page-local `.auth-cta` class (task #2779), now redundant, was retired. `NavEditMenu.vue`'s
+  `w-btn-toggle` segment, `PageActionsCol.vue`'s plate and `TagsBrowse.vue`'s selected `WChip` stay
+  hand-wired (none is a `WBtn`), each now carrying a comment pointing back to this decision.
 - `--q-info`/`-negative`/`-positive`/`-warning` are un-seeded by `aestheticDefaults.js`, so
   toast/banner fill colors stay Ledger-colored under Cobalt until that lands.
 - `WConfirmDialog.vue`'s `.card-header` title band (`_base.scss`) draws from a compile-time Sass

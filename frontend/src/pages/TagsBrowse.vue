@@ -719,6 +719,11 @@ onMounted(async () => {
     mockup, `--shadow-primary`'s exact value) -- `none` under Ledger, so this is a no-op there. A
     dedicated modifier class rather than reaching for `.tags-browse-chips` alone: that class is
     shared with the "available tags" block below, which stays a flat fill with no glow.
+
+    OpenProject #2813: this is a `WChip`, not a `WBtn`, so it can't pick up `--shadow-primary`
+    through that component's own `color="accent"` wiring -- it stays a direct, hand-wired consumer
+    on purpose, already keyed off the same accent role #2813 decided on (see `WChip`'s own `color`
+    usage on `.tags-browse-chips--selected` above).
   */
   @at-root body.body--cobalt .tags-browse-chips--selected .w-chip {
     box-shadow: var(--shadow-primary);
