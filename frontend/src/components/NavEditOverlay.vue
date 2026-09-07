@@ -5,12 +5,14 @@
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
       <!--
         Which menu is on screen, when it is not this page's own: an inherited menu is shared with every
-        page that falls back to it, so a change here is not local to the page it was made from.
+        page that falls back to it, so a change here is not local to the page it was made from. Styled
+        as the handoff's own header pill rather than a plain caption -- see the `<style>` block below.
       -->
-      <span class="ms-3 text-caption opacity-80" v-if="isEditingInherited">
+      <span class="nav-edit-header-notice ms-3" v-if="isEditingInherited">
+        <w-icon name="tabler:info-circle" size="12px" />
         {{ t('navEdit.editingInherited') }}
       </span>
-      <span class="ms-3 text-caption opacity-80" v-if="menuMode === 'auto'">
+      <span class="nav-edit-header-notice ms-3" v-if="menuMode === 'auto'">
         {{ t('navEdit.menuSourceReadOnlyNotice') }}
       </span>
       <w-space />
@@ -31,7 +33,7 @@
       <w-btn-group>
         <w-btn
           color="white"
-          text-color="text-secondary"
+          text-color="slate"
           :label="t(`common.actions.cancel`)"
           :aria-label="t(`common.actions.cancel`)"
           icon="tabler:x"
@@ -234,3 +236,21 @@ onBeforeUnmount(() => {
   siteStore.overlayOpts = {}
 })
 </script>
+
+<style scoped>
+/*
+  The header's own notice pill (`ui-redesign-nav/HANDOFF.md` §2): fixed dark-header text/border tones
+  regardless of the site's own light/dark theme, since this band never leaves `$dark-2` -- unlike the
+  rest of this overlay, there is nothing here for a `body--dark` variant to do.
+*/
+.nav-edit-header-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-text-secondary);
+  color: var(--color-text-dark);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+</style>
