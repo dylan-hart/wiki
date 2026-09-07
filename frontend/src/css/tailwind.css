@@ -918,6 +918,19 @@ body.body--cobalt.body--dark {
   }
 
   /*
+    Cobalt dark's own "bad address" mockup swatch (`Primitives Dark 3x - Cobalt.dc.html`) draws its
+    error ring at the same bright value Cobalt light uses, not the lightened value the generic rule
+    above applies for every other dark aesthetic. `--color-accent-fill` isn't restated in the Cobalt
+    dark token block (`body.body--cobalt.body--dark` above), so it still resolves to Cobalt light's
+    `#ff4d5a` here -- this rule just re-points the ring var at it. Higher specificity (4 classes vs.
+    3) than the generic rule above, so it wins regardless of source order. OpenProject #2817, fixing
+    the gap #2773 logged as a frozen-primitive deferral to Feature #2763.
+  */
+  body.body--cobalt.body--dark .w-input-control {
+    --w-input-ring-error: var(--color-accent-fill);
+  }
+
+  /*
     A rule that stays exactly one device pixel thick under fractional display scaling.
 
     The element keeps its 1px CSS box (so layout and margins behave normally) but paints nothing

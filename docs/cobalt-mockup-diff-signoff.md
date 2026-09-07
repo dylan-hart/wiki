@@ -95,9 +95,12 @@ primitive:
   constant shared by 60+ non-shared dialogs app-wide, not the runtime CSS custom property system.
 - `WCardHeader.vue`'s `.w-section-header` dark color and `WInput.vue`'s read-only dark background
   both want a ramp rung (`#0e1540`) that neither currently has.
-- `WFieldFrame.vue`'s error-ring dark color lightens per the generic pre-Cobalt convention, but the
-  mockup wants the same bright value light uses.
+- ~~`WFieldFrame.vue`'s error-ring dark color lightens per the generic pre-Cobalt convention, but the
+  mockup wants the same bright value light uses.~~ **Fixed** — OpenProject #2817 added a
+  `body.body--cobalt.body--dark .w-input-control` override in `tailwind.css` re-pointing
+  `--w-input-ring-error` at `--color-accent-fill` (Cobalt's own bright `#ff4d5a`) for Cobalt dark
+  specifically, leaving every other dark aesthetic's ring unchanged.
 
-None of these were fixed by this WP or by any of the 7 screen-diff Tasks — they are Feature #2763's
-to resolve, tracked here so the deferral is visible in the consolidated log rather than only buried
-in individual task comments.
+None of the remaining gaps above were fixed by this WP or by any of the 7 screen-diff Tasks — they
+are Feature #2763's to resolve, tracked here so the deferral is visible in the consolidated log
+rather than only buried in individual task comments.
