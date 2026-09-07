@@ -178,31 +178,48 @@ function onKeydown(ev) {
 
 <style lang="scss" scoped>
 /*
-  RESPONSIVE ROW STACKING (OpenProject #2822)
+  RESPONSIVE ROW STACKING (OpenProject #2822, narrowed by #2823)
   =============================================
-  A settings-style row (an icon/label section beside an input section) runs out of room whenever
-  something ELSE has squeezed the row -- a nav rail, a sidebar, a narrow dialog -- not necessarily
-  the viewport itself. `container-type: inline-size` makes `.w-item` a query container keyed off
-  its own rendered width, so `WItemSection`'s stacking rule (see that component, and its matching
-  comment) reacts to the row actually running out of room rather than to `window.innerWidth`, and
-  works the same way in every `WItem` row in the app instead of being one dialog's local,
-  viewport-based copy.
+  A settings-style row (an icon/label section beside an input section -- two adjacent MAIN
+  sections) runs out of room whenever something ELSE has squeezed the row -- a nav rail, a
+  sidebar, a narrow dialog -- not necessarily the viewport itself. `container-type: inline-size`
+  makes `.w-item` a query container keyed off its own rendered width, so `WItemSection`'s stacking
+  rule (see that component, and its matching comment) reacts to the row actually running out of
+  room rather than to `window.innerWidth`.
 
-  `flex-wrap: wrap` here is UNCONDITIONAL, not itself behind a container query -- a same-element
-  container query (`.w-item` querying its own container) was tried first and verified, in a real
-  browser, to never actually take effect: Chromium silently leaves a query container's own styling
-  unaffected by a query against itself, so a rule inside `@container w-item { .w-item { ... } }`
-  never applied no matter how narrow the row was measured. Leaving `flex-wrap: wrap` permanently on
-  is not a workaround for that -- it is inert on its own: every `WItemSection` here defaults to
-  `flex: 1 1 0%` (a zero flex-basis), and the flex line-wrapping algorithm decides whether to break
-  onto a new line from items' flex-BASIS sizes, not their post-shrink rendered width, so a row of
-  zero-basis sections never wraps regardless of how little room they end up sharing. The ONLY thing
-  that ever asks this row to wrap is `WItemSection`'s own container query giving a stacked section a
-  flex-basis of 100% -- which is also what proves this is still driven by the row's real width, not
-  by `flex-wrap` alone: without that companion rule matching, nothing here ever produces a second
-  line.
+  Scoped to `:has(.w-item-section--main + .w-item-section--main)` -- i.e. only a row that actually
+  has the two-main-section shape -- rather than bare `.w-item`, unconditionally, everywhere: an
+  ordinary menu/nav row (a `side` section beside a single main one, e.g. `AdminLayout.vue`'s
+  locale switcher or any `w-menu` item list) has no reason to become a query container, and doing
+  so anyway broke it. `container-type: inline-size` implies SIZE CONTAINMENT on the inline axis,
+  which makes the element's own content stop contributing to an ANCESTOR's intrinsic (shrink-to-
+  fit) width calculation -- fine for a settings row, which always sits in an explicitly-sized
+  dialog/overlay, but fatal for a menu row sitting in a `w-menu` popup with no `matchTrigger`
+  (auto-width, sized to fit its content): verified directly, in a real Chromium page, that such a
+  popup's row collapses to its own padding alone (0 content width) the moment `container-type` is
+  applied unconditionally, which is what produced OpenProject #2823's flaky-turned-failing RTL e2e
+  test (`AdminLayout.vue`'s language switcher's native-name label kept jittering between 0-width
+  and its real width, reading to Playwright as "not stable"/"not visible"). `:has()` is already
+  used below (`.w-item--clickable:has(:disabled)`) so this follows an established pattern rather
+  than introducing a new one, and needs no template changes at any of the many two-main-section
+  call sites (`ProfileInfo.vue`, `UserEditOverlay.vue`, `GroupEditOverlay.vue`, ...) since it keys
+  off the DOM shape those already have.
+
+  `flex-wrap: wrap` here is UNCONDITIONAL (within that same `:has()` scope), not itself behind a
+  container query -- a same-element container query (`.w-item` querying its own container) was
+  tried first and verified, in a real browser, to never actually take effect: Chromium silently
+  leaves a query container's own styling unaffected by a query against itself, so a rule inside
+  `@container w-item { .w-item { ... } }` never applied no matter how narrow the row was measured.
+  Leaving `flex-wrap: wrap` permanently on is not a workaround for that -- it is inert on its own:
+  every `WItemSection` here defaults to `flex: 1 1 0%` (a zero flex-basis), and the flex
+  line-wrapping algorithm decides whether to break onto a new line from items' flex-BASIS sizes,
+  not their post-shrink rendered width, so a row of zero-basis sections never wraps regardless of
+  how little room they end up sharing. The ONLY thing that ever asks this row to wrap is
+  `WItemSection`'s own container query giving a stacked section a flex-basis of 100% -- which is
+  also what proves this is still driven by the row's real width, not by `flex-wrap` alone: without
+  that companion rule matching, nothing here ever produces a second line.
 */
-.w-item {
+.w-item:has(.w-item-section--main + .w-item-section--main) {
   container-type: inline-size;
   container-name: w-item;
   flex-wrap: wrap;

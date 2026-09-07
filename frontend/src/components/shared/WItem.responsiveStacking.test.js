@@ -9,11 +9,20 @@ import {
 } from '../../../test/realGridLayout.js'
 
 /**
- * OpenProject #2822: an icon/label section beside an input section, the shape every
- * settings-style `WItem` row shares, drops the second section onto a line of its own once the ROW
- * itself runs out of room -- a `container-type: inline-size` container query on `.w-item`
- * (`WItem.vue`), not a viewport media query. `ProfileOverlay.vue` used to carry its own scoped copy
- * of this, keyed off `window.innerWidth`; this suite covers the shared primitive that replaced it.
+ * OpenProject #2822: an icon/label section beside an input section -- two adjacent MAIN sections,
+ * the shape every settings-style `WItem` row shares -- drops the second section onto a line of its
+ * own once the ROW itself runs out of room, via a `container-type: inline-size` container query on
+ * `.w-item` (`WItem.vue`), not a viewport media query. `ProfileOverlay.vue` used to carry its own
+ * scoped copy of this, keyed off `window.innerWidth`; this suite covers the shared primitive that
+ * replaced it.
+ *
+ * OpenProject #2823 narrowed that container query to only a row with the two-main-section shape
+ * (`:has(.w-item-section--main + .w-item-section--main)`) after the unconditional version broke
+ * every OTHER `WItem` row in the app -- a `side` + single-main menu/nav row sitting in a `w-menu`
+ * popup with no `matchTrigger` (auto-width, sized to fit its content). `container-type: inline-size`
+ * implies size containment on the inline axis, which stops such a row's content from contributing to
+ * its auto-width ancestor's shrink-to-fit calculation at all, collapsing the row to its own padding.
+ * The second describe below covers that regression directly.
  */
 
 /** Two adjacent MAIN sections -- an icon+label section, then an input section -- inside one row. */
@@ -35,6 +44,22 @@ function mountTwoMainSectionRow() {
   })
 }
 
+/** A menu/nav row -- one `side` section plus a single MAIN section, no second main. */
+function mountSideAndSingleMainRow() {
+  return mount({
+    template: `
+      <w-item>
+        <w-item-section side>
+          <span>ICON</span>
+        </w-item-section>
+        <w-item-section>
+          <w-item-label>Menu item label</w-item-label>
+        </w-item-section>
+      </w-item>
+    `
+  })
+}
+
 describe('WItem/WItemSection responsive row stacking', () => {
   it("keys the row's stacking off a CSS container query on .w-item, not a viewport media query", () => {
     mountTwoMainSectionRow()
@@ -43,11 +68,17 @@ describe('WItem/WItemSection responsive row stacking', () => {
       .map((el) => el.textContent)
       .join('\n')
 
-    // -> `.w-item` is the query container the row's own rendered width is measured against
-    expect(compiledCss).toMatch(/\.w-item\[data-v-[\da-f]+]\s*{[^}]*container-type:\s*inline-size/)
-    // -> `flex-wrap: wrap` is unconditional (see WItem.vue's own comment on why a same-element
-    //    container query never actually applied) -- it must NOT be gated behind a `@container` block
-    expect(compiledCss).toMatch(/\.w-item\[data-v-[\da-f]+]\s*{[^}]*flex-wrap:\s*wrap/)
+    // -> `.w-item` becomes the query container ONLY when it has the two-main-section shape
+    //    (OpenProject #2823) -- not unconditionally
+    expect(compiledCss).toMatch(
+      /\.w-item\[data-v-[\da-f]+]:has\(\.w-item-section--main \+ \.w-item-section--main\)\s*{[^}]*container-type:\s*inline-size/
+    )
+    // -> `flex-wrap: wrap` is unconditional WITHIN that same `:has()` scope, not itself behind a
+    //    container query (see WItem.vue's own comment on why a same-element container query never
+    //    actually applied)
+    expect(compiledCss).toMatch(
+      /\.w-item\[data-v-[\da-f]+]:has\(\.w-item-section--main \+ \.w-item-section--main\)\s*{[^}]*flex-wrap:\s*wrap/
+    )
     expect(compiledCss).not.toMatch(
       /@container[^{]*{\s*\.w-item\[data-v-[\da-f]+]\s*{[^}]*flex-wrap/
     )
@@ -159,6 +190,66 @@ describe(
 
       expect(wideStacked).toBe(false)
       expect(narrowStacked).toBe(true)
+    })
+  }
+)
+
+/*
+  OpenProject #2823 regression: a menu/nav row (one `side` section plus a single main one, e.g.
+  `AdminLayout.vue`'s locale switcher) sitting inside an auto-width ("shrink-to-fit") ancestor -- a
+  `w-menu` popup with no `matchTrigger`, which sizes itself to its content rather than to a fixed
+  pixel width. Reproduced directly against a real Chromium page before the fix: giving `.w-item`
+  `container-type: inline-size` unconditionally made the row's label stop contributing to the
+  popup's shrink-to-fit width calculation at all, collapsing the whole row to its own padding (32px
+  of `px-4`, 0 content) regardless of how long the label text was -- which is what made Playwright
+  see the label as jittering between 0-width and its real width ("not stable"/"not visible") once
+  something (a live locale name, a re-render) touched the row.
+*/
+describe(
+  'WItem/WItemSection responsive row stacking — menu row inside an auto-width ancestor (real layout)',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    let browser
+    let componentCss
+    let rowHtml
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+      const wrapper = mountSideAndSingleMainRow()
+      rowHtml = wrapper.html()
+      componentCss = [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('sizes to its own content inside a shrink-to-fit ancestor, instead of collapsing to its padding', async () => {
+      const tailwindCss = await buildAppCss()
+      const page = await browser.newPage()
+      try {
+        // -> `display: inline-block` with no `width` mirrors an un-widened `w-menu` popup, which
+        //    shrink-wraps to its content rather than filling a fixed pixel width.
+        await page.setContent(
+          `<!doctype html><html><head><style>${tailwindCss}\n${componentCss}</style></head><body>` +
+            `<div style="display: inline-block">${rowHtml}</div></body></html>`
+        )
+        const { itemWidth, labelWidth } = await page.evaluate(() => {
+          const item = document.querySelector('.w-item')
+          const label = document.querySelector('.w-item-label')
+          return {
+            itemWidth: item.getBoundingClientRect().width,
+            labelWidth: label.getBoundingClientRect().width
+          }
+        })
+
+        // -> The row's own horizontal padding alone (`px-4`, 16px each side) is 32px -- a collapsed
+        //    row (the #2823 bug) measures exactly that, with the label rendered at 0 width inside it.
+        expect(itemWidth).toBeGreaterThan(32)
+        expect(labelWidth).toBeGreaterThan(0)
+      } finally {
+        await page.close()
+      }
     })
   }
 )
