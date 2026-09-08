@@ -48,14 +48,13 @@ const PRESETS = {
     also what the design's fourth, action-carrying toast is drawn in.
 
     `bg-positive`/`bg-negative`/`bg-warning`/`bg-info` resolve through `--q-positive`/`-negative`/
-    `-warning`/`-info` -- admin-editable site colours, not Cobalt-aesthetic tokens -- so these toasts
-    stay Ledger-coloured under Cobalt, light AND dark, until `aestheticDefaults.js` (OpenProject
-    #2768) seeds Cobalt defaults for them (it currently only covers `colorPrimary`/`colorAccent`/
-    `colorHeader`/`colorSidebar`). `Primitives Dark 3x - Cobalt.dc.html`'s own toast swatches
-    (`#1f7a5f`/`#a8262f`/`#d9a441`/`#1f2a6b`) confirm the mismatch persists in dark exactly as
-    OpenProject #2772 already flagged it for light -- carried forward here rather than re-resolved
-    differently, and out of this Task's file ownership either way (aestheticDefaults.js, not
-    notify.js). Logged, not fixed.
+    `-warning`/`-info`, seeded per-aesthetic by `helpers/aestheticDefaults.js#aestheticStatusColors()`
+    and applied by `App.vue#applyTheme()` (OpenProject #2814, resolving the gap Feature #2763/#2772
+    logged: these four used to be fixed Ledger literals -- two hardcoded, two never even set --
+    regardless of aesthetic). `Primitives Dark 3x - Cobalt.dc.html`'s own toast swatches
+    (`#1f7a5f`/`#a8262f`/`#d9a441`/`#1f2a6b`) are dark-mode-specific values the `--q-*` architecture
+    still has no override slot for (same acknowledged gap as `--q-header`/`--q-sidebar`) -- Cobalt
+    seeds one value used in both light and dark, left for future work alongside that gap.
   */
   positive: { icon: 'tabler:circle-check', classes: 'bg-positive text-white' },
   negative: { icon: 'tabler:alert-triangle', classes: 'bg-negative text-white' },

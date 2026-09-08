@@ -49,16 +49,23 @@ describe('ProfileInfo "Save Changes" icon (OpenProject #2074)', () => {
  * the one design file that draws it. Each claim below names the glyph or measurement the mockup
  * carries, so a later drift reads as a design regression rather than as an unexplained failure.
  *
- * Two disagreements found by that comparison are deliberately NOT pinned here, because fixing either
+ * One disagreement found by that comparison is deliberately NOT pinned here, because fixing it
  * belongs to somebody else:
  *
  *   - `.w-section-header`'s own padding and `margin-block-end`. The Profile sheet draws the band at
  *     `9px 20px` with nothing under it; the primitives sheet draws the same band at `0 14px` over a
  *     38px box; the code draws `6px 16px` with a 12px trailing margin. Reconciling the three is
  *     #2631's whole subject, and the band has 11 callers. Only the CALLER-side gap is asserted below.
- *   - the segmented control's fill. The design fills the selected segment `#e4676b` under white
- *     text, which is 3.26:1 -- under the AA floor `helpers/accessibility.test.js` pins -- so
- *     `toggle-color="primary"` (`#c14a52`, 4.81:1 both ways) stands against the mockup on purpose.
+ *
+ * The segmented control's fill was ALSO flagged here at the time (the design filled the selected
+ * segment `#e4676b` under white text, 3.26:1 -- under the AA floor `helpers/accessibility.test.js`
+ * pins -- so `toggle-color="primary"`, `#c14a52` at 4.81:1, stood against that pre-Cobalt mockup on
+ * purpose). OpenProject #2810's Cobalt-mockup diff superseded that reasoning: the Cobalt mockup's own
+ * chrome table (`ui-redesign-cobalt/HANDOFF.md`) names the selected-segment fill as the ACCENT role,
+ * not primary, and Cobalt's `--color-accent` (`#c8303c`) clears 5.3:1 -- no AA conflict to route
+ * around. `toggle-color` is now `"accent"` everywhere in this file; it renders identically under
+ * Ledger, whose `colorAccent` default equals `colorPrimary` (`#c14a52`), so this comparison's own
+ * assertions are unaffected. See `docs/cobalt-mockup-diff-signoff.md` row 10.
  */
 describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2623)', () => {
   it('draws the glyphs the design draws, not the ones that were there before', async () => {
@@ -151,6 +158,47 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
     expect(separators.length).toBeGreaterThan(0)
     for (const separator of separators) {
       expect(separator.attributes('style') ?? '').not.toContain('margin-block')
+    }
+  })
+})
+
+/**
+ * OpenProject #2810: row 10 (Profile) of `docs/cobalt-mockup-diff-signoff.md` was never diffed
+ * against `ui-redesign-cobalt/Cardinal Wiki - Profile 3x - Cobalt.dc.html`. That diff found the
+ * Preferences card's four `w-btn-toggle`s (Time format, Aesthetic, Appearance, Colour vision) all
+ * filling their selected segment from `--color-primary` where the mockup's selected-segment fill is
+ * the ACCENT role (`ui-redesign-cobalt/HANDOFF.md`'s chrome table, "Accent fill carrying WHITE text
+ * ... selected segment", `#c8303c`/5.3:1) -- invisible under Ledger only because its `colorPrimary`
+ * and `colorAccent` defaults are identical (`#c14a52`).
+ */
+describe('ProfileInfo against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenProject #2810)', () => {
+  it('fills every settings-row toggle selection from the segment-selected role', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const toggleLabels = [
+      'profile.timeFormat',
+      'profile.aesthetic',
+      'profile.appearance',
+      'profile.cvd'
+    ]
+    expect.assertions(toggleLabels.length * 2)
+    for (const label of toggleLabels) {
+      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+      expect(toggle.exists()).toBe(true)
+      const selected = toggle.find('[aria-checked="true"]')
+      /*
+        `--color-segment-selected`, not `--color-accent` directly: the mockup's ask is "the accent
+        under Cobalt", and the two aesthetics answer it differently -- Ledger fills a selected
+        segment with the site's primary (what `WBtnToggle` has always drawn, and what its own
+        Aesthetic Setting card shows), Cobalt with the accent. The token carries both, so no caller
+        names a tone; `css/cobaltTokens.test.js` pins the two values.
+      */
+      expect(selected.attributes('style')).toContain(
+        'background-color: var(--color-segment-selected)'
+      )
     }
   })
 })

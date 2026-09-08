@@ -217,6 +217,19 @@ body.body--dark:not(.body--cobalt) {
 // A dialog's own title band: the raised tone, in tracked uppercase Barlow Condensed. Flat -- the
 // radial gradient and the pair of edge shadows this replaces were elevation, which Cardinal draws
 // with a hairline instead.
+//
+// `background-color`/`border-bottom-color` read runtime custom properties, not the compile-time
+// `theme.$dark-2`/`$hairline-dark` Sass constants they were baked from -- so this band follows the
+// site's aesthetic (`body.body--cobalt` and friends) instead of always drawing Ledger's own
+// near-black, the same way every other `dark:`-aware surface in the app already does. This is a
+// shared class, used by 60+ dialogs beyond `WConfirmDialog.vue` (`NavEditOverlay.vue` among them) --
+// the change is deliberately app-wide (OpenProject #2815).
+//
+// The ground is `--color-dialog-header-bg` rather than `--color-dark-2` directly: the ramp rung is
+// only half the answer. `--color-dark-2` carries a Cobalt value in the DARK block alone, so reading
+// it left a Cobalt LIGHT page still drawing Ledger's near-black band, where `Profile 3x - Cobalt`
+// and `Inbox 3x - Cobalt` both draw the aesthetic's own raised indigo (`#1c2a70`). The token names
+// the role and carries all three values; see its declaration in `css/tailwind.css`.
 .card-header {
   display: flex;
   align-items: center;

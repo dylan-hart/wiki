@@ -208,11 +208,17 @@ const isSolid = computed(() => !props.flat && !props.outline)
   draw, so a caller that overrides `size` keeps a proportionate button either way. Every metric is
   em-relative for the same reason -- one `size` value scales padding, height and icon together.
 
-  No shadow and no gloss. Cardinal separates a control from its ground with a hairline, never with
-  elevation -- so `unelevated`, `push` and `glossy` are gone along with `noCaps`, each having named a
-  variant that is now the only one there is. A solid button IS unelevated; a label IS cased as
-  written. (`--shadow-primary` exists for a future "this is the page's own primary action" wiring --
-  see OpenProject #2772's sign-off -- but nothing here reaches for it yet.)
+  No shadow and no gloss for the general case. Cardinal separates a control from its ground with a
+  hairline, never with elevation -- so `unelevated`, `push` and `glossy` are gone along with
+  `noCaps`, each having named a variant that is now the only one there is. A solid button IS
+  unelevated; a label IS cased as written. The one exception is `--shadow-primary` (OpenProject
+  #2813, deciding the app-level gap #2772's sign-off deferred): `color="accent"` is the decided
+  value for "this is the page's own primary action" -- `tailwind.css` already says as much
+  ("`--color-accent` is the one a button or chip resolves to"), and every hand-wired
+  `--shadow-primary` consumer that predates this component-level wiring (the auth screens, before
+  this task) already keyed the glow off the accent family, never `primary`. `none` under Ledger, so
+  this is a no-op there; the mockups' own glow under Cobalt. See `styles` below for where it's
+  applied.
 */
 const classes = computed(() => [
   /*
@@ -349,6 +355,11 @@ const styles = computed(() => {
     out.color = props.textColor
       ? `var(--color-${props.textColor})`
       : (foregroundColor.value ?? 'var(--color-white)')
+    // -> OpenProject #2813: `accent` is the decided "page's own primary action" color -- see the
+    //    geometry comment above. `none` under Ledger, the mockups' glow under Cobalt.
+    if (props.color === 'accent') {
+      out.boxShadow = 'var(--shadow-primary)'
+    }
   } else if (props.color || props.textColor) {
     out.color = `var(--color-${props.textColor ?? props.color})`
   }

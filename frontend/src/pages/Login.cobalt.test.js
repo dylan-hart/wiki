@@ -131,12 +131,11 @@ describe('the login/auth screen’s own chrome (OpenProject #2779)', () => {
   })
 
   /*
-   * `--shadow-primary` (#2767/#2772) was declared but had no consumer anywhere in the app until this
-   * task -- `none` under Ledger, the mockups' own glow under Cobalt.
+   * `--shadow-primary` (#2767/#2772) had no consumer anywhere in the app until task #2779 wired it
+   * through this page's own `.auth-cta` class -- OpenProject #2813 later moved that wiring into
+   * `WBtn` itself (a solid `color="accent"` button bakes the glow in, see WBtn.test.js), retiring
+   * `.auth-cta` as a page-local duplicate. Nothing left in this stylesheet to assert here any more.
    */
-  it('gives every primary action the --shadow-primary glow through .auth-cta', () => {
-    expect(declarations(css, '.auth-cta')['box-shadow']).toBe('var(--shadow-primary)')
-  })
 
   it('carries no literal hex color left over from the SCSS variables it replaced', () => {
     // -> `.auth`, `.auth-site-title`, `.auth-lead`, `.auth-subtitle`, `.auth-notice`, `.auth-hint`,

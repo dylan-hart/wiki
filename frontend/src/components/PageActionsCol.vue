@@ -850,6 +850,10 @@ $action-btn-height: 3rem;
       the mockup's own "40px rounded primary action plate" -- rather than Ledger's square first cell.
       `border-radius` alone rather than a fresh box: the cell is already square-aspect, so rounding it
       is the whole of the difference.
+
+      OpenProject #2813: this plate is a plain cell, not a `WBtn`, so it can't pick up
+      `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
+      hand-wired consumer on purpose, already keyed off the accent family #2813 decided on.
     */
     > .aspect-square:first-child {
       width: 40px;

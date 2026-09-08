@@ -213,8 +213,7 @@ describe('Cobalt tokens added by the screen-level pass', () => {
     'slate-soft': { ledger: '#64789f', cobalt: '#7b88bd' },
     'slate-faint': { ledger: '#8a99b8', cobalt: '#b6bfe0' },
     'slate-nav-icon': { ledger: '#6d7893', cobalt: '#7f8ed1' },
-    rule: { ledger: '#c9d2e2', cobalt: '#c8d2ee' },
-    info: { ledger: 'var(--q-info)', cobalt: 'var(--color-slate)' }
+    rule: { ledger: '#c9d2e2', cobalt: '#c8d2ee' }
   }
 
   it.each(Object.entries(addedTokens))(

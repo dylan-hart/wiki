@@ -58,9 +58,14 @@
           :outline="!state.inline"
           @click="state.inline = true" />
       </w-btn-group>
+      <!--
+        `dark.isActive` swaps `accent-fill` for `accent-dark`: `--color-accent-fill` has no
+        dark-mode override of its own (OpenProject #2807), so left alone this close icon drew the
+        light-mode bright tone against a dark ground.
+      -->
       <w-btn
         icon="tabler:x"
-        color="accent-fill"
+        :color="dark.isActive ? `accent-dark` : `accent-fill`"
         dense
         flat
         :aria-label="t(`common.actions.close`)"
@@ -333,6 +338,7 @@ import { fileSave } from 'browser-fs-access'
 
 import { MarkdownRenderer } from '@/renderers/markdown'
 
+import { useDark } from '@/composables/dark'
 import { confirm, dialog } from '@/composables/dialog'
 import { tooLargeToDiffInline, useMonacoDiff } from '@/composables/monacoDiff'
 import { notify } from '@/composables/notify'
@@ -365,6 +371,10 @@ defineProps({
  * independently. What the right-hand side shows is always A on the left and B on the right, whichever
  * way round in time they happen to be.
  */
+
+// DARK MODE
+
+const dark = useDark()
 
 // STORES
 

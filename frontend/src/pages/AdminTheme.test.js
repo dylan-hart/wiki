@@ -209,6 +209,41 @@ describe('AdminTheme — resetColors() is aesthetic-aware (OpenProject #2768)', 
     expect(wrapper.vm.state.config.colorSidebar).toBe('#10194a')
     expect(wrapper.vm.state.config.colorSecondary).toBe('#3f7a66')
   })
+
+  // OpenProject #2806: dark mode is a separate, orthogonal axis (`helpers/aestheticDefaults.js:16`)
+  // that neither "Reset defaults" nor switching aesthetic may touch. A fixture starting `dark: false`
+  // can't distinguish "preserved" from "forced off" -- this one starts `dark: true` so a regression
+  // back to `state.config.dark = false` in `resetColors()` would actually be caught.
+  it('leaves dark mode untouched by Reset Defaults', async () => {
+    const wrapper = await mountPage({
+      dark: true,
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.findAll('.acrylic-btn')[0].trigger('click')
+
+    expect(wrapper.vm.state.config.dark).toBe(true)
+  })
+
+  it('leaves dark mode untouched by switching aesthetic', async () => {
+    const wrapper = await mountPage({
+      dark: true,
+      aesthetic: 'ledger',
+      colorPrimary: '#123456',
+      colorSecondary: '#654321',
+      colorAccent: '#abcdef',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    await wrapper.vm.onAestheticChange('cobalt')
+
+    expect(wrapper.vm.state.config.dark).toBe(true)
+  })
 })
 
 // OpenProject #2769: the Appearance card's own Aesthetic row -- the FIRST row, above Dark mode --
@@ -316,5 +351,30 @@ describe('AdminTheme — Aesthetic setting row (OpenProject #2769)', () => {
     expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
     const [, options] = API_CLIENT.put.mock.calls[0]
     expect(options.json.theme.aesthetic).toBe('cobalt')
+  })
+})
+
+// OpenProject #2809: diffing the Appearance card against `Cardinal Wiki - Aesthetic Setting 3x.dc.html`
+// (options 1a/1b) -- never done by #2769, whose scope was rendering the row and wiring
+// `resetColors()`. The one genuine defect found: every color row's plate drew `tabler:color-swatch`
+// (a paint-tube/ribbon glyph) where both mockup options draw a palette-circle glyph.
+describe('AdminTheme — Appearance card color rows match the mockup icon (OpenProject #2809)', () => {
+  it('gives every color row the palette icon, not the color-swatch icon', async () => {
+    const wrapper = await mountPage({
+      colorPrimary: '#c14a52',
+      colorSecondary: '#3f7a66',
+      colorAccent: '#c14a52',
+      colorHeader: '#ffffff',
+      colorSidebar: '#f0f2f7'
+    })
+
+    const rows = wrapper.findAll('.admin-theme .w-settings-card')[0].findAll('.w-settings-row')
+    // -> Aesthetic + Dark mode are the first two rows (#2769); every row after them is a color row.
+    const colorRows = rows.slice(2)
+    expect(colorRows.length).toBe(5)
+    for (const row of colorRows) {
+      expect(row.find('[data-icon="tabler:palette"]').exists()).toBe(true)
+      expect(row.find('[data-icon="tabler:color-swatch"]').exists()).toBe(false)
+    }
   })
 })

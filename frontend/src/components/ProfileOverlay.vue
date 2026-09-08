@@ -550,31 +550,11 @@ $nav-shrink-max: 1199.98px;
   }
 }
 
-/* --- Below 600px: a settings row stacks ---------------------------------------------------------- */
-@media (max-width: $breakpoint-xs-max) {
-  /*
-    A settings row stacks: its label and its field are two MAIN sections, which share the row's width
-    equally -- 175px each on this screen, too narrow for either. The field takes a line of its own under
-    the label it belongs to, full width, and the 8px gutter between two columns becomes the gap between
-    two lines.
-
-    Scoped to `.w-page`, the content column: the nav's own rows are a side section and a main one, which
-    have no reason to wrap and would only be loosened by this.
-  */
-  .layout-profile-body .w-page .w-item {
-    flex-wrap: wrap;
-  }
-
-  /*
-    `flex-basis`, not `width`: the section carries Tailwind's `flex-1`, which is `flex: 1 1 0%` -- and a
-    flex item is sized by its basis, so a width of 100% was simply ignored and the two sections went on
-    sharing the line. 100% is wider than the row can fit beside anything, which is what pushes it onto a
-    line of its own.
-  */
-  .layout-profile-body .w-page .w-item-section--main + .w-item-section--main {
-    flex: 1 0 100%;
-    margin-top: 0.5rem;
-    margin-inline-start: 0;
-  }
-}
+/*
+  A settings row stacking its icon/label section above its input section below a narrow row width
+  is now `WItem`/`WItemSection`'s own shared, container-query-driven responsive rule (OpenProject
+  #2822) rather than a copy scoped to this dialog's content column -- see the comment on
+  `.w-item { container-type: inline-size }` in `WItem.vue` and the matching `@container` rule in
+  `WItemSection.vue`.
+*/
 </style>

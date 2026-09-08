@@ -1007,6 +1007,14 @@ async function toggleWatch() {
 .body--dark:not(.body--cobalt) .page-header-icon {
   background-color: var(--color-dark-4);
   border-color: var(--color-hairline-dark);
+  /*
+    And the glyph in it (OpenProject #2807): `--color-accent-fill` has no dark-mode value of its own,
+    so left to the token's Ledger default this plate drew the light theme's bright tone against a
+    dark ground -- the same swap `w-input-control`'s error ring already makes in `tailwind.css`.
+    Cobalt is excluded because its plate is a translucent white well carrying a white glyph in both
+    themes, which is why the swap is a rule here rather than a second value on `--color-accent-fill`.
+  */
+  color: var(--color-accent-dark);
 }
 
 /*

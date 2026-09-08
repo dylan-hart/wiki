@@ -8,6 +8,7 @@ import PageHeader from './PageHeader.vue'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useDark } from '@/composables/dark'
 import { useDirection } from '@/composables/direction'
 import { openDialogs } from '@/composables/dialog'
 import { queue } from '@/composables/notify'
@@ -392,5 +393,55 @@ describe('PageHeader reviewSubmission (OpenProject #2531)', () => {
     const siteStore = useSiteStore()
     expect(siteStore.overlay).toBe('Inbox')
     expect(siteStore.overlayOpts).toEqual({ tab: 'review', submissionId: 'sub-1', from: 'page' })
+  })
+})
+
+/**
+ * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
+ * the page-icon plate's glyph drew the same bright light-mode tone against a dark ground.
+ *
+ * The fix used to be a `dark.isActive`-driven `color` prop on both branches. It is now a token --
+ * the whole plate (ground, edge, corner, glyph) reads `--page-header-icon-*`, because Cobalt draws
+ * it as a translucent white well on a gradient banner and no light/dark prop pair can express that.
+ * So the claim moves with it: the branches carry NO colour of their own, and the stylesheet is what
+ * hands Ledger's dark theme the lightened accent while excluding Cobalt, whose plate is the same
+ * white glyph in both themes.
+ *
+ * Asserted against the compiled `<style>` block rather than a mounted element for the reason
+ * `editorScreenChrome.test.js` gives: happy-dom resolves no cascade, so a rule scoped to a `body`
+ * class cannot be read off a mounted node.
+ */
+describe('PageHeader page-icon plate glyph (OpenProject #2807)', () => {
+  const style = readFileSync(join(import.meta.dirname, 'PageHeader.vue'), 'utf-8')
+
+  it('leaves the glyph colour to the token on both branches, rather than a prop', async () => {
+    const wrapper = await mountHeader()
+
+    const icon = wrapper.find('.page-header-icon .w-icon')
+    expect(icon.exists()).toBe(true)
+    // -> `WIcon`'s `color` prop renders as `text-<name>`; neither tone is named on the element
+    expect(icon.classes()).not.toContain('text-accent-fill')
+    expect(icon.classes()).not.toContain('text-accent-dark')
+  })
+
+  it('takes ground, edge, corner and glyph from --page-header-icon-*', () => {
+    const plate = style.match(/\.page-header-icon \{[\s\S]*?\n\}/)[0]
+
+    expect(plate).toMatch(/background-color:\s*var\(--page-header-icon-bg\)/)
+    expect(plate).toMatch(/border:\s*var\(--page-header-icon-border\)/)
+    expect(plate).toMatch(/border-radius:\s*var\(--page-header-icon-radius\)/)
+    expect(plate).toMatch(/color:\s*var\(--page-header-icon-fg\)/)
+  })
+
+  it("lightens the glyph for Ledger's dark theme, and leaves Cobalt's white one alone", () => {
+    const darkRule = style.match(
+      /\.body--dark:not\(\.body--cobalt\) \.page-header-icon \{[\s\S]*?\n\}/
+    )[0]
+
+    expect(darkRule).toMatch(/color:\s*var\(--color-accent-dark\)/)
+  })
+
+  it('hides the corner marks through --corner-marks rather than a Cobalt-only rule', () => {
+    expect(style).toMatch(/\.page-header-icon__marks \{[^}]*display:\s*var\(--corner-marks\)/)
   })
 })

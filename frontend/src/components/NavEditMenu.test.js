@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import NavEditMenu from './NavEditMenu.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useDark } from '@/composables/dark'
 
 import { createTestI18n } from '../../test/i18n.js'
 
@@ -40,7 +41,12 @@ const MESSAGES = {
 
 const SERVER_ITEMS = [{ id: 'fresh', type: 'link', label: 'Fresh' }]
 
-function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inherit' } = {}) {
+function mountMenu({
+  path = '',
+  navigationId = 'nav-1',
+  navigationMode = 'inherit',
+  attachTo
+} = {}) {
   setActivePinia(createPinia())
 
   const siteStore = useSiteStore()
@@ -70,13 +76,41 @@ function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inheri
 
   const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(NavEditMenu, {
-    global: { plugins: [i18n] }
+    global: { plugins: [i18n] },
+    ...(attachTo ? { attachTo } : {})
   })
 
   return { wrapper, siteStore, pageStore }
 }
 
 describe('NavEditMenu', () => {
+  afterEach(() => {
+    document.documentElement.classList.remove('theme-transition-suppress')
+  })
+
+  /**
+   * OpenProject #2819: `loadMenuMode()`'s resolve used to flip `state.menuMode` from its hardcoded
+   * `'static'` default to the real value while the `w-btn-toggle` was still animating the popup's
+   * open, producing a visible Manual -> Automatic (or -> Mixed) jump. Same fix, same proof, as
+   * `dark.test.js`'s "adds the transition-suppress class synchronously with the flip" case: the
+   * class is still on `<html>` right after the load resolves (it only clears on the next
+   * `requestAnimationFrame`), and `state.menuMode` has already landed by then too.
+   */
+  it("suppresses transitions around loadMenuMode's own state.menuMode assignment", async () => {
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    expect(document.documentElement.classList.contains('theme-transition-suppress')).toBe(true)
+    const autoSegment = wrapper
+      .findAll('button[role="radio"]')
+      .find((b) => b.text() === 'Automatic')
+    expect(autoSegment.attributes('aria-checked')).toBe('true')
+
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    expect(document.documentElement.classList.contains('theme-transition-suppress')).toBe(false)
+  })
+
   it("loads the resolved menu's source mode on mount and saves it alongside the cascade mode", async () => {
     const { wrapper } = mountMenu()
     await flushPromises()
@@ -232,12 +266,58 @@ describe('NavEditMenu', () => {
     })
   })
 
+  /**
+   * OpenProject #2820: `WBtnToggle.vue`'s shared segment styling only suppresses a middle/last
+   * segment's START border -- the group's own two OUTER edges (the first segment's start border,
+   * the last segment's end border) still draw, and here they double up against `.nav-edit-menu`'s
+   * own card border. Scoped fix in `NavEditMenu.vue` alone, asserted via `getComputedStyle` the
+   * same way `GraphClientTypeFilter.test.js` checks a layout property.
+   */
+  it("removes the menu source toggle's own outer borders (no double-border with the menu card)", async () => {
+    const { wrapper } = mountMenu({ attachTo: document.body })
+    await flushPromises()
+
+    const segments = wrapper.findAll('.nav-edit-menu__menu-source button[role="radio"]')
+    expect(segments.length).toBeGreaterThanOrEqual(2)
+
+    const first = getComputedStyle(segments[0].element)
+    const last = getComputedStyle(segments[segments.length - 1].element)
+
+    expect(first.borderInlineStartWidth).toBe('0')
+    expect(last.borderInlineEndWidth).toBe('0')
+  })
+
   it('hides the menu source control and Edit Menu Items button when canEditMenuItems is false', async () => {
     const { wrapper } = mountMenu({ navigationId: null, navigationMode: 'hide' })
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('Menu Source')
     expect(wrapper.findAll('button').find((b) => b.text().includes('Edit Menu Items'))).toBeFalsy()
+  })
+
+  /**
+   * OpenProject #2818: `.nav-edit-menu__menu-source-hint` only declared `padding-top`, leaving the
+   * hint text flush against the menu card's border -- unlike its siblings in the same
+   * `.nav-edit-menu__section` (`.nav-edit-menu__section-label` and `.nav-edit-menu__row`), which
+   * both establish 14px horizontal padding as the section's convention. Read back through the real,
+   * compiled `getComputedStyle` (this workspace's `test.css: true` + happy-dom environment actually
+   * runs the SFC's `<style scoped>` block), following `NavSidebar.test.js`'s established pattern for
+   * this exact kind of assertion -- a source-text grep can't tell "14px" apart from "any other
+   * value", which is what this needs to pin down, unlike the border-presence checks that pattern
+   * itself asserts.
+   */
+  it('gives the menu-source hint the same 14px horizontal padding as its section siblings (OpenProject #2818)', async () => {
+    const { wrapper } = mountMenu({ attachTo: document.body })
+    await flushPromises()
+
+    const hint = wrapper.find('.nav-edit-menu__menu-source-hint')
+    expect(hint.exists()).toBe(true)
+
+    const style = getComputedStyle(hint.element)
+    expect(style.paddingLeft).toBe('14px')
+    expect(style.paddingRight).toBe('14px')
+
+    wrapper.unmount()
   })
 
   /**
@@ -253,5 +333,53 @@ describe('NavEditMenu', () => {
 
     const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
     expect(saveBtn.classes()).toContain('nav-edit-menu__save-btn')
+  })
+})
+
+/**
+ * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
+ * the selected cascade-mode radio and the selected "Menu source" toggle segment both drew the same
+ * bright light-mode tone against a dark ground. Fixed by resolving `color`/`toggle-color` through
+ * `dark.isActive` instead of the static `accent-fill` prop.
+ */
+describe('NavEditMenu accent-fill dark mode (OpenProject #2807)', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark', 'body--light')
+  })
+
+  /*
+    The color is on the ring/dot spans inside `w-radio`'s root button (`WRadio.vue`'s own inline
+    `:style`), not on the button itself, which carries the `nav-edit-menu__radio` class.
+  */
+  it('draws the selected cascade-mode radio in accent-dark under dark mode', async () => {
+    useDark().set(true)
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const dot = wrapper.find('.nav-edit-menu__radio[aria-checked="true"] span[style]')
+    expect(dot.attributes('style')).toContain('var(--color-accent-dark)')
+    expect(dot.attributes('style')).not.toContain('var(--color-accent-fill)')
+  })
+
+  it('draws the selected cascade-mode radio in accent-fill under light mode', async () => {
+    useDark().set(false)
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const dot = wrapper.find('.nav-edit-menu__radio[aria-checked="true"] span[style]')
+    expect(dot.attributes('style')).toContain('var(--color-accent-fill)')
+    expect(dot.attributes('style')).not.toContain('var(--color-accent-dark)')
+  })
+
+  it('fills the selected "Menu source" segment with accent-dark under dark mode', async () => {
+    useDark().set(true)
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const selectedSegment = wrapper.find(
+      '.nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked="true"]'
+    )
+    expect(selectedSegment.attributes('style')).toContain('var(--color-accent-dark)')
+    expect(selectedSegment.attributes('style')).not.toContain('var(--color-accent-fill)')
   })
 })

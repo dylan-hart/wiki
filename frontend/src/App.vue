@@ -294,15 +294,22 @@ async function applyTheme() {
   setCssVar('header', userStore.getAccessibleColor('header', brand.colorHeader))
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', brand.colorSidebar))
   /*
-    The two status colours are fixed rather than site-configurable, but they still go through
-    `setCssVar` so the colour-vision-deficiency remapping reaches them. Cardinal's positive and
-    negative TEXT tones -- the darker half of each pair -- because both are drawn under a white
-    label here (a toast, a solid button); the brighter fills they pair with are
+    The four status colours are fixed rather than site-configurable, but -- unlike `primary`/`accent`/
+    `header`/`sidebar` above -- they still follow the resolved aesthetic
+    (`helpers/aestheticDefaults.js#aestheticStatusColors()`, OpenProject #2814) rather than site
+    config, and still go through `setCssVar` so the colour-vision-deficiency remapping reaches them.
+    They come off `brand` rather than a second call: `resolveAestheticColors` folds them in, so one
+    resolution answers for every `--q-*` this function writes.
+    Cardinal's positive and negative TEXT tones -- the darker half of each pair -- because both are
+    drawn under a white label here (a toast, a solid button); the brighter fills they pair with are
     `--color-positive-fill` / `--color-negative-fill`, which nothing resolves through this path.
-    Kept equal to `css/tailwind.css`'s `:root`, and pinned in `helpers/accessibility.test.js`.
+    Ledger's values are kept equal to `css/tailwind.css`'s `:root`, and pinned in
+    `helpers/accessibility.test.js`.
   */
   setCssVar('positive', userStore.getAccessibleColor('positive', brand.colorPositive))
   setCssVar('negative', userStore.getAccessibleColor('negative', brand.colorNegative))
+  setCssVar('info', userStore.getAccessibleColor('info', brand.colorInfo))
+  setCssVar('warning', userStore.getAccessibleColor('warning', brand.colorWarning))
 
   // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)

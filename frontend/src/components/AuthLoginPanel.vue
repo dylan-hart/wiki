@@ -15,14 +15,14 @@
           OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw the selected
           chip in the "accent fill carrying white text" role (`--color-accent`, `#c8303c` under
           Cobalt), which Ledger's `colorPrimary`/`colorAccent` sharing one value had made
-          indistinguishable from `primary` until now. `auth-cta` (`Login.vue`'s stylesheet) applies
-          the matching Cobalt glow only while this chip is the selected one, same as the mockup.
+          indistinguishable from `primary` until now. `WBtn` itself applies the matching Cobalt glow
+          (OpenProject #2813) only while this chip is solid -- i.e. only while it's the selected one,
+          same as the mockup, with no page-local class needed any more.
         -->
         <div class="auth-strategies">
           <w-btn
             v-for="str of formStrategies"
             :key="str.id"
-            :class="{ 'auth-cta': str.id === state.selectedStrategyId }"
             :label="str.activeStrategy.displayName"
             :icon="`img:` + str.activeStrategy.strategy.icon"
             size="13px"
@@ -67,9 +67,10 @@
           autocomplete="current-password">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
-        <!-- -> OpenProject #2779: see the strategy selector's own note above for the accent/auth-cta swap -->
+        <!-- -> OpenProject #2779: see the strategy selector's own note above for the accent color
+             decision -- OpenProject #2813 wires the matching --shadow-primary glow into WBtn itself. -->
         <w-btn
-          class="auth-marks auth-cta w-full mt-2.5"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="accent"
           size="14px"
@@ -177,9 +178,10 @@
           autocomplete="email">
           <template #prepend><w-icon name="tabler:mail" /></template>
         </w-input>
-        <!-- -> OpenProject #2779: see the login submit button's own note for the accent/auth-cta swap -->
+        <!-- -> OpenProject #2779: see the login submit button's own note for the accent color decision
+             -- OpenProject #2813 wires the matching --shadow-primary glow into WBtn itself. -->
         <w-btn
-          class="auth-marks auth-cta w-full mt-2.5"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="accent"
           size="13.5px"
@@ -235,9 +237,10 @@
           lazy-rules="ondemand">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
-        <!-- -> OpenProject #2779: see the login submit button's own note for the accent/auth-cta swap -->
+        <!-- -> OpenProject #2779: see the login submit button's own note for the accent color decision
+             -- OpenProject #2813 wires the matching --shadow-primary glow into WBtn itself. -->
         <w-btn
-          class="auth-marks auth-cta w-full mt-2.5"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="accent"
           size="13.5px"
@@ -318,9 +321,10 @@
           lazy-rules="ondemand">
           <template #prepend><w-icon name="tabler:key" /></template>
         </w-input>
-        <!-- -> OpenProject #2779: see the login submit button's own note for the accent/auth-cta swap -->
+        <!-- -> OpenProject #2779: see the login submit button's own note for the accent color decision
+             -- OpenProject #2813 wires the matching --shadow-primary glow into WBtn itself. -->
         <w-btn
-          class="auth-marks auth-cta w-full mt-2.5"
+          class="auth-marks w-full mt-2.5"
           type="submit"
           color="accent"
           size="13.5px"

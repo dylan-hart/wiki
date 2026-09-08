@@ -43,8 +43,17 @@
                 "one deliberate divergence" section of `docs/cardinal-reskin-second-pass.md`).
               - not `rounded`. Every plate in the language is a square, and saying so is better than
                 relying on the zeroed `--radius-*` scale to flatten a corner nobody meant to draw.
+
+              `dark.isActive` swaps the plate to `accent-dark` under dark mode: `--color-accent-fill`
+              carries no dark-mode override of its own (OpenProject #2807), so left alone this drew
+              the light-mode bright fill on a dark ground too.
             -->
-            <w-avatar size="36px" font-size="18px" color="accent-fill" text-color="white" square>
+            <w-avatar
+              size="36px"
+              font-size="18px"
+              :color="dark.isActive ? `accent-dark` : `accent-fill`"
+              text-color="white"
+              square>
               <w-icon name="tabler:bell" />
             </w-avatar>
           </w-item-section>
