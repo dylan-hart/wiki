@@ -66,10 +66,18 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
-  /** Colour of the selected segment. */
+  /**
+   * Colour of the selected segment.
+   *
+   * Defaults to `segment-selected` rather than `primary`: the handoff's fill/text split puts every
+   * accent fill CARRYING WHITE TEXT on the accent tone, and a selected segment is named in that list
+   * explicitly. Ledger's `--color-segment-selected` is `var(--color-primary)`, exactly what this
+   * used to be, so nothing moves there; Cobalt's is `var(--color-accent)` (`#c8303c`), which is what
+   * `Aesthetic Setting 3x`'s own Cobalt card draws.
+   */
   toggleColor: {
     type: String,
-    default: 'primary'
+    default: 'segment-selected'
   },
   /** Text colour of the selected segment. Defaults to white. */
   toggleTextColor: {
@@ -106,6 +114,16 @@ function segmentStyle(opt) {
       backgroundColor: `var(--color-${props.toggleColor})`,
       // -> Matches the fill, so the border is invisible but still occupies its pixel
       borderColor: `var(--color-${props.toggleColor})`,
+      /*
+        The selected segment's glow (`Aesthetic Setting 3x`'s Cobalt card draws it on the chosen
+        segment, `docs/cobalt-mockup-diff-signoff.md` row 10's second deferral). `none` under
+        Ledger, so this is a no-op there.
+
+        Only for the DEFAULT fill: a caller that names its own `toggle-color` -- `AdminStorage.vue`
+        and `AdminScheduler.vue` fill theirs with plain black or white -- is not drawing the page's
+        primary action, and a red-tinted glow under a white segment would read as a stray artefact.
+      */
+      boxShadow: props.toggleColor === 'segment-selected' ? 'var(--shadow-primary)' : undefined,
       color: props.toggleTextColor ? `var(--color-${props.toggleTextColor})` : undefined
     }
   }

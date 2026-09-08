@@ -193,12 +193,12 @@ function personLabel(person) {
       on the other.
     */
     @at-root .body--light & {
-      /* -> The header's own ground, `$surface` -- not the near-white it used to borrow from the
+      /* -> The header's own ground, `var(--color-surface)` -- not the near-white it used to borrow from the
          Material ramp, which read as a faint grey halo against the white behind it */
-      box-shadow: 0 0 0 2px $surface;
+      box-shadow: 0 0 0 2px var(--color-surface);
     }
     @at-root .body--dark & {
-      box-shadow: 0 0 0 2px $dark-3;
+      box-shadow: 0 0 0 2px var(--color-dark-3);
     }
 
     img {

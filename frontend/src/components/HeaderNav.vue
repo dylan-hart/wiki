@@ -1,5 +1,11 @@
 <template>
-  <div class="site-header bg-header text-ink dark:text-text-dark">
+  <!--
+    The band's foreground is `--color-header-fg`, not `text-ink`: Cobalt's header is a solid
+    `#1f4fd6` bar and everything on it -- wordmark, icon strokes, the account avatar's ring -- is
+    white, which no ink-and-dark-mode pair of utilities can express. Ledger's own default for the
+    token is `var(--color-ink)`, so its band is unchanged.
+  -->
+  <div class="site-header bg-header">
     <div class="flex flex-nowrap">
       <w-toolbar style="height: 64px">
         <!--
@@ -352,11 +358,33 @@ function openInbox() {
   `bg-header` on the element; only the rule is fixed.
 */
 .site-header {
-  border-bottom: 1px solid $hairline;
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-header-fg);
 }
 
 .body--dark .site-header {
-  border-bottom-color: $hairline-dark;
+  border-bottom-color: var(--color-hairline-dark);
+}
+
+/*
+  Ledger's band is white paper, so its foreground follows dark mode the way the rest of the app
+  does. Cobalt's is a solid blue bar in BOTH modes (`#1f4fd6` light, `#1a43bd` dark), so its own
+  white foreground is already correct and must not be overridden -- hence the `:not()`, the same
+  shape `.site-subtitle` below already uses.
+*/
+.body--dark:not(.body--cobalt) .site-header {
+  color: var(--color-text-dark);
+}
+
+/*
+  The five icon buttons and the search-collapse toggle. `WBtn`'s `color` prop resolves to a
+  `text-*` utility, which is a class -- so this unlayered rule wins without an `!important`, and the
+  buttons follow the band they sit on rather than the app's own chrome tone. Ledger's token value is
+  `--color-slate-soft`, exactly what each caller asked for, so nothing moves there.
+*/
+.site-header :deep(.w-btn.header-nav-btn),
+.site-header :deep(.w-btn.header-nav-btn .w-icon) {
+  color: var(--color-header-icon);
 }
 
 /*
@@ -387,11 +415,11 @@ body.body--cobalt .site-header {
   that it reads as a rule of type rather than as a sentence, which is the point -- it is the plate's
   second line, not a subtitle anyone is expected to stop and read.
 
-  `$text-secondary` rather than a caption tone: at this size the tracking already holds it back, and
+  `var(--color-text-secondary)` rather than a caption tone: at this size the tracking already holds it back, and
   anything fainter stops resolving as letters at all on a non-retina display.
 
   Through `--color-header-eyebrow` (`tailwind.css`, OpenProject #2767) rather than the bare
-  `$text-secondary` constant: Ledger's own default for the token is `var(--color-text-secondary)`,
+  `var(--color-text-secondary)` constant: Ledger's own default for the token is `var(--color-text-secondary)`,
   the same value this carried, so Ledger is unchanged and Cobalt's own light-on-blue eyebrow
   (`#dfe6ff`, identical in both its light and dark mockups) finally applies -- the dark override
   below is scoped off `body.body--cobalt` for the same reason `NavSidebar.vue`'s equivalent rules
@@ -410,7 +438,7 @@ body.body--cobalt .site-header {
 }
 
 .body--dark:not(.body--cobalt) .site-subtitle {
-  color: $text-secondary-dark;
+  color: var(--color-text-secondary-dark);
 }
 
 /*
@@ -433,11 +461,11 @@ body.body--cobalt .site-header {
 */
 .header-search-row {
   background-color: var(--color-sidebar);
-  border-top: 1px solid $hairline;
+  border-top: 1px solid var(--color-hairline);
 }
 
 .body--dark .header-search-row {
-  border-top-color: $hairline-dark;
+  border-top-color: var(--color-hairline-dark);
 }
 
 /*

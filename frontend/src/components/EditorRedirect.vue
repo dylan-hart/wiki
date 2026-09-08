@@ -220,7 +220,7 @@ function chooseTarget() {
     background-color: $grey-3;
   }
   @at-root .body--dark & {
-    background-color: $dark-6;
+    background-color: var(--color-dark-6);
   }
 
   /* -> A form, not a document: it stops widening well before the column does */

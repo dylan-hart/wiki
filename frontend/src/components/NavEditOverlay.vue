@@ -242,7 +242,7 @@ onBeforeUnmount(() => {
 <style scoped>
 /*
   The header's own notice pill (`ui-redesign-nav/HANDOFF.md` §2): fixed dark-header text/border tones
-  regardless of the site's own light/dark theme, since this band never leaves `$dark-2` -- unlike the
+  regardless of the site's own light/dark theme, since this band never leaves `var(--color-dark-2)` -- unlike the
   rest of this overlay, there is nothing here for a `body--dark` variant to do.
 */
 .nav-edit-header-notice {
@@ -258,7 +258,7 @@ onBeforeUnmount(() => {
 
 /*
   -- Cobalt (Task #2802) ---------------------------------------------------
-  The header band itself: Ledger's `$dark-2` (`#242b3a`, from the shared `.card-header` class every
+  The header band itself: Ledger's `var(--color-dark-2)` (`#242b3a`, from the shared `.card-header` class every
   full-bleed overlay uses) becomes the Cobalt overlay-header indigo `#1c2a70` here ONLY -- scoped to
   this component's own `.nav-edit-header` class rather than touching `.card-header` itself, which
   every other overlay (Profile, File Manager, Table Editor, ...) still shares and which is not this

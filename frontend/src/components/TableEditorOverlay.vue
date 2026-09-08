@@ -450,16 +450,16 @@ onBeforeUnmount(() => {
     panel: the cell inputs (`color: inherit`, deliberately, so they follow the surface), the `Markdown`
     heading and the Compact checkbox's label. Same reason `BlockPickerOverlay` states it.
 
-    The ground goes with it. The design draws this overlay's panel in `$paper` with its cells in
-    `$surface` (`ui-redesign/Cardinal Wiki - Table Editor 3x.dc.html`), and the app paints the panel
-    `$surface` instead (`MainLayout.vue`'s `.main-overlay > .w-dialog-panel`) -- so white cells would
+    The ground goes with it. The design draws this overlay's panel in `var(--color-paper)` with its cells in
+    `var(--color-surface)` (`ui-redesign/Cardinal Wiki - Table Editor 3x.dc.html`), and the app paints the panel
+    `var(--color-surface)` instead (`MainLayout.vue`'s `.main-overlay > .w-dialog-panel`) -- so white cells would
     have nothing to read against. Stated here because it is this screen's own surface; it BELONGS on
-    that shared rule, where the File Manager design asks for the same `$paper`, and this line should be
+    that shared rule, where the File Manager design asks for the same `var(--color-paper)`, and this line should be
     deleted rather than kept in step when that question is answered.
   */
   @at-root .body--light & {
-    color: $ink;
-    background-color: $paper;
+    color: var(--color-ink);
+    background-color: var(--color-paper);
   }
   @at-root .body--dark & {
     color: #fff;
@@ -471,12 +471,12 @@ onBeforeUnmount(() => {
   */
   &-toolbar {
     @at-root .body--light & {
-      background-color: $tint;
-      border-bottom: 1px solid $hairline;
+      background-color: var(--color-tint);
+      border-bottom: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      background-color: $dark-2;
-      border-bottom: 1px solid $hairline-dark;
+      background-color: var(--color-dark-2);
+      border-bottom: 1px solid var(--color-hairline-dark);
     }
 
     /*
@@ -489,10 +489,10 @@ onBeforeUnmount(() => {
       align-self: center;
       height: 22px;
       margin-inline: 4px;
-      --w-hairline-color: #{$rule};
+      --w-hairline-color: #{var(--color-rule)};
 
       @at-root .body--dark & {
-        --w-hairline-color: #{$border-dark};
+        --w-hairline-color: #{var(--color-border-dark)};
       }
     }
   }
@@ -518,12 +518,12 @@ onBeforeUnmount(() => {
   */
   &-cellbox {
     padding: 0;
-    border: 1px solid $hairline;
-    background-color: $surface;
+    border: 1px solid var(--color-hairline);
+    background-color: var(--color-surface);
 
     @at-root .body--dark & {
-      border-color: $hairline-dark;
-      background-color: $dark-3;
+      border-color: var(--color-hairline-dark);
+      background-color: var(--color-dark-3);
     }
 
     /*
@@ -535,7 +535,7 @@ onBeforeUnmount(() => {
       background-color: #f8f9fc;
     }
     @at-root .body--dark tbody > tr:nth-child(even) > & {
-      background-color: $dark-4;
+      background-color: var(--color-dark-4);
     }
   }
 
@@ -590,12 +590,12 @@ onBeforeUnmount(() => {
       is the cell's content box -- an outline at offset 0 lands exactly over the collapsed border.
     */
     &:focus {
-      background-color: $tint;
-      outline: 1px solid $slate;
+      background-color: var(--color-tint);
+      outline: 1px solid var(--color-slate);
 
       @at-root .body--dark & {
-        background-color: $dark-2;
-        outline-color: $slate-light;
+        background-color: var(--color-dark-2);
+        outline-color: var(--color-slate-light);
       }
     }
 

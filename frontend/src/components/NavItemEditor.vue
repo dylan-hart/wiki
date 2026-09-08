@@ -230,7 +230,6 @@
               <w-item-section avatar>
                 <w-btn-toggle
                   v-model="state.current.visibilityLimited"
-                  toggle-color="primary"
                   :aria-label="t(`navEdit.visibility`)"
                   :options="visibilityOptions" />
               </w-item-section>
@@ -374,7 +373,6 @@
               <w-item-section avatar>
                 <w-btn-toggle
                   v-model="state.current.visibilityLimited"
-                  toggle-color="primary"
                   :aria-label="t(`navEdit.visibility`)"
                   :options="visibilityOptions" />
               </w-item-section>
@@ -406,7 +404,6 @@
               <w-item-section avatar>
                 <w-btn-toggle
                   v-model="state.current.visibilityLimited"
-                  toggle-color="primary"
                   :aria-label="t(`navEdit.visibility`)"
                   :options="visibilityOptions" />
               </w-item-section>
@@ -946,19 +943,19 @@ onMounted(load)
 */
 
 /*
-  The Ledger drawer: the sidebar's own tint (`$tint-alt`), not a fixed dark panel -- the drawer used
+  The Ledger drawer: the sidebar's own tint (`var(--color-tint-alt)`), not a fixed dark panel -- the drawer used
   to be `bg-dark-6` regardless of the site's theme, which is gone along with the last hardcoded dark
   surface in this file. `body--dark` gets its own step of the app's existing dark ramp instead, the
   same way `TableEditorOverlay` does.
 */
 .nav-edit-drawer {
-  background-color: $tint-alt;
-  border-inline-end: 1px solid $hairline;
+  background-color: var(--color-tint-alt);
+  border-inline-end: 1px solid var(--color-hairline);
 }
 
 :global(body.body--dark .nav-edit-drawer) {
-  background-color: $dark-4;
-  border-inline-end-color: $hairline-dark;
+  background-color: var(--color-dark-4);
+  border-inline-end-color: var(--color-hairline-dark);
 }
 
 /*
@@ -980,11 +977,11 @@ onMounted(load)
   height: 38px;
   box-sizing: border-box;
   padding: 0 14px 0 18px;
-  border-bottom: 1px solid $hairline;
+  border-bottom: 1px solid var(--color-hairline);
 }
 
 :global(body.body--dark .nav-edit-drawer-header) {
-  border-bottom-color: $hairline-dark;
+  border-bottom-color: var(--color-hairline-dark);
 }
 
 :global(body.body--cobalt .nav-edit-drawer-header) {
@@ -998,11 +995,11 @@ onMounted(load)
   font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: $slate;
+  color: var(--color-slate);
 }
 
 :global(body.body--dark .nav-edit-drawer-eyebrow) {
-  color: $slate-light;
+  color: var(--color-slate-light);
 }
 
 :global(body.body--cobalt .nav-edit-drawer-eyebrow) {
@@ -1013,16 +1010,16 @@ onMounted(load)
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 500;
-  color: $slate;
-  background-color: $surface;
-  border: 1px solid $hairline;
+  color: var(--color-slate);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-hairline);
   padding: 1px 6px;
 }
 
 :global(body.body--dark .nav-edit-drawer-count) {
-  color: $text-dark;
-  background-color: $dark-3;
-  border-color: $hairline-dark;
+  color: var(--color-text-dark);
+  background-color: var(--color-dark-3);
+  border-color: var(--color-hairline-dark);
 }
 
 :global(body.body--cobalt .nav-edit-drawer-count) {
@@ -1037,17 +1034,17 @@ onMounted(load)
 
   .handle {
     cursor: grab;
-    color: $slate-faint;
+    color: var(--color-slate-faint);
   }
 
   /* -> A rule between nav items is content here, not trim */
   .nav-edit-item-separator .w-separator {
-    --w-hairline-color: #{$rule};
+    --w-hairline-color: #{var(--color-rule)};
   }
 }
 
 :global(body.body--dark .nav-edit .nav-edit-item-separator .w-separator) {
-  --w-hairline-color: #{$border-dark};
+  --w-hairline-color: #{var(--color-border-dark)};
 }
 
 /*
@@ -1068,11 +1065,11 @@ onMounted(load)
   padding: 10px 18px 0;
   font-size: 11.5px;
   line-height: 1.45;
-  color: $text-caption;
+  color: var(--color-text-caption);
 }
 
 :global(body.body--dark .nav-edit-mixed-hint) {
-  color: $text-secondary-dark;
+  color: var(--color-text-secondary-dark);
 }
 
 :global(body.body--cobalt .nav-edit-mixed-hint) {
@@ -1102,22 +1099,22 @@ onMounted(load)
 
 .nav-edit-item {
   position: relative;
-  color: $slate;
+  color: var(--color-slate);
   cursor: pointer;
 
   &.is-active {
-    background-color: $surface;
-    border-inline-start: 2px solid $accent-fill;
-    color: $ink;
+    background-color: var(--color-surface);
+    border-inline-start: 2px solid var(--color-accent-fill);
+    color: var(--color-ink);
     font-weight: 500;
 
     .handle {
-      color: $slate-soft;
+      color: var(--color-slate-soft);
     }
   }
 
   &.sortable-chosen {
-    background-color: $tint;
+    background-color: var(--color-tint);
   }
 
   /*
@@ -1127,7 +1124,7 @@ onMounted(load)
     panel's disabled fields.
   */
   &.is-generated {
-    color: $slate-faint;
+    color: var(--color-slate-faint);
     cursor: default;
   }
 
@@ -1139,27 +1136,27 @@ onMounted(load)
   &:not(.is-generated) + &.is-generated {
     margin-top: 8px;
     padding-top: 6px;
-    border-top: 2px dashed $slate-pale;
+    border-top: 2px dashed var(--color-slate-pale);
   }
 }
 
 :global(body.body--dark .nav-edit-item) {
-  color: $text-secondary-dark;
+  color: var(--color-text-secondary-dark);
 
   &.is-active {
-    background-color: $dark-3;
-    color: $text-dark;
+    background-color: var(--color-dark-3);
+    color: var(--color-text-dark);
   }
 
   &.is-generated {
-    color: $text-caption-dark;
+    color: var(--color-text-caption-dark);
   }
 }
 
 /*
   Cobalt: the row-type tables in the handoff give each row kind its own on-dark text tone (header
   `#7f8ed1`, link `#d7deff`, generated `#5a6699`, ...) rather than one uniform row color the way
-  Ledger's `$slate` is -- the base color here is the Link row's own tone (`--color-sidebar-text`),
+  Ledger's `var(--color-slate)` is -- the base color here is the Link row's own tone (`--color-sidebar-text`),
   and the header/generated rows below override it more specifically. `.is-active`'s ground reuses
   `--nav-active-inset` (already the exact composite box-shadow the handoff calls for) rather than a
   border, since Cobalt's selected row is an inset accent bar, not a Ledger-style border.
@@ -1211,7 +1208,7 @@ onMounted(load)
   font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: $slate-faint;
+  color: var(--color-slate-faint);
 }
 
 .nav-edit-item:not(.is-generated) + .nav-edit-item.is-generated .nav-edit-generated-eyebrow,
@@ -1220,7 +1217,7 @@ onMounted(load)
 }
 
 :global(body.body--dark .nav-edit-generated-eyebrow) {
-  color: $text-caption-dark;
+  color: var(--color-text-caption-dark);
 }
 
 :global(body.body--cobalt .nav-edit-generated-eyebrow) {
@@ -1267,7 +1264,7 @@ onMounted(load)
     margin-inline-start: 18px;
     padding: 7px 10px 7px 14px !important;
     font-size: 13px;
-    border-inline-start: 10px solid $hairline;
+    border-inline-start: 10px solid var(--color-hairline);
     background-color: #e8ecf4;
 
     &.is-active {
@@ -1291,8 +1288,8 @@ onMounted(load)
     border-inline-start-width: 0;
     border-block-start-color: transparent;
     border-inline-end-color: transparent;
-    border-block-end-color: $hairline;
-    border-inline-start-color: $hairline;
+    border-block-end-color: var(--color-hairline);
+    border-inline-start-color: var(--color-hairline);
   }
 }
 
@@ -1316,14 +1313,14 @@ onMounted(load)
 }
 
 :global(body.body--dark .nav-edit-item-link.is-nested) {
-  background-color: $dark-2;
+  background-color: var(--color-dark-2);
 }
 
 :global(
   body.body--dark .nav-edit-item-link:not(.is-nested) + .nav-edit-item-link.is-nested::before
 ) {
-  border-block-end-color: $hairline-dark;
-  border-inline-start-color: $hairline-dark;
+  border-block-end-color: var(--color-hairline-dark);
+  border-inline-start-color: var(--color-hairline-dark);
 }
 
 /*
@@ -1350,14 +1347,14 @@ onMounted(load)
 /*
   Orphaned nested row: a nested link with nothing valid above it to nest under (the very first item in
   the list, or one immediately following a header/separator) -- flagged the way `nestingWarn` promises,
-  in the accent wash rather than the app's generic `$negative`.
+  in the accent wash rather than the app's generic `var(--color-negative)`.
 */
 .nav-edit-item-header,
 .nav-edit-item-separator {
   & + .nav-edit-item-link.is-nested {
-    background-color: $accent-wash !important;
-    border-inline-start-color: $accent-fill !important;
-    color: $primary;
+    background-color: var(--color-accent-wash) !important;
+    border-inline-start-color: var(--color-accent-fill) !important;
+    color: var(--color-primary);
 
     & + .nav-edit-item-link:not(.is-nested)::before {
       display: none !important;
@@ -1366,9 +1363,9 @@ onMounted(load)
 }
 
 .nav-edit-list .nav-edit-item-link.is-nested:first-child {
-  background-color: $accent-wash !important;
-  border-inline-start-color: $accent-fill !important;
-  color: $primary;
+  background-color: var(--color-accent-wash) !important;
+  border-inline-start-color: var(--color-accent-fill) !important;
+  color: var(--color-primary);
 
   & + .nav-edit-item-link:not(.is-nested)::before {
     display: none !important;
@@ -1378,9 +1375,9 @@ onMounted(load)
 :global(body.body--dark .nav-edit-item-header + .nav-edit-item-link.is-nested),
 :global(body.body--dark .nav-edit-item-separator + .nav-edit-item-link.is-nested),
 :global(body.body--dark .nav-edit-list .nav-edit-item-link.is-nested:first-child) {
-  background-color: $accent-wash-dark !important;
-  border-inline-start-color: $accent-dark !important;
-  color: $accent-dark;
+  background-color: var(--color-accent-wash-dark) !important;
+  border-inline-start-color: var(--color-accent-dark) !important;
+  color: var(--color-accent-dark);
 }
 
 /*
@@ -1408,11 +1405,11 @@ onMounted(load)
   align-items: stretch;
   gap: 8px;
   padding: 10px 14px;
-  border-top: 1px solid $hairline;
+  border-top: 1px solid var(--color-hairline);
 }
 
 :global(body.body--dark .nav-edit-bottombar) {
-  border-top-color: $hairline-dark;
+  border-top-color: var(--color-hairline-dark);
 }
 
 :global(body.body--cobalt .nav-edit-bottombar) {
@@ -1431,8 +1428,8 @@ onMounted(load)
 .nav-edit-callout {
   display: flex;
   max-width: 760px;
-  border: 1px solid $hairline;
-  background-color: $surface;
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-surface);
 
   &__icon {
     flex: none;
@@ -1440,9 +1437,9 @@ onMounted(load)
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: $tint;
-    border-inline-end: 1px solid $hairline;
-    color: $text-secondary;
+    background-color: var(--color-tint);
+    border-inline-end: 1px solid var(--color-hairline);
+    color: var(--color-text-secondary);
   }
 
   p {
@@ -1450,23 +1447,23 @@ onMounted(load)
     padding: 12px 16px;
     font-size: 13.5px;
     line-height: 1.55;
-    color: $slate;
+    color: var(--color-slate);
   }
 }
 
 :global(body.body--dark .nav-edit-callout) {
-  border-color: $hairline-dark;
-  background-color: $dark-3;
+  border-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-3);
 }
 
 :global(body.body--dark .nav-edit-callout__icon) {
-  background-color: $dark-4;
-  border-inline-end-color: $hairline-dark;
-  color: $text-secondary-dark;
+  background-color: var(--color-dark-4);
+  border-inline-end-color: var(--color-hairline-dark);
+  color: var(--color-text-secondary-dark);
 }
 
 :global(body.body--dark .nav-edit-callout p) {
-  color: $text-dark;
+  color: var(--color-text-dark);
 }
 
 /*
@@ -1535,7 +1532,7 @@ onMounted(load)
   height: 7px;
   border-style: solid;
   border-width: 0;
-  border-color: $slate-soft;
+  border-color: var(--color-slate-soft);
   pointer-events: none;
 }
 
@@ -1574,9 +1571,9 @@ onMounted(load)
   height: 38px;
   box-sizing: border-box;
   padding: 0 14px;
-  background-color: $tint;
-  border-bottom: 1px solid $hairline;
-  color: $slate;
+  background-color: var(--color-tint);
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-slate);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
@@ -1585,9 +1582,9 @@ onMounted(load)
 }
 
 :global(body.body--dark .nav-edit-card__header) {
-  background-color: $dark-2;
-  border-bottom-color: $hairline-dark;
-  color: $slate-light;
+  background-color: var(--color-dark-2);
+  border-bottom-color: var(--color-hairline-dark);
+  color: var(--color-slate-light);
 }
 
 /*
@@ -1610,7 +1607,7 @@ onMounted(load)
 
 .nav-edit-parent-badge {
   margin-inline-start: auto;
-  border: 1px solid $slate-soft;
+  border: 1px solid var(--color-slate-soft);
   padding: 2px 6px;
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -1657,11 +1654,11 @@ onMounted(load)
 .nav-edit-structure-card__caption {
   font-size: 12px;
   line-height: 1.5;
-  color: $text-caption;
+  color: var(--color-text-caption);
 }
 
 :global(body.body--dark .nav-edit-structure-card__caption) {
-  color: $text-secondary-dark;
+  color: var(--color-text-secondary-dark);
 }
 
 :global(body.body--cobalt .nav-edit-structure-card__caption) {

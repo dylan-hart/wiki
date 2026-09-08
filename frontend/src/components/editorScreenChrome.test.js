@@ -5,6 +5,21 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import * as sass from 'sass'
 
+import { tokenValue } from '../../test/tokens.js'
+
+/*
+  These rules name a TOKEN now rather than the hex it resolves to -- the Cobalt aesthetic is a second
+  set of values for the same custom properties, so a rule that baked Ledger's literal in could not
+  follow it (`ui-redesign-cobalt/HANDOFF.md`, "Architecture"). Each assertion below therefore checks
+  both halves of what it used to check in one: that the rule still names the right token, and that
+  the token still carries the value the design draws. `test/tokens.js` reads the second half out of
+  `css/tailwind.css`, so neither can drift without this failing.
+*/
+function token(name, expected) {
+  expect(tokenValue(name), `${name} should still be ${expected} under Ledger`).toBe(expected)
+  return `var(${name})`
+}
+
 /*
   The editor screen's chrome, against `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` (OpenProject
   #2624).
@@ -96,9 +111,9 @@ describe('the markdown editor’s own chrome', () => {
       padding: '8px 0'
     })
     expect(declarations(css, '.body--light .editor-markdown-sidebar')).toEqual({
-      'background-color': '#eef1f7',
-      'border-inline-end': '1px solid #dbe1ec',
-      color: '#38465f'
+      'background-color': token('--color-tint', '#eef1f7'),
+      'border-inline-end': `1px solid ${token('--color-hairline', '#dbe1ec')}`,
+      color: token('--color-slate', '#38465f')
     })
     // -> The red band that used to bridge the rail into the toolbar above it
     expect(css).not.toContain('border-top: 32px')
@@ -110,9 +125,9 @@ describe('the markdown editor’s own chrome', () => {
       padding: '0 8px'
     })
     expect(declarations(css, '.body--light .editor-markdown-toolbar')).toEqual({
-      'background-color': '#eef1f7',
-      'border-bottom': '1px solid #dbe1ec',
-      color: '#38465f'
+      'background-color': token('--color-tint', '#eef1f7'),
+      'border-bottom': `1px solid ${token('--color-hairline', '#dbe1ec')}`,
+      color: token('--color-slate', '#38465f')
     })
   })
 
@@ -129,11 +144,11 @@ describe('the markdown editor’s own chrome', () => {
 
   it('renders the preview onto paper, with the design’s article inset', () => {
     expect(declarations(css, '.body--light .editor-markdown-preview')['background-color']).toBe(
-      '#fff'
+      token('--color-surface', '#fff')
     )
     expect(declarations(css, '.body--light .editor-markdown-preview-toolbar')).toMatchObject({
-      'background-color': '#fff',
-      'border-bottom': '1px solid #dbe1ec'
+      'background-color': token('--color-surface', '#fff'),
+      'border-bottom': `1px solid ${token('--color-hairline', '#dbe1ec')}`
     })
     expect(declarations(css, '.editor-markdown-preview-content').padding).toBe('22px 24px')
   })
@@ -144,8 +159,12 @@ describe('the markdown editor’s own chrome', () => {
     the highlight only ever appears then.
   */
   it('rules the pane seam with a hairline, keeping the accent for the drag itself', () => {
-    expect(declarations(css, '.editor-markdown-mid')['border-inline-end']).toBe('5px solid #dbe1ec')
-    expect(declarations(css, '.editor-markdown-divider::after')['background-color']).toBe('#c14a52')
+    expect(declarations(css, '.editor-markdown-mid')['border-inline-end']).toBe(
+      `5px solid ${token('--color-hairline', '#dbe1ec')}`
+    )
+    expect(declarations(css, '.editor-markdown-divider::after')['background-color']).toBe(
+      token('--color-primary', '#c14a52')
+    )
   })
 
   /*
@@ -157,7 +176,7 @@ describe('the markdown editor’s own chrome', () => {
     expect(declarations(css, '.editor-markdown-toolbar-rule')).toMatchObject({
       height: '20px',
       margin: '0 5px',
-      '--w-hairline-color': '#dbe1ec'
+      '--w-hairline-color': token('--color-hairline', '#dbe1ec')
     })
   })
 
@@ -168,7 +187,7 @@ describe('the markdown editor’s own chrome', () => {
       'font-size': '9.5px',
       'letter-spacing': '0.22em',
       'text-transform': 'uppercase',
-      color: '#57668a'
+      color: token('--color-text-caption', '#57668a')
     })
   })
 })
@@ -184,12 +203,17 @@ describe('the page actions rail while a page is being written', () => {
   */
   it('fills the rail, in the tone a white glyph and a white overline can ride on', () => {
     const filled = declarations(css, '.body--light .page-actions.is-editor')
-    // -> `$primary`, not the design's `#e4676b`: see `docs/cardinal-reskin-second-pass.md`'s
-    //    "One deliberate divergence" -- a fill carrying white text takes the darker tone.
-    expect(filled['background-color']).toBe('#c14a52')
+    /*
+      `--color-accent`, not the design's `#e4676b`: see `docs/cardinal-reskin-second-pass.md`'s
+      "One deliberate divergence" -- a fill carrying white text takes the darker tone. The token,
+      rather than `--color-primary` it once named, because the two are the same `#c14a52` in Ledger
+      and part company under Cobalt, where an accent SURFACE is `#c8303c` and `primary` is the
+      aesthetic's blue.
+    */
+    expect(filled['background-color']).toBe(token('--color-accent', '#c14a52'))
     expect(filled.color).toBe('#fff')
     expect(declarations(css, '.body--dark .page-actions.is-editor')['background-color']).toBe(
-      '#c14a52'
+      token('--color-accent', '#c14a52')
     )
     expect(declarations(css, '.page-actions-mode').color).toBe('#fff')
   })
@@ -228,7 +252,7 @@ describe('the collaborator faces in the page header', () => {
 
   it('rings each face in the header’s own paper rather than a near-white grey', () => {
     expect(declarations(css, '.body--light .collab-presence-bubble')['box-shadow']).toBe(
-      '0 0 0 2px #fff'
+      `0 0 0 2px ${token('--color-surface', '#fff')}`
     )
   })
 })

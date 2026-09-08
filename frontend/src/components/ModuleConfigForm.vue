@@ -23,7 +23,6 @@
         <w-btn-toggle
           v-if="cfg.enum && cfg.enumDisplay === `buttons`"
           v-model="cfg.value"
-          toggle-color="primary"
           :aria-label="cfg.title"
           :options="cfg.enum"
           :disabled="cfg.readOnly" />

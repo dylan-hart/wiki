@@ -98,8 +98,9 @@ describe('_base.scss chrome background resolves through the token only', () => {
  * OpenProject #2815. `.card-header` -- the dialog title band shared by `WConfirmDialog.vue` and
  * 60+ other dialogs -- used to draw its background/border from the compile-time
  * `theme.$dark-2`/`$hairline-dark` Sass constants, which meant it could never pick up
- * `body.body--cobalt.body--dark`'s runtime override and stayed Ledger-colored under every other
- * aesthetic. Same source-scan rationale as the `--q-header`/`--q-sidebar` describe above: nothing
+ * the aesthetic's own runtime override and stayed Ledger-colored under every other
+ * aesthetic. It now reads `--color-dialog-header-bg`, whose three values (Ledger, Cobalt light,
+ * Cobalt dark) are declared beside every other aesthetic value. Same source-scan rationale as the `--q-header`/`--q-sidebar` describe above: nothing
  * compiles Sass in this test environment, so the regression this guards against (a literal or a
  * Sass constant creeping back into the rule) is only visible by reading the rule body directly.
  */
@@ -114,7 +115,13 @@ describe('.card-header title band resolves through runtime tokens only', () => {
 
   it('paints background-color and border-bottom with var(--color-*), not a theme.$ Sass constant', () => {
     const body = cardHeaderRule[1]
-    expect(body).toMatch(/background-color:\s*var\(--color-dark-2\)/)
+    /*
+      `--color-dialog-header-bg`, not the `--color-dark-2` rung this first reached for: that rung
+      carries a Cobalt value in the DARK block alone, so reading it left a Cobalt LIGHT page still
+      drawing Ledger's near-black band where `Profile 3x - Cobalt` draws the aesthetic's own raised
+      indigo. The token names the role and carries all three values (`css/tailwind.css`).
+    */
+    expect(body).toMatch(/background-color:\s*var\(--color-dialog-header-bg\)/)
     expect(body).toMatch(/border-bottom:\s*1px solid var\(--color-hairline-dark\)/)
     expect(body).not.toMatch(/theme\.\$/)
   })

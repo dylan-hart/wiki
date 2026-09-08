@@ -351,7 +351,7 @@ Total RAM: ${state.info.ramTotal}`
     font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
 
     @at-root .body--dark & {
-      background-color: $dark-4;
+      background-color: var(--color-dark-4);
       color: #fff;
     }
   }

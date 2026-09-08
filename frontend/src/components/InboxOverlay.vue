@@ -123,7 +123,7 @@ function close() {
   accident, illegible against this overlay's own dark background in dark mode. The light value is the
   black it was already inheriting, so only dark mode actually changes.
 
-  Written as `var(--color-*)` rather than the `$surface`/`$text-body`/`$dark-3`/`$text-dark` SCSS
+  Written as `var(--color-*)` rather than the `var(--color-surface)`/`var(--color-text-body)`/`var(--color-dark-3)`/`var(--color-text-dark)` SCSS
   literals this used to read (OpenProject #2778, diffed against `Cardinal Wiki - Inbox 3x -
   Cobalt.dc.html`): those constants are Ledger-only (`css/_theme.scss`'s own header says so), so
   Cobalt light rendered this panel in Ledger's body text colour and Cobalt dark in Ledger's panel
@@ -158,12 +158,12 @@ function close() {
 */
 .inbox-overlay-sidebar {
   @at-root .body--light & {
-    background-color: $tint-alt;
-    border-inline-end: 1px solid $hairline;
+    background-color: var(--color-tint-alt);
+    border-inline-end: 1px solid var(--color-hairline);
   }
   @at-root .body--dark & {
-    background-color: $dark-4;
-    border-inline-end: 1px solid $hairline-dark;
+    background-color: var(--color-dark-4);
+    border-inline-end: 1px solid var(--color-hairline-dark);
   }
   @at-root .body--cobalt & {
     background-color: var(--color-sidebar);
@@ -175,11 +175,11 @@ function close() {
        the plate, the bar and the colour, not by weight */
     font-weight: 500;
     font-size: 13.5px;
-    color: $slate;
+    color: var(--color-slate);
     border-inline-start: 2px solid transparent;
 
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
     }
 
     @at-root .body--cobalt & {
@@ -198,23 +198,23 @@ function close() {
       in paint.
     */
     &.is-active {
-      background-color: $surface;
-      border-inline-start-color: $accent-fill;
-      color: $accent-text;
+      background-color: var(--color-surface);
+      border-inline-start-color: var(--color-accent-fill);
+      color: var(--color-accent);
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
       .w-icon,
       iconify-icon {
-        color: $accent-fill;
+        color: var(--color-accent-fill);
       }
 
       @at-root .body--dark & {
-        background-color: $dark-3;
-        color: $text-dark;
+        background-color: var(--color-dark-3);
+        color: var(--color-text-dark);
 
         .w-icon,
         iconify-icon {
-          color: $accent-dark;
+          color: var(--color-accent-dark);
         }
       }
 
@@ -268,22 +268,19 @@ function close() {
   as a border with the darker accent as its glyph, so it reads as the refusal without being a filled
   red button sitting beside a filled green one.
 */
+/*
+  The decline button's edge is the accent FILL -- `#e4676b` under Ledger, `#ff4d5a` under Cobalt --
+  confirmed against `Cardinal Wiki - Inbox Review 3x - Ledger.dc.html` and its Cobalt twin, whose
+  only difference on this button is that one colour. One rule for both aesthetics: the token already
+  carries each one's value, and `--color-accent-fill` is unrestated in the Cobalt dark block, so
+  Cobalt draws the same edge in both themes. Ledger's dark theme lightens it, which is the one case
+  that still needs a rule of its own.
+*/
 .inbox-square-btn--negative.w-btn {
-  border-color: $accent-fill;
+  border-color: var(--color-accent-fill);
 
-  @at-root .body--dark & {
-    border-color: $accent-dark;
-  }
-
-  /*
-    Cobalt's own accent-fill is `#ff4d5a`, not Ledger's `$accent-fill` (`#e4676b`) -- confirmed
-    against both `Cardinal Wiki - Inbox Review 3x - Ledger.dc.html` and its Cobalt twin, whose only
-    difference on this button is that one border colour. `--color-accent-fill` carries the same
-    value in Cobalt light and dark (the handoff's dark-tokens section leaves it unrestated), so one
-    rule after both Ledger blocks above covers both.
-  */
-  @at-root .body--cobalt & {
-    border-color: var(--color-accent-fill);
+  @at-root .body--dark:not(.body--cobalt) & {
+    border-color: var(--color-accent-dark);
   }
 }
 
@@ -292,9 +289,9 @@ function close() {
   change outside this file's ownership:
 
   - `.card-header` (`css/_base.scss`) draws this overlay's own title band from the compile-time
-    `theme.$dark-2` SCSS constant, never picking up `--color-dark-2`'s Cobalt override -- the same
+    `var(--color-dark-2)` SCSS constant, never picking up `--color-dark-2`'s Cobalt override -- the same
     pre-existing, app-wide gap #2772/#2773 already logged for `WConfirmDialog.vue`'s identical band.
-    Still `#1c2a70` in the Cobalt mockup vs whatever `$dark-2` renders as here.
+    Still `#1c2a70` in the Cobalt mockup vs whatever `var(--color-dark-2)` renders as here.
   - The panel's own rounded/clipped `--radius-dialog` + `overflow:hidden` treatment (12px, no eyebrow
     bar) is `WDialog.vue`'s `rounded-lg` (a fixed Tailwind radius, not `--radius-dialog`) plus
     `MainLayout.vue`'s `.main-overlay > .w-dialog-panel` rule, which still draws Ledger's 10px ink

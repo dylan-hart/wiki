@@ -66,6 +66,8 @@
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as monaco from 'monaco-editor'
+import { useAesthetic } from '@/composables/aesthetic'
+import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 import { isTimeoutError } from 'ky'
 
 import { confirm, dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
@@ -115,6 +117,13 @@ const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogCom
 // I18N
 
 const { t } = useI18n()
+
+/*
+  Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
+  aesthetic is applied by registering both themes and switching between them -- see
+  `helpers/monacoTheme.js`.
+*/
+const aesthetic = useAesthetic()
 
 // STATE
 
@@ -229,7 +238,7 @@ function submit() {
 onMounted(() => {
   // -> Same theme `EditorCode.vue` defines, redefined here rather than shared: only one editor
   //    instance is ever mounted at a time, so there is nothing to deduplicate against.
-  monaco.editor.defineTheme('cardinaljs', {
+  defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -249,7 +258,7 @@ onMounted(() => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'cardinaljs',
+    theme: monacoThemeName(aesthetic.current),
     value: '',
     wordWrap: 'on'
   })
@@ -269,7 +278,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
 
   &--over {
-    border-color: $primary;
+    border-color: var(--color-primary);
   }
 }
 

@@ -579,7 +579,7 @@ onMounted(() => {
   inset-inline-start: 8px;
   z-index: 100;
   padding: 8px 16px;
-  background-color: $primary;
+  background-color: var(--color-primary);
   color: #fff;
   font-weight: 500;
   text-decoration: none;
@@ -603,21 +603,22 @@ onMounted(() => {
   bottom edge instead, so the line is still there -- just drawn by the header rather than by this.
 */
 /*
-  Diffed against `Page View 3x - Cobalt` (OpenProject #2774): the mockup's own "EN"/"Browse" row draws
-  its text at `#c5cff5`, the exact value `--color-admin-sidebar-text` already carries -- but nothing
-  currently declares that pairing for the READER sidebar's own locale-switcher row specifically, and
-  guessing at reusing an admin-scoped token for a reader-facing surface is exactly the kind of call
-  this Task's acceptance criteria ask to log rather than make. Left unchanged; `.sidebar-footerbtns`
-  below is a clean case since it reuses that section's OWN dedicated token instead.
+  The locale-switcher / Browse row at the head of the reader sidebar. Both the rule under it and the
+  two labels on it are the SIDEBAR's own tones rather than the app's generic chrome
+  (`--color-sidebar-actions-text` / `--color-sidebar-hairline`, `tailwind.css`): the row sits on the
+  sidebar's ground, so it has to follow it, and Cobalt's ground is a deep indigo where the generic
+  `--color-slate` is unreadable. Ledger's own defaults for both tokens are the constants this rule
+  used to name, so nothing moves there -- `Page View 3x - Cobalt` draws the row's labels at
+  `#c5cff5`, which is what the token resolves to under Cobalt.
 */
 .sidebar-actions {
   height: 38px;
-  border-bottom: 1px solid $hairline;
+  border-bottom: 1px solid var(--color-sidebar-hairline);
 
   // -> Where the two buttons above get their colour, so neither carries a `color` prop: `WBtn` emits
   //    an inline `color`, which would outrank this rule
   .w-btn {
-    color: $slate;
+    color: var(--color-sidebar-actions-text);
   }
 
   // -> OpenProject #2788: WBtn's own `.w-icon` rule (`.w-btn :deep(.w-icon) { font-size: 1.715em }`)
@@ -630,11 +631,11 @@ onMounted(() => {
   }
 }
 
-.body--dark .sidebar-actions {
-  border-bottom-color: $hairline-dark;
+.body--dark:not(.body--cobalt) .sidebar-actions {
+  border-bottom-color: var(--color-hairline-dark);
 
   .w-btn {
-    color: $text-secondary-dark;
+    color: var(--color-text-secondary-dark);
   }
 }
 
@@ -665,12 +666,12 @@ onMounted(() => {
 */
 .sidebar-footerbtns {
   flex-shrink: 0;
-  border-top: 1px solid $hairline;
-  color: $text-secondary;
+  border-top: 1px solid var(--color-sidebar-hairline);
+  color: var(--color-text-secondary);
 
   /*
     Cobalt's own "Edit navigation" row is `--color-sidebar-text-secondary` (`#a7b3ea`, identical in
-    both mockups) rather than the general `$text-secondary` this reused -- additive, since Ledger's
+    both mockups) rather than the general `var(--color-text-secondary)` this reused -- additive, since Ledger's
     own default for the token is a different generic tone, not this one (OpenProject #2774).
   */
   body.body--cobalt & {
@@ -699,8 +700,8 @@ onMounted(() => {
 }
 
 .body--dark .sidebar-footerbtns {
-  border-top-color: $hairline-dark;
-  color: $text-secondary-dark;
+  border-top-color: var(--color-hairline-dark);
+  color: var(--color-text-secondary-dark);
 }
 
 /*
@@ -709,11 +710,11 @@ onMounted(() => {
   each of them read as a plate rather than as more of the same sheet.
 */
 body {
-  background-color: $paper;
+  background-color: var(--color-paper);
 }
 
 body.body--dark {
-  background-color: $dark-6;
+  background-color: var(--color-dark-6);
 }
 
 // -> Ported from the Quasar dialog internals onto WDialog's own structure:
@@ -757,14 +758,14 @@ body.body--dark {
     */
     > .w-dialog-panel {
       box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
-      border-top: 10px solid $dark-5;
+      border-top: 10px solid var(--color-dark-5);
 
       @at-root .body--light & {
-        background-color: $surface;
+        background-color: var(--color-surface);
       }
       @at-root .body--dark & {
-        background-color: $dark-5;
-        border-top-color: $dark-6;
+        background-color: var(--color-dark-5);
+        border-top-color: var(--color-dark-6);
       }
 
       /*

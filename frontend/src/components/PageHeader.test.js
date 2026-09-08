@@ -398,42 +398,50 @@ describe('PageHeader reviewSubmission (OpenProject #2531)', () => {
 
 /**
  * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
- * the page-icon plate's `accent-fill` color (both branches -- the editing button's icon and the
- * reading icon) drew the same bright light-mode tone against a dark ground. Fixed by resolving the
- * color through `dark.isActive` instead of a static prop, the same pattern already used elsewhere in
- * the app (e.g. `AdminBlocks.vue`) for a prop-driven `var(--color-*)` reference.
+ * the page-icon plate's glyph drew the same bright light-mode tone against a dark ground.
+ *
+ * The fix used to be a `dark.isActive`-driven `color` prop on both branches. It is now a token --
+ * the whole plate (ground, edge, corner, glyph) reads `--page-header-icon-*`, because Cobalt draws
+ * it as a translucent white well on a gradient banner and no light/dark prop pair can express that.
+ * So the claim moves with it: the branches carry NO colour of their own, and the stylesheet is what
+ * hands Ledger's dark theme the lightened accent while excluding Cobalt, whose plate is the same
+ * white glyph in both themes.
+ *
+ * Asserted against the compiled `<style>` block rather than a mounted element for the reason
+ * `editorScreenChrome.test.js` gives: happy-dom resolves no cascade, so a rule scoped to a `body`
+ * class cannot be read off a mounted node.
  */
-describe('PageHeader page-icon plate dark mode (OpenProject #2807)', () => {
-  afterEach(() => {
-    document.body.classList.remove('body--dark', 'body--light')
-  })
+describe('PageHeader page-icon plate glyph (OpenProject #2807)', () => {
+  const style = readFileSync(join(import.meta.dirname, 'PageHeader.vue'), 'utf-8')
 
-  it('draws the reading-mode icon in accent-fill under light mode', async () => {
-    useDark().set(false)
+  it('leaves the glyph colour to the token on both branches, rather than a prop', async () => {
     const wrapper = await mountHeader()
 
     const icon = wrapper.find('.page-header-icon .w-icon')
-    expect(icon.classes()).toContain('text-accent-fill')
+    expect(icon.exists()).toBe(true)
+    // -> `WIcon`'s `color` prop renders as `text-<name>`; neither tone is named on the element
+    expect(icon.classes()).not.toContain('text-accent-fill')
     expect(icon.classes()).not.toContain('text-accent-dark')
   })
 
-  it('swaps the reading-mode icon to accent-dark under dark mode', async () => {
-    useDark().set(true)
-    const wrapper = await mountHeader()
+  it('takes ground, edge, corner and glyph from --page-header-icon-*', () => {
+    const plate = style.match(/\.page-header-icon \{[\s\S]*?\n\}/)[0]
 
-    const icon = wrapper.find('.page-header-icon .w-icon')
-    expect(icon.classes()).toContain('text-accent-dark')
-    expect(icon.classes()).not.toContain('text-accent-fill')
+    expect(plate).toMatch(/background-color:\s*var\(--page-header-icon-bg\)/)
+    expect(plate).toMatch(/border:\s*var\(--page-header-icon-border\)/)
+    expect(plate).toMatch(/border-radius:\s*var\(--page-header-icon-radius\)/)
+    expect(plate).toMatch(/color:\s*var\(--page-header-icon-fg\)/)
   })
 
-  it('swaps the editing-mode icon button to accent-dark under dark mode', async () => {
-    useDark().set(true)
-    const wrapper = await mountHeader()
-    useEditorStore().$patch({ isActive: true })
-    await wrapper.vm.$nextTick()
+  it("lightens the glyph for Ledger's dark theme, and leaves Cobalt's white one alone", () => {
+    const darkRule = style.match(
+      /\.body--dark:not\(\.body--cobalt\) \.page-header-icon \{[\s\S]*?\n\}/
+    )[0]
 
-    const btn = wrapper.find('.page-header-icon .w-btn')
-    expect(btn.attributes('style')).toContain('var(--color-accent-dark)')
-    expect(btn.attributes('style')).not.toContain('var(--color-accent-fill)')
+    expect(darkRule).toMatch(/color:\s*var\(--color-accent-dark\)/)
+  })
+
+  it('hides the corner marks through --corner-marks rather than a Cobalt-only rule', () => {
+    expect(style).toMatch(/\.page-header-icon__marks \{[^}]*display:\s*var\(--corner-marks\)/)
   })
 })

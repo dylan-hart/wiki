@@ -581,15 +581,23 @@ defineExpose({ focus, state })
   max-width: 480px;
   margin: 0 auto;
 
+  /*
+    Ground, edge and placeholder tone all come from the `--color-header-search-*` tokens
+    (`tailwind.css`, OpenProject #2767) rather than the generic paper/hairline/caption trio: the
+    field sits ON the header band, so it has to follow the band. Ledger's values for the three are
+    exactly the constants this rule used to name, so nothing moves there; Cobalt's are a
+    `rgba(255,255,255,.16)` well with no edge at all, which is what its own mockup draws.
+  */
   &-field {
     display: flex;
     align-items: center;
     gap: 10px;
     height: 36px;
     padding: 0 6px 0 12px;
-    background-color: $paper;
-    border: 1px solid $hairline;
-    color: $text-caption;
+    border-radius: var(--radius-control);
+    background-color: var(--color-header-search-bg);
+    border: 1px solid var(--color-header-search-border);
+    color: var(--color-header-search-placeholder);
     transition:
       border-color 0.2s var(--ease-standard),
       background-color 0.2s var(--ease-standard);
@@ -613,15 +621,15 @@ defineExpose({ focus, state })
     Two classes, so this outranks the `--row` rule above whichever order they end up in.
   */
   .header-search-row-inline.is-focused &-field {
-    background-color: $surface;
-    border-color: $slate;
-    color: $ink;
+    background-color: var(--color-surface);
+    border-color: var(--color-slate);
+    color: var(--color-ink);
   }
 
   &-lead {
     flex-shrink: 0;
     font-size: 17px;
-    color: $slate-soft;
+    color: var(--color-header-icon);
   }
 
   &-input {
@@ -648,11 +656,11 @@ defineExpose({ focus, state })
     flex-shrink: 0;
     display: inline-flex;
     padding: 4px;
-    color: $slate-soft;
+    color: var(--color-slate-soft);
     cursor: pointer;
 
     &:hover {
-      color: $ink;
+      color: var(--color-ink);
     }
   }
 
@@ -660,9 +668,9 @@ defineExpose({ focus, state })
   &-kbd {
     flex-shrink: 0;
     padding: 2px 5px;
-    background-color: $surface;
-    border: 1px solid $hairline;
-    color: $text-caption;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-hairline);
+    color: var(--color-text-caption);
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 500;
@@ -673,31 +681,74 @@ defineExpose({ focus, state })
   }
 }
 
-.body--dark .header-search {
-  &-field {
-    background-color: $dark-4;
-    border-color: $hairline-dark;
-    color: $text-caption-dark;
-  }
-
+/*
+  Cobalt's header band is the same solid blue in light and dark, so its field, key cap and docked
+  tags button are the same translucent white in both -- and the `.body--dark` block below, which is
+  aesthetic-blind, would otherwise repaint them in the app's dark surface tones. This block comes
+  first and the `:not(.body--cobalt)` on that block is what keeps them apart, the same shape
+  `HeaderNav.vue`'s own eyebrow rule uses.
+*/
+body.body--cobalt .header-search {
   .header-search-row-inline.is-focused &-field {
-    background-color: $dark-3;
-    border-color: $slate-light;
-    color: $text-dark;
-  }
-
-  &-lead {
-    color: $slate-light;
+    background-color: rgb(255 255 255 / 0.26);
+    border-color: rgb(255 255 255 / 0.4);
+    color: #fff;
   }
 
   &-clear:hover {
-    color: $text-dark;
+    color: #fff;
   }
 
   &-kbd {
-    background-color: $dark-3;
-    border-color: $hairline-dark;
-    color: $text-caption-dark;
+    background-color: rgb(255 255 255 / 0.18);
+    border-color: transparent;
+    border-radius: var(--radius-mark);
+    color: #fff;
+  }
+}
+
+body.body--cobalt .header-search-tags-btn {
+  background-color: rgb(255 255 255 / 0.16);
+  border-color: transparent;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: #fff;
+
+  &:hover,
+  &:focus-visible {
+    background-color: rgb(255 255 255 / 0.26);
+    color: #fff;
+  }
+}
+
+body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
+  border-color: transparent;
+}
+
+.body--dark:not(.body--cobalt) .header-search {
+  &-field {
+    background-color: var(--color-dark-4);
+    border-color: var(--color-hairline-dark);
+    color: var(--color-text-caption-dark);
+  }
+
+  .header-search-row-inline.is-focused &-field {
+    background-color: var(--color-dark-3);
+    border-color: var(--color-slate-light);
+    color: var(--color-text-dark);
+  }
+
+  &-lead {
+    color: var(--color-slate-light);
+  }
+
+  &-clear:hover {
+    color: var(--color-text-dark);
+  }
+
+  &-kbd {
+    background-color: var(--color-dark-3);
+    border-color: var(--color-hairline-dark);
+    color: var(--color-text-caption-dark);
   }
 }
 
@@ -713,9 +764,9 @@ defineExpose({ focus, state })
   justify-content: center;
   width: 36px;
   height: 36px;
-  background-color: $paper;
-  border: 1px solid $hairline;
-  color: $slate-soft;
+  background-color: var(--color-paper);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-slate-soft);
   font-size: 17px;
   transition:
     background-color 0.2s var(--ease-standard),
@@ -723,8 +774,8 @@ defineExpose({ focus, state })
 
   &:hover,
   &:focus-visible {
-    background-color: $tint;
-    color: $ink;
+    background-color: var(--color-tint);
+    color: var(--color-ink);
   }
 }
 
@@ -735,23 +786,23 @@ defineExpose({ focus, state })
      around both controls rather than stopping where they meet (OpenProject #2718).
 */
 .header-search-row-inline.is-focused .header-search-tags-btn {
-  border-color: $slate;
+  border-color: var(--color-slate);
 }
 
-.body--dark .header-search-tags-btn {
-  background-color: $dark-4;
-  border-color: $hairline-dark;
-  color: $slate-light;
+.body--dark:not(.body--cobalt) .header-search-tags-btn {
+  background-color: var(--color-dark-4);
+  border-color: var(--color-hairline-dark);
+  color: var(--color-slate-light);
 
   &:hover,
   &:focus-visible {
-    background-color: $dark-2;
-    color: $text-dark;
+    background-color: var(--color-dark-2);
+    color: var(--color-text-dark);
   }
 }
 
-.body--dark .header-search-row-inline.is-focused .header-search-tags-btn {
-  border-color: $slate-light;
+.body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-tags-btn {
+  border-color: var(--color-slate-light);
 }
 
 /*
@@ -768,10 +819,10 @@ defineExpose({ focus, state })
   inset-inline-start: 0;
   inset-inline-end: 0;
   z-index: 10;
-  background-color: $surface;
-  border: 1px solid $hairline;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-hairline);
   border-top: 0;
-  color: $text-body;
+  color: var(--color-text-body);
   padding: 0.5rem 1rem 1rem;
   box-shadow: 0 8px 24px rgba(28, 34, 51, 0.12);
   /*
@@ -786,8 +837,8 @@ defineExpose({ focus, state })
 
   &-header {
     font-weight: 500;
-    color: $text-caption;
-    border-bottom: 1px solid $hairline;
+    color: var(--color-text-caption);
+    border-bottom: 1px solid var(--color-hairline);
     padding: 0 0 0.5rem 0;
     margin-bottom: 0.5rem;
     display: flex;
@@ -835,9 +886,9 @@ defineExpose({ focus, state })
 
   /* -> A search operator, set the way Cardinal sets every inline code run: a tinted square chip */
   code {
-    background-color: $tint;
-    border: 1px solid $hairline;
-    color: $accent-strong;
+    background-color: var(--color-tint);
+    border: 1px solid var(--color-hairline);
+    color: var(--color-accent-strong);
     padding: 1px 5px;
     font-family: var(--font-mono);
     font-size: 12px;
@@ -849,19 +900,19 @@ defineExpose({ focus, state })
 }
 
 .body--dark .searchpanel {
-  background-color: $dark-3;
-  border-color: $hairline-dark;
-  color: $text-dark;
+  background-color: var(--color-dark-3);
+  border-color: var(--color-hairline-dark);
+  color: var(--color-text-dark);
 
   &-header {
-    color: $text-caption-dark;
-    border-bottom-color: $hairline-dark;
+    color: var(--color-text-caption-dark);
+    border-bottom-color: var(--color-hairline-dark);
   }
 
   code {
-    background-color: $accent-wash-dark;
-    border-color: $hairline-dark;
-    color: $accent-dark;
+    background-color: var(--color-accent-wash-dark);
+    border-color: var(--color-hairline-dark);
+    color: var(--color-accent-dark);
   }
 }
 </style>

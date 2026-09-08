@@ -733,7 +733,7 @@ describe('UserEditOverlay aesthetic toggle (WP #2770)', () => {
  * table), not primary.
  */
 describe('UserEditOverlay settings-row toggles against the Cobalt mockup (OpenProject #2810)', () => {
-  it('fills every settings-row toggle selection from the accent role, not primary', async () => {
+  it('fills every settings-row toggle selection from the segment-selected role', async () => {
     // -> Each `w-btn-toggle` here binds `state.user.prefs.<x>` directly with no template-side
     //    default, so an empty `prefs` (as `fetchUser()` REPLACES `state.user` wholesale) leaves
     //    every segment unchecked. Set one of each toggle's own valid values explicitly.
@@ -753,7 +753,16 @@ describe('UserEditOverlay settings-row toggles against the Cobalt mockup (OpenPr
       const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
       expect(toggle.exists()).toBe(true)
       const selected = toggle.find('[aria-checked="true"]')
-      expect(selected.attributes('style')).toContain('background-color: var(--color-accent)')
+      /*
+        `--color-segment-selected`, not `--color-accent` directly: the mockup's ask is "the accent
+        under Cobalt", and the two aesthetics answer it differently -- Ledger fills a selected
+        segment with the site's primary (what `WBtnToggle` has always drawn, and what its own
+        Aesthetic Setting card shows), Cobalt with the accent. The token carries both, so no caller
+        names a tone; `css/cobaltTokens.test.js` pins the two values.
+      */
+      expect(selected.attributes('style')).toContain(
+        'background-color: var(--color-segment-selected)'
+      )
     }
   })
 })

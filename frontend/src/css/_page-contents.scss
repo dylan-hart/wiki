@@ -67,6 +67,13 @@
   */
   --content-h1: var(--color-ink);
   --content-h1-rule: var(--color-hairline);
+  /*
+    A section heading's own colour, which used to be inherited rather than stated. Ledger sets both
+    top levels in ink and lets the type carry the hierarchy; Cobalt sets h2 in cobalt and drops the
+    rule under it entirely (`--color-heading-h2` / `--content-h2-rule: transparent`), so the level
+    needs a property of its own to move.
+  */
+  --content-h2: var(--color-ink);
 
   /*
     How far the rule under an h1 reaches back into the padding of whatever is holding the content, so
@@ -107,9 +114,9 @@
     grid with tinted text in its first row. Literal values, because this file takes no SCSS palette.
 
     The near end of the grade -- the one the radial starts from, at bottom right -- is a step up the
-    app's dark ramp from what `.card-header` starts at: `$dark-2` here against its `$dark-3`. Against a
-    white page the whole bar reads darker than it measures, and at `$dark-3` the grade had nowhere to go
-    but flat. On a dark page it does not need the help, so the dark block puts `$dark-3` back.
+    app's dark ramp from what `.card-header` starts at: `var(--color-dark-2)` here against its `var(--color-dark-3)`. Against a
+    white page the whole bar reads darker than it measures, and at `var(--color-dark-3)` the grade had nowhere to go
+    but flat. On a dark page it does not need the help, so the dark block puts `var(--color-dark-3)` back.
 
     The far end and the ink are the same in both themes, because a bar this dark is already the chrome
     it is meant to be on either.
@@ -212,6 +219,14 @@
     slate on the dark theme's own chip is 1.09:1 and was simply unreadable.
   */
   --content-code-ink: var(--color-slate);
+  /*
+    The inline chip's own ground, edge and corner -- split out from `--content-surface-alt` and
+    `--content-rule`, which it used to borrow, because Cobalt moves the chip onto the accent wash
+    with no edge at all while the quote gutter and the rules those two also serve stay where they
+    are. Ledger's values below are the two it borrowed, so nothing moves there.
+  */
+  --content-code-chip-bg: var(--content-surface-alt);
+  --content-code-chip-edge: var(--content-rule);
   /*
     And the ink of the code BLOCK, which is a different question: the block is drawn on ink in both
     themes, so its text is the dark ramp's own. It is a token rather than a literal so the print
@@ -317,6 +332,12 @@
     /* -> A heading stays INK-side text rather than taking the accent, matching the light theme */
     --content-h1: var(--color-text-dark);
     --content-h1-rule: var(--color-hairline-dark);
+    /*
+      And the same for a section heading, which is a stated colour now rather than an inherited one
+      -- Cobalt sets h2 in cobalt and needs a property to move, and a property that only Ledger LIGHT
+      declares leaves the dark theme drawing ink on ink.
+    */
+    --content-h2: var(--color-text-dark);
 
     --content-rule: var(--color-hairline-dark);
     --content-rule-strong: var(--color-border-dark);
@@ -361,7 +382,7 @@
     --content-tick: var(--color-accent-dark);
     --content-tick-edge: var(--color-disabled-dark);
 
-    /* -> The same five, lightened for ink: `$slate-light`, and the dark ramp's own status tones */
+    /* -> The same five, lightened for ink: `var(--color-slate-light)`, and the dark ramp's own status tones */
     --content-info: #8ea6cf;
     --content-info-wash: rgba(142, 166, 207, 0.12);
     --content-success: #7fc4a8;
@@ -405,6 +426,108 @@
     /* -> The accent's own dark wash, and the lightened accent for the edge that marks the item */
     --content-landed-wash: var(--color-accent-wash-dark);
     --content-landed-edge: var(--color-accent-dark);
+  }
+
+  /*
+    -- The Cobalt aesthetic ---------------------------------------------------
+
+    Source: `ui-redesign-cobalt/HANDOFF.md` and `Cardinal Wiki - Page View 3x - Cobalt.dc.html`, the
+    canonical Cobalt screen. Placed AFTER the dark block above so it wins at equal specificity for
+    the properties both set, and written as two blocks -- aesthetic, then aesthetic-and-dark -- for
+    the same reason `tailwind.css` splits its own: the two axes are independent, and Cobalt dark
+    changes only what the dark ground forces, never the shape.
+
+    Everything here is a colour or a corner. The three places Cobalt genuinely draws something
+    Ledger does not -- an ordered list's numbered step plates, the code block's language label, and
+    the quote's flat left-ruled callout in place of the corner-marked gutter -- are rules beside
+    their Ledger counterparts further down, not tokens, because there is no value that turns one
+    into the other.
+  */
+  @at-root body.body--cobalt & {
+    /* -> h2 in cobalt with no rule under it; h1 keeps the ink of its own aesthetic and its rule */
+    --content-h2: var(--color-heading-h2);
+    --content-h2-rule: transparent;
+
+    /*
+      The inline chip: the accent wash carrying accent TEXT, edgeless and 4px-cornered -- the one
+      mark in Cobalt's prose that is red rather than blue. `--color-accent` is the white-text/accent-
+      text tone (`#c8303c`), never `--color-accent-fill`'s `#ff4d5a`, which is 3.1:1 on the wash.
+    */
+    --content-code-ink: var(--color-accent);
+    --content-code-chip-bg: var(--color-accent-wash);
+    --content-code-chip-edge: transparent;
+
+    /*
+      The code block. `--content-surface-code` already resolves to the mockup's `#10194a` on its own
+      (it is `var(--color-ink)`, which Cobalt overrides to exactly that), so only the edge moves:
+      Cobalt draws no accent bar down the block's leading side -- see the `pre` rule below, which
+      zeroes its width -- and no frame.
+
+      The handoff gives Cobalt exactly two syntax tones, `#ff7a84` and `#8fb0ff`, against the block's
+      `#10194a`. They are assigned by what a token IS rather than spread thin: the red is the tone
+      for a language's own words (keyword, type, and a deletion), the blue for everything a value or
+      a name (string, number, title, attribute, meta, addition). `--content-code-comment` is neither
+      -- it is commentary, so it takes the dimmer chrome tone the mockup sets its `bash` label in.
+    */
+    --content-code-edge: transparent;
+    --content-code-frame: transparent;
+    --content-code-comment: #7f8ed1;
+    --content-code-keyword: #ff7a84;
+    --content-code-type: #ff7a84;
+    --content-code-deletion: #ff7a84;
+    --content-code-deletion-wash: rgba(255, 122, 132, 0.16);
+    --content-code-string: #8fb0ff;
+    --content-code-number: #8fb0ff;
+    --content-code-title: #8fb0ff;
+    --content-code-attr: #8fb0ff;
+    --content-code-meta: #8fb0ff;
+    --content-code-addition: #8fb0ff;
+    --content-code-addition-wash: rgba(143, 176, 255, 0.16);
+
+    /*
+      The callout's own fill and rule, and the ink on it: `#e6edff` under `#1a2f7a` with a `#1f4fd6`
+      bar, straight off the canonical page view. `--content-info` doubles as the plain quote's rule
+      here, since Cobalt draws the two the same way.
+    */
+    --content-info: var(--color-heading-h2);
+    --content-info-wash: #e6edff;
+    --content-callout-ink: #1a2f7a;
+    --content-step-bg: var(--color-heading-h2);
+    --content-step-fg: #fff;
+
+    /* -> The tick a task-list item is marked with is an untexted fill, so it is the bright accent */
+    --content-tick: var(--color-accent-fill);
+
+    /*
+      A table's title bar. Ledger draws it in the graded near-black its dialog headers use; Cobalt's
+      dialog header is its own raised indigo and its code block is `#10194a`, so a slate-black bar
+      here would be the one surface in a rendered Cobalt page still drawn out of Ledger's ramp. Same
+      construction, same two ends, moved onto this aesthetic's own ink.
+    */
+    --content-table-head: var(--color-dialog-header-bg);
+    --content-table-head-grade: #0b1238;
+  }
+
+  /*
+    Cobalt on a dark ground. Only what the ground forces: the code block drops to the deepest well
+    the Page View Dark mockup draws it at (`#070b22`, which `tailwind.css` gives Cobalt dark as
+    `--color-dark-4`; `--color-dark-6` is a rung that block deliberately leaves inherited, so it
+    cannot be used here), the chip's accent lightens to the tone that clears the floor on a dark
+    card, and the callout inverts to a translucent cobalt wash.
+  */
+  @at-root body.body--cobalt.body--dark & {
+    --content-h2: var(--color-heading-h2);
+    --content-surface-code: var(--color-dark-4);
+    --content-code-ink: var(--color-accent-dark);
+    --content-code-chip-bg: var(--color-accent-wash-dark);
+    --content-code-frame: var(--color-hairline-dark);
+    --content-info: #8fb0ff;
+    --content-info-wash: rgba(61, 109, 247, 0.16);
+    --content-callout-ink: #c9d6ff;
+    /* -> The handoff's "Numbered steps ... `#3d6df7` (white text, 4.6:1)" for the dark ground */
+    --content-step-bg: #3d6df7;
+    --content-step-fg: #fff;
+    --content-tick: var(--color-accent-fill);
   }
 
   /* -> The page's own margins are the container's business; the first and last block give theirs up */
@@ -505,6 +628,7 @@
     --content-heading-rule-weight: 1px;
     --content-heading-rule-color: var(--content-h2-rule);
 
+    color: var(--content-h2);
     /* -> A shade under the shared 1.5em, so it stays clear of the h1 above it in the ramp */
     margin-top: 1.4em;
     font-size: 1.5em;
@@ -861,6 +985,71 @@
     list-style: lower-roman;
   }
 
+  /*
+    Cobalt's numbered list, which is the one place its prose changes SHAPE rather than colour: the
+    figure leaves the margin and becomes a 24px cobalt disc carrying a white mono numeral, set
+    against the step it labels (`Page View 3x - Cobalt` -- "Batches of two keep at least 80% ...").
+
+    Built from a counter on a `::before` rather than from `::marker`, which takes neither a box nor a
+    background in any engine. Only a TOP-LEVEL ordered list gets it: a nested `ol` is a sub-step, and
+    a run of discs inside a run of discs stops reading as an outline -- those keep their lower-alpha
+    and lower-roman markers, which is why `> li` is a child combinator and the nested rule restores
+    `list-style` below.
+
+    `list-style: none` is what stops the browser drawing its own figure beside this one; the plate
+    then sits in the padding the list already reserves, pulled back into it by a negative margin so
+    the text keeps its measure.
+  */
+  @at-root body.body--cobalt & {
+    > ol,
+    li > ol {
+      list-style: none;
+      counter-reset: cobalt-step;
+      padding-inline-start: 2.4em;
+    }
+
+    > ol > li,
+    li > ol > li {
+      position: relative;
+      counter-increment: cobalt-step;
+      margin-top: 0.62em;
+
+      &::before {
+        content: counter(cobalt-step);
+        position: absolute;
+        inset-inline-start: -2.4em;
+        top: 0.05em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.5em;
+        height: 1.5em;
+        border-radius: 50%;
+        background-color: var(--content-step-bg);
+        color: var(--content-step-fg);
+        font-family: var(--font-mono);
+        font-size: 0.6875em;
+        font-weight: 600;
+        line-height: 1;
+      }
+    }
+
+    /* -> A sub-step is still an outline level, so it keeps a marker rather than a second run of discs */
+    ol ol {
+      list-style: lower-alpha;
+      counter-reset: none;
+      padding-inline-start: 1.6em;
+
+      > li::before {
+        content: none;
+      }
+    }
+
+    ol ol ol {
+      list-style: lower-roman;
+    }
+  }
+
   li {
     margin-top: 0.35em;
 
@@ -1151,6 +1340,27 @@
         linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 1px 7px
           no-repeat;
     }
+
+    /*
+      Cobalt's quote is a flat left-ruled callout, not Ledger's corner-marked box with a tinted
+      gutter: `#e6edff` behind `#1a2f7a`, a 4px cobalt bar on the leading edge, a 6px corner, and
+      neither the gutter nor the marks (`Page View 3x - Cobalt`). Both pseudo-elements go -- one IS
+      the gutter and the other IS the marks -- and the padding closes up to what a bar needs rather
+      than what a 44px gutter did.
+    */
+    @at-root body.body--cobalt & {
+      padding-inline: 1em 1.1em;
+      border: 0;
+      border-inline-start: 4px solid var(--content-info);
+      border-radius: var(--radius-control);
+      background-color: var(--content-info-wash);
+      color: var(--content-callout-ink);
+
+      &::before,
+      &::after {
+        content: none;
+      }
+    }
   }
 
   /*
@@ -1320,8 +1530,9 @@
   */
   code {
     padding: 1px 5px;
-    border: 1px solid var(--content-rule);
-    background-color: var(--content-surface-alt);
+    border: 1px solid var(--content-code-chip-edge);
+    border-radius: var(--radius-mark);
+    background-color: var(--content-code-chip-bg);
     color: var(--content-code-ink);
     font-family: var(--font-mono);
     font-size: 0.875em;
@@ -1410,8 +1621,51 @@
       need to emit it, for every fenced block app-wide), not a style tweak, and is logged for the same
       reason.
     */
+    /*
+      Cobalt's own code block: no accent bar down the leading edge (the token above already made the
+      edge transparent; this closes the 2px of space it occupied), and the language named in a mono
+      label in the top-right corner, as `Page View 3x - Cobalt` draws it. `data-lang` is put on the
+      block by `helpers/renderedContent.js` -- a `language-*` class on the `<code>` inside is what
+      the renderer emits, and CSS cannot read a suffix out of a class name.
+
+      `position: relative` is already established by the `.line-numbers` rule for a multi-line block
+      but not for a one-liner, so it is stated here; the label sits clear of the copy button, which
+      pins itself to the same corner and only appears on hover.
+    */
     body.body--cobalt & {
       border-inline-start-width: 0;
+      /*
+        Restated at this weight because the highlight.js theme `App.vue` injects carries a background
+        of its own (`github-dark`'s `#0d1117`) as a `.hljs` rule nested under `.page-contents`, which
+        outranks the element-selector `pre` rule above and paints the block its own near-black. The
+        block's GROUND belongs to the aesthetic -- Cobalt draws it at `#10194a`, and the mockup's
+        `bash` label and syntax tones are pitched against exactly that -- while the syntax colours
+        stay the admin's `codeBlocksTheme` to choose, which is the split the handoff describes.
+      */
+      background-color: var(--content-surface-code);
+    }
+
+    body.body--cobalt &[data-lang]::before {
+      content: attr(data-lang);
+      position: absolute;
+      top: 10px;
+      inset-inline-end: 12px;
+      color: var(--content-code-comment);
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    body.body--cobalt & {
+      position: relative;
+    }
+
+    /* -> The label and the copy button share the corner; the button wins while it is showing */
+    body.body--cobalt &:hover[data-lang]::before {
+      opacity: 0;
     }
   }
 

@@ -47,6 +47,8 @@ import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as monaco from 'monaco-editor'
 
+import { useAesthetic } from '@/composables/aesthetic'
+import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 
 // PROPS
@@ -84,6 +86,13 @@ const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
 
 const { t } = useI18n()
 
+/*
+  Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
+  aesthetic is applied by registering both themes and switching between them -- see
+  `helpers/monacoTheme.js`.
+*/
+const aesthetic = useAesthetic()
+
 // DIFF EDITOR
 
 /*
@@ -103,7 +112,7 @@ function mountEditor() {
   }
 
   // -> The markdown editor's theme, defined again here because that component may never have mounted
-  monaco.editor.defineTheme('cardinaljs', {
+  defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -123,7 +132,7 @@ function mountEditor() {
     // -> A reader, not an editor: choosing which side wins is what the two buttons below are for.
     readOnly: true,
     scrollBeyondLastLine: false,
-    theme: 'cardinaljs',
+    theme: monacoThemeName(aesthetic.current),
     wordWrap: 'on'
   })
 

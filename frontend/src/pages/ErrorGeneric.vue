@@ -120,7 +120,7 @@ const error = computed(() => {
 
 <style lang="scss">
 .errorpage {
-  background: $dark-6 radial-gradient(ellipse, $dark-4, $dark-6);
+  background: var(--color-dark-6) radial-gradient(ellipse, var(--color-dark-4), var(--color-dark-6));
   color: #fff;
   height: 100vh;
 

@@ -431,11 +431,11 @@ defineExpose({
 body.body--dark {
   .util-code-editor {
     border-color: rgb(255 255 255 / 0.3);
-    background-color: $dark-5;
+    background-color: var(--color-dark-5);
     background-image: linear-gradient(
       to right,
-      $dark-4 0,
-      $dark-4 var(--util-code-editor-gutter),
+      var(--color-dark-4) 0,
+      var(--color-dark-4) var(--util-code-editor-gutter),
       rgb(255 255 255 / 0.12) var(--util-code-editor-gutter),
       rgb(255 255 255 / 0.12) calc(var(--util-code-editor-gutter) + 1px),
       transparent calc(var(--util-code-editor-gutter) + 1px)

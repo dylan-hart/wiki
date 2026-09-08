@@ -792,15 +792,15 @@ onMounted(async () => {
   on Cardinal there is nothing left for it to contrast against.
 */
 .admin-header {
-  background-color: $surface;
-  color: $ink;
-  border-bottom: 1px solid $hairline;
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  border-bottom: 1px solid var(--color-hairline);
 }
 
 .body--dark .admin-header {
-  background-color: $dark-3;
-  color: $text-dark;
-  border-bottom-color: $hairline-dark;
+  background-color: var(--color-dark-3);
+  color: var(--color-text-dark);
+  border-bottom-color: var(--color-hairline-dark);
 }
 
 /* -> The wordmark, set exactly as the site header sets its own */
@@ -815,7 +815,7 @@ onMounted(async () => {
 
 /*
   See the button's own comment: the accent fill bounds the box, the lightened accent labels it.
-  `--color-accent-fill` rather than `$accent-fill` -- the two are the same value for Ledger
+  `--color-accent-fill` rather than `var(--color-accent-fill)` -- the two are the same value for Ledger
   (`#e4676b`, verified against `tailwind.css`'s `:root` block), and the custom property is what
   lets a Cobalt site's `#ff4d5a` reach this border at all (OpenProject #2780).
 */
@@ -830,12 +830,12 @@ onMounted(async () => {
   font-weight: 600;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: $text-caption;
+  color: var(--color-text-caption);
   white-space: nowrap;
 }
 
 .body--dark .admin-area-label {
-  color: $text-caption-dark;
+  color: var(--color-text-caption-dark);
 }
 
 .admin-nav {
@@ -848,13 +848,13 @@ onMounted(async () => {
 */
 .admin-page-header {
   padding: 20px 24px;
-  border-bottom: 1px solid $hairline;
-  background-color: $surface;
+  border-bottom: 1px solid var(--color-hairline);
+  background-color: var(--color-surface);
 }
 
 .body--dark .admin-page-header {
-  border-bottom-color: $hairline-dark;
-  background-color: $dark-3;
+  border-bottom-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-3);
 }
 
 /*
@@ -870,13 +870,29 @@ onMounted(async () => {
   justify-content: center;
   width: 64px;
   height: 64px;
-  border: 1px solid $hairline;
-  background-color: $paper;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-control);
+  background-color: var(--color-paper);
 }
 
-.body--dark .admin-page-icon {
-  border-color: $hairline-dark;
-  background-color: $dark-4;
+.body--dark:not(.body--cobalt) .admin-page-icon {
+  border-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-4);
+}
+
+/*
+  Cobalt's admin plate is the tinted strip colour with no edge and a 6px corner, and its glyph is
+  drawn in the aesthetic's own blue rather than the chrome slate (`Admin 3x - Cobalt`). One rule for
+  both themes: `--color-tint` and `--color-accent-strong` each already carry Cobalt's light and dark
+  values, and the plate is the one thing on this band that does not follow the surface under it.
+*/
+body.body--cobalt .admin-page-icon {
+  border-color: transparent;
+  background-color: var(--color-tint);
+
+  .admin-icon {
+    color: var(--color-accent-strong);
+  }
 }
 
 /*
@@ -885,28 +901,30 @@ onMounted(async () => {
   of each corner and nothing between them.
 */
 .admin-page-icon__marks {
+  /* -> `block` in Ledger (a no-op), `none` in Cobalt, whose plate is bounded by its own radius */
+  display: var(--corner-marks);
   position: absolute;
   inset: -5px;
   pointer-events: none;
   background:
-    linear-gradient($slate-soft, $slate-soft) 0 0 / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 0 0 / 1px 7px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 0 / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 0 / 1px 7px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 0 100% / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 0 100% / 1px 7px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 100% / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 100% / 1px 7px no-repeat;
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 1px 7px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 0 / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 0 / 1px 7px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 100% / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 100% / 1px 7px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 1px 7px no-repeat;
 }
 
 /* -> The glyph itself, in the chrome tone */
 .admin-icon {
   flex: none;
-  color: $slate-soft;
+  color: var(--color-slate-soft);
 }
 
 .body--dark .admin-icon {
-  color: $slate-light;
+  color: var(--color-slate-light);
 }
 
 /*
@@ -916,7 +934,7 @@ onMounted(async () => {
 */
 .admin-page-eyebrow {
   padding-bottom: 8px;
-  color: $accent-text;
+  color: var(--color-accent);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
@@ -925,7 +943,7 @@ onMounted(async () => {
 }
 
 .body--dark .admin-page-eyebrow {
-  color: $accent-dark;
+  color: var(--color-accent-dark);
 }
 
 /*
@@ -934,11 +952,11 @@ onMounted(async () => {
   at a glance that you are behind the scenes rather than in the wiki.
 */
 .admin-sidebar {
-  background-color: $ink;
-  border-inline-end: 1px solid $hairline-dark;
+  background-color: var(--color-ink);
+  border-inline-end: 1px solid var(--color-hairline-dark);
 
   @at-root .body--dark & {
-    background-color: $dark-5;
+    background-color: var(--color-dark-5);
   }
 
   /*
@@ -948,7 +966,7 @@ onMounted(async () => {
     than the sidebar they sit in.
   */
   .admin-nav-list {
-    color: $slate-pale;
+    color: var(--color-slate-pale);
     font-size: 13px;
 
     .w-item {
@@ -959,7 +977,7 @@ onMounted(async () => {
     .w-icon,
     iconify-icon {
       font-size: 16px;
-      color: $slate-nav-icon;
+      color: var(--color-slate-nav-icon);
     }
   }
 
@@ -973,14 +991,14 @@ onMounted(async () => {
     -- which is why the padding is given back below.
   */
   .admin-nav-active {
-    background-color: $dark-2;
-    border-inline-start: 2px solid $accent-fill;
+    background-color: var(--color-dark-2);
+    border-inline-start: 2px solid var(--color-accent-fill);
     color: #fff;
     font-weight: 500;
 
     .w-icon,
     iconify-icon {
-      color: $accent-dark;
+      color: var(--color-accent-dark);
     }
   }
 
@@ -1014,7 +1032,7 @@ onMounted(async () => {
   }
 
   /*
-    `$negative-fill` / `$positive-fill` rather than the `--color-*` custom properties, because these
+    `var(--color-negative-fill)` / `var(--color-positive-fill)` rather than the `--color-*` custom properties, because these
     have to match the status lights beside them exactly and StatusLight styles itself from the SCSS
     variables -- the custom properties resolve through `--q-*`, which is rewritten at runtime for
     per-site theming and would drift away from the lights on any site that sets its own colours. The
@@ -1023,10 +1041,10 @@ onMounted(async () => {
   // -> 5px is StatusLight's own width, so the stripe on a badge and the light on the row below it
   //    are the same bar of colour rather than two thicknesses of it
   .count-badge {
-    border-inline-end: 5px solid $negative-fill;
+    border-inline-end: 5px solid var(--color-negative-fill);
 
     &--filled {
-      border-inline-end-color: $positive-fill;
+      border-inline-end-color: var(--color-positive-fill);
     }
   }
 
@@ -1036,8 +1054,8 @@ onMounted(async () => {
   .w-item-label--header {
     margin-top: 14px;
     padding-top: 14px;
-    border-top: 1px solid $hairline-dark;
-    color: $text-caption-dark;
+    border-top: 1px solid var(--color-hairline-dark);
+    color: var(--color-text-caption-dark);
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 600;
@@ -1055,7 +1073,7 @@ onMounted(async () => {
   1. The admin sidebar's Cobalt tokens (`--color-admin-sidebar-*`, `tailwind.css`'s
      `body.body--cobalt` block) are ALSO declared once at `:root` with generic Ledger-ish defaults
      (`--color-text-dark` / `--color-slate-light`) that do not exactly reproduce this file's own
-     hand-tuned Ledger values above (`$slate-pale` text, `$slate-nav-icon` icons) -- consuming them
+     hand-tuned Ledger values above (`var(--color-slate-pale)` text, `var(--color-slate-nav-icon)` icons) -- consuming them
      unscoped would quietly shift Ledger's sidebar tone rather than leave it alone.
   2. `--q-header` and `--color-accent` are the SITE's own admin-editable brand colours. Reading them
      unscoped would make the admin header and page eyebrow start following a Ledger site's custom
@@ -1122,7 +1140,7 @@ body.body--cobalt {
     /*
       The nav count badges: `w-badge` sets its background/text as an inline `:style`, which only an
       `!important` class rule can beat -- same reasoning as `.admin-contribute-btn`'s border above.
-      Left off `.count-badge`'s own trailing-edge stripe (`$negative-fill` / `$positive-fill`):
+      Left off `.count-badge`'s own trailing-edge stripe (`var(--color-negative-fill)` / `var(--color-positive-fill)`):
       that colour has to keep matching `StatusLight`, which is a frozen shared primitive outside
       this task's scope (OpenProject #2772/#2773) and stays on its fixed SCSS tones regardless of
       aesthetic.
@@ -1162,11 +1180,11 @@ body.body--cobalt.body--dark {
   font-weight: 700;
   line-height: 1.05;
   letter-spacing: normal;
-  color: $ink;
+  color: var(--color-ink);
 }
 
 .body--dark .admin-page-title {
-  color: $text-dark;
+  color: var(--color-text-dark);
 }
 
 .admin-page-subtitle {
@@ -1174,11 +1192,11 @@ body.body--cobalt.body--dark {
   font-size: 14.5px;
   line-height: 1.45;
   letter-spacing: normal;
-  color: $text-secondary;
+  color: var(--color-text-secondary);
 }
 
 .body--dark .admin-page-subtitle {
-  color: $text-secondary-dark;
+  color: var(--color-text-secondary-dark);
 }
 
 // -> No `.w-card` rule here: WCard already paints its own surface with these exact colours, and an
@@ -1186,10 +1204,10 @@ body.body--cobalt.body--dark {
 //    restatement did nothing except stop the admin pages tinting a card with `bg-negative` / `bg-info`
 .admin-container {
   @at-root .body--light & {
-    background-color: $paper;
+    background-color: var(--color-paper);
   }
   @at-root .body--dark & {
-    background-color: $dark-5;
+    background-color: var(--color-dark-5);
   }
 }
 
@@ -1218,12 +1236,12 @@ body.body--cobalt.body--dark {
       box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
 
       @at-root .body--light & {
-        background-color: $paper;
-        border: 1px solid $hairline;
+        background-color: var(--color-paper);
+        border: 1px solid var(--color-hairline);
       }
       @at-root .body--dark & {
-        background-color: $dark-5;
-        border: 1px solid $hairline-dark;
+        background-color: var(--color-dark-5);
+        border: 1px solid var(--color-hairline-dark);
       }
     }
   }

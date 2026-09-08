@@ -36,15 +36,6 @@ export const AESTHETIC_DEFAULT_COLORS = {
   }
 }
 
-/**
- * The admin-editable color defaults for one aesthetic. Falls back to `ledger` for an unknown or
- * missing value -- `state.config.aesthetic` reads as `undefined` until OpenProject #2769 adds the
- * Aesthetic setting row that actually populates it, and a site should not be left with no answer at
- * all in the meantime.
- *
- * @param {'ledger'|'cobalt'|undefined} aesthetic
- * @returns {{ colorPrimary: string, colorAccent: string, colorHeader: string, colorSidebar: string }}
- */
 export function aestheticDefaultColors(aesthetic) {
   return AESTHETIC_DEFAULT_COLORS[aesthetic] ?? AESTHETIC_DEFAULT_COLORS.ledger
 }
@@ -107,4 +98,54 @@ export const AESTHETIC_STATUS_COLORS = {
  */
 export function aestheticStatusColors(aesthetic) {
   return AESTHETIC_STATUS_COLORS[aesthetic] ?? AESTHETIC_STATUS_COLORS.ledger
+}
+
+/**
+ * The chrome colors that change again on a dark ground.
+ *
+ * Cobalt's header bar deepens one step on dark (`#1a43bd`, "to cut glare" -- the handoff's own
+ * Surfaces table) and its sidebar drops to `#0e1540`; nothing else about the aesthetic moves between
+ * light and dark that a token in `css/tailwind.css` does not already carry. Ledger has no entry here
+ * at all: its header and sidebar are the app's ordinary light chrome, and its dark theme repaints
+ * them through `dark:` utilities rather than through the `--q-*` brand colors.
+ */
+const AESTHETIC_DARK_CHROME = {
+  cobalt: {
+    colorHeader: '#1a43bd',
+    colorSidebar: '#0e1540'
+  }
+}
+
+/**
+ * The four `--q-*` brand colors to actually paint with, for one RESOLVED aesthetic.
+ *
+ * `resetColors()` only reaches a site whose administrator opens AdminTheme and saves, and the
+ * aesthetic is not only a site setting: a reader can pick Cobalt for themselves
+ * (`users.prefs.aesthetic`) on a site whose stored `colorHeader` is Ledger's `#ffffff`. Left to the
+ * stored value alone that reader gets Cobalt's indigo sidebar text on Ledger's near-white sidebar
+ * ground -- unreadable, and nothing the administrator could have prevented.
+ *
+ * So a stored color that is still some aesthetic's own DEFAULT is treated as "not chosen" and
+ * follows the resolved aesthetic; a color the administrator actually picked is left exactly as
+ * saved. Compared case-insensitively against every aesthetic's defaults, not just the current one,
+ * because the site's stored value is whichever aesthetic it was seeded or last reset under.
+ *
+ * @param {'ledger'|'cobalt'|undefined} aesthetic The resolved aesthetic (site or user override).
+ * @param {Record<string, string>} stored The site's saved `colorPrimary`/`colorAccent`/`colorHeader`/`colorSidebar`.
+ * @returns {Record<string, string>} The same four keys, with untouched defaults moved onto `aesthetic`.
+ */
+export function resolveAestheticColors(aesthetic, stored, dark = false) {
+  const target = { ...aestheticDefaultColors(aesthetic), ...aestheticStatusColors(aesthetic) }
+  const darkChrome = (dark && AESTHETIC_DARK_CHROME[aesthetic]) || {}
+  const out = {}
+  for (const key of Object.keys(target)) {
+    const value = stored?.[key]
+    const isUntouchedDefault =
+      !value ||
+      Object.values(AESTHETIC_DEFAULT_COLORS).some(
+        (defaults) => defaults[key]?.toLowerCase() === String(value).toLowerCase()
+      )
+    out[key] = isUntouchedDefault ? (darkChrome[key] ?? target[key]) : value
+  }
+  return out
 }

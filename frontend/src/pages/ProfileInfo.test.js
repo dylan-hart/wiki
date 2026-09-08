@@ -172,7 +172,7 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
  * and `colorAccent` defaults are identical (`#c14a52`).
  */
 describe('ProfileInfo against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenProject #2810)', () => {
-  it('fills every settings-row toggle selection from the accent role, not primary', async () => {
+  it('fills every settings-row toggle selection from the segment-selected role', async () => {
     globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
 
     const wrapper = mountPage()
@@ -189,7 +189,16 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenP
       const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
       expect(toggle.exists()).toBe(true)
       const selected = toggle.find('[aria-checked="true"]')
-      expect(selected.attributes('style')).toContain('background-color: var(--color-accent)')
+      /*
+        `--color-segment-selected`, not `--color-accent` directly: the mockup's ask is "the accent
+        under Cobalt", and the two aesthetics answer it differently -- Ledger fills a selected
+        segment with the site's primary (what `WBtnToggle` has always drawn, and what its own
+        Aesthetic Setting card shows), Cobalt with the accent. The token carries both, so no caller
+        names a tone; `css/cobaltTokens.test.js` pins the two values.
+      */
+      expect(selected.attributes('style')).toContain(
+        'background-color: var(--color-segment-selected)'
+      )
     }
   })
 })

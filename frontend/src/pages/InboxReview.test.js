@@ -671,7 +671,11 @@ describe('InboxReview against its design file (#2621)', () => {
 
     await mountReview()
 
-    const theme = monaco.editor.defineTheme.mock.calls.at(-1)[1]
+    /*
+      The Ledger half of the pair every Monaco surface now registers (`helpers/monacoTheme.js`
+      derives the Cobalt twin from it) -- `[0]`, not `.at(-1)`, which is that derivation.
+    */
+    const theme = monaco.editor.defineTheme.mock.calls[0][1]
     // -> The same five base tones every other `cardinaljs` definition in the app sets, since the theme
     //    ID is shared and whichever call site defines it last wins for the whole process
     expect(theme.colors['editor.background']).toBe('#14171f')

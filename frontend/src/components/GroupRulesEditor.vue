@@ -678,12 +678,12 @@ async function importRules() {
     background-color: $grey-2 !important;
 
     @at-root .body--dark & {
-      background-color: $dark-6 !important;
+      background-color: var(--color-dark-6) !important;
     }
 
     &-permissions {
-      background-color: rgba($positive, 0.1);
-      border-bottom: 1px solid rgba($positive, 0.3);
+      background-color: color-mix(in srgb, var(--color-positive) 10%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
       display: flex;
       align-items: center;
 
@@ -692,12 +692,12 @@ async function importRules() {
       }
 
       &.is-allow {
-        background-color: rgba($positive, 0.1);
-        border-bottom: 1px solid rgba($positive, 0.3);
+        background-color: color-mix(in srgb, var(--color-positive) 10%, transparent);
+        border-bottom: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
       }
       &.is-deny {
-        background-color: rgba($negative, 0.1);
-        border-bottom: 1px solid rgba($negative, 0.3);
+        background-color: color-mix(in srgb, var(--color-negative) 10%, transparent);
+        border-bottom: 1px solid color-mix(in srgb, var(--color-negative) 30%, transparent);
       }
       &.is-forceallow {
         background-color: rgba($blue, 0.1);
@@ -714,7 +714,7 @@ async function importRules() {
       }
 
       @at-root .body--dark & {
-        background-color: $dark-5;
+        background-color: var(--color-dark-5);
       }
     }
     &-pattern {

@@ -30,7 +30,12 @@ async function definedTheme() {
     original: { text: 'a', language: 'markdown' },
     modified: { text: 'b', language: 'markdown' }
   })
-  return monaco.editor.defineTheme.mock.calls.at(-1)[1]
+  /*
+    The Ledger half of the pair `helpers/monacoTheme.js` registers (the Cobalt twin is derived from
+    it and is asserted in `EditorMarkdown.theme.test.js`, the one place the derivation is pinned).
+    `[0]`, not `.at(-1)`: the second call is that derivation.
+  */
+  return monaco.editor.defineTheme.mock.calls[0][1]
 }
 
 beforeEach(() => {

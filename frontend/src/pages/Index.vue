@@ -247,7 +247,16 @@
         :class="{ 'is-open': tocPanelIsOpen }"
         :style="siteStore.theme.tocPosition === `left` ? `order: 1;` : `order: 2;`"
         @click="onSidebarClick">
-        <template v-if="showToc">
+        <!--
+          The rail's sections are grouped into two boxes -- Contents, then Tags/Revision/Watching --
+          because Cobalt draws them as two floating white cards on its paper ground where Ledger
+          draws one continuous rail ruled off with hairlines. The grouping is the same in both: it is
+          the `--float-*` tokens that decide whether a box is a card (`--float-bg`, `--float-pad`,
+          `--radius-card`, `--shadow-card`, `--float-gap`) or nothing at all, and every one of them
+          collapses to transparent/0/none under Ledger, so these two wrappers render exactly as the
+          bare sections did. See the stylesheet.
+        -->
+        <div class="page-sidebar-card" v-if="showToc">
           <!-- TOC -->
           <!-- -> Its own string, not `common.page.toc`: this heading labels a column beside the
                article and reads better short, where "Table of Contents" is the full name of the
@@ -258,16 +267,17 @@
             :min-depth="pageStore.tocDepth.min"
             :max-depth="pageStore.tocDepth.max"
             v-model:selected="state.tocSelected" />
-        </template>
-        <!-- Tags -->
-        <template v-if="showTags">
-          <w-separator v-if="showToc" />
-          <div
-            @mouseover="state.showTagsEditBtn = true"
-            @mouseleave="state.showTagsEditBtn = false">
-            <div class="flex items-center">
-              <div class="page-sidebar-heading flex-1">{{ t('common.page.tags') }}</div>
-              <!--
+        </div>
+        <div class="page-sidebar-card" v-if="showTags || showRevision || showWatching">
+          <!-- Tags -->
+          <template v-if="showTags">
+            <w-separator v-if="showToc" />
+            <div
+              @mouseover="state.showTagsEditBtn = true"
+              @mouseleave="state.showTagsEditBtn = false">
+              <div class="flex items-center">
+                <div class="page-sidebar-heading flex-1">{{ t('common.page.tags') }}</div>
+                <!--
                 Rendered for whoever may save the page, and hidden with `visibility` rather than
                 removed as the pointer comes and goes: `display: none` took the row's height with it,
                 so the heading jumped 6px the moment the pointer arrived. `visibility` also keeps it
@@ -279,23 +289,25 @@
                 A reader gets no button at all -- `v-if`, not the same `visibility` treatment, because
                 for them it is not a control that happens to be out of sight.
               -->
-              <w-btn
-                v-if="canEditPage"
-                class="tags-edit-btn"
-                :class="{ 'is-hidden': !state.tagEditMode && !state.showTagsEditBtn }"
-                size="sm"
-                padding="none xs"
-                :icon="state.tagEditMode ? `tabler:check` : `tabler:pencil`"
-                color="deep-orange-9"
-                flat
-                :label="state.tagEditMode ? t('common.actions.exitEdit') : t('common.actions.edit')"
-                @click="state.tagEditMode = !state.tagEditMode" />
+                <w-btn
+                  v-if="canEditPage"
+                  class="tags-edit-btn"
+                  :class="{ 'is-hidden': !state.tagEditMode && !state.showTagsEditBtn }"
+                  size="sm"
+                  padding="none xs"
+                  :icon="state.tagEditMode ? `tabler:check` : `tabler:pencil`"
+                  color="deep-orange-9"
+                  flat
+                  :label="
+                    state.tagEditMode ? t('common.actions.exitEdit') : t('common.actions.edit')
+                  "
+                  @click="state.tagEditMode = !state.tagEditMode" />
+              </div>
+              <page-tags :edit="state.tagEditMode" />
             </div>
-            <page-tags :edit="state.tagEditMode" />
-          </div>
-        </template>
-        <!-- Revision -->
-        <!--
+          </template>
+          <!-- Revision -->
+          <!--
           Where the page stands in its own history: `rev 14 &middot; 6 changes`, who last wrote it, and when.
           Three lines of text and no controls -- the history itself is a page of its own, reached from
           the actions column, and a link here would be a fourth way to the same place.
@@ -306,32 +318,32 @@
           guard below is only for the store before a page has actually landed in it -- drawing a
           heading over three empty lines during a load is what it prevents, not any real page.
         -->
-        <template v-if="showRevision">
-          <w-separator v-if="showToc || showTags" />
-          <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
-          <div class="page-sidebar-revision">
-            <div v-if="revisionLine">{{ revisionLine }}</div>
-            <div v-if="pageStore.authorName" class="flex flex-wrap items-center gap-1">
-              <span>{{ pageStore.authorName }}</span>
-              <!--
+          <template v-if="showRevision">
+            <w-separator v-if="showToc || showTags" />
+            <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
+            <div class="page-sidebar-revision">
+              <div v-if="revisionLine">{{ revisionLine }}</div>
+              <div v-if="pageStore.authorName" class="flex flex-wrap items-center gap-1">
+                <span>{{ pageStore.authorName }}</span>
+                <!--
                 #2735: provenance -- did the person actually type this, or did an MCP tool call
                 acting as them? Same badge, same strings, as `PageHistoryOverlay.vue`'s history
                 timeline; `flex-wrap` on the row is what lets the badge drop under the name on a
                 narrow column rather than truncating either.
               -->
-              <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="slate-pale">
-                {{ t('history.viaMcp') }}
-                <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
-              </w-badge>
-            </div>
-            <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
+                <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="slate-pale">
+                  {{ t('history.viaMcp') }}
+                  <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
+                </w-badge>
+              </div>
+              <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
                  `userStore` has: the two are the same fact about the same page and must not drift -->
-            <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
-              {{ lastModified }}
+              <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
+                {{ lastModified }}
+              </div>
             </div>
-          </div>
-        </template>
-        <!--
+          </template>
+          <!--
           Watching (OpenProject #2649) -- who else is following this page, as a run of initial plates
           with a `+N` remainder for everybody past the third.
 
@@ -341,37 +353,38 @@
           the bell in the page header is where watching is acted on and where a failure there is
           reported.
         -->
-        <template v-if="showWatching">
-          <!--
+          <template v-if="showWatching">
+            <!--
             Each rail section owns the rule ABOVE it, conditioned on there being anything above it to
             separate from -- the pattern Tags follows for Contents. Revision (Task #2652) sits between
             Tags and this, so its own `showRevision` is the third thing there can be something above.
           -->
-          <w-separator v-if="showToc || showTags || showRevision" />
-          <div class="page-sidebar-heading">{{ t('common.page.watching') }}</div>
-          <div class="page-watchers">
-            <!--
+            <w-separator v-if="showToc || showTags || showRevision" />
+            <div class="page-sidebar-heading">{{ t('common.page.watching') }}</div>
+            <div class="page-watchers">
+              <!--
               `title` rather than a visible name: the plate is two letters wide by design and the
               full name is what a reader hovers for. `aria-label` says the same thing to a screen
               reader, for which two uppercase letters are not a name at all.
             -->
-            <div
-              v-for="watcher of watcherPlates"
-              :key="watcher.userId"
-              class="page-watchers-plate"
-              :title="watcher.name"
-              :aria-label="watcher.name">
-              {{ watcher.initials }}
+              <div
+                v-for="watcher of watcherPlates"
+                :key="watcher.userId"
+                class="page-watchers-plate"
+                :title="watcher.name"
+                :aria-label="watcher.name">
+                {{ watcher.initials }}
+              </div>
+              <span
+                v-if="watcherRemainder > 0"
+                class="page-watchers-remainder"
+                :title="t('common.page.watchingMore', { count: watcherRemainder })"
+                :aria-label="t('common.page.watchingMore', { count: watcherRemainder })">
+                +{{ watcherRemainder }}
+              </span>
             </div>
-            <span
-              v-if="watcherRemainder > 0"
-              class="page-watchers-remainder"
-              :title="t('common.page.watchingMore', { count: watcherRemainder })"
-              :aria-label="t('common.page.watchingMore', { count: watcherRemainder })">
-              +{{ watcherRemainder }}
-            </span>
-          </div>
-        </template>
+          </template>
+        </div>
       </div>
       <!-- -> Every action on it acts on a page: there is none here to edit, share, rate or delete -->
       <page-actions-col v-if="!pageStore.notFound" />
@@ -1396,15 +1409,32 @@ $toc-overlay-max: 749.98px;
     page -- deliberately inherits rather than taking `active-color`, and what it was inheriting in
     dark mode was the document's black.
   */
-  @at-root .body--light & {
-    background-color: $surface;
-    border-bottom: 1px solid $hairline;
-    color: $text-caption;
+  @at-root .body--light:not(.body--cobalt) & {
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-hairline);
+    color: var(--color-text-caption);
   }
-  @at-root .body--dark & {
-    background-color: $dark-3;
-    border-bottom: 1px solid $hairline-dark;
-    color: $text-caption-dark;
+  @at-root .body--dark:not(.body--cobalt) & {
+    background-color: var(--color-dark-3);
+    border-bottom: 1px solid var(--color-hairline-dark);
+    color: var(--color-text-caption-dark);
+  }
+
+  /*
+    Cobalt's trail sits on the page's own paper ground with no band and no rule under it -- the
+    banner card below it is what separates the two -- and marks the current page in cobalt rather
+    than leaving it to inherit the trail's caption tone (`Page View 3x - Cobalt`). One rule for both
+    themes: every token in it is already aesthetic- and theme-aware.
+  */
+  @at-root body.body--cobalt & {
+    background-color: transparent;
+    border-bottom: 0;
+    color: var(--color-text-caption);
+
+    li:last-child .w-breadcrumbs__el {
+      color: var(--color-accent-strong);
+      font-weight: 500;
+    }
   }
 
   /*
@@ -1430,10 +1460,10 @@ $toc-overlay-max: 749.98px;
   white-space: nowrap;
 
   @at-root .body--light & {
-    color: $text-caption;
+    color: var(--color-text-caption);
   }
   @at-root .body--dark & {
-    color: $text-caption-dark;
+    color: var(--color-text-caption-dark);
   }
 }
 
@@ -1497,12 +1527,12 @@ $toc-overlay-max: 749.98px;
     since Ledger draws no card at all, just a ruled-off band.
   */
   @at-root .body--light & {
-    background-color: $surface;
-    border-bottom: 1px solid $hairline;
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-hairline);
   }
   @at-root .body--dark & {
-    background-color: $dark-3;
-    border-bottom: 1px solid $hairline-dark;
+    background-color: var(--color-dark-3);
+    border-bottom: 1px solid var(--color-hairline-dark);
   }
 
   /*
@@ -1529,11 +1559,16 @@ $toc-overlay-max: 749.98px;
     letter-spacing: normal;
     text-wrap: pretty;
 
-    @at-root .body--light & {
-      color: $ink;
-    }
-    @at-root .body--dark & {
-      color: $text-dark;
+    /*
+      The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated gradient and
+      its title is white. `--page-header-fg` is `var(--color-ink)` in Ledger, so the light rule this
+      replaces is reproduced exactly; dark mode keeps its own value, but only for Ledger -- Cobalt's
+      banner is identical in both themes.
+    */
+    color: var(--page-header-fg);
+
+    @at-root .body--dark:not(.body--cobalt) & {
+      color: var(--color-text-dark);
     }
   }
 
@@ -1549,11 +1584,11 @@ $toc-overlay-max: 749.98px;
     line-height: 1.45;
     letter-spacing: normal;
 
-    @at-root .body--light & {
-      color: $text-secondary;
-    }
-    @at-root .body--dark & {
-      color: $text-secondary-dark;
+    /* Same reasoning as the title above -- Ledger's token value is `var(--color-text-secondary)`. */
+    color: var(--page-header-subtitle-fg);
+
+    @at-root .body--dark:not(.body--cobalt) & {
+      color: var(--color-text-secondary-dark);
     }
   }
 }
@@ -1576,10 +1611,10 @@ $toc-overlay-max: 749.98px;
 */
 .page-container-body {
   flex: 1 0 auto;
-  padding: 32px 28px 44px;
+  padding: var(--article-column-pad);
 
   @media (max-width: $breakpoint-xs-max) {
-    padding: 20px 16px 32px;
+    padding: var(--article-column-pad-xs);
   }
 
   /*
@@ -1594,13 +1629,27 @@ $toc-overlay-max: 749.98px;
     carries the class itself and pads differently, so it keeps the default.
   */
   .page-contents {
-    --content-bleed: 28px;
+    --content-bleed: var(--content-bleed-default);
   }
 
   @media (max-width: $breakpoint-xs-max) {
     .page-contents {
-      --content-bleed: 16px;
+      --content-bleed: var(--content-bleed-xs);
     }
+  }
+
+  /*
+    And the article's own card. In Ledger every one of these resolves to nothing -- transparent
+    ground, no padding, square corners, no shadow -- because the column IS the sheet there and the
+    padding above is all the whitespace the article gets. In Cobalt the column becomes the paper
+    ground (`.page-container` below) and this box is the white card floating on it, which is why the
+    padding moves in here and `--content-bleed` goes to `0`: a card clips at its corner.
+  */
+  > .page-contents {
+    background-color: var(--float-bg);
+    padding: var(--article-card-pad);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 }
 
@@ -1627,11 +1676,21 @@ $toc-overlay-max: 749.98px;
   `MainLayout`.
 */
 .page-container {
-  @at-root .body--light & {
-    background-color: $surface;
+  @at-root .body--light:not(.body--cobalt) & {
+    background-color: var(--color-surface);
   }
-  @at-root .body--dark & {
-    background-color: $dark-3;
+  @at-root .body--dark:not(.body--cobalt) & {
+    background-color: var(--color-dark-3);
+  }
+
+  /*
+    Cobalt inverts the relationship: the column is the tinted ground and the article, contents,
+    metadata and actions each float on it as their own card. Transparent rather than a colour, so
+    what shows through is `MainLayout`'s `--color-paper` -- one ground behind every card, which is
+    what makes them read as cards at all.
+  */
+  @at-root body.body--cobalt & {
+    background-color: transparent;
   }
 }
 /*
@@ -1661,7 +1720,7 @@ $toc-overlay-max: 749.98px;
   mockups draw Contents, Tags/Revision and the actions rail as THREE separate floating white cards on
   the page's own paper ground, rather than this one continuous rail sharing the article's white
   surface with hairline rules between its own sections -- `.page-container`'s own background stays
-  `$surface` unconditionally for the same reason (the article relies on it as its own ambient white,
+  `var(--color-surface)` unconditionally for the same reason (the article relies on it as its own ambient white,
   with no card of its own to carry that colour instead). Splitting the rail into per-section cards is
   a real DOM/layout restructuring (a wrapper per section, a paper-coloured `.page-container` ground,
   and the article gaining its own card treatment to keep its current white-on-white look) rather than
@@ -1737,13 +1796,24 @@ $toc-overlay-max: 749.98px;
     page's own metadata (contents, tags, revision, watchers), so it belongs to the sheet, and the
     hairline down its leading edge is what separates the two.
   */
-  @at-root .body--light & {
+  @at-root .body--light:not(.body--cobalt) & {
     background-color: #fbfcfe;
-    border-inline-start: 1px solid $hairline;
+    border-inline-start: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
-    background-color: $dark-4;
-    border-inline-start: 1px solid $hairline-dark;
+  @at-root .body--dark:not(.body--cobalt) & {
+    background-color: var(--color-dark-4);
+    border-inline-start: 1px solid var(--color-hairline-dark);
+  }
+
+  /*
+    Cobalt has no rail as a surface at all: the two boxes inside it are cards on the page's own
+    paper ground, so the column itself is transparent and unruled, and its padding drops the 20px of
+    side inset the sections used to need (each card brings its own).
+  */
+  @at-root body.body--cobalt & {
+    background-color: transparent;
+    border-inline-start: 0;
+    padding: 28px 24px 28px 0;
   }
 
   // The rules BETWEEN this rail's own sections, which are hairlines like every other rule in the
@@ -1754,12 +1824,12 @@ $toc-overlay-max: 749.98px;
   // 1px tall with `box-sizing: border-box`, so the content box is 0px and the opaque border covers
   // it completely. Only the border colour is carried across.
   .w-separator {
-    --w-hairline-color: #{$hairline};
+    --w-hairline-color: #{var(--color-hairline)};
     /* -> 22px of air on each side, as the design draws them */
     margin-block: 22px;
   }
   @at-root .body--dark & .w-separator {
-    --w-hairline-color: #{$hairline-dark};
+    --w-hairline-color: #{var(--color-hairline-dark)};
   }
 
   /*
@@ -1779,9 +1849,37 @@ $toc-overlay-max: 749.98px;
   beside it: the rail holds four short lists, and a glyph per heading was four pictures competing with
   the one thing in the column that is a picture (the tags' own `#` marks).
 */
+/*
+  One box per group of rail sections -- Contents, then Tags/Revision/Watching. Every declaration
+  here collapses to nothing under Ledger (`--float-bg: transparent`, `--float-pad: 0`,
+  `--radius-card: 0`, `--shadow-card: none`, `--float-gap: 0`), so the two wrappers are invisible
+  there and the rail is the single continuous column it has always been; under Cobalt they are the
+  two floating white cards the mockup draws.
+*/
+.page-sidebar-card {
+  background-color: var(--float-bg);
+  padding: var(--float-pad);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+
+  & + & {
+    margin-block-start: var(--float-gap);
+  }
+}
+
+/*
+  The hairline that used to separate Contents from Tags. It is now the FIRST child of the second
+  card, and a card replaces the rule it stands in for -- so under Cobalt it goes
+  (`--float-rule-display: none`) while the rules BETWEEN Tags, Revision and Watching, which are
+  inside one card and still separate three things, stay.
+*/
+.page-sidebar-card > .w-separator:first-child {
+  display: var(--float-rule-display);
+}
+
 .page-sidebar-heading {
   padding-block-end: 12px;
-  color: $text-caption;
+  color: var(--color-text-caption);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
@@ -1790,12 +1888,12 @@ $toc-overlay-max: 749.98px;
 }
 
 .body--dark .page-sidebar-heading {
-  color: $text-caption-dark;
+  color: var(--color-text-caption-dark);
 }
 
 /*
   Cobalt's own Contents/Tags/Revision headings (`Page View 3x - Cobalt` mockup) are `--color-text-
-  caption`, not `$text-caption` -- the same hex in Ledger (`#57668a`, so this changes nothing there)
+  caption`, not `var(--color-text-caption)` -- the same hex in Ledger (`#57668a`, so this changes nothing there)
   but a genuinely different, Cobalt-aware value once the aesthetic overrides it. One rule for both
   themes: `--color-text-caption` already carries the correct light/dark Cobalt values on its own
   (OpenProject #2774).
@@ -1814,13 +1912,13 @@ body.body--cobalt .page-sidebar-heading {
   list and the tag row are spaced from theirs.
 */
 .page-sidebar-revision {
-  color: $slate;
+  color: var(--color-slate);
   font-size: 13px;
   line-height: 1.7;
 }
 
 /*
-  Cobalt's own revision text is `--color-text-body`, not `$slate` -- the two are close but not equal
+  Cobalt's own revision text is `--color-text-body`, not `var(--color-slate)` -- the two are close but not equal
   (`#38465f` vs Ledger's own `#2f3a4f`), so this is additive rather than a base-rule swap, matching
   the sibling heading rule above (OpenProject #2774).
 */
@@ -1829,15 +1927,15 @@ body.body--cobalt .page-sidebar-revision {
 }
 
 .page-sidebar-revision-time {
-  color: $text-caption;
+  color: var(--color-text-caption);
 }
 
 .body--dark .page-sidebar-revision {
-  color: $text-dark;
+  color: var(--color-text-dark);
 }
 
 .body--dark .page-sidebar-revision-time {
-  color: $text-caption-dark;
+  color: var(--color-text-caption-dark);
 }
 
 /*
@@ -1853,7 +1951,7 @@ body.body--cobalt .page-sidebar-revision {
 
 /*
   One person, as two letters on a tinted square. Square on purpose -- Cardinal draws no rounded
-  avatars, and the rail's tags are square too -- and a hair darker than $tint so a run of plates reads
+  avatars, and the rail's tags are square too -- and a hair darker than var(--color-tint) so a run of plates reads
   as a run of objects on the rail's own near-white ground rather than dissolving into it.
 
   Barlow Condensed at 10/600, the language's face for a short uppercase chrome label, which is exactly
@@ -1867,10 +1965,10 @@ body.body--cobalt .page-sidebar-revision {
   justify-content: center;
   width: 26px;
   height: 26px;
-  border: 1px solid $hairline;
-  /* -> Between $tint and $hairline; the design's own value, and there is no token at this step */
+  border: 1px solid var(--color-hairline);
+  /* -> Between var(--color-tint) and var(--color-hairline); the design's own value, and there is no token at this step */
   background-color: #e9edf5;
-  color: $slate;
+  color: var(--color-slate);
   font-family: var(--font-display);
   font-size: 10px;
   font-weight: 600;
@@ -1878,21 +1976,21 @@ body.body--cobalt .page-sidebar-revision {
 }
 
 .body--dark .page-watchers-plate {
-  border-color: $hairline-dark;
-  background-color: $dark-2;
-  color: $text-dark;
+  border-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-2);
+  color: var(--color-text-dark);
 }
 
 /* Everybody past the third, in the mono the rail sets every other count and timestamp in. */
 .page-watchers-remainder {
-  color: $text-caption;
+  color: var(--color-text-caption);
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 400;
 }
 
 .body--dark .page-watchers-remainder {
-  color: $text-caption-dark;
+  color: var(--color-text-caption-dark);
 }
 
 /*
@@ -1953,7 +2051,7 @@ body.body--cobalt .page-sidebar-revision {
     color: $grey-9;
   }
   @at-root .body--dark & {
-    background-color: $dark-4;
+    background-color: var(--color-dark-4);
     color: #fff;
   }
 }

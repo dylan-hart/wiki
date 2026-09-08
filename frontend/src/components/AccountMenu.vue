@@ -77,7 +77,7 @@ const initials = computed(() => initialsFor(userStore.name))
   almost invisible. `--color-slate-soft` is the icon-stroke tone the whole band is drawn in.
 */
 .account-avbtn {
-  color: var(--color-slate-soft);
+  color: var(--color-header-icon);
 }
 
 /*
@@ -91,7 +91,14 @@ const initials = computed(() => initialsFor(userStore.name))
   justify-content: center;
   width: 30px;
   height: 30px;
-  background-color: var(--color-slate);
+  /*
+    Ledger's mark is a slate SQUARE -- the language draws no rounded avatars -- and Cobalt's is an
+    accent disc, which is the one place the two aesthetics disagree about a shape rather than a
+    colour. Both are tokens: `--color-account-avatar-bg` is `--color-slate` in Ledger and the
+    white-text accent tone in Cobalt, and `--radius-avatar` is `0` and `50%`.
+  */
+  background-color: var(--color-account-avatar-bg);
+  border-radius: var(--radius-avatar);
   color: #fff;
   font-family: var(--font-display);
   font-size: 11px;
@@ -99,12 +106,12 @@ const initials = computed(() => initialsFor(userStore.name))
   letter-spacing: 0.06em;
 }
 
-.body--dark .account-initials {
+.body--dark:not(.body--cobalt) .account-initials {
   background-color: var(--color-slate-light);
   color: var(--color-ink-dark);
 }
 
-.body--dark .account-avbtn {
+.body--dark:not(.body--cobalt) .account-avbtn {
   color: var(--color-slate-light);
 }
 

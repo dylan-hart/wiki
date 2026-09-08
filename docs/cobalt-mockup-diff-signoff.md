@@ -163,14 +163,42 @@ var(--color-hairline-dark); }` block (placed before `body.body--cobalt` so the l
   6px-rounded, indigo-tinted plate with a blue-accent glyph. Found independently by OpenProject #2809
   diffing `AdminTheme.vue`'s Appearance card (comment 7584) and #2810 diffing the Profile screen; out
   of either task's single-file ownership to fix.
-- `WBtnToggle.vue`'s selected segment carries no `--shadow-primary` glow at all — the mockup's
+- ~~`WBtnToggle.vue`'s selected segment carries no `--shadow-primary` glow at all — the mockup's
   segmented controls (Profile's Time format/Aesthetic/Appearance/Colour vision rows among them) all
   draw one on their filled segment, matching the shape-token table's "the one filled button" role,
-  but `WBtnToggle.vue` has no shadow styling of any kind to wire it onto (WP #2810). `--shadow-primary`
-  wiring is otherwise reserved to #2813's `WBtn`-scoped decision this round; this is a second,
-  `WBtnToggle`-scoped instance of the same open question.
+  but `WBtnToggle.vue` has no shadow styling of any kind to wire it onto (WP #2810).~~ Fixed in the
+  app-wide token pass below: `segmentStyle()` now sets `box-shadow: var(--shadow-primary)` on the
+  selected segment, gated on the DEFAULT fill so a caller naming its own `toggle-color`
+  (`AdminStorage.vue`, `AdminScheduler.vue`, both plain black/white) draws no glow.
 
 Of the nine gaps logged here (the original six, plus `BlueprintIcon.vue` and `WBtnToggle.vue`
-surfaced by the Profile/Aesthetic-setting diffs), seven are now fixed (above); `BlueprintIcon.vue`'s
-settings-row plate and `WBtnToggle.vue`'s selected-segment glow remain Feature #2763's to resolve,
-tracked here so the deferral stays visible rather than buried in individual task comments.
+surfaced by the Profile/Aesthetic-setting diffs), eight are now fixed (above); `BlueprintIcon.vue`'s
+settings-row plate remains Feature #2763's to resolve, tracked here so the deferral stays visible
+rather than buried in individual task comments.
+
+## The app-wide token pass
+
+The 18 rows above were diffed one screen at a time, and each row's "logged, not fixed" column names
+a fix that needed a file the row did not own. A later pass took the whole app at once and closed
+most of them; what it changed and why is in
+[`decisions/cobalt-mockup-divergences.md`](decisions/cobalt-mockup-divergences.md) and in the branch
+`cobalt-aesthetic-full`. The root cause under nearly all of them was the same: the app's SFC
+stylesheets drew from compile-time SCSS literals (`$hairline`, `$ink`, `$slate`, …), and a
+compile-time literal cannot follow a class on `<body>`, so a screen-level "wire this token" fix kept
+running into a rule that had no token to wire.
+
+Rows whose deferrals that pass closed:
+
+| Row | Deferral | Closed by |
+| --- | --- | --- |
+| 1 | the Contents/Tags/Revision rail as separate cards | `--float-*` on two `.page-sidebar-card` wrappers, no-ops under Ledger |
+| 1 | the code block's exact dark-mode hex | `--content-surface-code: var(--color-dark-4)` in the Cobalt dark block |
+| 1 | the `bash` language label | `helpers/renderedContent.js` lifts `language-*` onto `pre[data-lang]`; CSS draws it |
+| 1 | `EditorMarkdown`'s own untouched chrome | the literal sweep, plus a second Monaco theme per aesthetic |
+| 3, 6, 18 | `.card-header`'s Sass-constant title band | `--color-dialog-header-bg`, which carries all three values |
+| 7 | `--color-slate` doesn't track Cobalt navy | `--color-slate: #1e2a5e` in the Cobalt block |
+| 10 | `WBtnToggle`'s selected-segment glow | `segmentStyle()`, gated on the default fill |
+| 15 | `TreeBrowserDialog`'s Ledger-only selection highlight | the literal sweep |
+
+Still open, and still Feature #2763's: `BlueprintIcon.vue`'s settings-row plate, the file manager
+details pane's `#fbfcfe` ground (row 4), and the `WChip` outline-vs-plate shape variant (rows 7, 8).

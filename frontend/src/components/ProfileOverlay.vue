@@ -297,12 +297,12 @@ $nav-shrink-max: 1199.98px;
     The light value is the black it was already inheriting, so only dark mode changes.
   */
   @at-root .body--light & {
-    background-color: $surface;
-    color: $text-body;
+    background-color: var(--color-surface);
+    color: var(--color-text-body);
   }
   @at-root .body--dark & {
-    background-color: $dark-3;
-    color: $text-dark;
+    background-color: var(--color-dark-3);
+    color: var(--color-text-dark);
   }
 }
 
@@ -331,12 +331,12 @@ $nav-shrink-max: 1199.98px;
     inside the first -- which is exactly the relief this language does without.
   */
   @at-root .body--light & {
-    background-color: $tint-alt;
-    border-inline-end: 1px solid $hairline;
+    background-color: var(--color-tint-alt);
+    border-inline-end: 1px solid var(--color-hairline);
   }
   @at-root .body--dark & {
-    background-color: $dark-4;
-    border-inline-end: 1px solid $hairline-dark;
+    background-color: var(--color-dark-4);
+    border-inline-end: 1px solid var(--color-hairline-dark);
   }
 
   .w-list .w-item {
@@ -344,33 +344,33 @@ $nav-shrink-max: 1199.98px;
        the plate, the bar and the colour, not by weight */
     font-weight: 500;
     font-size: 13.5px;
-    color: $slate;
+    color: var(--color-slate);
     border-inline-start: 2px solid transparent;
 
     @at-root .body--dark & {
-      color: $text-secondary-dark;
+      color: var(--color-text-secondary-dark);
     }
 
     // -> The same "you are here" mark as the inbox rail, the site sidebar and the folder tree
     &.is-active {
-      background-color: $surface;
-      border-inline-start-color: $accent-fill;
+      background-color: var(--color-surface);
+      border-inline-start-color: var(--color-accent-fill);
       /* -> The label takes the accent too, not just the bar and the glyph, as the design draws it */
-      color: $accent-text;
+      color: var(--color-accent);
 
       // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
       .w-icon,
       iconify-icon {
-        color: $accent-fill;
+        color: var(--color-accent-fill);
       }
 
       @at-root .body--dark & {
-        background-color: $dark-3;
-        color: $text-dark;
+        background-color: var(--color-dark-3);
+        color: var(--color-text-dark);
 
         .w-icon,
         iconify-icon {
-          color: $accent-dark;
+          color: var(--color-accent-dark);
         }
       }
     }
@@ -434,10 +434,10 @@ $nav-shrink-max: 1199.98px;
 */
 .layout-profile-body .w-page > .w-separator {
   margin-inline: 20px;
-  --w-hairline-color: #{$tint};
+  --w-hairline-color: #{var(--color-tint)};
 
   @at-root .body--dark & {
-    --w-hairline-color: #{$hairline-dark};
+    --w-hairline-color: #{var(--color-hairline-dark)};
   }
 }
 
@@ -451,7 +451,7 @@ $nav-shrink-max: 1199.98px;
   No fill: `Cardinal Wiki - Profile 3x.dc.html` leaves the bar on the column's own ground and marks
   it with a tint rule alone. A paper fill was a panel by another name -- the same relief this
   language does without -- and it also disagreed with the rule above it, which the design draws in
-  the LIGHTER `$tint`, not the `$hairline` that separates two structural blocks.
+  the LIGHTER `var(--color-tint)`, not the `var(--color-hairline)` that separates two structural blocks.
 
   `16px 20px` here rather than the design's `16px 20px 24px`: the trailing 24px is the content
   column's own `padding-block-end` above, so that a section with no save bar gets the same foot.
@@ -460,10 +460,10 @@ $nav-shrink-max: 1199.98px;
   display: flex;
   justify-content: flex-end;
   padding: 16px 20px;
-  border-top: 1px solid $tint;
+  border-top: 1px solid var(--color-tint);
 
   @at-root .body--dark & {
-    border-top-color: $hairline-dark;
+    border-top-color: var(--color-hairline-dark);
   }
 }
 
@@ -507,12 +507,12 @@ $nav-shrink-max: 1199.98px;
     justify-content: space-between;
 
     @at-root .body--light & {
-      background-color: $tint-alt;
-      border-bottom: 1px solid $hairline;
+      background-color: var(--color-tint-alt);
+      border-bottom: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-bottom: 1px solid $hairline-dark;
+      background-color: var(--color-dark-4);
+      border-bottom: 1px solid var(--color-hairline-dark);
     }
   }
 
@@ -541,11 +541,11 @@ $nav-shrink-max: 1199.98px;
 
     @at-root .body--light & {
       border-inline-end: 0;
-      border-bottom: 1px solid $hairline;
+      border-bottom: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
       border-inline-end: 0;
-      border-bottom: 1px solid $hairline-dark;
+      border-bottom: 1px solid var(--color-hairline-dark);
     }
   }
 }

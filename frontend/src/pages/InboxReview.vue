@@ -218,6 +218,9 @@ import { useRouter } from 'vue-router'
 
 import * as monaco from 'monaco-editor'
 
+import { useAesthetic } from '@/composables/aesthetic'
+import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
+
 import { MarkdownRenderer } from '@/renderers/markdown'
 
 import { useDark } from '@/composables/dark'
@@ -263,6 +266,13 @@ const siteStore = useSiteStore()
 // I18N
 
 const { t } = useI18n()
+
+/*
+  Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
+  aesthetic is applied by registering both themes and switching between them -- see
+  `helpers/monacoTheme.js`.
+*/
+const aesthetic = useAesthetic()
 
 // META
 
@@ -466,7 +476,7 @@ function mountEditor() {
     property, so there is no token to move this onto -- it is re-typed against `css/tailwind.css`'s
     values instead, and pinned by this file's own theme test.
   */
-  monaco.editor.defineTheme('cardinaljs', {
+  defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -499,7 +509,7 @@ function mountEditor() {
     originalEditable: false,
     readOnly: false,
     scrollBeyondLastLine: false,
-    theme: 'cardinaljs',
+    theme: monacoThemeName(aesthetic.current),
     wordWrap: 'on'
   })
   diffEditor.setModel({ original: originalModel, modified: modifiedModel })
@@ -673,62 +683,62 @@ onBeforeUnmount(disposeEditor)
 */
 .inbox-review {
   &-title {
-    color: $ink;
+    color: var(--color-ink);
     font-size: 15px;
     font-weight: 600;
     line-height: 1.4;
 
     @at-root .body--dark & {
-      color: $text-dark;
+      color: var(--color-text-dark);
     }
   }
 
   &-byline {
-    color: $text-caption;
+    color: var(--color-text-caption);
     font-family: var(--font-mono);
     font-size: 11.5px;
     line-height: 1.5;
 
     // -> The author's name lifts to the chrome tone; everything around it stays caption-weight
     strong {
-      color: $slate;
+      color: var(--color-slate);
       font-weight: 500;
     }
 
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
 
       strong {
-        color: $slate-light;
+        color: var(--color-slate-light);
       }
     }
   }
 
   &-hint {
-    color: $text-caption;
+    color: var(--color-text-caption);
     font-size: 11.5px;
     line-height: 1.5;
 
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
     }
   }
 
   /*
     The approvals reading. `#5f78a8` is the design's own edge for this chip and is a hair off
-    `$slate-soft`; the design file wins on a colour, so it goes in as written rather than being
+    `var(--color-slate-soft)`; the design file wins on a colour, so it goes in as written rather than being
     rounded to the nearest token -- and it stays a literal here rather than becoming a new token,
     since one chip on one screen is not a palette entry.
 
     OpenProject #2778: `Cardinal Wiki - Inbox Review 3x - Cobalt.dc.html` reads this chip's text as
-    `#1e2a5e`, not `$slate` (`#38465f`) -- but that Cobalt pair has no dedicated dark mockup, and
+    `#1e2a5e`, not `var(--color-slate)` (`#38465f`) -- but that Cobalt pair has no dedicated dark mockup, and
     `#1e2a5e` is a light-ground tone with no documented Cobalt-dark counterpart to pair it with, so
     guessing one here (rather than confirming against a real mockup) is exactly what the acceptance
-    criteria ask not to do. `$slate`/`$slate-light` stay as the fallback; logged, not fixed.
+    criteria ask not to do. `var(--color-slate)`/`var(--color-slate-light)` stay as the fallback; logged, not fixed.
   */
   &-count {
     border: 1px solid #5f78a8;
-    color: $slate;
+    color: var(--color-slate);
     flex: none;
     font-family: var(--font-mono);
     font-size: 9.5px;
@@ -739,8 +749,8 @@ onBeforeUnmount(disposeEditor)
     white-space: nowrap;
 
     @at-root .body--dark & {
-      border-color: $border-dark;
-      color: $slate-light;
+      border-color: var(--color-border-dark);
+      color: var(--color-slate-light);
     }
   }
 
@@ -751,19 +761,19 @@ onBeforeUnmount(disposeEditor)
     by.
   */
   &-diff-heads {
-    background-color: $dark-4;
-    border-top: 1px solid $hairline;
+    background-color: var(--color-dark-4);
+    border-top: 1px solid var(--color-hairline);
     display: flex;
 
     @at-root .body--dark & {
-      border-top-color: $hairline-dark;
+      border-top-color: var(--color-hairline-dark);
     }
   }
 
   &-diff-head {
     align-items: center;
     border-bottom: 1px solid rgba(#fff, 0.12);
-    color: $slate-light;
+    color: var(--color-slate-light);
     display: flex;
     flex: 1 1 0;
     font-family: var(--font-mono);
@@ -788,12 +798,12 @@ onBeforeUnmount(disposeEditor)
     which is the language's mark for the live edge -- here, the one pane a reviewer can type into.
   */
   &-diff-state {
-    color: $text-caption-dark;
+    color: var(--color-text-caption-dark);
     letter-spacing: 0.14em;
     white-space: nowrap;
 
     &--editable {
-      color: $accent-dark;
+      color: var(--color-accent-dark);
     }
   }
 

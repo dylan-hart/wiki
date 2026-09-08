@@ -99,8 +99,8 @@ async function copy() {
 
   /* -> Colour only: WCardActions already lays the bar out */
   &-actions {
-    background-color: $dark-3;
-    background-image: radial-gradient(at top left, $dark-3, $dark-5);
+    background-color: var(--color-dark-3);
+    background-image: radial-gradient(at top left, var(--color-dark-3), var(--color-dark-5));
     border-top: 1px solid #000;
     box-shadow: 0 -1px 0 0 rgba(#fff, 0.06);
     color: #fff;
@@ -108,7 +108,7 @@ async function copy() {
 
   &-body {
     padding: 0;
-    background-color: $dark-6;
+    background-color: var(--color-dark-6);
     color: #fff;
 
     pre {

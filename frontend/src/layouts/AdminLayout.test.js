@@ -490,7 +490,7 @@ describe('AdminLayout nav count badge', () => {
     expect(styleBlock).not.toMatch(/border-right\s*:/)
     expect(styleBlock).not.toMatch(/border-right-color\s*:/)
     expect(styleBlock).toMatch(/\.count-badge\s*\{\s*border-inline-end\s*:\s*5px/)
-    expect(styleBlock).toMatch(/border-inline-end-color\s*:\s*\$positive/)
+    expect(styleBlock).toMatch(/border-inline-end-color\s*:\s*var\(--color-positive-fill\)/)
   })
 })
 

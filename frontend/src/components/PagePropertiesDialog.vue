@@ -100,7 +100,6 @@
           <div>
             <w-btn-toggle
               v-model="pageStore.publishState"
-              toggle-color="primary"
               :aria-label="t(`editor.props.publishState`)"
               :options="[
                 { label: t('editor.props.draft'), value: 'draft' },

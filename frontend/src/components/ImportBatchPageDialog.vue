@@ -803,8 +803,8 @@ function rowClasses(row) {
   }
 
   &-actions {
-    background-color: $dark-3;
-    background-image: radial-gradient(at top left, $dark-3, $dark-5);
+    background-color: var(--color-dark-3);
+    background-image: radial-gradient(at top left, var(--color-dark-3), var(--color-dark-5));
     border-top: 1px solid #000;
     box-shadow: 0 -1px 0 0 rgba(#fff, 0.06);
     color: #fff;
@@ -816,7 +816,7 @@ function rowClasses(row) {
   transition: border-color 0.15s ease;
 
   &--over {
-    border-color: $primary;
+    border-color: var(--color-primary);
   }
 }
 
@@ -824,11 +824,11 @@ function rowClasses(row) {
   border: 1px solid rgba(0, 0, 0, 0.1);
 
   &--failed {
-    border-color: rgba($negative, 0.4);
+    border-color: color-mix(in srgb, var(--color-negative) 40%, transparent);
   }
 
   &--saved {
-    border-color: rgba($positive, 0.4);
+    border-color: color-mix(in srgb, var(--color-positive) 40%, transparent);
   }
 }
 </style>

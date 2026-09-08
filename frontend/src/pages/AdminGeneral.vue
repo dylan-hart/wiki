@@ -193,7 +193,6 @@
             :hint="t(`admin.general.reasonForChangeHint`)">
             <w-btn-toggle
               v-model="state.config.features.reasonForChange"
-              toggle-color="primary"
               :aria-label="t(`admin.general.reasonForChange`)"
               :options="reasonForChangeModes" />
           </w-settings-row>
@@ -766,8 +765,8 @@ onMounted(async () => {
         }
 
         @at-root .body--dark & {
-          background: linear-gradient(to top, $dark-6, $dark-5);
-          border-color: $dark-6;
+          background: linear-gradient(to top, var(--color-dark-6), var(--color-dark-5));
+          border-color: var(--color-dark-6);
         }
       }
     }

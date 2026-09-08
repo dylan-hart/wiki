@@ -1446,7 +1446,7 @@ onBeforeUnmount(() => {
 
 /*
   Solid ink rather than a black wash: the design's own tooltip plate. `var(--color-ink)`, not the
-  `$ink` literal it replaces: numerically identical under Ledger, and the Cobalt Graph mockup's own
+  `var(--color-ink)` literal it replaces: numerically identical under Ledger, and the Cobalt Graph mockup's own
   tooltip (`background:#10194a;color:#fff`) is exactly Cobalt's `--color-ink`, so this now matches
   it for free with no per-aesthetic branch.
 */

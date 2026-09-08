@@ -13,8 +13,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { aestheticStatusColors } from '@/helpers/aestheticDefaults'
 import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
+import { resolveAestheticColors } from '@/helpers/aestheticDefaults'
 import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss, replaceHeadStyle } from '@/helpers/injectCss'
@@ -274,30 +274,42 @@ async function applyTheme() {
   }
 
   // -> Aesthetic (Cobalt: Feature #2753/#2766) -- fully independent of dark mode above
-  aesthetic.set(userStore.aesthetic === 'site' ? siteStore.theme.aesthetic : userStore.aesthetic)
+  const resolvedAesthetic =
+    userStore.aesthetic === 'site' ? siteStore.theme.aesthetic : userStore.aesthetic
+  aesthetic.set(resolvedAesthetic)
 
-  // -> CSS Vars
-  setCssVar('primary', userStore.getAccessibleColor('primary', siteStore.theme.colorPrimary))
+  /*
+    -> CSS Vars
+
+    The four brand colours go through `resolveAestheticColors` first: a stored value the
+    administrator never actually picked (it is still some aesthetic's own default) follows the
+    RESOLVED aesthetic, so a reader who chose Cobalt for themselves gets Cobalt's indigo header and
+    sidebar rather than Ledger's near-white ones under Cobalt's own sidebar text tones. A colour
+    genuinely chosen in AdminTheme is passed through untouched -- see the helper's own comment.
+  */
+  const brand = resolveAestheticColors(resolvedAesthetic, siteStore.theme, dark.isActive)
+  setCssVar('primary', userStore.getAccessibleColor('primary', brand.colorPrimary))
   setCssVar('secondary', userStore.getAccessibleColor('secondary', siteStore.theme.colorSecondary))
-  setCssVar('accent', userStore.getAccessibleColor('accent', siteStore.theme.colorAccent))
-  setCssVar('header', userStore.getAccessibleColor('header', siteStore.theme.colorHeader))
-  setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
+  setCssVar('accent', userStore.getAccessibleColor('accent', brand.colorAccent))
+  setCssVar('header', userStore.getAccessibleColor('header', brand.colorHeader))
+  setCssVar('sidebar', userStore.getAccessibleColor('sidebar', brand.colorSidebar))
   /*
     The four status colours are fixed rather than site-configurable, but -- unlike `primary`/`accent`/
     `header`/`sidebar` above -- they still follow the resolved aesthetic
     (`helpers/aestheticDefaults.js#aestheticStatusColors()`, OpenProject #2814) rather than site
     config, and still go through `setCssVar` so the colour-vision-deficiency remapping reaches them.
+    They come off `brand` rather than a second call: `resolveAestheticColors` folds them in, so one
+    resolution answers for every `--q-*` this function writes.
     Cardinal's positive and negative TEXT tones -- the darker half of each pair -- because both are
     drawn under a white label here (a toast, a solid button); the brighter fills they pair with are
     `--color-positive-fill` / `--color-negative-fill`, which nothing resolves through this path.
     Ledger's values are kept equal to `css/tailwind.css`'s `:root`, and pinned in
     `helpers/accessibility.test.js`.
   */
-  const statusColors = aestheticStatusColors(aesthetic.current)
-  setCssVar('positive', userStore.getAccessibleColor('positive', statusColors.colorPositive))
-  setCssVar('negative', userStore.getAccessibleColor('negative', statusColors.colorNegative))
-  setCssVar('info', userStore.getAccessibleColor('info', statusColors.colorInfo))
-  setCssVar('warning', userStore.getAccessibleColor('warning', statusColors.colorWarning))
+  setCssVar('positive', userStore.getAccessibleColor('positive', brand.colorPositive))
+  setCssVar('negative', userStore.getAccessibleColor('negative', brand.colorNegative))
+  setCssVar('info', userStore.getAccessibleColor('info', brand.colorInfo))
+  setCssVar('warning', userStore.getAccessibleColor('warning', brand.colorWarning))
 
   // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)

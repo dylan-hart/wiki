@@ -193,6 +193,13 @@ html.theme-transition-suppress *::after {
   /* The brighter status fills. Under `--color-ink` only -- never under a white label. */
   --color-positive-fill: #5f9c86;
   --color-warning-fill: #d9a441;
+  /*
+    Warning as TEXT, which `--color-warning`'s brighter fill tone is not (3.0:1 on white). The
+    custom-property face of `_theme.scss`'s `$warning` -- 3.64:1, so headings and marks, not body
+    copy. Cobalt keeps the same amber: the handoff moves the accent and the chrome, never the
+    status ramp's warning.
+  */
+  --color-warning-text: #a8801f;
   --color-negative-fill: #e4676b;
 
   /* -- Cardinal: chrome and paper ------------------------------------------- */
@@ -211,6 +218,12 @@ html.theme-transition-suppress *::after {
   */
   --color-slate-pale: #a9b7d0;
   --color-slate-light: #8ea6cf;
+  /*
+    An icon stroke on the INK sidebar (the admin area's own nav), dimmer than the label beside it.
+    The custom-property face of `_theme.scss`'s `$slate-nav-icon` -- declared here so a rule drawing
+    one follows the aesthetic rather than baking Ledger's tone in at build time.
+  */
+  --color-slate-nav-icon: #6d7893;
 
   --color-ink: #1c2233;
   --color-paper: #f5f6f9;
@@ -541,6 +554,12 @@ html.theme-transition-suppress *::after {
   --radius-dialog: 0;
   --radius-pill: 0;
   --radius-mark: 0;
+  /*
+    An avatar is the one pill the handoff gives a value of its own -- `50%`, not `--radius-pill`'s
+    `12px` -- because a 30px square rounded by 12px is a squircle rather than the disc the mockups
+    draw. `0` here keeps Cardinal's square mark.
+  */
+  --radius-avatar: 0;
 
   /*
     -- Cobalt aesthetic: chrome and surface color tokens (OpenProject #2767) -
@@ -559,8 +578,38 @@ html.theme-transition-suppress *::after {
     whatever color an admin had actually chosen for their site.
   */
   --color-header-eyebrow: var(--color-text-secondary);
+  /*
+    Everything the header band draws in ITS OWN foreground: the wordmark, the five icon buttons'
+    strokes, the account avatar's ring. Ledger's band is white paper, so its foreground is the same
+    ink and chrome tones the rest of the app uses; Cobalt's is a solid `#1f4fd6` bar, where every
+    one of them is white. Two tokens rather than one because the icons sit a step back from the
+    wordmark in Ledger (`--color-slate-soft`) and are level with it in Cobalt.
+  */
+  --color-header-fg: var(--color-ink);
+  --color-header-icon: var(--color-slate-soft);
+  --color-account-avatar-bg: var(--color-slate);
+  /*
+    A segmented control's selected fill. Its own token because the two aesthetics answer differently:
+    Ledger fills it with the site's primary, Cobalt with the accent -- the handoff names a selected
+    segment in the list of "accent fill carrying WHITE text", alongside Edit, count badges and the
+    Draft mark, and `Aesthetic Setting 3x`'s Cobalt card draws it at `#c8303c`.
+  */
+  --color-segment-selected: var(--color-primary);
+  /* The file manager tree's root glyph -- a chrome stroke in Ledger, the aesthetic's blue in Cobalt */
+  --color-tree-root-icon: var(--color-slate-soft);
+  /*
+    A dialog's own title band (`.card-header`, `css/_base.scss` -- some sixty dialogs share it).
+    Ledger draws it in the dark ramp's raised rung whatever the theme, which is what the token
+    resolves to here; Cobalt draws it in its own raised indigo (`Profile 3x - Cobalt`'s `#1c2a70`),
+    deepening to the header bar's `#1a43bd` on a dark ground (the handoff's "Confirm dialog header
+    band" row). A token rather than a `.card-header` override so the three values live beside every
+    other aesthetic value rather than inside a component stylesheet.
+  */
+  --color-dialog-header-bg: var(--color-dark-2);
   --color-header-search-bg: var(--color-paper);
   --color-header-search-placeholder: var(--color-text-caption);
+  --color-header-search-fg: var(--color-text-body);
+  --color-header-search-border: var(--color-hairline);
   --color-sidebar-text: var(--color-slate);
   --color-sidebar-text-secondary: var(--color-text-secondary);
   --color-sidebar-kicker: var(--color-text-caption);
@@ -568,6 +617,12 @@ html.theme-transition-suppress *::after {
   --color-sidebar-active-bg: var(--color-white);
   --color-sidebar-active-text: var(--color-ink);
   --color-sidebar-hairline: var(--color-hairline);
+  /*
+    The labels on the sidebar's own bands -- the locale/Browse row at its head, the "Edit navigation"
+    row at its foot. A step up in contrast from `--color-sidebar-text-secondary`, because these are
+    controls rather than a nav item's supporting line.
+  */
+  --color-sidebar-actions-text: var(--color-slate);
   --color-admin-sidebar-bg: var(--color-ink);
   --color-admin-sidebar-raised: var(--color-dark-2);
   --color-admin-sidebar-hairline: var(--color-hairline-dark);
@@ -605,11 +660,62 @@ html.theme-transition-suppress *::after {
   --border-card: 1px solid var(--color-hairline);
   --corner-marks: block;
   --nav-active-inset: inset 2px 0 0 var(--color-accent);
+  /*
+    How far a nav row is inset from its column's own edges. Ledger's rows are full-bleed bands ruled
+    by the active item's left border; Cobalt's are rounded plates standing clear of both edges
+    (`Page View 3x - Cobalt`), which is what `10px` buys.
+  */
+  --nav-item-inset: 0;
   --page-header-bg: var(--color-white);
   --page-header-fg: var(--color-ink);
   --page-header-radius: 0;
   --page-header-shadow: none;
   --page-header-margin: 0;
+
+  /*
+    The rest of the masthead, which `--page-header-bg`/`-fg` alone cannot carry: the description
+    under the title, the icon's plate, and the plates the actions sit on. Ledger's values below are
+    exactly what `PageHeader.vue` and `Index.vue` drew as literals -- a paper-tinted hairline square
+    holding an accent glyph, a secondary-tone description, and actions with no plate at all -- so
+    Ledger is unchanged; Cobalt's gradient banner needs every one of them to move at once.
+  */
+  --page-header-subtitle-fg: var(--color-text-secondary);
+  --page-header-icon-bg: var(--color-paper);
+  --page-header-icon-fg: var(--color-accent-fill);
+  --page-header-icon-border: 1px solid var(--color-hairline);
+  --page-header-icon-radius: 0;
+  --page-header-action-bg: transparent;
+  --page-header-action-fg: var(--color-slate-soft);
+
+  /*
+    -- The floating-card motif -------------------------------------------------
+    Cobalt separates a surface from its ground by lifting it onto a white card; Ledger separates the
+    same surface with a rule, or does not separate it at all because the ground is already white.
+    A section that is FLAT in Ledger and a card in Cobalt reads these four rather than branching on
+    the aesthetic: Ledger's own values below are the do-nothing ones -- a transparent ground, no
+    padding, and (through the shape tokens above) a square corner with no shadow -- so every one of
+    those declarations collapses to nothing and Ledger renders exactly as it did. The rule display
+    is the other half of the same switch: the hairlines Ledger rules its sections off with are the
+    thing a card replaces, so they go once there are cards.
+  */
+  --float-bg: transparent;
+  --float-pad: 0;
+  --float-gap: 0;
+  --float-rule-display: block;
+
+  /*
+    The article's own two boxes. In Ledger the column IS the sheet, so all the whitespace is the
+    column's and the contents box has none of its own; in Cobalt the column is the paper ground and
+    the contents box is the card, so the padding moves inward and the column keeps only the inset
+    that lets the card float. `--content-bleed` is how far an h1's rule reaches back through the
+    surface's own padding, so it follows whichever box is doing the padding -- and in Cobalt it is
+    `0`, because a card clips at its corner rather than bleeding past it.
+  */
+  --article-column-pad: 32px 28px 44px;
+  --article-column-pad-xs: 20px 16px 32px;
+  --article-card-pad: 0;
+  --content-bleed-default: 28px;
+  --content-bleed-xs: 16px;
 }
 
 /*
@@ -664,6 +770,21 @@ body.body--cobalt {
   --color-accent-wash: #ffe9eb;
   --color-accent-strong: #1f4fd6;
   --color-positive-fill: #22a37f;
+  /*
+    The slate ramp, moved onto Cobalt's own indigo hue. Ledger's four slates are a warm-neutral
+    chrome tone plus three tones for HAIRLINES, ICON STROKES AND SEPARATORS (never text); Cobalt
+    needs the same four jobs done against `#f2f5ff` rather than `#f5f6f9`, and the mockups draw them
+    in the indigo family throughout -- `#b6bfe0` is the breadcrumb separator on the canonical page
+    view, `#7f8ed1` the sidebar icon stroke. `--color-slate` keeps carrying words (10.4:1 on white),
+    the other three do not, exactly as in Ledger.
+  */
+  --color-slate: #1e2a5e;
+  --color-slate-soft: #7b88bd;
+  --color-slate-faint: #b6bfe0;
+  --color-slate-pale: #c9d0ea;
+  --color-slate-light: #7f8ed1;
+  --color-slate-nav-icon: #7f8ed1;
+  --color-rule: #c8d2ee;
 
   /* Shape */
   --radius-card: 8px;
@@ -671,11 +792,13 @@ body.body--cobalt {
   --radius-dialog: 12px;
   --radius-pill: 12px;
   --radius-mark: 4px;
+  --radius-avatar: 50%;
   --shadow-card: 0 2px 10px rgb(16 25 74 / 0.08);
   --shadow-primary: 0 4px 14px rgb(200 48 60 / 0.35);
   --border-card: 0;
   --corner-marks: none;
   --nav-active-inset: inset 3px 0 0 #ff4d5a;
+  --nav-item-inset: 10px;
 
   /* Page header banner */
   --page-header-bg: linear-gradient(120deg, #1f4fd6, #3d6df7);
@@ -683,11 +806,37 @@ body.body--cobalt {
   --page-header-radius: 8px;
   --page-header-shadow: 0 8px 24px rgb(31 79 214 / 0.28);
   --page-header-margin: 24px;
+  --page-header-subtitle-fg: #dbe4ff;
+  --page-header-icon-bg: rgb(255 255 255 / 0.16);
+  --page-header-icon-fg: #fff;
+  --page-header-icon-border: 0;
+  --page-header-icon-radius: 8px;
+  --page-header-action-bg: rgb(255 255 255 / 0.14);
+  --page-header-action-fg: #fff;
+
+  /* The floating-card motif, and the article's two boxes -- see the Ledger halves for what each does */
+  --float-bg: var(--color-surface);
+  --float-pad: 18px 20px;
+  --float-gap: 14px;
+  --float-rule-display: none;
+  --article-column-pad: 28px 24px 44px;
+  --article-column-pad-xs: 18px 14px 32px;
+  --article-card-pad: 32px 36px;
+  --content-bleed-default: 0px;
+  --content-bleed-xs: 0px;
 
   /* Chrome and surface colors */
   --color-header-eyebrow: #dfe6ff;
+  --color-header-fg: #fff;
+  --color-header-icon: #fff;
+  --color-account-avatar-bg: var(--color-accent);
+  --color-segment-selected: var(--color-accent);
+  --color-tree-root-icon: var(--color-accent-strong);
+  --color-dialog-header-bg: #1c2a70;
   --color-header-search-bg: rgb(255 255 255 / 0.16);
   --color-header-search-placeholder: #e6ecff;
+  --color-header-search-fg: #fff;
+  --color-header-search-border: transparent;
   --color-sidebar-text: #d7deff;
   --color-sidebar-text-secondary: #a7b3ea;
   --color-sidebar-kicker: #7f8ed1;
@@ -695,6 +844,7 @@ body.body--cobalt {
   --color-sidebar-active-bg: #1f4fd6;
   --color-sidebar-active-text: var(--color-white);
   --color-sidebar-hairline: rgb(255 255 255 / 0.08);
+  --color-sidebar-actions-text: #c5cff5;
   --color-admin-sidebar-bg: #10194a;
   --color-admin-sidebar-raised: #1c2a70;
   --color-admin-sidebar-hairline: #27337a;
@@ -771,6 +921,10 @@ body.body--cobalt.body--dark {
   --color-text-caption-dark: #8b98d6;
   --color-accent-dark: #ff8f97;
   --color-accent-wash-dark: rgb(255 77 90 / 0.16);
+  /* The chrome tone on a dark ground: the handoff's "Faint / caption / kicker" for Cobalt dark. */
+  --color-slate-light: #8b98d6;
+  --color-slate-nav-icon: #8b98d6;
+  --color-dialog-header-bg: #1a43bd;
 
   /* Plain Cobalt aesthetic tokens, restated for dark */
   --color-paper: #0a0f2c;
@@ -795,6 +949,14 @@ body.body--cobalt.body--dark {
   /* Not a shape token despite living beside them in the light block: the handoff gives an explicit,
      different shadow for the dark card/raised surface under "Surfaces", not under the radii sweep. */
   --shadow-card: 0 2px 12px rgb(0 0 0 / 0.4);
+
+  /*
+    The floating-card motif on a dark ground. `--float-bg` is `--color-surface` (`#fff`) in Cobalt
+    light, and `--color-surface` does not move with dark mode -- so the card ground is restated here
+    as the dark ramp's own "card, dialog body" rung, which this block has already pointed at
+    `#141c4f` for exactly this surface.
+  */
+  --float-bg: var(--color-dark-3);
 }
 
 /*

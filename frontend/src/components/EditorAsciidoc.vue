@@ -38,6 +38,8 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useAesthetic } from '@/composables/aesthetic'
+import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
@@ -82,6 +84,13 @@ const siteStore = useSiteStore()
 // I18N
 
 const { t } = useI18n()
+
+/*
+  Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
+  aesthetic is applied by registering both themes and switching between them -- see
+  `helpers/monacoTheme.js`.
+*/
+const aesthetic = useAesthetic()
 
 // STATE
 
@@ -206,7 +215,7 @@ onMounted(() => {
 
   // -> Same theme `EditorMarkdown.vue`/`EditorCode.vue` define, redefined here rather than shared: only
   //    one editor component is ever mounted at a time, so there is nothing to deduplicate against.
-  monaco.editor.defineTheme('cardinaljs', {
+  defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,
     rules: [],
@@ -228,7 +237,7 @@ onMounted(() => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'cardinaljs',
+    theme: monacoThemeName(aesthetic.current),
     value: pageStore.content,
     wordWrap: 'on'
   })
@@ -287,7 +296,7 @@ onBeforeUnmount(() => {
     min-height: 0;
   }
   &-editor {
-    background-color: $dark-6;
+    background-color: var(--color-dark-6);
     flex: 1 1 auto;
     display: block;
     height: 100%;
@@ -306,8 +315,8 @@ onBeforeUnmount(() => {
     font-weight: 500;
   }
   &-sidebar {
-    background-color: $dark-4;
-    border-top: 32px solid color.adjust($primary, $lightness: -10%);
+    background-color: var(--color-dark-4);
+    border-top: 32px solid color-mix(in srgb, var(--color-primary) 80%, #000);
     color: #fff;
     width: 56px;
     display: flex;

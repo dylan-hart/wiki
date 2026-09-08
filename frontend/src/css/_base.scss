@@ -74,32 +74,42 @@ body::-webkit-scrollbar-thumb {
 // So dark mode is the language's own, not the site's: panel for the header band, the recessed tone
 // for the sidebar beside it. Stated at `body.body--dark .x` -- two classes, so it beats the single
 // class above without `!important`.
-body.body--dark {
+//
+// Cobalt is excluded, and for the reason this rule gives rather than in spite of it: its chrome DOES
+// have a second value for the dark theme -- the header bar deepens to `#1a43bd` and the sidebar to
+// `#0e1540` -- and `helpers/aestheticDefaults.js` supplies both through `--q-header`/`--q-sidebar`
+// themselves (see `resolveAestheticColors`). Repainting them from the ramp here would throw that
+// away and leave Cobalt's dark chrome on Ledger's near-black instead of its own indigo.
+body.body--dark:not(.body--cobalt) {
   .header,
   .bg-header {
-    background: theme.$dark-3;
+    background: var(--color-dark-3);
   }
 
   .sidebar,
   .bg-sidebar {
-    background: theme.$dark-4;
+    background: var(--color-dark-4);
   }
 }
 
+// The dark ramp as utilities. Through the custom properties rather than the literals they resolve to
+// under Ledger: `body.body--cobalt.body--dark` re-points every rung at Cobalt's own indigo ramp
+// (`css/tailwind.css`), and a baked hex here would silently opt every caller of these five classes
+// out of it.
 .bg-dark-6 {
-  background-color: #0f1219;
+  background-color: var(--color-dark-6);
 }
 .bg-dark-5 {
-  background-color: #14171f;
+  background-color: var(--color-dark-5);
 }
 .bg-dark-4 {
-  background-color: #171b24;
+  background-color: var(--color-dark-4);
 }
 .bg-dark-3 {
-  background-color: #1b1f2a;
+  background-color: var(--color-dark-3);
 }
 .bg-dark-2 {
-  background-color: #242b3a;
+  background-color: var(--color-dark-2);
 }
 
 // ------------------------------------------------------------------
@@ -208,17 +218,23 @@ body.body--dark {
 // radial gradient and the pair of edge shadows this replaces were elevation, which Cardinal draws
 // with a hairline instead.
 //
-// `background-color`/`border-bottom-color` read the runtime `--color-dark-2`/`--color-hairline-dark`
-// custom properties, not the compile-time `theme.$dark-2`/`$hairline-dark` Sass constants they were
-// baked from -- so this band follows the site's aesthetic (`body.body--cobalt` and friends) instead
-// of always drawing Ledger's own near-black, the same way every other `dark:`-aware surface in the
-// app already does. This is a shared class, used by 60+ dialogs beyond `WConfirmDialog.vue`
-// (`NavEditOverlay.vue` among them) -- the change is deliberately app-wide (OpenProject #2815).
+// `background-color`/`border-bottom-color` read runtime custom properties, not the compile-time
+// `theme.$dark-2`/`$hairline-dark` Sass constants they were baked from -- so this band follows the
+// site's aesthetic (`body.body--cobalt` and friends) instead of always drawing Ledger's own
+// near-black, the same way every other `dark:`-aware surface in the app already does. This is a
+// shared class, used by 60+ dialogs beyond `WConfirmDialog.vue` (`NavEditOverlay.vue` among them) --
+// the change is deliberately app-wide (OpenProject #2815).
+//
+// The ground is `--color-dialog-header-bg` rather than `--color-dark-2` directly: the ramp rung is
+// only half the answer. `--color-dark-2` carries a Cobalt value in the DARK block alone, so reading
+// it left a Cobalt LIGHT page still drawing Ledger's near-black band, where `Profile 3x - Cobalt`
+// and `Inbox 3x - Cobalt` both draw the aesthetic's own raised indigo (`#1c2a70`). The token names
+// the role and carries all three values; see its declaration in `css/tailwind.css`.
 .card-header {
   display: flex;
   align-items: center;
   padding: 10px 14px;
-  background-color: var(--color-dark-2);
+  background-color: var(--color-dialog-header-bg);
   color: #fff;
   font-family: var(--font-display);
   font-size: 13px;
@@ -232,8 +248,8 @@ body.body--dark {
 // head in slate rather than in the near-black the overlays use, so a panel docked beside the page
 // reads as part of the app's chrome rather than as something laid over it.
 .card-header--slate {
-  background-color: theme.$slate;
-  border-bottom-color: theme.$slate;
+  background-color: var(--color-slate);
+  border-bottom-color: var(--color-slate);
 }
 
 // The same band in the accent, for a dialog whose whole subject is a refusal or a destructive act.
@@ -241,7 +257,7 @@ body.body--dark {
   display: flex;
   align-items: center;
   padding: 10px 14px;
-  background-color: theme.$negative;
+  background-color: var(--color-negative);
   color: #fff;
   font-family: var(--font-display);
   font-size: 13px;
@@ -254,12 +270,12 @@ body.body--dark {
 // ground, which is the page tint rather than the card's own white so the bar reads as a footer.
 .card-actions {
   @at-root .body--light & {
-    background-color: theme.$paper;
-    color: theme.$text-secondary;
+    background-color: var(--color-paper);
+    color: var(--color-text-secondary);
   }
   @at-root .body--dark & {
-    background-color: theme.$dark-4;
-    color: theme.$text-secondary-dark;
+    background-color: var(--color-dark-4);
+    color: var(--color-text-secondary-dark);
   }
 }
 
@@ -290,7 +306,11 @@ body.body--dark {
   }
   @at-root .body--dark & {
     background-color: transparent;
-    background-image: linear-gradient(to bottom, rgba(theme.$dark, 0.7) 0%, theme.$dark 50%);
+    background-image: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-dark) 70%, transparent) 0%,
+      var(--color-dark) 50%
+    );
   }
 
   // The panel inside has to let the blur through. `!important` because WCard sets its background
