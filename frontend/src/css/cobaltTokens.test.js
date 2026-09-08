@@ -177,6 +177,79 @@ describe('Cobalt color tokens', () => {
 
 describe('admin-configurable brand colors are left alone', () => {
   it('declares no --q-* override inside body.body--cobalt', () => {
-    expect(cobaltSource).not.toMatch(/--q-[a-z]/)
+    /*
+      A DECLARATION, not a mention: the block's comments name `--q-header`/`--q-sidebar`/`--q-info`
+      precisely to explain why each is left to the admin default rather than overridden here, and a
+      bare substring match reads those explanations as the violation they warn against.
+    */
+    expect(cobaltSource).not.toMatch(/^\s*--q-[a-z-]+\s*:/m)
   })
+})
+
+/*
+  The tokens this pass added on top of #2767's own block, each because a screen-level diff against the
+  mockups turned up a rule that could not follow the aesthetic without one. Same shape as the tables
+  above -- Ledger's value is the constant the rule already drew, Cobalt's is what the mockup draws --
+  and pinned here so a later edit to either half fails as a token change rather than as a screenshot
+  nobody re-took.
+*/
+describe('Cobalt tokens added by the screen-level pass', () => {
+  const addedTokens = {
+    // -> The header band's own foreground: `#1f4fd6` under white type and white icon strokes
+    'header-fg': { ledger: 'var(--color-ink)', cobalt: '#fff' },
+    'header-icon': { ledger: 'var(--color-slate-soft)', cobalt: '#fff' },
+    'header-search-fg': { ledger: 'var(--color-text-body)', cobalt: '#fff' },
+    'header-search-border': { ledger: 'var(--color-hairline)', cobalt: 'transparent' },
+    // -> The sidebar's own bands, which sit on the sidebar ground rather than on the app's chrome
+    'sidebar-actions-text': { ledger: 'var(--color-slate)', cobalt: '#c5cff5' },
+    // -> A dialog's title band: Ledger's near-black raised rung, Cobalt's own raised indigo
+    'dialog-header-bg': { ledger: 'var(--color-dark-2)', cobalt: '#1c2a70' },
+    // -> An accent fill carrying white text, so the accent tone and never `--color-accent-fill`
+    'account-avatar-bg': { ledger: 'var(--color-slate)', cobalt: 'var(--color-accent)' },
+    'segment-selected': { ledger: 'var(--color-primary)', cobalt: 'var(--color-accent)' },
+    'tree-root-icon': { ledger: 'var(--color-slate-soft)', cobalt: 'var(--color-accent-strong)' },
+    // -> The slate ramp, moved onto Cobalt's own indigo hue
+    slate: { ledger: '#38465f', cobalt: '#1e2a5e' },
+    'slate-soft': { ledger: '#64789f', cobalt: '#7b88bd' },
+    'slate-faint': { ledger: '#8a99b8', cobalt: '#b6bfe0' },
+    'slate-nav-icon': { ledger: '#6d7893', cobalt: '#7f8ed1' },
+    rule: { ledger: '#c9d2e2', cobalt: '#c8d2ee' },
+    info: { ledger: 'var(--q-info)', cobalt: 'var(--color-slate)' }
+  }
+
+  it.each(Object.entries(addedTokens))(
+    '--color-%s carries each aesthetic’s own value',
+    (name, { ledger, cobalt }) => {
+      expect(declaredValue(ledgerSource, `color-${name}`), `--color-${name} Ledger`).toBe(ledger)
+      expect(declaredValue(cobaltSource, `color-${name}`), `--color-${name} Cobalt`).toBe(cobalt)
+    }
+  )
+
+  /*
+    The floating-card motif, and the masthead's own pieces. Every Ledger value here has to be the
+    do-nothing one -- transparent, `0`, `none` -- because that is what makes one rule express both
+    aesthetics: a section written as `background: var(--float-bg); padding: var(--float-pad)` has to
+    render EXACTLY as it did before under Ledger, or the rule is a Cobalt feature with a Ledger
+    regression attached.
+  */
+  const ledgerNoOps = {
+    'float-bg': 'transparent',
+    'float-pad': '0',
+    'float-gap': '0',
+    'float-rule-display': 'block',
+    'article-card-pad': '0',
+    'nav-item-inset': '0',
+    'page-header-icon-radius': '0',
+    'page-header-action-bg': 'transparent'
+  }
+
+  it.each(Object.entries(ledgerNoOps))(
+    '--%s is a no-op under Ledger, so one rule can express both aesthetics',
+    (name, value) => {
+      expect(declaredValue(ledgerSource, name)).toBe(value)
+      expect(declaredValue(cobaltSource, name), `${name} should differ under Cobalt`).not.toBe(
+        value
+      )
+    }
+  )
 })

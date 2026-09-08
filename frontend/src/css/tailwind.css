@@ -681,10 +681,11 @@ html.theme-transition-suppress *::after {
     Cobalt separates a surface from its ground by lifting it onto a white card; Ledger separates the
     same surface with a rule, or does not separate it at all because the ground is already white.
     A section that is FLAT in Ledger and a card in Cobalt reads these four rather than branching on
-    the aesthetic: with `--float-bg: transparent`, `--float-pad: 0`, `--radius-card: 0` and
-    `--shadow-card: none`, the declarations collapse to nothing and Ledger renders exactly as it did.
-    `--float-rule-display` is the other half of the same switch -- the hairlines Ledger rules its
-    sections off with are the thing a card replaces, so they are `none` once there are cards.
+    the aesthetic: Ledger's own values below are the do-nothing ones -- a transparent ground, no
+    padding, and (through the shape tokens above) a square corner with no shadow -- so every one of
+    those declarations collapses to nothing and Ledger renders exactly as it did. The rule display
+    is the other half of the same switch: the hairlines Ledger rules its sections off with are the
+    thing a card replaces, so they go once there are cards.
   */
   --float-bg: transparent;
   --float-pad: 0;
@@ -747,6 +748,13 @@ body.body--cobalt {
     the other three do not, exactly as in Ledger.
   */
   --color-slate: #1e2a5e;
+  /*
+    The info tone, which is the chrome slate in both aesthetics -- `#38465f` in Ledger, `#1e2a5e`
+    here (`Primitives 3x - Cobalt`'s own info toast). Overridden directly rather than through
+    `--q-info`: unlike primary/accent/positive/negative, nothing writes that property at runtime, so
+    there is no colour-vision-deficiency remapping to route around.
+  */
+  --color-info: var(--color-slate);
   --color-slate-soft: #7b88bd;
   --color-slate-faint: #b6bfe0;
   --color-slate-pale: #c9d0ea;

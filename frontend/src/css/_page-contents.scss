@@ -332,6 +332,12 @@
     /* -> A heading stays INK-side text rather than taking the accent, matching the light theme */
     --content-h1: var(--color-text-dark);
     --content-h1-rule: var(--color-hairline-dark);
+    /*
+      And the same for a section heading, which is a stated colour now rather than an inherited one
+      -- Cobalt sets h2 in cobalt and needs a property to move, and a property that only Ledger LIGHT
+      declares leaves the dark theme drawing ink on ink.
+    */
+    --content-h2: var(--color-text-dark);
 
     --content-rule: var(--color-hairline-dark);
     --content-rule-strong: var(--color-border-dark);
