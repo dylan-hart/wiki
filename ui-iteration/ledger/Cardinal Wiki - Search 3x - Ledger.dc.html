@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="stylesheet" href="../_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="../_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;font-family:Barlow,system-ui,sans-serif}
+a{color:#a83f45;text-decoration:none}a:hover{color:#c14a52}
+</style></helmet>
+
+<div style="background:#f5f6f9;min-height:100vh;display:flex;flex-direction:column" data-screen-label="Search results">
+
+  <!-- HEADER -->
+  <div style="flex:none;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;gap:14px;padding:0 16px;height:56px">
+    <div style="display:flex;align-items:center;gap:10px;flex:none;min-width:0">
+      <svg width="26" height="26" viewBox="0 0 32 32" style="flex:none"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg>
+      <div style="min-width:0">
+        <div style="font:700 21px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase;white-space:nowrap">Cardinal</div>
+        <div style="font:500 8.5px/1.2 'Roboto Mono',monospace;letter-spacing:.22em;color:#4e5d7d;text-transform:uppercase;white-space:nowrap">Platform wiki</div>
+      </div>
+    </div>
+    <div style="flex:1;min-width:0;max-width:620px;display:flex;align-items:center;gap:9px;height:34px;border:1px solid #8a99b8;background:#fff;padding:0 10px">
+      <svg width="16" height="16" viewBox="0 0 24 24" style="flex:none" color="#c14a52" data-icon="tabler:search"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0m18 11l-6-6"/></svg>
+      <span style="font:400 13.5px Barlow;color:#1c2233;flex:1;min-width:0;white-space:nowrap;overflow:hidden">ingest credentials <span style="color:#a83f45">#runbook</span></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" style="flex:none" color="#64789f" data-icon="tabler:x"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M18 6L6 18M6 6l12 12"/></svg>
+      <span style="width:1px;height:18px;background:#dbe1ec;flex:none"></span>
+      <span style="font:500 10px 'Roboto Mono',monospace;color:#57668a;flex:none">&#8984;K</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:2px;flex:none">
+      <div style="width:34px;height:34px;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:inbox"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 13h3l3 3h4l3-3h3"/></g></svg></div>
+      <div style="width:34px;height:34px;background:#e9edf5;border:1px solid #dbe1ec;color:#38465f;display:flex;align-items:center;justify-content:center;font:600 11px 'Barlow Condensed',sans-serif;letter-spacing:.06em">DH</div>
+    </div>
+  </div>
+
+  <!-- CARD -->
+  <div style="flex:1;padding:24px 20px">
+    <div style="max-width:1400px;margin:0 auto;background:#fff;border:1px solid #dbe1ec;box-shadow:0 2px 10px rgba(28,34,51,.06);display:flex;align-items:stretch;flex-wrap:wrap">
+
+      <!-- FILTER COLUMN -->
+      <div style="flex:0 0 300px;min-width:260px;background:#eef1f7;border-right:1px solid #dbe1ec">
+        <div style="height:37px;box-sizing:border-box;padding:0 16px;background:#f0f2f7;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;font:600 10px/1 'Roboto Mono',monospace;letter-spacing:.2em;color:#a83f45;text-transform:uppercase">Sort by</div>
+        <div style="padding:6px 0">
+          <div style="display:flex;align-items:center;gap:11px;padding:7px 16px;font:500 13.5px Barlow;color:#c14a52;background:#e5e9f2;box-shadow:inset 2px 0 0 #e4676b">
+            <svg width="16" height="16" viewBox="0 0 24 24" style="flex:none" color="#c14a52" data-icon="tabler:sort-descending"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 6h9m-9 6h7m-7 6h7m4-3l3 3l3-3m-3-9v12"/></svg>
+            <span style="flex:1;min-width:0">Relevance</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" style="flex:none" color="#c14a52" data-icon="tabler:download"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 11l5 5l5-5m-5-7v12"/></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:11px;padding:7px 16px;font:400 13.5px Barlow;color:#2f3a4f">
+            <svg width="16" height="16" viewBox="0 0 24 24" style="flex:none" color="#64789f" data-icon="tabler:heading"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M7 12h10M7 5v14M17 5v14m-2 0h4M15 5h4M5 19h4M5 5h4"/></svg>
+            <span style="flex:1;min-width:0">Title</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:11px;padding:7px 16px;font:400 13.5px Barlow;color:#2f3a4f">
+            <svg width="16" height="16" viewBox="0 0 24 24" style="flex:none" color="#64789f" data-icon="tabler:calendar"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm12-4v4M8 3v4m-4 4h16m-9 4h1m0 0v3"/></svg>
+            <span style="flex:1;min-width:0">Last updated</span>
+          </div>
+        </div>
+        <div style="height:38px;box-sizing:border-box;padding:0 16px;background:#f0f2f7;border-top:1px solid #dbe1ec;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;font:600 10px/1 'Roboto Mono',monospace;letter-spacing:.2em;color:#a83f45;text-transform:uppercase">Filters</div>
+        <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+          <div>
+            <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#57668a;padding-bottom:4px">Path begins with</div>
+            <div style="height:32px;box-sizing:border-box;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;gap:8px;padding:0 9px">
+              <svg width="14" height="14" viewBox="0 0 24 24" style="flex:none" color="#8a99b8" data-icon="tabler:square-chevron-right"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="m11 9l3 3l-3 3"/><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></g></svg>
+              <span style="font:400 12.5px 'Roboto Mono',monospace;color:#57668a">/</span>
+              <span style="font:400 12.5px 'Roboto Mono',monospace;color:#2f3a4f">docs/ingest</span>
+            </div>
+          </div>
+          <div>
+            <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#57668a;padding-bottom:4px">Tags</div>
+            <div style="min-height:32px;box-sizing:border-box;border:1px solid #dbe1ec;background:#fff;display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:4px 9px">
+              <svg width="14" height="14" viewBox="0 0 24 24" style="flex:none" color="#8a99b8" data-icon="tabler:hash"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M5 9h14M5 15h14M11 4L7 20M17 4l-4 16"/></svg>
+              <span style="display:flex;align-items:center;gap:5px;border:1px solid #e4676b;background:#fdeced;padding:1px 6px;font:400 11.5px Barlow;color:#a83f45"><span style="font:500 10px 'Roboto Mono',monospace">#</span>runbook<svg width="10" height="10" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:x"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M18 6L6 18M6 6l12 12"/></svg></span>
+              <span style="font:400 12px Barlow;color:#8a99b8">Add a tag&hellip;</span>
+            </div>
+          </div>
+          <div>
+            <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#57668a;padding-bottom:4px">Locales</div>
+            <div style="height:32px;box-sizing:border-box;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;gap:8px;padding:0 9px">
+              <svg width="14" height="14" viewBox="0 0 24 24" style="flex:none" color="#8a99b8" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>
+              <span style="font:400 12.5px Barlow;color:#2f3a4f;flex:1">EN only</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:chevron-down"><path fill="none" stroke="currentColor" stroke-width="1.5" d="m6 9l6 6l6-6"/></svg>
+            </div>
+          </div>
+          <div>
+            <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#57668a;padding-bottom:4px">Editor</div>
+            <div style="height:32px;box-sizing:border-box;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;gap:8px;padding:0 9px">
+              <svg width="14" height="14" viewBox="0 0 24 24" style="flex:none" color="#8a99b8" data-icon="tabler:ballpen"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="m14 6l7 7l-4 4"/><path d="M5.828 18.172a2.83 2.83 0 0 0 4 0L20.414 7.586a2 2 0 0 0 0-2.829l-1.171-1.171a2 2 0 0 0-2.829 0L5.828 14.172a2.83 2.83 0 0 0 0 4M4 20l1.768-1.768"/></g></svg>
+              <span style="font:400 12.5px Barlow;color:#57668a;flex:1">Any editor</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:chevron-down"><path fill="none" stroke="currentColor" stroke-width="1.5" d="m6 9l6 6l6-6"/></svg>
+            </div>
+          </div>
+          <div>
+            <div style="font:500 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#57668a;padding-bottom:4px">Publish state</div>
+            <div style="height:32px;box-sizing:border-box;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;gap:8px;padding:0 9px">
+              <svg width="14" height="14" viewBox="0 0 24 24" style="flex:none" color="#8a99b8" data-icon="tabler:traffic-lights"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 7a5 5 0 0 1 5-5a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5a5 5 0 0 1-5-5z"/><path d="M11 7a1 1 0 1 0 2 0a1 1 0 1 0-2 0m0 5a1 1 0 1 0 2 0a1 1 0 1 0-2 0m0 5a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/></g></svg>
+              <span style="font:400 12.5px Barlow;color:#2f3a4f;flex:1">Published</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:chevron-down"><path fill="none" stroke="currentColor" stroke-width="1.5" d="m6 9l6 6l6-6"/></svg>
+            </div>
+          </div>
+          <div style="font:400 11.5px/1.5 Barlow;color:#57668a">Tags typed into the query as <span style="font:400 11px 'Roboto Mono',monospace;color:#38465f">#tag</span> appear here, and picking one here writes it back into the query. The two are one filter.</div>
+        </div>
+      </div>
+
+      <!-- RESULTS -->
+      <div style="flex:1 1 420px;min-width:300px;display:flex;flex-direction:column">
+        <div style="height:37px;box-sizing:border-box;padding:0 16px;background:#f0f2f7;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;gap:12px">
+          <span style="font:600 10px/1 'Roboto Mono',monospace;letter-spacing:.2em;color:#a83f45;text-transform:uppercase">Results</span>
+          <span style="flex:1"></span>
+          <span style="font:400 11.5px/1 'Roboto Mono',monospace;color:#57668a">{{ countLine }}</span>
+        </div>
+
+        <sc-if value="{{ hasResults }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="display:flex;gap:14px;padding:14px 16px;border-bottom:1px solid #e4e9f2">
+            <div style="width:34px;height:34px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:file-text"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2M9 9h1m-1 4h6m-6 4h6"/></g></svg></div>
+            <div style="flex:1;min-width:0">
+              <div style="font:500 15px Barlow;color:#1c2233">Rotating ingest credentials</div>
+              <div style="font:400 13px/1.5 Barlow;color:#4e5d7d;padding-top:1px">How and when to roll the ingest worker credentials, and what breaks if you do it out of order.</div>
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;padding-top:3px">/docs/ingest/credentials</div>
+              <div style="font:400 12.5px/1.55 Barlow;color:#2f3a4f;padding-top:5px">&hellip;the worker reads its <span style="background:#fdeced;color:#a83f45;font-weight:600;padding:0 2px">credentials</span> from the secret store at boot, so an <span style="background:#fdeced;color:#a83f45;font-weight:600;padding:0 2px">ingest</span> rotation needs a rolling restart&hellip;</div>
+            </div>
+            <div style="flex:none;width:150px;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;text-align:right">2 days ago</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end">
+                <span style="display:flex;align-items:center;gap:3px;border:1px solid #dbe1ec;background:#fff;padding:2px 6px;font:400 11.5px Barlow;color:#38465f"><span style="font:500 10px 'Roboto Mono',monospace;color:#8a99b8">#</span>runbook</span>
+                <span style="display:flex;align-items:center;gap:3px;border:1px solid #dbe1ec;background:#fff;padding:2px 6px;font:400 11.5px Barlow;color:#38465f"><span style="font:500 10px 'Roboto Mono',monospace;color:#8a99b8">#</span>security</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:14px;padding:14px 16px;border-bottom:1px solid #e4e9f2;background:#fbfcfe">
+            <div style="width:34px;height:34px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:file-text"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2M9 9h1m-1 4h6m-6 4h6"/></g></svg></div>
+            <div style="flex:1;min-width:0">
+              <div style="font:500 15px Barlow;color:#1c2233">Deploying the ingest workers</div>
+              <div style="font:400 13px/1.5 Barlow;color:#4e5d7d;padding-top:1px">The rolling deploy, the gate it waits on, and how to roll back a batch.</div>
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;padding-top:3px">/docs/ingest/workers</div>
+              <div style="font:400 12.5px/1.55 Barlow;color:#2f3a4f;padding-top:5px">&hellip;run the deploy from the release host; the <span style="background:#fdeced;color:#a83f45;font-weight:600;padding:0 2px">ingest</span> workers pick up new <span style="background:#fdeced;color:#a83f45;font-weight:600;padding:0 2px">credentials</span> on restart&hellip;</div>
+            </div>
+            <div style="flex:none;width:150px;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;text-align:right">Tuesday</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end">
+                <span style="display:flex;align-items:center;gap:3px;border:1px solid #dbe1ec;background:#fff;padding:2px 6px;font:400 11.5px Barlow;color:#38465f"><span style="font:500 10px 'Roboto Mono',monospace;color:#8a99b8">#</span>runbook</span>
+                <span style="display:flex;align-items:center;gap:3px;border:1px solid #dbe1ec;background:#fff;padding:2px 6px;font:400 11.5px Barlow;color:#38465f"><span style="font:500 10px 'Roboto Mono',monospace;color:#8a99b8">#</span>deploy</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:14px;padding:14px 16px;border-bottom:1px solid #e4e9f2">
+            <div style="width:34px;height:34px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:shield-check"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M11.46 20.846A12 12 0 0 1 3.5 6A12 12 0 0 0 12 3a12 12 0 0 0 8.5 3a12 12 0 0 1-.09 7.06M15 19l2 2l4-4"/></svg></div>
+            <div style="flex:1;min-width:0">
+              <div style="font:500 15px Barlow;color:#1c2233">Secret store access review</div>
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;padding-top:3px">/ops/security/secret-store-review</div>
+              <div style="font:400 12.5px/1.55 Barlow;color:#2f3a4f;padding-top:5px">&hellip;quarterly review of who may read the <span style="background:#fdeced;color:#a83f45;font-weight:600;padding:0 2px">credentials</span> namespace&hellip;</div>
+            </div>
+            <div style="flex:none;width:150px;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;text-align:right">3 weeks ago</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end">
+                <span style="display:flex;align-items:center;gap:3px;border:1px solid #dbe1ec;background:#fff;padding:2px 6px;font:400 11.5px Barlow;color:#38465f"><span style="font:500 10px 'Roboto Mono',monospace;color:#8a99b8">#</span>runbook</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:14px;padding:14px 16px;border-bottom:1px solid #e4e9f2">
+            <div style="width:34px;height:34px;flex:none;border:1px solid #dbe1ec;background:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:player-track-next"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 5v14l8-7zm11 0v14l8-7z"/></svg></div>
+            <div style="flex:1;min-width:0">
+              <div style="font:500 15px Barlow;color:#1c2233">Ingest credentials <span style="font:400 11px 'Roboto Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#57668a;border:1px solid #dbe1ec;padding:1px 5px;vertical-align:2px">Redirect</span></div>
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;padding-top:3px">/runbooks/creds &rarr; /docs/ingest/credentials</div>
+            </div>
+            <div style="flex:none;width:150px;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <div style="font:400 11.5px 'Roboto Mono',monospace;color:#57668a;text-align:right">Last year</div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:center;padding:16px">
+            <div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 16px;border:1px solid #dbe1ec;background:#fff;font:500 12.5px Barlow;color:#a83f45">
+              <svg width="14" height="14" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-down"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-6l-6 6m-6-6l6 6"/></svg>Load 38 more
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ isNoResults }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:44px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#8a99b8" stroke-width="1.3"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5 21 21"></path><path d="M8.5 11h5"></path></svg>
+            <div style="font:400 14.5px/1.6 Barlow;color:#2f3a4f;max-width:380px">Nothing matched <strong style="font-weight:600;color:#1c2233">ingest credentials #runbook</strong>.</div>
+            <div style="font:400 12.5px/1.6 Barlow;color:#57668a;max-width:380px">Five filters are narrowing this search. Clearing the path or the tag is usually what opens it back up.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isEmptyQuery }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:44px 24px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center">
+            <svg width="42" height="42" viewBox="0 0 24 24" color="#8a99b8" data-icon="tabler:search"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0m18 11l-6-6"/></svg>
+            <div style="font:italic 400 14.5px/1.6 Barlow;color:#4e5d7d;max-width:380px">Type something above, or set a filter, to search this site.</div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div style="max-width:1400px;margin:16px auto 0;display:flex;flex-wrap:wrap;gap:24px">
+      <div style="flex:1 1 320px;min-width:260px;font:400 12.5px/1.6 Barlow;color:#4e5d7d">Notes for the implementer: the dark radial band the 2.x search page painted behind its card is gone with the rest of the black chrome &mdash; the card sits on the same light ground every other Cardinal screen uses, held by a hairline rather than a shadow. The floating circular Back button in the left gutter goes too: the header's own search field is what brought the reader here and is still on screen.</div>
+      <div style="flex:1 1 320px;min-width:260px;font:400 12.5px/1.6 Barlow;color:#4e5d7d">Below 900px the filter column becomes a disclosure strip above the results, closed to start with. Below 600px the card becomes the screen and a result row stacks &mdash; the date and tags wrap under the title, inset to clear the icon plate. Matched terms take the accent tint, the same treatment the header's own preview panel uses.</div>
+    </div>
+  </div>
+
+  <div style="flex:none;border-top:1px solid #dbe1ec;background:#eef1f7;padding:8px 16px;text-align:center;font:400 11px 'Roboto Mono',monospace;color:#57668a">
+    &copy; 2026 Cardinal wiki &middot; CC BY-SA 4.0 &middot; powered by <a href="#0" style="color:#a83f45">Cardinal.js</a>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;resultsState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;results&quot;,&quot;noResults&quot;,&quot;emptyQuery&quot;],&quot;default&quot;:&quot;results&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;approximateCount&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.props.resultsState ?? 'results';
+    const approx = this.props.approximateCount ?? true;
+    return {
+      hasResults: st === 'results',
+      isNoResults: st === 'noResults',
+      isEmptyQuery: st === 'emptyQuery',
+      countLine: st === 'results' ? (approx ? 'About 42 results' : '42 results') : st === 'noResults' ? 'No results' : ''
+    };
+  }
+}
+
+</script>
+</body>
+</html>

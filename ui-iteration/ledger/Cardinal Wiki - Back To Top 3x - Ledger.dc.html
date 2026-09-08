@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="../_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="../_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e9edf5;font-family:Barlow,system-ui,sans-serif}
+a{color:#a83f45;text-decoration:none}a:hover{color:#c14a52}
+</style></helmet>
+<section style="padding:40px 40px 60px;display:flex;flex-direction:column;gap:22px;border-bottom:1px solid #c9d2e2" data-screen-label="Back to top — turn 2">
+  <div style="max-width:760px">
+    <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">Turn 2 &nbsp;Back to top</div>
+    <div style="font:700 30px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin-top:6px">Third cell of the sidebar actions strip</div>
+    <div style="font:400 13px/1.6 Barlow;color:#4e5d7d;margin-top:8px">The <span style="font:400 12px 'Roboto Mono',monospace;color:#38465f">.sidebar-actions</span> strip (MainLayout.vue) grows from its 38px border-box (37 visible) to a 40px row plus the 1px hairline. Locale and Browse split the remaining width as before; the trailing 40×40 cell is reserved at all times, so nothing shifts when Top appears. Top and its leading separator fade in together after 150px of article scroll, and scroll <span style="font:400 12px 'Roboto Mono',monospace;color:#38465f">.page-container-scrl</span>. The corner disc (WPageScroller) goes away in wide mode; below 1200px, where the sidebar overlays, the repo's corner button stays.</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start">
+
+    <div id="2a" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <a href="#2a" style="font:600 11px 'Roboto Mono',monospace;letter-spacing:.14em;color:#c14a52;border:1px solid #e4676b;background:#fdeced;padding:3px 7px">2a</a>
+        <div style="font:600 18px 'Barlow Condensed',sans-serif;color:#1c2233">Ledger</div>
+        <div style="font:400 12.5px Barlow;color:#4e5d7d">White 40×40 plate on the tinted strip, arrow and mono TOP in accent text. Hover tints #fdeced.</div>
+      </div>
+      <div style="width:1120px;height:420px;background:#f5f6f9;border:1px solid #c9d2e2;overflow:hidden;display:flex;flex-direction:column">
+        <div style="height:56px;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+          <div style="display:flex;align-items:center;gap:10px"><svg width="28" height="28" viewBox="0 0 32 32"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg><div style="font:700 18px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div></div>
+          <div style="flex:1;box-sizing:border-box;border-right:1px solid #dbe1ec;display:flex;justify-content:center"><div style="width:420px;height:32px;border:1px solid #dbe1ec;background:#f5f6f9;display:flex;align-items:center;padding:0 12px;font:400 13px Barlow;color:#57668a">Search this site&hellip;</div></div>
+          <div style="width:28px;height:28px;background:#38465f;color:#fff;display:flex;align-items:center;justify-content:center;font:600 10px 'Barlow Condensed',sans-serif">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 255px;background:#f0f2f7;border-right:1px solid #dbe1ec;display:flex;flex-direction:column">
+            <div style="height:40px;box-sizing:content-box;border-bottom:1px solid #dbe1ec;display:flex;align-items:stretch;flex:none">
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              <span style="width:1px;background:#dbe1ec"></span>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              <div title="Back to top" style="flex:0 0 40px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer" style-hover="background:#fdeced"><svg width="15" height="15" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 7.5px/1 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52">TOP</span></div>
+            </div>
+            <div style="flex:1;padding:14px 0">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:0 18px 10px">Documentation</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Platform</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Runbooks</div>
+              <div style="background:#fff;border-left:2px solid #e4676b;padding:7px 18px 7px 16px;font:500 13.5px Barlow;color:#1c2233">Ingest workers</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Queue topology</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Backfills</div>
+            </div>
+            <div style="border-top:1px solid #dbe1ec;height:38px;display:flex;align-items:center;justify-content:center;font:500 11.5px Barlow;color:#4e5d7d">Edit navigation</div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex">
+            <div style="flex:1;min-width:0;padding:0 28px 44px;margin-top:-6px">
+              <div style="max-width:640px">
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:0;text-wrap:pretty">wrapper handles node ordering and health gates for you.</p>
+                <div style="margin:20px 0;background:#1c2233;border-left:2px solid #e4676b;padding:16px 18px"><code style="display:block;color:#e6eaf2;font:400 13px/1.75 'Roboto Mono',monospace;white-space:pre">cardinal-ctl deploy ingest-workers \
+  --revision "$GIT_SHA" \
+  --batch 2 --gate p99_latency&lt;250ms</code></div>
+                <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#1c2233;margin:28px 0 0;padding-bottom:8px;border-bottom:1px solid #dbe1ec">Rollback</h2>
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:16px 0 0;text-wrap:pretty">Rollback is a forward deploy of the previous revision. There is no state to unwind — offsets are committed only after a successful flush.</p>
+              </div>
+            </div>
+            <div style="flex:0 0 260px;border-left:1px solid #dbe1ec;background:#fbfcfe;padding:24px 20px">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding-bottom:12px">Contents</div>
+              <div style="border-left:1px solid #dbe1ec">
+                <div style="padding:3px 9px;font:500 13px Barlow;color:#38465f">Prerequisites</div>
+                <div style="position:relative;padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#c14a52"><span style="position:absolute;left:-1px;top:2px;bottom:2px;width:2px;background:#e4676b"></span>Rolling deploy</div>
+                <div style="padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#38465f">Rollback</div>
+              </div>
+            </div>
+            <div style="flex:0 0 56px;background:#eef1f7;border-left:1px solid #dbe1ec;display:flex;flex-direction:column">
+              <div style="height:56px;display:flex;align-items:center;justify-content:center;background:#fff;border-bottom:1px solid #dbe1ec"><svg width="20" height="20" viewBox="0 0 24 24" color="#e4676b" data-icon="tabler:tag"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 7.5a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/><path d="M3 6v5.172a2 2 0 0 0 .586 1.414l7.71 7.71a2.41 2.41 0 0 0 3.408 0l5.592-5.592a2.41 2.41 0 0 0 0-3.408l-7.71-7.71A2 2 0 0 0 11.172 3H6a3 3 0 0 0-3 3"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:history"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:file-export"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M11.5 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v5m-5 6h7m-3-3l3 3l-3 3"/></g></svg></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;align-items:flex-start;padding:4px 0">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="width:255px;background:#f0f2f7;border:1px solid #dbe1ec;border-top:0"><div style="height:40px;border-bottom:1px solid #dbe1ec;display:flex;align-items:stretch">
+              <div style="flex:1;box-sizing:border-box;border-right:1px solid transparent;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              <span style="width:1px;background:#dbe1ec"></span>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              <div style="flex:0 0 40px"></div>
+            </div></div>
+            <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#57668a;text-transform:uppercase;width:150px">At page top — slot reserved, empty</div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="width:255px;background:#f0f2f7;border:1px solid #dbe1ec;border-top:0"><div style="height:40px;border-bottom:1px solid #dbe1ec;display:flex;align-items:stretch">
+              <div style="flex:1;box-sizing:border-box;border-right:1px solid #dbe1ec;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              <span style="width:1px;background:#dbe1ec"></span>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              <div style="flex:0 0 40px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><svg width="15" height="15" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 7.5px/1 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52">TOP</span></div>
+            </div></div>
+            <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#57668a;text-transform:uppercase;width:150px">Scrolled &gt;150px</div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="width:255px;background:#f0f2f7;border:1px solid #dbe1ec;border-top:0"><div style="height:40px;border-bottom:1px solid #dbe1ec;display:flex;align-items:stretch">
+              <div style="flex:1;box-sizing:border-box;border-right:1px solid #dbe1ec;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              <span style="width:1px;background:#dbe1ec"></span>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#38465f"><svg width="14" height="14" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              <div style="flex:0 0 40px;background:#fdeced;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><svg width="15" height="15" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 7.5px/1 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52">TOP</span></div>
+            </div></div>
+            <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#57668a;text-transform:uppercase;width:150px">Hover</div>
+          </div>
+        </div>
+        <div style="font:400 12px/1.6 Barlow;color:#4e5d7d;max-width:400px">Row 40px + 1px hairline. EN and Browse each take half of the remaining 213px whether or not Top is shown. Top cell: #fff plate, 15px arrow and 7.5px mono TOP in #c14a52, separator #dbe1ec shown only with it; both opacity-fade over 150ms. Hover #fdeced. Dark theme: plate #242b3a on the #1b1f2a sidebar, accent #f08287, hover rgba(240,130,135,.14).</div>
+      </div>
+    </div>
+
+    <div id="2b" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <a href="#2b" style="font:600 11px 'Roboto Mono',monospace;letter-spacing:.14em;color:#c8303c;border:1px solid #ff4d5a;background:#ffe9eb;padding:3px 7px;border-radius:4px">2b</a>
+        <div style="font:600 18px 'Barlow Condensed',sans-serif;color:#1a2038">Cobalt</div>
+        <div style="font:400 12.5px Barlow;color:#4a5580">Same cell on the indigo strip, no rules anywhere. All three actions are flat at rest and take a 6px-radius hover tile.</div>
+      </div>
+      <div style="width:1120px;height:420px;background:#f2f5ff;border:1px solid #c9d2e2;overflow:hidden;display:flex;flex-direction:column">
+        <div style="height:56px;background:#1f4fd6;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+          <div style="display:flex;align-items:center;gap:10px"><svg width="28" height="28" viewBox="0 0 32 32"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#fff"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#ff4d5a"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#fff"></path></svg><div style="font:700 18px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#fff;text-transform:uppercase">Cardinal</div></div>
+          <div style="flex:1;display:flex;justify-content:center"><div style="width:420px;height:32px;border-radius:8px;background:rgba(255,255,255,.14);display:flex;align-items:center;padding:0 12px;font:400 13px Barlow;color:#dfe6ff">Search this site&hellip;</div></div>
+          <div style="width:28px;height:28px;border-radius:14px;background:#c8303c;color:#fff;display:flex;align-items:center;justify-content:center;font:700 10px 'Barlow Condensed',sans-serif">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 256px;background:#10194a;display:flex;flex-direction:column">
+            <div style="height:40px;display:flex;align-items:stretch;flex:none">
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              
+              <div title="Back to top" style="flex:0 0 40px;display:flex;align-items:center;justify-content:center;cursor:pointer"><div style="width:32px;height:32px;border-radius:6px;background:rgba(255,255,255,.08);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px" style-hover="background:rgba(255,77,90,.18)"><svg width="14" height="14" viewBox="0 0 24 24" color="#ff8f97" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 7px/1 'Roboto Mono',monospace;letter-spacing:.16em;color:#ff8f97">TOP</span></div></div>
+            </div>
+            <div style="flex:1;padding:14px 10px">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#7f8ed1;text-transform:uppercase;padding:0 10px 10px">Documentation</div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="padding:8px 10px;border-radius:6px;font:400 13.5px Barlow;color:#d7deff">Platform</div>
+                <div style="padding:8px 10px;border-radius:6px;font:400 13.5px Barlow;color:#d7deff">Runbooks</div>
+                <div style="padding:8px 10px;border-radius:6px;background:#1f4fd6;font:600 13.5px Barlow;color:#fff;box-shadow:inset 3px 0 0 #ff4d5a">Ingest workers</div>
+                <div style="padding:7px 10px 7px 25px;font:400 13px Barlow;color:#a7b3ea">Queue topology</div>
+                <div style="padding:7px 10px 7px 25px;font:400 13px Barlow;color:#a7b3ea">Backfills</div>
+              </div>
+            </div>
+            <div style="height:38px;display:flex;align-items:center;justify-content:center;font:500 11.5px Barlow;color:#a7b3ea">Edit navigation</div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;gap:20px;padding:0 20px 20px">
+            <div style="flex:1;min-width:0;background:#fff;border-radius:0 0 8px 8px;box-shadow:0 2px 10px rgba(16,25,74,.08);padding:0 32px 32px;margin-top:-6px">
+              <div style="max-width:640px">
+                <p style="font:400 15.5px/1.72 Barlow;color:#1a2038;margin:0;text-wrap:pretty">wrapper handles node ordering and health gates for you.</p>
+                <div style="margin:20px 0;background:#10194a;border-radius:8px;padding:16px 18px"><code style="display:block;color:#e8ecff;font:400 13px/1.75 'Roboto Mono',monospace;white-space:pre">cardinal-ctl deploy ingest-workers \
+  --revision "$GIT_SHA" \
+  --batch 2 --gate p99_latency&lt;250ms</code></div>
+                <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#1f4fd6;margin:28px 0 0">Rollback</h2>
+                <p style="font:400 15.5px/1.72 Barlow;color:#1a2038;margin:14px 0 0;text-wrap:pretty">Rollback is a forward deploy of the previous revision. There is no state to unwind — offsets are committed only after a successful flush.</p>
+              </div>
+            </div>
+            <div style="flex:0 0 240px;padding:24px 4px">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#5a6699;text-transform:uppercase;padding-bottom:12px">Contents</div>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div style="padding:5px 10px;border-radius:6px;font:500 13px Barlow;color:#4a5580">Prerequisites</div>
+                <div style="padding:5px 10px;border-radius:6px;background:#e6edff;font:600 13px Barlow;color:#1f4fd6">Rolling deploy</div>
+                <div style="padding:5px 10px;border-radius:6px;font:500 13px Barlow;color:#4a5580">Rollback</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;align-items:flex-start;padding:4px 0">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="width:256px;background:#10194a"><div style="height:40px;display:flex;align-items:stretch">
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              
+              <div style="flex:0 0 40px"></div>
+            </div></div>
+            <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#5a6699;text-transform:uppercase;width:150px">At page top</div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="width:256px;background:#10194a"><div style="height:40px;display:flex;align-items:stretch">
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              
+              <div style="flex:0 0 40px;display:flex;align-items:center;justify-content:center"><div style="width:32px;height:32px;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><svg width="14" height="14" viewBox="0 0 24 24" color="#ff8f97" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 7px/1 'Roboto Mono',monospace;letter-spacing:.16em;color:#ff8f97">TOP</span></div></div>
+            </div></div>
+            <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#5a6699;text-transform:uppercase;width:150px">Scrolled &gt;150px</div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="width:256px;background:#10194a"><div style="height:40px;display:flex;align-items:stretch">
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:language"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6.371C9 10.789 6.761 13 4 13m0-6.629h7"/><path d="M5 9c0 2.144 2.252 3.908 6 4m1 7l4-9l4 9m-.9-2h-6.2M6.694 3l.793.582"/></g></svg>EN</div>
+              
+              <div style="flex:1;margin:4px 0 4px 4px;border-radius:6px;display:flex;align-items:center;justify-content:center;gap:7px;font:500 11.5px Barlow;color:#c5cff5;cursor:pointer" style-hover="background:rgba(255,255,255,.08)"><svg width="14" height="14" viewBox="0 0 24 24" color="#7f8ed1" data-icon="tabler:sitemap"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3 17a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm12 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2zM6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1m-6-6v3"/></svg>Browse</div>
+              
+              <div style="flex:0 0 40px;display:flex;align-items:center;justify-content:center"><div style="width:32px;height:32px;border-radius:6px;background:rgba(255,77,90,.18);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><svg width="14" height="14" viewBox="0 0 24 24" color="#ff8f97" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 7px/1 'Roboto Mono',monospace;letter-spacing:.16em;color:#ff8f97">TOP</span></div></div>
+            </div></div>
+            <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#5a6699;text-transform:uppercase;width:150px">Hover</div>
+          </div>
+        </div>
+        <div style="font:400 12px/1.6 Barlow;color:#4a5580;max-width:400px">Same 40px row and reserved cell, but no separators: EN and Browse are 32px-tall 6px-radius tiles with 4px gutters, transparent at rest, rgba(255,255,255,.08) on hover. Top is a 32×32 tile in the same row, #ff8f97 arrow and TOP, hover rgba(255,77,90,.18). No hairlines at all — Cobalt separates by fill and shadow, never by rule. Cobalt dark: sidebar #0e1540, otherwise identical.</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+<section style="padding:40px 40px 60px;display:flex;flex-direction:column;gap:22px;opacity:.55" data-screen-label="Back to top — turn 1">
+  <div style="max-width:760px">
+    <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">Turn 1 &nbsp;Back to top</div>
+    <div style="font:700 30px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin-top:6px">Three places for the return-to-top control</div>
+    <div style="font:400 13px/1.6 Barlow;color:#4e5d7d;margin-top:8px">The repo today (MainLayout.vue, WPageScroller) draws a round filled disc flush to the window's bottom edge at the sidebar seam, rounded on one corner. None of these are discs. All three appear only once the article has scrolled 150px, fading in over 150ms, and scroll the article column (<span style="font:400 12px 'Roboto Mono',monospace;color:#38465f">.page-container-scrl</span>) back to top. Each frame shows the window mid-article.</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start">
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <a href="#1a" style="font:600 11px 'Roboto Mono',monospace;letter-spacing:.14em;color:#c14a52;border:1px solid #e4676b;background:#fdeced;padding:3px 7px">1a</a>
+        <div style="font:600 18px 'Barlow Condensed',sans-serif;color:#1c2233">Foot of the actions rail</div>
+        <div style="font:400 12.5px Barlow;color:#4e5d7d">Bookends the Edit plate at the rail's head. Sticky to the window bottom inside the 56px column, so it is always in the same corner and never over content.</div>
+      </div>
+      <div style="width:1120px;height:520px;background:#f5f6f9;border:1px solid #c9d2e2;overflow:hidden;position:relative;display:flex;flex-direction:column">
+        <div style="height:56px;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+          <div style="display:flex;align-items:center;gap:10px"><svg width="28" height="28" viewBox="0 0 32 32"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg><div style="font:700 18px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div></div>
+          <div style="flex:1;display:flex;justify-content:center"><div style="width:420px;height:32px;border:1px solid #dbe1ec;background:#f5f6f9;display:flex;align-items:center;padding:0 12px;font:400 13px Barlow;color:#57668a">Search this site&hellip;</div></div>
+          <div style="width:28px;height:28px;background:#38465f;color:#fff;display:flex;align-items:center;justify-content:center;font:600 10px 'Barlow Condensed',sans-serif">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 255px;background:#f0f2f7;border-right:1px solid #dbe1ec;display:flex;flex-direction:column">
+            <div style="flex:1;padding:14px 0">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:0 18px 10px">Documentation</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Platform</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Runbooks</div>
+              <div style="background:#fff;border-left:2px solid #e4676b;padding:7px 18px 7px 16px;font:500 13.5px Barlow;color:#1c2233">Ingest workers</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Queue topology</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Backfills</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Style guide</div>
+            </div>
+            <div style="border-top:1px solid #dbe1ec;height:38px;display:flex;align-items:center;justify-content:center;font:500 11.5px Barlow;color:#4e5d7d">Edit navigation</div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex">
+            <div style="flex:1;min-width:0;padding:0 28px 44px;margin-top:-6px">
+              <div style="max-width:640px">
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:0;text-wrap:pretty">wrapper handles node ordering and health gates for you.</p>
+                <div style="margin:20px 0;background:#1c2233;border-left:2px solid #e4676b;padding:16px 18px"><code style="display:block;color:#e6eaf2;font:400 13px/1.75 'Roboto Mono',monospace;white-space:pre">cardinal-ctl deploy ingest-workers \
+  --revision "$GIT_SHA" \
+  --batch 2 --gate p99_latency&lt;250ms</code></div>
+                <div style="border-top:1px solid #dbe1ec">
+                  <div style="display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #dbe1ec"><span style="font:500 11px 'Roboto Mono',monospace;color:#c14a52;padding-top:3px">01</span><span style="font:400 15px/1.6 Barlow;color:#2f3a4f">Batches of two keep at least 80% of consumers alive.</span></div>
+                  <div style="display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #dbe1ec"><span style="font:500 11px 'Roboto Mono',monospace;color:#c14a52;padding-top:3px">02</span><span style="font:400 15px/1.6 Barlow;color:#2f3a4f">The gate aborts the rollout if p99 latency crosses 250&nbsp;ms.</span></div>
+                </div>
+                <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#1c2233;margin:32px 0 0;padding-bottom:8px;border-bottom:1px solid #dbe1ec">Rollback</h2>
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:16px 0 0;text-wrap:pretty">Rollback is a forward deploy of the previous revision. There is no state to unwind — offsets are committed only after a successful flush.</p>
+              </div>
+            </div>
+            <div style="flex:0 0 260px;border-left:1px solid #dbe1ec;background:#fbfcfe;padding:24px 20px">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding-bottom:12px">Contents</div>
+              <div style="border-left:1px solid #dbe1ec">
+                <div style="padding:3px 9px;font:500 13px Barlow;color:#38465f">Prerequisites</div>
+                <div style="position:relative;padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#c14a52"><span style="position:absolute;left:-1px;top:2px;bottom:2px;width:2px;background:#e4676b"></span>Rolling deploy</div>
+                <div style="padding:3px 9px 3px 23px;font:400 12.5px Barlow;color:#4e5d7d">Draining a node</div>
+                <div style="padding:3px 9px 3px 23px;font:400 12.5px Barlow;color:#4e5d7d">Health gates</div>
+                <div style="padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#38465f">Rollback</div>
+              </div>
+            </div>
+            <div style="flex:0 0 56px;background:#eef1f7;border-left:1px solid #dbe1ec;display:flex;flex-direction:column">
+              <div style="height:56px;display:flex;align-items:center;justify-content:center;background:#fff;border-bottom:1px solid #dbe1ec"><svg width="20" height="20" viewBox="0 0 24 24" color="#e4676b" data-icon="tabler:tag"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 7.5a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/><path d="M3 6v5.172a2 2 0 0 0 .586 1.414l7.71 7.71a2.41 2.41 0 0 0 3.408 0l5.592-5.592a2.41 2.41 0 0 0 0-3.408l-7.71-7.71A2 2 0 0 0 11.172 3H6a3 3 0 0 0-3 3"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:history"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:file-export"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M11.5 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v5m-5 6h7m-3-3l3 3l-3 3"/></g></svg></div>
+              <div style="height:1px;background:#dbe1ec;margin:8px 12px"></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:dots"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/></svg></div>
+              <div style="flex:1"></div>
+              <div title="Back to top" style="height:56px;background:#fff;border-top:1px solid #dbe1ec;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative;cursor:pointer" style-hover="background:#fdeced">
+                <svg width="18" height="18" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg>
+                <span style="font:600 8.5px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52">TOP</span>
+                <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+                <i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-top:1px solid #64789f"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;align-items:flex-start;padding:4px 0">
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="width:56px;height:56px;background:#fff;border:1px solid #dbe1ec;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative"><svg width="18" height="18" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 8.5px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52">TOP</span><i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i><i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-top:1px solid #64789f"></i></div>
+          <div style="width:56px;height:56px;background:#fdeced;border:1px solid #dbe1ec;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative"><svg width="18" height="18" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg><span style="font:600 8.5px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52">TOP</span><i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #e4676b;border-top:1px solid #e4676b"></i><i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #e4676b;border-top:1px solid #e4676b"></i></div>
+        </div>
+        <div style="font:400 12px/1.6 Barlow;color:#4e5d7d;max-width:520px">56×56 white plate, hairline top, arrow + mono TOP in accent text (#c14a52), two corner marks on the top edge. Hover tints #fdeced and the marks go accent. Below 750px the rail is gone and the contents-panel opener takes the corner, as the repo already does.</div>
+      </div>
+    </div>
+
+    <div id="1b" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <a href="#1b" style="font:600 11px 'Roboto Mono',monospace;letter-spacing:.14em;color:#c14a52;border:1px solid #e4676b;background:#fdeced;padding:3px 7px">1b</a>
+        <div style="font:600 18px 'Barlow Condensed',sans-serif;color:#1c2233">Head of the contents rail</div>
+        <div style="font:400 12.5px Barlow;color:#4e5d7d">No floating chrome at all. The sticky contents column already tracks position in the page; Top becomes its first entry.</div>
+      </div>
+      <div style="width:1120px;height:520px;background:#f5f6f9;border:1px solid #c9d2e2;overflow:hidden;position:relative;display:flex;flex-direction:column">
+        <div style="height:56px;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+          <div style="display:flex;align-items:center;gap:10px"><svg width="28" height="28" viewBox="0 0 32 32"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg><div style="font:700 18px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div></div>
+          <div style="flex:1;display:flex;justify-content:center"><div style="width:420px;height:32px;border:1px solid #dbe1ec;background:#f5f6f9;display:flex;align-items:center;padding:0 12px;font:400 13px Barlow;color:#57668a">Search this site&hellip;</div></div>
+          <div style="width:28px;height:28px;background:#38465f;color:#fff;display:flex;align-items:center;justify-content:center;font:600 10px 'Barlow Condensed',sans-serif">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 255px;background:#f0f2f7;border-right:1px solid #dbe1ec;display:flex;flex-direction:column">
+            <div style="flex:1;padding:14px 0">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:0 18px 10px">Documentation</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Platform</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Runbooks</div>
+              <div style="background:#fff;border-left:2px solid #e4676b;padding:7px 18px 7px 16px;font:500 13.5px Barlow;color:#1c2233">Ingest workers</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Queue topology</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Backfills</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Style guide</div>
+            </div>
+            <div style="border-top:1px solid #dbe1ec;height:38px;display:flex;align-items:center;justify-content:center;font:500 11.5px Barlow;color:#4e5d7d">Edit navigation</div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex">
+            <div style="flex:1;min-width:0;padding:0 28px 44px;margin-top:-6px">
+              <div style="max-width:640px">
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:0;text-wrap:pretty">wrapper handles node ordering and health gates for you.</p>
+                <div style="margin:20px 0;background:#1c2233;border-left:2px solid #e4676b;padding:16px 18px"><code style="display:block;color:#e6eaf2;font:400 13px/1.75 'Roboto Mono',monospace;white-space:pre">cardinal-ctl deploy ingest-workers \
+  --revision "$GIT_SHA" \
+  --batch 2 --gate p99_latency&lt;250ms</code></div>
+                <div style="border-top:1px solid #dbe1ec">
+                  <div style="display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #dbe1ec"><span style="font:500 11px 'Roboto Mono',monospace;color:#c14a52;padding-top:3px">01</span><span style="font:400 15px/1.6 Barlow;color:#2f3a4f">Batches of two keep at least 80% of consumers alive.</span></div>
+                  <div style="display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #dbe1ec"><span style="font:500 11px 'Roboto Mono',monospace;color:#c14a52;padding-top:3px">02</span><span style="font:400 15px/1.6 Barlow;color:#2f3a4f">The gate aborts the rollout if p99 latency crosses 250&nbsp;ms.</span></div>
+                </div>
+                <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#1c2233;margin:32px 0 0;padding-bottom:8px;border-bottom:1px solid #dbe1ec">Rollback</h2>
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:16px 0 0;text-wrap:pretty">Rollback is a forward deploy of the previous revision. There is no state to unwind — offsets are committed only after a successful flush.</p>
+              </div>
+            </div>
+            <div style="flex:0 0 260px;border-left:1px solid #dbe1ec;background:#fbfcfe;padding:24px 20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px">
+                <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase">Contents</div>
+                <div title="Back to top" style="display:flex;align-items:center;gap:5px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52;cursor:pointer;border-bottom:1px solid transparent" style-hover="border-bottom-color:#e4676b"><svg width="11" height="11" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg>TOP</div>
+              </div>
+              <div style="border-left:1px solid #dbe1ec">
+                <div style="padding:3px 9px;font:500 13px Barlow;color:#38465f">Prerequisites</div>
+                <div style="position:relative;padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#c14a52"><span style="position:absolute;left:-1px;top:2px;bottom:2px;width:2px;background:#e4676b"></span>Rolling deploy</div>
+                <div style="padding:3px 9px 3px 23px;font:400 12.5px Barlow;color:#4e5d7d">Draining a node</div>
+                <div style="padding:3px 9px 3px 23px;font:400 12.5px Barlow;color:#4e5d7d">Health gates</div>
+                <div style="padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#38465f">Rollback</div>
+              </div>
+            </div>
+            <div style="flex:0 0 56px;background:#eef1f7;border-left:1px solid #dbe1ec;display:flex;flex-direction:column">
+              <div style="height:56px;display:flex;align-items:center;justify-content:center;background:#fff;border-bottom:1px solid #dbe1ec"><svg width="20" height="20" viewBox="0 0 24 24" color="#e4676b" data-icon="tabler:tag"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 7.5a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/><path d="M3 6v5.172a2 2 0 0 0 .586 1.414l7.71 7.71a2.41 2.41 0 0 0 3.408 0l5.592-5.592a2.41 2.41 0 0 0 0-3.408l-7.71-7.71A2 2 0 0 0 11.172 3H6a3 3 0 0 0-3 3"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:history"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:file-export"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M11.5 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v5m-5 6h7m-3-3l3 3l-3 3"/></g></svg></div>
+              <div style="height:1px;background:#dbe1ec;margin:8px 12px"></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:dots"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/></svg></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;align-items:flex-start;padding:4px 0">
+        <div style="display:flex;gap:24px;align-items:center;background:#fbfcfe;border:1px solid #dbe1ec;padding:14px 18px">
+          <div style="display:flex;align-items:center;gap:5px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52"><svg width="11" height="11" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg>TOP</div>
+          <div style="display:flex;align-items:center;gap:5px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52;border-bottom:1px solid #e4676b"><svg width="11" height="11" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg>TOP</div>
+        </div>
+        <div style="font:400 12px/1.6 Barlow;color:#4e5d7d;max-width:520px">Mono caption weight, right-aligned on the Contents eyebrow row. Hover underlines in accent. Hidden at the top of the page (the row is just "Contents"). Costs nothing in layout but disappears with the contents column below 750px — there the repo's panel opener would need to carry it.</div>
+      </div>
+    </div>
+
+    <div id="1c" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <a href="#1c" style="font:600 11px 'Roboto Mono',monospace;letter-spacing:.14em;color:#c14a52;border:1px solid #e4676b;background:#fdeced;padding:3px 7px">1c</a>
+        <div style="font:600 18px 'Barlow Condensed',sans-serif;color:#1c2233">Tab on the article's bottom edge</div>
+        <div style="font:400 12.5px Barlow;color:#4e5d7d">The repo's flush corner tab kept, but squared and moved off the sidebar seam to the article column's own right edge, where it meets the contents rule.</div>
+      </div>
+      <div style="width:1120px;height:520px;background:#f5f6f9;border:1px solid #c9d2e2;overflow:hidden;position:relative;display:flex;flex-direction:column">
+        <div style="height:56px;background:#fff;border-bottom:1px solid #dbe1ec;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+          <div style="display:flex;align-items:center;gap:10px"><svg width="28" height="28" viewBox="0 0 32 32"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg><div style="font:700 18px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div></div>
+          <div style="flex:1;display:flex;justify-content:center"><div style="width:420px;height:32px;border:1px solid #dbe1ec;background:#f5f6f9;display:flex;align-items:center;padding:0 12px;font:400 13px Barlow;color:#57668a">Search this site&hellip;</div></div>
+          <div style="width:28px;height:28px;background:#38465f;color:#fff;display:flex;align-items:center;justify-content:center;font:600 10px 'Barlow Condensed',sans-serif">DH</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:0 0 255px;background:#f0f2f7;border-right:1px solid #dbe1ec;display:flex;flex-direction:column">
+            <div style="flex:1;padding:14px 0">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding:0 18px 10px">Documentation</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Platform</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Runbooks</div>
+              <div style="background:#fff;border-left:2px solid #e4676b;padding:7px 18px 7px 16px;font:500 13.5px Barlow;color:#1c2233">Ingest workers</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Queue topology</div>
+              <div style="padding:7px 18px 7px 34px;font:400 13px Barlow;color:#4e5d7d">Backfills</div>
+              <div style="padding:7px 18px;font:400 13.5px Barlow;color:#38465f">Style guide</div>
+            </div>
+            <div style="border-top:1px solid #dbe1ec;height:38px;display:flex;align-items:center;justify-content:center;font:500 11.5px Barlow;color:#4e5d7d">Edit navigation</div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex">
+            <div style="flex:1;min-width:0;padding:0 28px 44px;margin-top:-6px;position:relative">
+              <div style="max-width:640px">
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:0;text-wrap:pretty">wrapper handles node ordering and health gates for you.</p>
+                <div style="margin:20px 0;background:#1c2233;border-left:2px solid #e4676b;padding:16px 18px"><code style="display:block;color:#e6eaf2;font:400 13px/1.75 'Roboto Mono',monospace;white-space:pre">cardinal-ctl deploy ingest-workers \
+  --revision "$GIT_SHA" \
+  --batch 2 --gate p99_latency&lt;250ms</code></div>
+                <div style="border-top:1px solid #dbe1ec">
+                  <div style="display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #dbe1ec"><span style="font:500 11px 'Roboto Mono',monospace;color:#c14a52;padding-top:3px">01</span><span style="font:400 15px/1.6 Barlow;color:#2f3a4f">Batches of two keep at least 80% of consumers alive.</span></div>
+                  <div style="display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #dbe1ec"><span style="font:500 11px 'Roboto Mono',monospace;color:#c14a52;padding-top:3px">02</span><span style="font:400 15px/1.6 Barlow;color:#2f3a4f">The gate aborts the rollout if p99 latency crosses 250&nbsp;ms.</span></div>
+                </div>
+                <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#1c2233;margin:32px 0 0;padding-bottom:8px;border-bottom:1px solid #dbe1ec">Rollback</h2>
+                <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:16px 0 0;text-wrap:pretty">Rollback is a forward deploy of the previous revision. There is no state to unwind — offsets are committed only after a successful flush.</p>
+              </div>
+              <div title="Back to top" style="position:absolute;right:-1px;bottom:0;height:30px;background:#fff;border:1px solid #dbe1ec;border-bottom:0;display:flex;align-items:center;gap:7px;padding:0 12px 0 10px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52;cursor:pointer" style-hover="background:#fdeced;border-color:#e4676b">
+                <svg width="12" height="12" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg>TOP
+                <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+                <i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-top:1px solid #64789f"></i>
+              </div>
+            </div>
+            <div style="flex:0 0 260px;border-left:1px solid #dbe1ec;background:#fbfcfe;padding:24px 20px">
+              <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#57668a;text-transform:uppercase;padding-bottom:12px">Contents</div>
+              <div style="border-left:1px solid #dbe1ec">
+                <div style="padding:3px 9px;font:500 13px Barlow;color:#38465f">Prerequisites</div>
+                <div style="position:relative;padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#c14a52"><span style="position:absolute;left:-1px;top:2px;bottom:2px;width:2px;background:#e4676b"></span>Rolling deploy</div>
+                <div style="padding:3px 9px 3px 23px;font:400 12.5px Barlow;color:#4e5d7d">Draining a node</div>
+                <div style="padding:3px 9px 3px 23px;font:400 12.5px Barlow;color:#4e5d7d">Health gates</div>
+                <div style="padding:3px 9px;margin-top:7px;font:500 13px Barlow;color:#38465f">Rollback</div>
+              </div>
+            </div>
+            <div style="flex:0 0 56px;background:#eef1f7;border-left:1px solid #dbe1ec;display:flex;flex-direction:column">
+              <div style="height:56px;display:flex;align-items:center;justify-content:center;background:#fff;border-bottom:1px solid #dbe1ec"><svg width="20" height="20" viewBox="0 0 24 24" color="#e4676b" data-icon="tabler:tag"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 7.5a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/><path d="M3 6v5.172a2 2 0 0 0 .586 1.414l7.71 7.71a2.41 2.41 0 0 0 3.408 0l5.592-5.592a2.41 2.41 0 0 0 0-3.408l-7.71-7.71A2 2 0 0 0 11.172 3H6a3 3 0 0 0-3 3"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:history"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></g></svg></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:file-export"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M11.5 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v5m-5 6h7m-3-3l3 3l-3 3"/></g></svg></div>
+              <div style="height:1px;background:#dbe1ec;margin:8px 12px"></div>
+              <div style="height:48px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" color="#64789f" data-icon="tabler:dots"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0m7 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0"/></svg></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;align-items:flex-start;padding:4px 0">
+        <div style="display:flex;gap:18px;align-items:flex-end;background:#f5f6f9;border:1px solid #dbe1ec;padding:18px 18px 0">
+          <div style="position:relative;height:30px;background:#fff;border:1px solid #dbe1ec;border-bottom:0;display:flex;align-items:center;gap:7px;padding:0 12px 0 10px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52"><svg width="12" height="12" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg>TOP<i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i><i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-top:1px solid #64789f"></i></div>
+          <div style="position:relative;height:30px;background:#fdeced;border:1px solid #e4676b;border-bottom:0;display:flex;align-items:center;gap:7px;padding:0 12px 0 10px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.18em;color:#c14a52"><svg width="12" height="12" viewBox="0 0 24 24" color="#c14a52" data-icon="tabler:arrow-up"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 5v14m6-8l-6-6m-6 6l6-6"/></svg>TOP<i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #e4676b;border-top:1px solid #e4676b"></i><i style="position:absolute;top:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #e4676b;border-bottom:0;border-top:1px solid #e4676b"></i></div>
+        </div>
+        <div style="font:400 12px/1.6 Barlow;color:#4e5d7d;max-width:520px">30px tab, white, hairline on three sides, flush to the window bottom so it reads as part of the edge rather than a disc over the text. Fixed to the viewport at the article column's right edge; slides up 30px on appear. In narrow mode (no sidebar column) it stays in the window's bottom-right corner, mirroring the menu tab on the left.</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+</body>
+</html>
