@@ -307,7 +307,6 @@
                 </template>
                 <w-btn-toggle
                   v-model="state.target.sync.mode"
-                  toggle-color="primary"
                   :options="syncModeOptions"
                   :aria-label="t(`admin.storage.syncDirection`)"
                   :disabled="state.target.sync.supportedModes.length <= 1" />

@@ -1481,9 +1481,9 @@ $fileman-hdr-wrap-max: 899.98px;
     two have since parted company on both of the things that tie a control to its surroundings.
 
     The FILL: HeaderSearch sits on the site header, which is black, so its neutral `#212121` reads as
-    a lift out of it. This header is `.card-header` -- `$dark-3` graded towards `$dark-5`, all of them
+    a lift out of it. This header is `.card-header` -- `var(--color-dark-3)` graded towards `var(--color-dark-5)`, all of them
     blue-tinted -- and a neutral grey on a blue-grey ground reads as a different, muddier colour
-    rather than a raised surface. One step up the same ramp, `$dark-2`, is the lift without the clash.
+    rather than a raised surface. One step up the same ramp, `var(--color-dark-2)`, is the lift without the clash.
 
     The CORNERS: 7px, which is `WBtn`'s `push` radius, so the field and the Close button at the other
     end of the header are cut to the same shape. A full pill next to a 7px button read as two
@@ -2014,12 +2014,12 @@ $fileman-hdr-wrap-max: 899.98px;
       background-color: $blue-grey-2;
     }
     @at-root .body--dark & {
-      background-color: $dark-4 !important;
+      background-color: var(--color-dark-4) !important;
     }
 
     > div {
       height: 12px;
-      background-color: $positive;
+      background-color: var(--color-positive);
       background-image: linear-gradient(
         -45deg,
         rgba(255, 255, 255, 0.3) 25%,
@@ -2033,7 +2033,7 @@ $fileman-hdr-wrap-max: 899.98px;
       background-size: 50px 50px;
       background-position: 0 0;
       animation: fileman-progress 2s linear infinite;
-      box-shadow: 0 0 5px 0 $positive;
+      box-shadow: 0 0 5px 0 var(--color-positive);
       font-size: 9px;
       letter-spacing: 2px;
       font-weight: 700;

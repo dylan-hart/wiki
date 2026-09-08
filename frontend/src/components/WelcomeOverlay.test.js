@@ -133,9 +133,13 @@ describe('WelcomeOverlay: dark mode', () => {
     const welcomeRule = source.match(/\.welcome\s*\{[\s\S]*?\n\}\n/)[0]
 
     expect(welcomeRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{/)
-    expect(welcomeRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background:[^}]*\$dark-6/)
+    expect(welcomeRule).toMatch(
+      /@at-root\s+\.body--dark\s+&\s*\{[^}]*background:[^}]*var\(--color-dark-6\)/
+    )
     expect(welcomeRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*\$blue-grey-1/)
-    expect(welcomeRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*border:[^}]*\$dark-4/)
+    expect(welcomeRule).toMatch(
+      /@at-root\s+\.body--dark\s+&\s*\{[^}]*border:[^}]*var\(--color-dark-4\)/
+    )
   })
 
   it('still keeps the light-mode background/border/color as the default (unguarded) values', () => {
@@ -147,6 +151,6 @@ describe('WelcomeOverlay: dark mode', () => {
   it('gives the decorative .welcome-bg glow a dark override too, so no white halo remains', () => {
     const bgRule = source.match(/&-bg\s*\{[\s\S]*?\n {2}\}\n/)[0]
 
-    expect(bgRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*\$dark-6/)
+    expect(bgRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*var\(--color-dark-6\)/)
   })
 })

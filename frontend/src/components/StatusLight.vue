@@ -40,17 +40,17 @@ const cssClasses = computed(() => {
   width: 5px;
   height: 100%;
   min-height: 5px;
-  color: $slate-pale;
+  color: var(--color-slate-pale);
   background-color: currentColor;
 
   &.negative {
-    color: $negative-fill;
+    color: var(--color-negative-fill);
   }
   &.positive {
-    color: $positive-fill;
+    color: var(--color-positive-fill);
   }
   &.warning {
-    color: $warning-fill;
+    color: var(--color-warning-fill);
   }
 
   &.pulsate {

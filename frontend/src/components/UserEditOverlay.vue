@@ -234,7 +234,6 @@
                   <w-item-section class="flex-none">
                     <w-btn-toggle
                       v-model="state.user.prefs.timeFormat"
-                      toggle-color="primary"
                       :aria-label="t(`admin.users.timeFormat`)"
                       :options="[
                         { label: t('profile.timeFormat12h'), value: '12h' },
@@ -253,7 +252,6 @@
                     <div class="flex items-center gap-2 flex-wrap">
                       <w-btn-toggle
                         v-model="state.user.prefs.aesthetic"
-                        toggle-color="primary"
                         :aria-label="t(`profile.aesthetic`)"
                         :options="[
                           { label: t('profile.aestheticDefault'), value: 'site' },
@@ -262,7 +260,6 @@
                         ]" />
                       <w-btn-toggle
                         v-model="state.user.prefs.appearance"
-                        toggle-color="primary"
                         :aria-label="t(`admin.users.appearance`)"
                         :options="[
                           { label: t('profile.appearanceDefault'), value: 'site' },
@@ -282,7 +279,6 @@
                   <w-item-section class="flex-none">
                     <w-btn-toggle
                       v-model="state.user.prefs.cvd"
-                      toggle-color="primary"
                       :aria-label="t(`profile.cvd`)"
                       :options="[
                         { value: 'none', label: t('profile.cvdNone') },

@@ -92,10 +92,33 @@ function codeOf(pre) {
   return copy.textContent.replace(/\n$/, '')
 }
 
+/**
+ * Lifts a highlighted block's language onto the `<pre>` as `data-lang`.
+ *
+ * The renderer already names it, but only as a `language-*` class on the `<code>` INSIDE the block
+ * (`renderers/markdown.js`), and CSS cannot read a class's suffix into a `content` string. Cobalt's
+ * code block carries the language as a mono label in its top-right corner
+ * (`ui-redesign-cobalt/HANDOFF.md`, "Code blocks"), which `_page-contents.scss` draws off this
+ * attribute; Ledger's block has no label and simply never selects on it.
+ *
+ * Done here rather than in `renderers/markdown.js` because the render is STORED: a page saved
+ * before this shipped carries the old HTML, and this pass runs over every page as it is displayed.
+ *
+ * @param {HTMLElement} pre The `<pre class="codeblock">` element.
+ */
+function tagCodeLanguage(pre) {
+  const code = pre.querySelector('code')
+  const match = code && /(?:^|\s)language-([\w+#-]+)/.exec(code.className)
+  if (match) {
+    pre.dataset.lang = match[1]
+  }
+}
+
 function addCodeCopyButtons(root, t) {
   for (const pre of root.querySelectorAll('pre.codeblock:not([data-code-copy])')) {
     // -> Marks the block as done, and is what the stylesheet keys the button's position off
     pre.dataset.codeCopy = ''
+    tagCodeLanguage(pre)
 
     const restingLabel = t('common.renderedContent.copyCode')
 

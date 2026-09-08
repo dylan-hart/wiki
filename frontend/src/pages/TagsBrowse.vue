@@ -674,7 +674,7 @@ onMounted(async () => {
     font-size: 13px;
     font-weight: 500;
     /*
-      `var(--color-accent)`, not the `$primary` literal it replaces: numerically identical under
+      `var(--color-accent)`, not the `var(--color-primary)` literal it replaces: numerically identical under
       Ledger (both admin defaults are `#c14a52`), but the Cobalt Tags mockup's subheaders
       ("Current selection", "Tags", "Locale", "Order by") are the accent red (`#c8303c`), which is
       `--color-accent` under Cobalt -- `--color-primary` there is the unrelated link blue.

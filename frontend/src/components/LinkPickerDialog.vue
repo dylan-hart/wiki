@@ -412,7 +412,7 @@ onMounted(async () => {
       background-color: $blue-grey-1;
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
+      background-color: var(--color-dark-4);
     }
   }
 

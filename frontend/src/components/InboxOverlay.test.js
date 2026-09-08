@@ -175,9 +175,11 @@ describe('InboxOverlay: dark mode', () => {
     const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
 
     expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*\$tint-alt/
+      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*var\(--color-tint-alt\)/
     )
-    expect(sidebarRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*\$dark-4/)
+    expect(sidebarRule).toMatch(
+      /@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*var\(--color-dark-4\)/
+    )
   })
 })
 
@@ -226,12 +228,17 @@ describe('InboxOverlay: Cobalt aesthetic', () => {
     expect(sidebarRule).toMatch(/margin-inline:\s*10px/)
   })
 
-  it('gives the decline button Cobalt’s own accent-fill border', () => {
+  it('gives the decline button whichever accent fill the aesthetic carries', () => {
     const negativeRule = source.match(/\.inbox-square-btn--negative\.w-btn\s*\{[\s\S]*?\n\}\n/)[0]
 
-    expect(negativeRule).toMatch(/border-color:\s*\$accent-fill/)
+    /*
+      One rule, not an aesthetic branch: `--color-accent-fill` is `#e4676b` under Ledger and
+      `#ff4d5a` under Cobalt, which is the whole of the difference between the two mockups here.
+      Ledger's dark theme lightens it; Cobalt's does not, so that override excludes the aesthetic.
+    */
+    expect(negativeRule).toMatch(/border-color:\s*var\(--color-accent-fill\)/)
     expect(negativeRule).toMatch(
-      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*border-color:\s*var\(--color-accent-fill\)/
+      /@at-root\s+\.body--dark:not\(\.body--cobalt\)\s+&\s*\{[^}]*border-color:\s*var\(--color-accent-dark\)/
     )
   })
 })

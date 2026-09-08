@@ -235,7 +235,7 @@ onMounted(async () => {
     panels have to state it themselves or everything inheriting `color` stays black on a dark surface.
   */
   @at-root .body--light & {
-    color: $text-body;
+    color: var(--color-text-body);
   }
   @at-root .body--dark & {
     color: var(--color-text-dark);
@@ -448,7 +448,7 @@ onMounted(async () => {
     font-weight: 600;
 
     @at-root .body--light & {
-      color: $ink;
+      color: var(--color-ink);
     }
 
     em {
@@ -462,7 +462,7 @@ onMounted(async () => {
     line-height: 1.5;
 
     @at-root .body--light & {
-      color: $text-secondary;
+      color: var(--color-text-secondary);
     }
     @at-root .body--dark & {
       color: var(--color-text-secondary-dark);
@@ -480,7 +480,7 @@ onMounted(async () => {
     font-weight: 500;
 
     @at-root .body--light & {
-      color: $text-caption;
+      color: var(--color-text-caption);
     }
     @at-root .body--dark & {
       color: var(--color-text-caption-dark);
@@ -516,7 +516,7 @@ onMounted(async () => {
     }
 
     @at-root .body--light & {
-      color: $text-secondary;
+      color: var(--color-text-secondary);
     }
     @at-root .body--dark & {
       color: var(--color-text-secondary-dark);

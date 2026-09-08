@@ -24,10 +24,17 @@ describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html
     vi.clearAllMocks()
   })
 
-  async function definedTheme() {
+  /*
+    Two themes are registered on mount now, one per aesthetic (`helpers/monacoTheme.js`): the Ledger
+    definition this suite pins, and the Cobalt one derived from it. `definedTheme()` returns the
+    Ledger half, which is the one the design file below settles; `definedTheme('cobalt')` returns
+    the derivation, asserted once at the end against `Editor 3x - Cobalt`.
+  */
+  async function definedTheme(aesthetic = 'ledger') {
     await mountEditorMarkdown(EditorMarkdown, '# Prerequisites\n')
-    const call = monaco.editor.defineTheme.mock.calls.at(-1)
-    expect(call, 'the component defines its theme on mount').toBeTruthy()
+    const calls = monaco.editor.defineTheme.mock.calls
+    expect(calls.length, 'the component defines both aesthetics’ themes on mount').toBe(2)
+    const call = aesthetic === 'cobalt' ? calls[1] : calls[0]
     return { name: call[0], theme: call[1] }
   }
 
@@ -80,6 +87,37 @@ describe('EditorMarkdown Monaco theme, against Cardinal Wiki - Editor 3x.dc.html
       string: '8792ab', // the ```` ```bash ```` fence line
       'variable.source': '9aa6bd', // the body inside a fence
       variable: 'a9b7d0' // an inline `code` span
+    })
+  })
+
+  /*
+    And the Cobalt derivation, against `ui-redesign-cobalt/Cardinal Wiki - Editor 3x - Cobalt.dc.html`
+    -- the same surface on the other aesthetic's ramp. Every value here is read off that file: the
+    text column on the card indigo, the gutter in the well below it, the caret in the untexted accent
+    and the caret's own line number in the white-text one, and the two syntax tones the handoff gives
+    Cobalt. Asserted as the whole object rather than a sample, because these come out of a MAPPING
+    (`helpers/monacoTheme.js`) rather than being typed one by one: a role added to the Ledger theme
+    with no Cobalt answer would otherwise pass straight through unnoticed.
+  */
+  it('derives the Cobalt twin onto that aesthetic’s own ramp', async () => {
+    const { name, theme } = await definedTheme('cobalt')
+    expect(name).toBe('cardinaljs-cobalt')
+    expect(theme.colors).toEqual({
+      'editor.background': '#141c4f',
+      'editor.foreground': '#e8ecff',
+      'editor.lineHighlightBackground': '#1c2a70',
+      'editorLineNumber.foreground': '#3f4a63',
+      'editorLineNumber.activeForeground': '#c8303c',
+      'editorGutter.background': '#0b1238',
+      'editorCursor.foreground': '#ff4d5a',
+      'editorCodeLens.foreground': '#22a37f'
+    })
+    expect(Object.fromEntries(theme.rules.map((rule) => [rule.token, rule.foreground]))).toEqual({
+      keyword: 'ff7a84',
+      comment: '8fb0ff',
+      string: '8b98d6',
+      'variable.source': 'a7b3ea',
+      variable: 'c5cff5'
     })
   })
 })

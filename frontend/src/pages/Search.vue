@@ -753,8 +753,8 @@ $strip-height: 37px;
     same 34px, but in the accent rather than the chrome tone -- what sits in it here is the page's
     OWN icon, which is the thing the reader is looking for, not the label of a setting.
 
-    `var(--color-accent)`, not `$primary`: the dark half of this same rule already used
-    `$accent-dark` for the identical role, so `$primary` here was the one Ledger literal quietly
+    `var(--color-accent)`, not `var(--color-primary)`: the dark half of this same rule already used
+    `var(--color-accent-dark)` for the identical role, so `var(--color-primary)` here was the one Ledger literal quietly
     standing in for the accent-text role rather than the (numerically equal, under Ledger) primary
     one -- the Cobalt mockup's icon plate glyph is the accent red, not the link blue.
   */

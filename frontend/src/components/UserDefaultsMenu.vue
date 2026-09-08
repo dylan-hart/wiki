@@ -57,7 +57,6 @@
           <w-item-section class="flex-none">
             <w-btn-toggle
               v-model="state.timeFormat"
-              toggle-color="primary"
               :aria-label="t(`admin.general.defaultTimeFormat`)"
               :options="timeFormats" />
           </w-item-section>

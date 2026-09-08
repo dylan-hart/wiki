@@ -50,7 +50,6 @@
               :hint="t(`admin.api.mcpInstallCommandHint`)" />
             <w-btn-toggle
               v-model="mcpInstallScope"
-              toggle-color="primary"
               class="mt-2"
               :aria-label="t(`admin.api.mcpInstallScope`)"
               :options="mcpInstallScopeOptions" />

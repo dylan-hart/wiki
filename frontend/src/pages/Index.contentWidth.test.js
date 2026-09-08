@@ -37,6 +37,41 @@ const COLUMN_WIDTH = 1200
 const COLUMN_PADDING_INLINE = 28
 const MEASURE = 720
 
+/*
+ * The layout tokens the rules under test resolve through, lifted out of `css/tailwind.css` itself
+ * rather than re-typed here.
+ *
+ * `Index.vue`'s article column states its padding as `var(--article-column-pad)` and its measure's
+ * bleed as `var(--content-bleed-default)` -- the Cobalt aesthetic moves the article's whitespace
+ * from the column into a card of its own, and a token is what lets one rule express both. Those
+ * tokens live in `tailwind.css`, which this test deliberately does not build (see the note above),
+ * so without them every `var()` here resolves to nothing and the column measures zero padding.
+ *
+ * Read from the LEDGER half of the file -- everything before the `body.body--cobalt` block -- since
+ * these assertions are about Ledger's own layout. Reading rather than restating is what keeps the
+ * test honest: change the token in `tailwind.css` and this fails, where a copied literal would not.
+ */
+async function ledgerLayoutTokens() {
+  const css = await readFile(join(frontendRoot, 'src', 'css', 'tailwind.css'), 'utf8')
+  const ledgerHalf = css.slice(0, css.indexOf('body.body--cobalt {'))
+  const names = [
+    '--article-column-pad',
+    '--article-column-pad-xs',
+    '--article-card-pad',
+    '--content-bleed-default',
+    '--content-bleed-xs',
+    '--float-bg',
+    '--radius-card',
+    '--shadow-card'
+  ]
+  const declarations = names.map((name) => {
+    const match = new RegExp(`^\\s*(${name}):\\s*([^;]+);`, 'm').exec(ledgerHalf)
+    expect(match, `css/tailwind.css should still declare ${name}`).not.toBeNull()
+    return `${name}: ${match[2].trim()};`
+  })
+  return `:root{${declarations.join('')}}`
+}
+
 async function indexPageCss() {
   const sfc = await readFile(join(pagesDir, 'Index.vue'), 'utf8')
   const block = sfc.match(/<style lang="scss">([\s\S]*?)<\/style>/)
@@ -45,7 +80,7 @@ async function indexPageCss() {
     `@use 'css/_theme.scss' as *; @use 'css/_palette.scss' as *;\n` + block[1],
     { loadPaths: [join(frontendRoot, 'src')] }
   )
-  return compiled.css
+  return (await ledgerLayoutTokens()) + compiled.css
 }
 
 /*

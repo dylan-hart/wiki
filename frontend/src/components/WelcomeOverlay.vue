@@ -186,9 +186,10 @@ function loadAdmin() {
   border: 1px solid #eee;
 
   @at-root .body--dark & {
-    background: $dark-6 radial-gradient(ellipse, $dark-4, $dark-6);
+    background: var(--color-dark-6)
+      radial-gradient(ellipse, var(--color-dark-4), var(--color-dark-6));
     color: $blue-grey-1;
-    border: 1px solid $dark-4;
+    border: 1px solid var(--color-dark-4);
   }
 
   &-bg {
@@ -203,7 +204,7 @@ function loadAdmin() {
     transform: translate(-50%, -55%);
 
     @at-root .body--dark & {
-      background: linear-gradient(0, $dark-6 50%, $blue-5 50%);
+      background: linear-gradient(0, var(--color-dark-6) 50%, $blue-5 50%);
     }
   }
 

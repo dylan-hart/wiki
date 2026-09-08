@@ -350,6 +350,7 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useAesthetic } from '@/composables/aesthetic'
 import { dialog } from '@/composables/dialog'
 import { useMarkdownCollab } from '@/composables/markdownCollab'
 import { notify } from '@/composables/notify'
@@ -376,6 +377,7 @@ import {
 } from '@/helpers/editorUserSettings'
 import { htmlToMarkdown } from '@/helpers/htmlToMarkdown'
 import { log } from '@/helpers/log'
+import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 import {
   blockOpeningLine,
   blockValues,
@@ -409,6 +411,26 @@ const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+
+// AESTHETIC
+
+/*
+  Monaco is the one surface the token layer cannot reach: `defineTheme()` takes plain hex strings and
+  never resolves a CSS custom property, so the aesthetic has to be applied by SWITCHING THEMES rather
+  than by re-resolving a variable. Two are defined at mount (see `defineTheme` below); this picks one
+  and the watcher keeps a live aesthetic change (the admin's Theme page, or the reader's own profile
+  toggle) in step with the rest of the app.
+*/
+const aesthetic = useAesthetic()
+
+watch(
+  () => aesthetic.current,
+  (value) => {
+    if (editor) {
+      monaco.editor.setTheme(monacoThemeName(value))
+    }
+  }
+)
 
 // I18N
 
@@ -1376,8 +1398,15 @@ onMounted(async () => {
 
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
-  // -> Define Monaco Theme
-  monaco.editor.defineTheme('cardinaljs', {
+  /*
+    -> Define Monaco Theme
+
+    Both aesthetics' themes, from this one Ledger definition: `defineMonacoThemes` derives Cobalt's
+    by mapping each tone onto the role's Cobalt answer (`helpers/monacoTheme.js`), so the editor's
+    own shape -- which rung the text sits on, the gutter a step below it -- is stated once here and
+    holds under either aesthetic. The watcher above switches between them live.
+  */
+  defineMonacoThemes(monaco, {
     base: 'vs-dark',
     inherit: true,
     /*
@@ -1443,7 +1472,7 @@ onMounted(async () => {
     padding: { top: 10, bottom: 10 },
     scrollBeyondLastLine: false,
     tabSize: 2,
-    theme: 'cardinaljs',
+    theme: monacoThemeName(aesthetic.current),
     value: pageStore.content,
     wordWrap: 'on'
   })
@@ -1714,7 +1743,7 @@ $toolbar-btn: 30px;
   collab-presence host bar (`.collab-disconnected me-2 flex ...` in `PageHeader.vue`, drawn beside
   `CollabPresence.vue`'s own bubbles) -- still styles itself against the pre-aesthetic-split
   `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` referenced above, predating both Ledger and Cobalt,
-  and reads bare `$slate`/`$surface`/`$tint`/`$primary` SCSS constants throughout rather than the
+  and reads bare `var(--color-slate)`/`var(--color-surface)`/`var(--color-tint)`/`var(--color-primary)` SCSS constants throughout rather than the
   `--color-*`/`--radius-*` tokens Cobalt overrides. Nothing here is illegible or broken under Cobalt
   -- every constant is still a valid, contrasting Ledger colour -- but none of it takes on Cobalt's
   own blue/pill language the way `_page-contents.scss`'s code-block panel (this Task's one fix here)
@@ -1764,7 +1793,7 @@ $toolbar-btn: 30px;
       both, and this is the same value so nothing shows through as a different dark while Monaco is
       still measuring itself.
     */
-    background-color: $dark-4;
+    background-color: var(--color-dark-4);
     flex: 1 1 50%;
     display: block;
     height: 100%;
@@ -1777,7 +1806,7 @@ $toolbar-btn: 30px;
       `#dbe1ec` strip, not as a stripe of the accent. Cardinal reserves the accent for the live edge,
       and a permanent red rule down the middle of the editor is not one.
     */
-    border-inline-end: 5px solid $hairline;
+    border-inline-end: 5px solid var(--color-hairline);
     /*
       Monaco writes its measured width in pixels onto its own elements, so this item's automatic
       min-width -- min-content, i.e. whatever Monaco last laid itself out at -- pins it to the full
@@ -1802,7 +1831,7 @@ $toolbar-btn: 30px;
     writing-mode: vertical-rl;
     text-orientation: mixed;
     padding: 12px 0;
-    color: $text-caption;
+    color: var(--color-text-caption);
     font-family: var(--font-mono);
     font-size: 9.5px;
     font-weight: 600;
@@ -1832,7 +1861,7 @@ $toolbar-btn: 30px;
       inset-block: 0;
       inset-inline-start: 3px;
       width: 3px;
-      background-color: $primary;
+      background-color: var(--color-primary);
       opacity: 0;
       transition: opacity 0.15s ease;
     }
@@ -1852,10 +1881,10 @@ $toolbar-btn: 30px;
       uses, so what an author sees beside the source is the page as it will actually be read.
     */
     @at-root .body--light & {
-      background-color: $surface;
+      background-color: var(--color-surface);
     }
     @at-root .body--dark & {
-      background-color: $dark-3;
+      background-color: var(--color-dark-3);
     }
     // @include until($tablet) {
     //   display: none;
@@ -1917,20 +1946,20 @@ $toolbar-btn: 30px;
       below is that rule, exactly as a page's own chrome is separated everywhere else in Cardinal.
     */
     &-toolbar {
-      color: $slate;
+      color: var(--color-slate);
       height: $toolbar-height;
       display: flex;
       align-items: center;
       padding: 0 12px;
 
       @at-root .body--light & {
-        background-color: $surface;
-        border-bottom: 1px solid $hairline;
+        background-color: var(--color-surface);
+        border-bottom: 1px solid var(--color-hairline);
       }
       @at-root .body--dark & {
-        background-color: $dark-3;
-        border-bottom: 1px solid $hairline-dark;
-        color: $text-secondary-dark;
+        background-color: var(--color-dark-3);
+        border-bottom: 1px solid var(--color-hairline-dark);
+        color: var(--color-text-secondary-dark);
       }
 
       /* -> The 30px square the design draws, inside a 40px band; see `-toolbar`'s own note below */
@@ -2045,14 +2074,14 @@ $toolbar-btn: 30px;
     align-items: center;
 
     @at-root .body--light & {
-      background-color: $tint;
-      border-bottom: 1px solid $hairline;
-      color: $slate;
+      background-color: var(--color-tint);
+      border-bottom: 1px solid var(--color-hairline);
+      color: var(--color-slate);
     }
     @at-root .body--dark & {
-      background-color: $dark-2;
-      border-bottom: 1px solid $hairline-dark;
-      color: $text-secondary-dark;
+      background-color: var(--color-dark-2);
+      border-bottom: 1px solid var(--color-hairline-dark);
+      color: var(--color-text-secondary-dark);
     }
 
     /*
@@ -2072,10 +2101,10 @@ $toolbar-btn: 30px;
     /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */
     &-caret {
       margin-inline-start: 1px;
-      color: $slate-soft;
+      color: var(--color-slate-soft);
 
       @at-root .body--dark & {
-        color: $slate-light;
+        color: var(--color-slate-light);
       }
     }
 
@@ -2089,10 +2118,10 @@ $toolbar-btn: 30px;
       height: 20px;
       margin: 0 5px;
       align-self: center;
-      --w-hairline-color: #{$hairline};
+      --w-hairline-color: #{var(--color-hairline)};
 
       @at-root .body--dark & {
-        --w-hairline-color: #{$hairline-dark};
+        --w-hairline-color: #{var(--color-hairline-dark)};
       }
     }
   }
@@ -2110,14 +2139,14 @@ $toolbar-btn: 30px;
     padding: 8px 0;
 
     @at-root .body--light & {
-      background-color: $tint;
-      border-inline-end: 1px solid $hairline;
-      color: $slate;
+      background-color: var(--color-tint);
+      border-inline-end: 1px solid var(--color-hairline);
+      color: var(--color-slate);
     }
     @at-root .body--dark & {
-      background-color: $dark-2;
-      border-inline-end: 1px solid $hairline-dark;
-      color: $text-secondary-dark;
+      background-color: var(--color-dark-2);
+      border-inline-end: 1px solid var(--color-hairline-dark);
+      color: var(--color-text-secondary-dark);
     }
 
     /*

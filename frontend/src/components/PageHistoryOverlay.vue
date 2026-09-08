@@ -877,10 +877,10 @@ onBeforeUnmount(disposeEditor)
 /**
  * The subway line: its colour, and the radius of the turn it makes at the end.
  *
- * `var(--color-hairline-dark)`, not the bare `$hairline-dark` this held until OpenProject #2776:
+ * `var(--color-hairline-dark)`, not the bare `var(--color-hairline-dark)` this held until OpenProject #2776:
  * a Sass variable is a build-time literal, so it never varies with `body.body--cobalt` the way a
  * CSS custom property does. Ledger is unaffected -- `--color-hairline-dark` starts at the exact
- * same `#2a3040` -- but this line, and every other `$dark-*`/`$hairline-dark`/`$text-*-dark`
+ * same `#2a3040` -- but this line, and every other `$dark-*`/`var(--color-hairline-dark)`/`$text-*-dark`
  * reference in this file, were rendering the SAME fixed Ledger-dark tones under Cobalt too, which
  * is the opposite of what "this overlay is drawn on ink in BOTH [site] THEMES" (below) was ever
  * meant to say -- it was never meant to also mean "in both aesthetics."
@@ -999,7 +999,7 @@ $timeline-turn: 16px;
       box, so it pushed the row's contents 3px across and took the dot of every picked entry off the
       line while the unpicked ones stayed on it.
 
-      `--color-accent-fill`, not `$primary`: this is an UNTEXTED highlight (a wash plus an inset
+      `--color-accent-fill`, not `var(--color-primary)`: this is an UNTEXTED highlight (a wash plus an inset
       bar, the same pairing the file manager's own selected row and the site's active-nav item both
       use), not a fill carrying text -- the design's own mockup draws it in the accent-fill tone in
       both aesthetics (`#e4676b`/`#ff4d5a`), never the white-text accent this held instead
@@ -1018,9 +1018,9 @@ $timeline-turn: 16px;
     reads as passing UNDER the dot rather than through it. All three measurements are the design's
     (`ui-redesign/Cardinal Wiki - History 3x.dc.html`).
 
-    The ring was $dark-5 -- ink, which is the DIFF pane's ground, not this column's. The comment
-    below it already said "the sidebar's own colour"; $dark-4 is what that actually is, and against
-    $dark-4 the old ring drew a visible dark halo instead of disappearing.
+    The ring was var(--color-dark-5) -- ink, which is the DIFF pane's ground, not this column's. The comment
+    below it already said "the sidebar's own colour"; var(--color-dark-4) is what that actually is, and against
+    var(--color-dark-4) the old ring drew a visible dark halo instead of disappearing.
   */
   &-dot {
     flex: 0 0 28px;
@@ -1039,7 +1039,7 @@ $timeline-turn: 16px;
     tier (#5f9c86 / #d9a441).
 
     Every dot is a fill, so the glyph over it takes whichever ink clears it: white on the two darker
-    fills, $ink on the two bright ones. That is how the design draws its own amber "Moved" dot
+    fills, var(--color-ink) on the two bright ones. That is how the design draws its own amber "Moved" dot
     (stroke #1c2233), and it is the rule `css/_theme.scss` states for every `-fill` tone.
 
     #5f78a8 is a literal because the palette has no name for it -- it is the only tone on this screen
@@ -1170,7 +1170,7 @@ $timeline-turn: 16px;
   /*
     -> The accent under a white letter, and the mono the design sets both cursors in.
 
-    `var(--color-accent)`, not `$primary`: same white-text-fill mixup as the "Current" badge above
+    `var(--color-accent)`, not `var(--color-primary)`: same white-text-fill mixup as the "Current" badge above
     (OpenProject #2776) -- the design's own A/B plates fill `#c8303c` under Cobalt, `--q-accent`'s
     value, not the site's unrelated primary blue.
   */

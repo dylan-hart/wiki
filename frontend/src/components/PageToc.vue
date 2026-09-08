@@ -214,7 +214,7 @@ onBeforeUnmount(() => {
 
   Everything hangs off one vertical rail at the left: depth is indentation from it, and the heading
   being read marks it. Colours come from CSS custom properties rather than the SCSS palette so that
-  `--color-primary` follows a re-themed site, which a compiled `$primary` could not.
+  `--color-primary` follows a re-themed site, which a compiled `var(--color-primary)` could not.
 */
 .page-toc {
   --page-toc-indent: 14px;
@@ -225,8 +225,43 @@ onBeforeUnmount(() => {
   --page-toc-ink-soft: #{$grey-6};
   --page-toc-ink-hover: #{$grey-10};
   --page-toc-hover-surface: rgba(0, 0, 0, 0.04);
+  /*
+    The active entry, as three properties rather than one colour: Ledger marks it with a 2px accent
+    bar drawn ON the rail and leaves the row untinted, while Cobalt drops the rail and the bar
+    altogether and marks the row itself -- an accent-wash plate with accent text and a 5px corner
+    (`Page View 3x - Cobalt`). `--page-toc-active-mark` is the bar's width, so `0` is what removes it.
+  */
+  --page-toc-active-ink: var(--color-primary);
+  --page-toc-active-surface: transparent;
+  --page-toc-active-mark: 2px;
+  --page-toc-active-radius: 0;
+  --page-toc-active-weight: inherit;
 
   line-height: 1.4;
+
+  @at-root body.body--cobalt & {
+    --page-toc-rail: transparent;
+    --page-toc-ink-strong: var(--color-text-body);
+    --page-toc-ink: var(--color-text-secondary);
+    --page-toc-ink-soft: var(--color-text-secondary);
+    --page-toc-ink-hover: var(--color-ink);
+    --page-toc-hover-surface: var(--color-tint);
+    --page-toc-active-ink: var(--color-accent);
+    --page-toc-active-surface: var(--color-accent-wash);
+    --page-toc-active-mark: 0;
+    --page-toc-active-radius: 5px;
+    --page-toc-active-weight: 600;
+  }
+
+  @at-root body.body--cobalt.body--dark & {
+    --page-toc-ink-strong: var(--color-text-dark);
+    --page-toc-ink: var(--color-text-secondary-dark);
+    --page-toc-ink-soft: var(--color-text-secondary-dark);
+    --page-toc-ink-hover: var(--color-text-dark);
+    --page-toc-hover-surface: rgba(255, 255, 255, 0.06);
+    --page-toc-active-ink: var(--color-accent-dark);
+    --page-toc-active-surface: var(--color-accent-wash-dark);
+  }
 
   @at-root .body--dark & {
     --page-toc-rail: rgba(255, 255, 255, 0.12);
@@ -276,8 +311,8 @@ onBeforeUnmount(() => {
     top: 2px;
     bottom: 2px;
     inset-inline-start: 0;
-    width: 2px;
-    background-color: var(--color-primary);
+    width: var(--page-toc-active-mark);
+    background-color: var(--page-toc-active-ink);
   }
 
   &-link {
@@ -332,10 +367,21 @@ onBeforeUnmount(() => {
 
   /* Active beats the ramp at every depth, and keeps that depth's own weight */
   &-item--active {
-    color: var(--color-primary);
+    color: var(--page-toc-active-ink);
 
-    @at-root .body--dark & {
+    @at-root .body--dark:not(.body--cobalt) & {
       color: var(--color-primary-light);
+    }
+
+    /*
+      The row's own plate, which is `transparent`/`0` in Ledger and so draws nothing there. On the
+      link rather than the item, so the tint stops at the label's box instead of running back under
+      the indentation of a nested entry.
+    */
+    > .page-toc-link {
+      background-color: var(--page-toc-active-surface);
+      border-radius: var(--page-toc-active-radius);
+      font-weight: var(--page-toc-active-weight);
     }
   }
 

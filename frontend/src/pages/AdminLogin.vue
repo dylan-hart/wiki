@@ -351,7 +351,7 @@ onMounted(async () => {
       background-color: $grey-2;
     }
     @at-root .body--dark & {
-      background-color: $dark-5;
+      background-color: var(--color-dark-5);
     }
 
     & + .w-item {

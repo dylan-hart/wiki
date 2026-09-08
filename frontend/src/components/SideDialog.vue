@@ -108,12 +108,12 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
       border-bottom: 1px solid $grey-4;
     }
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-top: 1px solid color.adjust($dark-3, $lightness: 8%);
+      background-color: var(--color-dark-4);
+      border-top: 1px solid color-mix(in srgb, var(--color-dark-3) 88%, #fff);
       box-shadow:
-        inset 0 1px 0 0 $dark-6,
-        inset 0 -1px 0 0 $dark-6;
-      border-bottom: 1px solid color.adjust($dark-3, $lightness: 8%);
+        inset 0 1px 0 0 var(--color-dark-6),
+        inset 0 -1px 0 0 var(--color-dark-6);
+      border-bottom: 1px solid color-mix(in srgb, var(--color-dark-3) 88%, #fff);
     }
   }
 

@@ -17,10 +17,16 @@
       the picker while editing, a bare icon while reading), so the masthead's geometry does not shift
       the moment an author starts editing.
     -->
+    <!--
+      Ground, edge, radius and glyph colour all come from `--page-header-icon-*` (`tailwind.css`)
+      rather than a border/bg utility pair: the plate sits INSIDE the masthead, so it has to follow
+      whatever the masthead is. Ledger's own defaults for the four are the paper tint, the hairline,
+      a square corner and the accent glyph -- exactly what the utilities drew -- so Ledger is
+      unchanged; Cobalt's are a translucent white well with a rounded corner and a white glyph on its
+      gradient banner.
+    -->
     <div class="flex-none ps-4 flex items-center">
-      <div
-        class="page-header-icon flex flex-none items-center justify-center border border-hairline bg-paper dark:border-hairline-dark dark:bg-dark-4"
-        :style="plateStyle">
+      <div class="page-header-icon flex flex-none items-center justify-center" :style="plateStyle">
         <!--
           The blueprint corner marks. Four 7px right-angles standing just outside the plate's own
           corners -- the mark the design puts on every framed thing that is being POINTED AT rather
@@ -32,7 +38,6 @@
           v-if="isEditing"
           padding="none"
           :size="glyphSize"
-          color="accent-fill"
           flat
           :aria-label="t(`editor.props.icon`)"
           :style="{ minHeight: glyphSize, width: glyphSize }">
@@ -44,7 +49,7 @@
             <icon-picker-dialog :model-value="pageStore.icon" @update:model-value="setIcon" />
           </w-menu>
         </w-btn>
-        <w-icon v-else :name="pageStore.icon" :size="glyphSize" color="accent-fill" />
+        <w-icon v-else :name="pageStore.icon" :size="glyphSize" />
       </div>
     </div>
     <!-- PAGE HEADER -->
@@ -886,6 +891,23 @@ async function toggleWatch() {
 }
 
 /*
+  The secondary actions' own plate. Ledger draws them as bare icons in the chrome tone on a white
+  band -- `--page-header-action-bg` is `transparent` and `--page-header-action-fg` the same
+  `--color-slate-soft` each caller asks for, so nothing changes there. Cobalt sets each one in a
+  `rgba(255,255,255,.14)` rounded plate with a white stroke, because the band underneath is a
+  saturated gradient and a chrome-tone glyph on it is neither legible nor the mockup.
+
+  `:not(.w-btn--is-primary)` keeps Edit out of it: that button is the one accent fill on this row in
+  both aesthetics and paints itself. Matched on the flat icon buttons only -- a labelled button
+  (Save, Close in the editor) keeps `WBtn`'s own treatment.
+*/
+.page-header-actions > .w-btn.w-btn--flat {
+  background-color: var(--page-header-action-bg);
+  color: var(--page-header-action-fg);
+  border-radius: var(--radius-control);
+}
+
+/*
   The phone layout of this row.
 
   The title comes down from `text-h4`, which is a 34px display size written for a header the width of a
@@ -969,6 +991,30 @@ async function toggleWatch() {
 */
 .page-header-icon {
   position: relative;
+  background-color: var(--page-header-icon-bg);
+  border: var(--page-header-icon-border);
+  border-radius: var(--page-header-icon-radius);
+  /* -> The glyph inside, whether it is the bare icon or the picker button, inherits this */
+  color: var(--page-header-icon-fg);
+}
+
+/*
+  Ledger's plate is the paper tint, which is a light-mode value: on the dark theme it takes the
+  recessed rung of the dark ramp instead. Cobalt's plate is the same translucent white on its own
+  gradient in BOTH themes -- the banner does not change between them -- so the aesthetic is excluded
+  here rather than given a second value.
+*/
+.body--dark:not(.body--cobalt) .page-header-icon {
+  background-color: var(--color-dark-4);
+  border-color: var(--color-hairline-dark);
+}
+
+/*
+  The corner marks are Ledger's, and `--corner-marks` is the token that says so: `block` there,
+  `none` under Cobalt, whose plate is bounded by its own radius instead.
+*/
+.page-header-icon__marks {
+  display: var(--corner-marks);
 }
 
 .page-header-icon__marks {
@@ -976,14 +1022,14 @@ async function toggleWatch() {
   inset: -5px;
   pointer-events: none;
   background:
-    linear-gradient($slate-soft, $slate-soft) 0 0 / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 0 0 / 1px 7px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 0 / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 0 / 1px 7px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 0 100% / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 0 100% / 1px 7px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 100% / 7px 1px no-repeat,
-    linear-gradient($slate-soft, $slate-soft) 100% 100% / 1px 7px no-repeat;
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 1px 7px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 0 / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 0 / 1px 7px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 100% / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 100% / 1px 7px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 7px 1px no-repeat,
+    linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 1px 7px no-repeat;
 }
 
 /*

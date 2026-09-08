@@ -215,6 +215,13 @@ const isSolid = computed(() => !props.flat && !props.outline)
   see OpenProject #2772's sign-off -- but nothing here reaches for it yet.)
 */
 const classes = computed(() => [
+  /*
+    A stable hook for the variant, so a surrounding context can restyle its own unfilled buttons
+    without having to re-derive which of the three variants they are from the utility soup. Cobalt's
+    page masthead is the first caller: its secondary actions become translucent plates on the
+    gradient banner while the primary Edit button beside them keeps its accent fill.
+  */
+  isSolid.value ? 'w-btn--solid' : props.outline ? 'w-btn--outline' : 'w-btn--flat',
   props.size ? 'leading-[1.715em]' : 'text-[12.5px] leading-[1.715em]',
   props.round ? 'rounded-full' : props.rounded ? 'rounded-[28px]' : 'rounded-control',
   // -> The hairline, not `border-current`: an outlined button's edge is chrome, its label is not

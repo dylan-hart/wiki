@@ -64,7 +64,6 @@
             :hint="t(`admin.theme.aestheticHint`)">
             <w-btn-toggle
               :model-value="state.config.aesthetic"
-              toggle-color="primary"
               :aria-label="t(`admin.theme.aesthetic`)"
               :options="aesthetics"
               @update:model-value="onAestheticChange" />
@@ -168,7 +167,6 @@
               :hint="t(`admin.theme.contentWidthHint`)">
               <w-btn-toggle
                 v-model="state.config.contentWidth"
-                toggle-color="primary"
                 :aria-label="t(`admin.theme.contentWidth`)"
                 :options="widthOptions" />
             </w-settings-row>
@@ -180,7 +178,6 @@
             :hint="t(`admin.theme.sidebarPositionHint`)">
             <w-btn-toggle
               v-model="state.config.sidebarPosition"
-              toggle-color="primary"
               :aria-label="t(`admin.theme.sidebarPosition`)"
               :options="rightLeftOptions" />
           </w-settings-row>
@@ -191,7 +188,6 @@
             :hint="t(`admin.theme.tocPositionHint`)">
             <w-btn-toggle
               v-model="state.config.tocPosition"
-              toggle-color="primary"
               :aria-label="t(`admin.theme.tocPosition`)"
               :options="rightLeftOptions" />
           </w-settings-row>

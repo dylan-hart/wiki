@@ -14,6 +14,7 @@ import { useI18n } from 'vue-i18n'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
+import { resolveAestheticColors } from '@/helpers/aestheticDefaults'
 import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss, replaceHeadStyle } from '@/helpers/injectCss'
@@ -273,14 +274,25 @@ async function applyTheme() {
   }
 
   // -> Aesthetic (Cobalt: Feature #2753/#2766) -- fully independent of dark mode above
-  aesthetic.set(userStore.aesthetic === 'site' ? siteStore.theme.aesthetic : userStore.aesthetic)
+  const resolvedAesthetic =
+    userStore.aesthetic === 'site' ? siteStore.theme.aesthetic : userStore.aesthetic
+  aesthetic.set(resolvedAesthetic)
 
-  // -> CSS Vars
-  setCssVar('primary', userStore.getAccessibleColor('primary', siteStore.theme.colorPrimary))
+  /*
+    -> CSS Vars
+
+    The four brand colours go through `resolveAestheticColors` first: a stored value the
+    administrator never actually picked (it is still some aesthetic's own default) follows the
+    RESOLVED aesthetic, so a reader who chose Cobalt for themselves gets Cobalt's indigo header and
+    sidebar rather than Ledger's near-white ones under Cobalt's own sidebar text tones. A colour
+    genuinely chosen in AdminTheme is passed through untouched -- see the helper's own comment.
+  */
+  const brand = resolveAestheticColors(resolvedAesthetic, siteStore.theme, dark.isActive)
+  setCssVar('primary', userStore.getAccessibleColor('primary', brand.colorPrimary))
   setCssVar('secondary', userStore.getAccessibleColor('secondary', siteStore.theme.colorSecondary))
-  setCssVar('accent', userStore.getAccessibleColor('accent', siteStore.theme.colorAccent))
-  setCssVar('header', userStore.getAccessibleColor('header', siteStore.theme.colorHeader))
-  setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
+  setCssVar('accent', userStore.getAccessibleColor('accent', brand.colorAccent))
+  setCssVar('header', userStore.getAccessibleColor('header', brand.colorHeader))
+  setCssVar('sidebar', userStore.getAccessibleColor('sidebar', brand.colorSidebar))
   /*
     The two status colours are fixed rather than site-configurable, but they still go through
     `setCssVar` so the colour-vision-deficiency remapping reaches them. Cardinal's positive and
@@ -289,8 +301,8 @@ async function applyTheme() {
     `--color-positive-fill` / `--color-negative-fill`, which nothing resolves through this path.
     Kept equal to `css/tailwind.css`'s `:root`, and pinned in `helpers/accessibility.test.js`.
   */
-  setCssVar('positive', userStore.getAccessibleColor('positive', '#3f7a66'))
-  setCssVar('negative', userStore.getAccessibleColor('negative', '#c14a52'))
+  setCssVar('positive', userStore.getAccessibleColor('positive', brand.colorPositive))
+  setCssVar('negative', userStore.getAccessibleColor('negative', brand.colorNegative))
 
   // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)

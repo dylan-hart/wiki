@@ -682,10 +682,10 @@ onMounted(async () => {
 .page-save-dialog {
   /*
     The stronger of the two Cardinal edges. A dialog is laid over the app rather than sitting in it,
-    so it takes `$rule` where a card in the page takes `$hairline` -- `WCard`'s own hairline border
+    so it takes `var(--color-rule)` where a card in the page takes `var(--color-hairline)` -- `WCard`'s own hairline border
     is what this overrides.
   */
-  border-color: $rule;
+  border-color: var(--color-rule);
   /*
     Room for the corner marks. They sit 5px outside the card's edge, and `WDialog`'s panel scrolls
     its own overflow (`.w-dialog-panel` is `overflow-auto`), so without the margin every one of them
@@ -694,7 +694,7 @@ onMounted(async () => {
   margin: 5px;
 
   @at-root .body--dark & {
-    border-color: $border-dark;
+    border-color: var(--color-border-dark);
   }
 
   /*
@@ -707,13 +707,13 @@ onMounted(async () => {
     position: absolute;
     width: 9px;
     height: 9px;
-    border-color: $paper;
+    border-color: var(--color-paper);
     border-style: solid;
     border-width: 0;
     pointer-events: none;
 
     @at-root .body--dark & {
-      border-color: $slate-faint;
+      border-color: var(--color-slate-faint);
     }
   }
 
@@ -765,11 +765,11 @@ onMounted(async () => {
 
     /*
       The one accent on the title band. `.card-header` is the near-black raised tone, on which the
-      accent's own text tone is too dark to read -- `$accent-dark` is the tone Cardinal lightens it
+      accent's own text tone is too dark to read -- `var(--color-accent-dark)` is the tone Cardinal lightens it
       to for an ink ground.
     */
     > .w-icon {
-      color: $accent-dark;
+      color: var(--color-accent-dark);
     }
   }
 
@@ -779,10 +779,10 @@ onMounted(async () => {
     /* -> Belt and braces with the scroll areas inside: whatever either column ends up holding, the
           browser cannot spill over the fields and buttons below it */
     overflow: hidden;
-    border-bottom: 1px solid $hairline;
+    border-bottom: 1px solid var(--color-hairline);
 
     @at-root .body--dark & {
-      border-bottom-color: $hairline-dark;
+      border-bottom-color: var(--color-hairline-dark);
     }
   }
 
@@ -795,12 +795,12 @@ onMounted(async () => {
     exists -- the columns are Tailwind fractions now -- so the pane had been plain white since.
   */
   &-tree {
-    background-color: $tint;
-    border-inline-end: 1px solid $hairline;
+    background-color: var(--color-tint);
+    border-inline-end: 1px solid var(--color-hairline);
 
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-inline-end-color: $hairline-dark;
+      background-color: var(--color-dark-4);
+      border-inline-end-color: var(--color-hairline-dark);
     }
   }
 
@@ -816,7 +816,7 @@ onMounted(async () => {
     .body--light &-tree .treeview-label.active:hover,
     .body--dark &-tree .treeview-label.active,
     .body--dark &-tree .treeview-label.active:hover {
-    background-color: $accent-fill;
+    background-color: var(--color-accent-fill);
     color: #fff;
 
     .w-icon,
@@ -838,22 +838,22 @@ onMounted(async () => {
         does not change width as the selection moves down the list.
       */
       &.active {
-        background-color: $tint;
-        box-shadow: inset 2px 0 0 0 $accent-fill;
-        color: $accent-strong;
+        background-color: var(--color-tint);
+        box-shadow: inset 2px 0 0 0 var(--color-accent-fill);
+        color: var(--color-accent-strong);
 
         .fileman-filelist-label .w-item-label--caption,
         .fileman-filelist-side .text-caption {
-          color: $text-caption;
+          color: var(--color-text-caption);
         }
 
         @at-root .body--dark & {
-          background-color: $dark-4;
-          color: $accent-dark;
+          background-color: var(--color-dark-4);
+          color: var(--color-accent-dark);
 
           .fileman-filelist-label .w-item-label--caption,
           .fileman-filelist-side .text-caption {
-            color: $text-caption-dark;
+            color: var(--color-text-caption-dark);
           }
         }
       }
@@ -864,10 +864,10 @@ onMounted(async () => {
     padding: 6px 16px 0;
     font-size: 12px;
     font-style: italic;
-    color: $text-caption;
+    color: var(--color-text-caption);
 
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
     }
   }
 
@@ -884,14 +884,14 @@ onMounted(async () => {
     min-height: 38px;
     padding: 5px 16px;
     font-size: 12px;
-    background-color: $tint-alt;
-    border-bottom: 1px solid $hairline;
-    color: $slate;
+    background-color: var(--color-tint-alt);
+    border-bottom: 1px solid var(--color-hairline);
+    color: var(--color-slate);
 
     @at-root .body--dark & {
-      background-color: $dark-4;
-      border-bottom-color: $hairline-dark;
-      color: $slate-light;
+      background-color: var(--color-dark-4);
+      border-bottom-color: var(--color-hairline-dark);
+      color: var(--color-slate-light);
     }
   }
 
@@ -915,10 +915,10 @@ onMounted(async () => {
 
   &-display-hint {
     font-size: 11.5px;
-    color: $text-caption;
+    color: var(--color-text-caption);
 
     @at-root .body--dark & {
-      color: $text-caption-dark;
+      color: var(--color-text-caption-dark);
     }
   }
 }

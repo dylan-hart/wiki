@@ -66,10 +66,18 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
-  /** Colour of the selected segment. */
+  /**
+   * Colour of the selected segment.
+   *
+   * Defaults to `segment-selected` rather than `primary`: the handoff's fill/text split puts every
+   * accent fill CARRYING WHITE TEXT on the accent tone, and a selected segment is named in that list
+   * explicitly. Ledger's `--color-segment-selected` is `var(--color-primary)`, exactly what this
+   * used to be, so nothing moves there; Cobalt's is `var(--color-accent)` (`#c8303c`), which is what
+   * `Aesthetic Setting 3x`'s own Cobalt card draws.
+   */
   toggleColor: {
     type: String,
-    default: 'primary'
+    default: 'segment-selected'
   },
   /** Text colour of the selected segment. Defaults to white. */
   toggleTextColor: {

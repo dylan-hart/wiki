@@ -14,7 +14,6 @@
         <div>
           <w-btn-toggle
             v-model="state.pos"
-            toggle-color="primary"
             :aria-label="t(`editor.pageRel.position`)"
             :options="[
               { label: t('editor.pageRel.left'), value: 'left' },

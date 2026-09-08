@@ -108,16 +108,22 @@ $sidebar-overlay-max: 1199.98px;
 
 /*
   Diffed against `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` (OpenProject #2774). The
-  column's own text, its section kicker and the active-row treatment now go through
-  `--color-sidebar-*`/`--nav-active-inset` below, matching the mockups' dark-navy chrome; the item
-  and expansion-arrow GLYPH colours (`<w-icon color="slate-faint">` in `NavSidebarItem.vue`, and
-  `.w-expansion-item__arrow` below) are logged rather than fixed here. Both would need a fresh
-  `text-sidebar-icon`-shaped Tailwind utility or an unlayered CSS override, since `WIcon`'s `color`
-  prop builds its class at runtime (`text-${color}`) and Tailwind only emits a utility it can see
-  spelled out literally somewhere in source (`PageActionsCol.vue`'s own comment documents the same
-  trap) -- a real fix belongs with whichever follow-up gives the token layer its own icon-safe entry
-  point, not a one-off unlayered rule reached for here.
+  column's own text, its section kicker and the active-row treatment go through
+  `--color-sidebar-*`/`--nav-active-inset` below, matching the mockups' dark-navy chrome.
+
+  The item and expansion-arrow GLYPHS take `--color-sidebar-icon` from this file rather than from
+  their own `color` prop. `WIcon` builds that prop's class at runtime (`text-${color}`) and Tailwind
+  only emits a utility it can see spelled out literally somewhere in source, so the prop resolves to
+  nothing at all and the glyph falls through to the row's inherited ink -- which is Ledger's chrome
+  slate on a light column, and unreadably dark on Cobalt's indigo one. This rule is the icon-safe
+  entry point that note asked for: an unlayered declaration (so it beats any utility that IS emitted)
+  naming the token the sidebar already has for exactly this, whose Ledger value is the same
+  `--color-slate-faint` the prop asked for.
 */
+.sidebar-nav .w-item .w-icon,
+.sidebar-nav .w-expansion-item__arrow {
+  color: var(--color-sidebar-icon);
+}
 
 /*
   A section heading between groups of nav items -- the language's own chrome overline, the same voice
@@ -128,7 +134,7 @@ $sidebar-overlay-max: 1199.98px;
 */
 .sidebar-nav-header {
   padding: 0 18px 10px;
-  color: $text-caption;
+  color: var(--color-text-caption);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
@@ -138,7 +144,7 @@ $sidebar-overlay-max: 1199.98px;
 }
 
 .body--dark .sidebar-nav-header {
-  color: $text-caption-dark;
+  color: var(--color-text-caption-dark);
 }
 
 .sidebar-nav {
@@ -147,7 +153,7 @@ $sidebar-overlay-max: 1199.98px;
     sidebar colour (or, in dark mode, the ramp -- see `css/_base.scss`), and what a nav row inherits
     from the layout above it is the document's own ink either way.
 
-    Through `--color-sidebar-text` (`tailwind.css`, OpenProject #2767) rather than the bare `$slate`
+    Through `--color-sidebar-text` (`tailwind.css`, OpenProject #2767) rather than the bare `var(--color-slate)`
     constant: Ledger's own default for the token is `var(--color-slate)`, the same literal value, so
     this is unchanged for Ledger and is what lets Cobalt's own light nav text (`#d7deff`, legible on
     the dark navy sidebar ground its own `--q-sidebar` default paints) take over.
@@ -208,7 +214,7 @@ $sidebar-overlay-max: 1199.98px;
        section is dimmed for: it takes the sidebar's own chrome tone at full strength. Set on the
        icon rather than on its section, which is what makes it beat the inherited dimmed colour. */
     .w-expansion-item__arrow {
-      color: $slate-soft;
+      color: var(--color-slate-soft);
     }
 
     .w-item-section--avatar {
@@ -231,8 +237,8 @@ $sidebar-overlay-max: 1199.98px;
       there.
     */
     .w-item.router-link-exact-active {
-      background-color: $surface;
-      color: $ink;
+      background-color: var(--color-surface);
+      color: var(--color-ink);
       font-weight: 500;
       /*
         Logical, and paired with the padding below rather than layered over it: the bar is a real
@@ -244,19 +250,19 @@ $sidebar-overlay-max: 1199.98px;
         column (a site setting) rather than the reading direction, and needed a `--flipped` variant
         to do it. A bar on the edge you start reading from needs no such thing.
       */
-      border-inline-start: 2px solid $accent-fill;
+      border-inline-start: 2px solid var(--color-accent-fill);
       padding-inline-start: 14px;
 
       .w-icon {
-        color: $accent-fill;
+        color: var(--color-accent-fill);
       }
 
       @at-root .body--dark & {
-        background-color: $dark-3;
-        color: $text-dark;
+        background-color: var(--color-dark-3);
+        color: var(--color-text-dark);
 
         .w-icon {
-          color: $accent-dark;
+          color: var(--color-accent-dark);
         }
       }
 
@@ -278,6 +284,21 @@ $sidebar-overlay-max: 1199.98px;
           color: var(--color-sidebar-active-text);
         }
       }
+    }
+
+    /*
+      Cobalt's rows are plates rather than full-bleed bands: `Page View 3x - Cobalt` insets the whole
+      list 10px from the column's edges and rounds each row's corner, so the active fill reads as a
+      chip the reader could have clicked rather than as a stripe across the column. On EVERY row, not
+      only the active one, or the two would sit at different widths and the inactive rows' hover
+      would still run edge to edge.
+
+      Through `--radius-control`/`--nav-item-inset` so the rule is one statement: Ledger's values are
+      `0`, which is exactly what it draws today.
+    */
+    .w-item {
+      border-radius: var(--radius-control);
+      margin-inline: var(--nav-item-inset);
     }
 
     /*
@@ -399,10 +420,10 @@ $sidebar-overlay-max: 1199.98px;
     unchanged from Cobalt light) `--color-sidebar-*` values with Ledger's dark literals.
   */
   @at-root .body--dark:not(.body--cobalt) & {
-    color: $text-secondary-dark;
+    color: var(--color-text-secondary-dark);
 
     .w-expansion-item__arrow {
-      color: $slate-light;
+      color: var(--color-slate-light);
     }
   }
 
@@ -418,7 +439,7 @@ $sidebar-overlay-max: 1199.98px;
     padding-bottom: 4px;
 
     @at-root .body--dark:not(.body--cobalt) & {
-      color: $text-caption-dark !important;
+      color: var(--color-text-caption-dark) !important;
     }
   }
 }

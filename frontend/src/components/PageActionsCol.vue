@@ -818,12 +818,12 @@ $action-btn-height: 3rem;
     continuous light slate, so the rail is a strip of the same paper the sidebar is, not a grey block.
   */
   @at-root .body--light & {
-    background-color: $tint;
-    border-inline-start: 1px solid $hairline;
+    background-color: var(--color-tint);
+    border-inline-start: 1px solid var(--color-hairline);
   }
   @at-root .body--dark & {
-    background-color: $dark-4;
-    border-inline-start: 1px solid $hairline-dark;
+    background-color: var(--color-dark-4);
+    border-inline-start: 1px solid var(--color-hairline-dark);
   }
 
   /*
@@ -857,9 +857,25 @@ $action-btn-height: 3rem;
       margin: 8px auto 4px;
       border-radius: var(--radius-control);
       border-block-end: 0;
-      background-color: var(--color-accent-fill);
+      /*
+        `--color-accent`, not `--color-accent-fill`: this plate carries a white glyph, and the
+        handoff's fill/text split puts a white-texted accent surface on `#c8303c` (5.3:1) rather
+        than the untexted `#ff4d5a` (3.1:1) -- the same divergence it flags as a defect in the
+        mockups themselves.
+      */
+      background-color: var(--color-accent);
       box-shadow: var(--shadow-primary);
       color: var(--color-white);
+    }
+
+    /*
+      And the rest of the rail's glyphs, which the mockup draws as cobalt strokes on the card rather
+      than the chrome-slate Ledger sets them in. `--color-accent-strong` is `#1f4fd6` under Cobalt
+      (and `#7fa0ff` on its dark ground), which is exactly the tone the mockup uses.
+    */
+    > .aspect-square:not(:first-child) .w-btn,
+    > .aspect-square:not(:first-child) .w-icon {
+      color: var(--color-accent-strong);
     }
   }
   @at-root body.body--cobalt.body--dark &:not(.is-editor) {
@@ -882,7 +898,7 @@ $action-btn-height: 3rem;
     own. This rail is where the two things only an author can do live, so it is a live edge in
     Cardinal's own sense, and the header, toolbar and save button all change with it.
 
-    `$primary` (#c14a52), not the `#e4676b` the design file paints. Both are the same hue; which one a
+    `var(--color-primary)` (#c14a52), not the `#e4676b` the design file paints. Both are the same hue; which one a
     surface takes is decided by what rides on it, and this one carries white glyphs AND a white 10px
     overline. `docs/cardinal-reskin-second-pass.md`'s "One deliberate divergence" settles that case:
     a fill under white text resolves to the darker tone, which clears 4.5:1 where #e4676b is 3.26:1.
@@ -897,10 +913,18 @@ $action-btn-height: 3rem;
       as `.body--light &` / `.body--dark &` -- a bare `&.is-editor` would be one class short of those
       and lose the cascade to them, leaving the fill off entirely.
     */
+    /*
+      `--color-accent`, not `--color-primary`: the two are the same `#c14a52` in Ledger, so this
+      changes nothing there -- but they part company under Cobalt, where `primary` is the aesthetic's
+      cobalt blue and the accent is what an accent SURFACE takes. `Editor 3x - Cobalt` paints this
+      rail `#ff4d5a`; the accent token resolves to `#c8303c` instead, for exactly the reason the
+      paragraph above gives about Ledger's own `#e4676b` -- the rail carries white glyphs and a white
+      overline, and `#ff4d5a` under white is 3.1:1. Same known mockup defect, same correction.
+    */
     @at-root .body--light &,
       .body--dark & {
-      background-color: $primary;
-      border-inline-start: 1px solid $primary;
+      background-color: var(--color-accent);
+      border-inline-start: 1px solid var(--color-accent);
       color: #fff;
     }
 
@@ -923,12 +947,12 @@ $action-btn-height: 3rem;
   */
   > .aspect-square:first-child {
     @at-root .body--light & {
-      background-color: $surface;
-      border-block-end: 1px solid $hairline;
+      background-color: var(--color-surface);
+      border-block-end: 1px solid var(--color-hairline);
     }
     @at-root .body--dark & {
-      background-color: $dark-3;
-      border-block-end: 1px solid $hairline-dark;
+      background-color: var(--color-dark-3);
+      border-block-end: 1px solid var(--color-hairline-dark);
     }
   }
 
@@ -955,7 +979,7 @@ $action-btn-height: 3rem;
 
     White, because this only ever renders while the editor is open and the rail beneath it is
     therefore filled (see `.is-editor`). The design writes it at 85% alpha; at full opacity it clears
-    4.5:1 on `$primary` where the softened version does not, and there is nothing else on the rail for
+    4.5:1 on `var(--color-primary)` where the softened version does not, and there is nothing else on the rail for
     it to be held back from.
   */
   &-mode {

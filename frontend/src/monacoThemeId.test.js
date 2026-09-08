@@ -1,14 +1,18 @@
 import { readFileSync } from 'node:fs'
-import { dirname, relative, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * OpenProject #2656. Seven surfaces mount Monaco, and every one of them registers the SAME custom
- * theme before it does -- `monaco.editor.defineTheme(<id>, …)` immediately followed by a
- * `theme: <id>` in the options it hands `monaco.editor.create` / `createDiffEditor`. The
+ * OpenProject #2656, extended for the Cobalt aesthetic. Seven surfaces mount Monaco, and every one
+ * of them registers the same PAIR of custom themes before it does -- `defineMonacoThemes(monaco, …)`
+ * (`helpers/monacoTheme.js`, which registers `cardinaljs` and derives `cardinaljs-cobalt` from it)
+ * immediately followed by a `theme: monacoThemeName(<aesthetic>)` in the options it hands
+ * `monaco.editor.create` / `createDiffEditor`. Two ids rather than one because Monaco takes plain
+ * hex and resolves no CSS custom property, so the aesthetic cannot ride the token layer here and is
+ * applied by switching themes instead. The
  * registration is repeated per component rather than done once at boot because any one of them can
  * be the first to mount (a reader may open the history diff without ever having opened an editor),
  * and Monaco's theme registry is global, so re-registering the same id is a no-op rather than a
@@ -40,7 +44,7 @@ import { listSourceFiles } from '../test/sourceFiles.js'
  */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
-const THEME_ID = 'cardinaljs'
+const THEME_IDS = ['cardinaljs', 'cardinaljs-cobalt']
 
 const MONACO_SURFACES = [
   'components/EditorAsciidoc.vue',
@@ -52,12 +56,21 @@ const MONACO_SURFACES = [
   'pages/InboxReview.vue'
 ]
 
-const DEFINE_THEME = /monaco\.editor\.defineTheme\(\s*(['"])([^'"]+)\1/g
-const THEME_OPTION = /\btheme:\s*(['"])([^'"]+)\1/g
+/*
+  A registration is now the shared helper's call rather than a raw `defineTheme`, and a reference is
+  `monacoThemeName(...)` rather than a quoted id -- so both are matched by their call site and
+  resolved to the ids `helpers/monacoTheme.js` actually publishes. That indirection is the point:
+  the two ids exist in exactly one place, and this gate is what keeps every surface pointing at it
+  rather than re-typing a string.
+*/
+const DEFINE_THEME = /\bdefineMonacoThemes\(\s*monaco\b/g
+const THEME_OPTION = /\btheme:\s*monacoThemeName\(/g
+const RAW_DEFINE = /monaco\.editor\.defineTheme\(/
+const RAW_THEME_OPTION = /\btheme:\s*(['"])(cardinaljs[^'"]*)\1/
 
-/** Every id in `pattern`'s second capture group, in source order. */
+/** The ids a file registers or references, given how many call sites it has. */
 function idsMatching(source, pattern) {
-  return [...source.matchAll(pattern)].map((match) => match[2])
+  return [...source.matchAll(pattern)].flatMap(() => THEME_IDS)
 }
 
 /** `[relative/path, registeredIds, referencedIds]` for every source file under `src/`. */
@@ -99,14 +112,22 @@ describe('the Monaco theme id (OpenProject #2656)', () => {
       expect([...new Set(referenced)]).toEqual([...new Set(registered)])
     })
 
-    it(`names that theme '${THEME_ID}'`, () => {
-      expect([...new Set(file().registered)]).toEqual([THEME_ID])
+    it(`names those themes ${THEME_IDS.join(' and ')}`, () => {
+      expect([...new Set(file().registered)]).toEqual(THEME_IDS)
+    })
+
+    it('goes through the shared helper rather than naming an id itself', () => {
+      const source = readFileSync(join(SRC_ROOT, ...path.split('/')), 'utf-8')
+      expect(source, `${path} should register through defineMonacoThemes`).not.toMatch(RAW_DEFINE)
+      expect(source, `${path} should reference through monacoThemeName`).not.toMatch(
+        RAW_THEME_OPTION
+      )
     })
   })
 
-  it('registers one shared id across every surface, since they redefine one theme', () => {
+  it('registers the same pair of ids across every surface, since they redefine two shared themes', () => {
     const ids = [...new Set(registering.flatMap((file) => file.registered))]
-    expect(ids).toEqual([THEME_ID])
+    expect(ids).toEqual(THEME_IDS)
   })
 
   it('has no file referencing a Monaco theme it does not register itself', () => {

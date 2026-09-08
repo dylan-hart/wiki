@@ -8,6 +8,25 @@ import StatusLight from '@/components/StatusLight.vue'
 import { sharedComponents } from '@/components/shared'
 
 import { createApiClientStub } from './mocks.js'
+import { ledgerTokenCss } from './tokens.js'
+
+/*
+  The Ledger half of the design-token layer, installed once for the whole run.
+
+  Component stylesheets read their colours, radii and shadows through custom properties rather than
+  literals -- that indirection IS the aesthetic system (`ui-redesign-cobalt/HANDOFF.md`) -- and
+  neither `happy-dom` nor the real Chromium these suites drive builds `css/tailwind.css`. Without
+  the properties declared somewhere, every one of those `var()`s computes to nothing, and a
+  `.body--dark` override written with one silently stops overriding: a suite comparing light against
+  dark then reads the same value twice and passes or fails for the wrong reason.
+
+  Ledger's values, because Ledger is the default aesthetic; a suite asserting Cobalt's own value
+  reads it with `tokenValue(name, 'cobalt')` rather than swapping what is installed here.
+*/
+const tokenStyle = document.createElement('style')
+tokenStyle.id = 'design-tokens'
+tokenStyle.textContent = ledgerTokenCss()
+document.head.appendChild(tokenStyle)
 
 /**
  * `Temporal` is native from Node 26 (this repo's engine requirement) but this sandbox runs Node

@@ -754,7 +754,7 @@ defineExpose({ editor, menuBar })
 
     /*
       OpenProject #2498: this bar had no dark-mode treatment at all, so it stayed a bright white/grey
-      band regardless of theme. Dark values reuse the same `$dark-2`/`$dark-1` panel-and-border pair
+      band regardless of theme. Dark values reuse the same `var(--color-dark-2)`/`var(--color-dark-1)` panel-and-border pair
       `EditorMarkdown.vue`'s own dark preview toolbar uses -- the closest sibling shape, even though
       this toolbar (formatting buttons, not a rendered preview) has no exact structural twin.
     */
@@ -763,8 +763,8 @@ defineExpose({ editor, menuBar })
       border-bottom: 1px solid $grey-4;
     }
     @at-root .body--dark & {
-      background: linear-gradient(to top, $dark-3 0%, $dark-2 100%);
-      border-bottom: 1px solid $dark-1;
+      background: linear-gradient(to top, var(--color-dark-3) 0%, var(--color-dark-2) 100%);
+      border-bottom: 1px solid var(--color-dark-1);
     }
   }
 
@@ -869,7 +869,7 @@ defineExpose({ editor, menuBar })
         position: relative;
 
         @at-root .body--dark & {
-          border-color: $dark-1;
+          border-color: var(--color-dark-1);
         }
 
         > * {
@@ -883,7 +883,7 @@ defineExpose({ editor, menuBar })
         background-color: #f1f3f5;
 
         @at-root .body--dark & {
-          background-color: $dark-2;
+          background-color: var(--color-dark-2);
         }
       }
 
