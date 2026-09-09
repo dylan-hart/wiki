@@ -869,16 +869,37 @@ $action-btn-height: 3rem;
       */
       background-color: var(--color-accent);
       box-shadow: var(--shadow-primary);
-      color: var(--color-white);
+
+      /*
+        OpenProject #2903: on `.aspect-square:first-child` ITSELF this loses to `w-btn`'s own inline
+        `color` -- the template passes `color="accent-fill"` for this button (Ledger's plain white
+        cell wants that as its glyph colour, and does, since Ledger declares no color rule here to
+        compete with it), and an inline style always beats an external rule on the very same element
+        regardless of specificity. Targeting the icon -- a DESCENDANT of the button the inline style
+        is on -- sidesteps that: a stylesheet rule that specifies `color` for `.w-icon` itself is a
+        specified value for THAT element, which wins over whatever it would otherwise have inherited
+        (inline or not) from its ancestor. Same mechanism the "rest of the rail" rule below already
+        relies on; this plate just wasn't using it, so `--color-accent-fill`'s red rendered on the
+        red-toned `--color-accent` plate instead of the white the mockup draws.
+      */
+      .w-icon {
+        color: var(--color-white);
+      }
     }
 
     /*
       And the rest of the rail's glyphs, which the mockup draws as cobalt strokes on the card rather
       than the chrome-slate Ledger sets them in. `--color-accent-strong` is `#1f4fd6` under Cobalt
       (and `#7fa0ff` on its dark ground), which is exactly the tone the mockup uses.
+
+      `.h-12`, not `.aspect-square:not(:first-child)`: Page Properties is the rail's only
+      `.aspect-square` cell (the header comment above explains why -- it alone keeps the full square,
+      every other button is `h-12`), so a `:not(:first-child)` sibling of it never existed to match
+      and this rule was dead from the day it was written -- these buttons kept their inline
+      `slate-soft` (`#7b88bd`, a hairline/stroke tone, not the mockup's saturated link blue) instead.
+      Targeted at `.w-icon` for the same inline-beats-external-on-the-SAME-element reason as above.
     */
-    > .aspect-square:not(:first-child) .w-btn,
-    > .aspect-square:not(:first-child) .w-icon {
+    > .h-12 .w-icon {
       color: var(--color-accent-strong);
     }
   }
