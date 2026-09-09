@@ -65,9 +65,25 @@ defineEmits(['update:modelValue'])
   }
 }
 
+/*
+  Matches `.graph-view-control-caption` (Graph.vue) -- the mono, letter-spaced overline every other
+  graph-control label (GROUP BY, SIZE BY, the filter captions) uses, so "Count edits/visits by"
+  reads consistently with the rest of the panel (OpenProject #2893) rather than in the plain,
+  lower-opacity style this used to inherit.
+*/
 .graph-client-type-filter-caption {
-  font-size: 11px;
-  opacity: 0.7;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+
+  @at-root .body--light & {
+    color: var(--color-text-caption);
+  }
+  @at-root .body--dark & {
+    color: var(--color-text-caption-dark);
+  }
 }
 
 /*
