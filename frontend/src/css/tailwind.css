@@ -960,6 +960,170 @@ body.body--cobalt.body--dark {
 }
 
 /*
+  -- Tabset block + shared block custom properties (OpenProject #2860) --------
+  The `--tabs-*` custom-property set `blocks/block-tabs/component.js` will read once Feature #2844
+  (Blocks theming, not yet built) swaps its `static get styles()` for these -- table in
+  `ui-iteration/tabset-block.md` -- plus a small `--block-*` namespace covering what `ui-iteration/
+  blocks.md`'s "Ground rules (every block)" and "Shared fragments" sections describe as reusable
+  across every block, not just this one. Declared here rather than on each block's own `:host`, per
+  blocks.md's own preferred convention ("set the properties on body ... and let them inherit --
+  since the page already owns the aesthetic switch"): a block lives in a shadow root and inherits
+  whatever custom property value is in scope on `<body>`, the same way it already inherits
+  `--q-primary`.
+
+  This task adds the TOKENS ONLY -- no block or block-tabs component file changes. Nothing reads
+  these yet: `block-tabs/component.js` still declares its own pre-Cardinal `:host` fallback defaults
+  (a grey e0e0e0 border, a Quasar-blue active tab), and every other block still hardcodes its own
+  colors. That conversion is
+  Feature #2844's job (deliberately deferred; this Task's own "Owns" section is exactly "the
+  custom-property token layer" it will consume).
+
+  Values are literal per aesthetic rather than aliased onto the generic ramp wherever the source
+  table's own number diverges from the nearest existing token, however slightly -- `--tabs-border`'s
+  Cobalt-dark `rgba(255,255,255,.1)` is NOT `--color-hairline-dark`'s Cobalt-dark `rgb(255 255 255 /
+  0.08)`, and mixing the two silently would draw the wrong border the day something finally reads
+  this token. Only restated where a state's value differs from the one before it, matching every
+  other token block in this file (Ledger dark restates the ~10 `--tabs-*` rows tabset-block.md's
+  table actually changes for it, not all 21; Cobalt light and dark do the same against their own
+  predecessor row).
+*/
+:root {
+  /* Shared across every block: chrome, text tiers and the accent's three roles */
+  --block-border: var(--color-hairline);
+  --block-radius: var(--radius-card);
+  --block-tile-radius: var(--radius-control);
+  --block-corner-marks: var(--corner-marks);
+  --block-mark-color: var(--color-slate-soft);
+  --block-bg: var(--color-white);
+  --block-tint-bg: var(--color-tint-alt);
+  --block-caption-fg: var(--color-text-secondary);
+  --block-eyebrow-fg: var(--color-text-caption);
+  --block-accent-fill: var(--color-accent-fill);
+  --block-accent-fg: var(--color-accent);
+  --block-link-fg: var(--color-accent-strong);
+  /* -> errorBox (blocks.md "Shared fragments"): dashed in the accent fill, on the block's own surface */
+  --block-error-border: 1px dashed var(--block-accent-fill);
+  --block-error-bg: var(--block-bg);
+  --block-error-radius: var(--block-tile-radius);
+
+  /* block-tabs: full table in ui-iteration/tabset-block.md */
+  --tabs-border: #dbe1ec;
+  --tabs-radius: 0;
+  --tabs-shadow: none;
+  --tabs-corner-marks: block;
+  --tabs-strip-bg: #f0f2f7;
+  --tabs-strip-padding: 0;
+  --tabs-strip-gap: 0;
+  --tabs-strip-rule: 1px solid var(--tabs-border);
+  --tabs-tab-padding: 9px 16px;
+  --tabs-tab-radius: 0;
+  --tabs-tab-rule: 1px solid var(--tabs-border);
+  --tabs-inactive-fg: #4e5d7d;
+  --tabs-inactive-icon: #64789f;
+  --tabs-hover-bg: rgb(255 255 255 / 0.6);
+  --tabs-hover-fg: #38465f;
+  --tabs-active-fg: #c14a52;
+  --tabs-active-weight: 500;
+  --tabs-active-cap: inset 0 2px 0 #e4676b;
+  --tabs-focus-ring: inset 0 0 0 2px #e4676b;
+  --tabs-panel-bg: #fff;
+  --tabs-panel-padding: 18px 20px;
+}
+
+/*
+  Ledger dark. Only the rows tabset-block.md's table actually changes for it -- everything else
+  (radius, shadow, corner marks, strip padding/gap, tab padding/radius, active weight, panel
+  padding, and both rule shorthands, which re-resolve `var(--tabs-border)` on their own) stays the
+  Ledger-light value above. Same for the `--block-*` set: shape (radius/tile-radius/corner-marks/
+  mark-color) is dark-invariant, same as `--radius-card`/`--corner-marks` themselves; `--block-link-
+  fg` is left undeclared rather than guessed -- blocks.md gives no Ledger-dark link value, and this
+  file's own convention (see the Cobalt-dark block's own header comment, further up) is not to
+  invent one.
+*/
+body.body--dark {
+  --block-border: var(--color-hairline-dark);
+  --block-bg: var(--color-dark-3);
+  --block-tint-bg: var(--color-dark-2);
+  --block-caption-fg: var(--color-text-secondary-dark);
+  --block-eyebrow-fg: var(--color-text-caption-dark);
+  /* -> An untexted FILL lightens in Ledger dark, same as `--w-input-ring-error` above */
+  --block-accent-fill: var(--color-accent-dark);
+  --block-accent-fg: var(--color-accent-dark);
+
+  --tabs-border: #2a3040;
+  --tabs-strip-bg: #14171f;
+  --tabs-inactive-fg: #9aa6bd;
+  --tabs-inactive-icon: #8ea6cf;
+  --tabs-hover-bg: rgb(255 255 255 / 0.05);
+  --tabs-hover-fg: #e6eaf2;
+  --tabs-active-fg: #f08287;
+  --tabs-active-cap: inset 0 2px 0 #f08287;
+  --tabs-focus-ring: inset 0 0 0 2px #f08287;
+  --tabs-panel-bg: #1b1f2a;
+}
+
+/*
+  Cobalt light. `--block-tint-bg` and `--block-error-bg` are the only `--block-*` rows this
+  aesthetic changes -- everything else (border, radius, bg, caption/eyebrow fg, the three accent
+  roles) already resolves correctly through the generic tokens it redefines above (`--color-
+  hairline`, `--radius-card`, `--color-white`, `--color-text-secondary`, `--color-text-caption`,
+  `--color-accent-fill`, `--color-accent`, `--color-accent-strong`), the same "Ledger is provably
+  unchanged, Cobalt is one new value" discipline #2767's own block documents.
+*/
+body.body--cobalt {
+  --block-tint-bg: var(--color-tint);
+  /* -> errorBox: Cobalt tints instead of using the card colour ("on #ffe9eb", ui-iteration/blocks.md) */
+  --block-error-bg: var(--color-accent-wash);
+
+  --tabs-border: #dfe5f5;
+  --tabs-radius: 8px;
+  --tabs-corner-marks: none;
+  --tabs-strip-bg: #e6edff;
+  --tabs-strip-padding: 4px 4px 0;
+  --tabs-strip-gap: 4px;
+  --tabs-strip-rule: none;
+  --tabs-tab-padding: 8px 14px;
+  --tabs-tab-radius: 6px 6px 0 0;
+  --tabs-tab-rule: none;
+  --tabs-inactive-fg: #4a5580;
+  --tabs-inactive-icon: #5a6699;
+  --tabs-hover-bg: rgb(31 79 214 / 0.08);
+  --tabs-hover-fg: #1a2038;
+  --tabs-active-fg: #1f4fd6;
+  --tabs-active-weight: 600;
+  --tabs-active-cap: inset 0 3px 0 #ff4d5a;
+  --tabs-focus-ring: inset 0 0 0 2px #1f4fd6;
+}
+
+/*
+  Cobalt dark. `--block-border` and `--block-tint-bg` need their own value here because the generic
+  tokens they would otherwise fall through to answer a DIFFERENT question at this specificity --
+  `--color-hairline-dark` is Cobalt dark's border-on-a-dark-card value (`rgb(255 255 255 / 0.08)`),
+  one hundredth lighter than blocks.md's own `rgba(255,255,255,.1)`; `--color-dark-2` is Cobalt
+  dark's dialog-header rung (`#1a43bd`), not its tint. `--block-accent-fill` is re-pointed back at
+  `--color-accent-fill` for the same reason `.w-input-control`'s `--w-input-ring-error` is
+  (OpenProject #2817, see its own rule further down): the generic `body.body--dark` rule above
+  lightens every FILL to `--color-accent-dark`, but Cobalt's own fill stays bright in both its light
+  and dark forms, and `--color-accent-fill` isn't restated in this block -- so re-pointing at it
+  here resolves back to Cobalt light's `#ff4d5a`.
+*/
+body.body--cobalt.body--dark {
+  --block-border: rgb(255 255 255 / 0.1);
+  --block-tint-bg: var(--color-dark-3-5);
+  --block-accent-fill: var(--color-accent-fill);
+
+  --tabs-border: rgb(255 255 255 / 0.1);
+  --tabs-strip-bg: #0e1540;
+  --tabs-inactive-fg: #a7b3ea;
+  --tabs-inactive-icon: #8b98d6;
+  --tabs-hover-bg: rgb(255 255 255 / 0.08);
+  --tabs-hover-fg: #e8ecff;
+  --tabs-active-fg: #8fb0ff;
+  --tabs-focus-ring: inset 0 0 0 2px #8fb0ff;
+  --tabs-panel-bg: #141c4f;
+}
+
+/*
   Element reset for the shared components.
 
   Preflight is switched off above, so a bare <button> keeps its user-agent background, border and
