@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import NavSidebarItem from './NavSidebarItem.vue'
+import WTooltip from './shared/WTooltip.vue'
 import routes from '@/router/routes'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
@@ -189,5 +190,95 @@ describe('NavSidebarItem: folder vs. page icon', () => {
     await wrapper.vm.$nextTick()
 
     expect(iconOf(wrapper)).toBe('tabler:folder-open')
+  })
+})
+
+/**
+ * OpenProject #2849: single-line ellipsis truncation + a tooltip shown ONLY when the label is
+ * actually clipped -- `scrollWidth`/`clientWidth` reflect real CSS layout, which neither jsdom nor
+ * happy-dom runs, so each case stubs both directly on the rendered label span (the same
+ * `Object.defineProperty(el, 'offsetWidth', ...)` convention `anchoredFloat.test.js` uses) and
+ * calls the exposed `checkTruncation()` in place of a `ResizeObserver` callback that would never
+ * fire on its own here.
+ */
+describe('NavSidebarItem: label truncation tooltip', () => {
+  function stubWidths(wrapper, { scrollWidth, clientWidth }) {
+    const label = wrapper.get('span.truncate').element
+    Object.defineProperty(label, 'scrollWidth', { value: scrollWidth, configurable: true })
+    Object.defineProperty(label, 'clientWidth', { value: clientWidth, configurable: true })
+  }
+
+  it('renders no tooltip for a leaf item whose label is not clipped', async () => {
+    const wrapper = await mountItem({ id: '1', type: 'link', label: 'Short', target: '/x' })
+
+    stubWidths(wrapper, { scrollWidth: 80, clientWidth: 80 })
+    wrapper.vm.checkTruncation()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findComponent(WTooltip).exists()).toBe(false)
+  })
+
+  it('renders a tooltip for a leaf item whose label is clipped', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'A Very Long Page Title That Does Not Fit In The Sidebar',
+      target: '/x'
+    })
+
+    stubWidths(wrapper, { scrollWidth: 400, clientWidth: 120 })
+    wrapper.vm.checkTruncation()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findComponent(WTooltip).exists()).toBe(true)
+  })
+
+  it('renders no tooltip for a folder header label that is not clipped', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'Short Folder',
+      children: [{ id: '2', type: 'link', label: 'Child', target: '/child' }]
+    })
+
+    stubWidths(wrapper, { scrollWidth: 80, clientWidth: 80 })
+    wrapper.vm.checkTruncation()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findComponent(WTooltip).exists()).toBe(false)
+  })
+
+  it('renders a tooltip for a folder header label that is clipped', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'A Very Long Folder Title That Does Not Fit In The Sidebar',
+      children: [{ id: '2', type: 'link', label: 'Child', target: '/child' }]
+    })
+
+    stubWidths(wrapper, { scrollWidth: 400, clientWidth: 120 })
+    wrapper.vm.checkTruncation()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findComponent(WTooltip).exists()).toBe(true)
+  })
+
+  it('re-hides the tooltip once the label no longer needs clipping', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'A Very Long Page Title That Does Not Fit In The Sidebar',
+      target: '/x'
+    })
+
+    stubWidths(wrapper, { scrollWidth: 400, clientWidth: 120 })
+    wrapper.vm.checkTruncation()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(WTooltip).exists()).toBe(true)
+
+    stubWidths(wrapper, { scrollWidth: 120, clientWidth: 120 })
+    wrapper.vm.checkTruncation()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(WTooltip).exists()).toBe(false)
   })
 })
