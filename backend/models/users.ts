@@ -88,6 +88,23 @@ export interface UserPatch {
 }
 
 /**
+ * The knowledge graph view's five persisted controls (OpenProject #2854) -- `Graph.vue`'s
+ * `groupBy`/`sizeBy`/`sizeCountMode`/`pageviewsWindow`/`pageviewClientTypes` refs, stored verbatim
+ * under `prefs.graph`. Unlike the flat string prefs above, this one is always saved and read back as
+ * one whole object -- `Graph.vue` merges all five into a single PATCH whenever any of them change,
+ * so there is no per-key merge to do here (see `profilePrefsKeys`/`updateProfile` below, which treat
+ * it exactly like any other prefs key: absent from the patch leaves it untouched, present replaces
+ * it wholesale).
+ */
+export interface GraphPrefs {
+  groupBy?: string
+  sizeBy?: string
+  count?: string
+  over?: string
+  clientTypes?: string[]
+}
+
+/**
  * The self-service view of a user, flattening the `meta` and `prefs` blobs into the fields the
  * profile page shows. Mirrors the `UserProfile` API schema.
  */
@@ -108,6 +125,8 @@ export interface UserProfile {
   aesthetic: string
   cvd: string
   locale: string
+  /** Absent for a user who has never saved a graph view preference. */
+  graph?: GraphPrefs
 }
 
 /** The fields a user may change on its own profile. Notably not the email, nor any admin flag. */
@@ -125,6 +144,7 @@ export interface UserProfilePatch {
   aesthetic?: string
   cvd?: string
   locale?: string
+  graph?: GraphPrefs
 }
 
 /**
@@ -152,7 +172,8 @@ const profilePrefsKeys = [
   'appearance',
   'aesthetic',
   'cvd',
-  'locale'
+  'locale',
+  'graph'
 ] as const
 
 /**
@@ -883,7 +904,12 @@ class Users {
       // -> An empty locale means "no preference recorded" — mail resolves such a user's messages in
       //    `en`, the same fallback `models/locales.ts#resolveString`'s server-side string resolver
       //    uses for an unset or unknown locale.
-      locale: prefs.locale ?? ''
+      locale: prefs.locale ?? '',
+      // -> No forced default here, unlike every field above: a user who has never saved a graph
+      //    preference gets no `graph` key at all, and `Graph.vue` is the one place that decides what
+      //    each of the five controls falls back to when unset (OpenProject #2853's own corrected
+      //    defaults, applied there rather than duplicated here).
+      graph: prefs.graph as GraphPrefs | undefined
     }
   }
 

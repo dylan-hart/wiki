@@ -185,6 +185,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         description:
           'Locale code to address this user in outbound mail. Empty string means no preference recorded (falls back to `en`).'
+      },
+      graph: {
+        type: 'object',
+        description:
+          "The knowledge graph view's five persisted controls (OpenProject #2854), or absent for a user who has never saved one. Values are deliberately typed as plain strings/arrays rather than enums, same reasoning as the rest of this schema -- a preference stored before an option existed must still be readable.",
+        properties: {
+          groupBy: { type: 'string' },
+          sizeBy: { type: 'string' },
+          count: { type: 'string' },
+          over: { type: 'string' },
+          clientTypes: { type: 'array', items: { type: 'string' } }
+        }
       }
     }
   })
@@ -257,6 +269,22 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Locale code to address this user in outbound mail. Must be a locale installed on this instance, or an empty string to clear the preference.',
         maxLength: 35
+      },
+      graph: {
+        type: 'object',
+        description:
+          "The knowledge graph view's five persisted controls (OpenProject #2854): group-by, size-by, the unique/total count mode, the pageviews time window, and the pageview client types. Always sent as one whole object -- the graph page saves the merged five back together, never one key at a time.",
+        properties: {
+          groupBy: { type: 'string', enum: ['folder', 'tag', 'classification'] },
+          sizeBy: { type: 'string', enum: ['edits', 'visits'] },
+          count: { type: 'string', enum: ['unique', 'total'] },
+          over: { type: 'string', enum: ['last30d', 'last6mo', 'last2yr'] },
+          clientTypes: {
+            type: 'array',
+            items: { type: 'string', enum: ['browser', 'api', 'mcp'] }
+          }
+        },
+        additionalProperties: false
       }
     }
   })
