@@ -141,7 +141,7 @@
       <template v-else-if="state.displayMode === `upcoming`">
         <w-card>
           <w-table
-            :rows="state.upcomingJobs"
+            :rows="upcomingRows"
             :columns="upcomingJobsHeaders"
             row-key="id"
             flat
@@ -164,8 +164,44 @@
             </template>
             <template v-slot:body-cell-task="props">
               <w-td :props="props">
-                <strong>{{ props.value }}</strong>
-                <div>
+                <!--
+                  A collapsed group's summary row (OpenProject #2830), same treatment as the
+                  Active/Completed/Failed tab below -- clicking it expands the group in place to list
+                  every individual upcoming instance beneath it.
+                -->
+                <button
+                  v-if="props.row.groupCount > 1"
+                  type="button"
+                  class="w-unstyled flex items-center gap-2 text-start"
+                  :aria-expanded="String(props.row.groupExpanded)"
+                  :aria-label="
+                    props.row.groupExpanded
+                      ? t('admin.scheduler.groupCollapse', { task: props.row.groupTask })
+                      : t('admin.scheduler.groupExpand', { task: props.row.groupTask })
+                  "
+                  @click="toggleGroup(props.row.groupTask)">
+                  <w-icon
+                    name="tabler:chevron-down"
+                    size="14px"
+                    class="shrink-0 transition-transform"
+                    :class="props.row.groupExpanded ? '' : '-rotate-90'" />
+                  <strong>{{ props.value }}</strong>
+                  <w-chip dense size="xs" color="grey-8" text-color="white">
+                    {{
+                      t(
+                        'admin.scheduler.groupRuns',
+                        { count: props.row.groupCount },
+                        props.row.groupCount
+                      )
+                    }}
+                  </w-chip>
+                </button>
+                <strong
+                  v-else
+                  :class="props.row.groupChild ? 'inline-block ps-6 font-normal' : ''"
+                  >{{ props.value }}</strong
+                >
+                <div v-if="!props.row.groupChild">
                   <small class="text-grey">{{ props.row.id }}</small>
                 </div>
               </w-td>
@@ -214,7 +250,14 @@
             </template>
             <template v-slot:body-cell-cancel="props">
               <w-td :props="props">
+                <!--
+                  `groupCount === 1` withholds this on a collapsed group's synthetic summary row
+                  (OpenProject #2830), same as the retry action below -- its `id` is `group:<task>`,
+                  not a real job id, so there is nothing here to cancel. Expand the group to cancel
+                  one specific upcoming instance instead.
+                -->
                 <w-btn
+                  v-if="props.row.groupCount === 1"
                   class="acrylic-btn px-2"
                   flat
                   icon="tabler:square-x"
@@ -472,9 +515,10 @@ const state = reactive({
   jobsTotal: 0,
   loading: 0,
   /**
-   * Task names currently expanded in the Active/Completed/Failed tabs' collapsed-by-task view
-   * (OpenProject #2337) -- keyed by task name rather than by tab, so re-expanding after a refresh, or
-   * seeing the same task expanded on both the Completed and Failed tabs, both fall out for free.
+   * Task names currently expanded in the Upcoming/Active/Completed/Failed tabs' collapsed-by-task
+   * view (OpenProject #2337, extended to Upcoming by #2830) -- keyed by task name rather than by tab,
+   * so re-expanding after a refresh, or seeing the same task expanded on both the Completed and
+   * Failed tabs, both fall out for free.
    */
   expandedGroups: new Set()
 })
@@ -659,6 +703,14 @@ const jobsHeaders = [
  * `storageSyncTick`'s every-minute cron tick was drowning out every other task in this list).
  */
 const historyRows = computed(() => flattenJobHistoryRows(state.jobs, state.expandedGroups))
+
+/**
+ * The Upcoming tab's rows, grouped the same way (OpenProject #2830) -- a recurring task with several
+ * upcoming instances collapses the same way a repeated history entry does. Shares
+ * `state.expandedGroups` with `historyRows` (keyed by task name, not by tab), so a task expanded here
+ * stays expanded if it also shows up on another tab.
+ */
+const upcomingRows = computed(() => flattenJobHistoryRows(state.upcomingJobs, state.expandedGroups))
 
 // WATCHERS
 

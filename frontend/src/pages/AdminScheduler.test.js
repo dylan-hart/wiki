@@ -13,6 +13,7 @@ function mountPage() {
   return mountWithApp(AdminScheduler, {
     messages: {
       'admin.scheduler.title': 'Scheduler',
+      'admin.scheduler.cancelJob': 'Cancel Job',
       'admin.scheduler.groupRuns': '1 run | {count} runs',
       'admin.scheduler.groupExpand': 'Show individual runs of {task}',
       'admin.scheduler.groupCollapse': 'Hide individual runs of {task}'
@@ -170,6 +171,105 @@ describe('AdminScheduler history grouping', () => {
       'backup-1'
     ])
     expect(wrapper.vm.historyRows[0].groupExpanded).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #2830: the Upcoming tab had no task-grouping at all -- it rendered `state.upcomingJobs`
+ * straight into the table with no `flattenJobHistoryRows` pass, unlike Active/Completed/Failed. This
+ * mirrors the "AdminScheduler history grouping" describe above, but against the Upcoming tab's own
+ * `scheduler/upcoming` endpoint and `upcomingRows` computed.
+ */
+describe('AdminScheduler upcoming grouping (OpenProject #2830)', () => {
+  function upcomingJob(overrides) {
+    return {
+      id: 'job-1',
+      task: 'someTask',
+      waitUntil: '2026-09-09T00:05:00.000Z',
+      retries: 0,
+      maxRetries: 2,
+      useWorker: false,
+      createdAt: '2026-09-09T00:00:00.000Z',
+      createdBy: 'instance-1',
+      ...overrides
+    }
+  }
+
+  async function mountUpcomingTab(jobs) {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'scheduler/upcoming') {
+        return { json: () => Promise.resolve(jobs) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const wrapper = mountPage()
+    await flush(wrapper)
+    return wrapper
+  }
+
+  it('collapses a repeated task into one summary row, and expands it back out on click', async () => {
+    const jobs = [
+      upcomingJob({ id: 'tick-2', task: 'storageSyncTick', waitUntil: '2026-09-09T00:02:00.000Z' }),
+      upcomingJob({ id: 'tick-1', task: 'storageSyncTick', waitUntil: '2026-09-09T00:01:00.000Z' }),
+      upcomingJob({ id: 'backup-1', task: 'storageDailyBackup' })
+    ]
+    const wrapper = await mountUpcomingTab(jobs)
+
+    // -> 2 rows, not 3: the two storageSyncTick entries collapse into one summary row
+    expect(wrapper.vm.upcomingRows).toHaveLength(2)
+    expect(wrapper.vm.upcomingRows[0]).toMatchObject({
+      id: 'group:storageSyncTick',
+      groupCount: 2,
+      groupExpanded: false
+    })
+    expect(wrapper.vm.upcomingRows[1]).toMatchObject({ id: 'backup-1', groupCount: 1 })
+
+    wrapper.vm.toggleGroup('storageSyncTick')
+    await flush(wrapper)
+
+    // -> Expanded: the summary row stays, plus both individual instances underneath it
+    expect(wrapper.vm.upcomingRows).toHaveLength(4)
+    expect(wrapper.vm.upcomingRows.map((r) => r.id)).toEqual([
+      'group:storageSyncTick',
+      'tick-2',
+      'tick-1',
+      'backup-1'
+    ])
+    expect(wrapper.vm.upcomingRows[0].groupExpanded).toBe(true)
+  })
+
+  it('renders a single upcoming job ungrouped, with no chevron/chip chrome', async () => {
+    const wrapper = await mountUpcomingTab([upcomingJob()])
+
+    expect(wrapper.vm.upcomingRows).toHaveLength(1)
+    expect(wrapper.vm.upcomingRows[0]).toMatchObject({ id: 'job-1', groupCount: 1 })
+    expect(wrapper.find('button[aria-expanded]').exists()).toBe(false)
+  })
+
+  it("renders no Cancel Job button on a collapsed group's summary row, only on its expanded children", async () => {
+    const jobs = [
+      upcomingJob({ id: 'tick-2', task: 'repeatedTask', waitUntil: '2026-09-09T00:02:00.000Z' }),
+      upcomingJob({ id: 'tick-1', task: 'repeatedTask', waitUntil: '2026-09-09T00:01:00.000Z' })
+    ]
+    const wrapper = await mountUpcomingTab(jobs)
+
+    // -> The Cancel Job button carries no static aria-label of its own (it associates via
+    //    `w-tooltip labels` on hover/focus) -- select on its icon's `data-icon` hook instead.
+    const cancelButton = (row) => row.find('svg[data-icon="tabler:square-x"]')
+
+    let rows = wrapper.findAll('table tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(cancelButton(rows[0]).exists()).toBe(false)
+
+    wrapper.vm.toggleGroup('repeatedTask')
+    await flush(wrapper)
+
+    rows = wrapper.findAll('table tbody tr')
+    expect(rows).toHaveLength(3)
+    expect(cancelButton(rows[0]).exists()).toBe(false)
+    expect(cancelButton(rows[1]).exists()).toBe(true)
+    expect(cancelButton(rows[2]).exists()).toBe(true)
   })
 })
 
