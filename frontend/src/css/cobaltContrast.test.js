@@ -159,6 +159,7 @@ describe('Cobalt light: every text/surface pairing the handoff specifies clears 
       colorWhite
     ],
     'link text (accent-strong) on white': [lightToken('color-accent-strong'), colorWhite],
+    'page header title on the flat banner': [colorWhite, lightToken('page-header-bg')],
     'tag chip text on the tag chip fill': [
       lightToken('color-tag-chip-text'),
       lightToken('color-tag-chip-bg')
@@ -253,21 +254,6 @@ describe('Documented gaps -- no implemented value exists yet to test, or the pai
     // Only --color-positive-fill is a token here; the handoff's separate "Positive text" hex, and
     // the code-block syntax highlight colors, are not custom properties this file owns.
     expect(lightSource).not.toMatch(/--color-positive-text:/)
-  })
-
-  it('page header banner white title on the gradient: only the darker stop clears normal-text AA', () => {
-    // --page-header-bg is `linear-gradient(120deg, #1f4fd6, #3d6df7)`, not a flat surface. Checking
-    // the white title/subtitle against each stop (not a hand-typed "average" hex) shows the darker
-    // stop clears AA comfortably while the lighter stop alone does not for NORMAL-weight text -- but
-    // the title is large/bold heading text, whose real WCAG AA floor is 3:1 (both stops clear that),
-    // and helpers/accessibility.js documents that it only ever checks the normal-text 4.5:1 floor.
-    // Not asserted as a hard pass because the handoff gives no explicit ratio for this row at all.
-    const gradient = lightToken('page-header-bg')
-    const stops = gradient.match(/#[0-9a-f]{6}/g)
-    expect(stops).toHaveLength(2)
-    const [darkerStop, lighterStop] = stops
-    expect(meetsAA(colorWhite, darkerStop)).toBe(true)
-    expect(meetsAA(colorWhite, lighterStop)).toBe(false)
   })
 
   it('header search placeholder over its translucent wash is a near-miss the handoff never claims meets AA', () => {

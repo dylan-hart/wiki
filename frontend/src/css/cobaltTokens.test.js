@@ -74,7 +74,7 @@ describe('Cobalt shape tokens (radii sweep)', () => {
     },
     'page-header-bg': {
       ledger: 'var(--color-white)',
-      cobalt: 'linear-gradient(120deg, #1f4fd6, #3d6df7)'
+      cobalt: '#1f4fd6'
     },
     'page-header-fg': { ledger: 'var(--color-ink)', cobalt: 'var(--color-white)' },
     'page-header-radius': { ledger: '0', cobalt: '8px' },
