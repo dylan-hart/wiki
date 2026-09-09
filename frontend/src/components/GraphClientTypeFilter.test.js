@@ -12,10 +12,34 @@ const componentSource = readFileSync(
   'utf8'
 )
 
+const graphSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'pages', 'Graph.vue'),
+  'utf8'
+)
+
 const OPTIONS = [
   { value: 'editor', label: 'Editor' },
   { value: 'mcp', label: 'MCP' }
 ]
+
+// Reads a top-level SCSS rule's body (opening `selector {` through its matching `}`) straight out
+// of an SFC's source, for a style assertion scoped SCSS `@at-root` nesting can't reliably make via
+// computed style under happy-dom -- shared by the #2522 and #2893 guards below.
+const ruleBodyFor = (source, selector) => {
+  const opener = `${selector} {`
+  const start = source.indexOf(opener)
+  expect(start, `expected to find "${opener}"`).toBeGreaterThan(-1)
+
+  let depth = 0
+  let index = start + opener.length - 1
+  do {
+    if (source[index] === '{') depth += 1
+    else if (source[index] === '}') depth -= 1
+    index += 1
+  } while (depth > 0 && index < source.length)
+
+  return source.slice(start, index)
+}
 
 describe('GraphClientTypeFilter', () => {
   it('renders one checkbox per option, checked per modelValue', () => {
@@ -96,24 +120,8 @@ describe('GraphClientTypeFilter', () => {
    * source and checks the rule body directly instead.
    */
   describe('dark mode text color (OpenProject #2522)', () => {
-    const ruleBodyFor = (selector) => {
-      const opener = `${selector} {`
-      const start = componentSource.indexOf(opener)
-      expect(start, `expected to find "${opener}" in GraphClientTypeFilter.vue`).toBeGreaterThan(-1)
-
-      let depth = 0
-      let index = start + opener.length - 1
-      do {
-        if (componentSource[index] === '{') depth += 1
-        else if (componentSource[index] === '}') depth -= 1
-        index += 1
-      } while (depth > 0 && index < componentSource.length)
-
-      return componentSource.slice(start, index)
-    }
-
     it('.graph-client-type-filter declares a color under both .body--light and .body--dark', () => {
-      const body = ruleBodyFor('.graph-client-type-filter')
+      const body = ruleBodyFor(componentSource, '.graph-client-type-filter')
 
       const lightMatch = body.match(/@at-root\s+\.body--light\s+&\s*\{([^}]*)\}/)
       expect(
@@ -125,6 +133,56 @@ describe('GraphClientTypeFilter', () => {
       const darkMatch = body.match(/@at-root\s+\.body--dark\s+&\s*\{([^}]*)\}/)
       expect(darkMatch, 'expected a .body--dark block in .graph-client-type-filter').not.toBeNull()
       expect(darkMatch[1]).toMatch(/color:\s*[^;]+;/)
+    })
+  })
+
+  /**
+   * OpenProject #2893: the "Count edits/visits by" caption used to render as a plain 11px,
+   * 70%-opacity label -- a different font family, size, weight, letter-spacing and casing than
+   * `Graph.vue`'s `.graph-view-control-caption`, which GROUP BY/SIZE BY/the filter captions all
+   * use. Reads both raw SFC sources rather than mounting + computed style, for the same
+   * `@at-root` reason the #2522 guard above does.
+   */
+  describe('caption style matches Graph.vue GROUP BY/SIZE BY captions (OpenProject #2893)', () => {
+    it('shares font-family/size/weight/letter-spacing/text-transform with .graph-view-control-caption', () => {
+      const filterCaptionBody = ruleBodyFor(componentSource, '.graph-client-type-filter-caption')
+      const graphCaptionBody = ruleBodyFor(graphSource, '.graph-view-control-caption')
+
+      for (const property of [
+        'font-family',
+        'font-size',
+        'font-weight',
+        'letter-spacing',
+        'text-transform'
+      ]) {
+        const filterValue = filterCaptionBody.match(new RegExp(`${property}:\\s*([^;]+);`))
+        const graphValue = graphCaptionBody.match(new RegExp(`${property}:\\s*([^;]+);`))
+
+        expect(
+          filterValue,
+          `expected ${property} on .graph-client-type-filter-caption`
+        ).not.toBeNull()
+        expect(graphValue, `expected ${property} on .graph-view-control-caption`).not.toBeNull()
+        expect(filterValue[1]).toBe(graphValue[1])
+      }
+    })
+
+    it('no longer sets its own opacity (the old, mismatched style)', () => {
+      const filterCaptionBody = ruleBodyFor(componentSource, '.graph-client-type-filter-caption')
+
+      expect(filterCaptionBody).not.toMatch(/opacity:/)
+    })
+
+    it('declares the caption color tokens under both .body--light and .body--dark', () => {
+      const body = ruleBodyFor(componentSource, '.graph-client-type-filter-caption')
+
+      const lightMatch = body.match(/@at-root\s+\.body--light\s+&\s*\{([^}]*)\}/)
+      expect(lightMatch, 'expected a .body--light block').not.toBeNull()
+      expect(lightMatch[1]).toMatch(/color:\s*var\(--color-text-caption\);/)
+
+      const darkMatch = body.match(/@at-root\s+\.body--dark\s+&\s*\{([^}]*)\}/)
+      expect(darkMatch, 'expected a .body--dark block').not.toBeNull()
+      expect(darkMatch[1]).toMatch(/color:\s*var\(--color-text-caption-dark\);/)
     })
   })
 })
