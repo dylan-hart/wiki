@@ -44,12 +44,17 @@ import { tables, taskListItems } from 'turndown-plugin-gfm'
  *   asset `blob:` URL (or drops that one image if its `src` cannot be retrieved at all -- a
  *   cross-origin image the source page doesn't allow, e.g.), mirroring `insertFilesAsAssets`'s
  *   already-established pending-asset pattern for a bare file/image paste.
- * - **No "is this worth converting" gate.** Every non-empty `text/html` payload is converted, with
- *   no attempt to detect "this is really just plain text with an incidental HTML wrapper" and skip
- *   conversion for it. Escaping markdown-significant characters in plain prose (turndown's
- *   `\*`/`\_`/`` \` `` escaping) is the accepted cost of reliable HTML→markdown conversion elsewhere
- *   too -- see turndown's own documentation -- and a richness heuristic would be guesswork this
- *   ticket's scope (OneNote/web/Office paste) does not call for.
+ * - **This module itself has no "is this worth converting" gate -- every non-empty `text/html`
+ *   payload handed to it is converted, unconditionally.** That gate now lives in the caller instead
+ *   (OpenProject #2834): `EditorMarkdown.vue`'s `onEditorPaste` compares the HTML's own visible text
+ *   (`helpers/htmlVisibleText.js#isSameVisibleText`) against the clipboard's `text/plain` sibling
+ *   *before* ever calling `htmlToMarkdown`, and skips the call entirely for a same-editor copy/cut --
+ *   Monaco's own "copy with syntax highlighting" writes a `text/html` payload alongside `text/plain`
+ *   on every ordinary in-editor copy, and running it through this converter reproduced exactly the
+ *   escaping/blank-line corruption `isSameVisibleText` exists to avoid. Escaping markdown-significant
+ *   characters in genuine rich-paste prose (turndown's `\*`/`\_`/`` \` `` escaping) remains the
+ *   accepted cost once that gate has already decided a payload is worth converting -- see turndown's
+ *   own documentation.
  */
 
 function styleValue(node, property) {
@@ -183,8 +188,11 @@ function getTurndownService() {
   Every browser observed strips this before handing `text/html` to the Clipboard API, but nothing
   in the spec guarantees it, so this is a defensive strip: a payload that still opens with a
   `Version:` line has everything before its first `<` cut, which a CF_HTML header never contains.
+
+  Exported for `helpers/htmlVisibleText.js`, the other caller that has to look at raw clipboard
+  `text/html` before any real HTML parsing happens.
 */
-function stripClipboardHeader(html) {
+export function stripClipboardHeader(html) {
   return /^\s*Version:/i.test(html) ? html.replace(/^[\s\S]*?(?=<)/, '') : html
 }
 
