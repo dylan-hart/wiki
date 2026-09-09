@@ -83,6 +83,14 @@ export interface NavigationItem {
    * each one needs, not a third addressing scheme.
    */
   folderId?: string | null
+  /**
+   * `generated` items only: true when the tree row behind this item is a folder, regardless of
+   * whether it currently has any generated `children` — a boundary folder (its own navigation
+   * override) and a genuinely empty folder (OpenProject #2515) both carry no `children` but are
+   * still folders, not pages, on the frontend's icon. Never stored — computed fresh by
+   * `generateFromTree` on every read, same as `path`/`folderId`/`generated`.
+   */
+  isFolder?: boolean
   openInNewWindow?: boolean
   /** A link with children only: whether the sidebar shows its submenu already open. */
   expandByDefault?: boolean
@@ -941,6 +949,7 @@ class Navigation {
           label: row.title,
           path,
           folderId: parentFolderId,
+          ...(isFolder && { isFolder: true }),
           ...(row.icon && { icon: row.icon }),
           // -> Prefixes the locale only when the site's routing rules call for it
           //    (`localizedPagePath`), matching how `NavItemEditor.vue`'s manual page-picker builds a

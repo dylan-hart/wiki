@@ -103,3 +103,91 @@ describe('NavSidebarItem: folder (expansion header) label', () => {
     expect(wrapper.text()).not.toContain('Whatever The Folder Title Was')
   })
 })
+
+/**
+ * OpenProject #2826: a childless leaf `iconFor()` used to draw whenever `item.children?.length` was
+ * falsy, which is also true of an empty or boundary folder (`generateFromTree` gives neither any
+ * `children`) -- so both drew the page icon instead of the folder one. `item.isFolder` is what the
+ * backend now surfaces to tell the two apart.
+ */
+describe('NavSidebarItem: folder vs. page icon', () => {
+  function iconOf(wrapper) {
+    return wrapper.findComponent({ name: 'WIcon' }).props('name')
+  }
+
+  it('draws the page icon for a genuine leaf page item', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'A Page',
+      path: 'a-page',
+      generated: true,
+      target: '/a-page'
+    })
+
+    expect(iconOf(wrapper)).toBe('tabler:file-text')
+  })
+
+  it('draws the folder icon for an empty (childless) folder item marked isFolder', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'Empty Folder',
+      path: 'empty-folder',
+      generated: true,
+      isFolder: true
+    })
+
+    expect(iconOf(wrapper)).toBe('tabler:folder')
+  })
+
+  it('draws the folder icon for a folder item that does have children', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'Folder With Children',
+      path: 'folder-with-children',
+      generated: true,
+      isFolder: true,
+      children: [{ id: '2', type: 'link', label: 'Child', target: '/folder-with-children/child' }]
+    })
+
+    expect(iconOf(wrapper)).toBe('tabler:folder')
+  })
+
+  it('an explicit item.icon always wins over the folder/page inference', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'Custom Icon Folder',
+      path: 'custom-icon-folder',
+      generated: true,
+      isFolder: true,
+      icon: 'mdi:star',
+      children: [{ id: '2', type: 'link', label: 'Child', target: '/custom-icon-folder/child' }]
+    })
+
+    expect(iconOf(wrapper)).toBe('mdi:star')
+  })
+
+  it('swaps to the folder-open icon once the expansion item reports itself open', async () => {
+    const wrapper = await mountItem({
+      id: '1',
+      type: 'link',
+      label: 'Folder With Children',
+      path: 'folder-with-children',
+      generated: true,
+      isFolder: true,
+      children: [{ id: '2', type: 'link', label: 'Child', target: '/folder-with-children/child' }]
+    })
+
+    expect(iconOf(wrapper)).toBe('tabler:folder')
+
+    // -> Simulates `w-expansion-item`'s own toggle emitting `update:modelValue` while staying
+    //    uncontrolled -- see NavSidebarItem.vue's template comment on why this is never bound back.
+    await wrapper.findComponent({ name: 'WExpansionItem' }).vm.$emit('update:modelValue', true)
+    await wrapper.vm.$nextTick()
+
+    expect(iconOf(wrapper)).toBe('tabler:folder-open')
+  })
+})
