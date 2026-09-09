@@ -96,6 +96,48 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
   */
   .w-dialog-panel {
     width: 560px;
+
+    /*
+      Cobalt dialog corner fringe (OpenProject #2865, `ui-iteration/README.md` Part 1.2): a dark
+      header clipped by a filled, `overflow:auto` panel's rounded corner leaves a light antialias
+      fringe at the top corners under Chromium -- worse here since the panel is *also* clipping a
+      scroll container to its padding box. Fixed the same way as `MainOverlayDialog` (OpenProject
+      #2864): the panel itself goes transparent and stops clipping, and the header/body bands round
+      and fill themselves instead -- side-specific radii (left corners only, matching this panel's
+      own left-edge float) rather than MainOverlayDialog's all-four-corner treatment.
+    */
+    @at-root .body--cobalt & {
+      background: transparent;
+      overflow: visible;
+    }
+  }
+
+  /*
+    The header band. Whichever child is mounted (`PageBacklinksDialog`, `PagePropertiesDialog`;
+    see `sideDialogs` above), its heading is always a `<w-toolbar>` -- there is exactly one per
+    dialog, so this stays a plain descendant selector rather than reaching into either child's own
+    markup or class names.
+  */
+  .w-toolbar {
+    @at-root .body--cobalt & {
+      border-radius: 12px 0 0 0;
+    }
+  }
+
+  /*
+    The body band -- the scroll area beneath the header, same one-per-dialog guarantee. Carries the
+    surface fill the now-transparent panel no longer provides, matching `.w-card`'s own background
+    (`tailwind.css`'s `.w-card` / `body.body--dark .w-card`) since that fill is what this replaces;
+    `overflow: auto` is `WScrollArea`'s own base style already, unconditionally.
+  */
+  .w-scroll-area {
+    @at-root .body--cobalt & {
+      border-radius: 0 0 0 12px;
+      background-color: var(--color-white);
+    }
+    @at-root .body--cobalt.body--dark & {
+      background-color: var(--color-dark-3);
+    }
   }
 
   .alt-card {
