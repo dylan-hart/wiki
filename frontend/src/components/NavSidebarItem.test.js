@@ -420,3 +420,175 @@ describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
     expect(isExpanded(wrapper, 'root')).toBe(true)
   })
 })
+
+/**
+ * OpenProject #2847: ctrl+click a folder's header to cycle its own DESCENDANT folders between
+ * fully expanded and fully collapsed -- the clicked folder's own open/closed state is deliberately
+ * left untouched (Feature #2829's design section: "walk the clicked folder's own descendant
+ * subtree"), so only `branch`/`midA`/`midB` below ever change from a ctrl+click on `branch`, never
+ * `branch` itself.
+ *
+ * `midA` starts closed and `midB` starts open (`expandByDefault: true`) so a ctrl+click on `branch`
+ * has a genuine mix to resolve ("not every descendant is open" -> expand all) before a second
+ * ctrl+click has all of them open ("every descendant is open" -> collapse all). `midB` carries a
+ * leaf-only child (`leafB`, no nested folder) so ctrl+clicking `midB` directly exercises the
+ * "nothing to expand" no-op case, and doing so must not disturb `midA` -- which would only happen if
+ * an ANCESTOR's capture handler (here `branch`'s, or `root`'s) wrongly treated the click as its own
+ * rather than letting it travel inward to `midB`'s own instance.
+ */
+const CYCLE_TREE = [
+  {
+    id: 'root',
+    label: 'Root Folder',
+    expandByDefault: true,
+    // -> `path` matters here, not just cosmetic: a folder item with neither `path` nor `target`
+    //    falls back to `destination()`'s own `'/'` default, which -- since the test router starts
+    //    at `/` -- would make `containsCurrent()` misread every such folder as "on the current
+    //    page" and default it open. Every folder below carries a real `path`, the way a generated
+    //    folder always does in production, so each one's initial open/closed state in these tests
+    //    comes only from `expandByDefault`, not this fallback quirk.
+    path: 'root',
+    children: [
+      {
+        id: 'branch',
+        label: 'Branch Folder',
+        path: 'root/branch',
+        children: [
+          {
+            id: 'midA',
+            label: 'Mid A',
+            path: 'root/branch/mid-a',
+            children: [{ id: 'leafA', label: 'Leaf A', target: '/leaf-a' }]
+          },
+          {
+            id: 'midB',
+            label: 'Mid B',
+            path: 'root/branch/mid-b',
+            expandByDefault: true,
+            children: [{ id: 'leafB', label: 'Leaf B', target: '/leaf-b' }]
+          }
+        ]
+      },
+      {
+        id: 'flatFolder',
+        label: 'Flat Folder',
+        path: 'root/flat-folder',
+        children: [{ id: 'flatLeaf', label: 'Flat Leaf', target: '/flat-leaf' }]
+      }
+    ]
+  }
+]
+
+async function mountCycleTree() {
+  const Host = defineComponent({
+    name: 'CycleTestHost',
+    setup() {
+      useProvideNavExpansionState()
+      return () => h(NavSidebarItem, { item: CYCLE_TREE[0] })
+    }
+  })
+
+  const router = await createTestRouter(routes, '/')
+  const { wrapper } = mountWithApp(Host, {
+    router,
+    stores: {
+      site: (store) => {
+        store.nav.items = CYCLE_TREE
+      }
+    }
+  })
+  await wrapper.vm.$nextTick()
+  return wrapper
+}
+
+/** Dispatches a real, bubbling, ctrl-held left click -- what a reader actually does to cycle a
+ *  folder's subtree. */
+function ctrlClick(element) {
+  return element.dispatchEvent(
+    new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true })
+  )
+}
+
+/** A plain, bubbling left click with no modifier -- the ordinary single-folder toggle. */
+function plainClick(element) {
+  return element.dispatchEvent(
+    new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+  )
+}
+
+describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)', () => {
+  it('expands every closed descendant folder when at least one is closed, leaving the clicked folder itself untouched', async () => {
+    const wrapper = await mountCycleTree()
+    expect(isExpanded(wrapper, 'branch')).toBe(false)
+    expect(isExpanded(wrapper, 'midA')).toBe(false)
+    expect(isExpanded(wrapper, 'midB')).toBe(true)
+
+    const notPrevented = ctrlClick(
+      itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element
+    )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(false) // -> preventDefault() was called
+    expect(isExpanded(wrapper, 'branch')).toBe(false) // -> the clicked folder's own state is untouched
+    expect(isExpanded(wrapper, 'midA')).toBe(true)
+    expect(isExpanded(wrapper, 'midB')).toBe(true)
+    expect(isExpanded(wrapper, 'flatFolder')).toBe(false) // -> outside the clicked subtree, unaffected
+  })
+
+  it('collapses every descendant folder once all of them are open', async () => {
+    const wrapper = await mountCycleTree()
+
+    // -> First cycle opens midA (midB already open) -- see the test above.
+    ctrlClick(itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+    expect(isExpanded(wrapper, 'midA')).toBe(true)
+    expect(isExpanded(wrapper, 'midB')).toBe(true)
+
+    ctrlClick(itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'branch')).toBe(false) // -> still untouched by either cycle
+    expect(isExpanded(wrapper, 'midA')).toBe(false)
+    expect(isExpanded(wrapper, 'midB')).toBe(false)
+  })
+
+  it('does not fire on a plain click -- a plain click still only toggles the clicked row', async () => {
+    const wrapper = await mountCycleTree()
+
+    const notPrevented = plainClick(
+      itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element
+    )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(true) // -> our handler never called preventDefault
+    expect(isExpanded(wrapper, 'branch')).toBe(true) // -> the ordinary toggle still ran
+    expect(isExpanded(wrapper, 'midA')).toBe(false) // -> untouched: this is a plain click, not a cycle
+    expect(isExpanded(wrapper, 'midB')).toBe(true) // -> untouched (already open by default)
+  })
+
+  it('no-ops for a folder with no nested folder descendants, and still suppresses its own toggle', async () => {
+    const wrapper = await mountCycleTree()
+
+    const notPrevented = ctrlClick(
+      itemWrapper(wrapper, 'flatFolder').find('.w-expansion-item__header').element
+    )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(false) // -> still preventDefault()ed, even though there was nothing to cycle
+    expect(isExpanded(wrapper, 'flatFolder')).toBe(false) // -> no plain-toggle fallback on a ctrl+click
+  })
+
+  it('is scoped to the clicked folder alone -- ctrl+clicking a deeper folder does not let an ancestor react instead', async () => {
+    const wrapper = await mountCycleTree()
+
+    // -> midB has only a leaf child, so this cycle has nothing to do -- but if `branch`'s (or
+    //    `root`'s) capture handler wrongly claimed the click instead of letting it travel inward to
+    //    midB's own instance, it would cycle midA too.
+    ctrlClick(itemWrapper(wrapper, 'midB').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'midA')).toBe(false)
+    expect(isExpanded(wrapper, 'midB')).toBe(true) // -> its own state untouched, same as before
+    expect(isExpanded(wrapper, 'branch')).toBe(false)
+  })
+})

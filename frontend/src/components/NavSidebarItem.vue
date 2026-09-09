@@ -11,7 +11,8 @@
     dense
     :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
     @update:model-value="setOpen(item.id, $event)"
-    @auxclick.middle="handleIsolateClick($event, item)">
+    @auxclick.middle="handleIsolateClick($event, item)"
+    @click.capture="handleExpandCycleClick($event, item)">
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
@@ -154,6 +155,71 @@ function handleIsolateClick(event, item) {
   const openIds = new Set([item.id, ...ancestorIds(items, item.id)])
   for (const id of folderIds(items)) {
     setOpen(id, openIds.has(id))
+  }
+}
+
+// CTRL+CLICK EXPAND/COLLAPSE CYCLE (OpenProject #2847)
+
+/**
+ * Every folder (item carrying at least one child) in `item`'s own descendant subtree, recursively
+ * -- NOT including `item` itself. Local to this cycle, and deliberately distinct from
+ * `navSidebarDestination.js`'s exported `folderIds` (OpenProject #2848's whole-tree walk for
+ * middle-click isolate): that one walks a top-level items array; this one walks a single folder's
+ * own `children`, which is what ctrl+click cycling a subtree calls for. Returns full item objects
+ * rather than bare ids, since each one's own `expandByDefault`/`containsCurrent` default is needed
+ * to read its CURRENT open/closed state faithfully (see `handleExpandCycleClick` below).
+ */
+function descendantFolders(item) {
+  const folders = []
+  for (const child of item.children ?? []) {
+    if (child.children?.length > 0) {
+      folders.push(child, ...descendantFolders(child))
+    }
+  }
+  return folders
+}
+
+/**
+ * Ctrl+click a folder's own header row: a two-state cycle over its own descendant folders (Feature
+ * #2829's design section) -- collapse them all if every one is currently open, otherwise expand
+ * them all. The clicked folder's OWN open/closed state is deliberately left alone: a plain click
+ * still only toggles that one row, same as before this existed.
+ *
+ * Bound with `.capture`, not a plain bubble listener, and that is load-bearing:
+ * `WExpansionItem.vue`'s header binds an unconditional `@click="toggle"` directly on
+ * `.w-expansion-item__header`, which -- being the actual click target -- fires before any
+ * bubble-phase listener an ANCESTOR of it could register. A bubble-phase handler here would always
+ * run too late, after toggle() had already flipped this row. Capturing instead lets this handler
+ * run, and call `stopPropagation()`, BEFORE the event ever reaches the header, which is what
+ * suppresses toggle() on a ctrl+click.
+ *
+ * That in turn means every ancestor folder up to the sidebar root carries this exact same capture
+ * listener on its OWN `<w-expansion-item>` root (this component recurses), and capture fires
+ * outermost-first -- the opposite order from `handleIsolateClick`'s bubble-based scoping above. So
+ * this cannot lean on "first listener to see it wins" the way that one does: an ancestor's handler
+ * would otherwise claim a click meant for one of its own nested folders. Instead, each instance
+ * checks whether the ACTUALLY clicked header's nearest owning `.w-expansion-item`
+ * (`event.target.closest(...)`) is this instance's own root (`event.currentTarget`, which a native
+ * capture-phase listener always reports as the exact node it is attached to). Only the genuinely
+ * clicked instance matches and acts; every ancestor's check fails and it does nothing, leaving
+ * capture free to keep travelling inward until it reaches the real target.
+ */
+function handleExpandCycleClick(event, item) {
+  if (!event.ctrlKey) {
+    return
+  }
+  const header = event.target.closest('.w-expansion-item__header')
+  if (!header || header.closest('.w-expansion-item') !== event.currentTarget) {
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  const folders = descendantFolders(item)
+  const allOpen = folders.every((folder) =>
+    isOpen(folder.id, folder.expandByDefault || containsCurrent(folder))
+  )
+  for (const folder of folders) {
+    setOpen(folder.id, !allOpen)
   }
 }
 
