@@ -182,8 +182,13 @@ function descendantFolders(item) {
 /**
  * Ctrl+click a folder's own header row: a two-state cycle over its own descendant folders (Feature
  * #2829's design section) -- collapse them all if every one is currently open, otherwise expand
- * them all. The clicked folder's OWN open/closed state is deliberately left alone: a plain click
- * still only toggles that one row, same as before this existed.
+ * them all. The clicked folder's OWN state is force-opened as part of the same cycle (OpenProject
+ * #2890) -- never toggled -- so the descendant-state change this produces is always immediately
+ * visible, rather than silently happening behind a still-closed parent, and so ctrl+click behaves
+ * consistently even on a folder with no sub-folder descendants at all (previously a hard no-op,
+ * since there was nothing for the descendant cycle to act on and the folder itself never opened).
+ * Forcing open rather than toggling matters: toggling would let a ctrl+click on an already-open
+ * folder collapse the very folder whose contents it was meant to reveal.
  *
  * Bound with `.capture`, not a plain bubble listener, and that is load-bearing:
  * `WExpansionItem.vue`'s header binds an unconditional `@click="toggle"` directly on
@@ -221,6 +226,7 @@ function handleExpandCycleClick(event, item) {
   for (const folder of folders) {
     setOpen(folder.id, !allOpen)
   }
+  setOpen(item.id, true)
 }
 
 // COMPUTED
