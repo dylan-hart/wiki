@@ -11,7 +11,11 @@
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
       <w-item-section side><w-icon :name="iconFor(item)" color="slate-faint" /></w-item-section>
-      <w-item-section class="text-wordbreak-all">{{ displayLabel(item) }}</w-item-section>
+      <w-item-section>
+        <span ref="labelEl" class="truncate">{{ displayLabel(item) }}</span>
+        <!-- -> Only when the label is actually clipped -- see `checkTruncation` below -->
+        <w-tooltip v-if="isTruncated">{{ displayLabel(item) }}</w-tooltip>
+      </w-item-section>
       <!-- -> Create inside this folder: right-click anywhere on its own header row -->
       <page-new-menu
         v-if="canCreate"
@@ -30,7 +34,11 @@
   </w-expansion-item>
   <w-item v-else v-bind="destination(item)">
     <w-item-section side><w-icon :name="iconFor(item)" color="slate-faint" /></w-item-section>
-    <w-item-section class="text-wordbreak-all">{{ displayLabel(item) }}</w-item-section>
+    <w-item-section>
+      <span ref="labelEl" class="truncate">{{ displayLabel(item) }}</span>
+      <!-- -> Only when the label is actually clipped -- see `checkTruncation` below -->
+      <w-tooltip v-if="isTruncated">{{ displayLabel(item) }}</w-tooltip>
+    </w-item-section>
     <!-- -> Create as a sibling, in the folder this page lives in: right-click anywhere on its row -->
     <page-new-menu
       v-if="canCreate"
@@ -43,7 +51,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
 import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
@@ -114,6 +122,57 @@ function displayLabel(item) {
   const segments = item.path.split('/')
   return humanize(segments[segments.length - 1])
 }
+
+// TRUNCATION / TOOLTIP (OpenProject #2849)
+
+/**
+ * The label element currently rendered -- either the `w-expansion-item` header's or the leaf
+ * `w-item`'s, since the two are mutually exclusive per instance (`v-if`/`v-else` above), so one ref
+ * name safely serves both.
+ */
+const labelEl = ref(null)
+
+/** Whether the label is currently clipped by its own single-line ellipsis. */
+const isTruncated = ref(false)
+
+/**
+ * `scrollWidth` still reports the label's full, untruncated content width even while visually
+ * clipped -- a mismatch against `clientWidth` (what actually fits) is truncation. Exposed so the
+ * test file can trigger it directly after stubbing both widths on `labelEl`: neither jsdom nor
+ * happy-dom runs real layout, so a `ResizeObserver` callback never fires on its own under test.
+ */
+function checkTruncation() {
+  isTruncated.value = Boolean(
+    labelEl.value && labelEl.value.scrollWidth > labelEl.value.clientWidth
+  )
+}
+
+let resizeObserver = null
+
+// Re-measures whenever the label's own box changes width -- a window resize, the sidebar being
+// resized (including a future auto-growing width, OpenProject #2850), or a folder collapsing
+// elsewhere in the tree and giving this row more room back.
+watch(labelEl, (el) => {
+  resizeObserver?.disconnect()
+  if (!el) {
+    isTruncated.value = false
+    return
+  }
+  checkTruncation()
+  resizeObserver = new ResizeObserver(checkTruncation)
+  resizeObserver.observe(el)
+})
+
+onBeforeUnmount(() => resizeObserver?.disconnect())
+
+// Re-measures on a content-only change too (e.g. the path-display setting toggling) -- the box
+// itself may not resize, so the ResizeObserver above would never fire for this on its own.
+watch(
+  () => displayLabel(props.item),
+  () => nextTick(checkTruncation)
+)
+
+defineExpose({ checkTruncation })
 
 /**
  * Where a creation action targets, for a generated item: right-click a FOLDER item creates INSIDE
