@@ -1,6 +1,8 @@
+import path from 'node:path'
+
 import { describe, expect, test } from 'vitest'
 
-import { restyleForCardinal } from './generate-icons.mjs'
+import { collectRefs, restyleForCardinal } from './generate-icons.mjs'
 
 /**
  * The Cardinal restyle these cover: Tabler's round caps and joins come off every real stroke and its
@@ -132,5 +134,24 @@ describe('restyleForCardinal', () => {
         '<path d="M11 12h1v4h1"/>' +
         '</g>'
     )
+  })
+})
+
+/**
+ * `collectRefs` also scans the sibling `blocks/` workspace's `block-<name>/component.js` files, not
+ * just `frontend/src` — a block's `static definition.icon` is read at runtime as `block.icon` (data,
+ * not a literal) inside `frontend/src`, so without this second root it would never surface here at
+ * all (OpenProject #2869: `block-kroki`'s `tabler:topology-star` was missing from the bundle for
+ * exactly this reason).
+ */
+describe('collectRefs', () => {
+  test('finds a literal Iconify reference declared in a block definition', () => {
+    const refs = collectRefs()
+
+    expect(refs.has('tabler:topology-star')).toBe(true)
+    const sources = refs.get('tabler:topology-star')
+    expect(
+      sources.some((file) => file === path.join('..', 'blocks/block-kroki/component.js'))
+    ).toBe(true)
   })
 })
