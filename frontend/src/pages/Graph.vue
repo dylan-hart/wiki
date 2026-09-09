@@ -1294,10 +1294,11 @@ onBeforeUnmount(() => {
   }
 
   /*
-    Both panels (`.graph-view-right-rail`, `.graph-view-filters`) are Cobalt's shadowed-sheet
-    treatment (`background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)` in the
-    mockup), not a hairline-bordered box -- `--radius-card`/`--shadow-card` are `0`/`none` under
-    Ledger, so the border above stays the only visible edge there.
+    Both panels (`.graph-view-right-rail`, `.graph-view-filters`) draw their Cobalt edge through
+    `--shadow-card` alone, not the `border` above -- `--radius-card`/`--shadow-card` are `0`/`none`
+    under Ledger, so that border stays the only visible edge there. Under Cobalt `--shadow-card` is
+    itself a hairline ring now (OpenProject #2856's matte pass), not the mockup's blurred
+    `background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)` glow.
   */
   @at-root body.body--cobalt & {
     border: 0;
@@ -1377,9 +1378,11 @@ onBeforeUnmount(() => {
   }
 
   /*
-    Cobalt's own truncation pill is a plain shadowed sheet with no accent border at all
-    (`background:#fff;border-radius:8px;box-shadow:0 4px 14px rgba(16,25,74,.14)` in the mockup) --
-    closest existing tokens rather than a new one-off shadow: `--radius-card`/`--shadow-card`.
+    Cobalt's own truncation pill drops the accent border entirely, closest existing tokens rather
+    than a new one-off shadow: `--radius-card`/`--shadow-card`. The mockup drew this as a plain
+    shadowed sheet (`background:#fff;border-radius:8px;box-shadow:0 4px 14px rgba(16,25,74,.14)`);
+    under the matte pass (OpenProject #2856) `--shadow-card` is a hairline ring instead, so the pill
+    now reads as a plain hairline-bordered plate rather than an accent-outlined or shadowed one.
   */
   @at-root body.body--cobalt & {
     border: 0;
