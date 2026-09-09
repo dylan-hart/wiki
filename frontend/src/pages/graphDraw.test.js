@@ -347,7 +347,7 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     )
 
     expect(order).toEqual([
-      ['stroke', '#ffffff', 10 * 0.28],
+      ['stroke', '#ffffff', 10 * 0.14],
       ['fill', '#333']
     ])
   })

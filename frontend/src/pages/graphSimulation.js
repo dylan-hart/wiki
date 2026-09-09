@@ -80,8 +80,8 @@ const CHARGE_BASE_STRENGTH = 30
  *  at the *old* 22px ceiling reproduces close to the *old* flat `-120` charge:
  *  `-(30 + 22 * 4) = -118`, a sanity check against the value this replaces. A node at the new 110px
  *  ceiling gets `-(30 + 110 * 4) = -470`, proportionally stronger without overpowering the much
- *  smaller nodes most graphs are still mostly made of (`MIN_NODE_RADIUS`, `10` since OpenProject
- *  #2594, gets only `-70`). */
+ *  smaller nodes most graphs are still mostly made of (`MIN_NODE_RADIUS`, `20` since OpenProject
+ *  #2900, gets only `-110`). */
 const CHARGE_RADIUS_FACTOR = 4
 
 /** A node's charge strength: bigger nodes repel harder, scaling with the same per-node radius

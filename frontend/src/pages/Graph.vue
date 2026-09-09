@@ -761,16 +761,17 @@ const clusters = ref([])
  *  pair once `radiusFor()` switched to a true min/max lerp normalized against the current graph's own
  *  observed range (`sqrtRangeOf()`/`lerpRadius()`, `graphNodeSize.js`) rather than an absolute
  *  `MIN + sqrt(count) * SCALE` formula. `MIN_NODE_RADIUS` was `5` -- the pre-#1270 'uniform' mode's
- *  fixed dot radius -- and is DOUBLE that as of OpenProject #2594: the floor now has to leave room
- *  for a legible page title rendered INSIDE the node rather than beside it (Task #2593), which a
- *  5px dot cannot do at any font size. Nothing else keys off it: `lerpRadius()` takes it as a
- *  parameter, `collideRadiusFor()` derives from `radiusFor()` and so rescales on its own, and a
- *  synthetic folder/root hub keeps its own fixed `3` (see `radiusFor()`), deliberately below the
- *  real-node floor. `MAX_NODE_RADIUS` is `5x` the old `22` cap (OpenProject #2561) -- the lerp's own
+ *  fixed dot radius -- doubled to `10` by OpenProject #2594 (the floor now has to leave room for a
+ *  legible page title rendered INSIDE the node rather than beside it, Task #2593, which a 5px dot
+ *  cannot do at any font size), and doubled again to `20` per Dylan's hands-on review (OpenProject
+ *  #2900). Nothing else keys off it: `lerpRadius()` takes it as a parameter, `collideRadiusFor()`
+ *  derives from `radiusFor()` and so rescales on its own, and a synthetic folder/root hub keeps its
+ *  own fixed `3` (see `radiusFor()`), deliberately below the real-node floor. `MAX_NODE_RADIUS` is
+ *  `5x` the old `22` cap (OpenProject #2561) and is left untouched by #2900 -- the lerp's own
  *  normalization is what makes a ceiling this much larger workable at all: only the single
  *  highest-ranked node in the currently-loaded graph ever actually draws at it, everything else
  *  scales down from there. */
-const MIN_NODE_RADIUS = 10
+const MIN_NODE_RADIUS = 20
 const MAX_NODE_RADIUS = 110
 
 /** How many contributors count toward a node's 'edits'-mode size, per the currently-checked

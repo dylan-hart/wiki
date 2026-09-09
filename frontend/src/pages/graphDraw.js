@@ -182,8 +182,9 @@ const LABEL_HALO_COLOR = {
 /** Halo thickness as a fraction of the drawn font size -- `lineWidth` is the FULL stroke width and a
  *  stroked glyph is centered on its own outline, so only half of this lands outside the glyph.
  *  Scaling it with the font rather than fixing it in px keeps the halo proportionate as the label
- *  shrinks under `LABEL_MAX_EFFECTIVE_FONT_PX` at high zoom. */
-const LABEL_HALO_WIDTH_RATIO = 0.28
+ *  shrinks under `LABEL_MAX_EFFECTIVE_FONT_PX` at high zoom. Halved from `0.28` per Dylan's
+ *  hands-on review (OpenProject #2900) -- the thicker halo was crowding the glyph strokes. */
+const LABEL_HALO_WIDTH_RATIO = 0.14
 
 /** How much of a node's inscribed text width a label may actually occupy. The chord
  *  `insideNodeTextWidth()` computes is the exact widest a font-height box could be inside the
