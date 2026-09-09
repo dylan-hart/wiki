@@ -999,13 +999,25 @@
     `list-style: none` is what stops the browser drawing its own figure beside this one; the plate
     then sits in the padding the list already reserves, pulled back into it by a negative margin so
     the text keeps its measure.
+
+    OpenProject #2883: the plate's own geometry (`width`/`height`/`inset-inline-start`) is in `rem`,
+    not `em` -- real-browser measurement (`getComputedStyle(li, '::before')`) caught what reading the
+    rule could not: `em` on a property OTHER than `font-size` resolves against the element's OWN
+    computed font-size, not its parent's, and this element's own font-size is the 11px `0.6875em`
+    two declarations down. `width: 1.5em` was therefore 1.5 × 11px = 16.5px, not the 24px the handoff
+    draws (`pre.codeblock.line-numbers`'s gutter above takes the same `rem` shape for the same
+    reason). Centering is the handoff's own line-height trick -- `font: 600 0.6875em/1.5rem` puts a
+    single line of text in a line box exactly as tall as the circle, which centers it on the baseline
+    grid with no flexbox and no positional nudge to get right; the flex-centering plus an unexplained
+    `top: 0.05em` nudge this replaces was two ways of solving the same problem, and the nudge only
+    ever corrected for the OTHER bug's fallout.
   */
   @at-root body.body--cobalt & {
     > ol,
     li > ol {
       list-style: none;
       counter-reset: cobalt-step;
-      padding-inline-start: 2.4em;
+      padding-inline-start: 2.4rem;
     }
 
     > ol > li,
@@ -1017,27 +1029,33 @@
       &::before {
         content: counter(cobalt-step);
         position: absolute;
-        inset-inline-start: -2.4em;
-        top: 0.05em;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 1.5em;
-        height: 1.5em;
+        inset-inline-start: -2.4rem;
+        width: 1.5rem;
+        height: 1.5rem;
         border-radius: 50%;
         background-color: var(--content-step-bg);
         color: var(--content-step-fg);
-        font-family: var(--font-mono);
-        font-size: 0.6875em;
-        font-weight: 600;
-        line-height: 1;
+        font: 600 0.6875em/1.5rem var(--font-mono);
+        text-align: center;
       }
     }
 
-    /* -> A sub-step is still an outline level, so it keeps a marker rather than a second run of discs */
+    /*
+      A sub-step is still an outline level, so it keeps a marker rather than a second run of discs.
+
+      OpenProject #2883: `counter-reset: cobalt-step` here, not `none` -- `none` is the property's
+      own initial value, so it was a no-op rather than the fresh scope its name suggests, and
+      `counter-increment: cobalt-step` above matches `li > ol > li` at ANY depth, sub-steps included.
+      A real-browser render of a three-level ordered list caught it directly: with no new scope, a
+      sub-step's `li` still incremented the OUTER counter on its way past (its own numeral suppressed
+      by `content: none` below, so nothing looked wrong until the list ran three items with a
+      two-item sub-step in the middle and the fourth top-level item read "6"). Resetting the counter
+      here shadows the outer instance for this subtree, so a sub-step's hidden count no longer steals
+      values the top-level circles are still going to show.
+    */
     ol ol {
       list-style: lower-alpha;
-      counter-reset: none;
+      counter-reset: cobalt-step;
       padding-inline-start: 1.6em;
 
       > li::before {

@@ -668,3 +668,108 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2883 ("Cobalt list rendering (numbered steps, bullets, nested lists, task lists)
+ * doesn't fully match mockups"). Two independent regressions in the numbered-step circle, both
+ * invisible to reading the rule and caught only by measuring what a real browser actually resolves
+ * -- see the rule's own header comments in `_page-contents.scss` for the mechanism of each. The
+ * source-level checks below pin the exact declarations the fix depends on; the real-browser check
+ * pins the thing neither a source read nor jsdom/happy-dom can confirm, the actual computed pixel
+ * size of a `::before` pseudo-element.
+ */
+describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  /** The declarations of one selector's block, given the selector's own opening line. */
+  function blockFor(selector) {
+    const start = source.indexOf(selector)
+    if (start === -1) {
+      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+    }
+    let depth = 0
+    for (let i = start; i < source.length; i += 1) {
+      if (source[i] === '{') {
+        depth += 1
+      } else if (source[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          return source.slice(start, i + 1)
+        }
+      }
+    }
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+  }
+
+  it("sizes the circle's box in `rem`, not `em` -- `em` on a property other than `font-size` resolves against the PSEUDO-ELEMENT's own (smaller, `0.6875em`) computed font-size, not the list item's, which is what silently shrank the 24px handoff circle to 16.5px", () => {
+    const block = blockFor('li > ol > li {')
+    expect(block).toMatch(/inset-inline-start:\s*-2\.4rem/)
+    expect(block).toMatch(/width:\s*1\.5rem/)
+    expect(block).toMatch(/height:\s*1\.5rem/)
+    expect(block).not.toMatch(/(?:width|height|inset-inline-start):\s*-?[\d.]+em\b/)
+  })
+
+  it("centers the numeral with a line-height equal to the box height, the handoff's own technique, rather than flexbox plus an unexplained positional nudge", () => {
+    const block = blockFor('li > ol > li {')
+    expect(block).toMatch(/font:\s*600 0\.6875em\/1\.5rem var\(--font-mono\)/)
+    expect(block).not.toMatch(/display:\s*flex/)
+    expect(block).not.toMatch(/top:\s*0\.05em/)
+  })
+
+  it('gives a sub-step ordered list its own counter scope, so its hidden nested numerals cannot steal values the top-level circles are still going to show', () => {
+    const block = blockFor('    ol ol {')
+    expect(block).toMatch(/counter-reset:\s*cobalt-step/)
+    expect(block).not.toMatch(/counter-reset:\s*none/)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    const SAMPLE = `
+        <article class="page-contents">
+          <ol>
+            <li>first</li>
+            <li>second</li>
+            <li>third</li>
+          </ol>
+        </article>`
+
+    async function measureCircle() {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="body--cobalt">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const li = document.querySelector('.page-contents > ol > li')
+          const cs = getComputedStyle(li, '::before')
+          return { width: cs.width, height: cs.height }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it("resolves the circle to the handoff's 24px in both dimensions, not the 16.5px an `em`-relative-to-its-own-font-size box would compute to", async () => {
+      const circle = await measureCircle()
+      expect(circle.width).toBe('24px')
+      expect(circle.height).toBe('24px')
+    })
+  })
+})
