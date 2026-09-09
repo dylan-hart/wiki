@@ -68,12 +68,23 @@ describe('--tabs-* tokens, one row per ui-iteration/tabset-block.md', () => {
     'strip-gap': { ledgerLight: '0', cobaltLight: '4px' },
     'strip-rule': {
       ledgerLight: '1px solid var(--tabs-border)',
+      /*
+        Restated, not left to inherit, despite being the identical literal text as Ledger light's --
+        OpenProject #2886. A custom property's nested var() resolves against the COMPUTED value at
+        the element where the property is actually assigned in the cascade, then inherits that
+        already-resolved value down; left undeclared here it would keep resolving
+        `var(--tabs-border)` against `:root`'s (i.e. `<html>`'s) own Ledger-LIGHT value even under
+        `body.body--dark`, which is exactly the white-hairline bug this restatement fixes.
+      */
+      ledgerDark: '1px solid var(--tabs-border)',
       cobaltLight: 'none'
     },
     'tab-padding': { ledgerLight: '9px 16px', cobaltLight: '8px 14px' },
     'tab-radius': { ledgerLight: '0', cobaltLight: '6px 6px 0 0' },
     'tab-rule': {
       ledgerLight: '1px solid var(--tabs-border)',
+      // -> Same reasoning as --tabs-strip-rule above (OpenProject #2886)
+      ledgerDark: '1px solid var(--tabs-border)',
       cobaltLight: 'none'
     },
     'inactive-fg': {
