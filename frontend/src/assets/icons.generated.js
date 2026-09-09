@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  340 icons.
+  339 icons.
 */
 export const BUNDLED_ICONS = {
   "tabler:activity": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M3 12h4l3 8l4-16l3 8h4\"/>","width":24,"height":24},
@@ -265,7 +265,6 @@ export const BUNDLED_ICONS = {
   "tabler:player-track-next": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M3 5v14l8-7zm11 0v14l8-7z\"/>","width":24,"height":24},
   "tabler:playlist": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M11 17a3 3 0 1 0 6 0a3 3 0 1 0-6 0m6 0V4h4m-8 1H3m0 4h10m-4 4H3\"/>","width":24,"height":24},
   "tabler:plug": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M9.785 6L18 14.215l-2.054 2.054a5.81 5.81 0 1 1-8.215-8.215zM4 20l3.5-3.5M15 4l-3.5 3.5M20 9l-3.5 3.5\"/>","width":24,"height":24},
-  "tabler:plug-connected": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"m7 12l5 5l-1.5 1.5a3.536 3.536 0 1 1-5-5zm10 0l-5-5l1.5-1.5a3.536 3.536 0 1 1 5 5zM3 21l2.5-2.5m13-13L21 3m-11 8l-2 2m5 1l-2 2\"/>","width":24,"height":24},
   "tabler:plug-connected-x": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"m20 16l-4 4m-9-8l5 5l-1.5 1.5a3.536 3.536 0 1 1-5-5zm10 0l-5-5l1.5-1.5a3.536 3.536 0 1 1 5 5zM3 21l2.5-2.5m13-13L21 3m-11 8l-2 2m5 1l-2 2m5 0l4 4\"/>","width":24,"height":24},
   "tabler:plus": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M12 5v14m-7-7h14\"/>","width":24,"height":24},
   "tabler:power": {"body":"<path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" d=\"M7 6a7.75 7.75 0 1 0 10 0m-5-2v8\"/>","width":24,"height":24},
