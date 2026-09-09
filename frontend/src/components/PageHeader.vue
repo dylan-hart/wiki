@@ -159,80 +159,6 @@
           @click="printPage">
           <w-tooltip>{{ t('common.actions.print') }}</w-tooltip>
         </w-btn>
-        <!--
-          Only for whoever reviews this page: the server answers `canReview` from the approval rules
-          and the reviewer's own permissions — with the page itself — so nothing here has to know how
-          that is decided, or ask about it.
-
-          One tray either way, told apart by colour and by the badge rather than by a second glyph:
-          empty, it is grey and sits with Print as one more thing available; with something waiting it
-          turns accent, the colour this row uses for what belongs to the reader, and carries the count.
-          That is how the design draws it -- a single inbox with a count pinned to it.
-
-          A redirection takes no suggestions -- see the button below -- so there is never a queue on
-          one to review.
-        -->
-        <w-btn
-          class="ms-4"
-          v-if="pageStore.canReview && !isRedirect"
-          flat
-          :color="pendingCount > 0 ? `accent` : `slate-soft`"
-          :aria-label="t(`inbox.pendingReview`)">
-          <!--
-            The badge is a sibling of the icon, not a child of it: WIcon renders a bare `<svg>` and no
-            slot, so anything written inside it is dropped — and an HTML badge could not live inside an
-            SVG in any case. It floats against the button, which is the positioned box here.
-          -->
-          <w-icon name="tabler:inbox" />
-          <w-badge v-if="pendingCount > 0" color="accent" text-color="white" floating>
-            <strong>{{ pendingCount }}</strong>
-          </w-badge>
-          <w-tooltip>{{ t('inbox.pendingReview') }}</w-tooltip>
-          <!--
-            Down from the button's trailing edge, like every other menu hanging off this row: the
-            panel is wider than the button and the button sits near the reading-END edge of the
-            window (this actions group is the last child of a flex row, so a plain flex reorder is
-            what puts it there under either direction) -- aligning their trailing edges is what keeps
-            it on screen. `WMenu` places itself in raw viewport pixels and knows nothing about
-            `direction` (`composables/anchoredPosition.js`), so the LTR-written "right" pair would pop
-            the panel off toward the visual right even once `dir="rtl"` has moved this button to the
-            visual left; `reviewMenu` mirrors it via `directionalAnchor`, the same helper
-            `EditorMarkdown.vue`'s side toolbar uses for its own hardcoded anchors -- kept reactive
-            here (see the script setup comment) since this header, unlike an editor session, outlives
-            a single locale.
-          -->
-          <w-menu
-            class="translucent-menu"
-            :anchor="reviewMenu.anchor"
-            :self="reviewMenu.self"
-            auto-close>
-            <w-list padding style="min-width: 320px">
-              <w-item v-if="pendingCount < 1">
-                <w-item-section>
-                  <w-item-label caption>{{ t('inbox.reviewNone') }}</w-item-label>
-                </w-item-section>
-              </w-item>
-              <w-item
-                v-for="submission of pageStore.pendingSubmissions"
-                :key="submission.id"
-                clickable
-                @click="reviewSubmission(submission)">
-                <w-item-section class="items-center" avatar>
-                  <w-icon class="text-slate-soft" name="tabler:file-text" size="sm" />
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label>
-                    {{ submission.author.name || t('inbox.reviewUnknownAuthor') }}
-                  </w-item-label>
-                  <w-item-label caption>{{ humanizeDate(t, submission.createdAt) }}</w-item-label>
-                </w-item-section>
-                <w-item-section side v-if="submission.isStale">
-                  <w-badge color="warning" rounded>{{ t('inbox.reviewStale') }}</w-badge>
-                </w-item-section>
-              </w-item>
-            </w-list>
-          </w-menu>
-        </w-btn>
       </template>
       <template v-if="editorStore.isActive">
         <!--
@@ -405,7 +331,6 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
-import { useDirection } from '@/composables/direction'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { usePageSaveFlow } from '@/composables/pageSaveFlow'
@@ -422,29 +347,12 @@ import { useUserStore } from '@/stores/user'
 import CollabPresence from '@/components/CollabPresence.vue'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { humanizeDate } from '@/helpers/datetime'
-import { directionalAnchor } from '@/helpers/directionalAnchor'
 
 /**
  * How long the bell swings for, in milliseconds. Matches the `w-bell-ring` animation below — the class
  * has to come off once it has played, or the next watch would not play it again.
  */
 const BELL_RING_MS = 700
-
-// DIRECTION
-
-const direction = useDirection()
-
-/*
-  The review-queue dropdown's `anchor`/`self`, LTR-correct pair mirrored for `dir="rtl"` -- see the
-  template comment above the `w-menu` for why a hardcoded "right" pair breaks once this actions group
-  has moved to the visual left. Kept reactive off `composables/direction.js` rather than read once:
-  this header stays mounted across navigations (it is not remounted per page the way an editor session
-  is), so a reader moving between an LTR page and an RTL one in the same visit must flip this too.
-*/
-const reviewMenu = computed(() =>
-  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'bottom right', 'top right')
-)
 
 // PATH DISPLAY
 
@@ -527,9 +435,6 @@ const isSuggesting = computed(() => editorStore.isActive && editorStore.mode ===
  * Excludes suggest mode, where those are page properties the submitter has no say over.
  */
 const isEditing = computed(() => editorStore.isActive && !isSuggesting.value)
-
-/** How many suggestions are waiting on this page, which is what the review badge counts. */
-const pendingCount = computed(() => pageStore.pendingSubmissions.length)
 
 /**
  * Whether this is a redirection — one being read, edited or created alike, since `pageCreate` puts the
@@ -821,18 +726,6 @@ async function submitSuggestionCommit(guest = {}) {
 
 function printPage() {
   window.print()
-}
-
-/**
- * Open one suggestion for review, remembering where it was opened from.
- *
- * `from: 'page'` is what sends the reviewer back here when they are done, rather than to the inbox
- * queue they never came through -- read by `InboxReview.vue`'s `fromPage` prop, forwarded off
- * `overlayOpts` by `InboxOverlay.vue` (OpenProject #2531 converted the Inbox from routed `/_inbox/*`
- * pages to a `MainOverlayDialog` entry).
- */
-function reviewSubmission(submission) {
-  siteStore.openOverlay('Inbox', { tab: 'review', submissionId: submission.id, from: 'page' })
 }
 
 /**
