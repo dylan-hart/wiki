@@ -827,10 +827,11 @@ onMounted(async () => {
 
 /*
   OpenProject #2717: this page's own top band (`.w-section-header`, "Browse by tags") sat at the
-  shared 34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 38px`)
-  beside it and `.page-breadcrumbs` (`Index.vue`, `min-height: 38px`, matched to `.sidebar-actions` by
-  #2613) sit at the same vertical position everywhere else -- so this band's own bottom hairline
-  landed 4px above theirs instead of on the same line.
+  shared 34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 41px` as of
+  #2861's three-cell locale|browse|top restructure) beside it and `.page-breadcrumbs` (`Index.vue`,
+  `min-height: 41px`, matched to `.sidebar-actions` by #2613 and re-matched by #2861) sit at the same
+  vertical position everywhere else -- so this band's own bottom hairline landed above theirs instead
+  of on the same line.
 
   The shared `.w-section-header` stays 34px (`#2631`'s own rhythm, guarded by
   `sectionHeaderRhythm.test.js`, which scans for -- and this rule deliberately isn't -- a `padding`
@@ -841,11 +842,11 @@ onMounted(async () => {
   `min-height`, not `height`, for the same reason `.page-breadcrumbs` uses it: a long enough locale
   name or a wrapped title still has to be able to grow past the band. Fill and border are left alone
   -- the design (`ui-redesign/Cardinal Wiki - Tags 3x.dc.html`) already draws this band at the shared
-  class's own tint fill and hairline rule, just 38px tall, so nothing else needs to change for the
-  two bands to read as one strip.
+  class's own tint fill and hairline rule, just re-pinned to 41px tall to follow #2861, so nothing
+  else needs to change for the two bands to read as one strip.
 */
 .tags-browse .w-section-header {
-  min-height: 38px;
+  min-height: 41px;
 }
 
 /*

@@ -1389,10 +1389,12 @@ $toc-overlay-max: 749.98px;
 */
 .page-breadcrumbs {
   /*
-    38px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left of this one:
+    41px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left of this one:
     the two sit at the same vertical position and each rules itself off with its own hairline, so any
     disagreement in height leaves the two rules on different lines and the two grounds meeting at a
-    step. Both boxes are `border-box`, so that 1px border is inside the 38px on either side.
+    step. Both boxes are `border-box`, so that 1px border is inside the 41px on either side. (OpenProject
+    #2861 raised `.sidebar-actions` from 38px to 41px for its three-cell locale|browse|top restructure;
+    this band follows it to keep the two rules on the same line, same as #2613 originally matched it.)
 
     A fixed height at all -- rather than one sized by its own contents through the `py-1`/`sm:py-2`
     pair this used to carry -- because the bar's height otherwise moved with whatever the trail
@@ -1400,7 +1402,7 @@ $toc-overlay-max: 749.98px;
 
     `min-height` rather than `height` so a trail long enough to wrap can still grow past the band.
   */
-  min-height: 38px;
+  min-height: 41px;
   font-family: var(--font-mono);
   font-size: 11.5px;
 

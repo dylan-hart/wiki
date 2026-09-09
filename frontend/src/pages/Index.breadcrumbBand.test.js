@@ -9,7 +9,9 @@ import { chromium, hasChromium, buildAppCss } from '../../test/realGridLayout.js
   OpenProject #2613: the breadcrumb trail and the sidebar's action row are two bands at the same
   vertical position, side by side, each ruled off with its own 1px hairline -- so their heights have
   to agree, or the two rules do not line up and the grounds meet at a step. `.page-breadcrumbs`
-  (`Index.vue`) was 34px against `.sidebar-actions`' (`MainLayout.vue`) 38px.
+  (`Index.vue`) was 34px against `.sidebar-actions`' (`MainLayout.vue`) 38px. #2861 later raised
+  `.sidebar-actions` again, to 41px, for its three-cell locale|browse|top restructure -- `.page-
+  breadcrumbs` follows it here to keep the same invariant.
 
   Measured in a real headless Chromium rather than the suite's default `happy-dom`, for the reason
   `test/realGridLayout.js` documents at length: no DOM emulator runs a layout engine, so every
@@ -121,8 +123,8 @@ describe(
     })
 
     it('draws the breadcrumb band at the sidebar action row height', () => {
-      expect(bands.sidebarActions.height).toBe(38)
-      expect(bands.breadcrumbs.height).toBe(38)
+      expect(bands.sidebarActions.height).toBe(41)
+      expect(bands.breadcrumbs.height).toBe(41)
     })
   }
 )

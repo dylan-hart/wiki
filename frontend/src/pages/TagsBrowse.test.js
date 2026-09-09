@@ -552,14 +552,15 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
   /*
     Task #2631 (landed) walked every `.w-section-header` caller onto the design's shared padding
     rhythm and settled the class itself at 34px everywhere -- it deliberately did not raise this
-    screen's band to the design's 38px, which is a page-specific gap against the SIDEBAR band beside
-    it, not a rhythm-wide padding drift. OpenProject #2717 closed that gap the same way #2613 closed
-    the analogous one for `.page-breadcrumbs`: a page-local `min-height` override, leaving the shared
-    class (and `sectionHeaderRhythm.test.js`'s 34px guard) untouched. So this screen's stylesheet DOES
-    restyle `.w-section-header` now, on purpose, and only ever its height -- never its padding, which
-    stays #2631's alone.
+    screen's band to match the SIDEBAR band beside it, which is a page-specific gap, not a
+    rhythm-wide padding drift. OpenProject #2717 closed that gap the same way #2613 closed the
+    analogous one for `.page-breadcrumbs`: a page-local `min-height` override, leaving the shared
+    class (and `sectionHeaderRhythm.test.js`'s 34px guard) untouched. #2861 later raised the sidebar
+    band again, from 38px to 41px, and this page's override followed it there. So this screen's
+    stylesheet DOES restyle `.w-section-header` now, on purpose, and only ever its height -- never
+    its padding, which stays #2631's alone.
   */
-  it('pins its own band to 38px locally, without restating the shared rhythm’s padding', () => {
+  it('pins its own band to 41px locally, without restating the shared rhythm’s padding', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(here, 'TagsBrowse.vue'), 'utf8')
     // -> Comments stripped first, same as the padding scan in `sectionHeaderRhythm.test.js`.
@@ -569,7 +570,7 @@ describe('TagsBrowse.vue -- Cardinal Wiki - Tags 3x.dc.html (OpenProject #2626)'
 
     const rule = declarations.match(/\.tags-browse \.w-section-header\s*\{([^{}]*)\}/)
     expect(rule).not.toBeNull()
-    expect(rule[1]).toMatch(/min-height:\s*38px/)
+    expect(rule[1]).toMatch(/min-height:\s*41px/)
     expect(rule[1]).not.toMatch(/padding/)
   })
 
