@@ -867,11 +867,11 @@ function collideRadiusFor(node) {
 }
 
 /** Recomputes everything derived from node POSITION: rebuilds the hit-test quadtree over the
- *  current `x`/`y`s and re-colors/re-hulls clusters via `recomputeClusters()`. Call whenever nodes
- *  may have moved or the visible set may have changed -- a simulation tick, a resize, a sizing
- *  change -- never for a pan/zoom alone, where no node's position changed, only the canvas
+ *  current `x`/`y`s and re-colors/re-circles clusters via `recomputeClusters()`. Call whenever
+ *  nodes may have moved or the visible set may have changed -- a simulation tick, a resize, a
+ *  sizing change -- never for a pan/zoom alone, where no node's position changed, only the canvas
  *  transform (OpenProject #1837; `recomputeClusters()`'s O(n log n) quadtree build plus per-group
- *  `polygonHull` work used to run at pointer/wheel frequency for a picture whose geometry hadn't
+ *  cluster-circle work used to run at pointer/wheel frequency for a picture whose geometry hadn't
  *  changed). Always call `repaint()` afterward to actually draw the result. */
 function relayout() {
   nodeQuadtree = d3quadtree(

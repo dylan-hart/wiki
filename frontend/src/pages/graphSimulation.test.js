@@ -7,8 +7,7 @@ import { chargeStrengthFor, computeClusters, linkDistanceFor } from './graphSimu
  * `Graph.layout.test.js`'s real-mount suites, which drive an actual simulation. This file covers
  * the pure math `graphSimulation.js` owns directly: the per-item `linkDistanceFor`/
  * `chargeStrengthFor` accessors (OpenProject #2562) that `startSimulation()` wires into
- * `forceLink().distance()`/`forceManyBody().strength()`, and `computeClusters()`'s hull/circle
- * padding.
+ * `forceLink().distance()`/`forceManyBody().strength()`, and `computeClusters()`'s circle padding.
  */
 describe('linkDistanceFor (OpenProject #2562)', () => {
   const collideRadiusFor = (node) => node.radius + 2
@@ -79,7 +78,7 @@ describe('chargeStrengthFor (OpenProject #2562)', () => {
 describe('computeClusters padding (OpenProject #2562)', () => {
   const zeroRadius = () => 0
 
-  it("a single-node group's fallback circle radius is exactly the current HULL_PADDING", () => {
+  it("a single-node group's circle radius is exactly the current CLUSTER_PADDING", () => {
     const nodes = [{ x: 0, y: 0, folder: 'g' }]
     const clusters = computeClusters(nodes, {
       groupKeyFor: (n) => n.folder,
@@ -89,12 +88,12 @@ describe('computeClusters padding (OpenProject #2562)', () => {
     const cluster = clusters.find((c) => c.key === 'g')
     expect(cluster.circle).toBeDefined()
     // -> With every node radius zeroed out, maxDist collapses to 0, so whatever is left over is
-    //    exactly the flat HULL_PADDING term this WP raised from 16 to 24 -- pinning the new value
+    //    exactly the flat CLUSTER_PADDING term this WP raised from 16 to 24 -- pinning the new value
     //    without importing an unexported constant.
     expect(cluster.circle.r).toBe(24)
   })
 
-  it("a >=3-node group's hull vertices are pushed out from centroid by exactly HULL_PADDING when every node radius is zero", () => {
+  it('a >=3-node group also gets a circle, never a hull (OpenProject #2836)', () => {
     const nodes = [
       { x: 0, y: 0, folder: 'g' },
       { x: 100, y: 0, folder: 'g' },
@@ -106,26 +105,21 @@ describe('computeClusters padding (OpenProject #2562)', () => {
       radiusFor: zeroRadius
     })
     const cluster = clusters.find((c) => c.key === 'g')
-    expect(cluster.hullPoints).toBeDefined()
-    // -> All three form a triangle, so every input node is itself a hull vertex -- each one pushed
-    //    straight out from the shared centroid by exactly the flat HULL_PADDING term (`24`, raised
-    //    from `16` by this WP), since `radiusFor` is zeroed out for every node here.
+    expect(cluster.hullPoints).toBeUndefined()
+    expect(cluster.circle).toBeDefined()
+    // -> The centroid of this right triangle is (100/3, 100/3); with every node radius zeroed out,
+    //    the circle's radius is exactly the farthest member's distance from centroid plus the flat
+    //    CLUSTER_PADDING term (`24`).
     const cx = nodes.reduce((s, n) => s + n.x, 0) / nodes.length
     const cy = nodes.reduce((s, n) => s + n.y, 0) / nodes.length
-    const expectedPoints = nodes.map((n) => {
-      const dx = n.x - cx
-      const dy = n.y - cy
-      const len = Math.hypot(dx, dy)
-      return [n.x + (dx / len) * 24, n.y + (dy / len) * 24]
-    })
-    for (const [ex, ey] of expectedPoints) {
-      const match = cluster.hullPoints.find(([hx, hy]) => Math.hypot(hx - ex, hy - ey) < 1e-6)
-      expect(match).toBeDefined()
-    }
+    const maxDist = Math.max(...nodes.map((n) => Math.hypot(n.x - cx, n.y - cy)))
+    expect(cluster.circle.x).toBeCloseTo(cx)
+    expect(cluster.circle.y).toBeCloseTo(cy)
+    expect(cluster.circle.r).toBeCloseTo(maxDist + 24)
   })
 
-  it('a floor-sized node already gets more total clearance after OpenProject #2594 doubled MIN_NODE_RADIUS, with no HULL_PADDING change', () => {
-    // -> HULL_PADDING is a flat term ADDED ON TOP of radiusFor(node) per vertex, so the doubled
+  it('a floor-sized node already gets more total clearance after OpenProject #2594 doubled MIN_NODE_RADIUS, with no CLUSTER_PADDING change', () => {
+    // -> CLUSTER_PADDING is a flat term ADDED ON TOP of radiusFor(node) per vertex, so the doubled
     //    floor (5 -> 10, OpenProject #2594) already flows through the radius term alone: 24 + 5 =
     //    29 at the old floor, 24 + 10 = 34 at the new one. This pins that reasoning (the
     //    "no numeric change needed here" conclusion in OpenProject #2562's own re-tuning pass) as

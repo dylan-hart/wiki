@@ -1,5 +1,4 @@
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
-import { polygonHull } from 'd3-polygon'
 import { select } from 'd3-selection'
 import { zoom as d3zoom } from 'd3-zoom'
 
@@ -126,49 +125,33 @@ export function startSimulation(
 
 /*
   `24`px (raised from `16`, OpenProject #2562) is a starting point sized against what was then a
-  `5`px minimum node-dot radius in `drawNodes()` -- tune visually so the hull clearly contains the
-  dots without ballooning past neighboring clusters. It's a floor added on top of each node's own
-  `radiusFor()` (OpenProject #2296), not the whole gap any more -- see `padHull()` and
-  `computeClusters()`'s circle case below, both of which used to pad by this constant alone and let
-  a large node (up to `MAX_NODE_RADIUS`, `110` as of OpenProject #2561's min/max lerp rework -- one
-  shared ceiling for both sizing metrics, was `22`) poke through its own group tint. The flat term
-  itself was raised too: with a node's own radius now reaching `110` (vs. the old `22`), the same
-  flat floor reads proportionally thinner next to a large node's fill than it used to, so it gets a
-  modest bump on top of the per-vertex radius term it already adds.
+  `5`px minimum node-dot radius in `drawNodes()` -- tune visually so the circle clearly contains the
+  dots without ballooning past neighboring clusters. It's a floor added on top of the group's own
+  `maxDist` term (OpenProject #2296), which already grows by each member's own `radiusFor()`, not
+  the whole gap on its own -- a large node (up to `MAX_NODE_RADIUS`, `110` as of OpenProject #2561's
+  min/max lerp rework -- one shared ceiling for both sizing metrics, was `22`) would otherwise poke
+  through its own group tint. The flat term itself was raised too: with a node's own radius now
+  reaching `110` (vs. the old `22`), the same flat floor reads proportionally thinner next to a
+  large node's fill than it used to, so it gets a modest bump on top of the per-node radius term it
+  already adds.
 
   `MIN_NODE_RADIUS` doubling 5 -> 10 (OpenProject #2594) needs no matching bump here, re-checked by
   OpenProject #2562's own spacing retune once #2594 and #2593 had both landed: this constant is a
-  flat term ADDED ON TOP of `radiusFor(node)` per vertex (see `padHull()` and the circle case
-  below), so a floor-sized node's total clearance already grew from `29` to `34` through the radius
-  term alone the moment the floor doubled -- no separate retuning of the flat term itself is needed.
-  Contrast `MAX_NODE_RADIUS`, above: that ceiling is what this constant's own `16` -> `24` bump was
-  actually compensating for, and #2594 left it untouched.
+  flat term ADDED ON TOP of the group's own `maxDist` (which already folds in each node's own
+  `radiusFor(node)`), so a floor-sized node's total clearance already grew from `29` to `34` through
+  the radius term alone the moment the floor doubled -- no separate retuning of the flat term itself
+  is needed. Contrast `MAX_NODE_RADIUS`, above: that ceiling is what this constant's own `16` -> `24`
+  bump was actually compensating for, and #2594 left it untouched.
 */
-const HULL_PADDING = 24
-/** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
- *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. Each
- *  `point` is a `[x, y, node]` triple (see `computeClusters()`) so the offset can grow by that
- *  vertex's own `radiusFor(node)` on top of the flat `padding` (OpenProject #2296) -- a large node
- *  sitting on the hull boundary would otherwise poke through the tint by the difference between its
- *  drawn radius and the flat padding. `polygonHull` (`d3-polygon`) returns references to the exact
- *  input elements it hulled, so the third element survives intact into `points` here. */
-function padHull(points, padding, radiusFor) {
-  const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length
-  const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length
-  return points.map(([x, y, node]) => {
-    const dx = x - cx
-    const dy = y - cy
-    const len = Math.hypot(dx, dy) || 1
-    const vertexPadding = padding + (node ? radiusFor(node) : 0)
-    return [x + (dx / len) * vertexPadding, y + (dy / len) * vertexPadding]
-  })
-}
+const CLUSTER_PADDING = 24
 
-/** Populates `clusters.value` -- one entry per visible group with `hullPoints` (>=3 nodes) or a
- *  fallback `circle` (1-2 nodes, or a degenerate >=3-node group `polygonHull` can't hull, e.g.
- *  every point collinear). Both shapes are sized off each node's edge (its centre plus its own
- *  `radiusFor()`), not just its centre (OpenProject #2296) -- `collideRadiusFor()` above already
- *  adds `radiusFor(node)` to a constant the same way, and is the pattern this mirrors. */
+/** Populates `clusters.value` -- one circle entry per visible group. Every group draws a circle,
+ *  never a convex-hull polygon (OpenProject #2836): a hull fits a spread-out or elongated group
+ *  tighter, but drawing every group's own best-fit shape read as visually inconsistent across a
+ *  graph with many differently-shaped groups, so this trades that tighter fit for a uniform look.
+ *  Sized off each node's edge (its centre plus its own `radiusFor()`), not just its centre
+ *  (OpenProject #2296) -- `collideRadiusFor()` above already adds `radiusFor(node)` to a constant
+ *  the same way, and is the pattern this mirrors. */
 export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor }) {
   const byGroup = new Map()
   for (const node of nodes) {
@@ -184,15 +167,6 @@ export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor }
   const result = []
   for (const [key, groupNodes] of byGroup) {
     const color = colorForGroup(key)
-    if (groupNodes.length >= 3) {
-      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y, n]))
-      if (hull) {
-        result.push({ key, color, hullPoints: padHull(hull, HULL_PADDING, radiusFor) })
-        continue
-      }
-      // -> `polygonHull` returns null for degenerate input (e.g. every point collinear) even with
-      //    >=3 nodes; fall through to the circle case below rather than drawing nothing.
-    }
     const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
     const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
     // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
@@ -204,7 +178,7 @@ export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor }
       (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
       0
     )
-    result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + HULL_PADDING } })
+    result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + CLUSTER_PADDING } })
   }
   return result
 }
