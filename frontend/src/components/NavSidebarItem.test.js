@@ -422,19 +422,20 @@ describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
 })
 
 /**
- * OpenProject #2847: ctrl+click a folder's header to cycle its own DESCENDANT folders between
- * fully expanded and fully collapsed -- the clicked folder's own open/closed state is deliberately
- * left untouched (Feature #2829's design section: "walk the clicked folder's own descendant
- * subtree"), so only `branch`/`midA`/`midB` below ever change from a ctrl+click on `branch`, never
- * `branch` itself.
+ * OpenProject #2847 (design), #2890 (fix): ctrl+click a folder's header cycles its own DESCENDANT
+ * folders between fully expanded and fully collapsed, AND force-opens the clicked folder itself
+ * (never toggled) as part of the same cycle, so the descendant-state change is always immediately
+ * visible and a folder with no sub-folder descendants at all still does something rather than being
+ * a hard no-op. Only `branch`/`midA`/`midB` below ever change from a ctrl+click on `branch`.
  *
  * `midA` starts closed and `midB` starts open (`expandByDefault: true`) so a ctrl+click on `branch`
  * has a genuine mix to resolve ("not every descendant is open" -> expand all) before a second
  * ctrl+click has all of them open ("every descendant is open" -> collapse all). `midB` carries a
  * leaf-only child (`leafB`, no nested folder) so ctrl+clicking `midB` directly exercises the
- * "nothing to expand" no-op case, and doing so must not disturb `midA` -- which would only happen if
- * an ANCESTOR's capture handler (here `branch`'s, or `root`'s) wrongly treated the click as its own
- * rather than letting it travel inward to `midB`'s own instance.
+ * "nothing to cycle, but still force-open the clicked folder" case, and doing so must not disturb
+ * `midA` -- which would only happen if an ANCESTOR's capture handler (here `branch`'s, or `root`'s)
+ * wrongly treated the click as its own rather than letting it travel inward to `midB`'s own
+ * instance.
  */
 const CYCLE_TREE = [
   {
@@ -517,7 +518,7 @@ function plainClick(element) {
 }
 
 describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)', () => {
-  it('expands every closed descendant folder when at least one is closed, leaving the clicked folder itself untouched', async () => {
+  it('expands every closed descendant folder when at least one is closed, and force-opens the clicked folder itself', async () => {
     const wrapper = await mountCycleTree()
     expect(isExpanded(wrapper, 'branch')).toBe(false)
     expect(isExpanded(wrapper, 'midA')).toBe(false)
@@ -529,16 +530,16 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     await wrapper.vm.$nextTick()
 
     expect(notPrevented).toBe(false) // -> preventDefault() was called
-    expect(isExpanded(wrapper, 'branch')).toBe(false) // -> the clicked folder's own state is untouched
+    expect(isExpanded(wrapper, 'branch')).toBe(true) // -> force-opened so the cycle below it is visible
     expect(isExpanded(wrapper, 'midA')).toBe(true)
     expect(isExpanded(wrapper, 'midB')).toBe(true)
     expect(isExpanded(wrapper, 'flatFolder')).toBe(false) // -> outside the clicked subtree, unaffected
   })
 
-  it('collapses every descendant folder once all of them are open', async () => {
+  it('collapses every descendant folder once all of them are open, while the clicked folder itself stays open', async () => {
     const wrapper = await mountCycleTree()
 
-    // -> First cycle opens midA (midB already open) -- see the test above.
+    // -> First cycle opens midA (midB already open) and force-opens branch -- see the test above.
     ctrlClick(itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
     expect(isExpanded(wrapper, 'midA')).toBe(true)
@@ -547,7 +548,7 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     ctrlClick(itemWrapper(wrapper, 'branch').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
 
-    expect(isExpanded(wrapper, 'branch')).toBe(false) // -> still untouched by either cycle
+    expect(isExpanded(wrapper, 'branch')).toBe(true) // -> force-opened every cycle, never toggled closed
     expect(isExpanded(wrapper, 'midA')).toBe(false)
     expect(isExpanded(wrapper, 'midB')).toBe(false)
   })
@@ -566,29 +567,31 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     expect(isExpanded(wrapper, 'midB')).toBe(true) // -> untouched (already open by default)
   })
 
-  it('no-ops for a folder with no nested folder descendants, and still suppresses its own toggle', async () => {
+  it('force-opens a folder with no nested folder descendants instead of being a no-op (OpenProject #2890)', async () => {
     const wrapper = await mountCycleTree()
+    expect(isExpanded(wrapper, 'flatFolder')).toBe(false)
 
     const notPrevented = ctrlClick(
       itemWrapper(wrapper, 'flatFolder').find('.w-expansion-item__header').element
     )
     await wrapper.vm.$nextTick()
 
-    expect(notPrevented).toBe(false) // -> still preventDefault()ed, even though there was nothing to cycle
-    expect(isExpanded(wrapper, 'flatFolder')).toBe(false) // -> no plain-toggle fallback on a ctrl+click
+    expect(notPrevented).toBe(false) // -> preventDefault() was called
+    expect(isExpanded(wrapper, 'flatFolder')).toBe(true) // -> force-opened even with nothing to cycle below it
   })
 
   it('is scoped to the clicked folder alone -- ctrl+clicking a deeper folder does not let an ancestor react instead', async () => {
     const wrapper = await mountCycleTree()
 
-    // -> midB has only a leaf child, so this cycle has nothing to do -- but if `branch`'s (or
-    //    `root`'s) capture handler wrongly claimed the click instead of letting it travel inward to
-    //    midB's own instance, it would cycle midA too.
+    // -> midB has only a leaf child, so its descendant cycle has nothing to do -- but if `branch`'s
+    //    (or `root`'s) capture handler wrongly claimed the click instead of letting it travel inward
+    //    to midB's own instance, it would cycle midA too, and/or force-open `branch`/`root` instead
+    //    of midB.
     ctrlClick(itemWrapper(wrapper, 'midB').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
 
     expect(isExpanded(wrapper, 'midA')).toBe(false)
-    expect(isExpanded(wrapper, 'midB')).toBe(true) // -> its own state untouched, same as before
-    expect(isExpanded(wrapper, 'branch')).toBe(false)
+    expect(isExpanded(wrapper, 'midB')).toBe(true) // -> force-opened (already open, so no visible change)
+    expect(isExpanded(wrapper, 'branch')).toBe(false) // -> only midB's own instance is force-opened, not ancestors
   })
 })
