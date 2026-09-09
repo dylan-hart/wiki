@@ -1,13 +1,16 @@
 <template>
   <!-- -> Open from the start when the page being read is one of its descendants, so a reader arriving
           by URL sees where they are in the tree -- or when the menu says this group opens that way
-          whatever is being read. Not `v-model`: after that first render the group is the reader's
-          to open and close, and a bound value would fight them -->
+          whatever is being read. Controlled through the shared, tree-wide open/closed state
+          (OpenProject #2846) rather than `default-opened`, so a folder's state survives its own
+          unmount/remount -- but the state is still seeded from this same expression the first time
+          this id is seen, and is the reader's to open and close after that (see
+          `composables/navExpansionState.js#isOpen`) -->
   <w-expansion-item
     v-if="item.children?.length > 0"
     dense
-    :default-opened="item.expandByDefault || containsCurrent(item)"
-    @update:model-value="isOpen = $event">
+    :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
+    @update:model-value="setOpen(item.id, $event)">
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
@@ -44,9 +47,10 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
+import { useNavExpansionState } from '@/composables/navExpansionState'
 import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
 import { usePathDisplay } from '@/composables/pathDisplay'
 
@@ -69,21 +73,15 @@ const props = defineProps({
 const { destination, containsCurrent } = useNavSidebarDestination()
 const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
 const { isActive: pathDisplayActive, humanize } = usePathDisplay()
-
-/**
- * Display-only open/closed state, mirrored off `w-expansion-item`'s own toggle purely so `iconFor`
- * below can pick between `folder`/`folder-open` -- see the template's own comment on why this is
- * never bound back as `:model-value`. Seeded the same way `default-opened` is, since a row rendered
- * already open (arriving on a page under it) should draw the open icon immediately, not just after
- * the reader's first click.
- */
-const isOpen = ref(props.item.expandByDefault || containsCurrent(props.item))
+const { isOpen, setOpen } = useNavExpansionState()
 
 /**
  * What glyph a row draws. A nav item's own `icon` when it has one, and otherwise the same pair the
  * design gives the tree: a folder for a folder row (empty or not -- `item.isFolder`, since an empty
  * or boundary folder carries no `children` of its own to infer it from), a page for a leaf, and
- * `folder-open` in place of `folder` while that folder is currently expanded.
+ * `folder-open` in place of `folder` while that folder is currently expanded (read off the same
+ * shared, tree-wide expansion state the row's own `w-expansion-item` binds to -- see the template's
+ * own comment).
  *
  * The fallback is what makes an AUTO-generated menu look like the design at all -- a generated item
  * carries no icon of its own, so every row drew an empty 15px gap where the tree's own shape should
@@ -97,7 +95,9 @@ function iconFor(item) {
   if (!isFolder) {
     return 'tabler:file-text'
   }
-  return isOpen.value ? 'tabler:folder-open' : 'tabler:folder'
+  return isOpen(item.id, item.expandByDefault || containsCurrent(item))
+    ? 'tabler:folder-open'
+    : 'tabler:folder'
 }
 
 // STORES

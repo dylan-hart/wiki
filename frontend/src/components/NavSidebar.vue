@@ -41,6 +41,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
+import { useProvideNavExpansionState } from '@/composables/navExpansionState'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -48,6 +49,11 @@ import { useUserStore } from '@/stores/user'
 
 import PageNewMenu from '@/components/PageNewMenu.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
+
+// -> The shared, tree-wide open/closed state for every folder row below (OpenProject #2846):
+//    provided once here, at the tree's root, and injected by each recursive `NavSidebarItem`
+//    instance -- see `composables/navExpansionState.js` for why.
+useProvideNavExpansionState()
 
 // STORES
 

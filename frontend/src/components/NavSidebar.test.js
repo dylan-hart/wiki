@@ -1155,3 +1155,81 @@ describe('NavSidebar sidebar-nav border-top (OpenProject #2726)', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * OpenProject #2846: a folder's open/closed state now comes from the shared, tree-wide
+ * `navExpansionState` composable -- provided once here at `NavSidebar.vue`'s root and injected by
+ * every `NavSidebarItem` -- rather than `WExpansionItem`'s own per-instance uncontrolled state.
+ * These cases exercise that directly, on top of the default-open (`expandByDefault`/
+ * `containsCurrent`) coverage already above, which continues to exercise the same shared-state
+ * code path since it is what seeds a never-before-seen id.
+ */
+describe('NavSidebar shared folder expansion state (OpenProject #2846)', () => {
+  function twoFolders() {
+    return [
+      {
+        id: 'folder-a',
+        type: 'link',
+        icon: 'tabler:folder',
+        label: 'Folder A',
+        children: [
+          { id: 'leaf-a', type: 'link', icon: 'tabler:file', label: 'Leaf A', target: '/a' }
+        ]
+      },
+      {
+        id: 'folder-b',
+        type: 'link',
+        icon: 'tabler:folder',
+        label: 'Folder B',
+        children: [
+          { id: 'leaf-b', type: 'link', icon: 'tabler:file', label: 'Leaf B', target: '/b' }
+        ]
+      }
+    ]
+  }
+
+  it('a plain click still toggles exactly that folder, open then closed -- the controlled binding changes the mechanism, not this behavior', async () => {
+    const { wrapper } = await mountNav(twoFolders())
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('false')
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('toggling one folder leaves an unrelated sibling folder unaffected', async () => {
+    const { wrapper } = await mountNav(twoFolders())
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+    expect(headerFor(wrapper, 'Folder B').attributes('aria-expanded')).toBe('false')
+  })
+
+  it("keeps a folder's toggled-open state after it is removed from the tree and later reappears, proving the state outlives the item's own component instance", async () => {
+    const items = twoFolders()
+    const { wrapper } = await mountNav(items)
+    const siteStore = useSiteStore()
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+
+    // -> Folder A's own `NavSidebarItem` instance is genuinely unmounted here (removed from the
+    //    `v-for` entirely, not merely re-rendered in place with the same key).
+    siteStore.nav.items = items.filter((item) => item.id !== 'folder-a')
+    await wrapper.vm.$nextTick()
+    expect(
+      wrapper.findAll('.w-expansion-item__header').some((h) => h.text().includes('Folder A'))
+    ).toBe(false)
+
+    // -> ...and reappears as a fresh component instance, seeded once more from
+    //    `expandByDefault || containsCurrent(item)` -- were the state still `WExpansionItem`'s own,
+    //    this fresh instance would have no memory of the earlier click and would come back closed.
+    siteStore.nav.items = items
+    await wrapper.vm.$nextTick()
+
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+  })
+})
