@@ -302,101 +302,19 @@ $sidebar-overlay-max: 1199.98px;
     }
 
     /*
-      An open group's children, marked the way `NavEditOverlay` marks a nested nav item: a 10px rule down
-      the side of the run, with an elbow at the top turning it out of the row above. The same two pieces
-      and the same 10px, so the two views of one navigation tree look like the same tree.
+      OpenProject #2827: an open group's children used to be marked with a colored rail, a
+      background wash that compounded one step darker per nesting level, and a mitred elbow
+      pseudo-element turning the rail out of the row above -- the same treatment `NavEditOverlay`
+      draws for a nested nav item. That reading was dropped entirely: indentation and the
+      `.w-expansion-item__arrow` chevron are the only nesting cues left, so a deeper item shows its
+      depth by position alone, not by color.
 
-      The rules this replaces addressed `.q-expansion-item__container` and `.q-expansion-item--expanded`,
-      which is markup `WExpansionItem` has never emitted -- it renders `__header` and `__content` and
-      keeps its state in `aria-expanded`. So none of them matched, and an open group had no line at all.
-
-      No expanded/collapsed state needed here: the content is `v-show`n, so when the group is closed this
-      box is `display: none` and takes its border and elbow with it.
-
-      No closing elbow at the bottom (OpenProject #853): there used to be a second, mirrored pseudo-
-      element marking where the rail ends, under a group's last child. It was the source of a stray-tail
-      artifact -- when a group's own last child is itself an open group, more than one ancestor's closing
-      mark lands on the same row, and no amount of narrowing which ancestor gets to draw it (two rounds
-      tried) fully avoided some remaining coincidence. Removed instead of chased further: a mark at the
-      BOTTOM of a group implies a relationship with whatever row comes next, and there isn't one -- the
-      row below a closed-off group is exactly as unrelated to it as any two top-level items are to each
-      other. The rail and the opening elbow already say everything true about the structure (this row,
-      and everything under it down to wherever the rail stops, belongs to the header above); nothing
-      real is lost by dropping a mark that was asserting a connection that never existed.
+      The border stays, at the same 10px width, but transparent -- it is the ONLY thing providing
+      per-level indentation (`WExpansionItem` itself declares no content padding), so removing it
+      outright would collapse nested items back to their parent's indent, not just drop a color.
     */
     .w-expansion-item__content {
-      position: relative;
-      /*
-        Logical, to match the elbow pseudo-element below (`inset-inline-start: -10px`): a physical
-        `border-left` here would leave the straight run of the rail on the visual left in RTL while its
-        own elbow had already swapped to the inline-start (visual right) edge -- the rule and its turn
-        pointing at two different sides of the same row.
-
-        The SAME colour as `background-color` below, on purpose (not `padding-box` clipped, unlike the
-        background -- see that comment -- so the rail sits ON TOP of the wash rather than beside it,
-        compounding with its own parent's wash the same way the wash itself does). A rail is drawn once
-        per level, at that level's OWN edge, so a rail one level up (spanning everything under its
-        header, e.g. az-docs's own rail alongside "az-important" AND "Az Hello") reads as exactly that
-        level's shade -- the same colour "az-important"'s row itself carries, since az-important sits
-        directly inside az-docs's one wash. A rail one level deeper (az-important's own, spanning just
-        "Az Hello") compounds with the wash already behind it, reading as "Az Hello"'s own, twice-washed
-        shade. Dimming rather than highlighting: a rail used to be a flat translucent white regardless
-        of depth, which read as a highlight laid over the tree rather than a property OF it -- tying it
-        to the same wash the nesting itself already darkens by makes a rail's shade tell you which
-        level's group it belongs to, the same way the row colours already do.
-      */
-      border-inline-start: 10px solid rgb(0 0 0 / 0.05);
-      /*
-        And a step DOWN from the sidebar rather than up, which is the one place this parts company with
-        `NavEditOverlay`: there the nested rows lift off a near-black panel, here they sit in a coloured
-        one, and this dims it -- one step darker per level nested, the same way file explorers and
-        editors shade a folder's contents relative to its siblings.
-
-        A translucent black, not a colour: the sidebar's own is the site's to choose (`--q-sidebar`,
-        rewritten at runtime for per-site theming), so anything fixed would be right for the default
-        tint and wrong for every other site. Held at 5% rather than the 12% it was: the same step that
-        read as one shade of a saturated blue reads as a bruise on a near-white tint.
-
-        `padding-box` keeps this wash off the border area -- the rail (above) draws its OWN, unclipped
-        copy of this same colour there instead, which is what lets the two compound into progressively
-        darker shades with depth rather than the wash silently doubling up under the rail on top of it.
-      */
-      background-color: rgb(0 0 0 / 0.05);
-      background-clip: padding-box;
-
-      /*
-        The elbow is one 10px box showing two of its borders: the mitre between them is the angle. Set
-        10px outside the content on the appropriate side, so the vertical stroke lines up with the rule
-        and continues it. `inset-inline-start: -10px` is the rule's own inline-start edge -- an
-        absolute offset here is measured from the padding box, which starts where the border ends.
-
-        This indent runs off the TREE's own nesting, not off `sidebarPosition`: a deeper item indents
-        further into the reading direction whichever side the sidebar physically sits on, so -- unlike
-        the notch above -- logical properties are all this needs; there is no second `--flipped`
-        variant to compose with.
-
-        -> Out of the parent row: the rule's top end, turning toward inline-end into the row above it.
-      */
-      &::before {
-        content: '';
-        display: block;
-        position: absolute;
-        inset-inline-start: -10px;
-        width: 10px;
-        height: 10px;
-        border-style: solid;
-        top: -10px;
-        border-block-start-width: 0;
-        border-inline-end-width: 10px;
-        border-block-end-width: 10px;
-        border-inline-start-width: 0;
-        border-block-start-color: transparent;
-        border-inline-end-color: transparent;
-        /* -> Same colour as the rail above, for the same reason: this elbow is this level's own
-                turn into it, so it carries this level's own shade, not a fixed one. */
-        border-block-end-color: rgb(0 0 0 / 0.05);
-        border-inline-start-color: rgb(0 0 0 / 0.05);
-      }
+      border-inline-start: 10px solid transparent;
     }
   }
 
