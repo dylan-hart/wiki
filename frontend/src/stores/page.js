@@ -62,6 +62,10 @@ const BLANK_PAGE = {
   title: '',
   description: '',
   icon: DEFAULT_PAGE_ICON,
+  // -> Reset alongside `icon`/`title` themselves -- see the field doc on `savedIcon` below for what
+  //    these hold and why a stale pair from the previously open page must not bleed into this one
+  savedIcon: DEFAULT_PAGE_ICON,
+  savedTitle: '',
   content: '',
   contentLoaded: false,
   render: '',
@@ -109,6 +113,21 @@ export const usePageStore = defineStore('page', {
     description: '',
     editor: '',
     icon: DEFAULT_PAGE_ICON,
+    /**
+     * The icon/title as the server last confirmed them, distinct from the live `icon`/`title` above.
+     *
+     * OpenProject #2884: `PagePropertiesDialog.vue` and `PageHeader.vue` both bind `icon`/`title`
+     * directly (`v-model`/plain assignment) -- a live two-way binding, not a local draft -- so the
+     * instant a reader picks a new icon or retypes the title, `this.icon`/`this.title` already hold
+     * the new value, well before Save is clicked. Comparing THOSE against the save response
+     * (`pageSave()`'s `navDisplayChanged`) is therefore always "new vs. new" and can never detect a
+     * genuine change. These two are the pre-edit baseline instead: set from the server response
+     * everywhere the store is populated from a fetched page (`pageLoad()`, `pageUnlock()`, and the
+     * tail of `pageSave()` itself, which advances them to the just-saved values for the next edit in
+     * the same session) -- never by a dialog, and never by anything that only changes the live pair.
+     */
+    savedIcon: DEFAULT_PAGE_ICON,
+    savedTitle: '',
     id: '',
     isBrowsable: true,
     /**
@@ -319,8 +338,14 @@ export const usePageStore = defineStore('page', {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
         // Update page store
+        const patchedPage = pagePatch(pageData)
         this.$patch({
-          ...pagePatch(pageData),
+          ...patchedPage,
+          // -> OpenProject #2884: the pre-edit baseline `navDisplayChanged` compares against, taken
+          //    from the server response before any dialog can mutate the live `icon`/`title` -- see
+          //    the field doc on `savedIcon` above
+          savedIcon: patchedPage.icon,
+          savedTitle: patchedPage.title,
           // -> The field is present exactly when the source came with the page, which is what makes
           //    the copy in this store safe to save; a view-mode load leaves the previous one in place
           contentLoaded: Object.hasOwn(pageData, 'content'),
@@ -373,8 +398,14 @@ export const usePageStore = defineStore('page', {
       const pageData = await API_CLIENT.post(`sites/${siteStore.id}/pages/${this.id}/unlock`, {
         json: { password }
       }).json()
+      const patchedPage = pagePatch(pageData)
       this.$patch({
-        ...pagePatch(pageData),
+        ...patchedPage,
+        // -> See the field doc on `savedIcon` above -- this too is a fetch that repopulates the
+        //    store from the server, so it re-anchors the pre-edit baseline the same way `pageLoad()`
+        //    does
+        savedIcon: patchedPage.icon,
+        savedTitle: patchedPage.title,
         contentLoaded: Object.hasOwn(pageData, 'content')
       })
     },
@@ -957,23 +988,35 @@ export const usePageStore = defineStore('page', {
         const wasCreate = editorStore.mode === 'create'
 
         /*
-          OpenProject #2824: `NavSidebarItem.vue` draws a cached tree entry's icon and title
+          OpenProject #2824/#2884: `NavSidebarItem.vue` draws a cached tree entry's icon and title
           straight from the nav-tree response, not from a live page fetch -- so a plain content
           save that changes either one leaves the sidebar showing the pre-save glyph/label until
           something unrelated (a different menu, an admin nav edit) happens to force a refetch.
-          Computed against `this.icon`/`this.title` (what THIS save's own `body` was built from,
-          above) before `$patch` below overwrites them with the response -- and against
-          `patchedPage`'s already-`pagePatch`-normalized `icon`, so an untouched `''` -> default
-          fallback on a page that had never had an icon picked doesn't read as a change.
+
+          Computed against `this.savedIcon`/`this.savedTitle` -- the pre-edit baseline set the last
+          time the store was actually populated from the server (`pageLoad()`, `pageUnlock()`, or a
+          previous save; see the field doc on `savedIcon` above) -- NOT against `this.icon`/
+          `this.title` themselves: those are live-bound straight into `PagePropertiesDialog.vue` and
+          `PageHeader.vue`, so by the time a save runs they already hold whatever new value was just
+          picked, making a comparison against them "new vs. new" and unable to ever detect a genuine
+          change (#2884). Compared against `patchedPage`'s already-`pagePatch`-normalized `icon`, so
+          an untouched `''` -> default fallback on a page that had never had an icon picked doesn't
+          read as a change.
         */
         const patchedPage = pagePatch(pageData)
         const navDisplayChanged =
-          !wasCreate && (patchedPage.icon !== this.icon || patchedPage.title !== this.title)
+          !wasCreate &&
+          (patchedPage.icon !== this.savedIcon || patchedPage.title !== this.savedTitle)
 
         // -> Whatever was just sent has already been written, so `pagePatch`'s password reset is
         //    what stops a plaintext secret sitting there, pending, past the save it was for
         this.$patch({
           ...patchedPage,
+          // -> Advances the pre-edit baseline to what was just saved, so a second genuine edit
+          //    later in the same session still compares correctly -- see the field doc on
+          //    `savedIcon` above
+          savedIcon: patchedPage.icon,
+          savedTitle: patchedPage.title,
           /*
             A save is exactly the thing that moves a page along its own history, and the save
             response deliberately carries no `revision` (it is history data, present only on a page

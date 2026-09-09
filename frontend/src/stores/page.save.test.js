@@ -337,7 +337,11 @@ describe('page store: pageSave() same-tab navigation invalidation (OpenProject #
       updatedAt: '2026-01-01T00:00:00.000Z',
       navigationId: 'nav-1',
       icon: 'mdi:file-document',
-      title: 'Unchanged Title'
+      title: 'Unchanged Title',
+      // -> The pre-edit baseline (OpenProject #2884) -- matches the live fields below, since
+      //    nothing was actually picked in the properties dialog before this save
+      savedIcon: 'mdi:file-document',
+      savedTitle: 'Unchanged Title'
     })
 
     API_CLIENT.patch.mockReturnValueOnce({
@@ -368,8 +372,20 @@ describe('page store: pageSave() same-tab navigation invalidation (OpenProject #
  * cached tree entry's icon and title straight off the nav-tree response, so those two fields need
  * the same force-refresh an actual tree-shape change gets, on the same "an already-open tab has no
  * other way to learn" reasoning.
+ *
+ * OpenProject #2884: `icon`/`title` are live-bound straight into `PagePropertiesDialog.vue` and
+ * `PageHeader.vue` (`v-model`/plain assignment), so by the time a real save runs they already hold
+ * whatever new value was just picked -- the PATCH body built from `this` carries it, and a real
+ * server echoes it straight back. Every case below reflects that: `savedIcon`/`savedTitle` (the
+ * pre-edit baseline a real `pageLoad()` would have set) are patched to the OLD value, `icon`/
+ * `title` themselves to the NEW one -- exactly what a dialog leaves behind pre-save -- and the
+ * mocked response echoes the new value, the same as the live one, never a third fabricated value.
+ * Setting `icon`/`title` alone to something that never appears in the response (what these cases
+ * used to do) does not exercise the live-binding path at all: the comparison this store actually
+ * makes is never between two DIFFERENT values that way, so it cannot tell a fixed comparison from
+ * a broken one.
  */
-describe('page store: pageSave() nav-tree display invalidation (OpenProject #2824)', () => {
+describe('page store: pageSave() nav-tree display invalidation (OpenProject #2824, #2884)', () => {
   it('force-refetches the sidebar menu when an ordinary save changes the page icon', async () => {
     const pageStore = usePageStore()
     const editorStore = useEditorStore()
@@ -383,7 +399,12 @@ describe('page store: pageSave() nav-tree display invalidation (OpenProject #282
       contentLoaded: true,
       updatedAt: '2026-01-01T00:00:00.000Z',
       navigationId: 'nav-1',
-      icon: 'mdi:file-document',
+      // -> The pre-edit baseline, as a real `pageLoad()` would have set it
+      savedIcon: 'mdi:file-document',
+      savedTitle: 'Unchanged Title',
+      // -> Already the NEW value here, exactly as `PagePropertiesDialog.vue`'s `v-model` would have
+      //    left it the instant the reader picked a different icon, well before Save is clicked
+      icon: 'mdi:new-icon',
       title: 'Unchanged Title'
     })
 
@@ -395,6 +416,7 @@ describe('page store: pageSave() nav-tree display invalidation (OpenProject #282
             id: '5',
             navigationId: 'nav-1',
             updatedAt: '2026-01-01T01:00:00.000Z',
+            // -> Echoes back exactly what the live-bound field (and therefore the PATCH body) sent
             icon: 'mdi:new-icon',
             title: 'Unchanged Title',
             relations: [],
@@ -410,6 +432,8 @@ describe('page store: pageSave() nav-tree display invalidation (OpenProject #282
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
     expect(siteStore.nav.items).toEqual([{ id: 'item-updated' }])
+    // -> The baseline advances to the just-saved value, ready for the next genuine edit
+    expect(pageStore.savedIcon).toBe('mdi:new-icon')
   })
 
   it('force-refetches the sidebar menu when an ordinary save changes the page title', async () => {
@@ -425,8 +449,11 @@ describe('page store: pageSave() nav-tree display invalidation (OpenProject #282
       contentLoaded: true,
       updatedAt: '2026-01-01T00:00:00.000Z',
       navigationId: 'nav-1',
+      savedIcon: 'mdi:file-document',
+      savedTitle: 'Old Title',
       icon: 'mdi:file-document',
-      title: 'Old Title'
+      // -> Already the NEW value, as the header's contenteditable title would have left it
+      title: 'New Title'
     })
 
     API_CLIENT.patch.mockReturnValueOnce({
@@ -452,6 +479,48 @@ describe('page store: pageSave() nav-tree display invalidation (OpenProject #282
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
     expect(siteStore.nav.items).toEqual([{ id: 'item-updated' }])
+    expect(pageStore.savedTitle).toBe('New Title')
+  })
+
+  it('does not force-refresh when icon/title were live-bound but never actually changed from the saved baseline', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    siteStore.nav.currentId = 'nav-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      navigationId: 'nav-1',
+      // -> Baseline and live value agree: nothing was picked in the properties dialog
+      savedIcon: 'mdi:file-document',
+      savedTitle: 'Unchanged Title',
+      icon: 'mdi:file-document',
+      title: 'Unchanged Title'
+    })
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            id: '5',
+            navigationId: 'nav-1',
+            updatedAt: '2026-01-01T01:00:00.000Z',
+            icon: 'mdi:file-document',
+            title: 'Unchanged Title',
+            relations: [],
+            tocDepth: {}
+          }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
   })
 
   it('does not force-refresh on a create-mode save just because it lacks the wasCreate short-circuit -- the flag alone is enough', async () => {
