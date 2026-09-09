@@ -27,20 +27,35 @@ import { mountWithApp } from '../../test/mount.js'
  *
  * Each label carries a fixed `chrome` (its row's own icon/padding/indentation overhead --
  * `MainLayout.vue`'s own doc comment on `measureSidebarWidth` explains why this is depth-
- * dependent and therefore per-label, not a single constant) and a fixed `scroll` (its intrinsic,
- * un-clipped text width). `clientWidth` is mocked as `currentDrawerWidth - chrome` -- reading the
- * ACTUAL currently-applied drawer width off the real `<aside class="w-drawer">` node each time,
- * exactly as a real browser's layout would report it for a `flex-1` label filling whatever room
- * the row's current chrome leaves it -- rather than a value fixed at mount time, so the suite
- * exercises the same formula the production code relies on (`current - clientWidth + scrollWidth
- * == chrome + scrollWidth`, invariant of the drawer's current width) instead of a simplification
- * of it.
+ * dependent and therefore per-label, not a single constant) and a fixed `natural` (its intrinsic,
+ * truly un-clipped text width -- what `scrollWidth` would report if nothing constrained the
+ * label's own box).
+ *
+ * `clientWidth` is mocked as `currentDrawerWidth - chrome` while the label is stretched to fill
+ * its `.w-item-section`'s cross axis (the normal, at-rest state) -- reading the ACTUAL
+ * currently-applied drawer width off the real `<aside class="w-drawer">` node each time, exactly
+ * as a real browser's layout would report it for a `flex-1` label filling whatever room the row's
+ * current chrome leaves it. `measureSidebarWidth()` (OpenProject #2891's fix) temporarily opts a
+ * label OUT of that stretch (`label.style.alignSelf = 'flex-start'`) for one synchronous read, so
+ * the mock honours that too: whenever `alignSelf` reads `'flex-start'`, `clientWidth` reports the
+ * label's own `natural` width instead (a flex item that isn't stretched shrinks to its content).
+ *
+ * `scrollWidth` is derived from `clientWidth` rather than handed its own independent number,
+ * because that is the actual DOM invariant this whole bug is about: `scrollWidth` can never
+ * report LESS than `clientWidth` (the scrollable region can't be smaller than the visible client
+ * area), regardless of how much smaller the label's real content is. Modelling that generically
+ * -- rather than handing each test a bare `scroll` value untethered from `clientWidth`, as this
+ * suite used to -- is what makes "shrinks back down once the nav tree no longer holds the wide
+ * label" below an actual regression test: it fails against the pre-#2891 implementation (which
+ * reads `scrollWidth` while still stretched, so it floors at the current, already-grown
+ * `clientWidth` and can never shrink) and passes only once `measureSidebarWidth()` genuinely
+ * releases the stretch before reading.
  */
 
 const widths = new Map()
 
-function setLabelMetrics(id, { chrome = 0, scroll = 0, visible = true } = {}) {
-  widths.set(id, { chrome, scroll, visible })
+function setLabelMetrics(id, { chrome = 0, natural = 0, visible = true } = {}) {
+  widths.set(id, { chrome, natural, visible })
 }
 
 /** The real, currently-mounted `<aside class="w-drawer">` -- set by `mountLayout` below, and read
@@ -74,13 +89,24 @@ beforeEach(() => {
       if (!entry) {
         return 0
       }
+      if (this.style.alignSelf === 'flex-start') {
+        // -> Opted out of cross-axis stretch (`measureSidebarWidth()`'s own trick): shrinks to its
+        //    own natural content width, same as a real un-stretched flex item would.
+        return entry.natural
+      }
       return Math.max(0, currentDrawerWidth() - entry.chrome)
     }
   })
   Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
     configurable: true,
     get() {
-      return widths.get(this.dataset?.testId)?.scroll ?? 0
+      const entry = widths.get(this.dataset?.testId)
+      if (!entry) {
+        return 0
+      }
+      // -> The real DOM invariant: never less than `clientWidth`, whichever state that currently
+      //    reports (see the suite's own header comment above).
+      return Math.max(this.clientWidth, entry.natural)
     }
   })
   Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
@@ -175,14 +201,14 @@ describe('MainLayout auto-growing sidebar width (OpenProject #2850)', () => {
   })
 
   it('floors at 255 when every visible label already fits', async () => {
-    setLabelMetrics('a', { chrome: 100, scroll: 80 })
+    setLabelMetrics('a', { chrome: 100, natural: 80 })
     const { wrapper } = await mountLayout([{ id: 'a', label: 'Short' }])
     await settle()
     expect(sidebarWidthOf(wrapper)).toBe(255)
   })
 
   it('grows to fit the widest visible label', async () => {
-    setLabelMetrics('a', { chrome: 100, scroll: 340 })
+    setLabelMetrics('a', { chrome: 100, natural: 340 })
     const { wrapper } = await mountLayout([{ id: 'a', label: 'A rather long navigation label' }])
     await settle()
     // 100 + 340 = 440
@@ -190,16 +216,16 @@ describe('MainLayout auto-growing sidebar width (OpenProject #2850)', () => {
   })
 
   it('caps at 510 even when a label would need more', async () => {
-    setLabelMetrics('a', { chrome: 50, scroll: 900 })
+    setLabelMetrics('a', { chrome: 50, natural: 900 })
     const { wrapper } = await mountLayout([{ id: 'a', label: 'An enormous navigation label' }])
     await settle()
     expect(sidebarWidthOf(wrapper)).toBe(510)
   })
 
   it('uses the widest across several visible labels, not merely the last one', async () => {
-    setLabelMetrics('a', { chrome: 100, scroll: 200 })
-    setLabelMetrics('b', { chrome: 100, scroll: 320 })
-    setLabelMetrics('c', { chrome: 100, scroll: 150 })
+    setLabelMetrics('a', { chrome: 100, natural: 200 })
+    setLabelMetrics('b', { chrome: 100, natural: 320 })
+    setLabelMetrics('c', { chrome: 100, natural: 150 })
     const { wrapper } = await mountLayout([
       { id: 'a', label: 'Alpha' },
       { id: 'b', label: 'Bravo, the widest one here' },
@@ -211,8 +237,8 @@ describe('MainLayout auto-growing sidebar width (OpenProject #2850)', () => {
   })
 
   it('ignores a label whose offsetParent is null, as a collapsed folder descendant would read', async () => {
-    setLabelMetrics('hidden', { chrome: 20, scroll: 480, visible: false })
-    setLabelMetrics('visible', { chrome: 100, scroll: 200 })
+    setLabelMetrics('hidden', { chrome: 20, natural: 480, visible: false })
+    setLabelMetrics('visible', { chrome: 100, natural: 200 })
     const { wrapper } = await mountLayout([
       { id: 'hidden', label: 'Deeply nested, currently collapsed' },
       { id: 'visible', label: 'Alpha' }
@@ -224,13 +250,13 @@ describe('MainLayout auto-growing sidebar width (OpenProject #2850)', () => {
   })
 
   it('shrinks back down once the nav tree no longer holds the wide label', async () => {
-    setLabelMetrics('wide', { chrome: 100, scroll: 500 })
+    setLabelMetrics('wide', { chrome: 100, natural: 500 })
     const { wrapper, siteStore } = await mountLayout([{ id: 'wide', label: 'A very long one' }])
     await settle()
     // 100 + 500 = 600, clamped to the 510 cap
     expect(sidebarWidthOf(wrapper)).toBe(510)
 
-    setLabelMetrics('narrow', { chrome: 100, scroll: 180 })
+    setLabelMetrics('narrow', { chrome: 100, natural: 180 })
     siteStore.nav.items = [{ id: 'narrow', label: 'Short' }]
     await settle()
     // 100 + 180 = 280, well below the previous grown width -- proves it actually shrinks rather
@@ -239,7 +265,7 @@ describe('MainLayout auto-growing sidebar width (OpenProject #2850)', () => {
   })
 
   it('re-measures when a descendant toggles its inline style, as a folder expanding/collapsing would', async () => {
-    setLabelMetrics('a', { chrome: 100, scroll: 200 })
+    setLabelMetrics('a', { chrome: 100, natural: 200 })
     const { wrapper } = await mountLayout([{ id: 'a', label: 'Alpha' }])
     await settle()
     // 100 + 200 = 300
@@ -247,7 +273,7 @@ describe('MainLayout auto-growing sidebar width (OpenProject #2850)', () => {
 
     // A new, currently-hidden descendant appears in the tree -- appending it is a plain
     // `childList` mutation the observer never watches, so it changes nothing here on its own.
-    setLabelMetrics('b', { chrome: 100, scroll: 260 })
+    setLabelMetrics('b', { chrome: 100, natural: 260 })
     const root = wrapper.get('.sidebar-nav').element
     const newSpan = document.createElement('span')
     newSpan.className = 'truncate'

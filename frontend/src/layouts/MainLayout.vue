@@ -497,48 +497,84 @@ const navSidebarEl = ref(null)
 
 /**
  * Measures every rendered `.truncate` label under the mounted `NavSidebar` (the span
- * `NavSidebarItem.vue` gives each row, styled `white-space: nowrap; overflow: hidden` so
- * `scrollWidth` reports its full, un-clipped natural width regardless of how narrow the box
- * actually rendered) and sizes `sidebarContentWidth` to the widest one, clamped to
+ * `NavSidebarItem.vue` gives each row, styled `white-space: nowrap; overflow: hidden`) and sizes
+ * `sidebarContentWidth` to the widest one's true content width, clamped to
  * `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`.
  *
- * The width the WHOLE drawer would need to be for one label alone to stop clipping is
- * `sidebarContentWidth.value - label.clientWidth + label.scrollWidth`: `clientWidth` is
- * however much of that label's natural width the CURRENT drawer width actually gives it, so
- * `sidebarContentWidth.value - label.clientWidth` is everything else in that row -- icon,
- * padding, and this row's own nesting-depth indentation (`NavSidebar.vue`'s
- * `.w-expansion-item__content` gives every level a 10px indent via its own transparent
- * `border-inline-start`, which is exactly why a single fixed chrome constant across every row
- * would be wrong here). Every row spans the same drawer width regardless of its depth, so that
- * "everything else" figure is invariant to the drawer's width and can be read off however wide
- * the drawer happens to be measured right now.
+ * `sidebarContentWidth.value - label.clientWidth` is this row's own fixed, depth-dependent chrome
+ * (icon, padding, nesting indentation -- `NavSidebar.vue`'s `.w-expansion-item__content` gives
+ * every level a 10px indent via its own transparent `border-inline-start`, which is why a single
+ * constant across every row would be wrong): the label is a flex-column item inside its
+ * `.w-item-section` (`WItemSection.vue`'s `flex flex-col`, `align-items` left at its default
+ * `stretch`), so it always fills whatever room the row's fixed chrome leaves it -- `chrome` is
+ * therefore invariant to however wide the drawer happens to be measured right now, and this
+ * subtraction has never been the bug.
+ *
+ * `label.scrollWidth`, however, is: read while the label is still stretched to that box, the DOM
+ * spec floors `scrollWidth` at `clientWidth` (a client area can never scroll to reveal something
+ * SMALLER than itself), so once the drawer has already grown for some earlier-widest label, every
+ * OTHER currently-fitting label's `scrollWidth` reports its full, already-inflated box width back
+ * -- never its true, smaller content need -- and `needed` can only ever equal or exceed the
+ * current width. That is OpenProject #2891: the sidebar could grow but never shrink back down.
+ * The fix is a one-read escape hatch: opt the label OUT of the stretch (`align-self: flex-start`)
+ * for exactly one synchronous `scrollWidth` read, which lets it shrink to its own true, unclipped
+ * content width, then immediately put the inline style back. Nothing paints between the write and
+ * the revert, so this produces no visible flicker and leaves the label's actual rendering alone.
  *
  * A collapsed folder's descendant rows sit inside a `v-show`-hidden `.w-expansion-item__content`
- * (Vue sets `display: none` on it) -- which zeroes BOTH `clientWidth` and `scrollWidth`, so
- * without an explicit visibility guard the formula above would misread such a label as needing
- * the full CURRENT width rather than nothing, permanently blocking the sidebar from ever
- * shrinking back down once grown. `offsetParent === null` is the standard "is this actually
- * rendered right now" check and is what excludes them instead.
+ * (Vue sets `display: none` on it) -- which zeroes both widths, so without an explicit visibility
+ * guard a label like that would misread as needing the full current width rather than nothing,
+ * permanently blocking the sidebar from ever shrinking. `offsetParent === null` is the standard
+ * "is this actually rendered right now" check and is what excludes them instead.
+ *
+ * The align-self release above is itself a `style` attribute write on a node INSIDE `root` --
+ * exactly what `sidebarMutationObserver` below watches for, to catch a folder's `v-show` toggling.
+ * Left connected, every measurement pass would notify itself of its own temporary mutations and
+ * re-trigger forever. It is disconnected for the loop's duration and reconnected once
+ * `sidebarContentWidth` has been written, which is safe because the loop is fully synchronous --
+ * nothing else can mutate this subtree in the gap.
  */
 function measureSidebarWidth() {
   const root = navSidebarEl.value?.$el
   if (!root || typeof root.querySelectorAll !== 'function') {
     return
   }
+  sidebarMutationObserver?.disconnect()
   let widest = SIDEBAR_WIDTH_MIN
   for (const label of root.querySelectorAll('.truncate')) {
     if (label.offsetParent === null) {
       continue
     }
-    const needed = sidebarContentWidth.value - label.clientWidth + label.scrollWidth
+    const chrome = sidebarContentWidth.value - label.clientWidth
+    const previousAlignSelf = label.style.alignSelf
+    label.style.alignSelf = 'flex-start'
+    const naturalWidth = label.scrollWidth
+    label.style.alignSelf = previousAlignSelf
+    const needed = chrome + naturalWidth
     if (needed > widest) {
       widest = needed
     }
   }
   sidebarContentWidth.value = Math.min(SIDEBAR_WIDTH_MAX, widest)
+  observeSidebarMutations(root)
 }
 
 let sidebarMutationObserver = null
+
+// -> A folder expanding/collapsing toggles its `.w-expansion-item__content`'s inline `display`
+//    (Vue's `v-show`) -- watching for a `style` attribute change anywhere in the tree is what
+//    re-measures on that, with no new prop/emit needed from `NavSidebarItem.vue` itself (see
+//    `measureSidebarWidth`'s own doc comment above). Shared between the watcher below (the
+//    observer's first, fresh-mount attachment) and `measureSidebarWidth` itself (reattaching
+//    after its own temporary disconnect), so the two never drift apart on the options.
+function observeSidebarMutations(root) {
+  sidebarMutationObserver = new MutationObserver(measureSidebarWidth)
+  sidebarMutationObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ['style'],
+    subtree: true
+  })
+}
 
 // Re-measures whenever the mounted `NavSidebar` itself changes -- its very first mount, and any
 // later one (mini mode toggling off and back on unmounts/remounts `<nav-sidebar>` entirely, per
@@ -553,16 +589,7 @@ watch(navSidebarEl, (component) => {
     return
   }
   nextTick(measureSidebarWidth)
-  // -> A folder expanding/collapsing toggles its `.w-expansion-item__content`'s inline `display`
-  //    (Vue's `v-show`) -- watching for a `style` attribute change anywhere in the tree is what
-  //    re-measures on that, with no new prop/emit needed from `NavSidebarItem.vue` itself (see
-  //    `measureSidebarWidth`'s own doc comment above).
-  sidebarMutationObserver = new MutationObserver(measureSidebarWidth)
-  sidebarMutationObserver.observe(root, {
-    attributes: true,
-    attributeFilter: ['style'],
-    subtree: true
-  })
+  observeSidebarMutations(root)
 })
 
 onBeforeUnmount(() => sidebarMutationObserver?.disconnect())
