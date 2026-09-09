@@ -233,5 +233,41 @@ describe(
       // -> Comfortably inside the catalog's 16px inset, so nothing clips them at the grid's edge
       expect(clearance).toBeLessThan(16)
     }, 60000)
+
+    /**
+     * OpenProject #2873's real pixel claim: the 8px gap between Cancel and Insert. `happy-dom`/`jsdom`
+     * neither run layout nor resolve the logical `border-inline-end` seam property `WBtnGroup` draws
+     * by default (see `BlockPickerOverlay.test.js`'s own jsdom-level coverage of the `gap` value
+     * itself), so the actual on-screen distance between the two header buttons needs this real
+     * headless Chromium page, same as the grid claims above. Uses the whole mounted component's HTML
+     * (not just the catalog grid `markup()` extracts) since the header sits outside `.block-picker`.
+     */
+    it('takes an 8px gap between Cancel and Insert under Cobalt, and none outside it', async () => {
+      const wrapper = await mountPicker()
+      const html = wrapper.html()
+
+      async function measureGap(bodyClass) {
+        const page = await browser.newPage()
+        try {
+          await page.setContent(
+            `<!doctype html><html><head><style>${css}</style></head>` +
+              `<body class="${bodyClass}" style="margin:0">` +
+              `<div style="width:1100px;height:800px">${html}</div></body></html>`
+          )
+          return await page.evaluate(() => {
+            const [cancel, insert] = [
+              ...document.querySelectorAll('.block-picker-actions .w-btn')
+            ].map((el) => el.getBoundingClientRect())
+            return Math.round(insert.left - cancel.right)
+          })
+        } finally {
+          await page.close()
+        }
+      }
+
+      expect(await measureGap('body--light')).toBe(0)
+      expect(await measureGap('body--cobalt body--light')).toBe(8)
+      expect(await measureGap('body--cobalt body--dark')).toBe(8)
+    }, 60000)
   }
 )

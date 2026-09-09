@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import BlockPickerOverlay from './BlockPickerOverlay.vue'
@@ -310,5 +310,46 @@ describe('the Insert action', () => {
     await wrapper.find('.block-picker-card').trigger('click')
 
     expect(insertButton(wrapper).attributes('disabled')).toBeUndefined()
+  })
+})
+
+/*
+ * OpenProject #2873: adjacent buttons in a Cobalt button group take an 8-10px gap and each keeps its
+ * own radius, per the general rule (Task #2859, `ui-iteration/README.md` Part 2), rather than
+ * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain CSS
+ * value Vitest's compiled SCSS resolves under `happy-dom` (`css: true`) with no layout engine needed.
+ * The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
+ * `getComputedStyle` at all -- so whether it is present is asserted only in a real browser, in
+ * `blockPickerLayout.test.js`, off the actual rendered gap between the two buttons.
+ */
+describe('BlockPickerOverlay Cancel/Insert button gap (OpenProject #2873)', () => {
+  let wrapper
+
+  // -> `attachTo: document.body` leaves the mounted tree attached, so the previous test's own
+  //    `.w-btn-group` has to be torn down before the next mount, or `document.body.querySelector`
+  //    can silently resolve the stale one instead of the fresh mount
+  afterEach(() => {
+    wrapper?.unmount()
+    document.body.classList.remove('body--cobalt', 'body--light', 'body--dark')
+  })
+
+  it('takes no gap outside Cobalt', async () => {
+    document.body.classList.add('body--light')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([BLOCK]) })
+    ;({ wrapper } = mountWithApp(BlockPickerOverlay, { attachTo: document.body }))
+    await flushPromises()
+
+    const group = document.body.querySelector('.block-picker-actions')
+    expect(getComputedStyle(group).gap).not.toBe('8px')
+  })
+
+  it.each(['body--light', 'body--dark'])('takes the 8px gap under Cobalt (%s)', async (theme) => {
+    document.body.classList.add('body--cobalt', theme)
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([BLOCK]) })
+    ;({ wrapper } = mountWithApp(BlockPickerOverlay, { attachTo: document.body }))
+    await flushPromises()
+
+    const group = document.body.querySelector('.block-picker-actions')
+    expect(getComputedStyle(group).gap).toBe('8px')
   })
 })
