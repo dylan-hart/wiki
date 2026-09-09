@@ -172,6 +172,17 @@ describe('the markdown editor’s own chrome', () => {
     through `--w-hairline-color`, since `WSeparator` renders `.w-hairline`, which is transparent and
     paints its line on an `::after` reading that property.
   */
+  /*
+    OpenProject #2870 ("Cobalt polish: Editor"): the markup bar's buttons default to `WBtn`'s
+    `rounded-control` class, which under Cobalt resolves to a real radius (Task #2859's token) --
+    everywhere except this bar, which the design draws as a full-width square band.
+  */
+  it('keeps the markup bar’s buttons square under Cobalt, unlike --radius-control elsewhere', () => {
+    expect(declarations(css, '.body--cobalt .editor-markdown-toolbar .w-btn')).toEqual({
+      'border-radius': '0'
+    })
+  })
+
   it('rules the markup bar’s two groups apart at the design’s 20px', () => {
     expect(declarations(css, '.editor-markdown-toolbar-rule')).toMatchObject({
       height: '20px',

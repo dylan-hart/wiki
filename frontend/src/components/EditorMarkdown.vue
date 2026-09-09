@@ -2112,6 +2112,18 @@ $toolbar-btn: 30px;
       min-height: $toolbar-btn !important;
     }
 
+    /*
+      Cobalt draws this bar as a full-width SQUARE band (ui-iteration/README.md Part 1.1,
+      OpenProject #2870) -- not the rounded pill `WBtn`'s default `rounded-control` class
+      resolves to under Cobalt everywhere else (Task #2859's `--radius-control` token). Scoped to
+      just this toolbar's own buttons, the same way the min-height override above is; plain
+      unlayered SFC CSS already beats Tailwind's `@layer utilities` regardless of specificity, so
+      no `!important` is needed here.
+    */
+    @at-root .body--cobalt & .w-btn {
+      border-radius: 0;
+    }
+
     /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */
     &-caret {
       margin-inline-start: 1px;
