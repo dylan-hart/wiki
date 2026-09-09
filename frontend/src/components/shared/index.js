@@ -44,7 +44,6 @@ import WList from './WList.vue'
 import WMenu from './WMenu.vue'
 import WPage from './WPage.vue'
 import WPageContainer from './WPageContainer.vue'
-import WPageScroller from './WPageScroller.vue'
 import WPagination from './WPagination.vue'
 import WRadio from './WRadio.vue'
 import WRange from './WRange.vue'
@@ -104,7 +103,6 @@ export const sharedComponents = {
   WMenu,
   WPage,
   WPageContainer,
-  WPageScroller,
   WPagination,
   WRadio,
   WRange,

@@ -7,7 +7,6 @@ import { mount } from '@vue/test-utils'
 
 import MainLayout from './MainLayout.vue'
 import FooterNav from '@/components/FooterNav.vue'
-import WPageScroller from '@/components/shared/WPageScroller.vue'
 import routes from '@/router/routes.js'
 import { useCommonStore } from '@/stores/common'
 import { useMinWidth } from '@/composables/screen'
@@ -519,11 +518,10 @@ describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
     document.querySelectorAll('.page-container-scrl').forEach((el) => el.remove())
   })
 
-  // -> Scoped to `.sidebar-actions` throughout: at >=750px (this suite's default, wide-viewport
-  //    `matchMedia` stub) the pre-existing corner `WPageScroller` button carries the SAME
-  //    "Return to top" aria-label and reacts to the SAME scroll -- both are expected to coexist
-  //    until #2863 retires the corner disc in wide mode, so a query against the whole wrapper
-  //    would be ambiguous. `WPageScroller.vue` itself is untouched by this WP.
+  // -> Scoped to `.sidebar-actions` for clarity/consistency with the rest of this suite, even though
+  //    OpenProject #2894 retired the corner `WPageScroller` button this used to need disambiguating
+  //    against -- the sidebar's own "Top" button is now the only "Return to top" control anywhere in
+  //    this layout.
   function findTopBtn(wrapper) {
     return wrapper
       .get('.sidebar-actions')
@@ -779,50 +777,42 @@ describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2
 })
 
 /**
- * OpenProject #2863 ("Retire WPageScroller corner disc in wide mode (>=1200px)"): the corner
- * scroll-to-top button used to render at every width from 750px up, flush against the bottom of
- * the sidebar's own column once the layout crossed its 1200px wide-viewport breakpoint
- * (`scrollerAnchorX`, now deleted along with `WPageScroller`'s `anchorX` prop -- its only caller).
- * That flush, anchored variant retires outright at >=1200px: the sidebar strip's own "Top" cell
- * (Feature #2840's sibling task #2861) takes over the scroll-to-top role there instead. Below
- * 1200px, where the sidebar overlays the page rather than columning beside it, the plain corner
- * disc still renders exactly as before; below 750px the page view's own TOC-panel opener keeps that
- * corner instead (`isAtLeastTocPanelWidth`, unchanged by this task).
+ * OpenProject #2863 ("Retire WPageScroller corner disc in wide mode (>=1200px)") retired the corner
+ * scroll-to-top button at >=1200px, where the sidebar strip's own "Top" cell (Feature #2840's
+ * sibling task #2861) took over the scroll-to-top role instead. OpenProject #2894 finishes that
+ * retirement: the corner disc was still mounting for the 750-1199px band, where the sidebar overlays
+ * the page rather than columning beside it -- `WPageScroller.vue` is now deleted outright, and the
+ * sidebar's "Top" cell (already unconditional on viewport width -- see the OpenProject #2861 suite
+ * above) is the only back-to-top control anywhere in this layout, at every width. Below 750px the
+ * page view's own TOC-panel opener still keeps that corner instead (`showTocPanelBtn` in
+ * `pages/Index.vue`, unchanged by this task).
  *
  * `useMinWidth`'s shared `matchMedia` cache (`composables/screen.js`) is set directly on the refs it
  * returns rather than through a fresh `matchMedia` mock -- see `HeaderNav.test.js`'s own note on why
  * a NEW mock can't reach a breakpoint another test in this file already cached.
  */
-describe('MainLayout scroll-to-top corner disc retires at wide viewport (OpenProject #2863)', () => {
+describe('MainLayout has no corner scroll-to-top button at any width (OpenProject #2894)', () => {
   afterEach(() => {
     useMinWidth(1200).value = true
     useMinWidth(750).value = true
   })
 
-  it('does not mount WPageScroller at >=1200px, where the sidebar has a column of its own', async () => {
-    useMinWidth(1200).value = true
-    useMinWidth(750).value = true
+  it.each([
+    ['>=1200px, where the sidebar has a column of its own', true, true],
+    ['750-1199px, where the sidebar overlays the page', false, true],
+    ['below 750px, where the TOC-panel opener keeps the corner', false, false]
+  ])(
+    'does not render a bottom-right corner scroll-to-top button %s',
+    async (_label, wide, tocPanel) => {
+      useMinWidth(1200).value = wide
+      useMinWidth(750).value = tocPanel
 
-    const { wrapper } = await mountLayout('/')
+      const { wrapper } = await mountLayout('/')
 
-    expect(wrapper.findComponent(WPageScroller).exists()).toBe(false)
-  })
-
-  it('still mounts WPageScroller between 750px and 1199px, where the sidebar overlays the page', async () => {
-    useMinWidth(1200).value = false
-    useMinWidth(750).value = true
-
-    const { wrapper } = await mountLayout('/')
-
-    expect(wrapper.findComponent(WPageScroller).exists()).toBe(true)
-  })
-
-  it('still does not mount WPageScroller below 750px, where the TOC-panel opener keeps the corner', async () => {
-    useMinWidth(1200).value = false
-    useMinWidth(750).value = false
-
-    const { wrapper } = await mountLayout('/')
-
-    expect(wrapper.findComponent(WPageScroller).exists()).toBe(false)
-  })
+      // -> `.corner-btn--right` is the class the retired `WPageScroller` mount carried; the sidebar's
+      //    own "Top" button (which shares the same `returnToTop` aria-label, hence not asserted on
+      //    here) never carries it, so this alone is what proves the corner disc is really gone.
+      expect(wrapper.find('.corner-btn--right').exists()).toBe(false)
+    }
+  )
 })

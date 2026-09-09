@@ -390,10 +390,12 @@
       <page-actions-col v-if="!pageStore.notFound" />
     </div>
     <!--
-      What opens that panel, in the bottom-right corner -- the corner `MainLayout` gives to scroll-to-top,
-      which stands down below 750px so that this can have it. Same position and the same `.corner-btn`
-      shape (declared in `MainLayout`, which is always mounted above this view), so the two read as one
-      button that changes what it does rather than as two buttons fighting for a corner.
+      What opens that panel, in the bottom-right corner. `MainLayout`'s own scroll-to-top corner button
+      used to occupy the same corner at 750px and up before OpenProject #2894 retired it in favour of
+      the sidebar's own "Top" cell -- this is now the corner's only occupant, and only below 750px. Same
+      position and the same `.corner-btn` shape (declared in `MainLayout`, which is always mounted above
+      this view), so a reader who has seen the sidebar's hamburger opener in the opposite corner
+      recognises this as the same kind of control.
 
       Not gated on having scrolled, as scroll-to-top is: the contents are how a reader decides where to go
       in a long page, and that is most useful before they have gone anywhere.
