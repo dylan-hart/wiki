@@ -1003,3 +1003,36 @@ describe('PageHistoryOverlay Cobalt aesthetic conformance (OpenProject #2776)', 
     }
   })
 })
+
+/**
+ * OpenProject #2872 (`ui-iteration/README.md` Part 1.1/Part 2): under Cobalt, the Side by
+ * side/Inline toggle and the A/B pick chips get a real gap between their buttons -- and the
+ * `WBtnGroup.vue` seam hairline meant for touching squares, which no longer belongs once there is
+ * a gap, is switched off for these two groups. No compiled token stylesheet exists in this test
+ * environment to resolve a real cascade against (see the describe above), so this is checked the
+ * same way: against the component's own template markup and source text.
+ */
+describe('PageHistoryOverlay Cobalt polish: toggle/chip spacing (OpenProject #2872)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'PageHistoryOverlay.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+
+  it('marks the Side by side/Inline toggle with the class the Cobalt gap rule targets', async () => {
+    await mountOverlay()
+
+    const toggle = document.body.querySelector('.page-history-toggle')
+    expect(toggle).not.toBeNull()
+    expect(toggle.querySelectorAll('.w-btn')).toHaveLength(2)
+  })
+
+  it('gives the toggle a 10px gap and the A/B pick chips a 4px gap, Cobalt only', () => {
+    expect(styleBlock).toMatch(/body\.body--cobalt[^{]*\{\s*&-toggle\s*{\s*gap:\s*10px;/)
+    expect(styleBlock).toMatch(/&-pick-group\s*{\s*gap:\s*4px;/)
+  })
+
+  it('drops the shared btn-group seam hairline for both groups once they have a real gap', () => {
+    expect(styleBlock).toMatch(
+      /&-toggle \.w-btn:not\(:last-child\),\s*&-pick-group \.w-btn:not\(:last-child\)\s*{\s*border-inline-end:\s*none;/
+    )
+  })
+})
