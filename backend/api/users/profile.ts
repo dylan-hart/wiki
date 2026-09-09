@@ -226,10 +226,14 @@ async function routes(app: FastifyInstance) {
         }
       }
       // -> Handled separately from the loop above: every key in it is a plain string, but `graph`
-      //    (OpenProject #2854) is an object, and TypeScript cannot correlate `UserProfilePatch[key]`
-      //    with `req.body[key]` across a union of keys whose value types actually differ.
+      //    (OpenProject #2854) and `iconPicker` are objects, and TypeScript cannot correlate
+      //    `UserProfilePatch[key]` with `req.body[key]` across a union of keys whose value types
+      //    actually differ.
       if (req.body.graph !== undefined) {
         patch.graph = req.body.graph
+      }
+      if (req.body.iconPicker !== undefined) {
+        patch.iconPicker = req.body.iconPicker
       }
       if (Object.keys(patch).length < 1) {
         throw new CustomError('userProfileEmpty', 'No profile fields provided to update.')
@@ -268,7 +272,8 @@ async function routes(app: FastifyInstance) {
         aesthetic: profile.aesthetic,
         cvd: profile.cvd,
         locale: profile.locale,
-        graph: profile.graph
+        graph: profile.graph,
+        iconPicker: profile.iconPicker
       }
 
       return {

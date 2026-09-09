@@ -40,7 +40,7 @@
               style="min-width: 130px"
               :label="t(`iconPicker.set`)"
               :aria-label="t(`iconPicker.set`)"
-              @update:model-value="search" />
+              @update:model-value="onSetFilterChange" />
           </div>
         </div>
         <div class="icon-picker-results mt-2">
@@ -135,6 +135,8 @@ import { useDark } from '@/composables/dark'
 import { debounce } from 'es-toolkit/function'
 import { useClosePopup } from '@/composables/popup'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { log } from '@/helpers/log'
+import { useUserStore } from '@/stores/user'
 
 // I18N
 
@@ -168,10 +170,16 @@ const emit = defineEmits(['update:modelValue'])
 
 // DATA
 
+/** Every set filter defaults to Tabler -- this app's own icons are all `tabler:*`, and it is by far
+ *  the most complete/consistent single set to land a first-time search in, rather than a firehose
+ *  of every enabled set at once. Overridden by whatever `loadSetPref()` finds saved (below) before
+ *  the reader ever sees this default. */
+const DEFAULT_SET_FILTER = 'tabler'
+
 const state = reactive({
   currentTab: 'icon',
   query: '',
-  setFilter: '',
+  setFilter: DEFAULT_SET_FILTER,
   sets: [],
   results: [],
   selected: '',
@@ -189,6 +197,10 @@ const IMAGE_PREFIX = 'img:'
 
 const iptSearch = ref(null)
 const iptImage = ref(null)
+
+// STORES
+
+const userStore = useUserStore()
 
 // COMPOSABLES
 
@@ -223,6 +235,12 @@ async function loadSets() {
     // -> Only enabled sets: a disabled one is not searchable, and its icons cannot be stored
     const sets = await API_CLIENT.get('icons/sets').json()
     state.sets = (sets ?? []).filter((set) => set.isEnabled)
+    // -> The default/persisted filter may name a set this instance has since disabled (or never
+    //    enabled at all) -- falls back to "every enabled set" rather than silently searching a set
+    //    that can never return a result.
+    if (state.setFilter && !state.sets.some((set) => set.prefix === state.setFilter)) {
+      state.setFilter = ''
+    }
   } catch (err) {
     notify({
       type: 'negative',
@@ -260,6 +278,44 @@ async function search() {
 
 // -> Every keystroke would otherwise be a search against the upstream API
 const queueSearch = debounce(search, 350)
+
+/** Restores the reader's last-chosen icon set filter, persisted the same way the knowledge graph's
+ *  own view controls are (`Graph.vue#loadGraphPrefs()`) -- overriding `DEFAULT_SET_FILTER` once a
+ *  real preference is found. Skipped for a guest, who has no profile to have ever saved one onto. */
+async function loadSetPref() {
+  if (!userStore.authenticated) {
+    return
+  }
+  try {
+    const resp = await API_CLIENT.get('users/profile').json()
+    const saved = resp?.iconPicker?.set
+    if (saved !== undefined) {
+      state.setFilter = saved
+    }
+  } catch (err) {
+    log.warn('dialog', 'could not load persisted icon picker set preference', err)
+  }
+}
+
+/** Saves the reader's current set filter choice back onto their profile. A no-op for a guest; a
+ *  failure is logged and otherwise swallowed, the same tolerance `loadSetPref()` gives its own read
+ *  -- losing this preference save is not worth interrupting the icon search. */
+async function saveSetPref() {
+  if (!userStore.authenticated) {
+    return
+  }
+  try {
+    await API_CLIENT.put('users/profile', { json: { iconPicker: { set: state.setFilter } } }).json()
+  } catch (err) {
+    log.warn('dialog', 'could not save icon picker set preference', err)
+  }
+}
+
+/** Named, because oxfmt breaks a two-statement inline handler onto separate lines */
+function onSetFilterChange() {
+  search()
+  saveSetPref()
+}
 
 /**
  * Hand the reference back, having made sure the wiki can serve it.
@@ -322,6 +378,7 @@ onMounted(async () => {
   //    in which case the watcher is focusing the same field and this is a no-op
   await focusCurrentTab()
 
+  await loadSetPref()
   await loadSets()
 })
 </script>

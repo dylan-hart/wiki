@@ -1170,7 +1170,7 @@ async function loadGraphPrefs() {
     return
   }
   try {
-    const resp = await API_CLIENT.get('profile').json()
+    const resp = await API_CLIENT.get('users/profile').json()
     const saved = resp?.graph ?? {}
     if (saved.groupBy !== undefined) {
       groupBy.value = saved.groupBy
@@ -1218,7 +1218,7 @@ async function saveGraphPrefs() {
     return
   }
   try {
-    await API_CLIENT.put('profile', {
+    await API_CLIENT.put('users/profile', {
       json: {
         graph: {
           groupBy: groupBy.value,

@@ -197,6 +197,14 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           over: { type: 'string' },
           clientTypes: { type: 'array', items: { type: 'string' } }
         }
+      },
+      iconPicker: {
+        type: 'object',
+        description:
+          "The icon picker's persisted icon-set filter, or absent for a user who has never saved one. A plain string, same reasoning as `graph` above -- a preference stored before a set existed must still be readable.",
+        properties: {
+          set: { type: 'string' }
+        }
       }
     }
   })
@@ -283,6 +291,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'array',
             items: { type: 'string', enum: ['browser', 'api', 'mcp'] }
           }
+        },
+        additionalProperties: false
+      },
+      iconPicker: {
+        type: 'object',
+        description:
+          'The icon picker\'s persisted icon-set filter -- an Iconify set prefix (`tabler`, `mdi`, ...), or an empty string for "every enabled set." Not an enum: which sets exist is instance-specific and only known at runtime, same reasoning as `locale` above.',
+        properties: {
+          set: { type: 'string', maxLength: 255 }
         },
         additionalProperties: false
       }
