@@ -17,6 +17,30 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
  */
 const source = readFileSync(join(import.meta.dirname, 'TableEditorOverlay.vue'), 'utf-8')
 
+/**
+ * Isolates one brace-balanced `<style>` block by its opening marker, so a structural check can ask
+ * "does X live inside this specific nested rule" without a regex trying to track SCSS nesting depth
+ * itself. Returns the block INCLUDING both braces, or `null` when the marker isn't found.
+ */
+function extractBalancedBlock(text, startMarker) {
+  const markerIndex = text.indexOf(startMarker)
+  if (markerIndex === -1) {
+    return null
+  }
+  const blockStart = text.indexOf('{', markerIndex)
+  let depth = 0
+  let i = blockStart
+  do {
+    if (text[i] === '{') {
+      depth++
+    } else if (text[i] === '}') {
+      depth--
+    }
+    i++
+  } while (depth > 0 && i < text.length)
+  return text.slice(blockStart, i)
+}
+
 describe('TableEditorOverlay help link', () => {
   it('still uses siteStore elsewhere in the component', () => {
     expect(source).toContain('siteStore.overlayOpts')
@@ -146,15 +170,52 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
   })
 
   /*
-    Two things this screen must NOT do, per the epic's coordination note: retune `.w-section-header`
-    (OpenProject #2631 owns the band's own rhythm across all eleven of its callers) and write a
-    radius (the `--radius-*` scale is zeroed, and `--radius-full` survives only for genuinely round
-    shapes -- a cell corner is neither).
+    This screen must NOT retune `.w-section-header` -- OpenProject #2631 owns the band's own rhythm
+    across all eleven of its callers.
   */
-  it('leaves the section-header band and the zeroed radius scale alone', () => {
+  it('leaves the section-header band alone', () => {
     expect(source).toContain('class="w-section-header')
     expect(source).not.toMatch(/\.w-section-header\s*\{/)
-    expect(source).not.toMatch(/border-radius|rounded-(?!none)/)
+  })
+
+  /*
+    The `--radius-*` scale is zeroed outside Cobalt, and this grid used to draw no radius at all --
+    OpenProject #2858 is the one deliberate exception, and it must stay scoped to `.body--cobalt`
+    rather than leaking a radius onto the grid under any other aesthetic. `extractBalancedBlock`
+    isolates the one Cobalt-scoped block by brace-matching from its opening marker, so the check is
+    "every `border-radius` in the file lives inside that block", not a textual coincidence.
+  */
+  it('scopes the single-plate radius to Cobalt alone, leaving every other aesthetic square', () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).not.toBeNull()
+    expect(cobaltBlock).toContain('border-radius')
+
+    const withoutCobaltBlock = source.replace(cobaltBlock, '')
+    expect(withoutCobaltBlock).not.toMatch(/border-radius|rounded-(?!none)/)
+  })
+
+  /*
+    OpenProject #2858: Cobalt's single-plate grid. These are the DOM-shape and literal-CSS-text
+    claims a jsdom mount can answer -- the actual rendered colours, the removed per-cell border and
+    the plate's own radius are measured in a real browser below, because neither `happy-dom` nor
+    `jsdom` runs a layout/paint engine.
+  */
+  it("collapses the per-cell border into the plate's own border-spacing gap under Cobalt", () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).toContain('border-collapse: separate')
+    expect(cobaltBlock).toContain('border-spacing: 2px')
+    expect(cobaltBlock).toMatch(/&-cellbox\s*\{\s*border: 0;/)
+  })
+
+  it('tints Cobalt header cells distinctly from the plate and the data cells', () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).toMatch(/th\.table-editor-cellbox\s*\{\s*background-color: #eef2ff;/)
+  })
+
+  it('rings the focused Cobalt cell instead of tinting it', () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).toMatch(/&-cell:focus\s*\{/)
+    expect(cobaltBlock).toContain('box-shadow: inset 0 0 0 2px var(--color-accent-strong)')
   })
 })
 
@@ -178,6 +239,8 @@ describe(
     let browser
     let metrics
     let dark
+    let cobalt
+    let cobaltDark
 
     /*
       Measured under BOTH body classes off the same markup. Dark mode here is not a filter over the
@@ -219,6 +282,11 @@ describe(
             (row) => getComputedStyle(row.querySelector('.table-editor-cellbox')).backgroundColor
           )
           const toolbar = document.querySelector('.table-editor-toolbar')
+          const table = document.querySelector('.table-editor-grid table')
+          const headerCell = document.querySelector('thead tr:last-child th.table-editor-cellbox')
+          const cellInput = document.querySelector('.table-editor-cell')
+          cellInput.focus()
+          const focusedCellStyle = getComputedStyle(cellInput)
           return {
             addRow: box('.table-editor-toolbar .w-btn'),
             toolButtons,
@@ -229,7 +297,17 @@ describe(
             toolbarBorderColor: getComputedStyle(toolbar).borderBottomColor,
             cellBorderColor: getComputedStyle(document.querySelector('.table-editor-cellbox'))
               .borderTopColor,
-            bodyRows
+            cellBorderWidth: getComputedStyle(document.querySelector('.table-editor-cellbox'))
+              .borderTopWidth,
+            bodyRows,
+            plateBg: getComputedStyle(table).backgroundColor,
+            plateRadius: getComputedStyle(table).borderTopLeftRadius,
+            plateBorderSpacing: getComputedStyle(table).borderSpacing,
+            headerCellBg: getComputedStyle(headerCell).backgroundColor,
+            toolsRowBg: bg('.table-editor-tools th'),
+            rowToolsBg: bg('.table-editor-rowtools'),
+            focusedCellBoxShadow: focusedCellStyle.boxShadow,
+            focusedCellBg: focusedCellStyle.backgroundColor
           }
         })
       } finally {
@@ -241,6 +319,8 @@ describe(
       browser = await chromium.launch()
       metrics = await measure('body--light')
       dark = await measure('body--dark')
+      cobalt = await measure('body--cobalt body--light')
+      cobaltDark = await measure('body--cobalt body--dark')
     })
 
     afterAll(async () => {
@@ -303,6 +383,48 @@ describe(
           but a `dark:` utility landing on the same element is not, so it is measured either way */
     it('keeps the tool plates at 24x22 in dark mode too', () => {
       expect(dark.toolButtons).toEqual(metrics.toolButtons)
+    })
+
+    /*
+      OpenProject #2858: Cobalt's single-plate grid, measured against
+      `ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`. Ledger's own rendering
+      (`metrics`/`dark` above) is untouched by any of this -- these assertions run only against the
+      `cobalt`/`cobaltDark` captures.
+    */
+    it('grounds the grid in one tinted, radiused plate rather than a collapsed table', () => {
+      // -> `--color-tint` #e6edff light, `--radius-card` 8px
+      expect(cobalt.plateBg).toBe('rgb(230, 237, 255)')
+      expect(cobalt.plateRadius).toBe('8px')
+      expect(Number.parseFloat(cobalt.plateBorderSpacing)).toBe(2)
+    })
+
+    it('removes the per-cell border under Cobalt, leaving separation to the plate gap', () => {
+      expect(cobalt.cellBorderWidth).toBe('0px')
+      expect(cobaltDark.cellBorderWidth).toBe('0px')
+    })
+
+    it('tints the Cobalt header row distinctly from the plate and the white data cells', () => {
+      // -> `#eef2ff` light; `--color-dark-3` `#141c4f` dark (no design board for Cobalt dark here,
+      //    so this is the ramp's own "one rung more raised than the plate" answer -- see the SFC)
+      expect(cobalt.headerCellBg).toBe('rgb(238, 242, 255)')
+      expect(cobaltDark.headerCellBg).toBe('rgb(20, 28, 79)')
+    })
+
+    it('grounds the Cobalt chrome strips in the page tint, matching the board', () => {
+      // -> `--color-paper` #f2f5ff light, #0a0f2c dark
+      expect(cobalt.toolsRowBg).toBe('rgb(242, 245, 255)')
+      expect(cobalt.rowToolsBg).toBe('rgb(242, 245, 255)')
+      expect(cobaltDark.toolsRowBg).toBe('rgb(10, 15, 44)')
+      expect(cobaltDark.rowToolsBg).toBe('rgb(10, 15, 44)')
+    })
+
+    it('rings the focused Cobalt cell in the accent instead of tinting its ground', () => {
+      // -> `--color-accent-strong` #1f4fd6 light, #7fa0ff dark; `--color-surface` #fff unchanged
+      expect(cobalt.focusedCellBg).toBe('rgb(255, 255, 255)')
+      expect(cobalt.focusedCellBoxShadow).toContain('rgb(31, 79, 214)')
+      expect(cobalt.focusedCellBoxShadow).toContain('inset')
+      expect(cobaltDark.focusedCellBg).toBe('rgb(255, 255, 255)')
+      expect(cobaltDark.focusedCellBoxShadow).toContain('rgb(127, 160, 255)')
     })
   }
 )
