@@ -1,7 +1,7 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
+import { describe, it, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
-import { DEFAULT_SETS, NOT_FOUND_CACHE_MAX, icons } from './icons.ts'
+import { DEFAULT_SETS, NOT_FOUND_CACHE_MAX, IconNotFoundUpstreamError, icons } from './icons.ts'
 
 /**
  * OpenProject #1212: Font Awesome Free ships pre-added, the same way Line Awesome and Material
@@ -145,5 +145,146 @@ describe('icons.rememberMissing (notFoundCache bound)', () => {
       icons.notFoundCache.has(`mdi:icon-${NOT_FOUND_CACHE_MAX}`),
       'the most recently added entry should still be present'
     )
+  })
+})
+
+/**
+ * `apiFetch` (OpenProject #2889): upstream answers an unknown icon/prefix two documented ways -- a
+ * genuine HTTP 404, or a 200 response whose JSON body is the literal string `'404'` -- and both must
+ * reject with `IconNotFoundUpstreamError` specifically, not the plain `Error` a real failure throws,
+ * since that is what lets `fetchIconsUpstream` pick the right log level.
+ */
+describe('icons.apiFetch upstream-not-found detection', () => {
+  beforeEach(() => {
+    ;(globalThis as any).WIKI = {
+      config: { offline: false, icons: {} },
+      logger: { debug: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+    mock.restoreAll()
+  })
+
+  it('throws IconNotFoundUpstreamError for a genuine HTTP 404', async () => {
+    mock.method(globalThis, 'fetch', async () => ({
+      ok: false,
+      status: 404,
+      json: async () => {
+        throw new Error('must not be read on a 404')
+      }
+    }))
+    await assert.rejects(() => icons.apiFetch('/does-not-exist.json'), IconNotFoundUpstreamError)
+  })
+
+  it('throws IconNotFoundUpstreamError for a 200 response whose body is the literal string "404"', async () => {
+    mock.method(globalThis, 'fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => '404'
+    }))
+    await assert.rejects(
+      () => icons.apiFetch('/mdi.json?icons=does-not-exist'),
+      IconNotFoundUpstreamError
+    )
+  })
+
+  it('throws a plain Error, not IconNotFoundUpstreamError, for a real failure (5xx)', async () => {
+    mock.method(globalThis, 'fetch', async () => ({
+      ok: false,
+      status: 503,
+      json: async () => {
+        throw new Error('must not be read on a non-404 error')
+      }
+    }))
+    await assert.rejects(
+      () => icons.apiFetch('/mdi.json?icons=user'),
+      (err: any) => err instanceof Error && !(err instanceof IconNotFoundUpstreamError)
+    )
+  })
+
+  it('throws a plain Error, not IconNotFoundUpstreamError, for a malformed non-404 body', async () => {
+    mock.method(globalThis, 'fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => null
+    }))
+    await assert.rejects(
+      () => icons.apiFetch('/mdi.json?icons=user'),
+      (err: any) => err instanceof Error && !(err instanceof IconNotFoundUpstreamError)
+    )
+  })
+})
+
+/**
+ * `fetchIconsUpstream` (OpenProject #2889): the "upstream has nothing for this" shape is an
+ * expected, routine outcome and must log at `debug`, not `warn` -- only a genuine failure (network
+ * error, 5xx, a malformed body) still warns. `apiFetch` is stubbed here so the test is about which
+ * log level the catch block picks, not about `apiFetch`'s own response parsing (covered above).
+ */
+describe('icons.fetchIconsUpstream logging level', () => {
+  function makeFakeDb() {
+    return {
+      select: () => ({
+        from: (table: any) => {
+          if (table === iconSetsTable) {
+            return {
+              where: () => ({
+                limit: async () => [
+                  {
+                    prefix: 'wp2889',
+                    name: 'Test Set',
+                    isEnabled: true,
+                    info: {},
+                    refreshedAt: null,
+                    createdAt: new Date('2026-01-01T00:00:00.000Z')
+                  }
+                ]
+              })
+            }
+          }
+          throw new Error(`unexpected table passed to select().from(): ${String(table)}`)
+        }
+      })
+    }
+  }
+
+  beforeEach(() => {
+    ;(globalThis as any).WIKI = {
+      db: makeFakeDb(),
+      config: { offline: false, icons: {} },
+      logger: { debug: mock.fn(), warn: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+    mock.restoreAll()
+    icons.notFoundCache.clear()
+  })
+
+  it('logs debug, not warn, when upstream has nothing for this request', async () => {
+    mock.method(icons, 'apiFetch', async () => {
+      throw new IconNotFoundUpstreamError('upstream has nothing for this')
+    })
+    await icons.fetchIconsUpstream('wp2889', ['unknown-icon-a'])
+    const wiki = (globalThis as any).WIKI
+    assert.equal(wiki.logger.debug.mock.calls.length, 1)
+    assert.equal(wiki.logger.warn.mock.calls.length, 0)
+    const [scope, message, fields] = wiki.logger.debug.mock.calls[0].arguments
+    assert.equal(scope, 'icons')
+    assert.equal(typeof message, 'string')
+    assert.equal(fields.prefix, 'wp2889')
+  })
+
+  it('still logs warn, not debug, for a genuine failure', async () => {
+    mock.method(icons, 'apiFetch', async () => {
+      throw new Error('network exploded')
+    })
+    await icons.fetchIconsUpstream('wp2889', ['unknown-icon-b'])
+    const wiki = (globalThis as any).WIKI
+    assert.equal(wiki.logger.warn.mock.calls.length, 1)
+    assert.equal(wiki.logger.debug.mock.calls.length, 0)
   })
 })

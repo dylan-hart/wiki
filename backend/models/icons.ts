@@ -116,6 +116,14 @@ function isSafeIconBody(body: string): boolean {
 }
 
 /**
+ * Thrown by `apiFetch` for the documented "upstream has nothing for this" shape -- a genuine HTTP
+ * 404, or a 200-status response whose JSON body is the literal string `'404'`. This is an expected,
+ * routine outcome, not a failure: `fetchIconsUpstream` catches it separately so it logs at `debug`
+ * rather than `warn` (OpenProject #2889).
+ */
+export class IconNotFoundUpstreamError extends Error {}
+
+/**
  * Icons model
  *
  * Icons are addressed the way Iconify addresses them — `<prefix>:<name>`, e.g. `tabler:user-edit` —
@@ -532,11 +540,18 @@ class Icons {
         `/${prefix}.json?icons=${asking.map(encodeURIComponent).join(',')}`
       )) as IconifyJSON
     } catch (err: any) {
-      WIKI.logger.warn('icons', 'fetching icons upstream failed', {
-        url: this.apiUrl,
-        prefix,
-        error: err
-      })
+      if (err instanceof IconNotFoundUpstreamError) {
+        WIKI.logger.debug('icons', 'upstream has no icons for this request', {
+          prefix,
+          icons: asking.join(',')
+        })
+      } else {
+        WIKI.logger.warn('icons', 'fetching icons upstream failed', {
+          url: this.apiUrl,
+          prefix,
+          error: err
+        })
+      }
       return { icons: {}, notFound: names }
     }
 
@@ -826,7 +841,12 @@ class Icons {
   /**
    * Call the upstream Iconify API
    *
-   * @throws When offline mode is on, the request fails, or the response is not JSON
+   * @throws {IconNotFoundUpstreamError} When upstream has nothing for this request -- a genuine
+   *   HTTP 404, or the documented 200-status response whose body is the literal string `'404'`.
+   *   This is an expected, routine outcome (an icon or a whole prefix nobody has added yet), not a
+   *   failure -- distinguishing it from the plain `Error` below is what lets `fetchIconsUpstream`
+   *   log it at `debug` rather than `warn`.
+   * @throws When offline mode is on, the request fails, or the response is otherwise malformed
    */
   async apiFetch(pathname: string): Promise<any> {
     if (WIKI.config.offline) {
@@ -840,11 +860,21 @@ class Icons {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(15_000)
     })
+    if (resp.status === 404) {
+      return Promise.reject(
+        new IconNotFoundUpstreamError(`${this.apiUrl} has nothing for ${pathname}`)
+      )
+    }
     if (!resp.ok) {
       return Promise.reject(new Error(`${this.apiUrl} answered ${resp.status} for ${pathname}`))
     }
     const data = await resp.json()
     // -> The API answers an unknown prefix with the string `404` and a 200 status
+    if (data === '404') {
+      return Promise.reject(
+        new IconNotFoundUpstreamError(`${this.apiUrl} has nothing for ${pathname}`)
+      )
+    }
     if (typeof data !== 'object' || data === null) {
       return Promise.reject(new Error(`${this.apiUrl} has nothing for ${pathname}`))
     }
