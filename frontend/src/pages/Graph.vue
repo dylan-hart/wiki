@@ -227,6 +227,7 @@ import {
 } from './graphFilters.js'
 import { paintGraph } from './graphDraw.js'
 import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
+import { applyHoverPushImpulse } from './graphForces.js'
 import {
   attachZoom as attachGraphZoom,
   computeClusters as buildClusters,
@@ -937,7 +938,8 @@ function repaint() {
     clusters: clusters.value,
     radiusFor,
     dark: dark.isActive,
-    highlightedIds: highlightedNodeIds.value
+    highlightedIds: highlightedNodeIds.value,
+    hoveredNode: hoveredNode.value
   })
 }
 
@@ -1025,8 +1027,23 @@ function onCanvasClick(event) {
   navigateToNode(findNodeAt(event.clientX, event.clientY))
 }
 
+/** Alpha `simulation.alpha(...).restart()` is bumped to right after a hover push impulse -- small
+ *  on purpose, so the settle reads as a brief, subtle pulse rather than the whole layout visibly
+ *  reworking itself, the way a fresh filter/edit (`0.3`/`0.5` elsewhere in this file) does. */
+const HOVER_PUSH_ALPHA = 0.15
+
 function onCanvasMouseMove(event) {
-  hoveredNode.value = findNodeAt(event.clientX, event.clientY)
+  const nextHovered = findNodeAt(event.clientX, event.clientY)
+  if (nextHovered !== hoveredNode.value) {
+    // -> Only on an actual mouseover of a (possibly different) node, never on leaving one: moving
+    //    OFF a node onto empty canvas sets `nextHovered` to `null`, which this guard excludes.
+    if (nextHovered) {
+      applyHoverPushImpulse(nodes.value, nextHovered)
+      simulation?.alpha(HOVER_PUSH_ALPHA).restart()
+    }
+    hoveredNode.value = nextHovered
+    repaint()
+  }
   const containerRect = containerRef.value.getBoundingClientRect()
   tooltipPos.x = event.clientX - containerRect.left
   tooltipPos.y = event.clientY - containerRect.top

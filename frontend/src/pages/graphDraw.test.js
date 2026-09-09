@@ -205,6 +205,41 @@ describe('drawNodes: root node marker (OpenProject #2563)', () => {
   })
 })
 
+describe('drawNodes: hovered-node tint', () => {
+  it('fills a second time, with the white overlay tint, only for the node that is the hoveredNode', () => {
+    const ctx = makeCtx()
+    const hovered = { path: 'a', locale: 'en', x: 1, y: 1 }
+    const other = { path: 'b', locale: 'en', x: 2, y: 2 }
+
+    const fillStyles = []
+    ctx.fill.mockImplementation(() => fillStyles.push(ctx.fillStyle))
+
+    drawNodes(ctx, [hovered, other], radiusFor, null, hovered)
+
+    // -> The hovered node fills twice (its own color, then the tint); the other node once.
+    expect(fillStyles).toEqual(['#888', 'rgba(255, 255, 255, 0.3)', '#888'])
+  })
+
+  it('tints by object identity, not by matching id -- a same-id-shaped node that is not the actual hoveredNode reference gets no tint', () => {
+    const ctx = makeCtx()
+    const node = { path: 'a', locale: 'en', x: 1, y: 1 }
+    const lookalike = { path: 'a', locale: 'en', x: 1, y: 1 }
+
+    drawNodes(ctx, [node], radiusFor, null, lookalike)
+
+    expect(ctx.fill).toHaveBeenCalledTimes(1)
+  })
+
+  it('with no hoveredNode (null/undefined), never draws the tint fill', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    drawNodes(ctx, nodes, radiusFor)
+
+    expect(ctx.fill).toHaveBeenCalledTimes(1)
+  })
+})
+
 /** A node big enough to hold a label inside it: at the `10px` base font, `insideNodeTextWidth(20,
  *  10)` is `2 * sqrt(400 - 25) * 0.9`, about `34.9px` -- eight `CHAR_WIDTH_PX` characters. */
 const LABELLED_NODE_RADIUS = 20
