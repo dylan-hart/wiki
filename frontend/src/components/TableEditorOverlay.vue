@@ -466,6 +466,28 @@ onBeforeUnmount(() => {
   }
 
   /*
+    Cancel / Update (OpenProject #2871): the general Cobalt button-group gap rule -- adjacent buttons
+    take an 8-10px gap and each keeps its own radius, never a rounded button butted against a square
+    one (Task #2859, `ui-iteration/README.md` Part 2) -- applied literally here at 8px, matching the
+    Cobalt mockup (`ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`), since
+    #2859's own shared class/rule had not landed on scarlett as of this change; reconcile to whatever
+    mechanism it ships with at integration. `WBtnGroup`'s default seam (a hairline `border-inline-end`
+    on every button but the last, the Ledger "joined buttons" look) is switched off here so it doesn't
+    show through the gap -- `WBtn` already gives every button its own default control radius
+    unconditionally (`--radius-control`, 6px under Cobalt), so nothing else about the buttons
+    themselves needs to change.
+  */
+  .card-header .w-btn-group {
+    @at-root .body--cobalt & {
+      gap: 8px;
+
+      > .w-btn:not(:last-child) {
+        border-inline-end: none;
+      }
+    }
+  }
+
+  /*
     The toolbar band under the title bar: the page tint ruled off underneath, which is the same recipe
     `.w-section-header` draws the `Markdown` heading below with.
   */
