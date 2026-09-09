@@ -877,11 +877,54 @@ body.body--dark {
         is removed rather than recoloured: Cobalt's own mockups (`Cardinal Wiki - File Manager 3x
         - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) draw a plain rounded
         panel with no title-band edge at all.
+
+        OpenProject #2864: that fix gave THIS box the fill, the radius AND the `overflow: hidden`
+        clip together, which is exactly the combination `ui-iteration/README.md` Part 1.2 traces
+        the corner fringe to -- a dark, flat-cornered `.card-header` clipped by a filled ancestor's
+        rounded `overflow: hidden` leaves a light antialiasing sliver at the two top corners
+        (confirmed in the deployed app). The panel now draws no fill of its own and does not clip;
+        `border-radius` stays so its `box-shadow` above still follows the rounded outline. The
+        header and body below round and fill THEMSELVES instead, so there is no shared clip
+        boundary between two differently-coloured boxes for a browser to antialias.
       */
       @at-root .body--cobalt & {
         border-top: 0;
         border-radius: var(--radius-dialog);
-        overflow: hidden;
+        background: transparent;
+        overflow: visible;
+      }
+
+      /*
+        `.card-header` is the shared title-band class 60+ dialogs use (`css/_base.scss`), not
+        something owned by any one overlay -- every entry `MainOverlayDialog.vue` mounts (Inbox,
+        Profile, File Manager, History, Table Editor, Edit Menu Items, Block Picker, ...) renders
+        one as its own first element, so rounding it here (scoped under `.main-overlay`) reaches
+        all of them without editing a single overlay component.
+
+        The body "wrapper" is whatever sibling(s) follow the header inside that overlay's own
+        layout -- a single `.w-page-container` for most of them, a left and/or right `w-drawer`
+        flanking it for File Manager and Inbox. `+ *` matches only the FIRST such sibling (rounds
+        its own outer bottom-left corner) and `~ *:last-child` only the LAST one (rounds its own
+        outer bottom-right corner); a lone body element matches both rules and gets both corners,
+        while a middle element sitting between two others (a table's own `main` cell when both
+        drawers are open) matches neither and stays square -- correctly, since it never reaches the
+        panel's outer edge and rounding it would carve a false notch into its own interior seam.
+        `--float-bg` is the existing per-aesthetic "raised surface" token (`#fff` in Cobalt light,
+        the dark ramp's own "card, dialog body" rung in Cobalt dark) -- reused rather than a new
+        custom property, since it already resolves correctly for both.
+      */
+      @at-root .body--cobalt & .card-header {
+        border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
+      }
+      @at-root .body--cobalt & .card-header + * {
+        background: var(--float-bg);
+        overflow: auto;
+        border-bottom-left-radius: var(--radius-dialog);
+      }
+      @at-root .body--cobalt & .card-header ~ *:last-child {
+        background: var(--float-bg);
+        overflow: auto;
+        border-bottom-right-radius: var(--radius-dialog);
       }
     }
   }
