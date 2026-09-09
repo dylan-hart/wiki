@@ -136,7 +136,8 @@ const messages = {
       editNav: 'Edit Nav',
       expand: 'Expand Sidebar',
       mainMenu: 'Main Menu',
-      switchLocale: 'Switch Locale'
+      switchLocale: 'Switch Locale',
+      top: 'Top'
     }
   }
 }
@@ -602,6 +603,166 @@ describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
 
     const strip = wrapper.get('.sidebar-actions')
     expect(getComputedStyle(strip.element).height).toBe('41px')
+  })
+})
+
+/**
+ * OpenProject #2862 ("Sidebar strip: Ledger + Cobalt visual treatment"): the theme-specific finish
+ * on top of #2861's structural strip -- Ledger's white Top plate + mono "TOP" label + hairline cell
+ * separators, Cobalt's ruleless flat tiles. Literal, class-toggleable rules (no `var()` resolution
+ * needed) are asserted live via `getComputedStyle`; rules that resolve a `tailwind.css` custom
+ * property are asserted against the compiled stylesheet's own source text instead, since this
+ * harness never loads `tailwind.css`'s token layer and so cannot resolve `var(--color-*)`
+ * reliably -- the same limitation `NavEditMenu.test.js`'s Cobalt Save-button test documents.
+ */
+describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProject #2862)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+
+  async function mountStrip({ cobalt = false } = {}) {
+    document.body.classList.toggle('body--cobalt', cobalt)
+
+    const router = await createTestRouter(['/'])
+    const { wrapper, ...rest } = mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        site: (siteStore) => {
+          siteStore.features.browse = true
+        }
+      },
+      stubs: {
+        HeaderNav: true,
+        MainOverlayDialog: true,
+        NavSidebar: true
+      },
+      attachTo: document.body
+    })
+
+    // -> The Top button/cell only mounts once `.page-container-scrl` has scrolled past 150px (see
+    //    the #2861 suite above) -- every test here needs it visible, so this helper scrolls it in
+    //    unconditionally rather than repeating the fade threshold dance per test.
+    const scrollColumn = document.createElement('div')
+    scrollColumn.className = 'page-container-scrl'
+    document.body.appendChild(scrollColumn)
+    Object.defineProperty(scrollColumn, 'scrollTop', {
+      value: 200,
+      writable: true,
+      configurable: true
+    })
+    scrollColumn.scrollTo = vi.fn()
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    return { wrapper, ...rest }
+  }
+
+  afterEach(() => {
+    document.body.classList.remove('body--cobalt')
+    document.querySelectorAll('.page-container-scrl').forEach((el) => el.remove())
+  })
+
+  it('gives the "TOP" label its Roboto Mono, uppercase, wide-tracking treatment', async () => {
+    const { wrapper } = await mountStrip()
+
+    const label = wrapper.get('.sidebar-actions-top .w-btn > span > span')
+    const style = getComputedStyle(label.element)
+    expect(style.fontWeight).toBe('600')
+    expect(style.fontSize).toBe('7.5px')
+    expect(style.textTransform).toBe('uppercase')
+    // -> `letter-spacing: 0.18em` on the same rule as this `font-size` override: happy-dom resolves
+    //    it against the element's PRIOR (inherited, 10px) font-size rather than the 7.5px this same
+    //    rule sets, so the live computed value (1.8px) is an artifact of this harness's own `em`
+    //    handling, not of the stylesheet -- checked against the source text instead.
+    expect(styleBlock).toMatch(/> span > span \{[\s\S]*?letter-spacing: 0\.18em;/)
+  })
+
+  it('pins the Top arrow-up to 15px, distinct from the Locale/Browse 20px icons', async () => {
+    const { wrapper } = await mountStrip()
+
+    const topIcon = wrapper.get('.sidebar-actions-top .w-icon')
+    expect(getComputedStyle(topIcon.element).fontSize).toBe('15px')
+  })
+
+  it("stacks the Top button's icon above its label instead of WBtn's default row", async () => {
+    const { wrapper } = await mountStrip()
+
+    const contentSpan = wrapper.get('.sidebar-actions-top .w-btn > span')
+    expect(getComputedStyle(contentSpan.element).flexDirection).toBe('column')
+  })
+
+  it("removes the strip's own bottom rule and both cell separators under Cobalt", async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+
+    const strip = wrapper.get('.sidebar-actions')
+    expect(getComputedStyle(strip.element).borderBottomStyle).toBe('none')
+
+    const separators = wrapper.findAll('.sidebar-actions .w-separator')
+    expect(separators.length).toBeGreaterThan(0)
+    for (const sep of separators) {
+      expect(getComputedStyle(sep.element).display).toBe('none')
+    }
+  })
+
+  it('keeps both cell separators rendered (not display: none) under Ledger', async () => {
+    const { wrapper } = await mountStrip()
+
+    const separators = wrapper.findAll('.sidebar-actions .w-separator')
+    expect(separators.length).toBeGreaterThan(0)
+    for (const sep of separators) {
+      expect(getComputedStyle(sep.element).display).not.toBe('none')
+    }
+  })
+
+  it('insets Locale and Browse into flat tiles under Cobalt', async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+    const commonStore = useCommonStore()
+
+    const localeBtn = wrapper.get(`[aria-label="${commonStore.locale}"]`)
+    const browseBtn = wrapper.get(`[aria-label="${messages.common.sidebar.browse}"]`)
+
+    for (const btn of [localeBtn, browseBtn]) {
+      const style = getComputedStyle(btn.element)
+      expect(style.marginTop).toBe('4px')
+      expect(style.marginRight).toBe('0px')
+      expect(style.marginBottom).toBe('4px')
+      expect(style.marginLeft).toBe('4px')
+    }
+  })
+
+  it('sizes the Top tile to 32x32 with no padding under Cobalt', async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+
+    const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
+    expect(style.width).toBe('32px')
+    expect(style.height).toBe('32px')
+    expect(style.padding).toBe('0px')
+  })
+
+  it("resolves Ledger's cell-separator hairline colour from the light/dark hairline tokens", () => {
+    expect(styleBlock).toMatch(
+      /\.sidebar-actions \.w-separator \{\s*--w-hairline-color: var\(--color-hairline\);\s*\}/
+    )
+    expect(styleBlock).toMatch(
+      /\.body--dark:not\(\.body--cobalt\) \{[\s\S]*?\.sidebar-actions \.w-separator \{\s*--w-hairline-color: var\(--color-hairline-dark\);\s*\}/
+    )
+  })
+
+  it('draws the Top plate/glyph from the accent tokens, light and dark', () => {
+    expect(styleBlock).toMatch(
+      /background-color: var\(--color-white\);\s*color: var\(--color-accent\);/
+    )
+    expect(styleBlock).toMatch(
+      /background-color: var\(--color-dark-2\);\s*color: var\(--color-accent-dark\);/
+    )
+    expect(styleBlock).toMatch(/font-family: var\(--font-mono\);/)
+  })
+
+  it("colours Cobalt's Locale/Browse icon from the sidebar-icon token, distinct from the label", () => {
+    expect(styleBlock).toMatch(
+      /\.sidebar-actions \.icon-lg \{[\s\S]*?\.w-icon \{\s*color: var\(--color-sidebar-icon\);\s*\}/
+    )
   })
 })
 

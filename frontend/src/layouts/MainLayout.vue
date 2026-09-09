@@ -138,6 +138,7 @@
                 flat
                 dense
                 icon="tabler:arrow-up"
+                :label="t(`common.sidebar.top`)"
                 :aria-label="t(`common.actions.returnToTop`)"
                 size="sm"
                 @click="scrollSidebarToTop" />
@@ -736,6 +737,122 @@ onMounted(() => {
 
   .w-btn {
     color: var(--color-text-secondary-dark);
+  }
+}
+
+/*
+  OpenProject #2862 ("Sidebar strip: Ledger + Cobalt visual treatment"): the theme-specific finish
+  on top of #2861's structural locale|browse|top strip -- `ui-iteration/README.md` Part 1.4.
+
+  Both cell separators (the plain Locale|Browse one and `.sidebar-actions-top-sep`) are already
+  `<w-separator>`s, which paint through `--w-hairline-color` (see `.w-hairline` in `tailwind.css`)
+  rather than a plain `border` -- Part 1.3's "border-right on the cells, not freestanding spans" is
+  what #2861 built them as, so recolouring that hook is what stands in for the mockup's literal
+  `border-right: 1px solid #dbe1ec`/`#2a3040` here, rather than adding a second rule mechanism.
+*/
+.sidebar-actions .w-separator {
+  --w-hairline-color: var(--color-hairline);
+}
+
+.sidebar-actions-top .w-btn {
+  // -> Ledger's "white plate": filled and coloured at rest, not only on hover, unlike Locale/Browse
+  background-color: var(--color-white);
+  color: var(--color-accent);
+
+  &:hover {
+    background-color: var(--color-accent-wash);
+  }
+
+  // -> Pins the arrow-up to the mockup's 15px regardless of WBtn's own em-scaled icon rule -- the
+  //    same tie this file's `.icon-lg .w-icon` rule above already documents (OpenProject #2788).
+  .w-icon {
+    font-size: 15px !important;
+  }
+
+  // -> WBtn's content wrapper flips from its default row to a column, so "TOP" sits under the
+  //    arrow rather than beside it -- the only way both fit inside a 40px (Ledger) or 32px
+  //    (Cobalt) cell. Scoped to the Top cell alone; every other labelled button keeps WBtn's row.
+  > span {
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  // -> The "TOP" label itself: Roboto Mono, uppercased here rather than in the translation string
+  //    so `common.sidebar.top` stays natural-case ("Top"), matching `NavSidebar.vue`'s section
+  //    kicker convention. Sized off its own rule rather than the button's `font-size`, which the
+  //    inline `min-height`/`padding` styles are `em`-relative to and would shrink along with it.
+  > span > span {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 7.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+}
+
+.body--dark:not(.body--cobalt) {
+  .sidebar-actions .w-separator {
+    --w-hairline-color: var(--color-hairline-dark);
+  }
+
+  // -> Specificity-tied with the generic `.sidebar-actions .w-btn { color: ... }` dark override
+  //    above; wins on source order, declared after it, same as that rule's own sibling overrides.
+  .sidebar-actions-top .w-btn {
+    background-color: var(--color-dark-2);
+    color: var(--color-accent-dark);
+
+    &:hover {
+      background-color: rgb(240 130 135 / 0.14);
+    }
+  }
+}
+
+/*
+  Cobalt: no rules at all (`ui-iteration/README.md` 1.1's global "remove every hairline rule"
+  applies to this strip too) -- both separators disappear outright rather than fading to a
+  near-invisible tint, and the strip's own bottom rule goes with them. `--color-sidebar-hairline`
+  itself stays untouched: it is shared with `NavItemEditor.vue`/`InboxOverlay.vue`, outside this
+  WP's scope, so the fix is local to this component instead of the shared token.
+*/
+body.body--cobalt {
+  .sidebar-actions {
+    border-bottom: none;
+  }
+
+  .sidebar-actions .w-separator {
+    display: none;
+  }
+
+  // -> Locale and Browse become flat, inset tiles. `rounded-control` (WBtn's own default corner
+  //    class, applied to every non-round/non-rounded button) already resolves to Cobalt's 6px, so
+  //    only the inset margin and hover wash are new here. Icon and label take different tones --
+  //    the sidebar's icon token vs. its actions-text token -- unlike Ledger, where both inherit the
+  //    same `.w-btn` colour from the rule at the top of this file.
+  .sidebar-actions .icon-lg {
+    margin: 4px 0 4px 4px;
+
+    &:hover {
+      background-color: rgb(255 255 255 / 0.08);
+    }
+
+    .w-icon {
+      color: var(--color-sidebar-icon);
+    }
+  }
+
+  // -> 32x32, not the 40px cell it sits inside -- `!important` on padding beats WBtn's own inline
+  //    `style` binding (dense's `padding: 0 0.8em`), which no external stylesheet rule can
+  //    outrank otherwise.
+  .sidebar-actions-top .w-btn {
+    background-color: transparent;
+    color: #ff8f97;
+    width: 32px;
+    height: 32px;
+    padding: 0 !important;
+
+    &:hover {
+      background-color: rgb(255 77 90 / 0.18);
+    }
   }
 }
 
