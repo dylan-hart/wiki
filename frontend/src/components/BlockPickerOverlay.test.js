@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
@@ -234,6 +237,20 @@ describe('the selection treatment', () => {
     const plate = wrapper.find('.block-picker-plate')
     expect(plate.classes()).toContain('rounded-card')
     expect(plate.classes()).toContain('shadow-card')
+  })
+
+  /**
+   * OpenProject #2896: `.block-picker-mark` drew Ledger's `+` registration-mark corner accents
+   * unconditionally on a selected card, missing the `display: var(--corner-marks)` gate
+   * `Login.vue`/`NavEditMenu.vue` already use to hide the same kind of mark under Cobalt.
+   */
+  it('gates the corner marks on --corner-marks, matching Login.vue/NavEditMenu.vue', () => {
+    const source = readFileSync(join(import.meta.dirname, 'BlockPickerOverlay.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'))
+
+    expect(styleBlock).toMatch(
+      /&-mark\s*{\s*position:\s*absolute;\s*display:\s*var\(--corner-marks\);/
+    )
   })
 
   it('draws the empty-state glyph and hint until something is picked', async () => {
