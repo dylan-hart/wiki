@@ -116,7 +116,7 @@ describe(
       expect(light.backgroundColor).not.toBe(dark.backgroundColor)
     })
 
-    it('draws Cobalt’s flat card, margined and shadowed, with no ruled edge, in both themes', async () => {
+    it('draws Cobalt’s flat card, margined and matte, with no ruled edge, in both themes', async () => {
       const html = await mountHeaderHtml()
       const light = await measureHeader({
         browser,
@@ -137,7 +137,10 @@ describe(
         expect(theme.backgroundImage).toBe('none')
         expect(theme.backgroundColor).toBe('rgb(31, 79, 214)')
         expect(theme.borderRadius).toBe('8px')
-        expect(theme.boxShadow).not.toBe('none')
+        // -> Matte, not glowing (OpenProject #2856): the banner's drop-shadow was dropped along with
+        //    every other hairline glow the matte pass removed -- the flat fill carries the card on
+        //    its own, with no shadow underneath it.
+        expect(theme.boxShadow).toBe('none')
         expect(theme.borderBottomWidth).toBe('0px')
         expect(theme.marginLeft).toBe('24px')
         expect(theme.marginTop).toBe('24px')
