@@ -466,15 +466,21 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
  * (per `css/cobaltTokens.test.js`'s own note) is not loaded in this test environment. Checked
  * against the component's own source text instead, the same technique that suite uses for a
  * hand-edited stylesheet.
+ *
+ * OpenProject #2864 replaced the panel's own `overflow: hidden` clip (this test's original
+ * assertion) with a transparent, non-clipping panel plus a header/body that round and fill
+ * themselves -- see `MainLayout.cobaltDialogCorners.test.js` for that fix's own coverage. This
+ * describe keeps only what #2776 is still actually responsible for: the eyebrow bar is gone and the
+ * panel still carries the dialog radius (for its box-shadow) under Cobalt.
  */
 describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2776)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
   const source = readFileSync(SOURCE_PATH, 'utf-8')
   const styleBlock = source.slice(source.indexOf('<style'))
 
-  it('drops the Ledger eyebrow bar and clips every overlay panel to the dialog radius under Cobalt', () => {
+  it('drops the Ledger eyebrow bar and keeps the dialog radius on every overlay panel under Cobalt', () => {
     expect(styleBlock).toMatch(
-      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*overflow: hidden;\s*\}/
+      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*background: transparent;\s*overflow: visible;\s*\}/
     )
   })
 })
