@@ -29,6 +29,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Generated items only: the tree-row id of the folder containing this item, or null at locale root. Never sent in a request body.'
       },
+      isFolder: {
+        type: 'boolean',
+        readOnly: true,
+        description:
+          'Generated items only: true when the underlying tree row is a folder, even when it has no generated `children` (a boundary folder or a genuinely empty one). Never sent in a request body.'
+      },
       openInNewWindow: { type: 'boolean' },
       expandByDefault: {
         type: 'boolean',

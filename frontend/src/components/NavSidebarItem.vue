@@ -6,7 +6,8 @@
   <w-expansion-item
     v-if="item.children?.length > 0"
     dense
-    :default-opened="item.expandByDefault || containsCurrent(item)">
+    :default-opened="item.expandByDefault || containsCurrent(item)"
+    @update:model-value="isOpen = $event">
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
@@ -43,7 +44,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
 import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
@@ -65,9 +66,24 @@ const props = defineProps({
   }
 })
 
+const { destination, containsCurrent } = useNavSidebarDestination()
+const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
+const { isActive: pathDisplayActive, humanize } = usePathDisplay()
+
+/**
+ * Display-only open/closed state, mirrored off `w-expansion-item`'s own toggle purely so `iconFor`
+ * below can pick between `folder`/`folder-open` -- see the template's own comment on why this is
+ * never bound back as `:model-value`. Seeded the same way `default-opened` is, since a row rendered
+ * already open (arriving on a page under it) should draw the open icon immediately, not just after
+ * the reader's first click.
+ */
+const isOpen = ref(props.item.expandByDefault || containsCurrent(props.item))
+
 /**
  * What glyph a row draws. A nav item's own `icon` when it has one, and otherwise the same pair the
- * design gives the tree: a folder for a row with children under it, a page for a leaf.
+ * design gives the tree: a folder for a folder row (empty or not -- `item.isFolder`, since an empty
+ * or boundary folder carries no `children` of its own to infer it from), a page for a leaf, and
+ * `folder-open` in place of `folder` while that folder is currently expanded.
  *
  * The fallback is what makes an AUTO-generated menu look like the design at all -- a generated item
  * carries no icon of its own, so every row drew an empty 15px gap where the tree's own shape should
@@ -77,12 +93,12 @@ function iconFor(item) {
   if (item.icon) {
     return item.icon
   }
-  return item.children?.length > 0 ? 'tabler:folder' : 'tabler:file-text'
+  const isFolder = item.isFolder || item.children?.length > 0
+  if (!isFolder) {
+    return 'tabler:file-text'
+  }
+  return isOpen.value ? 'tabler:folder-open' : 'tabler:folder'
 }
-
-const { destination, containsCurrent } = useNavSidebarDestination()
-const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
-const { isActive: pathDisplayActive, humanize } = usePathDisplay()
 
 // STORES
 

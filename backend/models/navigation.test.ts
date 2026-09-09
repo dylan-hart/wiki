@@ -1194,6 +1194,7 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     const folderItem = managerItems.find((item) => item.label === 'unpublished-only')
     assert.ok(folderItem, 'an actor who could populate the folder must still see it')
     assert.equal(folderItem!.children, undefined)
+    assert.equal(folderItem!.isFolder, true)
   })
 
   test('a nested override boundary is included as a leaf but not recursed into', async () => {
@@ -1235,12 +1236,23 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     const boundaryItem = items.find((item) => item.label === 'Boundary Section')
     assert.ok(boundaryItem)
     assert.equal(boundaryItem!.children, undefined)
+    assert.equal(
+      boundaryItem!.isFolder,
+      true,
+      'a boundary folder carries no children but is still a folder, not a leaf page (OpenProject #2826)'
+    )
 
     const plainItem = items.find((item) => item.label === 'Plain Section')
     assert.ok(plainItem)
     assert.equal(plainItem!.children?.length, 1)
+    assert.equal(plainItem!.isFolder, true)
     assert.equal(plainItem!.children![0].label, 'Inside Plain')
     assert.equal(plainItem!.children![0].target, '/plain-section/inside-plain')
+    assert.equal(
+      plainItem!.children![0].isFolder,
+      undefined,
+      'a leaf page item never carries isFolder'
+    )
   })
 
   test('a generated item carries its own tree path and containing folderId', async () => {
@@ -1521,6 +1533,11 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     )
     assert.ok(folderItem, 'the empty folder must appear for the actor who can populate it')
     assert.equal(folderItem!.children, undefined)
+    assert.equal(
+      folderItem!.isFolder,
+      true,
+      'an empty folder must still be marked isFolder, not indistinguishable from a leaf page (OpenProject #2826)'
+    )
   })
 
   test('a reader with read:pages but no write access to an otherwise-empty folder does not see it', async () => {
@@ -1583,6 +1600,7 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     )
     assert.ok(folderItem, 'an unfiltered read must show the real structure, empty folders included')
     assert.equal(folderItem!.children, undefined)
+    assert.equal(folderItem!.isFolder, true)
   })
 })
 
