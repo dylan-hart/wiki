@@ -90,6 +90,63 @@ describe('EditorMarkdown HTML paste conversion (OpenProject #2448)', () => {
 })
 
 /*
+  OpenProject #2834: a same-editor copy/cut also carries a `text/html` payload -- Monaco's own "copy
+  with syntax highlighting" writes one alongside `text/plain` on every ordinary in-editor copy -- and
+  before this fix `onEditorPaste` converted it via `htmlToMarkdown` unconditionally, corrupting the
+  content (stray escaping, a blank line inserted between every original line). This is the
+  component-side proof that a same-editor-shaped paste (HTML whose reduced visible text matches its
+  own `text/plain` sibling) is left unclaimed for Monaco's default paste to handle, while a genuine
+  HTML-only paste with no matching `text/plain` (the four tests above, none of which set one) still
+  converts.
+*/
+describe('EditorMarkdown same-editor copy/paste is left unconverted (OpenProject #2834)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function clipboardWith({ html = '', text = '', files = [] } = {}) {
+    return {
+      files,
+      getData: (type) => (type === 'text/html' ? html : type === 'text/plain' ? text : '')
+    }
+  }
+
+  it('leaves a Monaco-style syntax-highlighted same-editor copy unclaimed when text/plain matches', async () => {
+    const { wrapper } = await mountEditor('')
+    editorState.cursorPosition = { lineNumber: 1, column: 1 }
+    const editorEl = wrapper.find('.editor-markdown-editor')
+    const html =
+      '<div><span style="color:#569cd6">const</span> x = 1</div>' +
+      '<div><span style="color:#569cd6">const</span> y = 2</div>'
+    const text = 'const x = 1\nconst y = 2'
+
+    await editorEl.trigger('paste', { clipboardData: clipboardWith({ html, text }) })
+    await flushPromises()
+
+    // -> Neither branch of `onEditorPaste` claimed the event, so nothing was inserted through
+    //    Monaco's edit API -- the real browser/Monaco default (untestable here) is what would have
+    //    pasted the plain text unchanged, with no htmlToMarkdown escaping and no inserted blank lines.
+    expect(editorState.fakeModel.getValue()).toBe('')
+  })
+
+  it('still converts an HTML paste whose visible text does not match its text/plain sibling', async () => {
+    const { wrapper } = await mountEditor('')
+    editorState.cursorPosition = { lineNumber: 1, column: 1 }
+    const editorEl = wrapper.find('.editor-markdown-editor')
+
+    await editorEl.trigger('paste', {
+      clipboardData: clipboardWith({
+        html: '<p>Hello <strong>world</strong></p>',
+        text: 'Something completely different'
+      })
+    })
+    await flushPromises()
+
+    expect(editorState.fakeModel.getValue()).toBe('Hello **world**')
+  })
+})
+
+/*
   OpenProject #2504: a rich-HTML paste (OneNote, Word, a webpage selection, ...) that ALSO carries
   `text/html` -- i.e. every case `shouldClaimPaste` routes away from the bare file-paste branch above,
   since that branch only ever fires with no accompanying text -- must not silently lose its embedded
