@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { drawLabels, LABEL_MAX_EFFECTIVE_FONT_PX } from './graphDraw.js'
 import { linkDistanceFor } from './graphSimulation.js'
-import { mountGraph } from './graphFixtures.js'
+import { FIXTURE_GRAPH, GRAPH_MESSAGES, mountGraph } from './graphFixtures.js'
+import Graph from './Graph.vue'
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /*
  * How a node's radius is derived -- which counter it reads (contributors vs pageviews), which
@@ -10,11 +13,11 @@ import { mountGraph } from './graphFixtures.js'
  * control-rail affordances that pick between them, and the label layer's zoom thresholds.
  */
 describe('Graph.vue node sizing and the control rail', () => {
-  it('defaults to edits sizing (no "uniform" mode any more), scaling by contributor count', async () => {
+  it('defaults to edits sizing (no "uniform" mode any more) while pageview tracking is off, scaling by contributor count', async () => {
     const wrapper = await mountGraph()
 
     expect(wrapper.vm.sizeBy).toBe('edits')
-    expect(wrapper.vm.sizeCountMode).toBe('unique')
+    expect(wrapper.vm.sizeCountMode).toBe('total')
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
     expect(wrapper.vm.radiusFor(nodeA)).toBeGreaterThan(wrapper.vm.radiusFor(nodeB))
@@ -34,6 +37,10 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('contributorCountFor reads the pre-unioned "all" count only when both types are checked', async () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    // -> This test is about `contributorTypes` union filtering, not `sizeCountMode` (which defaults
+    //    to 'total' -- OpenProject #2853) -- pinned explicitly so the fixture's unique-count figures
+    //    below stay meaningful regardless of that default.
+    wrapper.vm.sizeCountMode = 'unique'
 
     expect(wrapper.vm.contributorTypes).toEqual(['editor', 'mcp'])
     expect(wrapper.vm.contributorCountFor(nodeA)).toBe(4)
@@ -80,6 +87,10 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('pageviewCountFor sums checked buckets within the selected window', async () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    // -> This test is about `pageviewClientTypes`/`pageviewsWindow`, not `sizeCountMode` (which
+    //    defaults to 'total' -- OpenProject #2853) -- pinned explicitly so the fixture's
+    //    unique-count figures below stay meaningful regardless of that default.
+    wrapper.vm.sizeCountMode = 'unique'
 
     expect(wrapper.vm.pageviewsWindow).toBe('last30d')
     expect(wrapper.vm.pageviewClientTypes).toEqual(['browser', 'api', 'mcp'])
@@ -119,10 +130,59 @@ describe('Graph.vue node sizing and the control rail', () => {
     ])
   })
 
-  it('hides "Visits" sizing entirely when tracking is disabled, leaving only "Edits"', async () => {
+  it('hides "Visits" sizing entirely when tracking is disabled, leaving only "Edits" -- and sizeBy never selects an option sizeByOptions doesn\'t offer', async () => {
     const wrapper = await mountGraph({ pageviewsEnabled: false })
 
     expect(wrapper.vm.sizeByOptions).toEqual([{ label: 'Edits', value: 'edits' }])
+    expect(wrapper.vm.sizeBy).toBe('edits')
+  })
+
+  // -> OpenProject #2853: `pageviewsTrackingEnabled` resolves asynchronously (after `loadGraph()`'s
+  //    own initial fetch), so this is the real regression case the bug was about -- a `sizeBy`
+  //    default computed once at declaration time can never see the real, later-resolved value.
+  //    `mountGraph()` already awaits the full mount (including that async resolution) before
+  //    returning, so by this point `sizeBy` must already reflect the corrected default.
+  it("defaults to visits sizing once pageview tracking resolves enabled, having never sat at an option sizeByOptions didn't offer", async () => {
+    const wrapper = await mountGraph({ pageviewsEnabled: true })
+
+    expect(wrapper.vm.pageviewsTrackingEnabled).toBe(true)
+    expect(wrapper.vm.sizeBy).toBe('visits')
+    expect(wrapper.vm.sizeByOptions).toEqual([
+      { label: 'Edits', value: 'edits' },
+      { label: 'Visits', value: 'visits' }
+    ])
+  })
+
+  // -> Documents a known, WP-acknowledged limitation rather than a desired guarantee: with no
+  //    persisted preference to consult yet (that's OpenProject #2854), an explicit re-selection of
+  //    'edits' is indistinguishable from "still at the untouched default" the moment tracking
+  //    resolves enabled, so it gets promoted to 'visits' just the same. This only matters in the
+  //    brief window before `pageviewsTrackingEnabled` resolves; #2854's persisted-preference layer
+  //    is what actually protects a deliberate choice.
+  it('cannot yet distinguish an explicit re-selection of "edits" from the untouched default before tracking resolves enabled', async () => {
+    const router = await createTestRouter(['/:pathMatch(.*)*'])
+    let resolveTracking
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve(structuredClone(FIXTURE_GRAPH))
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        new Promise((resolve) => {
+          resolveTracking = resolve
+        })
+    })
+    const { wrapper } = mountWithApp(Graph, {
+      router,
+      stores: { site: { id: 'site-1' } },
+      messages: GRAPH_MESSAGES
+    })
+    await flushPromises()
+
+    wrapper.vm.sizeBy = 'edits'
+    resolveTracking({ isEnabled: true })
+    await flushPromises()
+
+    expect(wrapper.vm.sizeBy).toBe('visits')
   })
 
   it('falls back to edits sizing (no "uniform" mode any more) if tracking turns off while visits mode is active', async () => {
@@ -136,17 +196,20 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.sizeBy).toBe('edits')
   })
 
-  it('renders the Unique/Total "Count" toggle, defaulting to Unique', async () => {
+  it('renders the Unique/Total "Count" toggle, defaulting to Total', async () => {
     const wrapper = await mountGraph()
 
     expect(wrapper.text()).toContain('Unique')
     expect(wrapper.text()).toContain('Total')
-    expect(wrapper.vm.sizeCountMode).toBe('unique')
+    expect(wrapper.vm.sizeCountMode).toBe('total')
   })
 
   it('sizeCountMode toggle switches contributorCountFor between the unique and total fields', async () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    // -> Start from 'unique' explicitly (no longer the default -- OpenProject #2853) so the toggle
+    //    itself, not the resting default, is what this test exercises.
+    wrapper.vm.sizeCountMode = 'unique'
 
     expect(wrapper.vm.contributorCountFor(nodeA)).toBe(4)
 
@@ -157,6 +220,7 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('sizeCountMode toggle switches pageviewCountFor between the unique and total fields', async () => {
     const wrapper = await mountGraph()
     wrapper.vm.sizeBy = 'visits'
+    wrapper.vm.sizeCountMode = 'unique'
     await flushPromises()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
 
@@ -170,10 +234,12 @@ describe('Graph.vue node sizing and the control rail', () => {
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
-    // -> B's total count outranks A's, while its unique count still trails A's -- so this is only
+    // -> Start from 'unique' explicitly (no longer the default -- OpenProject #2853). B's total
+    //    count outranks A's, while its unique count still trails A's -- so this is only
     //    distinguishable from a same-node "total > unique" comparison (which no longer holds on its
     //    own now that radiusFor is normalized against the graph's own range, not an absolute scale)
     //    by checking which of the two nodes comes out on top under each mode.
+    wrapper.vm.sizeCountMode = 'unique'
     nodeB.contributors = { editor: 2, mcp: 0, all: 2, total: { editor: 20, mcp: 0, all: 20 } }
 
     expect(wrapper.vm.radiusFor(nodeA)).toBeGreaterThan(wrapper.vm.radiusFor(nodeB))
@@ -295,6 +361,12 @@ describe('Graph.vue node sizing and the control rail', () => {
     //    tests the mechanism the fix adds, without depending on d3-force's private tick math.
     const linkForce = wrapper.vm.simulation.force('link')
     const distanceSpy = vi.spyOn(linkForce, 'distance')
+
+    // -> 'total' is already the resting default (OpenProject #2853) -- an actual VALUE CHANGE is
+    //    what has to trigger the watcher this test is about, so flip through 'unique' first.
+    wrapper.vm.sizeCountMode = 'unique'
+    await flushPromises()
+    distanceSpy.mockClear()
 
     wrapper.vm.sizeCountMode = 'total'
     await flushPromises()
