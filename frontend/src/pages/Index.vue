@@ -1662,11 +1662,16 @@ $toc-overlay-max: 749.98px;
   simply stops early. Centring it instead left the article drifting away from the breadcrumbs and
   header above it on a wide window, which is what this setting was reported for.
 
-  On the contents rather than on this box, so the padding above stays the column's and only the text
-  is bounded: a page of prose reads at a comfortable measure while the sheet it sits on still fills
-  the window.
+  On the CONTENTS' CHILDREN rather than on `.page-contents` itself, and with `block-infobox`
+  specifically excluded (OpenProject #2835): `.page-contents` is deliberately not centred, so all the
+  slack the 720px cap creates sits on its right -- exactly where an infobox floats. An infobox is a
+  DOM child of `.page-contents`, not of the separate `.page-sidebar` flex column, so it can only ever
+  float within whatever box `.page-contents` resolves to; capping `.page-contents` itself would trap
+  it at the measure width with nowhere to float into. Every other child (paragraphs, headings, lists,
+  tables, ...) still measures at 720px exactly as before -- only the one block whose whole purpose is
+  to use that reclaimed whitespace is let through.
 */
-.page-container-body.is-measured > .page-contents {
+.page-container-body.is-measured > .page-contents > :not(block-infobox) {
   max-width: 720px;
 }
 
