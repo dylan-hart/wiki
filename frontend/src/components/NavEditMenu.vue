@@ -697,6 +697,15 @@ onMounted(() => {
   OpenProject #2813: this segment is a `w-btn-toggle__segment`, not a `WBtn`, so it can't pick up
   `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
   hand-wired consumer on purpose, already keyed off the same `--color-accent` role #2813 decided on.
+
+  OpenProject #2902: `--color-ink` is never redefined under `body.body--cobalt.body--dark` (it stays
+  the same `#10194a` navy in both Cobalt light and dark), so this rule used to win by specificity
+  alone over `WBtnToggle.vue`'s own correct dark-mode rule for the same unselected-segment state
+  (its `--color-text-dark` global selector), painting dark navy text on the dark panel behind it --
+  unreadable. Scoping this rule to `:not(.body--dark)` is enough: with it excluded, that
+  higher-specificity Cobalt rule simply stops matching under dark mode and `WBtnToggle.vue`'s own
+  rule (`--color-text-dark`, already correct and already Cobalt-dark-aware via tailwind.css's
+  `body.body--cobalt.body--dark` token block) takes over with no duplicated color here.
 */
 :global(body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='true']) {
   background-color: var(--color-accent) !important;
@@ -705,7 +714,9 @@ onMounted(() => {
 }
 
 :global(
-  body.body--cobalt .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='false']
+  body.body--cobalt:not(.body--dark)
+    .nav-edit-menu__menu-source
+    .w-btn-toggle__segment[aria-checked='false']
 ) {
   color: var(--color-ink);
 }
