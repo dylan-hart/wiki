@@ -462,10 +462,9 @@
       as `MainLayout` offers one: nothing else in the admin area opens it, and the header is a row of site
       and account controls with no room for a menu button.
 
-      The position goes on a wrapper rather than on the button, as `WPageScroller` does it: `WBtn` is
-      `relative` from its own class list, and Tailwind emits `relative` after `fixed`, so a `fixed`
-      alongside it loses. `.corner-btn` is in `css/_base.scss`, since this layout never loads MainLayout's
-      stylesheet.
+      The position goes on a wrapper rather than on the button: `WBtn` is `relative` from its own class
+      list, and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses. `.corner-btn`
+      is in `css/_base.scss`, since this layout never loads MainLayout's stylesheet.
 
       `left-0` (not `start-0`) is deliberate, matching `MainLayout`'s own corner button -- OpenProject
       #1590's physical-positioning triage: a fixed screen corner, not a reading-direction gutter. See

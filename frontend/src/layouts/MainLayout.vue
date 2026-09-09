@@ -122,10 +122,9 @@
                Locale/Browse above never shift width the moment this fades in. The separator fades
                in step with the button, both keyed off `showSidebarTop`; at page top the wrapper is
                still here holding the width, just empty, per the WP's own "cell is empty" wording.
-               The button itself mounts/unmounts on a v-if inside a <transition> (matching
-               `WPageScroller`'s own visible/scrollToTop shape) rather than merely toggling opacity,
-               so it drops out of the tab order and the accessibility tree while hidden with no
-               extra `tabindex`/`aria-hidden` bookkeeping needed here.
+               The button itself mounts/unmounts on a v-if inside a <transition> rather than merely
+               toggling opacity, so it drops out of the tab order and the accessibility tree while
+               hidden with no extra `tabindex`/`aria-hidden` bookkeeping needed here.
           -->
           <w-separator
             vertical
@@ -171,21 +170,24 @@
       nothing else on that screen opens it -- the header is full of page actions and has no room for a
       menu button.
 
-      Bottom LEFT whichever side the sidebar is on, because the opposite corner belongs to
-      scroll-to-top: on a narrow viewport that button is in the corner too, so one that followed the
-      sidebar to the right would land on top of it.
+      Bottom LEFT whichever side the sidebar is on, because the opposite corner is reserved for a page
+      view's own contents-panel opener below 750px (`showTocPanelBtn` in `pages/Index.vue`) -- a
+      hamburger that followed the sidebar to the right would land on top of it there. OpenProject #2894
+      retired the scroll-to-top corner disc this button used to pair with at 750-1199px (the sidebar's
+      own "Top" cell, `.sidebar-actions-top` below, covers that now) -- so in that band this is the only
+      fixed corner button left, still anchored physically rather than logically for consistency with the
+      narrower band where it does pair with one.
 
-      The position goes on a wrapper rather than on the button, as `WPageScroller` does it: `WBtn` is
-      `relative` from its own class list, and Tailwind emits `relative` after `fixed`, so a `fixed`
-      alongside it loses.
+      The position goes on a wrapper rather than on the button: `WBtn` is `relative` from its own class
+      list, and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses.
 
       Hard into the corner, with the corner facing the page rounded and the other three square -- see
       `.corner-btn`. No margin, so the button is not a disc hovering near the edge of a small screen but
       a piece of the screen's own corner, and every pixel of it is inside the viewport.
 
-      `left-0` (not `start-0`) is deliberate -- OpenProject #1590's physical-positioning triage: this
-      corner is chosen relative to `WPageScroller`'s corner, not to the reading direction, so it must
-      not move when the locale does. See `frontend/src/physicalPositioning.test.js`.
+      `left-0` (not `start-0`) is deliberate -- OpenProject #1590's physical-positioning triage: a fixed
+      screen corner, not a reading-direction gutter, so it must not move when the locale does. See
+      `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="corner-btn">
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">
@@ -207,36 +209,6 @@
     -->
     <w-page-container>
       <router-view />
-      <!--
-        -> `.page-container-scrl` is the page view's article column, which is what scrolls
-
-        The mirror of the sidebar button in the opposite corner while the layout is in its narrow mode:
-        flush to the edge, and rounded on the top LEFT, since this is the corner it is tucked into from
-        the other side.
-
-        OpenProject #2863: this corner disc used to also cover the wide (>=1200px) case, flush against
-        the bottom of the sidebar's own column instead of floating in the corner (`scrollerAnchorX`,
-        removed along with `WPageScroller`'s `anchorX` prop -- its only caller). That mode retires
-        outright at >=1200px, now that the sidebar's own "Top" cell in `.sidebar-actions` (Feature
-        #2840) covers scroll-to-top there instead -- so this only ever renders in the narrower range
-        below, where the sidebar overlays the page rather than columning beside it.
-
-        And it stands down below 750px too, where the page view's contents panel takes this corner for
-        its own opener -- one button per corner, and there the contents are the more useful of the two.
-        See `showTocPanelBtn` in `pages/Index.vue`, which is what fills the gap.
-      -->
-      <w-page-scroller
-        v-if="isAtLeastTocPanelWidth && !isWideViewport"
-        :scroll-offset="150"
-        target=".page-container-scrl">
-        <w-btn
-          class="corner-btn corner-btn--right"
-          icon="tabler:arrow-up"
-          color="primary"
-          round
-          size="md"
-          :aria-label="t(`common.actions.returnToTop`)" />
-      </w-page-scroller>
     </w-page-container>
     <main-overlay-dialog />
   </w-layout>
@@ -342,14 +314,6 @@ const isWideViewport = useMinWidth(SIDEBAR_OVERLAY_BELOW)
  * pointer-capability query. See `showEditNav` for why.
  */
 const isAtLeastSm = useMinWidth(600)
-
-/**
- * At or above 750px, which is where scroll-to-top keeps the bottom-right corner: below it the page view
- * turns its contents column into a panel and puts the opener there instead. The page view owns that
- * threshold (`$toc-overlay-max` and the 750px `useMinWidth` in `pages/Index.vue`); this is the same number
- * from the side that has to get out of the way.
- */
-const isAtLeastTocPanelWidth = useMinWidth(750)
 
 /** Whether this site, page and mode have a sidebar at all — before asking whether it is open. */
 const isSidebarAvailable = computed(() => {
@@ -615,12 +579,11 @@ const canBrowse = computed(() => siteStore.features.browse)
 const showSidebarActions = computed(() => siteStore.locales.showMenu || canBrowse.value)
 
 /*
-  The scroll threshold past which `.sidebar-actions`'s own trailing "Top" cell fades in -- the same
-  150px `WPageScroller`'s corner button already uses for the SAME scrolling column
-  (`.page-container-scrl`), since both affordances answer the identical question ("has the reader
-  scrolled far enough down this page to want a way back up"). Kept as this component's own constant
-  rather than shared with `WPageScroller.vue` -- that file is #2863's to retire, not this WP's to
-  touch.
+  The scroll threshold past which `.sidebar-actions`'s own trailing "Top" cell fades in, for the SAME
+  scrolling column (`.page-container-scrl`) it answers the question for ("has the reader scrolled far
+  enough down this page to want a way back up"). OpenProject #2894: this used to match a second,
+  independently-declared 150px constant on the corner `WPageScroller` button that retired alongside it
+  -- there is now exactly one back-to-top affordance for a page view, so exactly one such constant.
 */
 const SIDEBAR_TOP_SCROLL_OFFSET = 150
 
@@ -634,7 +597,7 @@ function updateSidebarTopVisibility() {
 
 function scrollSidebarToTop() {
   const el = document.querySelector('.page-container-scrl')
-  // -> `smooth` is ignored under `prefers-reduced-motion`, same as `WPageScroller`'s own click
+  // -> `smooth` is ignored under `prefers-reduced-motion`, which is the behaviour we want
   ;(el ?? window).scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -700,7 +663,7 @@ function openSidebar() {
 
 /*
   `capture`, because a scroll event on an element (`.page-container-scrl`) does not bubble to the
-  window -- the same reason `WPageScroller.vue` listens the same way.
+  window.
 */
 onMounted(() => {
   window.addEventListener('scroll', updateSidebarTopVisibility, { capture: true, passive: true })

@@ -29,7 +29,7 @@ import { describe, expect, it } from 'vitest'
  * A genuinely physical site pairs its `left-*`/`right-*` with ANOTHER fixed screen position (a
  * sibling corner button, a symmetric centering transform, a colour-space or numeric-scale
  * coordinate) rather than with "the content" or "the next element" -- the corner-button pairs
- * below (`WPageScroller` / `MainLayout` / `AdminLayout` / `pages/Index.vue`'s TOC opener), the
+ * below (`MainLayout` / `AdminLayout` / `pages/Index.vue`'s TOC opener), the
  * centering tricks (`WNotifications`'s toast stack, `WRange`'s handle label), and the
  * corner-straddling transform (`WBadge`'s floating status dot) are the recurring shapes this
  * triage found. `WMenu.vue`/`WTooltip.vue`'s dynamic pixel positioning and
@@ -60,12 +60,10 @@ describe('frontend/src carries no unjustified physical left-*/right-* positionin
       'floating status dot straddling its host’s top-right corner (right-0 paired with a physical translate-x-1/2) — see OpenProject #1590',
     'components/shared/WNotifications.vue':
       'toast stack centered on the viewport (left-1/2 paired with a physical -translate-x-1/2) — see OpenProject #1590',
-    'components/shared/WPageScroller.vue':
-      'default scroll-to-top corner, paired with the sidebar-opener corner button — see OpenProject #1590',
     'components/shared/WRange.vue':
       'handle label centered under its handle (left-1/2 paired with a physical -translate-x-1/2) — see OpenProject #1590',
     'layouts/MainLayout.vue':
-      'sidebar-opener corner button, paired with WPageScroller’s corner — see OpenProject #1590',
+      'sidebar-opener corner button, paired with the TOC-panel opener’s corner below 750px (OpenProject #2894 retired the wider-band WPageScroller it used to also pair with) — see OpenProject #1590',
     'layouts/AdminLayout.vue':
       'sidebar-opener corner button, matching MainLayout’s — see OpenProject #1590',
     'pages/Index.vue':
