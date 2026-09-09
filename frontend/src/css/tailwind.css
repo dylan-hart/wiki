@@ -677,7 +677,7 @@ html.theme-transition-suppress *::after {
     under the title, the icon's plate, and the plates the actions sit on. Ledger's values below are
     exactly what `PageHeader.vue` and `Index.vue` drew as literals -- a paper-tinted hairline square
     holding an accent glyph, a secondary-tone description, and actions with no plate at all -- so
-    Ledger is unchanged; Cobalt's gradient banner needs every one of them to move at once.
+    Ledger is unchanged; Cobalt's flat banner needs every one of them to move at once.
   */
   --page-header-subtitle-fg: var(--color-text-secondary);
   --page-header-icon-bg: var(--color-paper);
@@ -800,8 +800,11 @@ body.body--cobalt {
   --nav-active-inset: inset 3px 0 0 #ff4d5a;
   --nav-item-inset: 10px;
 
-  /* Page header banner */
-  --page-header-bg: linear-gradient(120deg, #1f4fd6, #3d6df7);
+  /*
+    Page header banner. Flat, not the gradient the mockups shipped with before the "matte" take
+    (handoff 5, Part 1.1: "Banner is flat #1f4fd6 (no gradient)") -- OpenProject #2857.
+  */
+  --page-header-bg: #1f4fd6;
   --page-header-fg: var(--color-white);
   --page-header-radius: 8px;
   --page-header-shadow: 0 8px 24px rgb(31 79 214 / 0.28);
