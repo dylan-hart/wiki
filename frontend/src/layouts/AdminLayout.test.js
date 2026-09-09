@@ -481,6 +481,43 @@ describe('AdminLayout MainOverlayDialog mount (OpenProject #2564)', () => {
   })
 })
 
+/**
+ * OpenProject #2831: Admin's API Access nav entry used `tabler:plug-connected`, disagreeing with
+ * Profile's own API Access section (`ProfileOverlay.vue`), which uses `tabler:api`. And the
+ * Scheduler nav entry used `tabler:robot`, a glyph with no relation to what the page does.
+ */
+describe('AdminLayout system nav icons (OpenProject #2831)', () => {
+  async function mountSystemNav() {
+    const router = await createTestRouter(['/_admin/:siteid?/:rest*'], '/_admin/site-1/dashboard')
+
+    const { wrapper } = mountWithApp(AdminLayout, {
+      router,
+      stores: { user: { permissions: ['manage:system'] } }
+    })
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it("matches Profile's tabler:api icon on the API Access nav entry", async () => {
+    const wrapper = await mountSystemNav()
+
+    const apiItem = wrapper.find('a[href="/_admin/api"]')
+    expect(apiItem.exists()).toBe(true)
+    expect(apiItem.find('[data-icon="tabler:api"]').exists()).toBe(true)
+    expect(apiItem.find('[data-icon="tabler:plug-connected"]').exists()).toBe(false)
+  })
+
+  it('uses a timer-related icon, not the robot, on the Scheduler nav entry', async () => {
+    const wrapper = await mountSystemNav()
+
+    const schedulerItem = wrapper.find('a[href="/_admin/scheduler"]')
+    expect(schedulerItem.exists()).toBe(true)
+    expect(schedulerItem.find('[data-icon="tabler:clock-play"]').exists()).toBe(true)
+    expect(schedulerItem.find('[data-icon="tabler:robot"]').exists()).toBe(false)
+  })
+})
+
 describe('AdminLayout nav count badge', () => {
   it('keeps the count badge on a logical (inline-end) border, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))

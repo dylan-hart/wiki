@@ -308,7 +308,7 @@
             }}</w-item-label>
             <w-item to="/_admin/api" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="tabler:plug-connected" />
+                <w-icon name="tabler:api" />
               </w-item-section>
               <w-item-section>{{ t('admin.api.title') }}</w-item-section>
               <w-item-section side>
@@ -399,7 +399,7 @@
             </w-item>
             <w-item to="/_admin/scheduler" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="tabler:robot" />
+                <w-icon name="tabler:clock-play" />
               </w-item-section>
               <w-item-section>{{ t('admin.scheduler.title') }}</w-item-section>
               <w-item-section side>
