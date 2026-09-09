@@ -3,6 +3,7 @@
     <canvas
       ref="canvasRef"
       class="graph-view-canvas"
+      :class="{ 'graph-view-canvas--hover': hoveredNode }"
       role="img"
       :aria-label="graphAccessibleName"
       @click="onCanvasClick"
@@ -1464,6 +1465,11 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+  cursor: default;
+
+  &--hover {
+    cursor: pointer;
+  }
 }
 
 /*
