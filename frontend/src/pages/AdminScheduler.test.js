@@ -27,6 +27,20 @@ async function flush(wrapper) {
   await wrapper.vm.$nextTick()
 }
 
+/**
+ * OpenProject #2831: the page header used `tabler:robot`, a glyph with no relation to what the
+ * scheduler does.
+ */
+describe('AdminScheduler header icon (OpenProject #2831)', () => {
+  it('uses a timer-related icon, not the robot', async () => {
+    const wrapper = mountPage()
+    await flush(wrapper)
+
+    expect(wrapper.find('.admin-icon[data-icon="tabler:clock-play"]').exists()).toBe(true)
+    expect(wrapper.find('.admin-icon[data-icon="tabler:robot"]').exists()).toBe(false)
+  })
+})
+
 describe('AdminScheduler empty state (OpenProject #2061)', () => {
   it("renders the Upcoming table's #no-data slot message when there are no upcoming jobs", async () => {
     API_CLIENT.get.mockImplementation((url) => {

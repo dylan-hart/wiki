@@ -2,7 +2,7 @@
   <w-page class="admin-terminal">
     <div class="admin-page-header flex flex-wrap items-center">
       <div class="admin-page-icon flex-none animated fadeInLeft">
-        <w-icon name="tabler:robot" size="34px" class="admin-icon" />
+        <w-icon name="tabler:clock-play" size="34px" class="admin-icon" />
         <i class="admin-page-icon__marks" aria-hidden="true" />
       </div>
       <div class="min-w-0 flex-1 ps-4">
