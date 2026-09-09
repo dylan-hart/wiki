@@ -55,55 +55,82 @@ Content of the second tab.
       }
 
       /*
-        One raised card: the border and the rounded corners belong to the outer box, and clipping to
-        it is what rounds the strip's top corners and the panel's bottom ones without either of them
-        having to know where it sits.
-
-        -> It also carries the gap below the block. On this element rather than :host: see block-index.
+        The marks live outside .tabs' own box (see .tabs-marks below), so the wrapper is what
+        carries the gap below the block and gives the marks something to position against. On this
+        element rather than :host: see block-index.
       */
-      .tabs {
+      .tabs-wrap {
+        position: relative;
         margin-bottom: 16px;
-        border: 1px solid var(--tabs-border);
-        border-radius: 6px;
-        overflow: hidden;
-        box-shadow:
-          0 1px 3px rgb(0 0 0 / 0.1),
-          0 1px 2px rgb(0 0 0 / 0.06);
-      }
-      :host([dark]) .tabs {
-        box-shadow:
-          0 1px 3px rgb(0 0 0 / 0.5),
-          0 1px 2px rgb(0 0 0 / 0.35);
       }
 
       /*
-        The whole row is the unselected surface, tabs and the space past the last one alike, so the
-        gradient is drawn once here and the tabs sit on it rather than repeating it. The line along
-        the bottom is the panel's top edge; the tabs are pulled down onto it so the active one can
-        paint over its own stretch and open the seam into the panel.
+        The frame: a hairline square (Ledger) or an 8px matte card (Cobalt) -- --tabs-radius and
+        --tabs-shadow carry the whole difference, and both aesthetics agree on "none" for the shadow,
+        so no shadow is drawn at all any more (OpenProject #2874's own removal list). Clipping to the
+        radius is what rounds the strip's top corners and the panel's bottom ones without either of
+        them having to know where it sits.
+      */
+      .tabs {
+        border: 1px solid var(--tabs-border);
+        border-radius: var(--tabs-radius);
+        overflow: hidden;
+        box-shadow: var(--tabs-shadow);
+      }
+
+      /*
+        Two opposite corner marks, Ledger only -- --tabs-corner-marks is "none" under Cobalt, whose
+        frame is bounded by its own radius instead. Same technique PageHeader.vue's
+        .page-header-icon__marks draws, trimmed to the two corners tabset-block.md calls for. A
+        sibling of .tabs rather than a child of it: .tabs clips its own content to round Cobalt's
+        corners, and a mark drawn outside that frame would be clipped away right along with it if it
+        lived inside.
+      */
+      .tabs-marks {
+        display: var(--tabs-corner-marks);
+        position: absolute;
+        inset: -5px;
+        pointer-events: none;
+        background:
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
+            no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
+            no-repeat;
+      }
+
+      /*
+        The whole row is the unselected surface, tabs and the space past the last one alike. The line
+        along the bottom (none, under Cobalt) is the panel's top edge; the tabs are pulled down onto
+        it so the active one can paint over its own stretch and open the seam into the panel. "gap"
+        does double duty in a wrapping flex row: it is the space between tabs on one line AND the
+        space between wrapped lines, which is the same 4px Cobalt wants in both directions.
       */
       .strip {
         display: flex;
         flex-wrap: wrap;
+        gap: var(--tabs-strip-gap);
         margin: 0;
-        padding: 0;
-        border-bottom: 1px solid var(--tabs-border);
-        background-image: var(--tabs-strip-bg);
+        padding: var(--tabs-strip-padding);
+        border-bottom: var(--tabs-strip-rule);
+        background-color: var(--tabs-strip-bg);
       }
 
       .tab {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 7px;
         margin-bottom: -1px;
-        padding: 10px 18px;
+        padding: var(--tabs-tab-padding);
         border: 0;
-        border-right: 1px solid var(--tabs-border);
+        border-right: var(--tabs-tab-rule);
         border-bottom: 1px solid transparent;
-        border-top: 3px solid transparent;
+        border-radius: var(--tabs-tab-radius);
         background-color: transparent;
         color: var(--tabs-inactive-fg);
         font: inherit;
+        font-size: 13.5px;
         font-weight: 500;
         line-height: 1.4;
         cursor: pointer;
@@ -111,35 +138,43 @@ Content of the second tab.
           background-color 0.15s ease,
           color 0.15s ease;
       }
-      .tab:hover:not(.is-active) {
-        background-color: rgb(255 255 255 / 0.5);
-        color: var(--tabs-active-fg);
-      }
-      :host([dark]) .tab:hover:not(.is-active) {
-        background-color: rgb(255 255 255 / 0.05);
-      }
-      .tab:focus-visible {
-        outline: 2px solid var(--tabs-active-fg);
-        outline-offset: -3px;
-      }
-
-      /* -> Flat panel colour, which is what lifts it out of the row's gradient */
-      .tab.is-active {
-        border-top-color: var(--tabs-active-fg);
-        border-bottom-color: var(--tabs-panel-bg);
-        background-color: var(--tabs-panel-bg);
-        background-image: none;
-        color: var(--tabs-active-fg);
-      }
-
       .tab svg {
         width: 1.15em;
         height: 1.15em;
         flex-shrink: 0;
+        color: var(--tabs-inactive-icon);
+      }
+      .tab:hover:not(.is-active) {
+        background-color: var(--tabs-hover-bg);
+        color: var(--tabs-hover-fg);
+      }
+      .tab:hover:not(.is-active) svg {
+        color: var(--tabs-hover-fg);
+      }
+      /* -> Inset rather than an outline, so the ring follows the tab's own radius under Cobalt */
+      .tab:focus-visible {
+        outline: none;
+        box-shadow: var(--tabs-focus-ring);
+      }
+
+      /* -> Flat panel colour, which is what lifts it out of the strip; the cap replaces the old border-top */
+      .tab.is-active {
+        border-bottom-color: var(--tabs-panel-bg);
+        background-color: var(--tabs-panel-bg);
+        color: var(--tabs-active-fg);
+        font-weight: var(--tabs-active-weight);
+        box-shadow: var(--tabs-active-cap);
+      }
+      .tab.is-active svg {
+        color: var(--tabs-active-fg);
+      }
+      /* -> Both shadows stack: the cap stays visible while the ring shows focus */
+      .tab.is-active:focus-visible {
+        box-shadow: var(--tabs-focus-ring), var(--tabs-active-cap);
       }
 
       .panel {
-        padding: 16px 20px;
+        padding: var(--tabs-panel-padding);
         background-color: var(--tabs-panel-bg);
       }
 
@@ -162,20 +197,6 @@ Content of the second tab.
       /* -> The panel owns the spacing, so the content inside it does not add its own at the edges */
       ::slotted(block-tab) {
         margin-bottom: 0;
-      }
-
-      :host {
-        --tabs-border: #e0e0e0;
-        --tabs-strip-bg: linear-gradient(to bottom, #fdfdfd, #eeeeee);
-        --tabs-inactive-fg: #424242;
-        --tabs-active-fg: var(--q-primary, #1976d2);
-        --tabs-panel-bg: #fff;
-      }
-      :host([dark]) {
-        --tabs-border: rgba(255, 255, 255, 0.15);
-        --tabs-strip-bg: linear-gradient(to bottom, #1b212a, #12161d);
-        --tabs-inactive-fg: rgba(255, 255, 255, 0.7);
-        --tabs-panel-bg: #1e232a;
       }
     `
   }
@@ -200,7 +221,13 @@ Content of the second tab.
     this.active = 0
     // -> Bound once, so that removing the listener later takes the same function that was added
     this._onReveal = this._onReveal.bind(this)
-    // -> Puts `dark` on this element for the styles above to key off
+    /*
+      Kept even though the styles above no longer key off `[dark]` themselves (OpenProject #2874):
+      every `--tabs-*` value now comes from the body-level custom properties, which already vary by
+      theme on their own. Constructing it is still what OpenProject #2874's own scope note calls
+      "behaviour unchanged", and the shared `describeDarkMode` suite below still asserts it mirrors
+      `body--dark` onto this element correctly.
+    */
     this._darkMode = new DarkMode(this)
   }
 
@@ -379,23 +406,26 @@ Content of the second tab.
       return html`<slot></slot>`
     }
     return html`
-      <div class="tabs">
-        <div class="strip" role="tablist" @keydown="${this._onKeydown}">
-          ${this._tabs.map(
-            (tab, index) => html`
-              <button
-                type="button"
-                role="tab"
-                class="tab ${index === this._activeIndex ? 'is-active' : ''}"
-                aria-selected="${index === this._activeIndex}"
-                tabindex="${index === this._activeIndex ? 0 : -1}"
-                @click="${() => this._select(index)}">
-                ${tab.svg ? unsafeSVG(tab.svg) : null}${tab.label}
-              </button>
-            `
-          )}
+      <div class="tabs-wrap">
+        <i class="tabs-marks" aria-hidden="true"></i>
+        <div class="tabs">
+          <div class="strip" role="tablist" @keydown="${this._onKeydown}">
+            ${this._tabs.map(
+              (tab, index) => html`
+                <button
+                  type="button"
+                  role="tab"
+                  class="tab ${index === this._activeIndex ? 'is-active' : ''}"
+                  aria-selected="${index === this._activeIndex}"
+                  tabindex="${index === this._activeIndex ? 0 : -1}"
+                  @click="${() => this._select(index)}">
+                  ${tab.svg ? unsafeSVG(tab.svg) : null}${tab.label}
+                </button>
+              `
+            )}
+          </div>
+          <div class="panel" role="tabpanel"><slot></slot></div>
         </div>
-        <div class="panel" role="tabpanel"><slot></slot></div>
       </div>
     `
   }
