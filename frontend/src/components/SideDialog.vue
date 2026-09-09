@@ -140,6 +140,32 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     }
   }
 
+  /*
+    The card itself (OpenProject #2895): both dialogs mounted here (`PagePropertiesDialog.vue`,
+    `PageBacklinksDialog.vue`) wrap their content in one root `<w-card>` -- the panel's direct child,
+    same as the toolbar/scroll-area above are its grandchildren. `WCard.vue`'s own Cobalt radius
+    (`--radius-card: 8px`) is smaller than this panel's `--radius-dialog: 12px`, which the toolbar
+    and scroll-area above already round themselves to, and `.w-card`'s base rule (`tailwind.css`)
+    fills it solid in every aesthetic. Left alone, the card's own 8px corner paints solid in the
+    8-12px band the toolbar's wider 12px curve leaves unpainted, showing through as a mismatched-
+    colour notch just inside the header's rounded corner -- vivid in light mode (white card against
+    the header's indigo `--color-dialog-header-bg: #1c2a70`), barely visible in dark mode where the
+    card's `--color-dark-3` and the header's `--color-dialog-header-bg: #1a43bd` are both dark blues,
+    which is why this reads as a light-mode-only defect.
+
+    Fixed the same way as the panel and the header/scroll-area bands: the card stops filling or
+    drawing its own edge in Cobalt (`--shadow-card`'s hairline ring would otherwise paint its own
+    8px-radius outline over the 12px corner too), since the toolbar and scroll-area already cover the
+    whole visible surface between them. Ledger keeps the card's real fill and edge -- `--radius-card`/
+    `--radius-dialog` are both 0 there, so there is no radius to mismatch.
+  */
+  .w-card {
+    @at-root .body--cobalt & {
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+
   .alt-card {
     @at-root .body--light & {
       background-color: $grey-2;
