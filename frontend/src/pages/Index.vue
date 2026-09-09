@@ -1492,11 +1492,14 @@ $toc-overlay-max: 749.98px;
   turns on whether an author happened to fill in a field. A description long enough to wrap grows it
   the same way and for the same reason; a description of ordinary length never does.
 
-  Cobalt draws this band as a raised gradient card rather than Ledger's flush white plate --
+  Cobalt draws this band as a raised card rather than Ledger's flush white plate --
   `--page-header-*` (`tailwind.css`, OpenProject #2767/#2771) is exactly the token set this was
   supposed to consume and never did: Ledger's own defaults (`--color-white`/`--color-ink`/`0`/`none`/
   `0`) reproduce the two rules just below unchanged, so wiring them in is additive for Ledger and is
-  what finally lights up Cobalt's gradient/radius/shadow/margin (OpenProject #2774).
+  what finally lights up Cobalt's radius/shadow/margin (OpenProject #2774). `--page-header-bg` is a
+  flat colour, not a gradient (handoff 5, Part 1.1; OpenProject #2857) -- see the Cobalt override
+  below for why its `background-color` still needs restating rather than following from this
+  shorthand alone.
 */
 .page-header {
   min-height: 120px;
@@ -1536,14 +1539,22 @@ $toc-overlay-max: 749.98px;
   }
 
   /*
-    Cobalt overrides both of the rules just above: the gradient/radius/shadow/margin already set by
-    the tokens at the top of this block replace Ledger's flush plate entirely, in both themes -- the
-    mockups draw the identical banner in light and dark (`tailwind.css`'s Cobalt-dark block does not
-    restate `--page-header-*`, so this is one rule for both).
+    Cobalt overrides both of the rules just above: the flat colour/radius/shadow/margin already set
+    by the tokens at the top of this block replace Ledger's flush plate entirely, in both themes --
+    the mockups draw the identical banner in light and dark (`tailwind.css`'s Cobalt-dark block does
+    not restate `--page-header-*`, so this is one rule for both).
+
+    `background-color` has to be restated here, at `--page-header-bg` again rather than left to the
+    base rule's `background:` shorthand: `.body--light &`/`.body--dark &` above declare their own
+    `background-color` at the same two-class specificity as this selector (`body.body--cobalt` adds a
+    type selector on top, which is what lets this block win over either regardless of which one a
+    page also carries -- light/dark and ledger/cobalt are independent body classes, so both can be
+    present at once). Leaving this undeclared would let Ledger's surface colour win instead of the
+    token.
   */
   @at-root body.body--cobalt & {
     border-bottom: 0;
-    background-color: transparent;
+    background-color: var(--page-header-bg);
   }
 
   /*
@@ -1560,7 +1571,7 @@ $toc-overlay-max: 749.98px;
     text-wrap: pretty;
 
     /*
-      The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated gradient and
+      The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated flat colour and
       its title is white. `--page-header-fg` is `var(--color-ink)` in Ledger, so the light rule this
       replaces is reproduced exactly; dark mode keeps its own value, but only for Ledger -- Cobalt's
       banner is identical in both themes.
