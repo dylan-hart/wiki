@@ -1104,12 +1104,25 @@ body.body--cobalt.body--dark {
 /*
   Ledger dark. Only the rows tabset-block.md's table actually changes for it -- everything else
   (radius, shadow, corner marks, strip padding/gap, tab padding/radius, active weight, panel
-  padding, and both rule shorthands, which re-resolve `var(--tabs-border)` on their own) stays the
-  Ledger-light value above. Same for the `--block-*` set: shape (radius/tile-radius/corner-marks/
-  mark-color) is dark-invariant, same as `--radius-card`/`--corner-marks` themselves; `--block-link-
-  fg` is left undeclared rather than guessed -- blocks.md gives no Ledger-dark link value, and this
-  file's own convention (see the Cobalt-dark block's own header comment, further up) is not to
-  invent one.
+  padding) stays the Ledger-light value above. Same for the `--block-*` set: shape (radius/tile-
+  radius/corner-marks/mark-color) is dark-invariant, same as `--radius-card`/`--corner-marks`
+  themselves; `--block-link-fg` is left undeclared rather than guessed -- blocks.md gives no
+  Ledger-dark link value, and this file's own convention (see the Cobalt-dark block's own header
+  comment, further up) is not to invent one.
+
+  `--tabs-strip-rule`/`--tabs-tab-rule` ARE restated here despite being the same literal text as
+  Ledger light's (`1px solid var(--tabs-border)`) -- OpenProject #2886. A custom property's nested
+  `var()` is substituted using the COMPUTED value at the element where that property is actually
+  assigned in the cascade, and that already-resolved value is what then inherits down; it is not
+  re-substituted per descendant. Left undeclared here, both shorthands stay assigned only at
+  `:root` (`<html>`), so their embedded `var(--tabs-border)` keeps resolving against `<html>`'s
+  OWN `--tabs-border` -- the Ledger-LIGHT `#dbe1ec` -- even on a `body.body--dark` page, because
+  `<html>` itself never carries the dark override. `.tabs`'s own `border: 1px solid
+  var(--tabs-border)` doesn't have this problem (it substitutes locally, deep in the block's shadow
+  tree, where `--tabs-border` really is inherited as dark) -- confirmed by mounting the real
+  compiled block and reading its computed styles in headless Chromium: `.tabs`'s border resolved to
+  the correct `#2a3040`, while `.strip`'s bottom rule and each `.tab`'s right-hand rule resolved to
+  the light `#dbe1ec` -- a pale hairline that reads as white against a dark tab strip/panel.
 */
 body.body--dark {
   --block-border: var(--color-hairline-dark);
@@ -1122,6 +1135,8 @@ body.body--dark {
   --block-accent-fg: var(--color-accent-dark);
 
   --tabs-border: #2a3040;
+  --tabs-strip-rule: 1px solid var(--tabs-border);
+  --tabs-tab-rule: 1px solid var(--tabs-border);
   --tabs-strip-bg: #14171f;
   --tabs-inactive-fg: #9aa6bd;
   --tabs-inactive-icon: #8ea6cf;
