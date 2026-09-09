@@ -341,6 +341,26 @@ export function buildSeed(page: {
  */
 const notifier = createNotifier(() => WIKI.collab.listenClient, 'collaboration relay')
 
+/**
+ * Cancels a room's pending debounced draft-persist timer, if one is set, and returns a promise that
+ * resolves once any flush already IN FLIGHT for it has settled.
+ *
+ * Shared by {@link pageSaved} (a real save supersedes any draft, OpenProject #2542) and
+ * {@link discardDraft} (an explicit "don't keep this," OpenProject #2898) below, both of which need
+ * to act on the persisted draft only AFTER any write that could otherwise still land actually does,
+ * rather than racing it — a debounce timer cancelled here can never fire, and an already-in-flight
+ * write (started before this ran) is awaited rather than left to land after the caller's own
+ * `pageDrafts.clear()` and resurrect the very draft that clear just removed.
+ */
+function cancelPendingDraftPersist(room: CollabRoom): Promise<void> {
+  if (room.draftPersist.timer) {
+    clearTimeout(room.draftPersist.timer)
+  }
+  room.draftPersist.timer = null
+  room.draftPersist.pendingSince = null
+  return room.draftPersist.inFlight ?? Promise.resolve()
+}
+
 export default {
   rooms: new Map<string, CollabRoom>(),
   listenClient: null as PoolClient | null,
@@ -1012,8 +1032,9 @@ export default {
    * display name a departing connection's awareness state carried.
    *
    * Publishes the returned promise on {@link DraftPersistState.inFlight} for the write's duration
-   * (OpenProject #2542), clearing it back to null once the write settles, so {@link pageSaved} can
-   * order its own `pageDrafts.clear()` to always land after this write rather than racing it.
+   * (OpenProject #2542), clearing it back to null once the write settles, so {@link pageSaved} and
+   * {@link discardDraft} — via {@link cancelPendingDraftPersist} — can order their own
+   * `pageDrafts.clear()` to always land after this write rather than racing it.
    */
   flushDraftPersist(room: CollabRoom): Promise<void> {
     if (room.draftPersist.timer) {
@@ -1058,26 +1079,20 @@ export default {
    * that gets to clear it, room or no room.
    *
    * Coordinates with a room's own {@link DraftPersistState} rather than clearing blind (OpenProject
-   * #2542): any not-yet-fired debounce timer is cancelled immediately, so a flush already superseded
-   * by this save can never write afterward, and the clear itself is deferred until this room's
-   * `inFlight` write (if {@link flushDraftPersist} was already running when this landed) has settled
-   * — ordering the in-flight write before the clear rather than letting it resurrect a draft the
-   * clear had just removed. Stays fire-and-forget from the caller's perspective: the ordering happens
-   * inside this promise chain, not by making `pageSaved` itself `async`.
+   * #2542) via {@link cancelPendingDraftPersist}: any not-yet-fired debounce timer is cancelled
+   * immediately, so a flush already superseded by this save can never write afterward, and the
+   * clear itself is deferred until this room's `inFlight` write (if {@link flushDraftPersist} was
+   * already running when this landed) has settled — ordering the in-flight write before the clear
+   * rather than letting it resurrect a draft the clear had just removed. Stays fire-and-forget from
+   * the caller's perspective: the ordering happens inside this promise chain, not by making
+   * `pageSaved` itself `async`.
    */
   pageSaved(pageId: string, info: SaveInfo): void {
     const room = this.rooms.get(pageId)
     let clearAfter: Promise<void> = Promise.resolve()
     if (room) {
       room.doc.getMap('meta').set('lastSave', info)
-      if (room.draftPersist.timer) {
-        clearTimeout(room.draftPersist.timer)
-      }
-      room.draftPersist.timer = null
-      room.draftPersist.pendingSince = null
-      if (room.draftPersist.inFlight) {
-        clearAfter = room.draftPersist.inFlight
-      }
+      clearAfter = cancelPendingDraftPersist(room)
     } else {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
     }
@@ -1086,6 +1101,21 @@ export default {
       .catch((err: any) => {
         WIKI.logger.warn('collab', 'failed to clear the draft', { page: pageId, error: err })
       })
+  },
+
+  /**
+   * Discards a page's persisted recovery draft (OpenProject #2898) -- the explicit-Cancel/Discard
+   * counterpart to {@link pageSaved}'s draft-clearing above, and the same
+   * {@link cancelPendingDraftPersist} coordination for the same reason: without it, a debounced
+   * autosave still pending at the moment of an explicit Cancel would flush moments later when the
+   * editor's own websocket disconnect empties the room ({@link closeRoomIfEmpty}), silently
+   * resurrecting the very draft the reader just asked to drop. `api/pages/drafts.ts`'s DELETE route
+   * is the one caller.
+   */
+  discardDraft(pageId: string): Promise<void> {
+    const room = this.rooms.get(pageId)
+    const clearAfter = room ? cancelPendingDraftPersist(room) : Promise.resolve()
+    return clearAfter.then(() => WIKI.models.pageDrafts.clear(pageId))
   },
 
   // ----------------------------------------

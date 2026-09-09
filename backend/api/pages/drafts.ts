@@ -101,7 +101,12 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      await WIKI.models.pageDrafts.clear(page.id)
+      // -> Not a bare `pageDrafts.clear()`: `WIKI.collab.discardDraft()` (OpenProject #2898) first
+      //    coordinates with any in-memory room for this page, the same way `pageSaved()` already
+      //    does (#2542) -- a debounce timer still pending here would otherwise flush moments after
+      //    this call, once the editor's own websocket disconnect empties the room, and resurrect the
+      //    draft this route was just asked to drop.
+      await WIKI.collab.discardDraft(page.id)
       return reply.code(204).send()
     }
   )
