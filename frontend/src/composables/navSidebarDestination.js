@@ -146,3 +146,44 @@ export function useNavSidebarDestination() {
 
   return { destination, isCurrent, containsCurrent }
 }
+
+/**
+ * Every folder id in the given nav tree, walked recursively regardless of current expand/collapse
+ * state (OpenProject #2848) -- a folder here means "renders as a `w-expansion-item`", i.e. carries
+ * at least one child (`NavSidebarItem.vue`'s own `v-if`), not merely `item.isFolder`: an empty or
+ * boundary folder has nothing to expand or collapse. Plain and store-free, unlike the composable
+ * above, since it only ever walks a tree already in hand (`siteStore.nav.items`).
+ */
+export function folderIds(items) {
+  const ids = []
+  for (const item of items ?? []) {
+    if (item.children?.length > 0) {
+      ids.push(item.id, ...folderIds(item.children))
+    }
+  }
+  return ids
+}
+
+/**
+ * The ids of every ancestor FOLDER of the item `targetId`, outer-to-inner, not including `targetId`
+ * itself -- what middle-click isolate (OpenProject #2848) keeps open alongside the clicked folder
+ * while collapsing every other id `folderIds` names. Empty when `targetId` is not found in `items`,
+ * or is itself a root-level item with no ancestors.
+ */
+export function ancestorIds(items, targetId) {
+  function walk(list) {
+    for (const item of list ?? []) {
+      if (item.id === targetId) {
+        return []
+      }
+      if (item.children?.length > 0) {
+        const nested = walk(item.children)
+        if (nested !== null) {
+          return [item.id, ...nested]
+        }
+      }
+    }
+    return null
+  }
+  return walk(items) ?? []
+}

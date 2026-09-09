@@ -10,7 +10,8 @@
     v-if="item.children?.length > 0"
     dense
     :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
-    @update:model-value="setOpen(item.id, $event)">
+    @update:model-value="setOpen(item.id, $event)"
+    @auxclick.middle="handleIsolateClick($event, item)">
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
@@ -59,9 +60,14 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
 import { useNavExpansionState } from '@/composables/navExpansionState'
-import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
+import {
+  ancestorIds,
+  folderIds,
+  useNavSidebarDestination
+} from '@/composables/navSidebarDestination'
 import { usePathDisplay } from '@/composables/pathDisplay'
 
+import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import PageNewMenu from '@/components/PageNewMenu.vue'
@@ -110,7 +116,46 @@ function iconFor(item) {
 
 // STORES
 
+const siteStore = useSiteStore()
 const userStore = useUserStore()
+
+// MIDDLE-CLICK ISOLATE (OpenProject #2848)
+
+/**
+ * Middle-click a folder's own header row: open it and its ancestor chain, collapse every OTHER
+ * folder in the whole tree (`siteStore.nav.items`, not just this row's own subtree). Bound to
+ * `auxclick` rather than `click` -- a non-primary mouse button fires `auxclick`, never `click`, in
+ * every evergreen browser (Chromium, Firefox, WebKit all follow the UI Events spec here), and the
+ * `.middle` modifier narrows it to button 1 alone so a right-click's `auxclick`/`contextmenu` does
+ * not also trigger this.
+ *
+ * `@auxclick.middle` is bound on the whole `<w-expansion-item>` (see the template), whose single
+ * root element wraps BOTH the header row and this folder's own (possibly open) content -- Vue's
+ * attrs fallthrough has nowhere narrower to attach to without restructuring `WExpansionItem.vue`'s
+ * markup. So a middle-click anywhere in this folder's content -- a child leaf's own link, or a
+ * nested folder's header, which handles its own isolate and stops the event there before it can
+ * reach here -- bubbles up to this same listener too and must be told apart from an actual click on
+ * THIS row's own header, or it would misfire as if this folder had been clicked, and -- worse --
+ * call `preventDefault()` on a leaf link's native middle-click-opens-a-new-tab behavior.
+ * `.w-expansion-item__header` is that row's own class (`WExpansionItem.vue`); content lives in a
+ * sibling `.w-expansion-item__content`, never inside the header, so `closest()` from the real click
+ * target reliably tells the two apart.
+ */
+function handleIsolateClick(event, item) {
+  if (!event.target.closest('.w-expansion-item__header')) {
+    return
+  }
+  // -> Scoped to this header alone: never touches the `v-else` leaf branch's own link, and
+  //    stopPropagation keeps a click on a nested folder's header (already handled there) or on this
+  //    folder's own content from re-triggering an ancestor folder's identical listener above it.
+  event.preventDefault()
+  event.stopPropagation()
+  const items = siteStore.nav.items
+  const openIds = new Set([item.id, ...ancestorIds(items, item.id)])
+  for (const id of folderIds(items)) {
+    setOpen(id, openIds.has(id))
+  }
+}
 
 // COMPUTED
 

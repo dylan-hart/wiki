@@ -1,8 +1,10 @@
+import { defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import NavSidebarItem from './NavSidebarItem.vue'
 import WTooltip from './shared/WTooltip.vue'
 import routes from '@/router/routes'
+import { useProvideNavExpansionState } from '@/composables/navExpansionState'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
@@ -280,5 +282,141 @@ describe('NavSidebarItem: label truncation tooltip', () => {
     wrapper.vm.checkTruncation()
     await wrapper.vm.$nextTick()
     expect(wrapper.findComponent(WTooltip).exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2848: middle-click a folder's header to isolate it -- open it plus its ancestor
+ * chain, collapse every other folder in the whole tree. Mounted through a `Host` that provides the
+ * shared expansion state itself (`useProvideNavExpansionState`, mirroring `NavSidebar.vue`), since a
+ * standalone `NavSidebarItem` mount falls back to a fresh, UNSHARED map per instance -- the isolate
+ * handler's writes to a nested folder's state would otherwise never reach that folder's own,
+ * separate map. `siteStore.nav.items` is seeded with the same tree so the handler's whole-tree walk
+ * has something real to read.
+ *
+ * `root` and `sibling` both start expanded (`expandByDefault: true`) so the test can observe
+ * `sibling` actually closing and `root` staying open, rather than merely never having opened.
+ */
+const ISOLATE_TREE = [
+  {
+    id: 'root',
+    label: 'Root Folder',
+    expandByDefault: true,
+    children: [
+      {
+        id: 'target',
+        label: 'Target Folder',
+        children: [{ id: 'target-leaf', label: 'Target Leaf', target: '/target-leaf' }]
+      },
+      {
+        id: 'sibling',
+        label: 'Sibling Folder',
+        expandByDefault: true,
+        children: [{ id: 'sibling-leaf', label: 'Sibling Leaf', target: '/sibling-leaf' }]
+      }
+    ]
+  }
+]
+
+async function mountIsolateTree() {
+  const Host = defineComponent({
+    name: 'IsolateTestHost',
+    setup() {
+      useProvideNavExpansionState()
+      return () => h(NavSidebarItem, { item: ISOLATE_TREE[0] })
+    }
+  })
+
+  const router = await createTestRouter(routes, '/')
+  const { wrapper } = mountWithApp(Host, {
+    router,
+    stores: {
+      site: (store) => {
+        store.nav.items = ISOLATE_TREE
+      }
+    }
+  })
+  await wrapper.vm.$nextTick()
+  return wrapper
+}
+
+/** The rendered `NavSidebarItem` instance for one id, found among every recursive instance. */
+function itemWrapper(wrapper, id) {
+  return wrapper.findAllComponents(NavSidebarItem).find((w) => w.props('item').id === id)
+}
+
+/** Whether a folder's own arrow currently reads "open" -- `w-expansion-item`'s own tell, since its
+ *  content is toggled by `v-show` rather than unmounted. */
+function isExpanded(wrapper, id) {
+  return itemWrapper(wrapper, id).find('.w-expansion-item__arrow').classes().includes('rotate-180')
+}
+
+/** Dispatches a real, bubbling middle-click (`auxclick`, button 1) on an element -- the same event a
+ *  browser fires for a non-primary mouse button, never `click`. Returns `dispatchEvent`'s own
+ *  boolean: `false` once something along the path called `preventDefault()`. */
+function middleClick(element) {
+  return element.dispatchEvent(
+    new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+  )
+}
+
+describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
+  it('opens the clicked folder and its ancestor chain, and collapses every sibling folder', async () => {
+    const wrapper = await mountIsolateTree()
+    expect(isExpanded(wrapper, 'target')).toBe(false)
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
+
+    const notPrevented = middleClick(
+      itemWrapper(wrapper, 'target').find('.w-expansion-item__header').element
+    )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(false) // -> preventDefault() was called
+    expect(isExpanded(wrapper, 'target')).toBe(true)
+    expect(isExpanded(wrapper, 'root')).toBe(true) // -> the clicked folder's own ancestor
+    expect(isExpanded(wrapper, 'sibling')).toBe(false) // -> every other folder collapses
+  })
+
+  it('does not fire on a plain click (only a middle-click auxclick isolates)', async () => {
+    const wrapper = await mountIsolateTree()
+
+    itemWrapper(wrapper, 'target')
+      .find('.w-expansion-item__header')
+      .element.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+      )
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> unaffected
+  })
+
+  it('is scoped to the header row -- a middle-click on a nested leaf link does not isolate its parent folder, and does not preventDefault', async () => {
+    const wrapper = await mountIsolateTree()
+
+    const notPrevented = middleClick(itemWrapper(wrapper, 'sibling-leaf').element)
+    await wrapper.vm.$nextTick()
+
+    // -> Nothing along the bubble path (sibling's own folder, then root's) treated this as its own
+    //    header being clicked, so the browser's native middle-click-opens-a-new-tab is left intact...
+    expect(notPrevented).toBe(true)
+    // -> ...and no folder's open/closed state changed as a side effect of the bubble.
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
+    expect(isExpanded(wrapper, 'target')).toBe(false)
+    expect(isExpanded(wrapper, 'root')).toBe(true)
+  })
+
+  it('a second isolate on a different folder re-collapses the first one', async () => {
+    const wrapper = await mountIsolateTree()
+
+    middleClick(itemWrapper(wrapper, 'target').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+    expect(isExpanded(wrapper, 'target')).toBe(true)
+    expect(isExpanded(wrapper, 'sibling')).toBe(false)
+
+    middleClick(itemWrapper(wrapper, 'sibling').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
+    expect(isExpanded(wrapper, 'target')).toBe(false)
+    expect(isExpanded(wrapper, 'root')).toBe(true)
   })
 })
