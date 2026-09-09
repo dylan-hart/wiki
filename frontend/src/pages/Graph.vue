@@ -1502,9 +1502,14 @@ onBeforeUnmount(() => {
 
 /*
   SIZE BY's two toggles (Unique/Total, then Edits/Visits) sitting side by side under their shared
-  caption (OpenProject #2855/#2828 item 3) -- `flex-wrap` is a fallback for a locale whose combined
-  option labels don't fit the panel's width on one line, not an expectation that it will usually
-  wrap.
+  caption (OpenProject #2855/#2828 item 3). `flex-wrap` stays as a genuine fallback for a locale whose
+  combined option labels run long, but a real headless-Chromium render at the panel's actual content
+  width (236px panel, 14px padding + 1px border each side -> ~206px available) found the English
+  default itself wrapping to two lines with `WBtnToggle`'s stock `px-3` segment padding -- ~229px
+  combined, not a hypothetical (OpenProject #2892). The `:deep()` override below narrows just this
+  row's segments (not `WBtnToggle`'s shared default, so no other caller of the component is affected)
+  to fit with real headroom: the same measurement at 6px padding comes out to ~181px, a ~25px margin
+  rather than a bare pass.
 */
 .graph-view-control-row {
   display: flex;
@@ -1512,6 +1517,10 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+
+  :deep(.w-btn-toggle__segment) {
+    padding-inline: 6px;
+  }
 }
 
 /* -> The language's own control overline: mono, small, letter-spaced, in the caption tier */
