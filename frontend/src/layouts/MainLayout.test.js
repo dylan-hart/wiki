@@ -472,9 +472,9 @@ describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2
   const source = readFileSync(SOURCE_PATH, 'utf-8')
   const styleBlock = source.slice(source.indexOf('<style'))
 
-  it('drops the Ledger eyebrow bar and clips every overlay panel to the dialog radius under Cobalt', () => {
+  it('drops the Ledger eyebrow bar and keeps the dialog radius on every overlay panel under Cobalt', () => {
     expect(styleBlock).toMatch(
-      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*overflow: hidden;\s*\}/
+      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*background: transparent;\s*overflow: visible;\s*\}/
     )
   })
 })
