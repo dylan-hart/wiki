@@ -97,14 +97,19 @@ describe('sendNonApiError', () => {
     assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
   })
 
-  test('a deliberate @fastify/sensible error answers its own status and message, and is logged via WIKI.logger.error', async () => {
+  test('a deliberate @fastify/sensible error answers its own status and message, and is NOT logged (Bug #2837)', async () => {
     ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
+    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/boom-sensible' })
     assert.equal(res.statusCode, 404)
     const body = res.json()
     assert.equal(body.statusCode, 404)
     assert.equal(body.message, 'This page could not be found.')
-    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 1)
+    // -> Bug #2837: a deliberate 4xx (icon-set 404s and the like) is expected, curated-message
+    //    behavior, not a bug an operator needs to act on -- mirrors `apiErrorHandler`'s own
+    //    statusCode branch, which has never logged.
+    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 0)
+    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
   })
 })
 

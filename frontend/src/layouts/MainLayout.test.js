@@ -7,8 +7,10 @@ import { mount } from '@vue/test-utils'
 
 import MainLayout from './MainLayout.vue'
 import FooterNav from '@/components/FooterNav.vue'
+import WPageScroller from '@/components/shared/WPageScroller.vue'
 import routes from '@/router/routes.js'
 import { useCommonStore } from '@/stores/common'
+import { useMinWidth } from '@/composables/screen'
 
 import { createTestRouter } from '../../test/router.js'
 import { createTestI18n } from '../../test/i18n.js'
@@ -127,14 +129,15 @@ afterEach(() => {
 
 const messages = {
   common: {
-    actions: { skipToContent: 'Skip to content' },
+    actions: { skipToContent: 'Skip to content', returnToTop: 'Return to top' },
     sidebar: {
       browse: 'Browse',
       collapse: 'Collapse Sidebar',
       editNav: 'Edit Nav',
       expand: 'Expand Sidebar',
       mainMenu: 'Main Menu',
-      switchLocale: 'Switch Locale'
+      switchLocale: 'Switch Locale',
+      top: 'Top'
     }
   }
 }
@@ -466,15 +469,360 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
  * (per `css/cobaltTokens.test.js`'s own note) is not loaded in this test environment. Checked
  * against the component's own source text instead, the same technique that suite uses for a
  * hand-edited stylesheet.
+ *
+ * OpenProject #2864 replaced the panel's own `overflow: hidden` clip (this test's original
+ * assertion) with a transparent, non-clipping panel plus a header/body that round and fill
+ * themselves -- see `MainLayout.cobaltDialogCorners.test.js` for that fix's own coverage. This
+ * describe keeps only what #2776 is still actually responsible for: the eyebrow bar is gone and the
+ * panel still carries the dialog radius (for its box-shadow) under Cobalt.
  */
+/**
+ * OpenProject #2861: the reader sidebar's `.sidebar-actions` strip gains a third cell, "Top", beside
+ * Locale and Browse -- always reserving 40x40 so the other two never shift width, fading in (button
+ * + leading separator) once `.page-container-scrl` scrolls past 150px, and scrolling that column
+ * back to the top on click. Visual polish (the Ledger plate/mono-label + Cobalt tile treatment) is a
+ * separate WP (#2862); this suite covers only the structural cell + scroll/click behavior.
+ */
+describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
+  async function mountWithScrollColumn({ scrollTop = 0, routes = ['/'] } = {}) {
+    const router = await createTestRouter(routes)
+    const { wrapper, ...rest } = mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        site: (siteStore) => {
+          siteStore.features.browse = true
+        }
+      },
+      stubs: {
+        HeaderNav: true,
+        MainOverlayDialog: true,
+        NavSidebar: true
+      },
+      attachTo: document.body
+    })
+
+    const scrollColumn = document.createElement('div')
+    scrollColumn.className = 'page-container-scrl'
+    document.body.appendChild(scrollColumn)
+    Object.defineProperty(scrollColumn, 'scrollTop', {
+      value: scrollTop,
+      writable: true,
+      configurable: true
+    })
+    scrollColumn.scrollTo = vi.fn()
+
+    return { wrapper, scrollColumn, ...rest }
+  }
+
+  afterEach(() => {
+    document.querySelectorAll('.page-container-scrl').forEach((el) => el.remove())
+  })
+
+  // -> Scoped to `.sidebar-actions` throughout: at >=750px (this suite's default, wide-viewport
+  //    `matchMedia` stub) the pre-existing corner `WPageScroller` button carries the SAME
+  //    "Return to top" aria-label and reacts to the SAME scroll -- both are expected to coexist
+  //    until #2863 retires the corner disc in wide mode, so a query against the whole wrapper
+  //    would be ambiguous. `WPageScroller.vue` itself is untouched by this WP.
+  function findTopBtn(wrapper) {
+    return wrapper
+      .get('.sidebar-actions')
+      .find(`[aria-label="${messages.common.actions.returnToTop}"]`)
+  }
+
+  it('reserves the 40x40 Top cell even when the button itself is not mounted (page at top)', async () => {
+    const { wrapper } = await mountWithScrollColumn()
+
+    const cell = wrapper.get('.sidebar-actions-top')
+    expect(getComputedStyle(cell.element).width).toBe('40px')
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+  })
+
+  it('fades the Top button in once the scroll column passes the 150px threshold', async () => {
+    const { wrapper, scrollColumn } = await mountWithScrollColumn()
+
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+
+    scrollColumn.scrollTop = 200
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    expect(findTopBtn(wrapper).exists()).toBe(true)
+  })
+
+  it('stays hidden at exactly the threshold and below it', async () => {
+    const { wrapper, scrollColumn } = await mountWithScrollColumn()
+
+    scrollColumn.scrollTop = 150
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+  })
+
+  it('scrolls the page column to the top, smoothly, on click', async () => {
+    const { wrapper, scrollColumn } = await mountWithScrollColumn({ scrollTop: 200 })
+
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    await findTopBtn(wrapper).trigger('click')
+
+    expect(scrollColumn.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+  })
+
+  it("recomputes visibility on route change, so a new page does not inherit the old one's Top state", async () => {
+    const { wrapper, scrollColumn, router } = await mountWithScrollColumn({
+      scrollTop: 200,
+      routes: ['/', '/some/other/page']
+    })
+
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+    expect(findTopBtn(wrapper).exists()).toBe(true)
+
+    // -> Simulates the new route's own scroll column starting back at the top
+    scrollColumn.scrollTop = 0
+    await router.push('/some/other/page')
+    await wrapper.vm.$nextTick()
+
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+  })
+
+  it('sizes Locale to a fixed 72px cell, distinct from the reserved 40px Top cell', async () => {
+    const { wrapper } = await mountWithScrollColumn()
+    const commonStore = useCommonStore()
+
+    const localeBtn = wrapper.get(`[aria-label="${commonStore.locale}"]`)
+    expect(localeBtn.classes()).toContain('sidebar-actions-locale')
+    expect(getComputedStyle(localeBtn.element).width).toBe('72px')
+  })
+
+  it('gives the strip a true 40px content interior (41px border-box)', async () => {
+    const { wrapper } = await mountWithScrollColumn()
+
+    const strip = wrapper.get('.sidebar-actions')
+    expect(getComputedStyle(strip.element).height).toBe('41px')
+  })
+})
+
+/**
+ * OpenProject #2862 ("Sidebar strip: Ledger + Cobalt visual treatment"): the theme-specific finish
+ * on top of #2861's structural strip -- Ledger's white Top plate + mono "TOP" label + hairline cell
+ * separators, Cobalt's ruleless flat tiles. Literal, class-toggleable rules (no `var()` resolution
+ * needed) are asserted live via `getComputedStyle`; rules that resolve a `tailwind.css` custom
+ * property are asserted against the compiled stylesheet's own source text instead, since this
+ * harness never loads `tailwind.css`'s token layer and so cannot resolve `var(--color-*)`
+ * reliably -- the same limitation `NavEditMenu.test.js`'s Cobalt Save-button test documents.
+ */
+describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProject #2862)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+
+  async function mountStrip({ cobalt = false } = {}) {
+    document.body.classList.toggle('body--cobalt', cobalt)
+
+    const router = await createTestRouter(['/'])
+    const { wrapper, ...rest } = mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        site: (siteStore) => {
+          siteStore.features.browse = true
+        }
+      },
+      stubs: {
+        HeaderNav: true,
+        MainOverlayDialog: true,
+        NavSidebar: true
+      },
+      attachTo: document.body
+    })
+
+    // -> The Top button/cell only mounts once `.page-container-scrl` has scrolled past 150px (see
+    //    the #2861 suite above) -- every test here needs it visible, so this helper scrolls it in
+    //    unconditionally rather than repeating the fade threshold dance per test.
+    const scrollColumn = document.createElement('div')
+    scrollColumn.className = 'page-container-scrl'
+    document.body.appendChild(scrollColumn)
+    Object.defineProperty(scrollColumn, 'scrollTop', {
+      value: 200,
+      writable: true,
+      configurable: true
+    })
+    scrollColumn.scrollTo = vi.fn()
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    return { wrapper, ...rest }
+  }
+
+  afterEach(() => {
+    document.body.classList.remove('body--cobalt')
+    document.querySelectorAll('.page-container-scrl').forEach((el) => el.remove())
+  })
+
+  it('gives the "TOP" label its Roboto Mono, uppercase, wide-tracking treatment', async () => {
+    const { wrapper } = await mountStrip()
+
+    const label = wrapper.get('.sidebar-actions-top .w-btn > span > span')
+    const style = getComputedStyle(label.element)
+    expect(style.fontWeight).toBe('600')
+    expect(style.fontSize).toBe('7.5px')
+    expect(style.textTransform).toBe('uppercase')
+    // -> `letter-spacing: 0.18em` on the same rule as this `font-size` override: happy-dom resolves
+    //    it against the element's PRIOR (inherited, 10px) font-size rather than the 7.5px this same
+    //    rule sets, so the live computed value (1.8px) is an artifact of this harness's own `em`
+    //    handling, not of the stylesheet -- checked against the source text instead.
+    expect(styleBlock).toMatch(/> span > span \{[\s\S]*?letter-spacing: 0\.18em;/)
+  })
+
+  it('pins the Top arrow-up to 15px, distinct from the Locale/Browse 20px icons', async () => {
+    const { wrapper } = await mountStrip()
+
+    const topIcon = wrapper.get('.sidebar-actions-top .w-icon')
+    expect(getComputedStyle(topIcon.element).fontSize).toBe('15px')
+  })
+
+  it("stacks the Top button's icon above its label instead of WBtn's default row", async () => {
+    const { wrapper } = await mountStrip()
+
+    const contentSpan = wrapper.get('.sidebar-actions-top .w-btn > span')
+    expect(getComputedStyle(contentSpan.element).flexDirection).toBe('column')
+  })
+
+  it("removes the strip's own bottom rule and both cell separators under Cobalt", async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+
+    const strip = wrapper.get('.sidebar-actions')
+    expect(getComputedStyle(strip.element).borderBottomStyle).toBe('none')
+
+    const separators = wrapper.findAll('.sidebar-actions .w-separator')
+    expect(separators.length).toBeGreaterThan(0)
+    for (const sep of separators) {
+      expect(getComputedStyle(sep.element).display).toBe('none')
+    }
+  })
+
+  it('keeps both cell separators rendered (not display: none) under Ledger', async () => {
+    const { wrapper } = await mountStrip()
+
+    const separators = wrapper.findAll('.sidebar-actions .w-separator')
+    expect(separators.length).toBeGreaterThan(0)
+    for (const sep of separators) {
+      expect(getComputedStyle(sep.element).display).not.toBe('none')
+    }
+  })
+
+  it('insets Locale and Browse into flat tiles under Cobalt', async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+    const commonStore = useCommonStore()
+
+    const localeBtn = wrapper.get(`[aria-label="${commonStore.locale}"]`)
+    const browseBtn = wrapper.get(`[aria-label="${messages.common.sidebar.browse}"]`)
+
+    for (const btn of [localeBtn, browseBtn]) {
+      const style = getComputedStyle(btn.element)
+      expect(style.marginTop).toBe('4px')
+      expect(style.marginRight).toBe('0px')
+      expect(style.marginBottom).toBe('4px')
+      expect(style.marginLeft).toBe('4px')
+    }
+  })
+
+  it('sizes the Top tile to 32x32 with no padding under Cobalt', async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+
+    const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
+    expect(style.width).toBe('32px')
+    expect(style.height).toBe('32px')
+    expect(style.padding).toBe('0px')
+  })
+
+  it("resolves Ledger's cell-separator hairline colour from the light/dark hairline tokens", () => {
+    expect(styleBlock).toMatch(
+      /\.sidebar-actions \.w-separator \{\s*--w-hairline-color: var\(--color-hairline\);\s*\}/
+    )
+    expect(styleBlock).toMatch(
+      /\.body--dark:not\(\.body--cobalt\) \{[\s\S]*?\.sidebar-actions \.w-separator \{\s*--w-hairline-color: var\(--color-hairline-dark\);\s*\}/
+    )
+  })
+
+  it('draws the Top plate/glyph from the accent tokens, light and dark', () => {
+    expect(styleBlock).toMatch(
+      /background-color: var\(--color-white\);\s*color: var\(--color-accent\);/
+    )
+    expect(styleBlock).toMatch(
+      /background-color: var\(--color-dark-2\);\s*color: var\(--color-accent-dark\);/
+    )
+    expect(styleBlock).toMatch(/font-family: var\(--font-mono\);/)
+  })
+
+  it("colours Cobalt's Locale/Browse icon from the sidebar-icon token, distinct from the label", () => {
+    expect(styleBlock).toMatch(
+      /\.sidebar-actions \.icon-lg \{[\s\S]*?\.w-icon \{\s*color: var\(--color-sidebar-icon\);\s*\}/
+    )
+  })
+})
+
 describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2776)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
   const source = readFileSync(SOURCE_PATH, 'utf-8')
   const styleBlock = source.slice(source.indexOf('<style'))
 
-  it('drops the Ledger eyebrow bar and clips every overlay panel to the dialog radius under Cobalt', () => {
+  it('drops the Ledger eyebrow bar and keeps the dialog radius on every overlay panel under Cobalt', () => {
     expect(styleBlock).toMatch(
-      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*overflow: hidden;\s*\}/
+      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*background: transparent;\s*overflow: visible;\s*\}/
     )
+  })
+})
+
+/**
+ * OpenProject #2863 ("Retire WPageScroller corner disc in wide mode (>=1200px)"): the corner
+ * scroll-to-top button used to render at every width from 750px up, flush against the bottom of
+ * the sidebar's own column once the layout crossed its 1200px wide-viewport breakpoint
+ * (`scrollerAnchorX`, now deleted along with `WPageScroller`'s `anchorX` prop -- its only caller).
+ * That flush, anchored variant retires outright at >=1200px: the sidebar strip's own "Top" cell
+ * (Feature #2840's sibling task #2861) takes over the scroll-to-top role there instead. Below
+ * 1200px, where the sidebar overlays the page rather than columning beside it, the plain corner
+ * disc still renders exactly as before; below 750px the page view's own TOC-panel opener keeps that
+ * corner instead (`isAtLeastTocPanelWidth`, unchanged by this task).
+ *
+ * `useMinWidth`'s shared `matchMedia` cache (`composables/screen.js`) is set directly on the refs it
+ * returns rather than through a fresh `matchMedia` mock -- see `HeaderNav.test.js`'s own note on why
+ * a NEW mock can't reach a breakpoint another test in this file already cached.
+ */
+describe('MainLayout scroll-to-top corner disc retires at wide viewport (OpenProject #2863)', () => {
+  afterEach(() => {
+    useMinWidth(1200).value = true
+    useMinWidth(750).value = true
+  })
+
+  it('does not mount WPageScroller at >=1200px, where the sidebar has a column of its own', async () => {
+    useMinWidth(1200).value = true
+    useMinWidth(750).value = true
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(wrapper.findComponent(WPageScroller).exists()).toBe(false)
+  })
+
+  it('still mounts WPageScroller between 750px and 1199px, where the sidebar overlays the page', async () => {
+    useMinWidth(1200).value = false
+    useMinWidth(750).value = true
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(wrapper.findComponent(WPageScroller).exists()).toBe(true)
+  })
+
+  it('still does not mount WPageScroller below 750px, where the TOC-panel opener keeps the corner', async () => {
+    useMinWidth(1200).value = false
+    useMinWidth(750).value = false
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(wrapper.findComponent(WPageScroller).exists()).toBe(false)
   })
 })

@@ -200,6 +200,29 @@ describe('AdminApi personal token note', () => {
   })
 })
 
+/**
+ * OpenProject #2831: the page header used `tabler:plug-connected`, disagreeing with Profile's own
+ * API Access section (`ProfileOverlay.vue`), which uses `tabler:api`.
+ */
+describe('AdminApi header icon (OpenProject #2831)', () => {
+  it("matches Profile's tabler:api icon", async () => {
+    stubApi({
+      'api-keys': [],
+      'system/api': { isEnabled: true },
+      groups: [],
+      sites: [],
+      'system/certificates': { generatedAt: null }
+    })
+
+    const wrapper = mountPage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.admin-icon[data-icon="tabler:api"]').exists()).toBe(true)
+    expect(wrapper.find('.admin-icon[data-icon="tabler:plug-connected"]').exists()).toBe(false)
+  })
+})
+
 // -> OpenProject #1929: `/dev/api` names a concept this fork invented (there is no such upstream
 //    Wiki.js docs section), so no docs site can describe it -- the help button was deleted rather
 //    than left pointing at a page that does not exist. The Swagger UI button (`href="/_api"`) is

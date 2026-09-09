@@ -8,12 +8,11 @@ import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test
 /**
  * OpenProject #2616: every button in `.page-header-actions` must draw the same target box.
  *
- * Watch, Print and the review queue were `dense` icon-only `w-btn`s while Edit beside them was a
- * full labelled one, so the three drew a 28px/10px hover-and-click box against Edit's 32px/14px --
- * visibly smaller targets in a row that reads as one group. What is NOT the defect, and must
- * survive: Edit keeps the accent fill (Cardinal's one-filled-button-per-surface rule, stated in
- * `PageHeader.vue`'s own comment above it) and the rest stay bare icons in the chrome tone. The
- * complaint is the box, not the fill.
+ * Watch and Print were `dense` icon-only `w-btn`s while Edit beside them was a full labelled one, so
+ * the two drew a 28px/10px hover-and-click box against Edit's 32px/14px -- visibly smaller targets in
+ * a row that reads as one group. What is NOT the defect, and must survive: Edit keeps the accent fill
+ * (Cardinal's one-filled-button-per-surface rule, stated in `PageHeader.vue`'s own comment above it)
+ * and the rest stay bare icons in the chrome tone. The complaint is the box, not the fill.
  *
  * Measured in real headless Chromium rather than asserted against markup, for the reason
  * `test/realGridLayout.js` exists at all: a hover box is a laid-out thing, and neither `jsdom` nor
@@ -50,8 +49,8 @@ describe(
 
     /**
      * Every optional member of the row turned on at once: an authenticated reader who may write, on a
-     * page that is not a redirection, with the print button enabled and a review queue to answer for.
-     * That is watch + print + review + Edit -- the whole set the note names, in one measurement.
+     * page that is not a redirection, with the print button enabled. That is watch + print + Edit --
+     * the whole set the note names, in one measurement.
      */
     async function measureActionRow() {
       const router = await createTestRouter(['/'])
@@ -66,9 +65,7 @@ describe(
             store.theme.showPrintBtn = true
           },
           page: (store) => {
-            store.canReview = true
             store.editor = 'markdown'
-            store.pendingSubmissions = []
           }
         }
       })
@@ -101,13 +98,12 @@ describe(
       }
     }
 
-    it('draws watch, print, the review queue and Edit all in the row', async () => {
+    it('draws watch, print and Edit all in the row', async () => {
       const boxes = await measureActionRow()
 
       expect(boxes.map((box) => box.label)).toEqual([
         'common.page.watch',
         'common.actions.print',
-        'inbox.pendingReview',
         'common.actions.edit'
       ])
     })

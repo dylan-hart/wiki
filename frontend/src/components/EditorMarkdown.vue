@@ -376,6 +376,7 @@ import {
   resolveInitialPreviewWidth
 } from '@/helpers/editorUserSettings'
 import { htmlToMarkdown } from '@/helpers/htmlToMarkdown'
+import { isSameVisibleText } from '@/helpers/htmlVisibleText'
 import { log } from '@/helpers/log'
 import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 import {
@@ -1202,6 +1203,19 @@ async function onEditorPaste(event) {
   //    #2504) -- resolved here via `resolvePendingImages` before the markdown is inserted.
   const html = event.clipboardData?.getData?.('text/html') ?? ''
   if (html.trim().length === 0) {
+    return
+  }
+  // -> OpenProject #2834: Monaco's own "copy with syntax highlighting" ALSO writes a `text/html`
+  //    payload -- per-token `<span style="color:...">` runs, one `<div>` per source line -- alongside
+  //    `text/plain` on every ordinary in-editor copy/cut, with nothing above to tell that apart from a
+  //    genuine external rich-content paste. `isSameVisibleText` reduces the HTML down to its own bare
+  //    visible text and compares it against this same clipboard event's `text/plain`: a same-editor
+  //    round trip is identical once reduced that way (Monaco colors the source, it never restructures
+  //    it), so the conversion below is skipped and the browser's own default plain-text paste runs
+  //    instead -- exactly what happened before OpenProject #2448 added this handler. A genuine rich
+  //    paste's `text/html` still reaches `htmlToMarkdown` unchanged.
+  const text = event.clipboardData?.getData?.('text/plain') ?? ''
+  if (isSameVisibleText(html, text)) {
     return
   }
   event.preventDefault()
@@ -2096,6 +2110,18 @@ $toolbar-btn: 30px;
     */
     .w-btn {
       min-height: $toolbar-btn !important;
+    }
+
+    /*
+      Cobalt draws this bar as a full-width SQUARE band (ui-iteration/README.md Part 1.1,
+      OpenProject #2870) -- not the rounded pill `WBtn`'s default `rounded-control` class
+      resolves to under Cobalt everywhere else (Task #2859's `--radius-control` token). Scoped to
+      just this toolbar's own buttons, the same way the min-height override above is; plain
+      unlayered SFC CSS already beats Tailwind's `@layer utilities` regardless of specificity, so
+      no `!important` is needed here.
+    */
+    @at-root .body--cobalt & .w-btn {
+      border-radius: 0;
     }
 
     /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */

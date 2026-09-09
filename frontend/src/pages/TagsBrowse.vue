@@ -715,10 +715,12 @@ onMounted(async () => {
   }
 
   /*
-    Cobalt's own glow on the selected chips (`box-shadow:0 4px 14px rgba(200,48,60,.35)` in the
-    mockup, `--shadow-primary`'s exact value) -- `none` under Ledger, so this is a no-op there. A
-    dedicated modifier class rather than reaching for `.tags-browse-chips` alone: that class is
-    shared with the "available tags" block below, which stays a flat fill with no glow.
+    `--shadow-primary` on the selected chips -- `none` under both Ledger and Cobalt now (OpenProject
+    #2856's matte pass dropped the mockup's `box-shadow:0 4px 14px rgba(200,48,60,.35)` glow
+    outright, no replacement), so this rule is a no-op in every aesthetic today and is kept as the
+    wiring `--shadow-primary` gains a value again through in the future. A dedicated modifier class
+    rather than reaching for `.tags-browse-chips` alone: that class is shared with the "available
+    tags" block below, which stays a flat fill with no glow.
 
     OpenProject #2813: this is a `WChip`, not a `WBtn`, so it can't pick up `--shadow-primary`
     through that component's own `color="accent"` wiring -- it stays a direct, hand-wired consumer
@@ -757,9 +759,11 @@ onMounted(async () => {
     }
 
     /*
-      Cobalt draws this plate as a shadowed sheet, not a hairline-bordered box (`border-radius:8px;
-      box-shadow:0 2px 10px rgba(16,25,74,.08)` in the mockup) -- `--radius-card`/`--shadow-card`
-      are both `0`/`none` under Ledger, so the border above stays the only visible edge there.
+      Cobalt draws this plate's edge through `--shadow-card` alone, not the `border` above --
+      `--radius-card`/`--shadow-card` are both `0`/`none` under Ledger, so that border stays the
+      only visible edge there, and under Cobalt `--shadow-card` is itself a hairline ring now
+      (OpenProject #2856's matte pass), not the mockup's blurred `box-shadow:0 2px 10px
+      rgba(16,25,74,.08)` glow.
     */
     @at-root body.body--cobalt & {
       border: 0;
@@ -823,10 +827,11 @@ onMounted(async () => {
 
 /*
   OpenProject #2717: this page's own top band (`.w-section-header`, "Browse by tags") sat at the
-  shared 34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 38px`)
-  beside it and `.page-breadcrumbs` (`Index.vue`, `min-height: 38px`, matched to `.sidebar-actions` by
-  #2613) sit at the same vertical position everywhere else -- so this band's own bottom hairline
-  landed 4px above theirs instead of on the same line.
+  shared 34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 41px` as of
+  #2861's three-cell locale|browse|top restructure) beside it and `.page-breadcrumbs` (`Index.vue`,
+  `min-height: 41px`, matched to `.sidebar-actions` by #2613 and re-matched by #2861) sit at the same
+  vertical position everywhere else -- so this band's own bottom hairline landed above theirs instead
+  of on the same line.
 
   The shared `.w-section-header` stays 34px (`#2631`'s own rhythm, guarded by
   `sectionHeaderRhythm.test.js`, which scans for -- and this rule deliberately isn't -- a `padding`
@@ -837,11 +842,11 @@ onMounted(async () => {
   `min-height`, not `height`, for the same reason `.page-breadcrumbs` uses it: a long enough locale
   name or a wrapped title still has to be able to grow past the band. Fill and border are left alone
   -- the design (`ui-redesign/Cardinal Wiki - Tags 3x.dc.html`) already draws this band at the shared
-  class's own tint fill and hairline rule, just 38px tall, so nothing else needs to change for the
-  two bands to read as one strip.
+  class's own tint fill and hairline rule, just re-pinned to 41px tall to follow #2861, so nothing
+  else needs to change for the two bands to read as one strip.
 */
 .tags-browse .w-section-header {
-  min-height: 38px;
+  min-height: 41px;
 }
 
 /*

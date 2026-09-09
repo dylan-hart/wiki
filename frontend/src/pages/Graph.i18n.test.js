@@ -17,7 +17,6 @@ describe('Graph.vue i18n and accessible naming', () => {
         'graph.controls.groupByClassification': 'xx-classification',
         'graph.controls.sizeByLabel': 'xx-sizeBy',
         'graph.controls.sizeByEdits': 'xx-edits',
-        'graph.controls.countLabel': 'xx-count',
         'graph.controls.countAriaLabel': 'xx-uniqueOrTotal',
         'graph.controls.countUnique': 'xx-unique',
         'graph.controls.countTotal': 'xx-total',
@@ -37,7 +36,6 @@ describe('Graph.vue i18n and accessible naming', () => {
       'xx-classification',
       'xx-sizeBy',
       'xx-edits',
-      'xx-count',
       'xx-unique',
       'xx-total',
       'xx-editsBy',
@@ -54,8 +52,9 @@ describe('Graph.vue i18n and accessible naming', () => {
 
     expect(wrapper.find('[aria-label="xx-groupBy"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="xx-sizeBy"]').exists()).toBe(true)
-    // -> The 'Count' toggle's aria-label is its own key ('Unique or total'), distinct from its
-    //    visible caption ('Count') -- both must resolve through `t()` independently.
+    // -> SIZE BY and COUNT share one row and one caption now (OpenProject #2855/#2828): the count
+    //    toggle has no visible caption of its own any more, but still resolves its own aria-label
+    //    ('Unique or total') through `t()` independently of the shared 'Size by' caption.
     expect(wrapper.find('[aria-label="xx-uniqueOrTotal"]').exists()).toBe(true)
   })
 
@@ -102,6 +101,10 @@ describe('Graph.vue i18n and accessible naming', () => {
     })
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    // -> This test is about plural-message resolution, not `sizeCountMode` (which defaults to
+    //    'total' -- OpenProject #2853) -- pinned explicitly so the unique-count figures below stay
+    //    meaningful regardless of that default.
+    wrapper.vm.sizeCountMode = 'unique'
 
     // -> nodeA's edits count is 4 (both contributor types checked, the default) -> plural form.
     wrapper.vm.hoveredNode = nodeA
@@ -128,13 +131,15 @@ describe('Graph.vue i18n and accessible naming', () => {
   it("renders the hover tooltip's visit count through a real plural message when sizing by visits (OpenProject #1690)", async () => {
     const wrapper = await mountGraph({
       messageOverrides: {
-        // -> `sizeCountMode` defaults to 'unique' (OpenProject #2293), so the default visits
-        //    tooltip resolves through `graph.tooltip.uniqueVisitors`, not `graph.tooltip.visits`
-        //    (that key backs the 'total' count mode instead -- see the sibling 'total' test below).
+        // -> `sizeCountMode` defaults to 'total' (OpenProject #2853), so 'unique' is set explicitly
+        //    here to reach `graph.tooltip.uniqueVisitors` -- `graph.tooltip.visits` backs the
+        //    'total' count mode instead (see the sibling 'total' test below, which no longer needs
+        //    to set `sizeCountMode` itself since 'total' is now the default).
         'graph.tooltip.uniqueVisitors': '{count} xx-one-visit | {count} xx-many-visits'
       }
     })
     wrapper.vm.sizeBy = 'visits'
+    wrapper.vm.sizeCountMode = 'unique'
     await flushPromises()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
 

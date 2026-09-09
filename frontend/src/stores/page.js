@@ -956,10 +956,24 @@ export const usePageStore = defineStore('page', {
 
         const wasCreate = editorStore.mode === 'create'
 
+        /*
+          OpenProject #2824: `NavSidebarItem.vue` draws a cached tree entry's icon and title
+          straight from the nav-tree response, not from a live page fetch -- so a plain content
+          save that changes either one leaves the sidebar showing the pre-save glyph/label until
+          something unrelated (a different menu, an admin nav edit) happens to force a refetch.
+          Computed against `this.icon`/`this.title` (what THIS save's own `body` was built from,
+          above) before `$patch` below overwrites them with the response -- and against
+          `patchedPage`'s already-`pagePatch`-normalized `icon`, so an untouched `''` -> default
+          fallback on a page that had never had an icon picked doesn't read as a change.
+        */
+        const patchedPage = pagePatch(pageData)
+        const navDisplayChanged =
+          !wasCreate && (patchedPage.icon !== this.icon || patchedPage.title !== this.title)
+
         // -> Whatever was just sent has already been written, so `pagePatch`'s password reset is
         //    what stops a plaintext secret sitting there, pending, past the save it was for
         this.$patch({
-          ...pagePatch(pageData),
+          ...patchedPage,
           /*
             A save is exactly the thing that moves a page along its own history, and the save
             response deliberately carries no `revision` (it is history data, present only on a page
@@ -977,11 +991,14 @@ export const usePageStore = defineStore('page', {
           from the tree -- it is a new entry, not an edit to one already there -- with nothing on the
           backend to tell an already-open tab. `this.navigationId` is already the just-created page's
           own (`this.$patch()` above just applied it, from the server's `models/tree.ts`-assigned
-          value), which is exactly the menu the reader is about to land on via `editorExitPath` below
-          -- an ordinary content update (`wasCreate` false) never adds or removes a tree entry, so it
-          is left alone rather than force-refetching on every save.
+          value), which is exactly the menu the reader is about to land on via `editorExitPath` below.
+
+          An ordinary content update never adds or removes a tree entry, so it is left alone rather
+          than force-refetching on every save -- except when it changed what an existing entry
+          *displays* (OpenProject #2824, `navDisplayChanged` above), since the icon and title are
+          drawn from that same cached tree.
         */
-        if (wasCreate) {
+        if (wasCreate || navDisplayChanged) {
           await siteStore.fetchNavigation(this.navigationId, true)
         }
 

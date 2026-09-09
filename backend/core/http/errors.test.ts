@@ -20,7 +20,7 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
  *
  * | probe                | `/_api/` branch                                | non-API branch                        |
  * | -------------------- | ---------------------------------------------- | ------------------------------------- |
- * | 404 (has statusCode) | silent (answered as-is)                        | logs `unhandled error outside /_api`  |
+ * | 404 (has statusCode) | silent (answered as-is)                        | silent (answered as-is, Bug #2837)    |
  * | 500 (unexpected)     | logs `unhandled error, answered 500`, its       | logs `unhandled error outside /_api`, |
  * |                      | fields carrying `buildErrorLogContext(req)`    | fields `{ error }` alone              |
  *
@@ -75,7 +75,7 @@ describe('registerErrorHandler', () => {
     warn.mock.resetCalls()
   })
 
-  test('a deliberate error is logged on the non-API surface and stays silent under /_api/', async () => {
+  test('a deliberate error stays silent on both surfaces (Bug #2837)', async () => {
     const api = await app.inject({ method: 'GET', url: '/_api/deliberate' })
     assert.equal(api.statusCode, 404)
     assert.equal(
@@ -88,20 +88,9 @@ describe('registerErrorHandler', () => {
     assert.equal(other.statusCode, 404)
     assert.equal(
       error.mock.calls.length,
-      1,
-      'the non-API branch logs every error it answers, deliberate ones included'
-    )
-    const [scope, message, fields] = error.mock.calls[0]!.arguments as [
-      string,
-      string,
-      Record<string, unknown>
-    ]
-    assert.equal(scope, 'http')
-    assert.equal(message, 'unhandled error outside /_api')
-    assert.deepEqual(
-      Object.keys(fields),
-      ['error'],
-      'the non-API branch is handed no request, so it has no log context to attach'
+      0,
+      'the non-API branch answers a statusCode-carrying error without logging it too (Bug #2837) -- ' +
+        'this used to log every deliberate 4xx (icon-set 404s and the like), flooding the logs'
     )
     assert.equal(warn.mock.calls.length, 0, 'neither branch logs at warn (#2650)')
   })

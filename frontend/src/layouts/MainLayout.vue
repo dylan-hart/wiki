@@ -95,7 +95,7 @@
                exists to divide the two, so it goes with them -->
           <template v-if="siteStore.locales.showMenu">
             <w-btn
-              class="icon-lg px-2"
+              class="icon-lg sidebar-actions-locale px-2"
               flat
               dense
               icon="tabler:language"
@@ -117,8 +117,35 @@
             size="sm">
             <nav-browse-menu :offset="[-5, 5]" />
           </w-btn>
+          <!--
+            -> Trailing "Top" cell -- ALWAYS reserved at 40x40 (`.sidebar-actions-top` below), so
+               Locale/Browse above never shift width the moment this fades in. The separator fades
+               in step with the button, both keyed off `showSidebarTop`; at page top the wrapper is
+               still here holding the width, just empty, per the WP's own "cell is empty" wording.
+               The button itself mounts/unmounts on a v-if inside a <transition> (matching
+               `WPageScroller`'s own visible/scrollToTop shape) rather than merely toggling opacity,
+               so it drops out of the tab order and the accessibility tree while hidden with no
+               extra `tabindex`/`aria-hidden` bookkeeping needed here.
+          -->
+          <w-separator
+            vertical
+            class="sidebar-actions-top-sep"
+            :class="{ 'opacity-0': !showSidebarTop }" />
+          <div class="sidebar-actions-top flex items-center justify-center">
+            <transition name="sidebar-actions-top-fade">
+              <w-btn
+                v-if="showSidebarTop"
+                flat
+                dense
+                icon="tabler:arrow-up"
+                :label="t(`common.sidebar.top`)"
+                :aria-label="t(`common.actions.returnToTop`)"
+                size="sm"
+                @click="scrollSidebarToTop" />
+            </transition>
+          </div>
         </div>
-        <nav-sidebar />
+        <nav-sidebar ref="navSidebarEl" />
         <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one.
                 Not a `w-bar` (Feature 2604 conformance pass): its `dense` variant's own translucent
                 fill and forced 8px button label are scoped inside `WBar.vue` and cannot be
@@ -145,8 +172,8 @@
       menu button.
 
       Bottom LEFT whichever side the sidebar is on, because the opposite corner belongs to
-      scroll-to-top: on a narrow viewport that button is in the corner too (`scrollerAnchorX` is null),
-      so one that followed the sidebar to the right would land on top of it.
+      scroll-to-top: on a narrow viewport that button is in the corner too, so one that followed the
+      sidebar to the right would land on top of it.
 
       The position goes on a wrapper rather than on the button, as `WPageScroller` does it: `WBtn` is
       `relative` from its own class list, and Tailwind emits `relative` after `fixed`, so a `fixed`
@@ -187,25 +214,25 @@
         flush to the edge, and rounded on the top LEFT, since this is the corner it is tucked into from
         the other side.
 
-        On a wide screen it is the same button in a corner of its own -- the bottom of the sidebar's
-        column, ending where that column ends (`scrollerAnchorX`). Flush there too, so it is unelevated:
-        a shadow is what a disc floating over the page needs, and this one is not floating over anything.
-        And it is filled in the sidebar's own colour a shade lighter (`--color-sidebar-light`), since
-        there it is part of that column rather than an accent laid over the page.
+        OpenProject #2863: this corner disc used to also cover the wide (>=1200px) case, flush against
+        the bottom of the sidebar's own column instead of floating in the corner (`scrollerAnchorX`,
+        removed along with `WPageScroller`'s `anchorX` prop -- its only caller). That mode retires
+        outright at >=1200px, now that the sidebar's own "Top" cell in `.sidebar-actions` (Feature
+        #2840) covers scroll-to-top there instead -- so this only ever renders in the narrower range
+        below, where the sidebar overlays the page rather than columning beside it.
 
-        And it stands down below 750px, where the page view's contents panel takes this corner for its own
-        opener -- one button per corner, and there the contents are the more useful of the two. See
-        `showTocPanelBtn` in `pages/Index.vue`, which is what fills the gap.
+        And it stands down below 750px too, where the page view's contents panel takes this corner for
+        its own opener -- one button per corner, and there the contents are the more useful of the two.
+        See `showTocPanelBtn` in `pages/Index.vue`, which is what fills the gap.
       -->
       <w-page-scroller
-        v-if="isAtLeastTocPanelWidth"
+        v-if="isAtLeastTocPanelWidth && !isWideViewport"
         :scroll-offset="150"
-        :anchor-x="scrollerAnchorX"
         target=".page-container-scrl">
         <w-btn
           class="corner-btn corner-btn--right"
           icon="tabler:arrow-up"
-          :color="scrollerAnchorX ? `sidebar-light` : `primary`"
+          color="primary"
           round
           size="md"
           :aria-label="t(`common.actions.returnToTop`)" />
@@ -216,7 +243,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
@@ -443,29 +470,115 @@ const showSidebarCollapseOverride = computed(() => {
   return isSidebarMiniForced.value && sidebarExpandOverride.value
 })
 
-/** Sidebar widths, in px: the full nav, and the icon rail it collapses to. */
-const SIDEBAR_WIDTH = 255
+/** Sidebar widths, in px: the icon rail the full nav collapses to (unaffected by the auto-growing
+ *  logic below) and the floor/cap the full nav itself is clamped between. */
+const SIDEBAR_WIDTH_MIN = 255
+const SIDEBAR_WIDTH_MAX = 510
 const SIDEBAR_WIDTH_MINI = 56
 
-const sidebarWidth = computed(() => (isSidebarMini.value ? SIDEBAR_WIDTH_MINI : SIDEBAR_WIDTH))
+/**
+ * Auto-growing sidebar width (OpenProject #2850): the full-width drawer used to be the fixed
+ * `SIDEBAR_WIDTH_MIN` above at all times. It now grows to fit the widest currently-visible nav
+ * item label's own single-line content width -- so a label that would otherwise ellipsize
+ * (#2849) gets the room it needs instead -- capped at `SIDEBAR_WIDTH_MAX` (2x the old fixed
+ * width) so one long label cannot blow the sidebar out arbitrarily, and floored at the old fixed
+ * width so a short or empty tree never renders narrower than the original design.
+ */
+const sidebarContentWidth = ref(SIDEBAR_WIDTH_MIN)
 
-/*
-  The scroll-to-top button ENDS where the sidebar's column does, tucked into the bottom of it: the
-  sidebar's own width on the left, or the window's right edge when the site puts its sidebar there,
-  since that is the side that column ends on.
+/** The mounted `NavSidebar` instance -- `.$el` is its single root DOM node (`NavSidebar.vue`'s
+ *  own `<w-scroll-area class="sidebar-nav">`), queried directly below rather than having
+ *  `NavSidebar`/`NavSidebarItem` expose a ref or emit of their own: per the epic's own
+ *  coordination note, a DOM query scoped to this element keeps #2850 isolated to this file with
+ *  no new cross-component surface for a sibling task touching the same components this round to
+ *  collide with. Only populated while the full nav renders at all -- the mini rail's template
+ *  branch never mounts `<nav-sidebar>`. */
+const navSidebarEl = ref(null)
 
-  Null puts it back in the corner, for every case where there is no sidebar beside it: a narrow
-  viewport (the drawer overlays the page), a site with no sidebar, and the editor, which closes the
-  sidebar to take the full width. That is the corner button, and it is left exactly as it was.
-*/
-const scrollerAnchorX = computed(() => {
-  // -> No separate test for `sidebarPosition === 'off'`: that IS `sideNavIsDisabled`, which
-  //    `isSidebarAvailable` already asks
-  if (!isWideViewport.value || !isSidebarAvailable.value) {
-    return null
+/**
+ * Measures every rendered `.truncate` label under the mounted `NavSidebar` (the span
+ * `NavSidebarItem.vue` gives each row, styled `white-space: nowrap; overflow: hidden` so
+ * `scrollWidth` reports its full, un-clipped natural width regardless of how narrow the box
+ * actually rendered) and sizes `sidebarContentWidth` to the widest one, clamped to
+ * `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`.
+ *
+ * The width the WHOLE drawer would need to be for one label alone to stop clipping is
+ * `sidebarContentWidth.value - label.clientWidth + label.scrollWidth`: `clientWidth` is
+ * however much of that label's natural width the CURRENT drawer width actually gives it, so
+ * `sidebarContentWidth.value - label.clientWidth` is everything else in that row -- icon,
+ * padding, and this row's own nesting-depth indentation (`NavSidebar.vue`'s
+ * `.w-expansion-item__content` gives every level a 10px indent via its own transparent
+ * `border-inline-start`, which is exactly why a single fixed chrome constant across every row
+ * would be wrong here). Every row spans the same drawer width regardless of its depth, so that
+ * "everything else" figure is invariant to the drawer's width and can be read off however wide
+ * the drawer happens to be measured right now.
+ *
+ * A collapsed folder's descendant rows sit inside a `v-show`-hidden `.w-expansion-item__content`
+ * (Vue sets `display: none` on it) -- which zeroes BOTH `clientWidth` and `scrollWidth`, so
+ * without an explicit visibility guard the formula above would misread such a label as needing
+ * the full CURRENT width rather than nothing, permanently blocking the sidebar from ever
+ * shrinking back down once grown. `offsetParent === null` is the standard "is this actually
+ * rendered right now" check and is what excludes them instead.
+ */
+function measureSidebarWidth() {
+  const root = navSidebarEl.value?.$el
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return
   }
-  return siteStore.theme.sidebarPosition === 'right' ? '100%' : `${sidebarWidth.value}px`
+  let widest = SIDEBAR_WIDTH_MIN
+  for (const label of root.querySelectorAll('.truncate')) {
+    if (label.offsetParent === null) {
+      continue
+    }
+    const needed = sidebarContentWidth.value - label.clientWidth + label.scrollWidth
+    if (needed > widest) {
+      widest = needed
+    }
+  }
+  sidebarContentWidth.value = Math.min(SIDEBAR_WIDTH_MAX, widest)
+}
+
+let sidebarMutationObserver = null
+
+// Re-measures whenever the mounted `NavSidebar` itself changes -- its very first mount, and any
+// later one (mini mode toggling off and back on unmounts/remounts `<nav-sidebar>` entirely, per
+// the template above). A fresh instance means a fresh DOM node to observe, so the old observer
+// (if any) is torn down and a new one attached -- the same "the ref's target node changed under
+// me" convention `NavSidebarItem.vue` already uses for its own per-label `ResizeObserver`.
+watch(navSidebarEl, (component) => {
+  sidebarMutationObserver?.disconnect()
+  sidebarMutationObserver = null
+  const root = component?.$el
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return
+  }
+  nextTick(measureSidebarWidth)
+  // -> A folder expanding/collapsing toggles its `.w-expansion-item__content`'s inline `display`
+  //    (Vue's `v-show`) -- watching for a `style` attribute change anywhere in the tree is what
+  //    re-measures on that, with no new prop/emit needed from `NavSidebarItem.vue` itself (see
+  //    `measureSidebarWidth`'s own doc comment above).
+  sidebarMutationObserver = new MutationObserver(measureSidebarWidth)
+  sidebarMutationObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ['style'],
+    subtree: true
+  })
 })
+
+onBeforeUnmount(() => sidebarMutationObserver?.disconnect())
+
+// Recomputes as the nav tree itself changes -- a different menu resolving, an edit through
+// `NavEditOverlay`, a locale switch. Deep, since an in-place edit to the tree (rather than a
+// wholesale replacement of `siteStore.nav.items` itself) still has to trigger a re-measure.
+watch(
+  () => siteStore.nav.items,
+  () => nextTick(measureSidebarWidth),
+  { deep: true }
+)
+
+const sidebarWidth = computed(() =>
+  isSidebarMini.value ? SIDEBAR_WIDTH_MINI : sidebarContentWidth.value
+)
 
 // -> The "Allow Browsing" site feature (admin/general): with it off the tree browser is not something
 //    a reader can reach, so the button that opens it does not render
@@ -473,6 +586,30 @@ const canBrowse = computed(() => siteStore.features.browse)
 
 // -> The action bar holds only the locale menu and Browse; with both off it would be an empty strip
 const showSidebarActions = computed(() => siteStore.locales.showMenu || canBrowse.value)
+
+/*
+  The scroll threshold past which `.sidebar-actions`'s own trailing "Top" cell fades in -- the same
+  150px `WPageScroller`'s corner button already uses for the SAME scrolling column
+  (`.page-container-scrl`), since both affordances answer the identical question ("has the reader
+  scrolled far enough down this page to want a way back up"). Kept as this component's own constant
+  rather than shared with `WPageScroller.vue` -- that file is #2863's to retire, not this WP's to
+  touch.
+*/
+const SIDEBAR_TOP_SCROLL_OFFSET = 150
+
+/** Whether the sidebar strip's trailing "Top" cell (inside `showSidebarActions`) is showing right now. */
+const showSidebarTop = ref(false)
+
+function updateSidebarTopVisibility() {
+  const el = document.querySelector('.page-container-scrl')
+  showSidebarTop.value = (el ? el.scrollTop : 0) > SIDEBAR_TOP_SCROLL_OFFSET
+}
+
+function scrollSidebarToTop() {
+  const el = document.querySelector('.page-container-scrl')
+  // -> `smooth` is ignored under `prefers-reduced-motion`, same as `WPageScroller`'s own click
+  ;(el ?? window).scrollTo({ top: 0, behavior: 'smooth' })
+}
 
 /*
   Whether to offer Edit Nav, in either of the two places the sidebar has for it -- the footer bar of the
@@ -512,11 +649,17 @@ const showEditNav = computed(() => {
 /*
   Following a link out of the overlaying sidebar puts it away, since what the reader asked for is
   behind it. On a wide viewport there is nothing to close and the flag is not consulted anyway.
+
+  The freshly-routed page's own `.page-container-scrl` starts scrolled to the top, so the "Top" cell
+  recomputes here too rather than waiting for the next scroll event -- otherwise a reader who leaves
+  the PREVIOUS page scrolled down would land on the new one still showing "Top" until they scroll it
+  themselves.
 */
 watch(
   () => route.path,
   () => {
     isNarrowSidebarOpen.value = false
+    updateSidebarTopVisibility()
   }
 )
 
@@ -525,6 +668,21 @@ watch(
 function openSidebar() {
   isNarrowSidebarOpen.value = true
 }
+
+// SIDEBAR ACTIONS: TOP
+
+/*
+  `capture`, because a scroll event on an element (`.page-container-scrl`) does not bubble to the
+  window -- the same reason `WPageScroller.vue` listens the same way.
+*/
+onMounted(() => {
+  window.addEventListener('scroll', updateSidebarTopVisibility, { capture: true, passive: true })
+  updateSidebarTopVisibility()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', updateSidebarTopVisibility, { capture: true })
+})
 
 // ENTRANCE FLOURISH
 
@@ -612,11 +770,14 @@ onMounted(() => {
   `#c5cff5`, which is what the token resolves to under Cobalt.
 */
 .sidebar-actions {
-  height: 38px;
+  // -> A true 40px interior: with the 1px `border-bottom` below and this box in `border-box` sizing
+  //    (Tailwind's preflight default), the content area is exactly 40px -- replacing the old
+  //    38px/37px band now that a third cell (Top) has to share the row on equal footing.
+  height: 41px;
   border-bottom: 1px solid var(--color-sidebar-hairline);
 
-  // -> Where the two buttons above get their colour, so neither carries a `color` prop: `WBtn` emits
-  //    an inline `color`, which would outrank this rule
+  // -> Where the buttons above get their colour, so none of them carries a `color` prop: `WBtn`
+  //    emits an inline `color`, which would outrank this rule
   .w-btn {
     color: var(--color-sidebar-actions-text);
   }
@@ -631,11 +792,171 @@ onMounted(() => {
   }
 }
 
+/*
+  Locale is a FIXED-width cell (unlike Browse's `flex-1`, which absorbs whatever Locale doesn't
+  claim) -- OpenProject #2861. `overflow: hidden` is a plain safety net for a locale code long
+  enough to overrun 72px (e.g. `pt-BR`); the mockup calls for a fixed cell, not an ellipsis, so
+  nothing fancier is added here.
+*/
+.sidebar-actions-locale {
+  flex: 0 0 72px;
+  width: 72px;
+  overflow: hidden;
+}
+
+/*
+  The trailing "Top" cell -- ALWAYS 40x40, whether or not the button inside it is currently mounted
+  (see the template comment above it), which is what keeps Locale/Browse from shifting width the
+  moment scrolling brings it in.
+*/
+.sidebar-actions-top {
+  flex: 0 0 40px;
+  width: 40px;
+}
+
+// -> Fades in step with the button it leads, on the same 150ms/opacity terms
+.sidebar-actions-top-sep {
+  transition: opacity 0.15s var(--ease-standard);
+}
+
+.sidebar-actions-top-fade-enter-active,
+.sidebar-actions-top-fade-leave-active {
+  transition: opacity 0.15s var(--ease-standard);
+}
+.sidebar-actions-top-fade-enter-from,
+.sidebar-actions-top-fade-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-actions-top-sep,
+  .sidebar-actions-top-fade-enter-active,
+  .sidebar-actions-top-fade-leave-active {
+    transition-duration: 0.01ms;
+  }
+}
+
 .body--dark:not(.body--cobalt) .sidebar-actions {
   border-bottom-color: var(--color-hairline-dark);
 
   .w-btn {
     color: var(--color-text-secondary-dark);
+  }
+}
+
+/*
+  OpenProject #2862 ("Sidebar strip: Ledger + Cobalt visual treatment"): the theme-specific finish
+  on top of #2861's structural locale|browse|top strip -- `ui-iteration/README.md` Part 1.4.
+
+  Both cell separators (the plain Locale|Browse one and `.sidebar-actions-top-sep`) are already
+  `<w-separator>`s, which paint through `--w-hairline-color` (see `.w-hairline` in `tailwind.css`)
+  rather than a plain `border` -- Part 1.3's "border-right on the cells, not freestanding spans" is
+  what #2861 built them as, so recolouring that hook is what stands in for the mockup's literal
+  `border-right: 1px solid #dbe1ec`/`#2a3040` here, rather than adding a second rule mechanism.
+*/
+.sidebar-actions .w-separator {
+  --w-hairline-color: var(--color-hairline);
+}
+
+.sidebar-actions-top .w-btn {
+  // -> Ledger's "white plate": filled and coloured at rest, not only on hover, unlike Locale/Browse
+  background-color: var(--color-white);
+  color: var(--color-accent);
+
+  &:hover {
+    background-color: var(--color-accent-wash);
+  }
+
+  // -> Pins the arrow-up to the mockup's 15px regardless of WBtn's own em-scaled icon rule -- the
+  //    same tie this file's `.icon-lg .w-icon` rule above already documents (OpenProject #2788).
+  .w-icon {
+    font-size: 15px !important;
+  }
+
+  // -> WBtn's content wrapper flips from its default row to a column, so "TOP" sits under the
+  //    arrow rather than beside it -- the only way both fit inside a 40px (Ledger) or 32px
+  //    (Cobalt) cell. Scoped to the Top cell alone; every other labelled button keeps WBtn's row.
+  > span {
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  // -> The "TOP" label itself: Roboto Mono, uppercased here rather than in the translation string
+  //    so `common.sidebar.top` stays natural-case ("Top"), matching `NavSidebar.vue`'s section
+  //    kicker convention. Sized off its own rule rather than the button's `font-size`, which the
+  //    inline `min-height`/`padding` styles are `em`-relative to and would shrink along with it.
+  > span > span {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 7.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+}
+
+.body--dark:not(.body--cobalt) {
+  .sidebar-actions .w-separator {
+    --w-hairline-color: var(--color-hairline-dark);
+  }
+
+  // -> Specificity-tied with the generic `.sidebar-actions .w-btn { color: ... }` dark override
+  //    above; wins on source order, declared after it, same as that rule's own sibling overrides.
+  .sidebar-actions-top .w-btn {
+    background-color: var(--color-dark-2);
+    color: var(--color-accent-dark);
+
+    &:hover {
+      background-color: rgb(240 130 135 / 0.14);
+    }
+  }
+}
+
+/*
+  Cobalt: no rules at all (`ui-iteration/README.md` 1.1's global "remove every hairline rule"
+  applies to this strip too) -- both separators disappear outright rather than fading to a
+  near-invisible tint, and the strip's own bottom rule goes with them. `--color-sidebar-hairline`
+  itself stays untouched: it is shared with `NavItemEditor.vue`/`InboxOverlay.vue`, outside this
+  WP's scope, so the fix is local to this component instead of the shared token.
+*/
+body.body--cobalt {
+  .sidebar-actions {
+    border-bottom: none;
+  }
+
+  .sidebar-actions .w-separator {
+    display: none;
+  }
+
+  // -> Locale and Browse become flat, inset tiles. `rounded-control` (WBtn's own default corner
+  //    class, applied to every non-round/non-rounded button) already resolves to Cobalt's 6px, so
+  //    only the inset margin and hover wash are new here. Icon and label take different tones --
+  //    the sidebar's icon token vs. its actions-text token -- unlike Ledger, where both inherit the
+  //    same `.w-btn` colour from the rule at the top of this file.
+  .sidebar-actions .icon-lg {
+    margin: 4px 0 4px 4px;
+
+    &:hover {
+      background-color: rgb(255 255 255 / 0.08);
+    }
+
+    .w-icon {
+      color: var(--color-sidebar-icon);
+    }
+  }
+
+  // -> 32x32, not the 40px cell it sits inside -- `!important` on padding beats WBtn's own inline
+  //    `style` binding (dense's `padding: 0 0.8em`), which no external stylesheet rule can
+  //    outrank otherwise.
+  .sidebar-actions-top .w-btn {
+    background-color: transparent;
+    color: #ff8f97;
+    width: 32px;
+    height: 32px;
+    padding: 0 !important;
+
+    &:hover {
+      background-color: rgb(255 77 90 / 0.18);
+    }
   }
 }
 
@@ -777,11 +1098,54 @@ body.body--dark {
         is removed rather than recoloured: Cobalt's own mockups (`Cardinal Wiki - File Manager 3x
         - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) draw a plain rounded
         panel with no title-band edge at all.
+
+        OpenProject #2864: that fix gave THIS box the fill, the radius AND the `overflow: hidden`
+        clip together, which is exactly the combination `ui-iteration/README.md` Part 1.2 traces
+        the corner fringe to -- a dark, flat-cornered `.card-header` clipped by a filled ancestor's
+        rounded `overflow: hidden` leaves a light antialiasing sliver at the two top corners
+        (confirmed in the deployed app). The panel now draws no fill of its own and does not clip;
+        `border-radius` stays so its `box-shadow` above still follows the rounded outline. The
+        header and body below round and fill THEMSELVES instead, so there is no shared clip
+        boundary between two differently-coloured boxes for a browser to antialias.
       */
       @at-root .body--cobalt & {
         border-top: 0;
         border-radius: var(--radius-dialog);
-        overflow: hidden;
+        background: transparent;
+        overflow: visible;
+      }
+
+      /*
+        `.card-header` is the shared title-band class 60+ dialogs use (`css/_base.scss`), not
+        something owned by any one overlay -- every entry `MainOverlayDialog.vue` mounts (Inbox,
+        Profile, File Manager, History, Table Editor, Edit Menu Items, Block Picker, ...) renders
+        one as its own first element, so rounding it here (scoped under `.main-overlay`) reaches
+        all of them without editing a single overlay component.
+
+        The body "wrapper" is whatever sibling(s) follow the header inside that overlay's own
+        layout -- a single `.w-page-container` for most of them, a left and/or right `w-drawer`
+        flanking it for File Manager and Inbox. `+ *` matches only the FIRST such sibling (rounds
+        its own outer bottom-left corner) and `~ *:last-child` only the LAST one (rounds its own
+        outer bottom-right corner); a lone body element matches both rules and gets both corners,
+        while a middle element sitting between two others (a table's own `main` cell when both
+        drawers are open) matches neither and stays square -- correctly, since it never reaches the
+        panel's outer edge and rounding it would carve a false notch into its own interior seam.
+        `--float-bg` is the existing per-aesthetic "raised surface" token (`#fff` in Cobalt light,
+        the dark ramp's own "card, dialog body" rung in Cobalt dark) -- reused rather than a new
+        custom property, since it already resolves correctly for both.
+      */
+      @at-root .body--cobalt & .card-header {
+        border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
+      }
+      @at-root .body--cobalt & .card-header + * {
+        background: var(--float-bg);
+        overflow: auto;
+        border-bottom-left-radius: var(--radius-dialog);
+      }
+      @at-root .body--cobalt & .card-header ~ *:last-child {
+        background: var(--float-bg);
+        overflow: auto;
+        border-bottom-right-radius: var(--radius-dialog);
       }
     }
   }

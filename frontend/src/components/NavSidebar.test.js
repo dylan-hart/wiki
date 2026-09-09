@@ -1003,14 +1003,13 @@ describe('NavSidebar', () => {
    * A static check on the source rather than a rendered assertion, for the reason the file header
    * above gives: happy-dom cannot resolve a logical property against `direction`, so the only way
    * left to catch a stray physical declaration sneaking back into this `<style>` block is to grep
-   * for one. Specifically the open-group rail's own border: it sits right next to two pseudo-element
-   * "elbows" that already read `inset-inline-start`, and a `border-left` here would point the
-   * straight run of the rail at a different edge than its own turns once `dir="rtl"` moves them.
+   * for one. Specifically the open-group indent's own border, which uses a logical property so a
+   * `dir="rtl"` page still indents into the reading direction rather than the visual left.
    *
    * Scoped to the `<style>` block specifically rather than the whole file, since a script-side
    * `right`/`left` property name (positioning, not a physical border) would otherwise false-match.
    */
-  it('keeps the open-group rail on a logical (inline-start) border, not a physical one', () => {
+  it('keeps the open-group indent on a logical (inline-start) border, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
@@ -1018,6 +1017,29 @@ describe('NavSidebar', () => {
     expect(styleBlock).not.toMatch(/border-left\s*:/)
     expect(styleBlock).not.toMatch(/border-right\s*:/)
     expect(styleBlock).toMatch(/border-inline-start\s*:\s*10px/)
+  })
+
+  /**
+   * OpenProject #2827: the per-level rail/wash/elbow used to darken and highlight a nested group's
+   * children on top of the plain indent -- a colored `border-inline-start`, a compounding
+   * `background-color`/`background-clip` wash, and a mitred `&::before` elbow turning the rail out
+   * of the row above. All three are removed; indentation and the `.w-expansion-item__arrow`
+   * chevron are the only nesting cues left. Asserted on the source, for the same happy-dom-cannot-
+   * resolve-logical-properties reason the test above gives, and specifically that the surviving
+   * border is transparent -- not merely present -- since the 10px width has to stay (it is the
+   * only thing providing per-level indentation) while its color goes.
+   */
+  it('removes the nested-item rail/wash/elbow, keeping only a transparent indent border', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+    const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content')
+    const contentRule = styleBlock.slice(contentRuleStart, contentRuleStart + 400)
+
+    expect(contentRule).toMatch(/border-inline-start\s*:\s*10px solid transparent/)
+    expect(contentRule).not.toMatch(/background-color/)
+    expect(contentRule).not.toMatch(/background-clip/)
+    expect(contentRule).not.toMatch(/&::before/)
   })
 
   /**
@@ -1131,5 +1153,83 @@ describe('NavSidebar sidebar-nav border-top (OpenProject #2726)', () => {
     const el = wrapper.find('.sidebar-nav').element
     expect(Number.parseFloat(getComputedStyle(el).borderTopWidth) || 0).toBe(0)
     wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2846: a folder's open/closed state now comes from the shared, tree-wide
+ * `navExpansionState` composable -- provided once here at `NavSidebar.vue`'s root and injected by
+ * every `NavSidebarItem` -- rather than `WExpansionItem`'s own per-instance uncontrolled state.
+ * These cases exercise that directly, on top of the default-open (`expandByDefault`/
+ * `containsCurrent`) coverage already above, which continues to exercise the same shared-state
+ * code path since it is what seeds a never-before-seen id.
+ */
+describe('NavSidebar shared folder expansion state (OpenProject #2846)', () => {
+  function twoFolders() {
+    return [
+      {
+        id: 'folder-a',
+        type: 'link',
+        icon: 'tabler:folder',
+        label: 'Folder A',
+        children: [
+          { id: 'leaf-a', type: 'link', icon: 'tabler:file', label: 'Leaf A', target: '/a' }
+        ]
+      },
+      {
+        id: 'folder-b',
+        type: 'link',
+        icon: 'tabler:folder',
+        label: 'Folder B',
+        children: [
+          { id: 'leaf-b', type: 'link', icon: 'tabler:file', label: 'Leaf B', target: '/b' }
+        ]
+      }
+    ]
+  }
+
+  it('a plain click still toggles exactly that folder, open then closed -- the controlled binding changes the mechanism, not this behavior', async () => {
+    const { wrapper } = await mountNav(twoFolders())
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('false')
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('toggling one folder leaves an unrelated sibling folder unaffected', async () => {
+    const { wrapper } = await mountNav(twoFolders())
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+    expect(headerFor(wrapper, 'Folder B').attributes('aria-expanded')).toBe('false')
+  })
+
+  it("keeps a folder's toggled-open state after it is removed from the tree and later reappears, proving the state outlives the item's own component instance", async () => {
+    const items = twoFolders()
+    const { wrapper } = await mountNav(items)
+    const siteStore = useSiteStore()
+
+    await headerFor(wrapper, 'Folder A').trigger('click')
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+
+    // -> Folder A's own `NavSidebarItem` instance is genuinely unmounted here (removed from the
+    //    `v-for` entirely, not merely re-rendered in place with the same key).
+    siteStore.nav.items = items.filter((item) => item.id !== 'folder-a')
+    await wrapper.vm.$nextTick()
+    expect(
+      wrapper.findAll('.w-expansion-item__header').some((h) => h.text().includes('Folder A'))
+    ).toBe(false)
+
+    // -> ...and reappears as a fresh component instance, seeded once more from
+    //    `expandByDefault || containsCurrent(item)` -- were the state still `WExpansionItem`'s own,
+    //    this fresh instance would have no memory of the earlier click and would come back closed.
+    siteStore.nav.items = items
+    await wrapper.vm.$nextTick()
+
+    expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
   })
 })

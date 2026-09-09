@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -16,6 +16,30 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
  * alongside the six other fork-invented surfaces it applies to.
  */
 const source = readFileSync(join(import.meta.dirname, 'TableEditorOverlay.vue'), 'utf-8')
+
+/**
+ * Isolates one brace-balanced `<style>` block by its opening marker, so a structural check can ask
+ * "does X live inside this specific nested rule" without a regex trying to track SCSS nesting depth
+ * itself. Returns the block INCLUDING both braces, or `null` when the marker isn't found.
+ */
+function extractBalancedBlock(text, startMarker) {
+  const markerIndex = text.indexOf(startMarker)
+  if (markerIndex === -1) {
+    return null
+  }
+  const blockStart = text.indexOf('{', markerIndex)
+  let depth = 0
+  let i = blockStart
+  do {
+    if (text[i] === '{') {
+      depth++
+    } else if (text[i] === '}') {
+      depth--
+    }
+    i++
+  } while (depth > 0 && i < text.length)
+  return text.slice(blockStart, i)
+}
 
 describe('TableEditorOverlay help link', () => {
   it('still uses siteStore elsewhere in the component', () => {
@@ -146,15 +170,128 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
   })
 
   /*
-    Two things this screen must NOT do, per the epic's coordination note: retune `.w-section-header`
-    (OpenProject #2631 owns the band's own rhythm across all eleven of its callers) and write a
-    radius (the `--radius-*` scale is zeroed, and `--radius-full` survives only for genuinely round
-    shapes -- a cell corner is neither).
+    This screen must NOT retune `.w-section-header` -- OpenProject #2631 owns the band's own rhythm
+    across all eleven of its callers.
   */
-  it('leaves the section-header band and the zeroed radius scale alone', () => {
+  it('leaves the section-header band alone', () => {
     expect(source).toContain('class="w-section-header')
     expect(source).not.toMatch(/\.w-section-header\s*\{/)
-    expect(source).not.toMatch(/border-radius|rounded-(?!none)/)
+  })
+
+  /*
+    The `--radius-*` scale is zeroed outside Cobalt, and this grid used to draw no radius at all --
+    OpenProject #2858 is the one deliberate exception, and it must stay scoped to `.body--cobalt`
+    rather than leaking a radius onto the grid under any other aesthetic. `extractBalancedBlock`
+    isolates the one Cobalt-scoped block by brace-matching from its opening marker, so the check is
+    "every `border-radius` in the file lives inside that block", not a textual coincidence.
+  */
+  it('scopes the single-plate radius to Cobalt alone, leaving every other aesthetic square', () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).not.toBeNull()
+    expect(cobaltBlock).toContain('border-radius')
+
+    const withoutCobaltBlock = source.replace(cobaltBlock, '')
+    expect(withoutCobaltBlock).not.toMatch(/border-radius|rounded-(?!none)/)
+  })
+
+  /*
+    OpenProject #2858: Cobalt's single-plate grid. These are the DOM-shape and literal-CSS-text
+    claims a jsdom mount can answer -- the actual rendered colours, the removed per-cell border and
+    the plate's own radius are measured in a real browser below, because neither `happy-dom` nor
+    `jsdom` runs a layout/paint engine.
+  */
+  it("collapses the per-cell border into the plate's own border-spacing gap under Cobalt", () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).toContain('border-collapse: separate')
+    expect(cobaltBlock).toContain('border-spacing: 2px')
+    expect(cobaltBlock).toMatch(/&-cellbox\s*\{\s*border: 0;/)
+  })
+
+  it('tints Cobalt header cells distinctly from the plate and the data cells', () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).toMatch(/th\.table-editor-cellbox\s*\{\s*background-color: #eef2ff;/)
+  })
+
+  it('rings the focused Cobalt cell instead of tinting it', () => {
+    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    expect(cobaltBlock).toMatch(/&-cell:focus\s*\{/)
+    expect(cobaltBlock).toContain('box-shadow: inset 0 0 0 2px var(--color-accent-strong)')
+  })
+})
+
+/*
+ * OpenProject #2871: adjacent buttons in a Cobalt button group take an 8-10px gap and each keeps its
+ * own radius, per the general rule (Task #2859, `ui-iteration/README.md` Part 2), rather than
+ * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain CSS
+ * value Vitest's compiled SCSS resolves under `happy-dom` (`css: true`) with no layout engine needed.
+ * The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
+ * `getComputedStyle` at all (verified directly: even a bare `border-inline-end` rule with no cascade
+ * involved reads back empty) -- so whether it is present is asserted only in the real-layout describe
+ * below, off the actual rendered gap between the two buttons.
+ */
+describe('TableEditorOverlay Cancel/Update button gap (OpenProject #2871)', () => {
+  let wrapper
+
+  // -> `attachTo: document.body` leaves the mounted tree attached, so the previous test's own
+  //    `.w-btn-group` has to be torn down before the next mount, or `document.body.querySelector`
+  //    can silently resolve the stale one instead of the fresh mount
+  afterEach(() => {
+    wrapper?.unmount()
+    document.body.classList.remove('body--cobalt', 'body--light', 'body--dark')
+  })
+
+  it('takes no gap outside Cobalt', () => {
+    document.body.classList.add('body--light')
+    wrapper = mountWithApp(TableEditorOverlay, { attachTo: document.body }).wrapper
+
+    const group = document.body.querySelector('.card-header .w-btn-group')
+    expect(getComputedStyle(group).gap).not.toBe('8px')
+  })
+
+  it.each(['body--light', 'body--dark'])('takes the 8px gap under Cobalt (%s)', (theme) => {
+    document.body.classList.add('body--cobalt', theme)
+    wrapper = mountWithApp(TableEditorOverlay, { attachTo: document.body }).wrapper
+
+    const group = document.body.querySelector('.card-header .w-btn-group')
+    expect(getComputedStyle(group).gap).toBe('8px')
+  })
+})
+
+/*
+ * OpenProject #2871: adjacent buttons in a Cobalt button group take an 8-10px gap and each keeps its
+ * own radius, per the general rule (Task #2859, `ui-iteration/README.md` Part 2), rather than
+ * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain CSS
+ * value Vitest's compiled SCSS resolves under `happy-dom` (`css: true`) with no layout engine needed.
+ * The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
+ * `getComputedStyle` at all (verified directly: even a bare `border-inline-end` rule with no cascade
+ * involved reads back empty) -- so whether it is present is asserted only in the real-layout describe
+ * below, off the actual rendered gap between the two buttons.
+ */
+describe('TableEditorOverlay Cancel/Update button gap (OpenProject #2871)', () => {
+  let wrapper
+
+  // -> `attachTo: document.body` leaves the mounted tree attached, so the previous test's own
+  //    `.w-btn-group` has to be torn down before the next mount, or `document.body.querySelector`
+  //    can silently resolve the stale one instead of the fresh mount
+  afterEach(() => {
+    wrapper?.unmount()
+    document.body.classList.remove('body--cobalt', 'body--light', 'body--dark')
+  })
+
+  it('takes no gap outside Cobalt', () => {
+    document.body.classList.add('body--light')
+    wrapper = mountWithApp(TableEditorOverlay, { attachTo: document.body }).wrapper
+
+    const group = document.body.querySelector('.card-header .w-btn-group')
+    expect(getComputedStyle(group).gap).not.toBe('8px')
+  })
+
+  it.each(['body--light', 'body--dark'])('takes the 8px gap under Cobalt (%s)', (theme) => {
+    document.body.classList.add('body--cobalt', theme)
+    wrapper = mountWithApp(TableEditorOverlay, { attachTo: document.body }).wrapper
+
+    const group = document.body.querySelector('.card-header .w-btn-group')
+    expect(getComputedStyle(group).gap).toBe('8px')
   })
 })
 
@@ -178,6 +315,8 @@ describe(
     let browser
     let metrics
     let dark
+    let cobalt
+    let cobaltDark
 
     /*
       Measured under BOTH body classes off the same markup. Dark mode here is not a filter over the
@@ -219,6 +358,11 @@ describe(
             (row) => getComputedStyle(row.querySelector('.table-editor-cellbox')).backgroundColor
           )
           const toolbar = document.querySelector('.table-editor-toolbar')
+          const table = document.querySelector('.table-editor-grid table')
+          const headerCell = document.querySelector('thead tr:last-child th.table-editor-cellbox')
+          const cellInput = document.querySelector('.table-editor-cell')
+          cellInput.focus()
+          const focusedCellStyle = getComputedStyle(cellInput)
           return {
             addRow: box('.table-editor-toolbar .w-btn'),
             toolButtons,
@@ -229,7 +373,17 @@ describe(
             toolbarBorderColor: getComputedStyle(toolbar).borderBottomColor,
             cellBorderColor: getComputedStyle(document.querySelector('.table-editor-cellbox'))
               .borderTopColor,
-            bodyRows
+            cellBorderWidth: getComputedStyle(document.querySelector('.table-editor-cellbox'))
+              .borderTopWidth,
+            bodyRows,
+            plateBg: getComputedStyle(table).backgroundColor,
+            plateRadius: getComputedStyle(table).borderTopLeftRadius,
+            plateBorderSpacing: getComputedStyle(table).borderSpacing,
+            headerCellBg: getComputedStyle(headerCell).backgroundColor,
+            toolsRowBg: bg('.table-editor-tools th'),
+            rowToolsBg: bg('.table-editor-rowtools'),
+            focusedCellBoxShadow: focusedCellStyle.boxShadow,
+            focusedCellBg: focusedCellStyle.backgroundColor
           }
         })
       } finally {
@@ -241,6 +395,8 @@ describe(
       browser = await chromium.launch()
       metrics = await measure('body--light')
       dark = await measure('body--dark')
+      cobalt = await measure('body--cobalt body--light')
+      cobaltDark = await measure('body--cobalt body--dark')
     })
 
     afterAll(async () => {
@@ -303,6 +459,164 @@ describe(
           but a `dark:` utility landing on the same element is not, so it is measured either way */
     it('keeps the tool plates at 24x22 in dark mode too', () => {
       expect(dark.toolButtons).toEqual(metrics.toolButtons)
+    })
+
+    /*
+      OpenProject #2858: Cobalt's single-plate grid, measured against
+      `ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`. Ledger's own rendering
+      (`metrics`/`dark` above) is untouched by any of this -- these assertions run only against the
+      `cobalt`/`cobaltDark` captures.
+    */
+    it('grounds the grid in one tinted, radiused plate rather than a collapsed table', () => {
+      // -> `--color-tint` #e6edff light, `--radius-card` 8px
+      expect(cobalt.plateBg).toBe('rgb(230, 237, 255)')
+      expect(cobalt.plateRadius).toBe('8px')
+      expect(Number.parseFloat(cobalt.plateBorderSpacing)).toBe(2)
+    })
+
+    it('removes the per-cell border under Cobalt, leaving separation to the plate gap', () => {
+      expect(cobalt.cellBorderWidth).toBe('0px')
+      expect(cobaltDark.cellBorderWidth).toBe('0px')
+    })
+
+    it('tints the Cobalt header row distinctly from the plate and the white data cells', () => {
+      // -> `#eef2ff` light; `--color-dark-3` `#141c4f` dark (no design board for Cobalt dark here,
+      //    so this is the ramp's own "one rung more raised than the plate" answer -- see the SFC)
+      expect(cobalt.headerCellBg).toBe('rgb(238, 242, 255)')
+      expect(cobaltDark.headerCellBg).toBe('rgb(20, 28, 79)')
+    })
+
+    it('grounds the Cobalt chrome strips in the page tint, matching the board', () => {
+      // -> `--color-paper` #f2f5ff light, #0a0f2c dark
+      expect(cobalt.toolsRowBg).toBe('rgb(242, 245, 255)')
+      expect(cobalt.rowToolsBg).toBe('rgb(242, 245, 255)')
+      expect(cobaltDark.toolsRowBg).toBe('rgb(10, 15, 44)')
+      expect(cobaltDark.rowToolsBg).toBe('rgb(10, 15, 44)')
+    })
+
+    it('rings the focused Cobalt cell in the accent instead of tinting its ground', () => {
+      // -> `--color-accent-strong` #1f4fd6 light, #7fa0ff dark; `--color-surface` #fff unchanged
+      expect(cobalt.focusedCellBg).toBe('rgb(255, 255, 255)')
+      expect(cobalt.focusedCellBoxShadow).toContain('rgb(31, 79, 214)')
+      expect(cobalt.focusedCellBoxShadow).toContain('inset')
+      expect(cobaltDark.focusedCellBg).toBe('rgb(255, 255, 255)')
+      expect(cobaltDark.focusedCellBoxShadow).toContain('rgb(127, 160, 255)')
+    })
+  }
+)
+
+/*
+  OpenProject #2871's real pixel claim: the 8px gap between Cancel and Update. `happy-dom`/`jsdom`
+  report every rect at zero regardless of CSS (see the describe above), so the actual on-screen
+  distance between the two buttons -- as opposed to the `gap` property's literal value, already
+  covered under jsdom -- needs the same real headless Chromium the rest of this screen's pixel claims
+  do.
+*/
+describe(
+  'TableEditorOverlay Cancel/Update button gap — real layout (OpenProject #2871)',
+  { skip: !hasChromium(), timeout: 60000 },
+  () => {
+    let browser
+
+    async function measure(bodyClass) {
+      const wrapper = mountWithApp(TableEditorOverlay).wrapper
+      const html = wrapper.html()
+      const sfcCss = [...document.querySelectorAll('style')]
+        .map((style) => style.textContent)
+        .join('\n')
+      const appCss = await buildAppCss()
+
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${sfcCss}</style></head>` +
+            `<body class="${bodyClass}" style="margin:0">` +
+            `<div style="width:1100px;height:800px">${html}</div></body></html>`
+        )
+        return await page.evaluate(() => {
+          const [cancel, update] = [
+            ...document.querySelectorAll('.card-header .w-btn-group .w-btn')
+          ].map((el) => el.getBoundingClientRect())
+          return Math.round(update.left - cancel.right)
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('draws Cancel and Update flush, joined by the Ledger seam, outside Cobalt', async () => {
+      expect(await measure('body--light')).toBe(0)
+    })
+
+    it("opens the design's 8px gap between Cancel and Update under Cobalt, light and dark alike", async () => {
+      expect(await measure('body--cobalt body--light')).toBe(8)
+      expect(await measure('body--cobalt body--dark')).toBe(8)
+    })
+  }
+)
+
+/*
+  OpenProject #2871's real pixel claim: the 8px gap between Cancel and Update. `happy-dom`/`jsdom`
+  report every rect at zero regardless of CSS (see the describe above), so the actual on-screen
+  distance between the two buttons -- as opposed to the `gap` property's literal value, already
+  covered under jsdom -- needs the same real headless Chromium the rest of this screen's pixel claims
+  do.
+*/
+describe(
+  'TableEditorOverlay Cancel/Update button gap — real layout (OpenProject #2871)',
+  { skip: !hasChromium(), timeout: 60000 },
+  () => {
+    let browser
+
+    async function measure(bodyClass) {
+      const wrapper = mountWithApp(TableEditorOverlay).wrapper
+      const html = wrapper.html()
+      const sfcCss = [...document.querySelectorAll('style')]
+        .map((style) => style.textContent)
+        .join('\n')
+      const appCss = await buildAppCss()
+
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${sfcCss}</style></head>` +
+            `<body class="${bodyClass}" style="margin:0">` +
+            `<div style="width:1100px;height:800px">${html}</div></body></html>`
+        )
+        return await page.evaluate(() => {
+          const [cancel, update] = [
+            ...document.querySelectorAll('.card-header .w-btn-group .w-btn')
+          ].map((el) => el.getBoundingClientRect())
+          return Math.round(update.left - cancel.right)
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('draws Cancel and Update flush, joined by the Ledger seam, outside Cobalt', async () => {
+      expect(await measure('body--light')).toBe(0)
+    })
+
+    it("opens the design's 8px gap between Cancel and Update under Cobalt, light and dark alike", async () => {
+      expect(await measure('body--cobalt body--light')).toBe(8)
+      expect(await measure('body--cobalt body--dark')).toBe(8)
     })
   }
 )

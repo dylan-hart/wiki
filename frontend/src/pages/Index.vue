@@ -1389,10 +1389,12 @@ $toc-overlay-max: 749.98px;
 */
 .page-breadcrumbs {
   /*
-    38px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left of this one:
+    41px to match `MainLayout.vue`'s `.sidebar-actions`, the band immediately to the left of this one:
     the two sit at the same vertical position and each rules itself off with its own hairline, so any
     disagreement in height leaves the two rules on different lines and the two grounds meeting at a
-    step. Both boxes are `border-box`, so that 1px border is inside the 38px on either side.
+    step. Both boxes are `border-box`, so that 1px border is inside the 41px on either side. (OpenProject
+    #2861 raised `.sidebar-actions` from 38px to 41px for its three-cell locale|browse|top restructure;
+    this band follows it to keep the two rules on the same line, same as #2613 originally matched it.)
 
     A fixed height at all -- rather than one sized by its own contents through the `py-1`/`sm:py-2`
     pair this used to carry -- because the bar's height otherwise moved with whatever the trail
@@ -1400,7 +1402,7 @@ $toc-overlay-max: 749.98px;
 
     `min-height` rather than `height` so a trail long enough to wrap can still grow past the band.
   */
-  min-height: 38px;
+  min-height: 41px;
   font-family: var(--font-mono);
   font-size: 11.5px;
 
@@ -1492,11 +1494,14 @@ $toc-overlay-max: 749.98px;
   turns on whether an author happened to fill in a field. A description long enough to wrap grows it
   the same way and for the same reason; a description of ordinary length never does.
 
-  Cobalt draws this band as a raised gradient card rather than Ledger's flush white plate --
+  Cobalt draws this band as a raised card rather than Ledger's flush white plate --
   `--page-header-*` (`tailwind.css`, OpenProject #2767/#2771) is exactly the token set this was
   supposed to consume and never did: Ledger's own defaults (`--color-white`/`--color-ink`/`0`/`none`/
   `0`) reproduce the two rules just below unchanged, so wiring them in is additive for Ledger and is
-  what finally lights up Cobalt's gradient/radius/shadow/margin (OpenProject #2774).
+  what finally lights up Cobalt's radius/shadow/margin (OpenProject #2774). `--page-header-bg` is a
+  flat colour, not a gradient (handoff 5, Part 1.1; OpenProject #2857) -- see the Cobalt override
+  below for why its `background-color` still needs restating rather than following from this
+  shorthand alone.
 */
 .page-header {
   min-height: 120px;
@@ -1536,14 +1541,22 @@ $toc-overlay-max: 749.98px;
   }
 
   /*
-    Cobalt overrides both of the rules just above: the gradient/radius/shadow/margin already set by
-    the tokens at the top of this block replace Ledger's flush plate entirely, in both themes -- the
-    mockups draw the identical banner in light and dark (`tailwind.css`'s Cobalt-dark block does not
-    restate `--page-header-*`, so this is one rule for both).
+    Cobalt overrides both of the rules just above: the flat colour/radius/shadow/margin already set
+    by the tokens at the top of this block replace Ledger's flush plate entirely, in both themes --
+    the mockups draw the identical banner in light and dark (`tailwind.css`'s Cobalt-dark block does
+    not restate `--page-header-*`, so this is one rule for both).
+
+    `background-color` has to be restated here, at `--page-header-bg` again rather than left to the
+    base rule's `background:` shorthand: `.body--light &`/`.body--dark &` above declare their own
+    `background-color` at the same two-class specificity as this selector (`body.body--cobalt` adds a
+    type selector on top, which is what lets this block win over either regardless of which one a
+    page also carries -- light/dark and ledger/cobalt are independent body classes, so both can be
+    present at once). Leaving this undeclared would let Ledger's surface colour win instead of the
+    token.
   */
   @at-root body.body--cobalt & {
     border-bottom: 0;
-    background-color: transparent;
+    background-color: var(--page-header-bg);
   }
 
   /*
@@ -1560,7 +1573,7 @@ $toc-overlay-max: 749.98px;
     text-wrap: pretty;
 
     /*
-      The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated gradient and
+      The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated flat colour and
       its title is white. `--page-header-fg` is `var(--color-ink)` in Ledger, so the light rule this
       replaces is reproduced exactly; dark mode keeps its own value, but only for Ledger -- Cobalt's
       banner is identical in both themes.
@@ -1662,11 +1675,16 @@ $toc-overlay-max: 749.98px;
   simply stops early. Centring it instead left the article drifting away from the breadcrumbs and
   header above it on a wide window, which is what this setting was reported for.
 
-  On the contents rather than on this box, so the padding above stays the column's and only the text
-  is bounded: a page of prose reads at a comfortable measure while the sheet it sits on still fills
-  the window.
+  On the CONTENTS' CHILDREN rather than on `.page-contents` itself, and with `block-infobox`
+  specifically excluded (OpenProject #2835): `.page-contents` is deliberately not centred, so all the
+  slack the 720px cap creates sits on its right -- exactly where an infobox floats. An infobox is a
+  DOM child of `.page-contents`, not of the separate `.page-sidebar` flex column, so it can only ever
+  float within whatever box `.page-contents` resolves to; capping `.page-contents` itself would trap
+  it at the measure width with nowhere to float into. Every other child (paragraphs, headings, lists,
+  tables, ...) still measures at 720px exactly as before -- only the one block whose whole purpose is
+  to use that reclaimed whitespace is let through.
 */
-.page-container-body.is-measured > .page-contents {
+.page-container-body.is-measured > .page-contents > :not(block-infobox) {
   max-width: 720px;
 }
 

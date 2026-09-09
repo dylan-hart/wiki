@@ -37,6 +37,22 @@
           </div>
         </div>
       </w-toolbar>
+      <!--
+        -> A replicated instance resets on a schedule, and an author mid-edit on one has no other
+           cue that their work won't outlive the next reset -- generic wording only (not the actual
+           cron schedule translated to human text), gated on `siteStore.isReplicationEnabled`
+           (OpenProject #2851/#2852). Hidden below `md` (1024px, the same breakpoint set
+           `composables/screen.js` already declares): the row is already tight for the title, the
+           still-inline search field and the action buttons, and a warning nobody has room to read
+           is worse than one dropped outright, the same trade `isSearchCollapsed`/
+           `isActionsCollapsed` each make lower down this same row.
+      -->
+      <div
+        v-if="siteStore.isReplicationEnabled && !isReplicationBannerCollapsed"
+        class="replication-banner flex items-center flex-none">
+        <w-icon name="tabler:alert-triangle" size="16px" class="me-1.5 flex-none" />
+        <span class="truncate">{{ t('common.header.replicationWarning') }}</span>
+      </div>
       <!-- -> Inline between the title and the actions only where there is room for all three; on a
               phone the field gets a row of its own at the bottom of this header instead -->
       <header-search v-if="!isSearchCollapsed" />
@@ -265,6 +281,15 @@ const isSearchCollapsed = computed(() => !isAtLeastSm.value)
 const isAtLeast900 = useMinWidth(900)
 const isActionsCollapsed = computed(() => !isAtLeast900.value)
 
+/**
+ * Below `md` (1024px, `composables/screen.js`'s existing breakpoint set): where the replication
+ * warning banner (OpenProject #2851/#2852) drops out entirely rather than fight the title, the
+ * still-inline search field and/or the action buttons for the same row -- a third independent
+ * question from the two above, since the banner is not a shrink of either of them.
+ */
+const isAtLeastMd = useMinWidth(1024)
+const isReplicationBannerCollapsed = computed(() => !isAtLeastMd.value)
+
 // WATCHERS
 
 /*
@@ -449,6 +474,25 @@ body.body--cobalt .site-header {
   .site-title {
     font-size: 17px;
   }
+}
+
+/*
+  The replication warning banner, docked beside the title on wide viewports only (see the `md`
+  breakpoint gate in the template). `--color-warning-text` is the TEXT tier of the warning pair
+  (`tailwind.css`), not `--color-warning-fill`'s brighter background tone -- this sits directly on
+  the header band's own fill, so it needs the tier built to stay legible as text rather than the one
+  built to be a background.
+
+  `max-width` plus the icon+span's own `truncate`/`flex-none` split keeps a very long translation
+  from pushing the search field or the action buttons out of the row entirely; the row's overall
+  tightness is what the `md` breakpoint above already exists to relieve.
+*/
+.replication-banner {
+  max-width: 260px;
+  margin-inline-start: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-warning-text);
 }
 
 /*

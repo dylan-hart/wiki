@@ -62,23 +62,19 @@ export function drawEdges(ctx, edges, dark) {
   }
 }
 
+/** Draws each group's tint as a circle (OpenProject #2836: always a circle, never a convex-hull
+ *  polygon, for a uniform look across every grouping). `computeClusters()` is the only producer of
+ *  `clusters`, and it now populates `circle` unconditionally. */
 export function drawClusterHulls(ctx, clusters) {
   for (const cluster of clusters) {
+    if (!cluster.circle) {
+      continue
+    }
     ctx.fillStyle = cluster.color
     ctx.globalAlpha = 0.12
-    if (cluster.hullPoints?.length) {
-      ctx.beginPath()
-      ctx.moveTo(cluster.hullPoints[0][0], cluster.hullPoints[0][1])
-      for (const point of cluster.hullPoints.slice(1)) {
-        ctx.lineTo(point[0], point[1])
-      }
-      ctx.closePath()
-      ctx.fill()
-    } else if (cluster.circle) {
-      ctx.beginPath()
-      ctx.arc(cluster.circle.x, cluster.circle.y, cluster.circle.r, 0, Math.PI * 2)
-      ctx.fill()
-    }
+    ctx.beginPath()
+    ctx.arc(cluster.circle.x, cluster.circle.y, cluster.circle.r, 0, Math.PI * 2)
+    ctx.fill()
     ctx.globalAlpha = 1
   }
 }

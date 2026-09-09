@@ -18,8 +18,8 @@ import { mountWithApp } from '../../test/mount.js'
  * same rule.
  *
  * Real browser, same reasoning as the sibling file: `background: var(--page-header-bg)` resolving to
- * a gradient versus a plain colour depending on which aesthetic's token substitutes in is exactly the
- * kind of cascade neither `jsdom` nor `happy-dom` runs.
+ * a flat colour versus Ledger's plain white depending on which aesthetic's token substitutes in is
+ * exactly the kind of cascade neither `jsdom` nor `happy-dom` runs.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
@@ -116,7 +116,7 @@ describe(
       expect(light.backgroundColor).not.toBe(dark.backgroundColor)
     })
 
-    it('draws Cobalt’s gradient card, margined and shadowed, with no ruled edge, in both themes', async () => {
+    it('draws Cobalt’s flat card, margined and matte, with no ruled edge, in both themes', async () => {
       const html = await mountHeaderHtml()
       const light = await measureHeader({
         browser,
@@ -132,16 +132,22 @@ describe(
       })
 
       for (const theme of [light, dark]) {
-        expect(theme.backgroundImage).toContain('linear-gradient')
+        // -> No gradient (handoff 5, Part 1.1: "Banner is flat #1f4fd6 (no gradient)") -- a plain
+        //    colour resolves through `background-color`, not `background-image`.
+        expect(theme.backgroundImage).toBe('none')
+        expect(theme.backgroundColor).toBe('rgb(31, 79, 214)')
         expect(theme.borderRadius).toBe('8px')
-        expect(theme.boxShadow).not.toBe('none')
+        // -> Matte, not glowing (OpenProject #2856): the banner's drop-shadow was dropped along with
+        //    every other hairline glow the matte pass removed -- the flat fill carries the card on
+        //    its own, with no shadow underneath it.
+        expect(theme.boxShadow).toBe('none')
         expect(theme.borderBottomWidth).toBe('0px')
         expect(theme.marginLeft).toBe('24px')
         expect(theme.marginTop).toBe('24px')
       }
       // -> One token block covers both themes; `tailwind.css`'s Cobalt-dark block does not restate
-      //    `--page-header-*`, so the gradient itself is identical either way.
-      expect(light.backgroundImage).toBe(dark.backgroundImage)
+      //    `--page-header-*`, so the flat colour itself is identical either way.
+      expect(light.backgroundColor).toBe(dark.backgroundColor)
     })
   }
 )

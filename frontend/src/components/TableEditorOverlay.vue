@@ -466,6 +466,28 @@ onBeforeUnmount(() => {
   }
 
   /*
+    Cancel / Update (OpenProject #2871): the general Cobalt button-group gap rule -- adjacent buttons
+    take an 8-10px gap and each keeps its own radius, never a rounded button butted against a square
+    one (Task #2859, `ui-iteration/README.md` Part 2) -- applied literally here at 8px, matching the
+    Cobalt mockup (`ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`), since
+    #2859's own shared class/rule had not landed on scarlett as of this change; reconcile to whatever
+    mechanism it ships with at integration. `WBtnGroup`'s default seam (a hairline `border-inline-end`
+    on every button but the last, the Ledger "joined buttons" look) is switched off here so it doesn't
+    show through the gap -- `WBtn` already gives every button its own default control radius
+    unconditionally (`--radius-control`, 6px under Cobalt), so nothing else about the buttons
+    themselves needs to change.
+  */
+  .card-header .w-btn-group {
+    @at-root .body--cobalt & {
+      gap: 8px;
+
+      > .w-btn:not(:last-child) {
+        border-inline-end: none;
+      }
+    }
+  }
+
+  /*
     The toolbar band under the title bar: the page tint ruled off underneath, which is the same recipe
     `.w-section-header` draws the `Markdown` heading below with.
   */
@@ -602,6 +624,89 @@ onBeforeUnmount(() => {
     /* -> The header row is what a reader sees in bold, so it reads that way here too */
     &--head {
       font-weight: 600;
+    }
+  }
+
+  /*
+    Cobalt matte: the single-plate grid (OpenProject #2858, `ui-iteration/README.md` Part 1.1).
+    Every other aesthetic keeps the grid the generic rules above already draw -- individually
+    bordered plain cells on a collapsed table, no radius anywhere (the `--radius-*` scale is zeroed
+    outside Cobalt, and this screen is asserted to stay that way). Cobalt's own board
+    (`ui-iteration/cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`) draws the grid as one
+    8px plate instead: `border-collapse: separate` with a 2px gap between cells, the plate itself
+    tinted and bordered, so what used to be each cell's own hairline is now the plate ground showing
+    through the gap. Individual cells stay flat and unbordered -- never rounded, never shadowed --
+    with exactly one exception, the focused cell's ring.
+
+    Scoped `body.body--cobalt` (a type selector plus the aesthetic class) rather than the `&`-nested
+    `@at-root .body--cobalt &` the rest of this file uses, specifically so this block outranks the
+    generic `&-cell:focus` dark rule above on specificity alone: under Cobalt DARK both that rule's
+    `.body--dark .table-editor-cell:focus` and a same-shape `.body--cobalt .table-editor-cell:focus`
+    would tie, leaving the winner to source order rather than intent. The extra `body` type selector
+    breaks that tie unconditionally, matching `tailwind.css`'s own `body.body--cobalt` convention.
+  */
+  @at-root body.body--cobalt & {
+    &-grid table {
+      border-collapse: separate;
+      border-spacing: 2px;
+      background-color: var(--color-tint);
+      border-radius: var(--radius-card);
+      padding: 2px;
+      border: 1px solid var(--color-hairline);
+    }
+
+    /*
+      The collapsed table's per-cell hairline is gone -- the plate's own border-spacing gap, filled
+      with the plate's tint, is what separates cells now. Left unrounded and unshadowed, per spec.
+    */
+    &-cellbox {
+      border: 0;
+    }
+
+    /*
+      The header row reads a half-step lighter than the plate, toward the page ground -- the
+      relationship the board draws (`#eef2ff` sits between the plate's `#e6edff` and the page's
+      `#f2f5ff`). The dark counterpart lives in the separate `body.body--cobalt.body--dark &` block
+      below, not nested here: `&` at this point already resolves to the full
+      `body.body--cobalt .table-editor th.table-editor-cellbox` chain, so prefixing it with another
+      `body.body--cobalt` ancestor would ask for two `<body>` elements and never match -- a real
+      regression this file's own real-Chromium suite caught (OpenProject #2858).
+    */
+    th.table-editor-cellbox {
+      background-color: #eef2ff;
+    }
+
+    /* -> Both chrome strips -- the alignment/delete tools row and the row-tools column -- sit on
+            the page ground rather than staying transparent, matching the board's `#f2f5ff` */
+    &-tools th,
+    &-rowtools {
+      background-color: var(--color-paper);
+    }
+
+    /*
+      The active cell takes a 2px inset ring instead of the generic tint-and-outline treatment --
+      `border-collapse: separate` means there is no shared, collapsed edge to protect any more, so
+      the ring can sit directly on the input without the generic rule's workaround.
+    */
+    &-cell:focus {
+      background-color: var(--color-surface);
+      outline: none;
+      box-shadow: inset 0 0 0 2px var(--color-accent-strong);
+    }
+  }
+
+  /*
+    Cobalt dark's one departure from the light block above: the header-cell tint. There is no
+    Cobalt-dark board for this screen to measure against, so this reaches for the ramp's own
+    analogous "one rung more raised than the plate" answer, `--color-dark-3`, rather than inventing
+    an unmeasured literal. A sibling block, not nested inside the light one above, so `&` here
+    resolves to the plain `.table-editor` chain instead of one that already contains
+    `body.body--cobalt` -- see the comment on `th.table-editor-cellbox` above for why nesting it
+    there doesn't work.
+  */
+  @at-root body.body--cobalt.body--dark & {
+    th.table-editor-cellbox {
+      background-color: var(--color-dark-3);
     }
   }
 }

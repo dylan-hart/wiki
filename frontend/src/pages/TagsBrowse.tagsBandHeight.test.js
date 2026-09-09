@@ -12,7 +12,9 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
   34px section-header height while `.sidebar-actions` (`MainLayout.vue`, `height: 38px`) beside it
   sits at the same vertical position -- so the two bands' bottom hairlines landed on different lines.
   Same class of defect as #2613 (the breadcrumb band vs. the same `.sidebar-actions` row), fixed the
-  same way: a page-local `min-height: 38px` override rather than raising the shared class.
+  same way: a page-local `min-height` override rather than raising the shared class. #2861 later
+  raised `.sidebar-actions` again, to 41px, for its three-cell locale|browse|top restructure -- this
+  page's override follows it to the same 41px to keep the two bands' bottom hairlines on one line.
 
   Measured in a real headless Chromium, for the reason `test/realGridLayout.js` and #2613's own suite
   document at length: neither `jsdom` nor `happy-dom` runs a layout engine, so `getBoundingClientRect()`
@@ -113,8 +115,8 @@ describe(
     })
 
     it('draws the tags-browse band at the sidebar action row height', () => {
-      expect(bands.sidebarActions.height).toBe(38)
-      expect(bands.tagsBand.height).toBe(38)
+      expect(bands.sidebarActions.height).toBe(41)
+      expect(bands.tagsBand.height).toBe(41)
     })
   }
 )

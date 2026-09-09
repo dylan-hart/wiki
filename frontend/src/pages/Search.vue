@@ -619,10 +619,12 @@ $strip-height: 37px;
     }
 
     /*
-      Cobalt draws this card as a shadowed sheet, not a hairline-bordered box (the mockup's
-      `border-radius:8px; box-shadow:0 2px 10px rgba(16,25,74,.08)`) -- both tokens are `0`/`none`
-      under Ledger, so the border above stays the only visible edge there, and the dark half needs
-      no override of its own since `--shadow-card` already carries its own Cobalt-dark value.
+      Cobalt draws this card's edge through `--shadow-card` alone, not the `border` above -- both
+      tokens are `0`/`none` under Ledger, so that border stays the only visible edge there, and the
+      dark half needs no override of its own since `--shadow-card` already carries its own
+      Cobalt-dark value. Under Cobalt `--shadow-card` is itself a hairline ring now (OpenProject
+      #2856's matte pass), not the mockup's blurred `border-radius:8px;
+      box-shadow:0 2px 10px rgba(16,25,74,.08)` glow.
     */
     @at-root body.body--cobalt & {
       border: 0;

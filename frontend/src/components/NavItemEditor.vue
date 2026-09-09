@@ -1246,6 +1246,19 @@ onMounted(load)
 }
 
 .nav-edit-item-link {
+  /*
+    OpenProject #2825: the row itself has only ONE main section (icon + label + trailing handle),
+    so `WItem.vue`'s shared `flex-wrap: wrap` never turns on -- that is scoped to
+    `:has(.w-item-section--main + .w-item-section--main)`, the two-main-section "settings row"
+    shape from #2822/#2823, deliberately narrowed to avoid touching an ordinary menu/nav row like
+    this one. But the generated-eyebrow span below (`.nav-edit-generated-eyebrow`, `flex-basis:
+    100%`) still needs somewhere to wrap TO when it's shown, or it just steals space on the row's
+    one unwrapped line and squeezes the icon/label/handle into whatever is left. A local,
+    unconditional `flex-wrap: wrap` here is inert for the ordinary (non-generated) row -- nothing
+    else on this row ever claims a 100% flex-basis -- so it only ever does anything once the
+    eyebrow is present.
+  */
+  flex-wrap: wrap;
   padding: 7px 10px 7px 18px !important;
   font-size: 13.5px;
 
@@ -1493,8 +1506,9 @@ onMounted(load)
 /*
   Cobalt shape (Task #2767's own shape tokens): `--radius-card`/`--shadow-card` are `0`/`none` in
   Ledger, so applying them here unconditionally (rather than behind a `body--cobalt` guard) changes
-  nothing there and gives Cobalt "white, radius 8px, `0 2px 10px rgba(16,25,74,.08)`" with no separate
-  override block needed. `overflow: hidden` is NOT included here, unlike `.nav-edit-structure-card`
+  nothing there and gives Cobalt "white, radius 8px" with a hairline ring in place of a drop shadow
+  (OpenProject #2856's matte pass) with no separate override block needed. `overflow: hidden` is NOT
+  included here, unlike `.nav-edit-structure-card`
   below -- Ledger's own corner marks (`.nav-edit-card__corner`, right below) are absolutely positioned
   OUTSIDE this card's box on purpose, to overhang the edge by 4px, and `overflow: hidden` would clip
   them; it is added Cobalt-only instead, once the marks are already hidden there (`--corner-marks:

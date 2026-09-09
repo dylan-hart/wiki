@@ -6,7 +6,7 @@ import { mountGraph } from './graphFixtures.js'
 
 /*
  * OpenProject #1837/#2296/#2297: what stays out of deep reactivity, which of `relayout()`/
- * `repaint()` rebuilds what, and how cluster hulls and labels size themselves off each node's own
+ * `repaint()` rebuilds what, and how cluster circles and labels size themselves off each node's own
  * drawn radius rather than a flat constant.
  */
 describe('Graph.vue layout, reactivity and repaint', () => {
@@ -99,13 +99,13 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     expect(clusterA.circle.r).toBeGreaterThan(wrapper.vm.radiusFor(nodeA))
   })
 
-  it("grows hull padding by each vertex's own node radius, not a flat constant (OpenProject #2296)", async () => {
+  it("grows the >=3-node circle by each member's own node radius, not a flat constant, and never draws a hull (OpenProject #2296/#2836)", async () => {
     const wrapper = await mountGraph()
 
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
-    // -> A third node so this group has >=3 members and takes the `polygonHull` path rather than
-    //    falling back to the circle case covered above.
+    // -> A third node so this group has >=3 members -- OpenProject #2836 retired the convex-hull
+    //    path entirely, so a >=3-node group now takes the same circle case as a 1-2 node group.
     const nodeC = { ...nodeB, path: 'c' }
     wrapper.vm.nodes.push(nodeC)
 
@@ -128,15 +128,15 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     wrapper.vm.computeClusters()
 
     const clusterC = wrapper.vm.clusters.find((c) => c.key === 'group-c')
-    expect(clusterC.hullPoints).toBeDefined()
+    expect(clusterC.hullPoints).toBeUndefined()
+    expect(clusterC.circle).toBeDefined()
     const cx = (nodeA.x + nodeB.x + nodeC.x) / 3
     const cy = (nodeA.y + nodeB.y + nodeC.y) / 3
     const distToNodeA = Math.hypot(nodeA.x - cx, nodeA.y - cy)
-    const maxHullDist = Math.max(...clusterC.hullPoints.map(([x, y]) => Math.hypot(x - cx, y - cy)))
     // -> A flat 16px padding would fall short here since nodeA's radius (pinned at MAX_NODE_RADIUS,
-    //    110, as the graph's sole non-zero node) far exceeds it -- this only passes once the hull
-    //    vertex at A is pushed out by A's own radius too.
-    expect(maxHullDist).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
+    //    110, as the graph's sole non-zero node) far exceeds it -- this only passes once the
+    //    circle's radius is pushed out by A's own radius too.
+    expect(clusterC.circle.r).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
   })
 
   it("drawLabels draws a real node's label at the node's own center, not offset past its edge (OpenProject #2593)", async () => {

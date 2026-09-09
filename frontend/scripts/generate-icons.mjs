@@ -31,6 +31,16 @@ const SRC = path.join(ROOT, 'src')
 const OUT = path.join(SRC, 'assets/icons.generated.js')
 
 /**
+ * The sibling `blocks/` workspace, holding each `block-<name>/component.js`'s `static definition`
+ * literal — `icon: 'tabler:…'` among its fields. Those icons are otherwise read at runtime as
+ * `block.icon` (a property off fetched block metadata, not a source literal in `frontend/src`), so
+ * without this second root they silently fall through to `/_icons` resolution at runtime instead of
+ * getting the same build-time inlining and Cardinal restyling every other chrome icon gets — see
+ * OpenProject #2869.
+ */
+const BLOCKS_ROOT = path.join(ROOT, '..', 'blocks')
+
+/**
  * Icon sets we bundle from. A prefix not listed here is left to resolve at runtime — which for an icon
  * written into this repo's own source means it does not render at all unless an administrator happens to
  * have added that set, so a new set has to be listed HERE and installed as `@iconify-json/<prefix>`.
@@ -348,10 +358,32 @@ function* sourceFiles(dir) {
   }
 }
 
+/**
+ * Each `block-<name>/component.js` under the sibling `blocks/` workspace, non-recursively — never
+ * `blocks/compiled` (build output), `blocks/node_modules` (that workspace's own, independently
+ * installed dependency tree, which `sourceFiles`'s recursive walk would otherwise happily descend
+ * into) or `blocks/shared` (no block's `static definition` lives there). Absent entirely in a
+ * checkout that hasn't cloned `blocks/`, in which case this yields nothing.
+ */
+function* blockDefinitionFiles() {
+  if (!fs.existsSync(BLOCKS_ROOT)) {
+    return
+  }
+  for (const entry of fs.readdirSync(BLOCKS_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith('block-')) {
+      continue
+    }
+    const componentFile = path.join(BLOCKS_ROOT, entry.name, 'component.js')
+    if (fs.existsSync(componentFile)) {
+      yield componentFile
+    }
+  }
+}
+
 /** Every statically written reference to one of the bundled sets. */
 export function collectRefs() {
   const found = new Map()
-  for (const file of sourceFiles(SRC)) {
+  for (const file of [...sourceFiles(SRC), ...blockDefinitionFiles()]) {
     const src = fs.readFileSync(file, 'utf8')
     for (const m of src.matchAll(REF)) {
       const ref = m[2]

@@ -36,7 +36,6 @@ export const GRAPH_MESSAGES = {
   'graph.controls.sizeByLabel': 'Size by',
   'graph.controls.sizeByEdits': 'Edits',
   'graph.controls.sizeByVisits': 'Visits',
-  'graph.controls.countLabel': 'Count',
   'graph.controls.countAriaLabel': 'Unique or total',
   'graph.controls.countUnique': 'Unique',
   'graph.controls.countTotal': 'Total',
@@ -158,29 +157,53 @@ export const FIXTURE_GRAPH_TRUNCATED = {
   totalNodes: 5000
 }
 
-/** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
- *  'visits' sizing option is available in the default `mountGraph()` fixture; a test asserting the
- *  disabled case passes `{ pageviewsEnabled: false }`. `graph` defaults to `FIXTURE_GRAPH` (a
- *  single-locale graph); a test exercising a different node/edge shape -- the locale-duplicate case
- *  (OpenProject #1629), the locale-filter tests' multi-locale graph (OpenProject #2294), or the
- *  #1686 fallback-list tests' `NESTED_FIXTURE_GRAPH` (for a real-to-real edge) -- passes its own.
- *  `messageOverrides` is forwarded to `createGraphI18n()` for a test asserting one specific
- *  resolved string. */
+/** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking DISABLED (OpenProject
+ *  #2853), matching `Graph.vue`'s own real "safe until proven on" resting state for
+ *  `pageviewsTrackingEnabled` and keeping `sizeBy`'s resting value at 'edits' in the default
+ *  `mountGraph()` fixture, same as before #2853's tracking-enabled default landed. A test that needs
+ *  tracking on (to exercise the 'visits' default itself, or `sizeByOptions` offering 'visits')
+ *  passes `{ pageviewsEnabled: true }`; a test that just wants 'visits' MODE without caring about the
+ *  tracking-driven default sets `wrapper.vm.sizeBy = 'visits'` directly, same as before. `graph`
+ *  defaults to `FIXTURE_GRAPH` (a single-locale graph); a test exercising a different node/edge
+ *  shape -- the locale-duplicate case (OpenProject #1629), the locale-filter tests' multi-locale
+ *  graph (OpenProject #2294), or the #1686 fallback-list tests' `NESTED_FIXTURE_GRAPH` (for a
+ *  real-to-real edge) -- passes its own. `messageOverrides` is forwarded to `createGraphI18n()` for
+ *  a test asserting one specific resolved string. `authenticated`/`graphPrefs` are OpenProject
+ *  #2854's own addition: an authenticated mount queues a third `API_CLIENT.get` response for
+ *  `Graph.vue#loadGraphPrefs()`'s `GET profile` call (`graphPrefs` becomes its `resp.graph`,
+ *  defaulting to `{}` -- no persisted preference), issued BEFORE the pageviews check per
+ *  `onMounted`'s own argument-order comment; an unauthenticated mount (the default, matching every
+ *  pre-#2854 test here) skips that call entirely, so the two-call queue below is untouched for every
+ *  suite that never opts in. */
 export async function mountGraph({
-  pageviewsEnabled = true,
+  pageviewsEnabled = false,
   graph = FIXTURE_GRAPH,
-  messageOverrides = {}
+  messageOverrides = {},
+  authenticated = false,
+  graphPrefs = null
 } = {}) {
   const router = await createTestRouter(['/:pathMatch(.*)*'])
 
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(graph) })
+  // -> `structuredClone()`, not the fixture object itself: `Graph.vue#loadGraph()` `markRaw()`s
+  //    the response's nodes/edges but never clones them, so a bare `Promise.resolve(graph)` here
+  //    would hand every call the SAME underlying node/edge objects -- a test that mutates
+  //    `nodeA.contributors`/`nodeB.contributors` in place (several in `Graph.sizing.test.js` do, to
+  //    pin a specific radius) would otherwise permanently corrupt the shared fixture constant for
+  //    every later test in the same file, in file order, with no relation to what that later test
+  //    itself does. Each call gets its own independent copy instead.
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(structuredClone(graph)) })
+  if (authenticated) {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ graph: graphPrefs ?? {} })
+    })
+  }
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve({ isEnabled: pageviewsEnabled })
   })
 
   const { wrapper } = mountWithApp(Graph, {
     router,
-    stores: { site: { id: 'site-1' } },
+    stores: { site: { id: 'site-1' }, user: { authenticated } },
     messages: { ...GRAPH_MESSAGES, ...messageOverrides }
   })
   await flushPromises()
