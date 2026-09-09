@@ -83,7 +83,7 @@
           @input="onEditableInput(`title`, $event)"
           @blur="onEditableBlur(`title`, $event)"
           @keydown.enter.prevent="$event.target.blur()" />
-        <span v-else>{{ displayedTitle }}</span>
+        <span v-else ref="titleDisplayEl">{{ displayedTitle }}</span>
       </h1>
       <div class="page-header-subtitle">
         <span
@@ -463,6 +463,17 @@ const state = reactive({
 /** The two in-place fields, which only exist while the page itself is being edited. */
 const titleEl = ref(null)
 const descriptionEl = ref(null)
+
+/**
+ * The read-mode title element (the `v-else` span, present whenever the header isn't editing) --
+ * exposed so `Index.vue` can run the keyword-highlight pass (`helpers/renderedContent.js`'s
+ * `applyKeywordHighlight`) against it too, the same way it already does against the article body.
+ * The title lives in a separate DOM subtree from `.page-contents`, and OpenProject #2901 is exactly
+ * that gap: a `?highlight=` term arriving from a graph click never touched this element.
+ */
+const titleDisplayEl = ref(null)
+
+defineExpose({ titleDisplayEl })
 
 // WATCHERS
 
