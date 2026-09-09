@@ -286,6 +286,7 @@ $nav-shrink-max: 1199.98px;
   height: 100%;
   // -> Clips the header and body below to the panel's own rounded corners regardless of their own
   //    radius (or lack of one), the same trick InboxLayout's card relies on for the same reason.
+  //    Cobalt turns this back off below (OpenProject #2895) -- see that rule's own comment.
   overflow: hidden;
 
   /*
@@ -303,6 +304,27 @@ $nav-shrink-max: 1199.98px;
   @at-root .body--dark & {
     background-color: var(--color-dark-3);
     color: var(--color-text-dark);
+  }
+
+  /*
+    Cobalt dialog corner fringe, one level deeper (OpenProject #2895). OpenProject #2864 stopped
+    `.w-dialog-panel` itself (`MainLayout.vue`) from clipping a filled box behind the header's own
+    rounded corner -- transparent, `overflow: visible`, letting `.layout-profile-hdr`
+    (`.card-header`) and `.layout-profile-body` round and fill THEMSELVES instead. This card sits
+    right inside that panel as ITS OWN filled, `overflow: hidden` box, and `WDialog.vue`'s `.w-dialog-
+    panel > :deep(*) { border-radius: inherit }` hands it the same 12px `--radius-dialog` the header
+    above already draws -- so even with matching radii, the panel's antialiasing seam recurs here: a
+    solid-filled `overflow: hidden` ancestor clipping to the same curve a child independently paints
+    is exactly the shape #2864 traces the fringe to, just one element further down.
+
+    In Cobalt this card no longer needs to clip or fill anything of its own -- the header and body
+    bands already do both (`MainLayout.vue`'s `.body--cobalt & .card-header` / `& .card-header + *`
+    rules, reached generically since they select on the shared `.card-header` class). In Ledger
+    `--radius-dialog` is 0, so this card keeps doing real work there -- the override is Cobalt-only.
+  */
+  @at-root .body--cobalt & {
+    overflow: visible;
+    background: transparent;
   }
 }
 

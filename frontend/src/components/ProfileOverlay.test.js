@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProfileOverlay from './ProfileOverlay.vue'
@@ -205,4 +207,42 @@ it('has no dead outer wrapper -- .layout-profile-card is the component root', ()
 
   expect(wrapper.element.className).toContain('layout-profile-card')
   expect(wrapper.find('.layout-profile').exists()).toBe(false)
+})
+
+/**
+ * OpenProject #2895: `.layout-profile-card` IS `WDialog`'s panel's direct child (proved above), so
+ * `WDialog.vue`'s `.w-dialog-panel > :deep(*) { border-radius: inherit }` hands it the same 12px
+ * Cobalt `--radius-dialog` its own header (`.layout-profile-hdr`/`.card-header`) already draws --
+ * matching radii, but two independent roundings (this card's `overflow: hidden` clip, the header's
+ * own `border-radius` fill) of the same curve, which is the exact clip-a-filled-box-behind-a-rounded-
+ * header shape OpenProject #2864 traced the panel-level fringe to. Source-text scan, matching
+ * `SideDialog.test.js`'s established convention for this class of Cobalt-only fix: no suite in this
+ * codebase renders real Chromium layout for it.
+ */
+describe('ProfileOverlay Cobalt card fringe (OpenProject #2895)', () => {
+  const source = readFileSync(join(import.meta.dirname, 'ProfileOverlay.vue'), 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'), source.indexOf('</style>'))
+  const cardBlock = styleBlock.slice(
+    styleBlock.indexOf('.layout-profile-card {'),
+    styleBlock.indexOf('.layout-profile-hdr {')
+  )
+
+  it('stops the card clipping or filling itself under Cobalt', () => {
+    expect(cardBlock).toMatch(
+      /@at-root \.body--cobalt & {[^}]*overflow: visible;[^}]*background: transparent;/s
+    )
+  })
+
+  it('places the Cobalt override after the light/dark fills, so it wins the specificity tie', () => {
+    const cobaltIndex = cardBlock.indexOf('@at-root .body--cobalt &')
+    const lightIndex = cardBlock.indexOf('@at-root .body--light &')
+    const darkIndex = cardBlock.indexOf('@at-root .body--dark &')
+    expect(cobaltIndex).toBeGreaterThan(lightIndex)
+    expect(cobaltIndex).toBeGreaterThan(darkIndex)
+  })
+
+  it('leaves the unconditional overflow: hidden in place -- Ledger still needs the clip', () => {
+    const beforeCobalt = cardBlock.slice(0, cardBlock.indexOf('@at-root .body--cobalt &'))
+    expect(beforeCobalt).toMatch(/overflow: hidden;/)
+  })
 })
