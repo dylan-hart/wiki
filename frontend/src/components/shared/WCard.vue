@@ -19,14 +19,16 @@
  * There is no `flat` prop: Cardinal separates a card from its ground with a hairline, never with
  * elevation -- `--shadow-card` is `none` under Ledger for exactly that reason, and `rounded-card`
  * is `0` there too, so this renders identically to before. Cobalt's `body.body--cobalt` block
- * (OpenProject #2767/#2772) gives both a real value instead: a soft shadow and an 8px radius.
+ * (OpenProject #2767/#2772, matte-corrected by #2856) gives both a real value instead: a 0-blur
+ * hairline ring and an 8px radius.
  *
  * The hairline border reads through the `--border-card` token (own `<style>` block below) rather
  * than a plain Tailwind `border-hairline`/`dark:border-hairline-dark` pair -- the same
  * `--border-card`/`--radius-card` pairing `NavEditMenu.vue` already consumes. It is `1px solid
  * var(--color-hairline)` under Ledger light, `1px solid var(--color-hairline-dark)` under Ledger
  * dark (`tailwind.css`'s `body.body--dark` block, OpenProject #2811), and `0` under Cobalt (both
- * light and dark) -- Cobalt draws its card edge with `--shadow-card` instead, per the block above.
+ * light and dark) -- Cobalt draws its card edge with `--shadow-card` instead, per the block above,
+ * now a `0 0 0 1px` ring rather than a drop shadow (OpenProject #2856's matte pass).
  */
 defineProps({
   /** Lays sections out in a row instead of stacked. */

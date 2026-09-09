@@ -715,10 +715,12 @@ onMounted(async () => {
   }
 
   /*
-    Cobalt's own glow on the selected chips (`box-shadow:0 4px 14px rgba(200,48,60,.35)` in the
-    mockup, `--shadow-primary`'s exact value) -- `none` under Ledger, so this is a no-op there. A
-    dedicated modifier class rather than reaching for `.tags-browse-chips` alone: that class is
-    shared with the "available tags" block below, which stays a flat fill with no glow.
+    `--shadow-primary` on the selected chips -- `none` under both Ledger and Cobalt now (OpenProject
+    #2856's matte pass dropped the mockup's `box-shadow:0 4px 14px rgba(200,48,60,.35)` glow
+    outright, no replacement), so this rule is a no-op in every aesthetic today and is kept as the
+    wiring `--shadow-primary` gains a value again through in the future. A dedicated modifier class
+    rather than reaching for `.tags-browse-chips` alone: that class is shared with the "available
+    tags" block below, which stays a flat fill with no glow.
 
     OpenProject #2813: this is a `WChip`, not a `WBtn`, so it can't pick up `--shadow-primary`
     through that component's own `color="accent"` wiring -- it stays a direct, hand-wired consumer
@@ -757,9 +759,11 @@ onMounted(async () => {
     }
 
     /*
-      Cobalt draws this plate as a shadowed sheet, not a hairline-bordered box (`border-radius:8px;
-      box-shadow:0 2px 10px rgba(16,25,74,.08)` in the mockup) -- `--radius-card`/`--shadow-card`
-      are both `0`/`none` under Ledger, so the border above stays the only visible edge there.
+      Cobalt draws this plate's edge through `--shadow-card` alone, not the `border` above --
+      `--radius-card`/`--shadow-card` are both `0`/`none` under Ledger, so that border stays the
+      only visible edge there, and under Cobalt `--shadow-card` is itself a hairline ring now
+      (OpenProject #2856's matte pass), not the mockup's blurred `box-shadow:0 2px 10px
+      rgba(16,25,74,.08)` glow.
     */
     @at-root body.body--cobalt & {
       border: 0;

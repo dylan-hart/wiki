@@ -64,8 +64,14 @@ describe('Cobalt shape tokens (radii sweep)', () => {
     'radius-dialog': { ledger: '0', cobalt: '12px' },
     'radius-pill': { ledger: '0', cobalt: '12px' },
     'radius-mark': { ledger: '0', cobalt: '4px' },
-    'shadow-card': { ledger: 'none', cobalt: '0 2px 10px rgb(16 25 74 / 0.08)' },
-    'shadow-primary': { ledger: 'none', cobalt: '0 4px 14px rgb(200 48 60 / 0.35)' },
+    // -> Matte pass (OpenProject #2856): the Cobalt value is a 0-blur, 1px-spread ring, not a drop
+    //    shadow -- every plate that reads `--shadow-card` (WCard, the page-content/TOC/tags-revision
+    //    floating cards, the actions rail, search result cards, graph panels, nav-edit cards, ...)
+    //    gets its hairline border for free from this one value, with no per-consumer change.
+    'shadow-card': { ledger: 'none', cobalt: '0 0 0 1px #dfe5f5' },
+    // -> The Edit/Add/primary-button glow is dropped outright (OpenProject #2856): no plate to give
+    //    a ring to, unlike --shadow-card above.
+    'shadow-primary': { ledger: 'none', cobalt: 'none' },
     'border-card': { ledger: '1px solid var(--color-hairline)', cobalt: '0' },
     'corner-marks': { ledger: 'block', cobalt: 'none' },
     'nav-active-inset': {
@@ -78,8 +84,19 @@ describe('Cobalt shape tokens (radii sweep)', () => {
     },
     'page-header-fg': { ledger: 'var(--color-ink)', cobalt: 'var(--color-white)' },
     'page-header-radius': { ledger: '0', cobalt: '8px' },
-    'page-header-shadow': { ledger: 'none', cobalt: '0 8px 24px rgb(31 79 214 / 0.28)' },
-    'page-header-margin': { ledger: '0', cobalt: '24px' }
+    // -> The banner sits on its own solid gradient, not low-contrast on `#f2f5ff`, so the matte pass
+    //    drops its glow with no border replacement (OpenProject #2856).
+    'page-header-shadow': { ledger: 'none', cobalt: 'none' },
+    'page-header-margin': { ledger: '0', cobalt: '24px' },
+    // -> A menu, tooltip, dialog or drawer is an overlay on the scrim, not one of the matte pass's
+    //    plates, so both go straight to `none` under Cobalt with no ring replacement (OpenProject
+    //    #2856) -- unlike Ledger, which is unaffected and keeps its own values (below).
+    'shadow-menu': {
+      ledger:
+        '0 1px 5px rgb(0 0 0 / 0.2), 0 2px 2px rgb(0 0 0 / 0.14), 0 3px 1px -2px rgb(0 0 0 / 0.12)',
+      cobalt: 'none'
+    },
+    'shadow-dialog': { ledger: '0 0 30px rgb(0 0 0 / 0.4)', cobalt: 'none' }
   }
 
   it.each(Object.entries(shapeTokens))(
@@ -89,12 +106,6 @@ describe('Cobalt shape tokens (radii sweep)', () => {
       expect(declaredValue(cobaltSource, name), `--${name} Cobalt value`).toBe(cobalt)
     }
   )
-
-  it('shares a single --shadow-dialog value across both aesthetics (the handoff marks it "same")', () => {
-    expect(declaredValue(ledgerSource, 'shadow-dialog')).toBe('0 0 30px rgb(0 0 0 / 0.4)')
-    // -> Not redeclared under body.body--cobalt at all: same value, no override needed.
-    expect(cobaltSource).not.toMatch(/--shadow-dialog:/)
-  })
 })
 
 describe('Cobalt color tokens', () => {

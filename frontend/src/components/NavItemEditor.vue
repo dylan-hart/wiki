@@ -1506,8 +1506,9 @@ onMounted(load)
 /*
   Cobalt shape (Task #2767's own shape tokens): `--radius-card`/`--shadow-card` are `0`/`none` in
   Ledger, so applying them here unconditionally (rather than behind a `body--cobalt` guard) changes
-  nothing there and gives Cobalt "white, radius 8px, `0 2px 10px rgba(16,25,74,.08)`" with no separate
-  override block needed. `overflow: hidden` is NOT included here, unlike `.nav-edit-structure-card`
+  nothing there and gives Cobalt "white, radius 8px" with a hairline ring in place of a drop shadow
+  (OpenProject #2856's matte pass) with no separate override block needed. `overflow: hidden` is NOT
+  included here, unlike `.nav-edit-structure-card`
   below -- Ledger's own corner marks (`.nav-edit-card__corner`, right below) are absolutely positioned
   OUTSIDE this card's box on purpose, to overhang the edge by 4px, and `overflow: hidden` would clip
   them; it is added Cobalt-only instead, once the marks are already hidden there (`--corner-marks:
