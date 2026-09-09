@@ -2233,6 +2233,7 @@
   "common.header.pageActions": "Page Actions",
   "common.header.popularTags": "Popular Tags",
   "common.header.profile": "Profile",
+  "common.header.replicationWarning": "This instance is replicated and resets on a schedule.",
   "common.header.search": "Search...",
   "common.header.searchClose": "Close",
   "common.header.searchCopyLink": "Copy Search Link",

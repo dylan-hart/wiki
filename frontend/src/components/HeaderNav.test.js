@@ -173,6 +173,42 @@ describe('HeaderNav "Create New Page" icon (OpenProject #2074)', () => {
 })
 
 /**
+ * OpenProject #2851/#2852: the replication warning banner, gated on `siteStore.isReplicationEnabled`
+ * (the new field off the site payload) and, independently, on a `md` (1024px) width breakpoint --
+ * a third row-width question from `isSearchCollapsed`/`isActionsCollapsed` above, since the banner
+ * competes for the same row as both but is neither of them.
+ */
+describe('HeaderNav replication warning banner (OpenProject #2851/#2852)', () => {
+  it('is absent when the site is not replicated', async () => {
+    const { wrapper, siteStore } = await mountHeaderNav()
+    siteStore.isReplicationEnabled = false
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.replication-banner').exists()).toBe(false)
+  })
+
+  it('renders the generic warning text when the site is replicated and the viewport is wide', async () => {
+    useMinWidth(1024).value = true
+    const { wrapper, siteStore } = await mountHeaderNav()
+    siteStore.isReplicationEnabled = true
+    await wrapper.vm.$nextTick()
+
+    const banner = wrapper.find('.replication-banner')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toBe('common.header.replicationWarning')
+  })
+
+  it('drops the banner below the md breakpoint even when the site is replicated', async () => {
+    useMinWidth(1024).value = false
+    const { wrapper, siteStore } = await mountHeaderNav()
+    siteStore.isReplicationEnabled = true
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.replication-banner').exists()).toBe(false)
+  })
+})
+
+/**
  * OpenProject #2610: the logo button was the one thing in this 64px bar NOT on the shared
  * `header-nav-btn` band -- it carried `dense flat` and nothing else, so `WBtn`'s own dense sizing
  * drew a rounded ~54px box around the 34px mark and lit only that box on hover, visibly unlike the

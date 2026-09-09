@@ -62,6 +62,35 @@ describe('site store: applySiteInfo() pdfExportAvailable', () => {
 })
 
 /**
+ * OpenProject #2851/#2852: `isReplicationEnabled` reaches `siteStore` from `applySiteInfo` the same
+ * way `pdfExportAvailable` does above -- an instance-wide, boolean, always-server-provided value
+ * (`WIKI.config.replication?.isEnabled` on `buildSitePayload()`) that `HeaderNav.vue`'s warning
+ * banner reads.
+ */
+describe('site store: applySiteInfo() isReplicationEnabled', () => {
+  it('adopts isReplicationEnabled: true from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ isReplicationEnabled: true }))
+
+    expect(store.isReplicationEnabled).toBe(true)
+  })
+
+  it('adopts isReplicationEnabled: false from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ isReplicationEnabled: false }))
+
+    expect(store.isReplicationEnabled).toBe(false)
+  })
+
+  it('defaults to false when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.isReplicationEnabled).toBe(false)
+  })
+})
+
+/**
  * OpenProject #1922: `docsBase` reaches `siteStore` from `applySiteInfo` the same way
  * `pdfExportAvailable` does above -- but, unlike it, the store holds no hardcoded default of its
  * own. Every in-app "view docs" link is built from this value, so it must always come from the
