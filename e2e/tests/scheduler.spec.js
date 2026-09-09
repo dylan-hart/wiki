@@ -105,7 +105,13 @@ test.describe('admin scheduler', () => {
 
     await page.getByRole('radio', { name: 'Upcoming' }).click()
     await expect(page.locator('table tbody tr').first()).toBeVisible()
-    await expect(page.locator('table tbody tr')).toHaveCount(beforeUpcoming.length)
+    // -> Upcoming rows are grouped the same way Active/Completed/Failed already are (OpenProject
+    //    #2830), so a task with 2+ upcoming instances collapses into one summary `<tr>` -- compare
+    //    against the same grouping logic `AdminScheduler.vue` renders through, not the raw job
+    //    count (OpenProject #2882/#2879).
+    await expect(page.locator('table tbody tr')).toHaveCount(
+      flattenJobHistoryRows(beforeUpcoming, new Set()).length
+    )
 
     // -> Every seeded cron task lives in `tasks/simple/` (in-process), so every naturally-scheduled
     //    row should read In-Process, never Worker.
@@ -157,7 +163,10 @@ test.describe('admin scheduler', () => {
       .get('/_api/scheduler/upcoming')
       .then((r) => r.json())
     expect(afterCancelUpcoming.some((j) => j.id === workerJobId)).toBe(false)
-    await expect(page.locator('table tbody tr')).toHaveCount(afterCancelUpcoming.length)
+    // -> Same grouped-row comparison as above (OpenProject #2882/#2879), not the raw job count.
+    await expect(page.locator('table tbody tr')).toHaveCount(
+      flattenJobHistoryRows(afterCancelUpcoming, new Set()).length
+    )
   })
 
   test('cancelling a job already picked up surfaces cancelJobFailed on the 404, not a raw error', async ({
