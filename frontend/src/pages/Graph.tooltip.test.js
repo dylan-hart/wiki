@@ -73,4 +73,38 @@ describe('Graph.vue hover tooltip', () => {
       expect(wrapper.find('.graph-view-tooltip').text()).not.toContain('1 contributors')
     })
   })
+
+  // -> OpenProject #2888: mousing over a node should show `cursor: pointer`, not the default
+  //    arrow -- the canvas draws no native hoverable elements of its own, so the cursor has to be
+  //    driven off the same `hoveredNode` ref the tooltip already reacts to.
+  describe('hover cursor (OpenProject #2888)', () => {
+    it('has no hover class when no node is hovered', async () => {
+      const wrapper = await mountGraph()
+      await flushPromises()
+
+      expect(wrapper.find('.graph-view-canvas').classes()).not.toContain('graph-view-canvas--hover')
+    })
+
+    it('adds the hover class once a node is hovered', async () => {
+      const wrapper = await mountGraph()
+      const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+      wrapper.vm.hoveredNode = nodeA
+      await flushPromises()
+
+      expect(wrapper.find('.graph-view-canvas').classes()).toContain('graph-view-canvas--hover')
+    })
+
+    it('removes the hover class once the pointer leaves every node', async () => {
+      const wrapper = await mountGraph()
+      const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+      wrapper.vm.hoveredNode = nodeA
+      await flushPromises()
+      expect(wrapper.find('.graph-view-canvas').classes()).toContain('graph-view-canvas--hover')
+
+      wrapper.vm.hoveredNode = null
+      await flushPromises()
+
+      expect(wrapper.find('.graph-view-canvas').classes()).not.toContain('graph-view-canvas--hover')
+    })
+  })
 })

@@ -59,16 +59,15 @@ export class BlockQrCodeElement extends LitElement {
           align-items: center;
           gap: 8px;
           padding: 12px;
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 5px;
+          border: 1px solid var(--block-border);
+          border-radius: var(--block-radius);
           /*
-          White in both themes, and padded: a code is read by a camera looking for dark squares on a
-          light field, so inverting it for dark mode would make it harder to scan, not easier.
+          White in both themes and both aesthetics, and padded: a code is read by a camera looking for
+          dark squares on a light field, so tinting or inverting it would make it harder to scan, not
+          easier -- the one deliberate exception to blocks.md's "well is the tint" rule (OpenProject
+          #2875).
         */
           background-color: #fff;
-        }
-        :host([dark]) .qr {
-          border-color: rgba(255, 255, 255, 0.15);
         }
 
         /* -> The drawing is sized here, so the box grows by its own padding rather than eating into it */
@@ -80,8 +79,8 @@ export class BlockQrCodeElement extends LitElement {
 
         .caption {
           max-width: var(--qr-size);
-          color: #424242;
-          font-size: 0.8em;
+          color: var(--block-caption-fg);
+          font-size: 12.5px;
           text-align: center;
           overflow-wrap: anywhere;
         }

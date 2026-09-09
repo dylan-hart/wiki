@@ -122,10 +122,9 @@
                Locale/Browse above never shift width the moment this fades in. The separator fades
                in step with the button, both keyed off `showSidebarTop`; at page top the wrapper is
                still here holding the width, just empty, per the WP's own "cell is empty" wording.
-               The button itself mounts/unmounts on a v-if inside a <transition> (matching
-               `WPageScroller`'s own visible/scrollToTop shape) rather than merely toggling opacity,
-               so it drops out of the tab order and the accessibility tree while hidden with no
-               extra `tabindex`/`aria-hidden` bookkeeping needed here.
+               The button itself mounts/unmounts on a v-if inside a <transition> rather than merely
+               toggling opacity, so it drops out of the tab order and the accessibility tree while
+               hidden with no extra `tabindex`/`aria-hidden` bookkeeping needed here.
           -->
           <w-separator
             vertical
@@ -171,21 +170,24 @@
       nothing else on that screen opens it -- the header is full of page actions and has no room for a
       menu button.
 
-      Bottom LEFT whichever side the sidebar is on, because the opposite corner belongs to
-      scroll-to-top: on a narrow viewport that button is in the corner too, so one that followed the
-      sidebar to the right would land on top of it.
+      Bottom LEFT whichever side the sidebar is on, because the opposite corner is reserved for a page
+      view's own contents-panel opener below 750px (`showTocPanelBtn` in `pages/Index.vue`) -- a
+      hamburger that followed the sidebar to the right would land on top of it there. OpenProject #2894
+      retired the scroll-to-top corner disc this button used to pair with at 750-1199px (the sidebar's
+      own "Top" cell, `.sidebar-actions-top` below, covers that now) -- so in that band this is the only
+      fixed corner button left, still anchored physically rather than logically for consistency with the
+      narrower band where it does pair with one.
 
-      The position goes on a wrapper rather than on the button, as `WPageScroller` does it: `WBtn` is
-      `relative` from its own class list, and Tailwind emits `relative` after `fixed`, so a `fixed`
-      alongside it loses.
+      The position goes on a wrapper rather than on the button: `WBtn` is `relative` from its own class
+      list, and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses.
 
       Hard into the corner, with the corner facing the page rounded and the other three square -- see
       `.corner-btn`. No margin, so the button is not a disc hovering near the edge of a small screen but
       a piece of the screen's own corner, and every pixel of it is inside the viewport.
 
-      `left-0` (not `start-0`) is deliberate -- OpenProject #1590's physical-positioning triage: this
-      corner is chosen relative to `WPageScroller`'s corner, not to the reading direction, so it must
-      not move when the locale does. See `frontend/src/physicalPositioning.test.js`.
+      `left-0` (not `start-0`) is deliberate -- OpenProject #1590's physical-positioning triage: a fixed
+      screen corner, not a reading-direction gutter, so it must not move when the locale does. See
+      `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="corner-btn">
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">
@@ -207,36 +209,6 @@
     -->
     <w-page-container>
       <router-view />
-      <!--
-        -> `.page-container-scrl` is the page view's article column, which is what scrolls
-
-        The mirror of the sidebar button in the opposite corner while the layout is in its narrow mode:
-        flush to the edge, and rounded on the top LEFT, since this is the corner it is tucked into from
-        the other side.
-
-        OpenProject #2863: this corner disc used to also cover the wide (>=1200px) case, flush against
-        the bottom of the sidebar's own column instead of floating in the corner (`scrollerAnchorX`,
-        removed along with `WPageScroller`'s `anchorX` prop -- its only caller). That mode retires
-        outright at >=1200px, now that the sidebar's own "Top" cell in `.sidebar-actions` (Feature
-        #2840) covers scroll-to-top there instead -- so this only ever renders in the narrower range
-        below, where the sidebar overlays the page rather than columning beside it.
-
-        And it stands down below 750px too, where the page view's contents panel takes this corner for
-        its own opener -- one button per corner, and there the contents are the more useful of the two.
-        See `showTocPanelBtn` in `pages/Index.vue`, which is what fills the gap.
-      -->
-      <w-page-scroller
-        v-if="isAtLeastTocPanelWidth && !isWideViewport"
-        :scroll-offset="150"
-        target=".page-container-scrl">
-        <w-btn
-          class="corner-btn corner-btn--right"
-          icon="tabler:arrow-up"
-          color="primary"
-          round
-          size="md"
-          :aria-label="t(`common.actions.returnToTop`)" />
-      </w-page-scroller>
     </w-page-container>
     <main-overlay-dialog />
   </w-layout>
@@ -342,14 +314,6 @@ const isWideViewport = useMinWidth(SIDEBAR_OVERLAY_BELOW)
  * pointer-capability query. See `showEditNav` for why.
  */
 const isAtLeastSm = useMinWidth(600)
-
-/**
- * At or above 750px, which is where scroll-to-top keeps the bottom-right corner: below it the page view
- * turns its contents column into a panel and puts the opener there instead. The page view owns that
- * threshold (`$toc-overlay-max` and the 750px `useMinWidth` in `pages/Index.vue`); this is the same number
- * from the side that has to get out of the way.
- */
-const isAtLeastTocPanelWidth = useMinWidth(750)
 
 /** Whether this site, page and mode have a sidebar at all — before asking whether it is open. */
 const isSidebarAvailable = computed(() => {
@@ -497,48 +461,84 @@ const navSidebarEl = ref(null)
 
 /**
  * Measures every rendered `.truncate` label under the mounted `NavSidebar` (the span
- * `NavSidebarItem.vue` gives each row, styled `white-space: nowrap; overflow: hidden` so
- * `scrollWidth` reports its full, un-clipped natural width regardless of how narrow the box
- * actually rendered) and sizes `sidebarContentWidth` to the widest one, clamped to
+ * `NavSidebarItem.vue` gives each row, styled `white-space: nowrap; overflow: hidden`) and sizes
+ * `sidebarContentWidth` to the widest one's true content width, clamped to
  * `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`.
  *
- * The width the WHOLE drawer would need to be for one label alone to stop clipping is
- * `sidebarContentWidth.value - label.clientWidth + label.scrollWidth`: `clientWidth` is
- * however much of that label's natural width the CURRENT drawer width actually gives it, so
- * `sidebarContentWidth.value - label.clientWidth` is everything else in that row -- icon,
- * padding, and this row's own nesting-depth indentation (`NavSidebar.vue`'s
- * `.w-expansion-item__content` gives every level a 10px indent via its own transparent
- * `border-inline-start`, which is exactly why a single fixed chrome constant across every row
- * would be wrong here). Every row spans the same drawer width regardless of its depth, so that
- * "everything else" figure is invariant to the drawer's width and can be read off however wide
- * the drawer happens to be measured right now.
+ * `sidebarContentWidth.value - label.clientWidth` is this row's own fixed, depth-dependent chrome
+ * (icon, padding, nesting indentation -- `NavSidebar.vue`'s `.w-expansion-item__content` gives
+ * every level a 10px indent via its own transparent `border-inline-start`, which is why a single
+ * constant across every row would be wrong): the label is a flex-column item inside its
+ * `.w-item-section` (`WItemSection.vue`'s `flex flex-col`, `align-items` left at its default
+ * `stretch`), so it always fills whatever room the row's fixed chrome leaves it -- `chrome` is
+ * therefore invariant to however wide the drawer happens to be measured right now, and this
+ * subtraction has never been the bug.
+ *
+ * `label.scrollWidth`, however, is: read while the label is still stretched to that box, the DOM
+ * spec floors `scrollWidth` at `clientWidth` (a client area can never scroll to reveal something
+ * SMALLER than itself), so once the drawer has already grown for some earlier-widest label, every
+ * OTHER currently-fitting label's `scrollWidth` reports its full, already-inflated box width back
+ * -- never its true, smaller content need -- and `needed` can only ever equal or exceed the
+ * current width. That is OpenProject #2891: the sidebar could grow but never shrink back down.
+ * The fix is a one-read escape hatch: opt the label OUT of the stretch (`align-self: flex-start`)
+ * for exactly one synchronous `scrollWidth` read, which lets it shrink to its own true, unclipped
+ * content width, then immediately put the inline style back. Nothing paints between the write and
+ * the revert, so this produces no visible flicker and leaves the label's actual rendering alone.
  *
  * A collapsed folder's descendant rows sit inside a `v-show`-hidden `.w-expansion-item__content`
- * (Vue sets `display: none` on it) -- which zeroes BOTH `clientWidth` and `scrollWidth`, so
- * without an explicit visibility guard the formula above would misread such a label as needing
- * the full CURRENT width rather than nothing, permanently blocking the sidebar from ever
- * shrinking back down once grown. `offsetParent === null` is the standard "is this actually
- * rendered right now" check and is what excludes them instead.
+ * (Vue sets `display: none` on it) -- which zeroes both widths, so without an explicit visibility
+ * guard a label like that would misread as needing the full current width rather than nothing,
+ * permanently blocking the sidebar from ever shrinking. `offsetParent === null` is the standard
+ * "is this actually rendered right now" check and is what excludes them instead.
+ *
+ * The align-self release above is itself a `style` attribute write on a node INSIDE `root` --
+ * exactly what `sidebarMutationObserver` below watches for, to catch a folder's `v-show` toggling.
+ * Left connected, every measurement pass would notify itself of its own temporary mutations and
+ * re-trigger forever. It is disconnected for the loop's duration and reconnected once
+ * `sidebarContentWidth` has been written, which is safe because the loop is fully synchronous --
+ * nothing else can mutate this subtree in the gap.
  */
 function measureSidebarWidth() {
   const root = navSidebarEl.value?.$el
   if (!root || typeof root.querySelectorAll !== 'function') {
     return
   }
+  sidebarMutationObserver?.disconnect()
   let widest = SIDEBAR_WIDTH_MIN
   for (const label of root.querySelectorAll('.truncate')) {
     if (label.offsetParent === null) {
       continue
     }
-    const needed = sidebarContentWidth.value - label.clientWidth + label.scrollWidth
+    const chrome = sidebarContentWidth.value - label.clientWidth
+    const previousAlignSelf = label.style.alignSelf
+    label.style.alignSelf = 'flex-start'
+    const naturalWidth = label.scrollWidth
+    label.style.alignSelf = previousAlignSelf
+    const needed = chrome + naturalWidth
     if (needed > widest) {
       widest = needed
     }
   }
   sidebarContentWidth.value = Math.min(SIDEBAR_WIDTH_MAX, widest)
+  observeSidebarMutations(root)
 }
 
 let sidebarMutationObserver = null
+
+// -> A folder expanding/collapsing toggles its `.w-expansion-item__content`'s inline `display`
+//    (Vue's `v-show`) -- watching for a `style` attribute change anywhere in the tree is what
+//    re-measures on that, with no new prop/emit needed from `NavSidebarItem.vue` itself (see
+//    `measureSidebarWidth`'s own doc comment above). Shared between the watcher below (the
+//    observer's first, fresh-mount attachment) and `measureSidebarWidth` itself (reattaching
+//    after its own temporary disconnect), so the two never drift apart on the options.
+function observeSidebarMutations(root) {
+  sidebarMutationObserver = new MutationObserver(measureSidebarWidth)
+  sidebarMutationObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ['style'],
+    subtree: true
+  })
+}
 
 // Re-measures whenever the mounted `NavSidebar` itself changes -- its very first mount, and any
 // later one (mini mode toggling off and back on unmounts/remounts `<nav-sidebar>` entirely, per
@@ -553,16 +553,7 @@ watch(navSidebarEl, (component) => {
     return
   }
   nextTick(measureSidebarWidth)
-  // -> A folder expanding/collapsing toggles its `.w-expansion-item__content`'s inline `display`
-  //    (Vue's `v-show`) -- watching for a `style` attribute change anywhere in the tree is what
-  //    re-measures on that, with no new prop/emit needed from `NavSidebarItem.vue` itself (see
-  //    `measureSidebarWidth`'s own doc comment above).
-  sidebarMutationObserver = new MutationObserver(measureSidebarWidth)
-  sidebarMutationObserver.observe(root, {
-    attributes: true,
-    attributeFilter: ['style'],
-    subtree: true
-  })
+  observeSidebarMutations(root)
 })
 
 onBeforeUnmount(() => sidebarMutationObserver?.disconnect())
@@ -588,12 +579,11 @@ const canBrowse = computed(() => siteStore.features.browse)
 const showSidebarActions = computed(() => siteStore.locales.showMenu || canBrowse.value)
 
 /*
-  The scroll threshold past which `.sidebar-actions`'s own trailing "Top" cell fades in -- the same
-  150px `WPageScroller`'s corner button already uses for the SAME scrolling column
-  (`.page-container-scrl`), since both affordances answer the identical question ("has the reader
-  scrolled far enough down this page to want a way back up"). Kept as this component's own constant
-  rather than shared with `WPageScroller.vue` -- that file is #2863's to retire, not this WP's to
-  touch.
+  The scroll threshold past which `.sidebar-actions`'s own trailing "Top" cell fades in, for the SAME
+  scrolling column (`.page-container-scrl`) it answers the question for ("has the reader scrolled far
+  enough down this page to want a way back up"). OpenProject #2894: this used to match a second,
+  independently-declared 150px constant on the corner `WPageScroller` button that retired alongside it
+  -- there is now exactly one back-to-top affordance for a page view, so exactly one such constant.
 */
 const SIDEBAR_TOP_SCROLL_OFFSET = 150
 
@@ -607,7 +597,7 @@ function updateSidebarTopVisibility() {
 
 function scrollSidebarToTop() {
   const el = document.querySelector('.page-container-scrl')
-  // -> `smooth` is ignored under `prefers-reduced-motion`, same as `WPageScroller`'s own click
+  // -> `smooth` is ignored under `prefers-reduced-motion`, which is the behaviour we want
   ;(el ?? window).scrollTo({ top: 0, behavior: 'smooth' })
 }
 
@@ -673,7 +663,7 @@ function openSidebar() {
 
 /*
   `capture`, because a scroll event on an element (`.page-container-scrl`) does not bubble to the
-  window -- the same reason `WPageScroller.vue` listens the same way.
+  window.
 */
 onMounted(() => {
   window.addEventListener('scroll', updateSidebarTopVisibility, { capture: true, passive: true })

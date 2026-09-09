@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { dialog } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
+import { log } from '@/helpers/log'
 import { shouldPrefixLocale } from '@/helpers/pagePaths'
 
 import { useEditorStore } from '@/stores/editor'
@@ -81,6 +82,21 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
 
     loading.show()
     try {
+      /*
+        OpenProject #2898: the collab room behind every open editor autosaves a recoverable draft
+        whenever its last participant leaves (`core/collab.ts#closeRoomIfEmpty`), with no way for the
+        backend to tell "clicked Cancel" apart from a crash or a plain navigation-away. An explicit
+        Cancel/Discard is an explicit "no, don't keep this" -- the same signal declining the later
+        restore prompt already sends (`composables/collab.js`'s own `.onCancel`) -- so it clears the
+        draft here too, best-effort: a failed delete just means the same draft gets offered again next
+        time this page is opened, not a reason to block the discard the reader already asked for.
+      */
+      try {
+        await API_CLIENT.delete(`sites/${siteStore.id}/pages/${pageStore.id}/draft`)
+      } catch (err) {
+        log.warn('page', 'could not discard the recovery draft', err)
+      }
+
       /*
         The page is put back, and only then does the editor close. The other order draws the page view
         for a moment at the route the editor was on, which a redirection reads as "nobody is holding

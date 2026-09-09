@@ -246,28 +246,41 @@ describe('block-index', () => {
   })
 
   /**
-   * OpenProject #2501: the description text under a title (`.text span`) used a flat `#666` with no
-   * dark-mode override, computing to roughly 3:1 against the dark card background -- below the WCAG
-   * AA 4.5:1 floor for body text. Reads the color straight out of the source rather than the mounted
-   * shadow root: jsdom (unlike a real browser) doesn't run layout/paint, so `getComputedStyle` inside
-   * a shadow root does not reliably resolve a rule's value there.
+   * OpenProject #2501: the description text under a title (`.text span`) used to be a flat `#666`
+   * with no dark-mode override, computing to roughly 3:1 against the dark card background -- below
+   * the WCAG AA 4.5:1 floor for body text. OpenProject #2875 (block theming) replaced the row's own
+   * `:host([dark])` gradient with the shared `--block-*`/`--index-*` custom-property layer
+   * (`frontend/src/css/tailwind.css`), which is where the dark-mode color now lives -- read that
+   * file rather than this component's own source, and against the row's real dark-mode background
+   * (`--block-bg` under `body.body--dark`), not the old two-stop gradient's darkest end.
    */
-  describe('dark-mode text contrast (OpenProject #2501)', () => {
-    const source = readFileSync(path.join(import.meta.dirname, 'component.js'), 'utf8')
+  describe('dark-mode text contrast (OpenProject #2501, #2875)', () => {
+    const componentSource = readFileSync(path.join(import.meta.dirname, 'component.js'), 'utf8')
+    const tokenSource = readFileSync(
+      path.join(import.meta.dirname, '../../frontend/src/css/tailwind.css'),
+      'utf8'
+    )
 
-    it('gives .text span a :host([dark]) override meeting 4.5:1 against the dark card background', () => {
-      const match = source.match(/:host\(\[dark]\)\s*\.text span\s*{\s*color:\s*(#[0-9a-fA-F]{6});/)
-      expect(match).not.toBeNull()
-
-      const darkColor = match[1]
-      // -> The card background is a gradient between these two (see the `:host([dark]) li` rule
-      //    above); both ends must clear the AA floor, not just the average.
-      expect(contrastRatio(darkColor, '#161b22')).toBeGreaterThanOrEqual(4.5)
-      expect(contrastRatio(darkColor, '#0d1117')).toBeGreaterThanOrEqual(4.5)
+    it('reads .text span color off --index-description-fg', () => {
+      expect(componentSource).toMatch(/\.text span\s*{[^}]*color:\s*var\(--index-description-fg\)/)
     })
 
-    it('still fails the light-mode #666 against the dark background (proves the override is load-bearing)', () => {
-      expect(contrastRatio('#666666', '#0d1117')).toBeLessThan(4.5)
+    it('gives --index-description-fg a Ledger-dark value meeting 4.5:1 against --block-bg', () => {
+      // -> `body.body--dark { … }` appears more than once in tailwind.css (one block per concern);
+      //    merge all of them rather than assume this property lives in a particular one.
+      const darkBlocks = [...tokenSource.matchAll(/body\.body--dark\s*{([^}]*)}/g)]
+      expect(darkBlocks.length).toBeGreaterThan(0)
+      const merged = darkBlocks.map((m) => m[1]).join('\n')
+      const descriptionFg = merged.match(/--index-description-fg:\s*(#[0-9a-fA-F]{6});/)
+      expect(descriptionFg).not.toBeNull()
+
+      // -> --block-bg under body.body--dark: var(--color-dark-3), #1b1f2a -- the row's real
+      //    dark-mode background now that the old two-stop gradient is gone.
+      expect(contrastRatio(descriptionFg[1], '#1b1f2a')).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it('still fails the pre-#2875 light-mode #666 against that background (proves the token is load-bearing)', () => {
+      expect(contrastRatio('#666666', '#1b1f2a')).toBeLessThan(4.5)
     })
   })
 

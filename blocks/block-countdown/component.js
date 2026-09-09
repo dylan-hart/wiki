@@ -75,20 +75,32 @@ export class BlockCountdownElement extends LitElement {
         }
 
         .countdown {
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 5px;
-          padding: 1rem;
+          position: relative;
+          border: 1px solid var(--block-border);
+          border-radius: var(--block-radius);
+          padding: 18px 20px;
           text-align: center;
-          background-image: linear-gradient(to bottom, #fff, #fafafa);
         }
-        :host([dark]) .countdown {
-          border-color: rgba(255, 255, 255, 0.15);
-          background-image: linear-gradient(to bottom, #161b22, #0d1117);
+
+        /* Two opposite corner marks, Ledger only -- same technique as the other board blocks. */
+        .marks {
+          display: var(--block-corner-marks);
+          position: absolute;
+          inset: -5px;
+          pointer-events: none;
+          background:
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
+              no-repeat;
         }
 
         .label {
-          font-weight: 500;
-          font-size: 1.1em;
+          font: var(--countdown-label-font);
           margin-bottom: 0.75rem;
         }
 
@@ -96,42 +108,44 @@ export class BlockCountdownElement extends LitElement {
           display: flex;
           flex-wrap: wrap;
           justify-content: center;
-          gap: 0.5rem;
+          gap: 8px;
         }
 
         .segment {
           min-width: 72px;
-          padding: 0.5rem 0.75rem;
-          border-radius: 5px;
-          background-color: rgba(0, 0, 0, 0.04);
+          padding: var(--countdown-segment-pad);
+          border-radius: var(--countdown-segment-radius);
+          background-color: var(--countdown-segment-bg);
         }
-        :host([dark]) .segment {
-          background-color: rgba(255, 255, 255, 0.06);
+        /* -> Ledger only (--countdown-segment-rule is none in Cobalt, which separates by gap+tile) */
+        .segment + .segment {
+          border-left: var(--countdown-segment-rule);
         }
 
         .value {
-          font-size: 2rem;
-          font-weight: 500;
+          font: var(--countdown-value-font);
           line-height: 1.1;
           font-variant-numeric: tabular-nums;
-          color: var(--q-primary, #1976d2);
+          color: var(--countdown-value-fg);
         }
 
         .unit {
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          opacity: 0.7;
+          color: var(--countdown-unit-fg);
+          font: var(--countdown-unit-font);
+          letter-spacing: var(--countdown-unit-tracking);
+          text-transform: var(--countdown-unit-transform);
         }
 
         .target {
           margin-top: 0.75rem;
-          font-size: 0.8em;
-          opacity: 0.7;
+          color: var(--countdown-target-fg);
+          font: var(--countdown-target-font, 10.5px var(--font-mono));
         }
 
         .ended {
+          color: var(--countdown-ended-fg);
           font-weight: 500;
+          font-size: 14px;
         }
       `
     ]
@@ -296,6 +310,7 @@ export class BlockCountdownElement extends LitElement {
     })
     return html`
       <div class="countdown">
+        <i class="marks" aria-hidden="true"></i>
         ${this.label ? html`<div class="label">${this.label}</div>` : null}
         ${
           this._remaining

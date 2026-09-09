@@ -3,6 +3,7 @@
     <canvas
       ref="canvasRef"
       class="graph-view-canvas"
+      :class="{ 'graph-view-canvas--hover': hoveredNode }"
       role="img"
       :aria-label="graphAccessibleName"
       @click="onCanvasClick"
@@ -303,6 +304,18 @@ const sizeBy = ref('edits')
  *  otherwise indistinguishable, by value alone, from one who has never touched the control. Plain
  *  module state rather than a ref -- nothing templates or watches off it directly. */
 let hasPersistedSizeBy = false
+
+/** Set once `loadPageviewsTrackingState()` has resolved (OpenProject #2880), regardless of outcome
+ *  -- read by `loadGraphPrefs()` as the signal that `pageviewsTrackingEnabled.value` now reflects a
+ *  REAL check result rather than its own untouched initial `false`. `loadGraphPrefs()` must not
+ *  reconcile against `pageviewsTrackingEnabled` before this is true: reconciling against a merely
+ *  default-but-not-yet-checked `false` would incorrectly treat tracking as confirmed off (forcing a
+ *  persisted `sizeBy: 'visits'` back to `'edits'`) whenever the profile load happens to settle before
+ *  the tracking check does -- the ordinary case, since `loadGraphPrefs()` runs first in
+ *  `initializeGraphPrefs()`'s `Promise.all()`. That premature reconcile would also latch
+ *  `hasPersistedSizeBy` shut, permanently blocking the later, correct reconcile the tracking check's
+ *  own resolution would otherwise still produce. Plain module state, same as `hasPersistedSizeBy`. */
+let pageviewsTrackingResolved = false
 
 /** Whether 'edits'/'visits' sizing (and the hover tooltip's count) reads the unique-identity figure
  *  or the raw row-count figure (OpenProject #1269's backend fields, #1270's toggle) --
@@ -761,16 +774,17 @@ const clusters = ref([])
  *  pair once `radiusFor()` switched to a true min/max lerp normalized against the current graph's own
  *  observed range (`sqrtRangeOf()`/`lerpRadius()`, `graphNodeSize.js`) rather than an absolute
  *  `MIN + sqrt(count) * SCALE` formula. `MIN_NODE_RADIUS` was `5` -- the pre-#1270 'uniform' mode's
- *  fixed dot radius -- and is DOUBLE that as of OpenProject #2594: the floor now has to leave room
- *  for a legible page title rendered INSIDE the node rather than beside it (Task #2593), which a
- *  5px dot cannot do at any font size. Nothing else keys off it: `lerpRadius()` takes it as a
- *  parameter, `collideRadiusFor()` derives from `radiusFor()` and so rescales on its own, and a
- *  synthetic folder/root hub keeps its own fixed `3` (see `radiusFor()`), deliberately below the
- *  real-node floor. `MAX_NODE_RADIUS` is `5x` the old `22` cap (OpenProject #2561) -- the lerp's own
+ *  fixed dot radius -- doubled to `10` by OpenProject #2594 (the floor now has to leave room for a
+ *  legible page title rendered INSIDE the node rather than beside it, Task #2593, which a 5px dot
+ *  cannot do at any font size), and doubled again to `20` per Dylan's hands-on review (OpenProject
+ *  #2900). Nothing else keys off it: `lerpRadius()` takes it as a parameter, `collideRadiusFor()`
+ *  derives from `radiusFor()` and so rescales on its own, and a synthetic folder/root hub keeps its
+ *  own fixed `3` (see `radiusFor()`), deliberately below the real-node floor. `MAX_NODE_RADIUS` is
+ *  `5x` the old `22` cap (OpenProject #2561) and is left untouched by #2900 -- the lerp's own
  *  normalization is what makes a ceiling this much larger workable at all: only the single
  *  highest-ranked node in the currently-loaded graph ever actually draws at it, everything else
  *  scales down from there. */
-const MIN_NODE_RADIUS = 10
+const MIN_NODE_RADIUS = 20
 const MAX_NODE_RADIUS = 110
 
 /** How many contributors count toward a node's 'edits'-mode size, per the currently-checked
@@ -1110,6 +1124,7 @@ async function loadPageviewsTrackingState() {
   } catch {
     pageviewsTrackingEnabled.value = false
   }
+  pageviewsTrackingResolved = true
   // -> OpenProject #2854: `watch(pageviewsTrackingEnabled, reconcileSizeByForTracking)` below only
   //    fires on an actual VALUE CHANGE. `pageviewsTrackingEnabled` starts at its own literal `false`,
   //    so a check that resolves to `false` -- no change at all -- would never reconcile a persisted
@@ -1125,9 +1140,11 @@ async function loadPageviewsTrackingState() {
  *  reader has never touched keeps its own corrected default (`sizeBy`/`sizeCountMode`'s literals
  *  above, or the plain literals the other three always had). `sizeBy` specifically is applied
  *  directly here (not gated on `pageviewsTrackingEnabled`, which may not have resolved yet) and then
- *  reconciled against the tracking state by `reconcileSizeByForTracking()`, called from both
- *  `loadPageviewsTrackingState()` and the `pageviewsTrackingEnabled` watch below -- whichever of the
- *  two async loads finishes last is what leaves `sizeBy` in its final, correct state.
+ *  reconciled against the tracking state by `reconcileSizeByForTracking()`, called from this
+ *  function's own end, from `loadPageviewsTrackingState()`, and from the `pageviewsTrackingEnabled`
+ *  watch below (OpenProject #2880 added this function's own call, alongside the pre-existing other
+ *  two) -- whichever of the two async loads finishes last is what leaves `sizeBy` in its final,
+ *  correct state, regardless of which order they settle in.
  *
  *  Skipped for a guest reader: `GET profile` is session-authenticated, and a guest has no profile to
  *  have ever saved one onto. Called from `onMounted`, alongside `loadPageviewsTrackingState()`. */
@@ -1156,6 +1173,19 @@ async function loadGraphPrefs() {
     }
   } catch (err) {
     log.warn('graph', 'could not load persisted graph view preferences', err)
+  }
+  // -> OpenProject #2880: the mirror image of `loadPageviewsTrackingState()`'s own explicit call
+  //    below, guarded by `pageviewsTrackingResolved` (see that flag's own doc comment for why the
+  //    guard is required -- reconciling against a not-yet-checked `pageviewsTrackingEnabled` would
+  //    do the wrong thing). `watch(pageviewsTrackingEnabled, ...)` only fires on an actual value
+  //    CHANGE, so if `system/pageviews` happens to resolve (and settle at a value with no further
+  //    change) BEFORE this function applies a persisted `sizeBy` above, nothing would otherwise
+  //    re-reconcile the result -- `loadPageviewsTrackingState()`'s own call ran too early to see the
+  //    persisted value this function just applied. Calling the same reconciliation here too, once,
+  //    covers that ordering as well; when the tracking check hasn't resolved yet, this is a no-op by
+  //    design -- `loadPageviewsTrackingState()`'s own call reconciles correctly once it does.
+  if (pageviewsTrackingResolved) {
+    reconcileSizeByForTracking(pageviewsTrackingEnabled.value)
   }
 }
 
@@ -1307,9 +1337,10 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
  *    'uniform' mode to fall back to any more (OpenProject #1270).
  *
  *  Extracted to a named function (OpenProject #2854) rather than an inline watch callback so
- *  `loadPageviewsTrackingState()` can call it directly too, once, after resolving --
- *  `watch(pageviewsTrackingEnabled, ...)` only fires on an actual value change, which a check that
- *  resolves to the ref's own initial `false` never produces. */
+ *  `loadPageviewsTrackingState()` and `loadGraphPrefs()` (OpenProject #2880) can each call it
+ *  directly too, once, after resolving -- `watch(pageviewsTrackingEnabled, ...)` only fires on an
+ *  actual value change, which a check that resolves to the ref's own initial `false` never produces,
+ *  and neither load knows whether it is the one settling last. */
 function reconcileSizeByForTracking(enabled) {
   if (enabled && sizeBy.value === 'edits' && !hasPersistedSizeBy) {
     sizeBy.value = 'visits'
@@ -1434,6 +1465,11 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+  cursor: default;
+
+  &--hover {
+    cursor: pointer;
+  }
 }
 
 /*
@@ -1502,9 +1538,14 @@ onBeforeUnmount(() => {
 
 /*
   SIZE BY's two toggles (Unique/Total, then Edits/Visits) sitting side by side under their shared
-  caption (OpenProject #2855/#2828 item 3) -- `flex-wrap` is a fallback for a locale whose combined
-  option labels don't fit the panel's width on one line, not an expectation that it will usually
-  wrap.
+  caption (OpenProject #2855/#2828 item 3). `flex-wrap` stays as a genuine fallback for a locale whose
+  combined option labels run long, but a real headless-Chromium render at the panel's actual content
+  width (236px panel, 14px padding + 1px border each side -> ~206px available) found the English
+  default itself wrapping to two lines with `WBtnToggle`'s stock `px-3` segment padding -- ~229px
+  combined, not a hypothetical (OpenProject #2892). The `:deep()` override below narrows just this
+  row's segments (not `WBtnToggle`'s shared default, so no other caller of the component is affected)
+  to fit with real headroom: the same measurement at 6px padding comes out to ~181px, a ~25px margin
+  rather than a bare pass.
 */
 .graph-view-control-row {
   display: flex;
@@ -1512,6 +1553,10 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+
+  :deep(.w-btn-toggle__segment) {
+    padding-inline: 6px;
+  }
 }
 
 /* -> The language's own control overline: mono, small, letter-spaced, in the caption tier */

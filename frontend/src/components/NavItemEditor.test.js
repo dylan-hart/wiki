@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
@@ -472,5 +476,93 @@ describe('NavItemEditor "Open Icon Picker" icon (OpenProject #2725)', () => {
 
     expect(wrapper.find('[data-icon="tabler:search"]').exists()).toBe(true)
     expect(wrapper.find('[data-icon="tabler:icons"]').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2885 (porting #2826's folder-icon fallback here): a generated folder item carries no
+ * `icon` of its own -- the row's icon binding used to draw nothing at all for one rather than the
+ * same folder-vs-page fallback `NavSidebarItem.vue#iconFor()` gives the reading sidebar's own tree.
+ */
+describe('NavItemEditor folder icon fallback (OpenProject #2885)', () => {
+  it('draws a folder icon for an icon-less generated folder row, and the page icon for an icon-less generated link row', async () => {
+    const wrapper = mountEditor({
+      items: [
+        {
+          id: 'gf1',
+          type: 'link',
+          label: 'Docs',
+          visibilityGroups: [],
+          generated: true,
+          isFolder: true
+        },
+        { id: 'gp1', type: 'link', label: 'About', visibilityGroups: [], generated: true }
+      ]
+    })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    const rows = wrapper.findAll('.nav-edit-item-link')
+    expect(rows[0].find('[data-icon="tabler:folder"]').exists()).toBe(true)
+    expect(rows[1].find('[data-icon="tabler:file-text"]').exists()).toBe(true)
+  })
+
+  it('draws the row-own icon rather than the folder fallback when a generated folder item has one', async () => {
+    const wrapper = mountEditor({
+      items: [
+        {
+          id: 'gf2',
+          type: 'link',
+          label: 'Custom',
+          icon: 'tabler:star',
+          visibilityGroups: [],
+          generated: true,
+          isFolder: true
+        }
+      ]
+    })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    expect(wrapper.find('[data-icon="tabler:star"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="tabler:folder"]').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2885: a nested row (`.nav-edit-item-link.is-nested`) used to carry the same
+ * background-wash-plus-mitred-elbow darkening #2827 already removed from `NavSidebar.vue`'s open
+ * groups. A static check on the source, for the same reason `NavSidebar.test.js`'s own
+ * "removes the nested-item rail/wash/elbow" test gives: happy-dom cannot resolve a logical property
+ * against `direction`, and the DOM has no way to say whether an author's stylesheet still ships a
+ * `::before` rule nothing in the mounted tree happens to trigger.
+ */
+describe('NavItemEditor nested-row darkening removal (OpenProject #2885)', () => {
+  it('removes the nested-item background wash and mitred elbow, keeping only a transparent indent border', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'NavItemEditor.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+
+    // -> The base (Ledger) nested rule: indentation survives, transparent -- not merely present,
+    //    since the 10px width itself has to stay for the indent depth while its color goes.
+    const nestedRuleStart = styleBlock.indexOf('&.is-nested')
+    const nestedRule = styleBlock.slice(nestedRuleStart, nestedRuleStart + 300)
+    expect(nestedRule).toMatch(/border-inline-start\s*:\s*10px solid transparent/)
+    expect(nestedRule).not.toMatch(/background-color/)
+
+    // -> Cobalt keeps its own, shallower indent, but none of the wash/rail/radius/text-tone that
+    //    used to go with it -- narrowly scoped to this one selector's own block (not the whole
+    //    style block), since `var(--color-dark-2)` and similar tokens are legitimately reused by
+    //    OTHER, unrelated rules elsewhere in this same file.
+    const cobaltNestedStart = styleBlock.indexOf('.nav-edit-item-link.is-nested)')
+    const cobaltNestedRule = styleBlock.slice(cobaltNestedStart, cobaltNestedStart + 200)
+    expect(cobaltNestedRule).toMatch(/margin-inline-start\s*:\s*10px/)
+    expect(cobaltNestedRule).not.toMatch(/background-color/)
+    expect(cobaltNestedRule).not.toMatch(/border-radius/)
+
+    // -> The three per-theme washes the WP calls out by name are gone from the NESTED-row rules
+    //    specifically (both slices above already assert that); the mitred elbow pseudo-element
+    //    rule itself, and its per-theme color overrides, are gone outright from the whole
+    //    stylesheet -- matched as an actual rule declaration (`::before {`), not prose mentioning
+    //    it (this file's own header comment on the fix does, deliberately).
+    expect(styleBlock).not.toMatch(/::before\s*\{/)
   })
 })

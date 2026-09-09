@@ -170,14 +170,10 @@ export class BlockIndexElement extends LitElement {
         }
 
         li {
-          background-color: #fafafa;
-          background-image: linear-gradient(to bottom, #fff, #fafafa);
-          border-right: 1px solid rgba(0, 0, 0, 0.05);
-          border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-          border-left: 5px solid rgba(0, 0, 0, 0.1);
-          box-shadow: 0 3px 8px 0 rgba(116, 129, 141, 0.1);
+          position: relative;
+          border: 1px solid var(--block-border);
+          border-radius: var(--index-radius);
           padding: 0;
-          border-radius: 5px;
           font-weight: 500;
           display: flex;
           align-items: stretch;
@@ -191,23 +187,10 @@ export class BlockIndexElement extends LitElement {
         */
           margin-left: calc(var(--depth, 0) * 1.5rem);
         }
-        :host([dark]) li {
-          background-color: #222;
-          background-image: linear-gradient(to bottom, #161b22, #0d1117);
-          border-right: 1px solid rgba(0, 0, 0, 0.5);
-          border-bottom: 1px solid rgba(0, 0, 0, 0.5);
-          border-left: 5px solid rgba(255, 255, 255, 0.2);
-          box-shadow: 0 3px 8px 0 rgba(0, 0, 0, 0.25);
-        }
         li:hover {
-          background-color: var(--q-primary, #1976d2);
-          background-image: linear-gradient(to bottom, #fff, rgba(255, 255, 255, 0.95));
-          border-left-color: var(--q-primary, #1976d2);
+          background-color: var(--index-hover-bg);
+          box-shadow: var(--index-hover-edge);
           cursor: pointer;
-        }
-        :host([dark]) li:hover {
-          background-image: linear-gradient(to bottom, #1e232a, #161b22);
-          border-left-color: var(--q-primary, #1976d2);
         }
         /*
         -> The row runs across rather than down, so an icon can sit beside the writing rather than
@@ -216,15 +199,17 @@ export class BlockIndexElement extends LitElement {
       */
         li a {
           display: flex;
-          color: var(--q-primary, #1976d2);
-          /* -> Vertical only: the horizontal inset is what the arrow's own offset is set against */
-          padding: 0.75rem 1rem;
+          color: var(--index-title-fg);
+          /* -> Vertical only: the horizontal inset is what the trailing glyph's own offset is set against */
+          padding: 10px 14px;
           text-decoration: none;
           flex: 1;
           flex-direction: row;
           align-items: center;
-          gap: 14px;
+          gap: 12px;
           position: relative;
+          font-weight: var(--index-title-weight);
+          font-size: 14.5px;
         }
         .text {
           display: flex;
@@ -237,19 +222,10 @@ export class BlockIndexElement extends LitElement {
         }
         .text span {
           display: block;
-          color: #666;
-          font-size: 0.8em;
+          color: var(--index-description-fg);
+          font-size: 12.5px;
           font-weight: normal;
           pointer-events: none;
-        }
-        /*
-        -> #666 against the dark card background above (#161b22 -> #0d1117) computes to roughly a 3:1
-           contrast ratio, below the 4.5:1 WCAG AA floor for body text. #8b949e is GitHub's own
-           dark-theme fg.muted token -- a natural fit since that background gradient is lifted from the
-           same palette -- and clears 4.5:1 against both ends of the gradient (OpenProject #2501).
-      */
-        :host([dark]) .text span {
-          color: #8b949e;
         }
 
         /*
@@ -265,28 +241,36 @@ export class BlockIndexElement extends LitElement {
           display: flex;
           align-items: center;
           flex: none;
-          width: 1.75em;
+          width: 18px;
+          color: var(--index-row-fg);
         }
         .icon svg,
         .icon img {
-          width: 1.75em;
-          height: 1.75em;
+          width: 18px;
+          height: 18px;
         }
+        /*
+        The trailing glyph -- Tabler arrow-right (Ledger) or chevron-right (Cobalt), pasted verbatim
+        from frontend/src/assets/icons.generated.js, replacing the 48px Material arrow. Both sit in
+        the DOM; only one shows at a time, per aesthetic, via the --index-*-display tokens -- the same
+        display-toggle mechanism block-tabs' and block-infobox's corner marks use.
+      */
         li a > svg {
-          width: 32px;
+          width: 16px;
+          height: 16px;
           position: absolute;
-          right: 16px;
+          right: 14px;
+          color: var(--index-trailing-fg);
           pointer-events: none;
         }
-        li a > svg path {
-          fill: rgba(0, 0, 0, 0.2);
+        li a > svg.is-arrow {
+          display: var(--index-arrow-display);
         }
-        :host([dark]) li a > svg path {
-          fill: rgba(255, 255, 255, 0.2);
+        li a > svg.is-chevron {
+          display: var(--index-chevron-display);
         }
-        li:hover a > svg path,
-        :host([dark]) li:hover a > svg path {
-          fill: color-mix(in srgb, currentColor 50%, transparent);
+        li:hover a > svg {
+          color: var(--index-hover-trailing-fg);
         }
 
         /*
@@ -513,12 +497,26 @@ export class BlockIndexElement extends LitElement {
                       ${p.title} ${p.description ? html`<span>${p.description}</span>` : null}
                     </div>
                     <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 48 48"
-                      width="48px"
-                      height="48px">
+                      class="is-arrow"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      data-icon="tabler:arrow-right">
                       <path
-                        d="M 24 4 C 12.972292 4 4 12.972292 4 24 C 4 32.465211 9.2720863 39.722981 16.724609 42.634766 A 1.50015 1.50015 0 1 0 17.816406 39.841797 C 11.48893 37.369581 7 31.220789 7 24 C 7 14.593708 14.593708 7 24 7 A 1.50015 1.50015 0 1 0 24 4 z M 32.734375 6.1816406 A 1.50015 1.50015 0 0 0 32.033203 9.0136719 C 37.368997 11.880008 41 17.504745 41 24 C 41 33.406292 33.406292 41 24 41 A 1.50015 1.50015 0 1 0 24 44 C 35.027708 44 44 35.027708 44 24 C 44 16.385255 39.733331 9.7447579 33.453125 6.3710938 A 1.50015 1.50015 0 0 0 32.734375 6.1816406 z M 25.484375 16.484375 A 1.50015 1.50015 0 0 0 24.439453 19.060547 L 27.878906 22.5 L 16.5 22.5 A 1.50015 1.50015 0 1 0 16.5 25.5 L 27.878906 25.5 L 24.439453 28.939453 A 1.50015 1.50015 0 1 0 26.560547 31.060547 L 32.560547 25.060547 A 1.50015 1.50015 0 0 0 32.560547 22.939453 L 26.560547 16.939453 A 1.50015 1.50015 0 0 0 25.484375 16.484375 z" />
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        d="M5 12h14m-6 6l6-6m-6-6l6 6" />
+                    </svg>
+                    <svg
+                      class="is-chevron"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      data-icon="tabler:chevron-right">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        d="m9 6l6 6l-6 6" />
                     </svg>
                   </a>
                 </li>`

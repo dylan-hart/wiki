@@ -24,17 +24,35 @@ function parseYaml(source) {
  * what an infobox is for. Inline, because they are the same two pictures on every infobox there is,
  * and labelled, since the shape alone means nothing to a screen reader.
  */
+/*
+  Tabler `check` / `x`, pasted verbatim from frontend/src/assets/icons.generated.js (OpenProject
+  #2875 -- blocks.md's ground rules: "Material path SVGs (tick, cross, ...) -> Tabler"). Stroke
+  rather than fill, same as every other Tabler glyph in the app; `data-icon` names the source the way
+  every icon in the design references does.
+*/
 const YES_SVG = html`
-  <svg viewBox="0 0 24 24" width="18" height="18" role="img" aria-label="Yes" class="yes">
-    <path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    role="img"
+    aria-label="Yes"
+    class="yes"
+    data-icon="tabler:check">
+    <path fill="none" stroke="currentColor" stroke-width="1.5" d="m5 12l5 5L20 7" />
   </svg>
 `
 
 const NO_SVG = html`
-  <svg viewBox="0 0 24 24" width="18" height="18" role="img" aria-label="No" class="no">
-    <path
-      fill="currentColor"
-      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    role="img"
+    aria-label="No"
+    class="no"
+    data-icon="tabler:x">
+    <path fill="none" stroke="currentColor" stroke-width="1.5" d="M18 6L6 18M6 6l12 12" />
   </svg>
 `
 
@@ -241,10 +259,29 @@ Website: https://montreal.ca
         }
       }
 
+      /*
+        Two opposite corner marks, Ledger only -- var(--block-corner-marks) is "none" under Cobalt.
+        Sized against :host, since .infobox itself fills it with no host padding of its own. Same
+        aria-hidden four-gradient technique block-tabs' .tabs-marks draws (OpenProject #2874).
+      */
+      .marks {
+        display: var(--block-corner-marks);
+        position: absolute;
+        inset: -5px;
+        pointer-events: none;
+        background:
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
+            no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
+            no-repeat;
+      }
+
       .infobox {
-        border: 1px solid var(--infobox-border);
-        border-radius: 6px;
-        background-color: var(--infobox-bg);
+        border: 1px solid var(--block-border);
+        border-radius: var(--block-radius);
+        background-color: var(--block-bg);
         font-size: 0.85em;
         line-height: 1.45;
         overflow: hidden;
@@ -252,10 +289,10 @@ Website: https://montreal.ca
 
       .name {
         padding: 10px 12px;
-        border-bottom: 1px solid var(--infobox-border);
-        background-color: var(--infobox-head);
-        font-size: 1.1em;
-        font-weight: 600;
+        border-bottom: 1px solid var(--block-border);
+        background-color: var(--infobox-name-bg);
+        color: var(--infobox-name-fg);
+        font: 600 16px var(--font-display);
         text-align: center;
       }
 
@@ -269,13 +306,13 @@ Website: https://montreal.ca
         display: block;
         width: 100%;
         height: auto;
-        border-radius: 4px;
+        border-radius: var(--block-tile-radius);
       }
 
       figcaption {
         padding-top: 6px;
-        font-size: 0.9em;
-        opacity: 0.75;
+        font-size: 11.5px;
+        color: var(--infobox-caption-fg);
       }
 
       dl {
@@ -290,46 +327,54 @@ Website: https://montreal.ca
       dd {
         margin: 0;
         padding: 7px 12px;
-        border-top: 1px solid var(--infobox-rule);
+        border-top: 1px solid var(--block-border);
       }
       dl > :is(dt, dd):is(:first-child, :nth-child(2)) {
         border-top: 0;
       }
+      /*
+        -> Cobalt only (--infobox-row-alt-bg is transparent in Ledger): every second row pair (dt+dd)
+           takes the tint fill instead of a rule -- blocks.md's "rows alternate #fff / #f2f5ff
+           (dl > :nth-child(4n+3), :nth-child(4n+4))".
+      */
+      dl > :nth-child(4n + 3),
+      dl > :nth-child(4n + 4) {
+        background-color: var(--infobox-row-alt-bg);
+      }
 
       dt {
-        font-weight: 600;
+        color: var(--infobox-dt-fg);
+        font-weight: 500;
+        font-size: 12.5px;
         overflow-wrap: anywhere;
       }
 
       dd {
+        color: var(--infobox-dd-fg);
         overflow-wrap: anywhere;
       }
 
-      /*
-        -> A nested mapping: its own heading across both columns, then its rows under it
-
-        Shaded top-down rather than flat, so the heading reads as the lid of the group under it: the
-        pale edge catches the eye where the group starts and the colour settles into the one the box's
-        own name is drawn on. The two stops are declared per theme, since "lighter" in dark mode is a
-        lighter dark grey and not a step towards white.
-      */
+      /* -> A nested mapping: its own heading across both columns, then its rows under it. Flat tint,
+           no gradient (--infobox-head-top is gone -- OpenProject #2875 removed it). */
       .group {
         grid-column: 1 / -1;
         padding: 7px 12px;
-        border-top: 1px solid var(--infobox-rule);
-        background-image: linear-gradient(to bottom, var(--infobox-head-top), var(--infobox-head));
-        font-weight: 600;
+        border-top: 1px solid var(--block-border);
+        background-color: var(--block-tint-bg);
+        color: var(--infobox-group-fg);
+        font: var(--infobox-group-font);
+        letter-spacing: var(--infobox-group-tracking);
+        text-transform: var(--infobox-group-transform);
         text-align: center;
       }
 
       /*
-        The rule that closes a group.
-        Thicker than the ones between rows, and in the border colour rather than the rule colour, so
-        that a row belonging to the group and a row that follows it are told apart at a glance — the
-        heading marks where the group starts, this marks where it stops.
+        The rule that closes a group -- 2px in the border colour (was 3px), so a row belonging to the
+        group and a row that follows it are told apart at a glance. Cobalt draws none: the group tint
+        above is the only separation there.
       */
       dl > :is(dt, dd).is-group-end {
-        border-bottom: 3px solid var(--infobox-border);
+        border-bottom: var(--infobox-group-end-width) solid var(--block-border);
       }
 
       /* -> At the foot of the box there is nothing to separate from, and the card's own border is there */
@@ -352,13 +397,12 @@ Website: https://montreal.ca
       }
 
       /*
-        A value that is a web address, drawn the way the page draws its links: the same colour token,
-        the same medium weight, the same underline on hover. The rules are repeated here because a
-        stylesheet in the page cannot reach into a shadow root — the custom properties it declares do
-        reach in, which is what keeps the box in step with a re-themed site.
+        A value that is a web address, drawn the way the page draws its links. The rules are repeated
+        here because a stylesheet in the page cannot reach into a shadow root — the custom properties
+        it declares do reach in, which is what keeps the box in step with a re-themed site.
       */
       a {
-        color: var(--content-link, var(--q-primary, #1976d2));
+        color: var(--infobox-link-fg);
         font-weight: 500;
         text-decoration: none;
       }
@@ -391,33 +435,18 @@ Website: https://montreal.ca
       }
 
       .yes {
-        color: var(--q-positive, #02c39a);
-        vertical-align: -3px;
+        color: var(--infobox-yes-fg);
+        vertical-align: -2px;
       }
 
       .no {
-        color: var(--q-negative, #c10015);
-        vertical-align: -3px;
+        color: var(--infobox-no-fg);
+        vertical-align: -2px;
       }
 
       .error {
         padding: 10px 12px;
-        color: var(--q-negative, #c10015);
-      }
-
-      :host {
-        --infobox-border: #d5d5d5;
-        --infobox-bg: #f8f9fa;
-        --infobox-head: #eaecf0;
-        --infobox-head-top: #f7f8fa;
-        --infobox-rule: #e3e5e8;
-      }
-      :host([dark]) {
-        --infobox-border: rgba(255, 255, 255, 0.15);
-        --infobox-bg: #161b22;
-        --infobox-head: #1e232a;
-        --infobox-head-top: #2b323c;
-        --infobox-rule: rgba(255, 255, 255, 0.1);
+        color: var(--infobox-no-fg);
       }
     `
   }
@@ -518,6 +547,7 @@ Website: https://montreal.ca
 
   render() {
     return html`
+      <i class="marks" aria-hidden="true"></i>
       <aside class="infobox">
         <div class="name">${this.name}</div>
         ${

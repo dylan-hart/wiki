@@ -157,21 +157,35 @@ export class BlockLiveDataElement extends LitElement {
         }
 
         .card {
+          position: relative;
           margin-bottom: 16px;
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 5px;
-          padding: 1rem;
-          background-image: linear-gradient(to bottom, #fff, #fafafa);
+          border: 1px solid var(--block-border);
+          border-radius: var(--block-radius);
+          padding: 14px 18px;
         }
-        :host([dark]) .card {
-          border-color: rgba(255, 255, 255, 0.15);
-          background-image: linear-gradient(to bottom, #161b22, #0d1117);
+
+        /* Two opposite corner marks, Ledger only -- same technique as the other board blocks. */
+        .marks {
+          display: var(--block-corner-marks);
+          position: absolute;
+          inset: -5px;
+          pointer-events: none;
+          background:
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
+              no-repeat;
         }
 
         .label {
-          font-weight: 500;
-          font-size: 0.85em;
-          opacity: 0.75;
+          color: var(--live-data-label-fg);
+          font: var(--live-data-label-font);
+          letter-spacing: var(--live-data-label-tracking);
+          text-transform: var(--live-data-label-transform);
           margin-bottom: 0.35rem;
         }
 
@@ -182,22 +196,21 @@ export class BlockLiveDataElement extends LitElement {
         }
 
         .value {
-          font-size: 2rem;
-          font-weight: 500;
+          font: var(--live-data-value-font);
           line-height: 1.1;
           font-variant-numeric: tabular-nums;
-          color: var(--q-primary, #1976d2);
+          color: var(--live-data-value-fg);
         }
 
         .unit {
-          font-size: 1rem;
-          opacity: 0.7;
+          font-size: 14px;
+          color: var(--block-caption-fg);
         }
 
         .fetched-at {
           margin-top: 0.5rem;
-          font-size: 0.75em;
-          opacity: 0.6;
+          color: var(--live-data-fetched-fg);
+          font: var(--live-data-fetched-font);
         }
 
         .error {
@@ -205,7 +218,7 @@ export class BlockLiveDataElement extends LitElement {
         }
 
         .loading {
-          opacity: 0.6;
+          color: var(--block-caption-fg);
           font-style: italic;
         }
 
@@ -216,10 +229,10 @@ export class BlockLiveDataElement extends LitElement {
         }
         .sparkline path {
           fill: none;
-          stroke: var(--q-primary, #1976d2);
-          stroke-width: 2;
-          stroke-linejoin: round;
-          stroke-linecap: round;
+          stroke: var(--live-data-spark-stroke);
+          stroke-width: var(--live-data-spark-width);
+          stroke-linejoin: var(--live-data-spark-linejoin);
+          stroke-linecap: var(--live-data-spark-linecap);
         }
 
         .pill {
@@ -227,50 +240,42 @@ export class BlockLiveDataElement extends LitElement {
           align-items: center;
           gap: 0.5rem;
           padding: 0.4rem 0.9rem;
-          border-radius: 999px;
+          border-radius: var(--live-data-pill-radius);
           font-weight: 500;
+          font-size: 13px;
         }
         .pill .dot {
-          width: 0.65rem;
-          height: 0.65rem;
-          border-radius: 50%;
+          width: 9px;
+          height: 9px;
+          border-radius: var(--live-data-pill-dot-radius);
         }
         .pill.status-ok {
-          background-color: color-mix(in srgb, #21ba45 18%, transparent);
-          color: #1b7d34;
+          background-color: var(--live-data-ok-bg);
+          color: var(--live-data-ok-fg);
         }
         .pill.status-ok .dot {
-          background-color: #21ba45;
+          background-color: var(--live-data-ok-dot);
         }
         .pill.status-warning {
-          background-color: color-mix(in srgb, #f2c037 22%, transparent);
-          color: #8a6416;
+          background-color: var(--live-data-warning-bg);
+          color: var(--live-data-warning-fg);
         }
         .pill.status-warning .dot {
-          background-color: #f2c037;
+          background-color: var(--live-data-warning-dot);
         }
         .pill.status-critical {
-          background-color: color-mix(in srgb, #c10015 18%, transparent);
-          color: #c10015;
+          background-color: var(--live-data-critical-bg);
+          color: var(--live-data-critical-fg);
         }
         .pill.status-critical .dot {
-          background-color: #c10015;
+          background-color: var(--live-data-critical-dot);
         }
         .pill.status-unknown {
-          background-color: rgba(128, 128, 128, 0.18);
-          color: rgba(128, 128, 128, 0.9);
+          background-color: var(--live-data-unknown-bg);
+          color: var(--live-data-unknown-fg);
         }
         .pill.status-unknown .dot {
-          background-color: rgba(128, 128, 128, 0.7);
-        }
-        :host([dark]) .pill.status-ok {
-          color: #7be79a;
-        }
-        :host([dark]) .pill.status-warning {
-          color: #f6da8a;
-        }
-        :host([dark]) .pill.status-critical {
-          color: #ff8a8a;
+          background-color: var(--live-data-unknown-dot);
         }
       `
     ]
@@ -458,6 +463,7 @@ export class BlockLiveDataElement extends LitElement {
     }
     return html`
       <div class="card">
+        <i class="marks" aria-hidden="true"></i>
         ${this.label ? html`<div class="label">${this.label}</div>` : nothing}
         ${
           this.displayMode === 'sparkline'

@@ -418,9 +418,14 @@ onMounted(async () => {
     Two adjacent 1px rules per corner, sitting 4px clear of the card. They overhang the card, which
     the catalog's own 16px inset and the grid's 12px gap both absorb -- nothing clips them and
     nothing is pushed aside, since they are out of flow.
+
+    OpenProject #2896: `display: var(--corner-marks)` is `block` (a no-op) under Ledger and `none`
+    under Cobalt, matching `Login.vue`/`NavEditMenu.vue`'s identical construction -- Cobalt draws no
+    registration marks at all, on a block card same as everywhere else.
   */
   &-mark {
     position: absolute;
+    display: var(--corner-marks);
     width: 7px;
     height: 7px;
     opacity: 0;

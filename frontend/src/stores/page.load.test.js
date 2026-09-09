@@ -160,6 +160,38 @@ describe('page store: pageLoad()', () => {
   })
 
   /*
+   * OpenProject #2884: `savedIcon`/`savedTitle` are the pre-edit baseline `pageSave()`'s
+   * `navDisplayChanged` compares against -- captured here, from the fetched response, before
+   * `PagePropertiesDialog.vue`'s live `v-model` binding (or `PageHeader.vue`'s) ever gets a chance
+   * to mutate the live `icon`/`title` fields.
+   */
+  it('seeds the pre-edit icon/title baseline from the fetched page (OpenProject #2884)', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce(
+      stubPageResponse({ icon: 'mdi:file-document', title: 'Fetched Title' })
+    )
+
+    const pageStore = usePageStore()
+    await pageStore.pageLoad({ id: '5' })
+
+    expect(pageStore.savedIcon).toBe('mdi:file-document')
+    expect(pageStore.savedTitle).toBe('Fetched Title')
+  })
+
+  it('falls back to the default icon for the baseline the same way it does for the live field, on a page that never had one picked', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    // -> `icon` omitted entirely -- `pagePatch()`'s `pageData.icon || DEFAULT_PAGE_ICON` fallback
+    API_CLIENT.get.mockReturnValueOnce(stubPageResponse({ title: 'No Icon Yet' }))
+
+    const pageStore = usePageStore()
+    await pageStore.pageLoad({ id: '5' })
+
+    expect(pageStore.savedIcon).toBe(pageStore.icon)
+  })
+
+  /*
    * OpenProject #1785: `isStale` is the hook `Index.vue`'s route-path watcher passes so a slower,
    * now-superseded call's response cannot stomp whatever a faster, later navigation already wrote.
    * Driven directly here (rather than through a full `Index.vue` mount) to pin the store's own half

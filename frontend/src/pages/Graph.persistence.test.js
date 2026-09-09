@@ -87,6 +87,32 @@ describe('Graph.vue graph view preference persistence', () => {
     expect(wrapper.vm.sizeBy).toBe('visits')
   })
 
+  it("reconciles a persisted sizeBy:'visits' against tracking state even when the profile load resolves LAST (OpenProject #2880)", async () => {
+    const wrapper = await mountGraph({
+      authenticated: true,
+      pageviewsEnabled: false,
+      graphPrefs: { sizeBy: 'visits' },
+      delayProfileResolution: true
+    })
+
+    // -> Tracking is disabled, so a persisted 'visits' has nothing to size by -- same invariant as
+    //    the "falls a persisted sizeBy of 'visits' back to 'edits'" case above, but with the two
+    //    loads settling in the OPPOSITE order (profile after pageviews) that
+    //    `loadGraphPrefs()` didn't used to reconcile against on its own.
+    expect(wrapper.vm.sizeBy).toBe('edits')
+  })
+
+  it("keeps a persisted sizeBy:'visits' when the profile load resolves last and tracking is enabled (OpenProject #2880)", async () => {
+    const wrapper = await mountGraph({
+      authenticated: true,
+      pageviewsEnabled: true,
+      graphPrefs: { sizeBy: 'visits' },
+      delayProfileResolution: true
+    })
+
+    expect(wrapper.vm.sizeBy).toBe('visits')
+  })
+
   it('does not save anything as a side effect of the initial load itself', async () => {
     await mountGraph({ authenticated: true, graphPrefs: { groupBy: 'tag', sizeBy: 'edits' } })
     await vi.advanceTimersByTimeAsync(1000)

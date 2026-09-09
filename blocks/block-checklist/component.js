@@ -75,28 +75,41 @@ export class BlockChecklistElement extends LitElement {
         }
 
         .checklist {
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 5px;
-          padding: 1rem;
+          position: relative;
+          border: 1px solid var(--block-border);
+          border-radius: var(--block-radius);
+          padding: 16px 18px;
         }
-        :host([dark]) .checklist {
-          border-color: rgba(255, 255, 255, 0.15);
+
+        /* Two opposite corner marks, Ledger only -- same technique as the other seven board blocks. */
+        .marks {
+          display: var(--block-corner-marks);
+          position: absolute;
+          inset: -5px;
+          pointer-events: none;
+          background:
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
+              no-repeat;
         }
 
         .heading {
-          font-weight: 500;
-          font-size: 1.1em;
+          font: 600 19px var(--font-display);
           margin-bottom: 0.5rem;
         }
 
         .summary {
-          font-size: 0.85em;
-          opacity: 0.75;
+          color: var(--checklist-summary-fg);
+          font: var(--checklist-summary-font);
           margin-bottom: 0.75rem;
         }
         .summary.completed {
-          color: var(--q-positive, #21ba45);
-          opacity: 1;
+          color: var(--checklist-summary-done-fg);
           font-weight: 500;
         }
 
@@ -115,22 +128,50 @@ export class BlockChecklistElement extends LitElement {
           gap: 0.6rem;
         }
 
+        /*
+          A custom box rather than the native control's own accent-color (dropped per blocks.md's
+          ground rules): appearance:none clears the platform checkbox so the border/radius/fill below
+          are the whole of it, and the check mark itself is a Tabler check icon masked in white onto
+          the fill -- pasted verbatim from frontend/src/assets/icons.generated.js, the same source
+          every other icon swap in this task uses.
+        */
         input[type='checkbox'] {
+          appearance: none;
           margin-top: 0.2rem;
-          width: 1.1rem;
-          height: 1.1rem;
+          width: 16px;
+          height: 16px;
           flex: none;
-          accent-color: var(--q-primary, #1976d2);
+          border: 1px solid var(--checklist-box-border);
+          border-radius: var(--checklist-box-radius);
+          background-color: transparent;
+          position: relative;
+        }
+        input[type='checkbox']:checked {
+          border-color: var(--checklist-box-checked-border);
+          background-color: var(--checklist-box-checked-bg);
+        }
+        input[type='checkbox']:checked::before {
+          content: '';
+          position: absolute;
+          inset: 2px;
+          background-color: #fff;
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23000' stroke-width='2.5' d='m5 12l5 5L20 7'/%3E%3C/svg%3E");
+          mask-repeat: no-repeat;
+          mask-position: center;
+          mask-size: contain;
+        }
+        input[type='checkbox']:disabled {
+          opacity: 0.6;
         }
 
         .label.checked {
+          color: var(--block-caption-fg);
           text-decoration: line-through;
-          opacity: 0.7;
         }
 
         .meta {
-          font-size: 0.75em;
-          opacity: 0.65;
+          color: var(--checklist-meta-fg);
+          font: var(--checklist-meta-font);
         }
 
         .history-toggle {
@@ -138,25 +179,25 @@ export class BlockChecklistElement extends LitElement {
           background: none;
           border: none;
           padding: 0;
-          font: inherit;
-          font-size: 0.8em;
-          color: var(--q-primary, #1976d2);
+          color: var(--checklist-toggle-fg);
+          font: var(--checklist-toggle-font);
+          letter-spacing: var(--checklist-toggle-tracking);
+          text-transform: var(--checklist-toggle-transform);
           cursor: pointer;
         }
 
         .history {
           margin-top: 0.6rem;
-          padding-top: 0.6rem;
-          border-top: 1px solid rgba(0, 0, 0, 0.1);
+          padding: 0.6rem;
+          border-top: var(--checklist-history-rule);
+          background-color: var(--checklist-history-bg);
+          border-radius: var(--block-tile-radius);
           gap: 0.4rem;
-        }
-        :host([dark]) .history {
-          border-color: rgba(255, 255, 255, 0.15);
         }
 
         .history li {
-          font-size: 0.8em;
-          opacity: 0.85;
+          color: var(--block-caption-fg);
+          font-size: 12px;
         }
       `
     ]
@@ -402,6 +443,7 @@ export class BlockChecklistElement extends LitElement {
     }
     return html`
       <div class="checklist">
+        <i class="marks" aria-hidden="true"></i>
         ${this.heading ? html`<div class="heading">${this.heading}</div>` : null}
         <div class="summary ${this._execution?.completedAt ? 'completed' : ''}">
           ${this._renderSummary()}

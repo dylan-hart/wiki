@@ -91,14 +91,10 @@ export class BlockMediaPlayerElement extends LitElement {
         .container {
           margin-bottom: 16px;
           overflow: hidden;
-          border-radius: 5px;
+          border-radius: var(--block-radius);
           position: relative;
-          border: 1px solid #e0e0e0;
+          border: 1px solid var(--block-border);
           background-color: #000;
-        }
-
-        :host([dark]) .container {
-          border-color: rgba(255, 255, 255, 0.15);
         }
 
         .media-display {

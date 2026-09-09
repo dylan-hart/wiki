@@ -116,3 +116,36 @@ describe('SideDialog Cobalt corner-radius fix', () => {
     expect(outsidePanel).not.toMatch(/border-radius: 0 0 0 12px/)
   })
 })
+
+/**
+ * OpenProject #2895: the toolbar and scroll-area fix above (#2865) stopped `.w-dialog-panel` from
+ * clipping/filling, but both dialogs mounted here (`PagePropertiesDialog.vue`,
+ * `PageBacklinksDialog.vue`) wrap their content in one root `<w-card>` -- the panel's direct child --
+ * and `WCard.vue`'s own Cobalt radius (8px) is smaller than this panel's (12px), which the toolbar
+ * and scroll-area above already round themselves to. Left alone, the card's own smaller, solid-
+ * filled corner shows through as a mismatched-colour notch just inside the header's wider curve --
+ * high-contrast (and so highly visible) in light mode, low-contrast (barely visible) in dark mode,
+ * which is exactly the "fringe only in light mode" Dylan reported. Same source-text-scan convention
+ * as the corner-radius block above: no suite in this codebase renders real Chromium layout for
+ * Cobalt-only CSS.
+ */
+describe('SideDialog Cobalt card fringe (OpenProject #2895)', () => {
+  const styleBlock = source.slice(source.indexOf('<style'), source.indexOf('</style>'))
+  const panelBlock = styleBlock.slice(
+    styleBlock.indexOf('.floating-sidepanel {'),
+    styleBlock.lastIndexOf('}')
+  )
+
+  it('stops the card filling itself, or drawing its own edge, under Cobalt', () => {
+    expect(panelBlock).toMatch(
+      /\.w-card\s*{[^}]*@at-root \.body--cobalt & {[^}]*background: transparent;[^}]*box-shadow: none;/s
+    )
+  })
+
+  it('leaves the card rule out of every other file -- it belongs to the side panel alone', () => {
+    const outsidePanel =
+      styleBlock.slice(0, styleBlock.indexOf('.floating-sidepanel {')) +
+      styleBlock.slice(styleBlock.lastIndexOf('}') + 1)
+    expect(outsidePanel).not.toMatch(/\.w-card(?![\w-])/)
+  })
+})

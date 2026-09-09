@@ -14,8 +14,9 @@ describe('Graph.vue findNodeAt (per-node hit radius, OpenProject #2748)', () => 
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
     // -> Push A to the top of the graph's own observed range so it draws at MAX_NODE_RADIUS (110,
-    //    OpenProject #2561/#2594) -- same technique `Graph.layout.test.js`/`Graph.sizing.test.js`
-    //    already use to pin a node's radius to a known value.
+    //    OpenProject #2561/#2594/#2900 -- the ceiling itself is untouched by #2900) -- same
+    //    technique `Graph.layout.test.js`/`Graph.sizing.test.js` already use to pin a node's radius
+    //    to a known value.
     nodeA.contributors = {
       editor: 1000,
       mcp: 0,
@@ -40,22 +41,22 @@ describe('Graph.vue findNodeAt (per-node hit radius, OpenProject #2748)', () => 
     const wrapper = await mountGraph()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
-    // -> B is the fixture's zero-contributor node, so it sits at the floor: MIN_NODE_RADIUS (10),
-    //    collideRadiusFor === 12 (OpenProject #2594's doubled floor happens to land close to the old
-    //    flat constant here -- the point of this test is the case where a node's OWN radius is what
-    //    decides the hit, not that every node behaves identically to before).
+    // -> B is the fixture's zero-contributor node, so it sits at the floor: MIN_NODE_RADIUS (20 as
+    //    of OpenProject #2900, doubled again from #2594's `10`), collideRadiusFor === 22 -- the
+    //    point of this test is the case where a node's OWN radius is what decides the hit, not that
+    //    every node behaves identically to before.
     nodeA.x = -500
     nodeA.y = -500
     nodeB.x = 0
     nodeB.y = 0
     wrapper.vm.relayout()
 
-    expect(wrapper.vm.radiusFor(nodeB)).toBe(10)
+    expect(wrapper.vm.radiusFor(nodeB)).toBe(20)
 
-    // -> 20px away is outside B's own ~12px collide radius and outside every other node's radius at
+    // -> 30px away is outside B's own ~22px collide radius and outside every other node's radius at
     //    this distance from any of them, so nothing should be hit.
-    expect(wrapper.vm.findNodeAt(20, 0)).toBeNull()
-    // -> 8px away is inside B's own collide radius (12), so it IS hit.
+    expect(wrapper.vm.findNodeAt(30, 0)).toBeNull()
+    // -> 8px away is inside B's own collide radius (22), so it IS hit.
     expect(wrapper.vm.findNodeAt(8, 0)).toBe(nodeB)
   })
 
@@ -70,7 +71,7 @@ describe('Graph.vue findNodeAt (per-node hit radius, OpenProject #2748)', () => 
       total: { editor: 1000, mcp: 0, all: 1000 }
     }
     // -> A's huge (110px) radius reaches all the way to the click point at (0, 0) from 100px away,
-    //    and B's own floor (10px) radius also reaches it from 5px away -- both circles genuinely
+    //    and B's own floor (20px) radius also reaches it from 5px away -- both circles genuinely
     //    contain the click point, so this is a real tie-break between two hits, not just "only one
     //    candidate was ever in range". B is the nearer of the two.
     nodeA.x = -100
@@ -80,7 +81,7 @@ describe('Graph.vue findNodeAt (per-node hit radius, OpenProject #2748)', () => 
     wrapper.vm.relayout()
 
     expect(wrapper.vm.radiusFor(nodeA)).toBe(110)
-    expect(wrapper.vm.radiusFor(nodeB)).toBe(10)
+    expect(wrapper.vm.radiusFor(nodeB)).toBe(20)
     expect(wrapper.vm.findNodeAt(0, 0)).toBe(nodeB)
   })
 
