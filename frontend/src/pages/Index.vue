@@ -52,7 +52,7 @@
         </div>
       </div>
     </div>
-    <page-header v-if="!pageStore.notFound" />
+    <page-header v-if="!pageStore.notFound" ref="pageHeaderComp" />
     <!-- -> `min-h-0` so the columns inside can be shorter than their content and scroll -->
     <div class="page-container flex min-h-0 flex-nowrap items-stretch" style="flex: 1 1 100%">
       <div
@@ -602,6 +602,12 @@ const state = reactive({
 const pageContents = ref(null)
 /** The article column, which is what scrolls -- see `scrollPageToTop`. */
 const pageScroller = ref(null)
+/**
+ * The mounted `<page-header>` instance -- reached only for its exposed `titleDisplayEl`, the
+ * read-mode title element the keyword-highlight pass (below) also runs against. `null` while
+ * `pageStore.notFound` (the header isn't rendered at all) or before the component has mounted.
+ */
+const pageHeaderComp = ref(null)
 
 /*
   KEYWORD HIGHLIGHT / FIND (OpenProject #2541, Feature #2539)
@@ -913,9 +919,15 @@ const highlightCountLabel = computed(() =>
   reuses this very component instance across two content-page navigations, so a reader clicking a
   second highlighted graph node while already on a content page changes only the query, not the
   component tree -- an `onMounted` check would never see it.
+
+  `pageStore.title` is a third source (OpenProject #2901): the title lives in `PageHeader.vue`'s own
+  reactive `{{ displayedTitle }}` text node, not `v-html` like the body, so a change to it while a
+  highlight is active would otherwise leave stale marks around text `applyKeywordHighlight`'s
+  clear-then-rewrap already detached Vue's binding from -- re-running here keeps it in step the same
+  way a body edit already does.
 */
 watch(
-  [() => pageStore.render, highlightTerm],
+  [() => pageStore.render, highlightTerm, () => pageStore.title],
   () => {
     nextTick(() => {
       enhanceRenderedContent(pageContents.value, t)
@@ -1111,9 +1123,24 @@ function scrollPageToTop() {
 }
 
 /**
- * Re-applies (or clears) the keyword highlight against the article that is actually on screen right
- * now, reading `highlightTerm` fresh rather than taking it as an argument -- this is always called
- * from inside the watcher above, after `nextTick`, so the DOM and the term are already in step.
+ * The page title element, when the header is on screen at all -- `null` while `pageStore.notFound`
+ * (no `<page-header>` mounted) or before it has mounted. See `PageHeader.vue`'s exposed
+ * `titleDisplayEl` for why this reaches into the component instance rather than a plain template
+ * ref: the title lives in a completely separate DOM subtree from `.page-contents` (OpenProject
+ * #2901).
+ */
+function highlightableTitleEl() {
+  return pageHeaderComp.value?.titleDisplayEl ?? null
+}
+
+/**
+ * Re-applies (or clears) the keyword highlight against the article and the page title that are
+ * actually on screen right now, reading `highlightTerm` fresh rather than taking it as an argument
+ * -- this is always called from inside the watcher above, after `nextTick`, so the DOM and the term
+ * are already in step.
+ *
+ * Runs against both roots and concatenates their matches title-first, so the "N of M" count and
+ * `stepHighlightMatch` navigation include the title and walk it before the body it sits above.
  *
  * Always resets to "no current match" and re-focuses match 0: whether this run is a first
  * activation, a term change, or a re-render with the same term, the old `highlightCurrentIndex`
@@ -1123,13 +1150,16 @@ function scrollPageToTop() {
 function syncKeywordHighlight() {
   const term = highlightTerm.value
   if (!term) {
+    clearKeywordHighlight(highlightableTitleEl())
     clearKeywordHighlight(pageContents.value)
     highlightMatches.value = []
     highlightCurrentIndex.value = -1
     return
   }
 
-  const { matches } = applyKeywordHighlight(pageContents.value, term)
+  const { matches: titleMatches } = applyKeywordHighlight(highlightableTitleEl(), term)
+  const { matches: bodyMatches } = applyKeywordHighlight(pageContents.value, term)
+  const matches = [...titleMatches, ...bodyMatches]
   highlightMatches.value = matches
   highlightCurrentIndex.value = matches.length > 0 ? 0 : -1
   if (matches.length > 0) {
@@ -1174,6 +1204,7 @@ function goToPreviousHighlightMatch() {
  * find-mode. A graph click must not permanently pin a reader into find-mode once they have said no.
  */
 function dismissHighlight() {
+  clearKeywordHighlight(highlightableTitleEl())
   clearKeywordHighlight(pageContents.value)
   highlightMatches.value = []
   highlightCurrentIndex.value = -1
