@@ -174,13 +174,22 @@ export const FIXTURE_GRAPH_TRUNCATED = {
  *  defaulting to `{}` -- no persisted preference), issued BEFORE the pageviews check per
  *  `onMounted`'s own argument-order comment; an unauthenticated mount (the default, matching every
  *  pre-#2854 test here) skips that call entirely, so the two-call queue below is untouched for every
- *  suite that never opts in. */
+ *  suite that never opts in. `delayProfileResolution` is OpenProject #2880's own addition: both
+ *  mocked responses below are already-settled `Promise.resolve()`s, so under `Promise.all()` they
+ *  actually resolve in CALL order (profile before pageviews, since `loadGraphPrefs()` runs first in
+ *  `initializeGraphPrefs()`) regardless of which one a real network round trip would settle first --
+ *  the "profile resolves after the pageviews check" ordering #2880's own gap depends on is otherwise
+ *  unreachable from this fixture. Passing `true` wraps the profile response in two chained
+ *  `queueMicrotask()` hops (real microtasks -- unaffected by `vi.useFakeTimers()`), which reliably
+ *  settles it several microtask ticks after the pageviews response's own single-tick native `await`
+ *  continuation, without depending on real timers or a fake-timer advance. */
 export async function mountGraph({
   pageviewsEnabled = false,
   graph = FIXTURE_GRAPH,
   messageOverrides = {},
   authenticated = false,
-  graphPrefs = null
+  graphPrefs = null,
+  delayProfileResolution = false
 } = {}) {
   const router = await createTestRouter(['/:pathMatch(.*)*'])
 
@@ -194,7 +203,12 @@ export async function mountGraph({
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(structuredClone(graph)) })
   if (authenticated) {
     API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.resolve({ graph: graphPrefs ?? {} })
+      json: () =>
+        delayProfileResolution
+          ? new Promise((resolve) => {
+              queueMicrotask(() => queueMicrotask(() => resolve({ graph: graphPrefs ?? {} })))
+            })
+          : Promise.resolve({ graph: graphPrefs ?? {} })
     })
   }
   API_CLIENT.get.mockReturnValueOnce({
