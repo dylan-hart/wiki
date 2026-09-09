@@ -106,6 +106,62 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
     const reloaded = await usersModel.getProfile(fixtures.userId)
     assert.equal(reloaded?.aesthetic, 'cobalt')
   })
+
+  /**
+   * OpenProject #2854: the knowledge graph view's five persisted controls, stored under
+   * `prefs.graph` and saved/read back as one whole object -- unlike every other prefs field above,
+   * which is a flat string with a forced default, `graph` gets NO forced default from the model:
+   * `Graph.vue` is the one place that decides what an unset control falls back to.
+   */
+  test('has no graph key at all for a user who has never saved one', async () => {
+    const profile = await usersModel.getProfile(fixtures.userId)
+    assert.equal(profile?.graph, undefined)
+  })
+
+  test('persists a graph preference and reads it back on reload', async () => {
+    const graph = {
+      groupBy: 'tag',
+      sizeBy: 'visits',
+      count: 'unique',
+      over: 'last6mo',
+      clientTypes: ['browser', 'mcp']
+    }
+
+    const updated = await usersModel.updateProfile(fixtures.userId, { graph })
+    assert.deepEqual(updated?.graph, graph)
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.deepEqual(reloaded?.graph, graph)
+  })
+
+  test('a later save replaces the whole graph object rather than merging into it', async () => {
+    await usersModel.updateProfile(fixtures.userId, {
+      graph: { groupBy: 'tag', sizeBy: 'visits' }
+    })
+
+    const updated = await usersModel.updateProfile(fixtures.userId, {
+      graph: { groupBy: 'folder' }
+    })
+
+    assert.deepEqual(updated?.graph, { groupBy: 'folder' })
+  })
+
+  test('leaves other prefs fields (e.g. locale) untouched when only graph changes', async () => {
+    await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+
+    const updated = await usersModel.updateProfile(fixtures.userId, { graph: { groupBy: 'tag' } })
+
+    assert.deepEqual(updated?.graph, { groupBy: 'tag' })
+    assert.equal(updated?.locale, 'fr')
+  })
+
+  test('leaves a saved graph preference untouched when an unrelated field changes', async () => {
+    await usersModel.updateProfile(fixtures.userId, { graph: { groupBy: 'tag' } })
+
+    const updated = await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+
+    assert.deepEqual(updated?.graph, { groupBy: 'tag' })
+  })
 })
 
 /**

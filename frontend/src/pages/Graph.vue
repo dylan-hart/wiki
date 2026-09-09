@@ -196,6 +196,7 @@
 import {
   computed,
   markRaw,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   reactive,
@@ -213,6 +214,7 @@ import { log } from '@/helpers/log'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import GraphClientTypeFilter from '@/components/GraphClientTypeFilter.vue'
 import {
   buildPathHierarchyEdges,
@@ -239,6 +241,7 @@ import {
  */
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 const router = useRouter()
 const { t } = useI18n()
 const dark = useDark()
@@ -287,9 +290,19 @@ const groupBy = ref('folder')
  *  `pageviewsTrackingEnabled` (below) itself defaults to `false` until its own async check resolves,
  *  and 'edits' is the one value `sizeByOptions` always offers no matter how that check turns out.
  *  Selecting 'visits' at this line would briefly pick an option that isn't there yet. The
- *  `watch(pageviewsTrackingEnabled, ...)` near the bottom of this file is where the real default
- *  actually gets applied, once it's known. */
+ *  `reconcileSizeByForTracking()` function further down is where the real default actually gets
+ *  applied, once it's known -- unless a persisted preference exists (OpenProject #2854), in which
+ *  case `loadGraphPrefs()` overwrites this literal with it directly. */
 const sizeBy = ref('edits')
+
+/** Set by `loadGraphPrefs()` (OpenProject #2854) the moment a persisted `sizeBy` preference is
+ *  found, regardless of its value -- read by `reconcileSizeByForTracking()` below as the signal that
+ *  a real preference now exists, so its own "still holds the untouched literal default" check
+ *  (`sizeBy.value === 'edits'`, #2853's original guard) is no longer a reliable stand-in for "hasn't
+ *  been deliberately chosen": a reader who explicitly saved 'edits' while tracking was already on is
+ *  otherwise indistinguishable, by value alone, from one who has never touched the control. Plain
+ *  module state rather than a ref -- nothing templates or watches off it directly. */
+let hasPersistedSizeBy = false
 
 /** Whether 'edits'/'visits' sizing (and the hover tooltip's count) reads the unique-identity figure
  *  or the raw row-count figure (OpenProject #1269's backend fields, #1270's toggle) --
@@ -1097,6 +1110,109 @@ async function loadPageviewsTrackingState() {
   } catch {
     pageviewsTrackingEnabled.value = false
   }
+  // -> OpenProject #2854: `watch(pageviewsTrackingEnabled, reconcileSizeByForTracking)` below only
+  //    fires on an actual VALUE CHANGE. `pageviewsTrackingEnabled` starts at its own literal `false`,
+  //    so a check that resolves to `false` -- no change at all -- would never reconcile a persisted
+  //    `sizeBy: 'visits'` preference `loadGraphPrefs()` may have already applied before this
+  //    resolved. Calling the same reconciliation here explicitly, once, unconditionally, covers that
+  //    case regardless of which of the two loads finishes first; it is a no-op wherever the watch's
+  //    own transition already produced the same outcome.
+  reconcileSizeByForTracking(pageviewsTrackingEnabled.value)
+}
+
+/** Reads this reader's own previously-saved graph view preferences off their profile (OpenProject
+ *  #2854), applying whichever of the five are present onto their matching ref -- a control the
+ *  reader has never touched keeps its own corrected default (`sizeBy`/`sizeCountMode`'s literals
+ *  above, or the plain literals the other three always had). `sizeBy` specifically is applied
+ *  directly here (not gated on `pageviewsTrackingEnabled`, which may not have resolved yet) and then
+ *  reconciled against the tracking state by `reconcileSizeByForTracking()`, called from both
+ *  `loadPageviewsTrackingState()` and the `pageviewsTrackingEnabled` watch below -- whichever of the
+ *  two async loads finishes last is what leaves `sizeBy` in its final, correct state.
+ *
+ *  Skipped for a guest reader: `GET profile` is session-authenticated, and a guest has no profile to
+ *  have ever saved one onto. Called from `onMounted`, alongside `loadPageviewsTrackingState()`. */
+async function loadGraphPrefs() {
+  if (!userStore.authenticated) {
+    return
+  }
+  try {
+    const resp = await API_CLIENT.get('profile').json()
+    const saved = resp?.graph ?? {}
+    if (saved.groupBy !== undefined) {
+      groupBy.value = saved.groupBy
+    }
+    if (saved.sizeBy !== undefined) {
+      hasPersistedSizeBy = true
+      sizeBy.value = saved.sizeBy
+    }
+    if (saved.count !== undefined) {
+      sizeCountMode.value = saved.count
+    }
+    if (saved.over !== undefined) {
+      pageviewsWindow.value = saved.over
+    }
+    if (Array.isArray(saved.clientTypes)) {
+      pageviewClientTypes.value = saved.clientTypes
+    }
+  } catch (err) {
+    log.warn('graph', 'could not load persisted graph view preferences', err)
+  }
+}
+
+/** Saves the five graph view controls back onto this reader's profile (OpenProject #2854), merged
+ *  into one `graph` object -- the existing profile PATCH route's whitelist replaces that whole key
+ *  rather than merging into it (same as `aesthetic`/`appearance`/`locale`), so every save sends all
+ *  five together regardless of which one actually changed. A no-op for a guest reader, who has no
+ *  profile to save onto; a failure is logged and otherwise swallowed, the same tolerance
+ *  `loadGraphPrefs()` gives its own read -- losing a preference save is not worth interrupting the
+ *  reader's actual task of looking at the graph. */
+async function saveGraphPrefs() {
+  if (!userStore.authenticated) {
+    return
+  }
+  try {
+    await API_CLIENT.put('profile', {
+      json: {
+        graph: {
+          groupBy: groupBy.value,
+          sizeBy: sizeBy.value,
+          count: sizeCountMode.value,
+          over: pageviewsWindow.value,
+          clientTypes: pageviewClientTypes.value
+        }
+      }
+    }).json()
+  } catch (err) {
+    log.warn('graph', 'could not save graph view preferences', err)
+  }
+}
+
+/** How long to wait after the last of a burst of control changes before saving (OpenProject #2854)
+ *  -- same window `EditorMarkdown.vue`'s own content-change debounce uses for syncing to the store. */
+const GRAPH_PREFS_SAVE_DEBOUNCE_MS = 500
+
+const debouncedSaveGraphPrefs = debounce(saveGraphPrefs, GRAPH_PREFS_SAVE_DEBOUNCE_MS)
+
+/** Guards `debouncedSaveGraphPrefs()` against firing off the load itself: `loadGraphPrefs()` and
+ *  `reconcileSizeByForTracking()` both assign the very refs the watch below saves, and neither
+ *  reflects a reader's own action. Flipped once, in `onMounted`, only after BOTH loads that touch
+ *  these refs (`loadGraphPrefs()`, `loadPageviewsTrackingState()`) have settled -- before that, a
+ *  save would race the load, potentially persisting a still-resolving `sizeBy` (OpenProject #2853's
+ *  own async-timing problem, which a save fired mid-resolution would reintroduce for #2854). */
+let graphPrefsReady = false
+
+/** Runs `loadGraphPrefs()` and `loadPageviewsTrackingState()` (whichever settles last decides
+ *  `sizeBy`'s final value, per their own doc comments), then waits one `nextTick()` before flipping
+ *  `graphPrefsReady` -- Vue's own watchers run as queued jobs, flushed on a microtask, so a mutation
+ *  either load made to `groupBy`/`sizeBy`/... schedules the save-watch's callback onto that same
+ *  queue; without this extra tick, `graphPrefsReady` could already read `true` by the time that
+ *  queued callback actually runs, which is exactly the race this flag exists to prevent. Awaiting
+ *  `nextTick()` guarantees any such pending callback has already run (and no-opped, correctly, on
+ *  `graphPrefsReady` still being `false`) before this function sets it. */
+async function initializeGraphPrefs() {
+  await Promise.all([loadGraphPrefs(), loadPageviewsTrackingState()])
+  await nextTick()
+  graphPrefsReady = true
 }
 
 /** Recomputes `nodes.value`/`edges.value` (what the simulation actually runs on) from `allNodes`
@@ -1180,20 +1296,43 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
 /** This is where `sizeBy`'s REAL default (its own doc comment above) actually gets applied, the
  *  moment `pageviewsTrackingEnabled` resolves either way (OpenProject #2853):
  *  - turns on: promote 'edits' -> 'visits' -- but only while `sizeBy` still holds its own untouched
- *    declared default. There's no persisted preference to consult yet (that's OpenProject #2854),
- *    so "still equals the literal default" is the only signal available this round for "hasn't been
- *    deliberately chosen" -- a reader who already picked 'edits' by hand in the brief window before
- *    this resolves keeps that choice rather than being overridden.
+ *    declared default AND no persisted preference has been loaded (`hasPersistedSizeBy`, OpenProject
+ *    #2854): a reader who already picked 'edits' by hand in the brief window before this resolves,
+ *    or who saved 'edits' deliberately on an earlier visit, keeps that choice rather than being
+ *    overridden.
  *  - turns off (OpenProject #1140's own scope decision: while tracking is off, 'visits' sizing has
  *    no data behind it -- e.g. the admin opt-out flips live, in another tab): fall back from
- *    'visits' to 'edits' rather than leaving a now-hidden option selected. No 'uniform' mode to fall
- *    back to any more (OpenProject #1270). */
-watch(pageviewsTrackingEnabled, (enabled) => {
-  if (enabled && sizeBy.value === 'edits') {
+ *    'visits' to 'edits' rather than leaving a now-hidden option selected, even for a persisted
+ *    'visits' preference -- there is nothing to size by while tracking is off, persisted or not. No
+ *    'uniform' mode to fall back to any more (OpenProject #1270).
+ *
+ *  Extracted to a named function (OpenProject #2854) rather than an inline watch callback so
+ *  `loadPageviewsTrackingState()` can call it directly too, once, after resolving --
+ *  `watch(pageviewsTrackingEnabled, ...)` only fires on an actual value change, which a check that
+ *  resolves to the ref's own initial `false` never produces. */
+function reconcileSizeByForTracking(enabled) {
+  if (enabled && sizeBy.value === 'edits' && !hasPersistedSizeBy) {
     sizeBy.value = 'visits'
   } else if (!enabled && sizeBy.value === 'visits') {
     sizeBy.value = 'edits'
   }
+}
+
+watch(pageviewsTrackingEnabled, reconcileSizeByForTracking)
+
+/** Persists the five graph view controls (OpenProject #2854) whenever any of them changes --
+ *  `groupBy`'s own separate watch above still handles re-clustering/repainting; this one only saves.
+ *  Guarded by `graphPrefsReady` so neither the initial load (`loadGraphPrefs()`,
+ *  `reconcileSizeByForTracking()` assigning these same refs) nor the brief window before it settles
+ *  fires a save of its own -- see that flag's doc comment. Not `{ deep: true }`: `pageviewClientTypes`
+ *  is always reassigned wholesale by its `w-btn-toggle`-style control, never mutated in place, the
+ *  same convention the `[sizeBy, sizeCountMode, contributorTypes, pageviewsWindow,
+ *  pageviewClientTypes]` watch above already relies on. */
+watch([groupBy, sizeBy, sizeCountMode, pageviewsWindow, pageviewClientTypes], () => {
+  if (!graphPrefsReady) {
+    return
+  }
+  debouncedSaveGraphPrefs()
 })
 
 /** OpenProject #2294: once the locale filter control disappears (single locale left, either from the
@@ -1265,13 +1404,19 @@ onMounted(() => {
   })
   resizeObserver.observe(containerRef.value)
   loadGraph()
-  loadPageviewsTrackingState()
+  // -> `loadGraph()` above stays the first `API_CLIENT.get` call (OpenProject #2853's own ordering
+  //    note above `loadPageviewsTrackingState()`). `initializeGraphPrefs()` calls
+  //    `loadGraphPrefs()` before `loadPageviewsTrackingState()` (both run synchronously up to their
+  //    first `await`, in argument order), so its own `GET profile` call -- issued only when
+  //    authenticated -- lands second and `system/pageviews` third, a stable, test-predictable order.
+  initializeGraphPrefs()
 })
 
 onBeforeUnmount(() => {
   simulation?.stop()
   resizeObserver?.disconnect()
   debouncedSearchKeyword.cancel()
+  debouncedSaveGraphPrefs.cancel()
 })
 </script>
 

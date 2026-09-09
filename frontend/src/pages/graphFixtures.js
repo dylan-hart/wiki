@@ -168,11 +168,19 @@ export const FIXTURE_GRAPH_TRUNCATED = {
  *  shape -- the locale-duplicate case (OpenProject #1629), the locale-filter tests' multi-locale
  *  graph (OpenProject #2294), or the #1686 fallback-list tests' `NESTED_FIXTURE_GRAPH` (for a
  *  real-to-real edge) -- passes its own. `messageOverrides` is forwarded to `createGraphI18n()` for
- *  a test asserting one specific resolved string. */
+ *  a test asserting one specific resolved string. `authenticated`/`graphPrefs` are OpenProject
+ *  #2854's own addition: an authenticated mount queues a third `API_CLIENT.get` response for
+ *  `Graph.vue#loadGraphPrefs()`'s `GET profile` call (`graphPrefs` becomes its `resp.graph`,
+ *  defaulting to `{}` -- no persisted preference), issued BEFORE the pageviews check per
+ *  `onMounted`'s own argument-order comment; an unauthenticated mount (the default, matching every
+ *  pre-#2854 test here) skips that call entirely, so the two-call queue below is untouched for every
+ *  suite that never opts in. */
 export async function mountGraph({
   pageviewsEnabled = false,
   graph = FIXTURE_GRAPH,
-  messageOverrides = {}
+  messageOverrides = {},
+  authenticated = false,
+  graphPrefs = null
 } = {}) {
   const router = await createTestRouter(['/:pathMatch(.*)*'])
 
@@ -184,13 +192,18 @@ export async function mountGraph({
   //    every later test in the same file, in file order, with no relation to what that later test
   //    itself does. Each call gets its own independent copy instead.
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(structuredClone(graph)) })
+  if (authenticated) {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ graph: graphPrefs ?? {} })
+    })
+  }
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve({ isEnabled: pageviewsEnabled })
   })
 
   const { wrapper } = mountWithApp(Graph, {
     router,
-    stores: { site: { id: 'site-1' } },
+    stores: { site: { id: 'site-1' }, user: { authenticated } },
     messages: { ...GRAPH_MESSAGES, ...messageOverrides }
   })
   await flushPromises()
