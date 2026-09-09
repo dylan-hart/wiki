@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { compileStyleAsync } from 'vue/compiler-sfc'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -381,5 +385,129 @@ describe('NavEditMenu accent-fill dark mode (OpenProject #2807)', () => {
     )
     expect(selectedSegment.attributes('style')).toContain('var(--color-accent-dark)')
     expect(selectedSegment.attributes('style')).not.toContain('var(--color-accent-fill)')
+  })
+})
+
+/**
+ * OpenProject #2902: the unselected "Menu Source" segments drew `--color-ink` -- unchanged between
+ * Cobalt light and dark (`tailwind.css`'s `body.body--cobalt.body--dark` block never redefines it)
+ * -- against the dark panel behind them, because this file's own `body.body--cobalt ...` rule beat
+ * `WBtnToggle.vue`'s correct `:global(body.body--dark .w-btn-toggle__segment[aria-checked='false'])`
+ * dark-mode rule on specificity alone. Fixed by scoping this file's rule to `:not(.body--dark)`, so
+ * it stops matching under dark mode and the segment falls through to `WBtnToggle.vue`'s own rule
+ * instead (`--color-text-dark`, already correct and already Cobalt-dark-aware via tailwind.css).
+ *
+ * The selectors below are extracted from each component's own COMPILED `<style scoped>` output
+ * (via `vue/compiler-sfc#compileStyleAsync`, `darkModeGlobalSelector.test.js`'s established tool for
+ * this exact class of bug) rather than retyped by hand, so a future edit to either rule's selector
+ * is what these tests actually exercise -- not a copy that could quietly drift from the source. Which
+ * rule WINS the match under each body-class combination is then a plain CSS selector question,
+ * answered directly by `Element.matches()` with no layout/paint engine involved -- unlike resolving
+ * the final computed `color` would need (a `var()` cascade through stacked body classes isn't
+ * reliably resolvable under `happy-dom`; see `cobaltDarkBandTokens.test.js`'s own comment on this).
+ */
+describe('NavEditMenu menu-source unselected-segment dark-mode contrast (OpenProject #2902)', () => {
+  /*
+    `new URL('./x', import.meta.url)` throws `TypeError: The URL must be of scheme file` under this
+    workspace's `happy-dom` environment (see `test/realGridLayout.js`'s own comment on the identical
+    issue) -- resolving via `node:path` off `fileURLToPath` sidesteps it.
+  */
+  const selfDir = dirname(fileURLToPath(import.meta.url))
+
+  /**
+   * Compiles `file`'s `<style scoped>` block for real, splits it into individual rules on `}`, and
+   * returns the selector text of the one rule whose selector contains `selectorMarker` -- i.e. the
+   * exact, real selector that rule actually compiles under, not a hand-copied guess. Throws loudly
+   * if the block is missing or `selectorMarker` doesn't identify exactly one rule, so a rename (or a
+   * marker too loose to disambiguate) shows up as a failing test rather than a silently-wrong match.
+   */
+  async function compiledSelectorFor(file, selectorMarker) {
+    const source = readFileSync(join(selfDir, file), 'utf-8')
+    const styleMatch = source.match(/<style scoped>([\s\S]*?)<\/style>/)
+    if (!styleMatch) throw new Error(`${file}: no <style scoped> block found`)
+    const result = await compileStyleAsync({
+      source: styleMatch[1],
+      filename: file,
+      id: `data-v-${file.replace(/\W/g, '')}-test`,
+      scoped: true
+    })
+    const selectors = result.code
+      .split('}')
+      .map((rule) => rule.split('{')[0].replace(/\s+/g, ' ').trim())
+      .filter((selector) => selector.includes(selectorMarker))
+    if (selectors.length !== 1) {
+      throw new Error(
+        `${file}: expected exactly one rule matching "${selectorMarker}", found ${selectors.length}`
+      )
+    }
+    return selectors[0]
+  }
+
+  afterEach(() => {
+    document.body.className = ''
+    document.body.innerHTML = ''
+  })
+
+  it("compiles NavEditMenu.vue's unselected-segment rule to a `:not(.body--dark)`-scoped selector, not dropping the descendant", async () => {
+    const selector = await compiledSelectorFor(
+      'NavEditMenu.vue',
+      "w-btn-toggle__segment[aria-checked='false']"
+    )
+    expect(selector).toBe(
+      "body.body--cobalt:not(.body--dark) .nav-edit-menu__menu-source .w-btn-toggle__segment[aria-checked='false']"
+    )
+  })
+
+  it("WBtnToggle.vue's dark-mode fallback rule still compiles with its descendant intact", async () => {
+    const selector = await compiledSelectorFor(
+      'shared/WBtnToggle.vue',
+      "body.body--dark .w-btn-toggle__segment[aria-checked='false']"
+    )
+    expect(selector).toBe("body.body--dark .w-btn-toggle__segment[aria-checked='false']")
+  })
+
+  function mountUnselectedSegment() {
+    const container = document.createElement('div')
+    container.className = 'nav-edit-menu'
+    container.innerHTML =
+      '<div class="nav-edit-menu__menu-source">' +
+      '<button class="w-btn-toggle__segment" aria-checked="false"></button>' +
+      '</div>'
+    document.body.appendChild(container)
+    return container.querySelector('.w-btn-toggle__segment')
+  }
+
+  it('matches the Cobalt-only rule under light Cobalt, leaving the fallback rule unmatched', async () => {
+    const cobaltSelector = await compiledSelectorFor(
+      'NavEditMenu.vue',
+      "w-btn-toggle__segment[aria-checked='false']"
+    )
+    const fallbackSelector = await compiledSelectorFor(
+      'shared/WBtnToggle.vue',
+      "body.body--dark .w-btn-toggle__segment[aria-checked='false']"
+    )
+
+    document.body.className = 'body--cobalt'
+    const segment = mountUnselectedSegment()
+
+    expect(segment.matches(cobaltSelector)).toBe(true)
+    expect(segment.matches(fallbackSelector)).toBe(false)
+  })
+
+  it('stops matching the Cobalt-only rule under Cobalt dark mode, so the dark fallback rule applies instead', async () => {
+    const cobaltSelector = await compiledSelectorFor(
+      'NavEditMenu.vue',
+      "w-btn-toggle__segment[aria-checked='false']"
+    )
+    const fallbackSelector = await compiledSelectorFor(
+      'shared/WBtnToggle.vue',
+      "body.body--dark .w-btn-toggle__segment[aria-checked='false']"
+    )
+
+    document.body.className = 'body--cobalt body--dark'
+    const segment = mountUnselectedSegment()
+
+    expect(segment.matches(cobaltSelector)).toBe(false)
+    expect(segment.matches(fallbackSelector)).toBe(true)
   })
 })
