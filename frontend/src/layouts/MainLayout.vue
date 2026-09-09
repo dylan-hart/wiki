@@ -95,7 +95,7 @@
                exists to divide the two, so it goes with them -->
           <template v-if="siteStore.locales.showMenu">
             <w-btn
-              class="icon-lg px-2"
+              class="icon-lg sidebar-actions-locale px-2"
               flat
               dense
               icon="tabler:language"
@@ -117,6 +117,32 @@
             size="sm">
             <nav-browse-menu :offset="[-5, 5]" />
           </w-btn>
+          <!--
+            -> Trailing "Top" cell -- ALWAYS reserved at 40x40 (`.sidebar-actions-top` below), so
+               Locale/Browse above never shift width the moment this fades in. The separator fades
+               in step with the button, both keyed off `showSidebarTop`; at page top the wrapper is
+               still here holding the width, just empty, per the WP's own "cell is empty" wording.
+               The button itself mounts/unmounts on a v-if inside a <transition> (matching
+               `WPageScroller`'s own visible/scrollToTop shape) rather than merely toggling opacity,
+               so it drops out of the tab order and the accessibility tree while hidden with no
+               extra `tabindex`/`aria-hidden` bookkeeping needed here.
+          -->
+          <w-separator
+            vertical
+            class="sidebar-actions-top-sep"
+            :class="{ 'opacity-0': !showSidebarTop }" />
+          <div class="sidebar-actions-top flex items-center justify-center">
+            <transition name="sidebar-actions-top-fade">
+              <w-btn
+                v-if="showSidebarTop"
+                flat
+                dense
+                icon="tabler:arrow-up"
+                :aria-label="t(`common.actions.returnToTop`)"
+                size="sm"
+                @click="scrollSidebarToTop" />
+            </transition>
+          </div>
         </div>
         <nav-sidebar />
         <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one.
@@ -216,7 +242,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
@@ -475,6 +501,30 @@ const canBrowse = computed(() => siteStore.features.browse)
 const showSidebarActions = computed(() => siteStore.locales.showMenu || canBrowse.value)
 
 /*
+  The scroll threshold past which `.sidebar-actions`'s own trailing "Top" cell fades in -- the same
+  150px `WPageScroller`'s corner button already uses for the SAME scrolling column
+  (`.page-container-scrl`), since both affordances answer the identical question ("has the reader
+  scrolled far enough down this page to want a way back up"). Kept as this component's own constant
+  rather than shared with `WPageScroller.vue` -- that file is #2863's to retire, not this WP's to
+  touch.
+*/
+const SIDEBAR_TOP_SCROLL_OFFSET = 150
+
+/** Whether the sidebar strip's trailing "Top" cell (inside `showSidebarActions`) is showing right now. */
+const showSidebarTop = ref(false)
+
+function updateSidebarTopVisibility() {
+  const el = document.querySelector('.page-container-scrl')
+  showSidebarTop.value = (el ? el.scrollTop : 0) > SIDEBAR_TOP_SCROLL_OFFSET
+}
+
+function scrollSidebarToTop() {
+  const el = document.querySelector('.page-container-scrl')
+  // -> `smooth` is ignored under `prefers-reduced-motion`, same as `WPageScroller`'s own click
+  ;(el ?? window).scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+/*
   Whether to offer Edit Nav, in either of the two places the sidebar has for it -- the footer bar of the
   full panel, and the small cog at the bottom of the icon rail. Two questions:
 
@@ -512,11 +562,17 @@ const showEditNav = computed(() => {
 /*
   Following a link out of the overlaying sidebar puts it away, since what the reader asked for is
   behind it. On a wide viewport there is nothing to close and the flag is not consulted anyway.
+
+  The freshly-routed page's own `.page-container-scrl` starts scrolled to the top, so the "Top" cell
+  recomputes here too rather than waiting for the next scroll event -- otherwise a reader who leaves
+  the PREVIOUS page scrolled down would land on the new one still showing "Top" until they scroll it
+  themselves.
 */
 watch(
   () => route.path,
   () => {
     isNarrowSidebarOpen.value = false
+    updateSidebarTopVisibility()
   }
 )
 
@@ -525,6 +581,21 @@ watch(
 function openSidebar() {
   isNarrowSidebarOpen.value = true
 }
+
+// SIDEBAR ACTIONS: TOP
+
+/*
+  `capture`, because a scroll event on an element (`.page-container-scrl`) does not bubble to the
+  window -- the same reason `WPageScroller.vue` listens the same way.
+*/
+onMounted(() => {
+  window.addEventListener('scroll', updateSidebarTopVisibility, { capture: true, passive: true })
+  updateSidebarTopVisibility()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', updateSidebarTopVisibility, { capture: true })
+})
 
 // ENTRANCE FLOURISH
 
@@ -612,11 +683,14 @@ onMounted(() => {
   `#c5cff5`, which is what the token resolves to under Cobalt.
 */
 .sidebar-actions {
-  height: 38px;
+  // -> A true 40px interior: with the 1px `border-bottom` below and this box in `border-box` sizing
+  //    (Tailwind's preflight default), the content area is exactly 40px -- replacing the old
+  //    38px/37px band now that a third cell (Top) has to share the row on equal footing.
+  height: 41px;
   border-bottom: 1px solid var(--color-sidebar-hairline);
 
-  // -> Where the two buttons above get their colour, so neither carries a `color` prop: `WBtn` emits
-  //    an inline `color`, which would outrank this rule
+  // -> Where the buttons above get their colour, so none of them carries a `color` prop: `WBtn`
+  //    emits an inline `color`, which would outrank this rule
   .w-btn {
     color: var(--color-sidebar-actions-text);
   }
@@ -628,6 +702,50 @@ onMounted(() => {
   //    scoped one tie on specificity, and which stylesheet loads later is not something to rely on.
   .icon-lg .w-icon {
     font-size: 20px !important;
+  }
+}
+
+/*
+  Locale is a FIXED-width cell (unlike Browse's `flex-1`, which absorbs whatever Locale doesn't
+  claim) -- OpenProject #2861. `overflow: hidden` is a plain safety net for a locale code long
+  enough to overrun 72px (e.g. `pt-BR`); the mockup calls for a fixed cell, not an ellipsis, so
+  nothing fancier is added here.
+*/
+.sidebar-actions-locale {
+  flex: 0 0 72px;
+  width: 72px;
+  overflow: hidden;
+}
+
+/*
+  The trailing "Top" cell -- ALWAYS 40x40, whether or not the button inside it is currently mounted
+  (see the template comment above it), which is what keeps Locale/Browse from shifting width the
+  moment scrolling brings it in.
+*/
+.sidebar-actions-top {
+  flex: 0 0 40px;
+  width: 40px;
+}
+
+// -> Fades in step with the button it leads, on the same 150ms/opacity terms
+.sidebar-actions-top-sep {
+  transition: opacity 0.15s var(--ease-standard);
+}
+
+.sidebar-actions-top-fade-enter-active,
+.sidebar-actions-top-fade-leave-active {
+  transition: opacity 0.15s var(--ease-standard);
+}
+.sidebar-actions-top-fade-enter-from,
+.sidebar-actions-top-fade-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-actions-top-sep,
+  .sidebar-actions-top-fade-enter-active,
+  .sidebar-actions-top-fade-leave-active {
+    transition-duration: 0.01ms;
   }
 }
 
