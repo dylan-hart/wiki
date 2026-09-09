@@ -107,7 +107,14 @@ async function measureContents(browser, css, { measured }) {
     return await page.evaluate(() => {
       const body = document.querySelector('.page-container-body').getBoundingClientRect()
       const contents = document.querySelector('.page-contents').getBoundingClientRect()
-      return { bodyLeft: body.x, bodyWidth: body.width, left: contents.x, width: contents.width }
+      const content = document.querySelector('.page-contents > p').getBoundingClientRect()
+      return {
+        bodyLeft: body.x,
+        bodyWidth: body.width,
+        contentsWidth: contents.width,
+        left: content.x,
+        width: content.width
+      }
     })
   } finally {
     await page.close()
@@ -141,6 +148,10 @@ describe(
         COLUMN_PADDING_INLINE + (rect.bodyWidth - COLUMN_PADDING_INLINE * 2 - MEASURE) / 2
       expect(centredLeft).toBeGreaterThan(COLUMN_PADDING_INLINE)
       expect(rect.left - rect.bodyLeft).not.toBe(centredLeft)
+      /* -> OpenProject #2835: `.page-contents` itself stays unconstrained (full column width) --
+            only its children are capped -- which is what lets a floated block-infobox use the
+            width the measure reclaims instead of being trapped at 720px with nowhere to float. */
+      expect(rect.contentsWidth).toBe(COLUMN_WIDTH - COLUMN_PADDING_INLINE * 2)
     })
 
     it('lets unmeasured content fill the padded column, so the toggle still does something', async () => {
@@ -164,16 +175,83 @@ describe('Index.vue measure wiring', () => {
     const store = await readFile(join(frontendRoot, 'src', 'stores', 'site.js'), 'utf8')
 
     expect(sfc).toContain("'is-measured': siteStore.theme.contentWidth === `measured`")
-    expect(sfc).toContain('.page-container-body.is-measured > .page-contents')
+    expect(sfc).toContain('.page-container-body.is-measured > .page-contents > :not(block-infobox)')
     expect(store).toContain("contentWidth: 'measured'")
   })
 
   it('does not centre the measure', async () => {
     const css = await indexPageCss()
-    const rule = css.match(/\.page-container-body\.is-measured > \.page-contents \{[^}]*\}/)
+    const rule = css.match(
+      /\.page-container-body\.is-measured > \.page-contents > :not\(block-infobox\) \{[^}]*\}/
+    )
 
     expect(rule).not.toBeNull()
     expect(rule[0]).toContain('max-width: 720px')
     expect(rule[0]).not.toMatch(/margin-inline:\s*auto|margin:\s*0 auto/)
+  })
+})
+
+/*
+ * OpenProject #2835: the infobox block floats right (`blocks/block-infobox/component.js`), but as a
+ * DOM child of `.page-contents` it can only ever float within whatever box `.page-contents` resolves
+ * to -- it can never reach the separate `.page-sidebar` flex column. Capping `.page-contents` itself
+ * (the old rule) trapped it at 720px with no reclaimed whitespace to float into; the fix moves the
+ * cap onto `.page-contents`'s children, `:not(block-infobox)`, so `.page-contents` stays full-width
+ * and only an infobox may use the space between the measure and the real column edge.
+ */
+describe('Index.vue measured content excludes block-infobox', () => {
+  function infoboxMarkup({ measured }) {
+    return (
+      `<div style="width:${COLUMN_WIDTH}px">` +
+      `<div class="page-container-scrl" style="height:100%">` +
+      `<div class="page-container-body${measured ? ' is-measured' : ''}">` +
+      `<div class="page-contents">` +
+      `<div class="normal-child" style="display:block;width:900px">Prerequisites</div>` +
+      `<block-infobox style="display:block;width:900px">Fact box</block-infobox>` +
+      `</div></div></div></div>`
+    )
+  }
+
+  describe('in a real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+    let css
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+      css = await indexPageCss()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('clamps a normal child to 720px but lets block-infobox stay at its own width', async () => {
+      const page = await browser.newPage({ viewport: { width: COLUMN_WIDTH, height: 800 } })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>*{margin:0;padding:0;box-sizing:border-box}` +
+            `${css}</style></head><body>${infoboxMarkup({ measured: true })}</body></html>`
+        )
+        const rects = await page.evaluate(() => {
+          const contents = document.querySelector('.page-contents').getBoundingClientRect()
+          const normal = document.querySelector('.normal-child').getBoundingClientRect()
+          const infobox = document.querySelector('block-infobox').getBoundingClientRect()
+          return {
+            contentsWidth: contents.width,
+            normalWidth: normal.width,
+            infoboxWidth: infobox.width
+          }
+        })
+
+        /* -> `.page-contents` itself is no longer capped -- the whole point of the fix. */
+        expect(rects.contentsWidth).toBeGreaterThan(MEASURE)
+        /* -> An ordinary child still measures at 720px, same as before this change. */
+        expect(rects.normalWidth).toBe(MEASURE)
+        /* -> block-infobox is excluded from the cap and keeps its own explicit 900px width. */
+        expect(rects.infoboxWidth).toBe(900)
+      } finally {
+        await page.close()
+      }
+    })
   })
 })
