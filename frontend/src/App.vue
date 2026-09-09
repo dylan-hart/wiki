@@ -104,9 +104,17 @@ watch(
  * The aesthetic axis's own resolution watch, parallel to the appearance one above -- same
  * `site | ledger | cobalt` three-value resolution, an entirely independent class pair, and no read
  * of the appearance/dark state on either side.
+ *
+ * Routes through `applyTheme()` (OpenProject #2887) rather than calling `aesthetic.set()` directly:
+ * `aesthetic.set()` alone only flips `body--cobalt`/`body--ledger`, but the brand CSS custom
+ * properties (`--q-header`, `--q-sidebar`, `--q-primary`, the status colors, ...) are derived from
+ * the resolved aesthetic too, via `resolveAestheticColors()` inside `applyTheme()` below. Without
+ * this, switching aesthetics flipped the body class instantly but left those custom properties
+ * stale until something else happened to recompute them (initial boot, the first router
+ * `afterEach`, a `cvd` change, or a reload) -- same shape as the `cvd` watch just below.
  */
-watch([() => userStore.aesthetic, () => siteStore.theme.aesthetic], ([newValue, siteValue]) => {
-  aesthetic.set(newValue === 'site' ? siteValue : newValue)
+watch([() => userStore.aesthetic, () => siteStore.theme.aesthetic], () => {
+  applyTheme()
 })
 
 watch(

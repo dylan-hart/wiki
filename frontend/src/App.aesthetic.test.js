@@ -88,7 +88,7 @@ describe('App.vue aesthetic resolution', () => {
     expect(document.body.classList.contains('body--cobalt')).toBe(true)
   })
 
-  it('the userStore.aesthetic watch resolves and applies independently of applyTheme()', async () => {
+  it('the userStore.aesthetic watch resolves and applies its own body class, with no manual applyTheme trigger', async () => {
     const { siteStore, userStore } = await mountApp()
     siteStore.theme.aesthetic = 'ledger'
     await triggerApplyTheme()
@@ -99,6 +99,28 @@ describe('App.vue aesthetic resolution', () => {
 
     expect(document.body.classList.contains('body--cobalt')).toBe(true)
     expect(document.body.classList.contains('body--ledger')).toBe(false)
+  })
+
+  /*
+   * OpenProject #2887: the aesthetic watch used to flip `body--cobalt`/`body--ledger` directly
+   * (via `aesthetic.set()`) without ever calling `applyTheme()`, so the brand CSS custom
+   * properties `applyTheme()` derives via `resolveAestheticColors()` -- `--q-header`,
+   * `--q-sidebar`, `--q-primary`, and the status colors below -- stayed stale until something
+   * else (initial boot, the first router `afterEach`, a `cvd` change, or a manual `applyTheme`
+   * EVENT_BUS emit) happened to recompute them. A reader switching aesthetics saw the body class
+   * change but the navbar/sidebar fill stay the OLD aesthetic's color until a reload.
+   */
+  it('recomputes brand CSS custom properties when the aesthetic itself changes, with no manual applyTheme trigger', async () => {
+    const { siteStore } = await mountApp()
+    siteStore.theme.aesthetic = 'ledger'
+    await triggerApplyTheme()
+    expect(document.documentElement.style.getPropertyValue('--q-negative')).toBe('#c14a52')
+
+    // -> No triggerApplyTheme() here: this is the live aesthetic switch, not an admin save.
+    siteStore.theme.aesthetic = 'cobalt'
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(document.documentElement.style.getPropertyValue('--q-negative')).toBe('#c8303c')
   })
 
   it('switching aesthetic does not affect the independent appearance (dark/light) axis', async () => {
