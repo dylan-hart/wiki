@@ -3,7 +3,7 @@ import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
-import { useNavSidebarDestination } from './navSidebarDestination'
+import { ancestorIds, folderIds, useNavSidebarDestination } from './navSidebarDestination'
 import routes from '@/router/routes'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -153,5 +153,61 @@ describe('useNavSidebarDestination#destination -- empty-folder path fallback (Op
     const { isCurrent } = await mountDestination('/empty-folder')
     expect(isCurrent({ path: 'empty-folder' })).toBe(true)
     expect(isCurrent({ path: 'another-empty-folder' })).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2848: `folderIds`/`ancestorIds` are the plain, store-free tree-walk helpers
+ * middle-click isolate builds on -- deliberately outside `useNavSidebarDestination()` since they
+ * take an already-in-hand tree (`siteStore.nav.items`) rather than resolving anything through the
+ * router/pinia the composable itself needs.
+ */
+const TREE = [
+  {
+    id: 'a',
+    children: [{ id: 'a-1', children: [{ id: 'a-1-x' }, { id: 'a-1-y' }] }, { id: 'a-2' }]
+  },
+  { id: 'b', children: [{ id: 'b-1' }] },
+  { id: 'c' }
+]
+
+describe('folderIds', () => {
+  it('collects every folder id in the whole tree, at every depth, regardless of expand state', () => {
+    expect(folderIds(TREE)).toEqual(['a', 'a-1', 'b'])
+  })
+
+  it('returns an empty array for a tree with no folders', () => {
+    expect(folderIds([{ id: 'x' }, { id: 'y' }])).toEqual([])
+  })
+
+  it('treats an empty/undefined tree as no folders', () => {
+    expect(folderIds([])).toEqual([])
+    expect(folderIds(undefined)).toEqual([])
+  })
+
+  it('does not count a childless item as a folder even when nothing else marks it one', () => {
+    expect(folderIds([{ id: 'leaf', children: [] }])).toEqual([])
+  })
+})
+
+describe('ancestorIds', () => {
+  it('returns the outer-to-inner ancestor chain for a deeply nested item, excluding the item itself', () => {
+    expect(ancestorIds(TREE, 'a-1-x')).toEqual(['a', 'a-1'])
+  })
+
+  it('returns just the immediate parent for a one-level-deep item', () => {
+    expect(ancestorIds(TREE, 'b-1')).toEqual(['b'])
+  })
+
+  it('returns an empty array for a root-level item', () => {
+    expect(ancestorIds(TREE, 'c')).toEqual([])
+  })
+
+  it('returns an empty array for a folder itself -- its own id is not its own ancestor', () => {
+    expect(ancestorIds(TREE, 'a-1')).toEqual(['a'])
+  })
+
+  it('returns an empty array when the id is not found anywhere in the tree', () => {
+    expect(ancestorIds(TREE, 'nope')).toEqual([])
   })
 })
