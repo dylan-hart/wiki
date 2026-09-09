@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import '../block-tab/component.js'
@@ -188,4 +191,76 @@ describe('block-tabs', () => {
   })
 
   describeDarkMode(() => mountTabs([{ label: 'First', content: 'One' }]))
+
+  /**
+   * OpenProject #2874: `static get styles()` drops its own hardcoded Ledger/Cobalt-blind defaults
+   * (a grey border, a Quasar-blue active tab, a card drop shadow) in favour of the `--tabs-*` custom
+   * properties `frontend/src/css/tailwind.css` declares (OpenProject #2860) -- structure, ARIA and
+   * keyboard behaviour stay exactly as tested above. Read out of the source rather than the mounted
+   * shadow root: jsdom does not run layout/paint, so a `var(--tabs-active-fg)` resolving to a real
+   * colour is not something `getComputedStyle` can confirm here either way.
+   */
+  describe('Ledger/Cobalt custom-property theming (OpenProject #2874)', () => {
+    const source = readFileSync(path.join(import.meta.dirname, 'component.js'), 'utf8')
+
+    it('draws the corner marks as an aria-hidden sibling of .tabs, keyed off --tabs-corner-marks', async () => {
+      const el = await mountTabs([{ label: 'First', content: 'One' }])
+      const marks = el.shadowRoot.querySelector('.tabs-wrap > .tabs-marks')
+
+      expect(marks).not.toBeNull()
+      expect(marks.getAttribute('aria-hidden')).toBe('true')
+      // -> A sibling of .tabs, not a descendant -- .tabs clips to its own radius under Cobalt, and a
+      //    mark positioned outside that frame would be clipped away with it if nested inside
+      expect(marks.nextElementSibling.classList.contains('tabs')).toBe(true)
+    })
+
+    it('reads every --tabs-* property the tabset-block.md table declares, and none of the old hardcoded defaults', () => {
+      for (const token of [
+        '--tabs-border',
+        '--tabs-radius',
+        '--tabs-shadow',
+        '--tabs-corner-marks',
+        '--tabs-strip-bg',
+        '--tabs-strip-padding',
+        '--tabs-strip-gap',
+        '--tabs-strip-rule',
+        '--tabs-tab-padding',
+        '--tabs-tab-radius',
+        '--tabs-tab-rule',
+        '--tabs-inactive-fg',
+        '--tabs-inactive-icon',
+        '--tabs-hover-bg',
+        '--tabs-hover-fg',
+        '--tabs-active-fg',
+        '--tabs-active-weight',
+        '--tabs-active-cap',
+        '--tabs-focus-ring',
+        '--tabs-panel-bg',
+        '--tabs-panel-padding'
+      ]) {
+        expect(source).toContain(`var(${token})`)
+      }
+      // -> The corner marks' colour is the shared --block-* namespace (#2860), not a --tabs-* one of
+      //    its own -- tabset-block.md gives the marks no colour token besides display: on/off
+      expect(source).toContain('var(--block-mark-color)')
+
+      // -> None of #2874's own removal list survives: the q-primary fallback, the two literal
+      //    gradients, the border-top transparent trick the cap shadow replaces, and any `:host([dark])`
+      //    override block (theming now comes from the body-level tokens alone, in both themes)
+      expect(source).not.toContain('--q-primary')
+      expect(source).not.toContain('linear-gradient(to bottom')
+      expect(source).not.toMatch(/border-top:\s*3px solid transparent/)
+      expect(source).not.toContain(':host([dark])')
+    })
+
+    it('declares no local --tabs-* fallback values of its own any more', () => {
+      // -> Every :host block in the stylesheet is `{ display: block; }` alone -- the whole
+      //    property set comes from tailwind.css now, inherited from <body>
+      const hostBlocks = [...source.matchAll(/:host\s*{([^}]*)}/g)].map((m) => m[1])
+      expect(hostBlocks.length).toBeGreaterThan(0)
+      for (const block of hostBlocks) {
+        expect(block).not.toMatch(/--tabs-/)
+      }
+    })
+  })
 })
