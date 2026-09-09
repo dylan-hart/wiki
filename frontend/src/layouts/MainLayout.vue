@@ -144,7 +144,7 @@
             </transition>
           </div>
         </div>
-        <nav-sidebar />
+        <nav-sidebar ref="navSidebarEl" />
         <!-- -> Edit Nav is the whole bar now, so it is also what decides whether there is one.
                 Not a `w-bar` (Feature 2604 conformance pass): its `dense` variant's own translucent
                 fill and forced 8px button label are scoped inside `WBar.vue` and cannot be
@@ -242,7 +242,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
@@ -469,11 +469,115 @@ const showSidebarCollapseOverride = computed(() => {
   return isSidebarMiniForced.value && sidebarExpandOverride.value
 })
 
-/** Sidebar widths, in px: the full nav, and the icon rail it collapses to. */
-const SIDEBAR_WIDTH = 255
+/** Sidebar widths, in px: the icon rail the full nav collapses to (unaffected by the auto-growing
+ *  logic below) and the floor/cap the full nav itself is clamped between. */
+const SIDEBAR_WIDTH_MIN = 255
+const SIDEBAR_WIDTH_MAX = 510
 const SIDEBAR_WIDTH_MINI = 56
 
-const sidebarWidth = computed(() => (isSidebarMini.value ? SIDEBAR_WIDTH_MINI : SIDEBAR_WIDTH))
+/**
+ * Auto-growing sidebar width (OpenProject #2850): the full-width drawer used to be the fixed
+ * `SIDEBAR_WIDTH_MIN` above at all times. It now grows to fit the widest currently-visible nav
+ * item label's own single-line content width -- so a label that would otherwise ellipsize
+ * (#2849) gets the room it needs instead -- capped at `SIDEBAR_WIDTH_MAX` (2x the old fixed
+ * width) so one long label cannot blow the sidebar out arbitrarily, and floored at the old fixed
+ * width so a short or empty tree never renders narrower than the original design.
+ */
+const sidebarContentWidth = ref(SIDEBAR_WIDTH_MIN)
+
+/** The mounted `NavSidebar` instance -- `.$el` is its single root DOM node (`NavSidebar.vue`'s
+ *  own `<w-scroll-area class="sidebar-nav">`), queried directly below rather than having
+ *  `NavSidebar`/`NavSidebarItem` expose a ref or emit of their own: per the epic's own
+ *  coordination note, a DOM query scoped to this element keeps #2850 isolated to this file with
+ *  no new cross-component surface for a sibling task touching the same components this round to
+ *  collide with. Only populated while the full nav renders at all -- the mini rail's template
+ *  branch never mounts `<nav-sidebar>`. */
+const navSidebarEl = ref(null)
+
+/**
+ * Measures every rendered `.truncate` label under the mounted `NavSidebar` (the span
+ * `NavSidebarItem.vue` gives each row, styled `white-space: nowrap; overflow: hidden` so
+ * `scrollWidth` reports its full, un-clipped natural width regardless of how narrow the box
+ * actually rendered) and sizes `sidebarContentWidth` to the widest one, clamped to
+ * `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`.
+ *
+ * The width the WHOLE drawer would need to be for one label alone to stop clipping is
+ * `sidebarContentWidth.value - label.clientWidth + label.scrollWidth`: `clientWidth` is
+ * however much of that label's natural width the CURRENT drawer width actually gives it, so
+ * `sidebarContentWidth.value - label.clientWidth` is everything else in that row -- icon,
+ * padding, and this row's own nesting-depth indentation (`NavSidebar.vue`'s
+ * `.w-expansion-item__content` gives every level a 10px indent via its own transparent
+ * `border-inline-start`, which is exactly why a single fixed chrome constant across every row
+ * would be wrong here). Every row spans the same drawer width regardless of its depth, so that
+ * "everything else" figure is invariant to the drawer's width and can be read off however wide
+ * the drawer happens to be measured right now.
+ *
+ * A collapsed folder's descendant rows sit inside a `v-show`-hidden `.w-expansion-item__content`
+ * (Vue sets `display: none` on it) -- which zeroes BOTH `clientWidth` and `scrollWidth`, so
+ * without an explicit visibility guard the formula above would misread such a label as needing
+ * the full CURRENT width rather than nothing, permanently blocking the sidebar from ever
+ * shrinking back down once grown. `offsetParent === null` is the standard "is this actually
+ * rendered right now" check and is what excludes them instead.
+ */
+function measureSidebarWidth() {
+  const root = navSidebarEl.value?.$el
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return
+  }
+  let widest = SIDEBAR_WIDTH_MIN
+  for (const label of root.querySelectorAll('.truncate')) {
+    if (label.offsetParent === null) {
+      continue
+    }
+    const needed = sidebarContentWidth.value - label.clientWidth + label.scrollWidth
+    if (needed > widest) {
+      widest = needed
+    }
+  }
+  sidebarContentWidth.value = Math.min(SIDEBAR_WIDTH_MAX, widest)
+}
+
+let sidebarMutationObserver = null
+
+// Re-measures whenever the mounted `NavSidebar` itself changes -- its very first mount, and any
+// later one (mini mode toggling off and back on unmounts/remounts `<nav-sidebar>` entirely, per
+// the template above). A fresh instance means a fresh DOM node to observe, so the old observer
+// (if any) is torn down and a new one attached -- the same "the ref's target node changed under
+// me" convention `NavSidebarItem.vue` already uses for its own per-label `ResizeObserver`.
+watch(navSidebarEl, (component) => {
+  sidebarMutationObserver?.disconnect()
+  sidebarMutationObserver = null
+  const root = component?.$el
+  if (!root || typeof root.querySelectorAll !== 'function') {
+    return
+  }
+  nextTick(measureSidebarWidth)
+  // -> A folder expanding/collapsing toggles its `.w-expansion-item__content`'s inline `display`
+  //    (Vue's `v-show`) -- watching for a `style` attribute change anywhere in the tree is what
+  //    re-measures on that, with no new prop/emit needed from `NavSidebarItem.vue` itself (see
+  //    `measureSidebarWidth`'s own doc comment above).
+  sidebarMutationObserver = new MutationObserver(measureSidebarWidth)
+  sidebarMutationObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ['style'],
+    subtree: true
+  })
+})
+
+onBeforeUnmount(() => sidebarMutationObserver?.disconnect())
+
+// Recomputes as the nav tree itself changes -- a different menu resolving, an edit through
+// `NavEditOverlay`, a locale switch. Deep, since an in-place edit to the tree (rather than a
+// wholesale replacement of `siteStore.nav.items` itself) still has to trigger a re-measure.
+watch(
+  () => siteStore.nav.items,
+  () => nextTick(measureSidebarWidth),
+  { deep: true }
+)
+
+const sidebarWidth = computed(() =>
+  isSidebarMini.value ? SIDEBAR_WIDTH_MINI : sidebarContentWidth.value
+)
 
 // -> The "Allow Browsing" site feature (admin/general): with it off the tree browser is not something
 //    a reader can reach, so the button that opens it does not render
