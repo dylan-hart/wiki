@@ -77,19 +77,26 @@
             :aria-label="t('graph.controls.groupByLabel')"
             :options="groupByOptions" />
         </div>
+        <!--
+          SIZE BY and COUNT used to be two separate rows, each with its own caption -- consolidated
+          into one row under a single "SIZE BY" caption (OpenProject #2855/#2828 item 3): the
+          Unique/Total toggle (sizeCountMode) first/left, the Edits/Visits toggle (sizeBy)
+          second/right. The "COUNT" caption is dropped entirely rather than kept and hidden; the
+          count toggle keeps its own aria-label since its accessible name ("Unique or total") still
+          differs from the row's visible caption.
+        -->
         <div class="graph-view-control-group">
           <span class="graph-view-control-caption">{{ t('graph.controls.sizeByLabel') }}</span>
-          <w-btn-toggle
-            v-model="sizeBy"
-            :aria-label="t('graph.controls.sizeByLabel')"
-            :options="sizeByOptions" />
-        </div>
-        <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">{{ t('graph.controls.countLabel') }}</span>
-          <w-btn-toggle
-            v-model="sizeCountMode"
-            :aria-label="t('graph.controls.countAriaLabel')"
-            :options="sizeCountModeOptions" />
+          <div class="graph-view-control-row">
+            <w-btn-toggle
+              v-model="sizeCountMode"
+              :aria-label="t('graph.controls.countAriaLabel')"
+              :options="sizeCountModeOptions" />
+            <w-btn-toggle
+              v-model="sizeBy"
+              :aria-label="t('graph.controls.sizeByLabel')"
+              :options="sizeByOptions" />
+          </div>
         </div>
         <GraphClientTypeFilter
           v-if="sizeBy === 'edits'"
@@ -1329,6 +1336,20 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   gap: 5px;
   width: 100%;
+}
+
+/*
+  SIZE BY's two toggles (Unique/Total, then Edits/Visits) sitting side by side under their shared
+  caption (OpenProject #2855/#2828 item 3) -- `flex-wrap` is a fallback for a locale whose combined
+  option labels don't fit the panel's width on one line, not an expectation that it will usually
+  wrap.
+*/
+.graph-view-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 /* -> The language's own control overline: mono, small, letter-spaced, in the caption tier */

@@ -36,7 +36,6 @@ export const GRAPH_MESSAGES = {
   'graph.controls.sizeByLabel': 'Size by',
   'graph.controls.sizeByEdits': 'Edits',
   'graph.controls.sizeByVisits': 'Visits',
-  'graph.controls.countLabel': 'Count',
   'graph.controls.countAriaLabel': 'Unique or total',
   'graph.controls.countUnique': 'Unique',
   'graph.controls.countTotal': 'Total',

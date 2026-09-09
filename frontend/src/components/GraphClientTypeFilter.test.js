@@ -57,21 +57,17 @@ describe('GraphClientTypeFilter', () => {
     expect(wrapper.emitted('update:modelValue')[0]).toEqual([['mcp']])
   })
 
-  it('left-aligns the option rows so every checkbox gets the same x-offset (OpenProject #1290)', () => {
+  it('renders its options as a single horizontal row, not one per line (OpenProject #2855/#2828)', () => {
     const wrapper = mount(GraphClientTypeFilter, {
       attachTo: document.body,
       props: { modelValue: [], label: 'Client type', options: OPTIONS }
     })
 
-    // -> `flex-end` (the pre-fix value) right-aligns each row's checkbox+label as one flex item, so
-    //    a longer label ("Editor") pushes its checkbox glyph further left than a shorter one ("MCP")
-    //    -- `flex-start` anchors every row's checkbox (a fixed-size first element) at the same
-    //    x-offset instead, the same effect a fixed-width first grid column would give.
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    expect(style.alignItems).toBe('flex-start')
+    expect(style.flexDirection).toBe('row')
   })
 
-  it('left-aligns for a wider option set too (browser/api/mcp)', () => {
+  it('renders as a single row for a wider option set too (browser/api/mcp, OpenProject #2855/#2828)', () => {
     const wrapper = mount(GraphClientTypeFilter, {
       attachTo: document.body,
       props: {
@@ -86,7 +82,7 @@ describe('GraphClientTypeFilter', () => {
     })
 
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    expect(style.alignItems).toBe('flex-start')
+    expect(style.flexDirection).toBe('row')
   })
 
   /**

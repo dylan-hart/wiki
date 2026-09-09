@@ -17,7 +17,6 @@ describe('Graph.vue i18n and accessible naming', () => {
         'graph.controls.groupByClassification': 'xx-classification',
         'graph.controls.sizeByLabel': 'xx-sizeBy',
         'graph.controls.sizeByEdits': 'xx-edits',
-        'graph.controls.countLabel': 'xx-count',
         'graph.controls.countAriaLabel': 'xx-uniqueOrTotal',
         'graph.controls.countUnique': 'xx-unique',
         'graph.controls.countTotal': 'xx-total',
@@ -37,7 +36,6 @@ describe('Graph.vue i18n and accessible naming', () => {
       'xx-classification',
       'xx-sizeBy',
       'xx-edits',
-      'xx-count',
       'xx-unique',
       'xx-total',
       'xx-editsBy',
@@ -54,8 +52,9 @@ describe('Graph.vue i18n and accessible naming', () => {
 
     expect(wrapper.find('[aria-label="xx-groupBy"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="xx-sizeBy"]').exists()).toBe(true)
-    // -> The 'Count' toggle's aria-label is its own key ('Unique or total'), distinct from its
-    //    visible caption ('Count') -- both must resolve through `t()` independently.
+    // -> SIZE BY and COUNT share one row and one caption now (OpenProject #2855/#2828): the count
+    //    toggle has no visible caption of its own any more, but still resolves its own aria-label
+    //    ('Unique or total') through `t()` independently of the shared 'Size by' caption.
     expect(wrapper.find('[aria-label="xx-uniqueOrTotal"]').exists()).toBe(true)
   })
 

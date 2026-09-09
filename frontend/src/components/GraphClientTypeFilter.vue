@@ -71,17 +71,19 @@ defineEmits(['update:modelValue'])
 }
 
 /*
-  `align-items: flex-start`, not `flex-end` like the caption above -- each `w-checkbox` is one flex
-  item bundling its checkbox square and label together, so right-aligning the whole item lets a
-  longer label ("Browser") push its checkbox glyph further left than a shorter one ("MCP")
-  (OpenProject #1290). Left-aligning instead anchors every row's checkbox square (a fixed size) at
-  the same x-offset, with the variable-width label trailing it -- the same effect a two-column grid
-  (fixed checkbox column, label column) would give, without reaching into `WCheckbox`'s own layout.
+  A single horizontal row of checkboxes, not one per line (OpenProject #2855/#2828 item 4: "the
+  browser/api/mcp checkboxes can share a single row too") -- superseding #1290's column layout,
+  whose right-aligned-item-shift concern only existed because each option sat on its own line.
+  `flex-wrap` is the fallback for a locale/option set whose labels don't fit the panel's width on
+  one line, not an expectation that it will usually wrap; `justify-content: flex-end` keeps a
+  wrapped remainder aligned with the rest of the (right-aligned) control panel.
 */
 .graph-client-type-filter-options {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 12px;
 }
 </style>

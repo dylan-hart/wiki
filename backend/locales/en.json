@@ -2863,7 +2863,6 @@
   "graph.accessibleName.page": "{count} page | {count} pages",
   "graph.accessibleName.summary": "Knowledge graph: {pages}, {links}, grouped by {groupBy}",
   "graph.controls.countAriaLabel": "Unique or total",
-  "graph.controls.countLabel": "Count",
   "graph.controls.countTotal": "Total",
   "graph.controls.countUnique": "Unique",
   "graph.controls.editsByEditor": "Editor",
