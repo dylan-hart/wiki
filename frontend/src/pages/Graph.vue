@@ -304,6 +304,18 @@ const sizeBy = ref('edits')
  *  module state rather than a ref -- nothing templates or watches off it directly. */
 let hasPersistedSizeBy = false
 
+/** Set once `loadPageviewsTrackingState()` has resolved (OpenProject #2880), regardless of outcome
+ *  -- read by `loadGraphPrefs()` as the signal that `pageviewsTrackingEnabled.value` now reflects a
+ *  REAL check result rather than its own untouched initial `false`. `loadGraphPrefs()` must not
+ *  reconcile against `pageviewsTrackingEnabled` before this is true: reconciling against a merely
+ *  default-but-not-yet-checked `false` would incorrectly treat tracking as confirmed off (forcing a
+ *  persisted `sizeBy: 'visits'` back to `'edits'`) whenever the profile load happens to settle before
+ *  the tracking check does -- the ordinary case, since `loadGraphPrefs()` runs first in
+ *  `initializeGraphPrefs()`'s `Promise.all()`. That premature reconcile would also latch
+ *  `hasPersistedSizeBy` shut, permanently blocking the later, correct reconcile the tracking check's
+ *  own resolution would otherwise still produce. Plain module state, same as `hasPersistedSizeBy`. */
+let pageviewsTrackingResolved = false
+
 /** Whether 'edits'/'visits' sizing (and the hover tooltip's count) reads the unique-identity figure
  *  or the raw row-count figure (OpenProject #1269's backend fields, #1270's toggle) --
  *  `contributorCountFor()`/`pageviewCountFor()` are the single place this is read. Defaults to
@@ -1111,6 +1123,7 @@ async function loadPageviewsTrackingState() {
   } catch {
     pageviewsTrackingEnabled.value = false
   }
+  pageviewsTrackingResolved = true
   // -> OpenProject #2854: `watch(pageviewsTrackingEnabled, reconcileSizeByForTracking)` below only
   //    fires on an actual VALUE CHANGE. `pageviewsTrackingEnabled` starts at its own literal `false`,
   //    so a check that resolves to `false` -- no change at all -- would never reconcile a persisted
@@ -1126,9 +1139,11 @@ async function loadPageviewsTrackingState() {
  *  reader has never touched keeps its own corrected default (`sizeBy`/`sizeCountMode`'s literals
  *  above, or the plain literals the other three always had). `sizeBy` specifically is applied
  *  directly here (not gated on `pageviewsTrackingEnabled`, which may not have resolved yet) and then
- *  reconciled against the tracking state by `reconcileSizeByForTracking()`, called from both
- *  `loadPageviewsTrackingState()` and the `pageviewsTrackingEnabled` watch below -- whichever of the
- *  two async loads finishes last is what leaves `sizeBy` in its final, correct state.
+ *  reconciled against the tracking state by `reconcileSizeByForTracking()`, called from this
+ *  function's own end, from `loadPageviewsTrackingState()`, and from the `pageviewsTrackingEnabled`
+ *  watch below (OpenProject #2880 added this function's own call, alongside the pre-existing other
+ *  two) -- whichever of the two async loads finishes last is what leaves `sizeBy` in its final,
+ *  correct state, regardless of which order they settle in.
  *
  *  Skipped for a guest reader: `GET profile` is session-authenticated, and a guest has no profile to
  *  have ever saved one onto. Called from `onMounted`, alongside `loadPageviewsTrackingState()`. */
@@ -1157,6 +1172,19 @@ async function loadGraphPrefs() {
     }
   } catch (err) {
     log.warn('graph', 'could not load persisted graph view preferences', err)
+  }
+  // -> OpenProject #2880: the mirror image of `loadPageviewsTrackingState()`'s own explicit call
+  //    below, guarded by `pageviewsTrackingResolved` (see that flag's own doc comment for why the
+  //    guard is required -- reconciling against a not-yet-checked `pageviewsTrackingEnabled` would
+  //    do the wrong thing). `watch(pageviewsTrackingEnabled, ...)` only fires on an actual value
+  //    CHANGE, so if `system/pageviews` happens to resolve (and settle at a value with no further
+  //    change) BEFORE this function applies a persisted `sizeBy` above, nothing would otherwise
+  //    re-reconcile the result -- `loadPageviewsTrackingState()`'s own call ran too early to see the
+  //    persisted value this function just applied. Calling the same reconciliation here too, once,
+  //    covers that ordering as well; when the tracking check hasn't resolved yet, this is a no-op by
+  //    design -- `loadPageviewsTrackingState()`'s own call reconciles correctly once it does.
+  if (pageviewsTrackingResolved) {
+    reconcileSizeByForTracking(pageviewsTrackingEnabled.value)
   }
 }
 
@@ -1308,9 +1336,10 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
  *    'uniform' mode to fall back to any more (OpenProject #1270).
  *
  *  Extracted to a named function (OpenProject #2854) rather than an inline watch callback so
- *  `loadPageviewsTrackingState()` can call it directly too, once, after resolving --
- *  `watch(pageviewsTrackingEnabled, ...)` only fires on an actual value change, which a check that
- *  resolves to the ref's own initial `false` never produces. */
+ *  `loadPageviewsTrackingState()` and `loadGraphPrefs()` (OpenProject #2880) can each call it
+ *  directly too, once, after resolving -- `watch(pageviewsTrackingEnabled, ...)` only fires on an
+ *  actual value change, which a check that resolves to the ref's own initial `false` never produces,
+ *  and neither load knows whether it is the one settling last. */
 function reconcileSizeByForTracking(enabled) {
   if (enabled && sizeBy.value === 'edits' && !hasPersistedSizeBy) {
     sizeBy.value = 'visits'
