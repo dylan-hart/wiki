@@ -116,7 +116,7 @@ describe(
       expect(light.backgroundColor).not.toBe(dark.backgroundColor)
     })
 
-    it('draws Cobalt’s gradient card, margined and shadowed, with no ruled edge, in both themes', async () => {
+    it('draws Cobalt’s gradient card, margined and matte, with no ruled edge or glow, in both themes', async () => {
       const html = await mountHeaderHtml()
       const light = await measureHeader({
         browser,
@@ -134,7 +134,10 @@ describe(
       for (const theme of [light, dark]) {
         expect(theme.backgroundImage).toContain('linear-gradient')
         expect(theme.borderRadius).toBe('8px')
-        expect(theme.boxShadow).not.toBe('none')
+        // Matte pass (OpenProject #2856): the glow under the banner is gone. The banner sits on its
+        // own solid gradient fill, not low-contrast on the `#f2f5ff` ground, so it gets no plate
+        // border either -- `boxShadow` stays `none` exactly as it does under Ledger.
+        expect(theme.boxShadow).toBe('none')
         expect(theme.borderBottomWidth).toBe('0px')
         expect(theme.marginLeft).toBe('24px')
         expect(theme.marginTop).toBe('24px')
