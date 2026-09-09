@@ -1246,6 +1246,19 @@ onMounted(load)
 }
 
 .nav-edit-item-link {
+  /*
+    OpenProject #2825: the row itself has only ONE main section (icon + label + trailing handle),
+    so `WItem.vue`'s shared `flex-wrap: wrap` never turns on -- that is scoped to
+    `:has(.w-item-section--main + .w-item-section--main)`, the two-main-section "settings row"
+    shape from #2822/#2823, deliberately narrowed to avoid touching an ordinary menu/nav row like
+    this one. But the generated-eyebrow span below (`.nav-edit-generated-eyebrow`, `flex-basis:
+    100%`) still needs somewhere to wrap TO when it's shown, or it just steals space on the row's
+    one unwrapped line and squeezes the icon/label/handle into whatever is left. A local,
+    unconditional `flex-wrap: wrap` here is inert for the ordinary (non-generated) row -- nothing
+    else on this row ever claims a 100% flex-basis -- so it only ever does anything once the
+    eyebrow is present.
+  */
+  flex-wrap: wrap;
   padding: 7px 10px 7px 18px !important;
   font-size: 13.5px;
 
