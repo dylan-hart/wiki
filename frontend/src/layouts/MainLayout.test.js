@@ -127,7 +127,7 @@ afterEach(() => {
 
 const messages = {
   common: {
-    actions: { skipToContent: 'Skip to content' },
+    actions: { skipToContent: 'Skip to content', returnToTop: 'Return to top' },
     sidebar: {
       browse: 'Browse',
       collapse: 'Collapse Sidebar',
@@ -467,6 +467,136 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
  * against the component's own source text instead, the same technique that suite uses for a
  * hand-edited stylesheet.
  */
+/**
+ * OpenProject #2861: the reader sidebar's `.sidebar-actions` strip gains a third cell, "Top", beside
+ * Locale and Browse -- always reserving 40x40 so the other two never shift width, fading in (button
+ * + leading separator) once `.page-container-scrl` scrolls past 150px, and scrolling that column
+ * back to the top on click. Visual polish (the Ledger plate/mono-label + Cobalt tile treatment) is a
+ * separate WP (#2862); this suite covers only the structural cell + scroll/click behavior.
+ */
+describe('MainLayout sidebar-actions Top cell (OpenProject #2861)', () => {
+  async function mountWithScrollColumn({ scrollTop = 0, routes = ['/'] } = {}) {
+    const router = await createTestRouter(routes)
+    const { wrapper, ...rest } = mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        site: (siteStore) => {
+          siteStore.features.browse = true
+        }
+      },
+      stubs: {
+        HeaderNav: true,
+        MainOverlayDialog: true,
+        NavSidebar: true
+      },
+      attachTo: document.body
+    })
+
+    const scrollColumn = document.createElement('div')
+    scrollColumn.className = 'page-container-scrl'
+    document.body.appendChild(scrollColumn)
+    Object.defineProperty(scrollColumn, 'scrollTop', {
+      value: scrollTop,
+      writable: true,
+      configurable: true
+    })
+    scrollColumn.scrollTo = vi.fn()
+
+    return { wrapper, scrollColumn, ...rest }
+  }
+
+  afterEach(() => {
+    document.querySelectorAll('.page-container-scrl').forEach((el) => el.remove())
+  })
+
+  // -> Scoped to `.sidebar-actions` throughout: at >=750px (this suite's default, wide-viewport
+  //    `matchMedia` stub) the pre-existing corner `WPageScroller` button carries the SAME
+  //    "Return to top" aria-label and reacts to the SAME scroll -- both are expected to coexist
+  //    until #2863 retires the corner disc in wide mode, so a query against the whole wrapper
+  //    would be ambiguous. `WPageScroller.vue` itself is untouched by this WP.
+  function findTopBtn(wrapper) {
+    return wrapper
+      .get('.sidebar-actions')
+      .find(`[aria-label="${messages.common.actions.returnToTop}"]`)
+  }
+
+  it('reserves the 40x40 Top cell even when the button itself is not mounted (page at top)', async () => {
+    const { wrapper } = await mountWithScrollColumn()
+
+    const cell = wrapper.get('.sidebar-actions-top')
+    expect(getComputedStyle(cell.element).width).toBe('40px')
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+  })
+
+  it('fades the Top button in once the scroll column passes the 150px threshold', async () => {
+    const { wrapper, scrollColumn } = await mountWithScrollColumn()
+
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+
+    scrollColumn.scrollTop = 200
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    expect(findTopBtn(wrapper).exists()).toBe(true)
+  })
+
+  it('stays hidden at exactly the threshold and below it', async () => {
+    const { wrapper, scrollColumn } = await mountWithScrollColumn()
+
+    scrollColumn.scrollTop = 150
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+  })
+
+  it('scrolls the page column to the top, smoothly, on click', async () => {
+    const { wrapper, scrollColumn } = await mountWithScrollColumn({ scrollTop: 200 })
+
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    await findTopBtn(wrapper).trigger('click')
+
+    expect(scrollColumn.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+  })
+
+  it("recomputes visibility on route change, so a new page does not inherit the old one's Top state", async () => {
+    const { wrapper, scrollColumn, router } = await mountWithScrollColumn({
+      scrollTop: 200,
+      routes: ['/', '/some/other/page']
+    })
+
+    window.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+    expect(findTopBtn(wrapper).exists()).toBe(true)
+
+    // -> Simulates the new route's own scroll column starting back at the top
+    scrollColumn.scrollTop = 0
+    await router.push('/some/other/page')
+    await wrapper.vm.$nextTick()
+
+    expect(findTopBtn(wrapper).exists()).toBe(false)
+  })
+
+  it('sizes Locale to a fixed 72px cell, distinct from the reserved 40px Top cell', async () => {
+    const { wrapper } = await mountWithScrollColumn()
+    const commonStore = useCommonStore()
+
+    const localeBtn = wrapper.get(`[aria-label="${commonStore.locale}"]`)
+    expect(localeBtn.classes()).toContain('sidebar-actions-locale')
+    expect(getComputedStyle(localeBtn.element).width).toBe('72px')
+  })
+
+  it('gives the strip a true 40px content interior (41px border-box)', async () => {
+    const { wrapper } = await mountWithScrollColumn()
+
+    const strip = wrapper.get('.sidebar-actions')
+    expect(getComputedStyle(strip.element).height).toBe('41px')
+  })
+})
+
 describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2776)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
   const source = readFileSync(SOURCE_PATH, 'utf-8')
