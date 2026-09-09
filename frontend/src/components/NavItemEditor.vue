@@ -67,7 +67,7 @@
             <span class="nav-edit-generated-eyebrow" v-if="element.generated">
               {{ t('navEdit.generatedFromTree') }}
             </span>
-            <w-item-section side><w-icon :name="element.icon" /></w-item-section>
+            <w-item-section side><w-icon :name="rowIcon(element)" /></w-item-section>
             <w-item-section class="text-wordbreak-all">{{ element.label }}</w-item-section>
             <w-item-section side>
               <w-icon
@@ -580,6 +580,20 @@ const state = reactive({
  * every instance.
  */
 const DEFAULT_LINK_ICON = 'tabler:file-text'
+
+/**
+ * The glyph a `link` row draws: its own `icon` when it has one, and otherwise a folder-vs-page
+ * fallback (OpenProject #2885, porting #2826's fix here) -- `element.isFolder`, since a
+ * generated (auto/mixed) folder item carries no `icon` of its own either, and without this an
+ * icon-less folder row drew a blank 15px gap where the tree's own shape should be readable at a
+ * glance. Not `NavSidebarItem.vue#iconFor()`'s `|| item.children?.length > 0` half of that same
+ * check: `flattenMenuItem` (`helpers/navigation.js`) never puts a `children` array on a flat
+ * editor row (nesting is `isNested` on the row *after* it instead), so it would always read
+ * `undefined` here and never actually contribute.
+ */
+function rowIcon(element) {
+  return element.icon || (element.isFolder ? 'tabler:folder' : DEFAULT_LINK_ICON)
+}
 
 const visibilityOptions = [
   { value: false, label: t('navEdit.visibilityAll') },
@@ -1267,42 +1281,23 @@ onMounted(load)
   }
 
   /*
-    The nested run: the same 10px rail + elbow construction `NavSidebar.vue` draws for an open group
-    (see its own header comment), recoloured for this light drawer -- so both views of the tree look
-    like one tree. Applied per row rather than to a wrapping element (this list is flat, one root node
-    per row -- see the template comment), which is what makes a run of consecutive nested rows read as
-    one seamless block: same background, same rail, touching.
+    OpenProject #2885: a nested row used to be marked with the same rail + background-wash +
+    mitred-elbow construction `NavSidebar.vue` drew for an open group's children -- #2827 already
+    dropped that reading there, and this ports the identical fix here so both views of the tree
+    stop disagreeing. Indentation is the only nesting cue left; the 10px border-inline-start stays
+    (it is the one thing providing it -- nothing else on this row declares content padding for it)
+    but goes transparent, and the mitred `::before` elbow that used to turn it out of the row above
+    is gone outright, along with its per-theme colour overrides below.
   */
   &.is-nested {
     margin-inline-start: 18px;
     padding: 7px 10px 7px 14px !important;
     font-size: 13px;
-    border-inline-start: 10px solid var(--color-hairline);
-    background-color: #e8ecf4;
+    border-inline-start: 10px solid transparent;
 
     &.is-active {
       padding-inline-start: 12px !important;
     }
-  }
-
-  /* -> Out of the row above: the rail's top end, turning toward inline-end into it. */
-  &:not(.is-nested) + &.is-nested::before {
-    content: '';
-    display: block;
-    position: absolute;
-    inset-inline-start: -10px;
-    top: -10px;
-    width: 10px;
-    height: 10px;
-    border-style: solid;
-    border-block-start-width: 0;
-    border-inline-end-width: 10px;
-    border-block-end-width: 10px;
-    border-inline-start-width: 0;
-    border-block-start-color: transparent;
-    border-inline-end-color: transparent;
-    border-block-end-color: var(--color-hairline);
-    border-inline-start-color: var(--color-hairline);
   }
 }
 
@@ -1325,36 +1320,13 @@ onMounted(load)
   color: var(--color-sidebar-icon);
 }
 
-:global(body.body--dark .nav-edit-item-link.is-nested) {
-  background-color: var(--color-dark-2);
-}
-
-:global(
-  body.body--dark .nav-edit-item-link:not(.is-nested) + .nav-edit-item-link.is-nested::before
-) {
-  border-block-end-color: var(--color-hairline-dark);
-  border-inline-start-color: var(--color-hairline-dark);
-}
-
 /*
-  Cobalt: "indented 10px, rail `rgba(255,255,255,.08)`, ground `rgba(255,255,255,.04)`, radius
-  0 6px 6px 0; rows `#a7b3ea`" -- a shallower indent than Ledger's 18px, an outer radius on the rail's
-  own corners (`--radius-control`, 0 in Ledger so unaffected there), and the run's own text tone
-  rather than the base row color.
+  Cobalt keeps its own, shallower indent than Ledger's 18px -- the rail/wash/radius/text-tone
+  that used to go with it were the same #2827-style darkening this whole rule was gutted for
+  above, so nothing else survives here either.
 */
 :global(body.body--cobalt .nav-edit-item-link.is-nested) {
   margin-inline-start: 10px;
-  border-inline-start-color: rgb(255 255 255 / 0.08);
-  background-color: rgb(255 255 255 / 0.04);
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
-  color: var(--color-sidebar-text-secondary);
-}
-
-:global(
-  body.body--cobalt .nav-edit-item-link:not(.is-nested) + .nav-edit-item-link.is-nested::before
-) {
-  border-block-end-color: rgb(255 255 255 / 0.08);
-  border-inline-start-color: rgb(255 255 255 / 0.08);
 }
 
 /*
@@ -1368,10 +1340,6 @@ onMounted(load)
     background-color: var(--color-accent-wash) !important;
     border-inline-start-color: var(--color-accent-fill) !important;
     color: var(--color-primary);
-
-    & + .nav-edit-item-link:not(.is-nested)::before {
-      display: none !important;
-    }
   }
 }
 
@@ -1379,10 +1347,6 @@ onMounted(load)
   background-color: var(--color-accent-wash) !important;
   border-inline-start-color: var(--color-accent-fill) !important;
   color: var(--color-primary);
-
-  & + .nav-edit-item-link:not(.is-nested)::before {
-    display: none !important;
-  }
 }
 
 :global(body.body--dark .nav-edit-item-header + .nav-edit-item-link.is-nested),

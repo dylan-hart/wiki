@@ -34,8 +34,11 @@ export function flattenMenuItem(item, out) {
       'openInNewWindow',
       'expandByDefault',
       'visibilityGroups',
-      // -> `getNav`-only, never sent back on save — see `cleanMenuItem`/`reconstructMenuItems`
-      'generated'
+      // -> `getNav`-only, never sent back on save — see `cleanMenuItem`/`reconstructMenuItems`.
+      //    `isFolder` is what OpenProject #2885 gives `NavItemEditor.vue`'s own icon fallback to
+      //    read, same as `NavSidebarItem.vue#iconFor()` already does with the sidebar's copy of it.
+      'generated',
+      'isFolder'
     ]),
     visibilityLimited: item.visibilityGroups?.length > 0
   })
@@ -49,7 +52,8 @@ export function flattenMenuItem(item, out) {
         'target',
         'openInNewWindow',
         'visibilityGroups',
-        'generated'
+        'generated',
+        'isFolder'
       ]),
       visibilityLimited: child.visibilityGroups?.length > 0,
       isNested: true
