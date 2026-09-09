@@ -224,6 +224,12 @@ export const useSiteStore = defineStore('site', {
      */
     docsBase: '',
     /**
+     * Instance-wide, not per-site -- `WIKI.config.replication?.isEnabled` on `buildSitePayload()`
+     * (`backend/api/sites.ts`, OpenProject #2851), same "always server-provided" shape as `docsBase`
+     * above. `HeaderNav.vue` reads this to show its replication warning banner (OpenProject #2852).
+     */
+    isReplicationEnabled: false,
+    /**
      * This site's default menu id for its default locale (`backend/api/sites.ts`'s
      * `buildSitePayload`, resolved via `WIKI.models.navigation.ensureSiteNav`) -- always server-
      * provided, same as `docsBase` above. What `MainLayout.vue` and `NavSidebar.vue` fall back to on
@@ -307,6 +313,7 @@ export const useSiteStore = defineStore('site', {
         logoText: siteInfo.logoText,
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
         docsBase: siteInfo.docsBase,
+        isReplicationEnabled: siteInfo.isReplicationEnabled ?? false,
         navigationId: siteInfo.navigationId ?? null,
         blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
