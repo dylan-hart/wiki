@@ -1024,22 +1024,29 @@ describe('NavSidebar', () => {
    * children on top of the plain indent -- a colored `border-inline-start`, a compounding
    * `background-color`/`background-clip` wash, and a mitred `&::before` elbow turning the rail out
    * of the row above. All three are removed; indentation and the `.w-expansion-item__arrow`
-   * chevron are the only nesting cues left. Asserted on the source, for the same happy-dom-cannot-
-   * resolve-logical-properties reason the test above gives, and specifically that the surviving
-   * border is transparent -- not merely present -- since the 10px width has to stay (it is the
-   * only thing providing per-level indentation) while its color goes.
+   * chevron were the only nesting cues left, until a LATER `&::before` was added back for a
+   * different purpose entirely -- the hover depth-cue dots, which light up a row's ancestor
+   * lane(s) with a faint dotted line only while navigating (see the rule's own comment). That one
+   * is asserted for directly below rather than excluded here: it carries no `background-color`/
+   * `background-clip` of its own (still checked), and unlike the old elbow's fixed corner color,
+   * its dots' color/opacity is only ever set inside a `:has(:hover)` rule, never on the bare
+   * `&::before` this test slices out. Asserted on the source, for the same
+   * happy-dom-cannot-resolve-logical-properties reason the test above gives, and specifically that
+   * the surviving border is transparent -- not merely present -- since the 10px width has to stay
+   * (it is the only thing providing per-level indentation) while its color goes.
    */
-  it('removes the nested-item rail/wash/elbow, keeping only a transparent indent border', () => {
+  it('removes the nested-item rail/wash/elbow, keeping only a transparent indent border plus the (colorless-until-hovered) depth-cue dots', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
     const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content')
-    const contentRule = styleBlock.slice(contentRuleStart, contentRuleStart + 400)
+    const contentRule = styleBlock.slice(contentRuleStart, contentRuleStart + 700)
 
     expect(contentRule).toMatch(/border-inline-start\s*:\s*10px solid transparent/)
     expect(contentRule).not.toMatch(/background-color/)
     expect(contentRule).not.toMatch(/background-clip/)
-    expect(contentRule).not.toMatch(/&::before/)
+    expect(contentRule).toMatch(/&::before/)
+    expect(contentRule).toMatch(/opacity:\s*0;/)
   })
 
   /**
