@@ -40,7 +40,7 @@
         `css/tailwind.css`'s own note, and `helpers/accessibility.test.js`, which pins each token
         against the foreground it is actually drawn under).
       -->
-      <w-btn-group class="me-6">
+      <w-btn-group class="page-history-toggle me-6">
         <w-btn
           dense
           :label="t(`history.sideBySide`)"
@@ -1201,6 +1201,38 @@ $timeline-turn: 16px;
     font-family: var(--font-mono);
     font-weight: 600;
     font-size: 11px;
+  }
+
+  /*
+    Cobalt only (OpenProject #2872, `ui-iteration/README.md` Part 1.1/Part 2 "History (Cobalt) |
+    Side by side / Inline gap + Inline rounded; A/B chips rounded with 4px gap"): a Cobalt `w-btn`
+    is individually rounded (`--radius-control`), so `WBtnGroup.vue`'s touching-squares layout --
+    zero gap, a seam hairline between buttons -- draws two rounded plates overlapping into a lens
+    shape at the seam, with a hairline RULE running through them besides (exactly what Part 1.1's
+    "matte" pass forbids). The design draws a real gap between two separately rounded plates
+    instead, with no line between them at all -- 10px for the Side by side/Inline toggle, 4px for
+    the A/B pick chips (the design's own literal values; `--radius-control` already rounds every
+    corner of every `w-btn`, Cobalt or not, so nothing else here has to change).
+
+    The selector below out-specifies `WBtnGroup.vue`'s own
+    `.w-btn-group[data-v-*] > .w-btn:not(:last-child)` (its `[data-v-*]` scope attribute and this
+    rule's leading `body` type selector both count once the class tally ties), so no `!important`
+    is needed -- verified by the source-text conformance test alongside this rule, since jsdom here
+    has no compiled token stylesheet to resolve a real cascade against.
+  */
+  body.body--cobalt & {
+    &-toggle {
+      gap: 10px;
+    }
+
+    &-pick-group {
+      gap: 4px;
+    }
+
+    &-toggle .w-btn:not(:last-child),
+    &-pick-group .w-btn:not(:last-child) {
+      border-inline-end: none;
+    }
   }
 
   &-same {
