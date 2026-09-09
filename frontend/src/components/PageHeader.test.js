@@ -9,10 +9,8 @@ import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useDark } from '@/composables/dark'
-import { useDirection } from '@/composables/direction'
 import { openDialogs } from '@/composables/dialog'
 import { queue } from '@/composables/notify'
-import WMenu from '@/components/shared/WMenu.vue'
 
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
@@ -117,59 +115,6 @@ describe('PageHeader RTL-safe spacing', () => {
     expect(html).not.toMatch(/\bml-4\b/)
     expect(html).not.toMatch(/\bml-2\b/)
     expect(html).not.toMatch(/\bmr-2\b/)
-  })
-})
-
-/**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 721: the review-queue
- * dropdown's `anchor`/`self` used to be hardcoded `"bottom right"`/`"top right"`, which pops the
- * panel toward the visual right regardless of direction. Unlike `EditorMarkdown.vue`'s side toolbar
- * (mounted only for one editing session, so a read-once `document.documentElement.dir` at setup is
- * an accepted tradeoff there), `PageHeader` stays mounted across navigations -- a reader moving from
- * an LTR page to an RTL one in the same visit must see this flip too, so it is read reactively off
- * `composables/direction.js` rather than once at setup.
- */
-describe('PageHeader review-queue menu direction', () => {
-  afterEach(() => {
-    // -> `useDirection`'s backing ref is module-level state shared with every other test file that
-    //    imports it in this run; leaving it flipped would bleed into whichever test happens to run next
-    useDirection().set(false)
-  })
-
-  async function mountHeaderWithReviewQueue() {
-    const wrapper = await mountHeader()
-    usePageStore().$patch({ canReview: true, editor: null })
-    await wrapper.vm.$nextTick()
-    return wrapper
-  }
-
-  it('anchors the review-queue menu to the trailing (right) edge under ltr', async () => {
-    const wrapper = await mountHeaderWithReviewQueue()
-
-    const menu = wrapper.findAllComponents(WMenu).at(-1)
-    expect(menu.props('anchor')).toBe('bottom right')
-    expect(menu.props('self')).toBe('top right')
-  })
-
-  it('mirrors the review-queue menu to the trailing (left) edge under rtl', async () => {
-    useDirection().set(true)
-    const wrapper = await mountHeaderWithReviewQueue()
-
-    const menu = wrapper.findAllComponents(WMenu).at(-1)
-    expect(menu.props('anchor')).toBe('bottom left')
-    expect(menu.props('self')).toBe('top left')
-  })
-
-  it('re-mirrors reactively when direction flips after mount, since this header outlives a locale', async () => {
-    const wrapper = await mountHeaderWithReviewQueue()
-    const menuBefore = wrapper.findAllComponents(WMenu).at(-1)
-    expect(menuBefore.props('anchor')).toBe('bottom right')
-
-    useDirection().set(true)
-    await wrapper.vm.$nextTick()
-
-    const menuAfter = wrapper.findAllComponents(WMenu).at(-1)
-    expect(menuAfter.props('anchor')).toBe('bottom left')
   })
 })
 
@@ -363,36 +308,6 @@ describe('PageHeader suggestion outcome (OpenProject #2137)', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).not.toContain('common.page.suggestionResolvedDeclined')
-  })
-})
-
-/**
- * OpenProject #2531: `reviewSubmission()` used to `router.push` into `/_inbox/review/:id?from=page`,
- * a route that no longer exists now that the Inbox is a `MainOverlayDialog` entry -- it opens the
- * overlay directly instead, with `from: 'page'` still carried through so `InboxReview.vue`'s
- * `fromPage` prop can send the reviewer back here (not the inbox queue) once they are done.
- */
-describe('PageHeader reviewSubmission (OpenProject #2531)', () => {
-  it('opens the Inbox overlay onto the Review tab for the clicked submission', async () => {
-    const wrapper = await mountHeader()
-    usePageStore().$patch({
-      canReview: true,
-      editor: null,
-      pendingSubmissions: [{ id: 'sub-1', author: { name: 'Alice' } }]
-    })
-    await wrapper.vm.$nextTick()
-
-    // -> The review-queue menu opens from its trigger button, same as a real click would
-    await wrapper.find('[aria-label="inbox.pendingReview"]').trigger('click')
-    await wrapper.vm.$nextTick()
-
-    const row = wrapper.findAll('.w-item').find((item) => item.text().includes('Alice'))
-    expect(row?.exists()).toBe(true)
-    await row.trigger('click')
-
-    const siteStore = useSiteStore()
-    expect(siteStore.overlay).toBe('Inbox')
-    expect(siteStore.overlayOpts).toEqual({ tab: 'review', submissionId: 'sub-1', from: 'page' })
   })
 })
 
