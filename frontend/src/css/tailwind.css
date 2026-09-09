@@ -526,9 +526,12 @@ html.theme-transition-suppress *::after {
     never had"): Ledger separates a surface from its ground with a hairline, never elevation (see
     `WCard.vue`'s own comment), so its card shadow is `none` and its dialog shadow is a single soft
     glow rather than the three-layer Material stack this used to carry -- the values below replace
-    that stack outright, they do not sit beside it. `--shadow-menu` is unrelated to the aesthetic
-    system and is untouched. `--shadow-primary` is new: no Ledger button carries a shadow at all, so
-    it is `none` there and only gets a value under Cobalt's `body.body--cobalt` block below.
+    that stack outright, they do not sit beside it. `--shadow-primary` is new: no Ledger button
+    carries a shadow at all, so it is `none` there and only gets a value under Cobalt's
+    `body.body--cobalt` block below. `--shadow-menu`/`--shadow-dialog` used to be genuinely unrelated
+    to the aesthetic system -- Cobalt's own matte pass (OpenProject #2856) now drops both to `none`
+    under `body.body--cobalt`, since a menu, tooltip, dialog or drawer is an overlay on the scrim, not
+    a plate the matte take gives a border to; Ledger's own values below are unchanged.
   */
   --shadow-card: none;
   --shadow-primary: none;
@@ -793,8 +796,30 @@ body.body--cobalt {
   --radius-pill: 12px;
   --radius-mark: 4px;
   --radius-avatar: 50%;
-  --shadow-card: 0 2px 10px rgb(16 25 74 / 0.08);
-  --shadow-primary: 0 4px 14px rgb(200 48 60 / 0.35);
+  /*
+    -- Matte pass (OpenProject #2856) ----------------------------------------
+    Cobalt is matte: no drop shadows anywhere. `--shadow-card` used to be a blurred `0 2px 10px`
+    glow; every "plate" that reads it (`WCard`, the page-content/TOC/tags-revision floating cards
+    in `Index.vue`, the actions rail, search result cards, graph panels, nav-edit cards, ...) draws
+    its Cobalt edge SOLELY through this token rather than through `--border-card` (which stays `0`
+    here, unchanged) -- see each consumer's own comment ("Cobalt draws this as a shadowed sheet, not
+    a hairline-bordered box"). A 0-blur, 1px-spread ring reads as exactly that hairline border while
+    staying the one explicitly-kept shape the matte take allows ("0-blur rings ... those are
+    outlines"), so every one of those consumers gets its plate border for free, with no per-file
+    change. `--shadow-primary` (the Edit/Add/primary-button glow) has no such role to fill -- a
+    button is not one of the plates the handoff lists -- so it goes to `none` outright.
+  */
+  --shadow-card: 0 0 0 1px #dfe5f5;
+  --shadow-primary: none;
+  /*
+    Matte pass (OpenProject #2856), continued: `--shadow-menu`/`--shadow-dialog` are untouched under
+    Ledger (a plain `:root` default shared by both aesthetics until now -- see that declaration's own
+    comment), but a menu, tooltip, dialog or drawer is an "overlay on the scrim", not one of the
+    plates the handoff lists a border for, so Cobalt drops its shadow outright rather than trading it
+    for a ring the way `--shadow-card` does above.
+  */
+  --shadow-menu: none;
+  --shadow-dialog: none;
   --border-card: 0;
   --corner-marks: none;
   --nav-active-inset: inset 3px 0 0 #ff4d5a;
@@ -804,7 +829,9 @@ body.body--cobalt {
   --page-header-bg: linear-gradient(120deg, #1f4fd6, #3d6df7);
   --page-header-fg: var(--color-white);
   --page-header-radius: 8px;
-  --page-header-shadow: 0 8px 24px rgb(31 79 214 / 0.28);
+  /* Matte pass (OpenProject #2856): the glow under the banner is gone. The banner sits on its own
+     solid gradient fill, not low-contrast on the `#f2f5ff` ground, so it gets no border either. */
+  --page-header-shadow: none;
   --page-header-margin: 24px;
   --page-header-subtitle-fg: #dbe4ff;
   --page-header-icon-bg: rgb(255 255 255 / 0.16);
@@ -946,9 +973,14 @@ body.body--cobalt.body--dark {
   --color-avatar-plate-bg: rgb(61 109 247 / 0.22);
   --color-avatar-plate-text: #a3bbff;
 
-  /* Not a shape token despite living beside them in the light block: the handoff gives an explicit,
-     different shadow for the dark card/raised surface under "Surfaces", not under the radii sweep. */
-  --shadow-card: 0 2px 12px rgb(0 0 0 / 0.4);
+  /*
+    Not a shape token despite living beside them in the light block: the handoff gives an explicit,
+    different shadow for the dark card/raised surface under "Surfaces", not under the radii sweep.
+    Matte pass (OpenProject #2856): the dark ring is the light ring's own dark hairline colour
+    (`rgb(255 255 255 / 0.1)`, the same value `--color-border-dark` already carries), not the light
+    ring's `#dfe5f5` -- a light-toned outline would read as a stray glow on a dark plate.
+  */
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.1);
 
   /*
     The floating-card motif on a dark ground. `--float-bg` is `--color-surface` (`#fff`) in Cobalt

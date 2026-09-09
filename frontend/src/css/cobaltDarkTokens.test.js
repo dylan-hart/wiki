@@ -125,8 +125,16 @@ describe('Plain Cobalt aesthetic tokens, restated for dark', () => {
 })
 
 describe('--shadow-card dark override', () => {
-  it('carries the handoff-specified dark card shadow, distinct from the light Cobalt value', () => {
-    expect(declaredValue(darkSource, 'shadow-card')).toBe('0 2px 12px rgb(0 0 0 / 0.4)')
+  it('carries its own dark hairline-ring colour, distinct from the light Cobalt value (OpenProject #2856)', () => {
+    expect(declaredValue(darkSource, 'shadow-card')).toBe('0 0 0 1px rgb(255 255 255 / 0.1)')
+  })
+})
+
+describe('no overlay/menu shadow token is redeclared', () => {
+  it('leaves --shadow-primary/-menu/-dialog and --page-header-shadow unrestated (all `none` under the light block already)', () => {
+    expect(darkSource).not.toMatch(/--shadow-primary:/)
+    expect(darkSource).not.toMatch(/--shadow-menu:/)
+    expect(darkSource).not.toMatch(/--shadow-dialog:/)
   })
 })
 
