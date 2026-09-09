@@ -7,8 +7,10 @@ import { mount } from '@vue/test-utils'
 
 import MainLayout from './MainLayout.vue'
 import FooterNav from '@/components/FooterNav.vue'
+import WPageScroller from '@/components/shared/WPageScroller.vue'
 import routes from '@/router/routes.js'
 import { useCommonStore } from '@/stores/common'
+import { useMinWidth } from '@/composables/screen'
 
 import { createTestRouter } from '../../test/router.js'
 import { createTestI18n } from '../../test/i18n.js'
@@ -476,5 +478,54 @@ describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2
     expect(styleBlock).toMatch(
       /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*overflow: hidden;\s*\}/
     )
+  })
+})
+
+/**
+ * OpenProject #2863 ("Retire WPageScroller corner disc in wide mode (>=1200px)"): the corner
+ * scroll-to-top button used to render at every width from 750px up, flush against the bottom of
+ * the sidebar's own column once the layout crossed its 1200px wide-viewport breakpoint
+ * (`scrollerAnchorX`, now deleted along with `WPageScroller`'s `anchorX` prop -- its only caller).
+ * That flush, anchored variant retires outright at >=1200px: the sidebar strip's own "Top" cell
+ * (Feature #2840's sibling task #2861) takes over the scroll-to-top role there instead. Below
+ * 1200px, where the sidebar overlays the page rather than columning beside it, the plain corner
+ * disc still renders exactly as before; below 750px the page view's own TOC-panel opener keeps that
+ * corner instead (`isAtLeastTocPanelWidth`, unchanged by this task).
+ *
+ * `useMinWidth`'s shared `matchMedia` cache (`composables/screen.js`) is set directly on the refs it
+ * returns rather than through a fresh `matchMedia` mock -- see `HeaderNav.test.js`'s own note on why
+ * a NEW mock can't reach a breakpoint another test in this file already cached.
+ */
+describe('MainLayout scroll-to-top corner disc retires at wide viewport (OpenProject #2863)', () => {
+  afterEach(() => {
+    useMinWidth(1200).value = true
+    useMinWidth(750).value = true
+  })
+
+  it('does not mount WPageScroller at >=1200px, where the sidebar has a column of its own', async () => {
+    useMinWidth(1200).value = true
+    useMinWidth(750).value = true
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(wrapper.findComponent(WPageScroller).exists()).toBe(false)
+  })
+
+  it('still mounts WPageScroller between 750px and 1199px, where the sidebar overlays the page', async () => {
+    useMinWidth(1200).value = false
+    useMinWidth(750).value = true
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(wrapper.findComponent(WPageScroller).exists()).toBe(true)
+  })
+
+  it('still does not mount WPageScroller below 750px, where the TOC-panel opener keeps the corner', async () => {
+    useMinWidth(1200).value = false
+    useMinWidth(750).value = false
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(wrapper.findComponent(WPageScroller).exists()).toBe(false)
   })
 })
