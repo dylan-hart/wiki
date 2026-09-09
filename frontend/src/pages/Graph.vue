@@ -272,16 +272,23 @@ const totalNodes = ref(0)
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
 const groupBy = ref('folder')
 
-/** Node-sizing dimension (OpenProject #1141/#1269): 'edits' (default), which scales a node's radius
- *  by its contributor count, or 'visits', by its pageview count -- see `radiusFor()`. There is no
- *  'uniform' mode any more (OpenProject #1270 dropped it): every real node is always sized by one
- *  of these two dimensions. */
+/** Node-sizing dimension (OpenProject #1141/#1269): 'edits', which scales a node's radius by its
+ *  contributor count, or 'visits', by its pageview count -- see `radiusFor()`. There is no 'uniform'
+ *  mode any more (OpenProject #1270 dropped it): every real node is always sized by one of these two
+ *  dimensions. The REAL default is 'visits' when pageview tracking is on, falling back to 'edits'
+ *  when it's off (OpenProject #2853) -- but it's declared here as 'edits' regardless, because
+ *  `pageviewsTrackingEnabled` (below) itself defaults to `false` until its own async check resolves,
+ *  and 'edits' is the one value `sizeByOptions` always offers no matter how that check turns out.
+ *  Selecting 'visits' at this line would briefly pick an option that isn't there yet. The
+ *  `watch(pageviewsTrackingEnabled, ...)` near the bottom of this file is where the real default
+ *  actually gets applied, once it's known. */
 const sizeBy = ref('edits')
 
 /** Whether 'edits'/'visits' sizing (and the hover tooltip's count) reads the unique-identity figure
  *  or the raw row-count figure (OpenProject #1269's backend fields, #1270's toggle) --
- *  `contributorCountFor()`/`pageviewCountFor()` are the single place this is read. */
-const sizeCountMode = ref('unique')
+ *  `contributorCountFor()`/`pageviewCountFor()` are the single place this is read. Defaults to
+ *  'total' (OpenProject #2853; was 'unique'). */
+const sizeCountMode = ref('total')
 
 /** Which of `pageHistory.via`'s buckets count toward 'edits' sizing -- both checked by default,
  *  which reads the backend's pre-unioned `contributors.all` rather than adding the two buckets
@@ -1163,12 +1170,21 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
   repaint()
 })
 
-/** OpenProject #1140's own scope decision: while pageview tracking is off, 'visits' sizing has no
- *  data behind it -- if the admin opt-out toggles off while this control is active (e.g. in another
- *  tab), fall back to 'edits' rather than leaving a now-hidden option selected. No 'uniform' mode
- *  to fall back to any more (OpenProject #1270). */
+/** This is where `sizeBy`'s REAL default (its own doc comment above) actually gets applied, the
+ *  moment `pageviewsTrackingEnabled` resolves either way (OpenProject #2853):
+ *  - turns on: promote 'edits' -> 'visits' -- but only while `sizeBy` still holds its own untouched
+ *    declared default. There's no persisted preference to consult yet (that's OpenProject #2854),
+ *    so "still equals the literal default" is the only signal available this round for "hasn't been
+ *    deliberately chosen" -- a reader who already picked 'edits' by hand in the brief window before
+ *    this resolves keeps that choice rather than being overridden.
+ *  - turns off (OpenProject #1140's own scope decision: while tracking is off, 'visits' sizing has
+ *    no data behind it -- e.g. the admin opt-out flips live, in another tab): fall back from
+ *    'visits' to 'edits' rather than leaving a now-hidden option selected. No 'uniform' mode to fall
+ *    back to any more (OpenProject #1270). */
 watch(pageviewsTrackingEnabled, (enabled) => {
-  if (!enabled && sizeBy.value === 'visits') {
+  if (enabled && sizeBy.value === 'edits') {
+    sizeBy.value = 'visits'
+  } else if (!enabled && sizeBy.value === 'visits') {
     sizeBy.value = 'edits'
   }
 })
