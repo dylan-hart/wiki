@@ -166,6 +166,38 @@ describe('generated items and mixed-menu pinned placement', () => {
     expect(flat.find((i) => i.id === 'm1').generated).toBeUndefined()
   })
 
+  /*
+    OpenProject #2885: `getNav` puts `isFolder` on a generated folder item (OpenProject #2826), but
+    it was missing from `flattenMenuItem`'s field whitelist, so it never survived onto the flat
+    editor row `NavItemEditor.vue`'s own icon fallback reads it off -- top-level and nested.
+  */
+  it('flattenMenuItems carries isFolder through, top-level and nested', () => {
+    const flat = flattenMenuItems([
+      {
+        id: 'gf1',
+        type: 'link',
+        label: 'Generated folder',
+        visibilityGroups: [],
+        generated: true,
+        isFolder: true,
+        children: [
+          {
+            id: 'gf1c',
+            type: 'link',
+            label: 'Nested generated folder',
+            visibilityGroups: [],
+            generated: true,
+            isFolder: true
+          }
+        ]
+      },
+      { id: 'gp1', type: 'link', label: 'Generated page', visibilityGroups: [], generated: true }
+    ])
+    expect(flat.find((i) => i.id === 'gf1').isFolder).toBe(true)
+    expect(flat.find((i) => i.id === 'gf1c').isFolder).toBe(true)
+    expect(flat.find((i) => i.id === 'gp1').isFolder).toBeUndefined()
+  })
+
   it('reconstructMenuItems drops every generated item, and its nested children, from the save payload', () => {
     const items = [
       { id: 'm1', type: 'link', label: 'Manual', visibilityLimited: false, visibilityGroups: [] },
