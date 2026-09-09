@@ -866,6 +866,42 @@ body.body--cobalt {
 }
 
 /*
+  -- Cobalt aesthetic: button-group gap + editor toolbar band (OpenProject #2859) ------------------
+  Two shape corrections from the "matte" take (`ui-iteration/README.md` Part 1.1, "Adjacent buttons
+  in a group ... take a gap (8-10px) and each keeps its own radius" / "Editor formatting toolbar ...
+  is a full-width square band, not a rounded pill"). Both light and dark Cobalt share these -- shape,
+  not color -- so they sit here rather than in the dark block below.
+
+  1. `WBtnGroup.vue`'s `.w-btn-group` joins adjacent `WBtn`s with a single hairline seam
+     (`border-inline-end` on every button but the last) under Ledger, where a button is square and
+     the seam reads as one continuous control. Cobalt's buttons are `--radius-control`-rounded, so
+     the same seam would butt a rounded corner against a straight one; the fix is a gap instead; each
+     button keeps its own radius and there is no seam left to draw. 8px matches the Table Editor's
+     Cancel/Update pair (`cobalt/Cardinal Wiki - Table Editor 3x - Cobalt.dc.html`); the mocks range
+     8-10px screen to screen (the Editor's Save changes / Save and close pair draws 10px), so a
+     screen that needs the high end of that range sets `gap` on its own `.w-btn-group` instance
+     rather than this rule changing. `!important` on the seam removal beats `WBtnGroup.vue`'s own
+     scoped rule outright rather than relying on a specificity count across the two files.
+  2. The editor's markup toolbar (`EditorMarkdown.vue`'s `.editor-markdown-toolbar`, the B/I/S...
+     band) stays a flat, full-width SQUARE band under Cobalt -- not a row of individually
+     `--radius-control`-rounded pill buttons, which is what every other button in the aesthetic
+     draws. This is the one place Cobalt buttons take `border-radius: 0`. Unlayered here, so it beats
+     the `rounded-control` Tailwind utility (`@layer utilities`) with no `!important` needed. The
+     rest of this toolbar's Cobalt treatment (colors) is OpenProject #2870's.
+*/
+body.body--cobalt .w-btn-group {
+  gap: 8px;
+}
+
+body.body--cobalt .w-btn-group > .w-btn:not(:last-child) {
+  border-inline-end: none !important;
+}
+
+body.body--cobalt .editor-markdown-toolbar .w-btn {
+  border-radius: 0;
+}
+
+/*
   -- Cobalt aesthetic: dark token block (OpenProject #2771) -----------------
   Source: `ui-redesign-cobalt/HANDOFF.md`'s "Cobalt dark tokens" section. Layered on top of
   `body.body--cobalt` above via the compound selector, so this wins by specificity regardless of
