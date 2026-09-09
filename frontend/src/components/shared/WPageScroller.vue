@@ -1,11 +1,6 @@
 <template>
-  <transition :name="anchorX ? `w-page-scroller-slide` : `w-page-scroller-fade`">
-    <div
-      v-if="visible"
-      class="w-page-scroller fixed bottom-0 z-40"
-      :class="anchorX ? `w-page-scroller--anchored` : `right-0`"
-      :style="anchorX ? { left: anchorX } : null"
-      @click="scrollToTop">
+  <transition name="w-page-scroller-fade">
+    <div v-if="visible" class="w-page-scroller fixed right-0 bottom-0 z-40" @click="scrollToTop">
       <slot />
     </div>
   </transition>
@@ -18,29 +13,27 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
  * "Back to top" affordance that appears once the page has been scrolled past `scrollOffset`, and
  * smooth-scrolls to the top when clicked.
  *
- * Always flush against the bottom of the viewport, in one of two places: the bottom-right corner, or
- * with its right edge at `anchorX` — which is how it tucks into the bottom of the nav sidebar's
- * column. Scrolling uses the platform's own smooth behaviour rather than the hand-rolled easing the
- * previous component shipped, and honours `prefers-reduced-motion` for free.
+ * Always flush against the bottom-right corner of the viewport. Scrolling uses the platform's own
+ * smooth behaviour rather than the hand-rolled easing the previous component shipped, and honours
+ * `prefers-reduced-motion` for free.
  *
- * The default corner is `right-0`, not `end-0` (OpenProject #1590's physical-positioning triage):
- * this is the corner `MainLayout`/`AdminLayout`'s own sidebar-opener button leaves free for it (see
- * their `left-0`), a pairing with ANOTHER fixed corner rather than with the reading direction, so it
- * must not move when the locale does. See `frontend/src/physicalPositioning.test.js`.
+ * The corner is `right-0`, not `end-0` (OpenProject #1590's physical-positioning triage): this is
+ * the corner `MainLayout`/`AdminLayout`'s own sidebar-opener button leaves free for it (see their
+ * `left-0`), a pairing with ANOTHER fixed corner rather than with the reading direction, so it must
+ * not move when the locale does. See `frontend/src/physicalPositioning.test.js`.
+ *
+ * OpenProject #2863: this used to also support anchoring flush against the bottom of the nav
+ * sidebar's own column (`anchorX`), for `MainLayout`'s wide-viewport (>=1200px) case where the
+ * sidebar takes a column beside the page. That mode retired along with its only call site --
+ * `MainLayout.vue` no longer mounts this component at all in wide mode, now that the sidebar's own
+ * "Top" cell (Feature #2840) covers scroll-to-top there instead -- so the anchored variant is dead
+ * code, deleted rather than kept around for a caller that cannot occur.
  */
 const props = defineProps({
   /** Show once the window has scrolled this many pixels. */
   scrollOffset: {
     type: Number,
     default: 1000
-  },
-  /**
-   * Any CSS length, which becomes the x of the button's RIGHT EDGE measured from the left of the
-   * viewport — so it ends where a column beside it does. Null keeps it in the corner.
-   */
-  anchorX: {
-    type: String,
-    default: null
   },
   /**
    * Selector for the element that scrolls, when it is not the window.
@@ -83,31 +76,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll, { capture: 
 </script>
 
 <style scoped>
-/*
-  `anchorX` is where the button ENDS, so it is shifted left by its own width -- which is the one
-  measurement only the button itself knows, and the reason this is a transform rather than arithmetic
-  on the anchor. Restated in the slide below, since a transform is one property and the two movements
-  share it.
-*/
-.w-page-scroller--anchored {
-  transform: translateX(-100%);
-}
-
-/*
-  Anchored, it comes and goes by the edge it sits on: out of the bottom of the viewport and back down
-  into it, which is a movement the corner it is tucked into can explain. The button is flush against
-  that edge, so there is nothing for it to slide behind and no gap to cross.
-*/
-.w-page-scroller-slide-enter-active,
-.w-page-scroller-slide-leave-active {
-  transition: transform 0.2s var(--ease-standard);
-}
-.w-page-scroller-slide-enter-from,
-.w-page-scroller-slide-leave-to {
-  transform: translateX(-100%) translateY(100%);
-}
-
-/* In the corner it still fades, which is how every other corner button gives way -- see `.corner-btn` */
+/* Fades in and out, which is how every other corner button gives way -- see `.corner-btn` */
 .w-page-scroller-fade-enter-active,
 .w-page-scroller-fade-leave-active {
   transition: opacity 0.2s var(--ease-standard);
@@ -118,8 +87,6 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll, { capture: 
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .w-page-scroller-slide-enter-active,
-  .w-page-scroller-slide-leave-active,
   .w-page-scroller-fade-enter-active,
   .w-page-scroller-fade-leave-active {
     transition-duration: 0.01ms;
