@@ -1195,6 +1195,362 @@ body.body--cobalt.body--dark {
 }
 
 /*
+  -- The 8 block boards (OpenProject #2875) ----------------------------------
+  Custom-property sets for `block-infobox`, `block-spoiler`, `block-checklist`, `block-index`,
+  `block-countdown`, `block-live-data` and `block-gallery` -- the same convention `--tabs-*` set
+  above: Ledger light in this `:root` block, then only the rows that actually change under
+  `body.body--dark`, `body.body--cobalt` and `body.body--cobalt.body--dark`. Values are literal per
+  aesthetic rather than aliased onto the generic ramp, same reasoning as the tabs block's own header
+  comment -- most of these are TEXT colors, and the generic `--color-*` tokens are Ledger-light-only
+  in value (Ledger dark is applied in Vue SFCs via Tailwind `dark:` utility classes reading the
+  `-dark`-suffixed tokens directly, which a block cannot do from inside a shadow root), so a token a
+  block actually reads has to carry its own correct value at each of the four states itself. Shape
+  alone (border/radius/bg/tint/corner-marks/mark-color/error-*) is safe to read off the shared
+  `--block-*` set above, which the #2839/#2874 token layer already verified varies correctly.
+*/
+:root {
+  /* block-infobox: full spec in ui-iteration/blocks.md */
+  --infobox-name-bg: #f0f2f7;
+  --infobox-name-fg: #1c2233;
+  --infobox-group-fg: #57668a;
+  --infobox-group-font: 600 9.5px var(--font-mono);
+  --infobox-group-tracking: 0.18em;
+  --infobox-group-transform: uppercase;
+  --infobox-group-end-width: 2px;
+  --infobox-dt-fg: #4e5d7d;
+  --infobox-dd-fg: #2f3a4f;
+  --infobox-yes-fg: #3f7a66;
+  --infobox-no-fg: #c14a52;
+  --infobox-link-fg: #a83f45;
+  --infobox-caption-fg: #57668a;
+  --infobox-row-alt-bg: transparent;
+
+  /* block-spoiler */
+  --spoiler-cover-fg: #64789f;
+  --spoiler-label-fg: #2f3a4f;
+  --spoiler-hint-fg: #57668a;
+  --spoiler-hint-font: 600 9.5px var(--font-mono);
+  --spoiler-hint-tracking: 0.16em;
+  --spoiler-hint-transform: uppercase;
+  --spoiler-hover-bg: #fdeced;
+  --spoiler-hover-radius: 0;
+  --spoiler-focus-ring: 2px solid #e4676b;
+
+  /* block-checklist */
+  --checklist-summary-fg: #57668a;
+  --checklist-summary-font: 500 10.5px var(--font-mono);
+  --checklist-summary-done-fg: #3f7a66;
+  --checklist-box-border: #64789f;
+  --checklist-box-radius: 0;
+  --checklist-box-checked-bg: #e4676b;
+  --checklist-box-checked-border: #e4676b;
+  --checklist-meta-fg: #57668a;
+  --checklist-meta-font: 10.5px var(--font-mono);
+  --checklist-toggle-fg: #c14a52;
+  --checklist-toggle-font: 600 10px var(--font-mono);
+  --checklist-toggle-tracking: 0.16em;
+  --checklist-toggle-transform: uppercase;
+  --checklist-history-bg: transparent;
+  --checklist-history-rule: 1px solid #dbe1ec;
+
+  /* block-index */
+  --index-row-fg: #64789f;
+  --index-title-fg: #1c2233;
+  --index-title-weight: 500;
+  --index-description-fg: #4e5d7d;
+  --index-trailing-fg: #64789f;
+  --index-hover-bg: #fdeced;
+  --index-hover-edge: inset 2px 0 0 #e4676b;
+  --index-hover-trailing-fg: #c14a52;
+  --index-radius: 0;
+  --index-arrow-display: block;
+  --index-chevron-display: none;
+
+  /* block-countdown */
+  --countdown-label-font: 600 19px var(--font-display);
+  --countdown-segment-bg: transparent;
+  --countdown-segment-radius: 0;
+  --countdown-segment-rule: 1px solid #dbe1ec;
+  --countdown-segment-pad: 0 16px;
+  --countdown-value-fg: #1c2233;
+  --countdown-value-font: 700 40px var(--font-display);
+  --countdown-unit-fg: #57668a;
+  --countdown-unit-font: 500 9.5px var(--font-mono);
+  --countdown-unit-tracking: 0.16em;
+  --countdown-unit-transform: uppercase;
+  --countdown-target-fg: #57668a;
+  --countdown-target-font: 10.5px var(--font-mono);
+  --countdown-ended-fg: #3f7a66;
+
+  /* block-live-data */
+  --live-data-label-fg: #57668a;
+  --live-data-label-font: 500 9.5px var(--font-mono);
+  --live-data-label-tracking: 0.16em;
+  --live-data-label-transform: uppercase;
+  --live-data-value-fg: #1c2233;
+  --live-data-value-font: 700 36px var(--font-display);
+  --live-data-fetched-fg: #8a99b8;
+  --live-data-fetched-font: 10.5px var(--font-mono);
+  --live-data-spark-stroke: #e4676b;
+  --live-data-spark-width: 1.5px;
+  --live-data-spark-linecap: butt;
+  --live-data-spark-linejoin: miter;
+  --live-data-pill-radius: 5px;
+  --live-data-pill-dot-radius: 0;
+  --live-data-ok-bg: rgb(95 156 134 / 0.16);
+  --live-data-ok-fg: #3f7a66;
+  --live-data-ok-dot: #5f9c86;
+  --live-data-warning-bg: rgb(217 164 65 / 0.18);
+  --live-data-warning-fg: #8a5a12;
+  --live-data-warning-dot: #d9a441;
+  --live-data-critical-bg: #fdeced;
+  --live-data-critical-fg: #c14a52;
+  --live-data-critical-dot: #e4676b;
+  --live-data-unknown-bg: #f0f2f7;
+  --live-data-unknown-fg: #57668a;
+  --live-data-unknown-dot: #8a99b8;
+
+  /* block-gallery */
+  --gallery-tile-radius: 0;
+  --gallery-hover-ring: inset 0 0 0 2px #e4676b;
+  --gallery-hover-marks: block;
+  --gallery-hover-scale: 1;
+  --gallery-hover-border: var(--block-border);
+  --gallery-chrome-radius: 0;
+  --gallery-chrome-border: 1px solid rgb(255 255 255 / 0.5);
+  --gallery-chrome-bg: transparent;
+  --gallery-chrome-hover-bg: rgb(255 255 255 / 0.12);
+  --gallery-chrome-size: 40px;
+  --gallery-chrome-icon: 20px;
+  --gallery-counter-font: 500 11px var(--font-mono);
+  --gallery-counter-tracking: 0.12em;
+  --gallery-counter-bg: transparent;
+  --gallery-counter-radius: 0;
+  --gallery-counter-pad: 0;
+}
+
+/* Ledger dark: only the rows blocks.md's own dark palette actually changes for these blocks. */
+body.body--dark {
+  --infobox-name-bg: #242b3a;
+  --infobox-name-fg: #e6eaf2;
+  --infobox-group-fg: #8792ab;
+  --infobox-dt-fg: #9aa6bd;
+  --infobox-dd-fg: #e6eaf2;
+  --infobox-yes-fg: #7fbfa5;
+  --infobox-no-fg: #f08287;
+  --infobox-caption-fg: #8792ab;
+
+  --spoiler-cover-fg: #8ea6cf;
+  --spoiler-label-fg: #e6eaf2;
+  --spoiler-hint-fg: #8792ab;
+  --spoiler-hover-bg: rgb(240 130 135 / 0.14);
+  --spoiler-focus-ring: 2px solid #f08287;
+
+  --checklist-summary-fg: #8792ab;
+  --checklist-summary-done-fg: #7fbfa5;
+  --checklist-box-border: #8ea6cf;
+  --checklist-box-checked-bg: #f08287;
+  --checklist-box-checked-border: #f08287;
+  --checklist-meta-fg: #8792ab;
+  --checklist-toggle-fg: #f08287;
+  --checklist-history-rule: 1px solid #2a3040;
+
+  --index-row-fg: #8ea6cf;
+  --index-title-fg: #e6eaf2;
+  --index-description-fg: #9aa6bd;
+  --index-trailing-fg: #8ea6cf;
+  --index-hover-bg: rgb(240 130 135 / 0.14);
+  --index-hover-edge: inset 2px 0 0 #f08287;
+  --index-hover-trailing-fg: #f08287;
+
+  --countdown-segment-rule: 1px solid #2a3040;
+  --countdown-value-fg: #e6eaf2;
+  --countdown-unit-fg: #8792ab;
+  --countdown-target-fg: #8792ab;
+  --countdown-ended-fg: #7fbfa5;
+
+  --live-data-label-fg: #8792ab;
+  --live-data-value-fg: #e6eaf2;
+  --live-data-fetched-fg: #8792ab;
+  --live-data-spark-stroke: #f08287;
+  --live-data-ok-fg: #7fbfa5;
+  --live-data-warning-fg: #e0b25a;
+  --live-data-critical-bg: rgb(240 130 135 / 0.16);
+  --live-data-critical-fg: #f08287;
+  --live-data-critical-dot: #f08287;
+  --live-data-unknown-bg: #242b3a;
+  --live-data-unknown-fg: #8792ab;
+
+  --gallery-hover-ring: inset 0 0 0 2px #f08287;
+}
+
+/* Cobalt light: matte cards, 6px inner tiles, no rules, tint fills, cobalt titles/numerals. */
+body.body--cobalt {
+  --infobox-name-bg: #1f4fd6;
+  --infobox-name-fg: #fff;
+  --infobox-group-fg: #1f4fd6;
+  --infobox-group-font: 600 12px var(--font-sans);
+  --infobox-group-tracking: normal;
+  --infobox-group-transform: none;
+  --infobox-group-end-width: 0px;
+  --infobox-dt-fg: #4a5580;
+  --infobox-dd-fg: #1a2038;
+  --infobox-yes-fg: #16795d;
+  --infobox-no-fg: #c8303c;
+  --infobox-link-fg: #1f4fd6;
+  --infobox-caption-fg: #5a6699;
+  --infobox-row-alt-bg: #f2f5ff;
+
+  --spoiler-cover-fg: #1f4fd6;
+  --spoiler-label-fg: #1a2038;
+  --spoiler-label-weight: 600;
+  --spoiler-hint-fg: #4a5580;
+  --spoiler-hint-font: 400 12px var(--font-sans);
+  --spoiler-hint-tracking: normal;
+  --spoiler-hint-transform: none;
+  --spoiler-hover-bg: rgb(31 79 214 / 0.08);
+  --spoiler-hover-radius: 6px;
+  --spoiler-focus-ring: 2px solid #1f4fd6;
+
+  --checklist-summary-fg: #4a5580;
+  --checklist-summary-font: 400 12.5px var(--font-sans);
+  --checklist-summary-done-fg: #16795d;
+  --checklist-box-border: #5a6699;
+  --checklist-box-radius: 4px;
+  --checklist-box-checked-bg: #1f4fd6;
+  --checklist-box-checked-border: #1f4fd6;
+  --checklist-meta-fg: #5a6699;
+  --checklist-meta-font: 400 12px var(--font-sans);
+  --checklist-toggle-fg: #1f4fd6;
+  --checklist-toggle-font: 500 12.5px var(--font-sans);
+  --checklist-toggle-tracking: normal;
+  --checklist-toggle-transform: none;
+  --checklist-history-bg: #e6edff;
+  --checklist-history-rule: none;
+
+  --index-row-fg: #1f4fd6;
+  --index-title-fg: #1f4fd6;
+  --index-title-weight: 600;
+  --index-description-fg: #5a6699;
+  --index-trailing-fg: #5a6699;
+  --index-hover-bg: #e6edff;
+  --index-hover-edge: 0 0 0 1px #1f4fd6;
+  --index-hover-trailing-fg: #1f4fd6;
+  --index-radius: 6px;
+  --index-arrow-display: none;
+  --index-chevron-display: block;
+
+  --countdown-label-font: 600 19px var(--font-display);
+  --countdown-segment-bg: #e6edff;
+  --countdown-segment-radius: 6px;
+  --countdown-segment-rule: none;
+  --countdown-segment-pad: 8px 12px;
+  --countdown-value-fg: #1f4fd6;
+  --countdown-value-font: 700 32px var(--font-display);
+  --countdown-unit-fg: #4a5580;
+  --countdown-unit-font: 600 10px var(--font-sans);
+  --countdown-unit-tracking: 0.12em;
+  --countdown-unit-transform: uppercase;
+  --countdown-target-fg: #5a6699;
+  --countdown-target-font: 400 12px var(--font-sans);
+  --countdown-ended-fg: #16795d;
+
+  --live-data-label-fg: #4a5580;
+  --live-data-label-font: 500 12px var(--font-sans);
+  --live-data-label-tracking: normal;
+  --live-data-label-transform: none;
+  --live-data-value-fg: #1f4fd6;
+  --live-data-fetched-fg: #5a6699;
+  --live-data-fetched-font: 400 11.5px var(--font-sans);
+  --live-data-spark-stroke: #1f4fd6;
+  --live-data-spark-width: 2px;
+  --live-data-spark-linecap: round;
+  --live-data-spark-linejoin: round;
+  --live-data-pill-radius: 999px;
+  --live-data-pill-dot-radius: 50%;
+  --live-data-ok-bg: rgb(34 163 127 / 0.16);
+  --live-data-ok-fg: #16795d;
+  --live-data-ok-dot: #22a37f;
+  --live-data-warning-bg: rgb(242 192 55 / 0.22);
+  --live-data-warning-fg: #8a6416;
+  --live-data-warning-dot: #f2c037;
+  --live-data-critical-bg: #ffe9eb;
+  --live-data-critical-fg: #c8303c;
+  --live-data-critical-dot: #ff4d5a;
+  --live-data-unknown-bg: #e6edff;
+  --live-data-unknown-fg: #5a6699;
+  --live-data-unknown-dot: #7f8ed1;
+
+  --gallery-tile-radius: 6px;
+  --gallery-hover-ring: 0 0 0 0 transparent;
+  --gallery-hover-marks: none;
+  --gallery-hover-scale: 1.03;
+  --gallery-hover-border: #1f4fd6;
+  --gallery-chrome-radius: 50%;
+  --gallery-chrome-border: 0;
+  --gallery-chrome-bg: rgb(255 255 255 / 0.12);
+  --gallery-chrome-hover-bg: rgb(255 255 255 / 0.25);
+  --gallery-chrome-size: 44px;
+  --gallery-chrome-icon: 22px;
+  --gallery-counter-font: 400 12px var(--font-sans);
+  --gallery-counter-tracking: normal;
+  --gallery-counter-bg: rgb(0 0 0 / 0.5);
+  --gallery-counter-radius: 12px;
+  --gallery-counter-pad: 4px 10px;
+}
+
+/* Cobalt dark: fills stay bright (see the tabs block's own note above), text lightens for dark ground. */
+body.body--cobalt.body--dark {
+  --infobox-name-bg: #3d6df7;
+  --infobox-group-fg: #8fb0ff;
+  --infobox-dt-fg: #a7b3ea;
+  --infobox-dd-fg: #e8ecff;
+  --infobox-yes-fg: #7be79a;
+  --infobox-no-fg: #ff8f97;
+  --infobox-link-fg: #8fb0ff;
+  --infobox-caption-fg: #8b98d6;
+  --infobox-row-alt-bg: rgb(255 255 255 / 0.03);
+
+  --spoiler-cover-fg: #8fb0ff;
+  --spoiler-label-fg: #e8ecff;
+  --spoiler-hint-fg: #8b98d6;
+  --spoiler-hover-bg: rgb(255 143 151 / 0.12);
+
+  --checklist-summary-fg: #8b98d6;
+  --checklist-summary-done-fg: #7be79a;
+  --checklist-box-border: #8b98d6;
+  --checklist-meta-fg: #8b98d6;
+  --checklist-toggle-fg: #8fb0ff;
+  --checklist-history-bg: rgb(255 255 255 / 0.05);
+
+  --index-row-fg: #8fb0ff;
+  --index-title-fg: #8fb0ff;
+  --index-description-fg: #8b98d6;
+  --index-trailing-fg: #8b98d6;
+  --index-hover-bg: rgb(255 255 255 / 0.06);
+  --index-hover-edge: 0 0 0 1px #8fb0ff;
+  --index-hover-trailing-fg: #8fb0ff;
+
+  --countdown-value-fg: #8fb0ff;
+  --countdown-unit-fg: #8b98d6;
+  --countdown-target-fg: #8b98d6;
+  --countdown-ended-fg: #7be79a;
+
+  --live-data-label-fg: #8b98d6;
+  --live-data-value-fg: #8fb0ff;
+  --live-data-fetched-fg: #8b98d6;
+  --live-data-spark-stroke: #8fb0ff;
+  --live-data-ok-fg: #7be79a;
+  --live-data-warning-fg: #f6da8a;
+  --live-data-critical-bg: rgb(255 77 90 / 0.16);
+  --live-data-critical-fg: #ff8f97;
+  --live-data-unknown-bg: rgb(255 255 255 / 0.06);
+  --live-data-unknown-fg: #8b98d6;
+
+  --gallery-hover-border: #8fb0ff;
+}
+
+/*
   Element reset for the shared components.
 
   Preflight is switched off above, so a bare <button> keeps its user-agent background, border and

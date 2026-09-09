@@ -1,12 +1,18 @@
 import { LitElement, html, css } from 'lit'
 import { DarkMode } from '../shared/theme.js'
 
-/** A crossed-out eye, drawn rather than fetched: it is the same picture on every spoiler there is. */
+/*
+  Tabler `eye-off`, pasted verbatim from frontend/src/assets/icons.generated.js (OpenProject #2875 --
+  blocks.md's ground rules: "Material path SVGs (..., eye-off, ...) -> Tabler"). Stroke rather than
+  fill, same as every other Tabler glyph in the app.
+*/
 const EYE_OFF_SVG = html`
-  <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
-    <path
-      fill="currentColor"
-      d="M2 5.27 3.28 4 20 20.72 18.73 22l-3.08-3.08A11.4 11.4 0 0 1 12 19.5c-5 0-9.27-3.11-11-7.5a12.2 12.2 0 0 1 4.06-5.17zm10 3.23a3.5 3.5 0 0 1 3.5 3.5c0 .47-.1.92-.27 1.33l-4.56-4.56c.41-.17.86-.27 1.33-.27M12 4.5c5 0 9.27 3.11 11 7.5a12.1 12.1 0 0 1-3.19 4.53l-2.72-2.72c.26-.55.41-1.16.41-1.81a5.5 5.5 0 0 0-5.5-5.5c-.65 0-1.26.15-1.81.41L7.96 4.96A11.4 11.4 0 0 1 12 4.5M6.5 12a5.5 5.5 0 0 0 5.5 5.5c.42 0 .83-.05 1.22-.14l-6.58-6.58c-.09.39-.14.8-.14 1.22" />
+  <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" data-icon="tabler:eye-off">
+    <g fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M10.585 10.587a2 2 0 0 0 2.829 2.828" />
+      <path
+        d="M16.681 16.673A8.7 8.7 0 0 1 12 18q-5.4 0-9-6q1.908-3.18 4.32-4.674m2.86-1.146A9 9 0 0 1 12 6q5.4 0 9 6q-1 1.665-2.138 2.87M3 3l18 18" />
+    </g>
   </svg>
 `
 
@@ -60,12 +66,34 @@ export class BlockSpoilerElement extends LitElement {
         margin-bottom: 16px;
         min-height: 76px;
         padding: 16px 20px;
-        border: 1px solid var(--spoiler-border);
-        border-radius: 6px;
-        background-color: var(--spoiler-bg);
+        border: 1px solid var(--block-border);
+        border-radius: var(--block-radius);
+        /* -> Covered is the tint (matches an unrevealed "well"); revealed is the card colour */
+        background-color: var(--block-tint-bg);
+      }
+      .spoiler:not(.is-covered) {
+        background-color: var(--block-bg);
       }
       .spoiler.is-covered .content {
         visibility: hidden;
+      }
+
+      /*
+        Two opposite corner marks, Ledger only. Same aria-hidden four-gradient technique as
+        block-infobox / block-tabs.
+      */
+      .marks {
+        display: var(--block-corner-marks);
+        position: absolute;
+        inset: -5px;
+        pointer-events: none;
+        background:
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
+            no-repeat,
+          linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
+            no-repeat;
       }
 
       .cover {
@@ -79,43 +107,34 @@ export class BlockSpoilerElement extends LitElement {
         width: 100%;
         padding: 8px;
         border: 0;
-        border-radius: 5px;
+        border-radius: var(--spoiler-hover-radius);
         background-color: transparent;
-        color: var(--spoiler-fg);
+        color: var(--spoiler-cover-fg);
         font: inherit;
         text-align: center;
         cursor: pointer;
         transition: background-color 0.15s ease;
       }
       .cover:hover {
-        background-color: var(--spoiler-hover);
+        background-color: var(--spoiler-hover-bg);
       }
       .cover:focus-visible {
-        outline: 2px solid var(--q-primary, #1976d2);
+        outline: var(--spoiler-focus-ring);
         outline-offset: -4px;
       }
 
       .label {
-        font-weight: 500;
+        color: var(--spoiler-label-fg);
+        font-weight: var(--spoiler-label-weight, 500);
+        font-size: 14px;
         letter-spacing: 0.02em;
       }
 
       .hint {
-        font-size: 0.8em;
-        opacity: 0.75;
-      }
-
-      :host {
-        --spoiler-border: #e0e0e0;
-        --spoiler-bg: #f5f5f5;
-        --spoiler-fg: #424242;
-        --spoiler-hover: rgba(0, 0, 0, 0.04);
-      }
-      :host([dark]) {
-        --spoiler-border: rgba(255, 255, 255, 0.15);
-        --spoiler-bg: #161b22;
-        --spoiler-fg: rgba(255, 255, 255, 0.75);
-        --spoiler-hover: rgba(255, 255, 255, 0.06);
+        color: var(--spoiler-hint-fg);
+        font: var(--spoiler-hint-font);
+        letter-spacing: var(--spoiler-hint-tracking);
+        text-transform: var(--spoiler-hint-transform);
       }
     `
   }
@@ -176,6 +195,7 @@ export class BlockSpoilerElement extends LitElement {
   render() {
     return html`
       <div class="spoiler ${this._covered ? 'is-covered' : ''}">
+        <i class="marks" aria-hidden="true"></i>
         <div class="content" id="content" tabindex="-1"><slot></slot></div>
         ${
           this._covered

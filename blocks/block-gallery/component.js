@@ -1,11 +1,27 @@
-import { LitElement, html, css } from 'lit'
+import { LitElement, html, css, svg } from 'lit'
 
 import { readFencedSource } from '../shared/body.js'
-import { inlineIcon, MDI_PATHS } from '../shared/icons.js'
 import { boolean } from '../shared/props.js'
 import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
+
+/*
+  Tabler `chevron-left` / `chevron-right` / `x`, pasted verbatim from
+  frontend/src/assets/icons.generated.js (OpenProject #2875 -- blocks.md's ground rules: "Material
+  path SVGs (..., chevrons) -> Tabler"). Declared locally rather than added to
+  blocks/shared/icons.js#MDI_PATHS -- that file is Task #2876's (shared fragments theming), not this
+  one's, to touch.
+*/
+const PREVIOUS_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tabler:chevron-left">
+  <path fill="none" stroke="currentColor" stroke-width="1.5" d="m15 6l-6 6l6 6" />
+</svg>`
+const NEXT_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tabler:chevron-right">
+  <path fill="none" stroke="currentColor" stroke-width="1.5" d="m9 6l6 6l-6 6" />
+</svg>`
+const CLOSE_SVG = svg`<svg viewBox="0 0 24 24" aria-hidden="true" data-icon="tabler:x">
+  <path fill="none" stroke="currentColor" stroke-width="1.5" d="M18 6L6 18M6 6l12 12" />
+</svg>`
 
 /** Where an uploaded file is served from, and so what a bare path in the body is taken to mean. */
 const FILES_PREFIX = '/_files/'
@@ -123,15 +139,6 @@ https://example.com/photo-2.jpg`
       css`
         :host {
           display: block;
-
-          --gallery-border: #e0e0e0;
-          --gallery-tile-bg: #f1f3f5;
-          --gallery-fg: #424242;
-        }
-        :host([dark]) {
-          --gallery-border: rgba(255, 255, 255, 0.15);
-          --gallery-tile-bg: #12161d;
-          --gallery-fg: rgba(255, 255, 255, 0.7);
         }
 
         /*
@@ -148,18 +155,49 @@ https://example.com/photo-2.jpg`
         }
 
         .tile {
+          position: relative;
           display: block;
           padding: 0;
-          border: 1px solid var(--gallery-border);
-          border-radius: 5px;
+          border: 1px solid var(--block-border);
+          border-radius: var(--gallery-tile-radius);
           overflow: hidden;
-          background-color: var(--gallery-tile-bg);
+          background-color: var(--block-tint-bg);
           aspect-ratio: 1;
           cursor: zoom-in;
         }
+        .tile:hover,
         .tile:focus-visible {
-          outline: 2px solid var(--q-primary, #1976d2);
-          outline-offset: 2px;
+          box-shadow: var(--gallery-hover-ring);
+          border-color: var(--gallery-hover-border);
+        }
+        .tile:focus-visible {
+          outline: none;
+        }
+
+        /*
+          Two opposite corner marks, shown on hover/focus only, Ledger only -- blocks.md: "Hover/focus:
+          Ledger inset ... + #e4676b corner marks". Same technique as the other board blocks; hidden
+          by default and revealed with the ring rather than sized off inset: -5px past the tile's own
+          edge, since a gallery tile (unlike a card) has nothing outside itself to draw into.
+        */
+        .marks {
+          display: none;
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background:
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
+              no-repeat,
+            linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
+              no-repeat;
+        }
+        .tile:hover .marks,
+        .tile:focus-visible .marks {
+          display: var(--gallery-hover-marks);
         }
 
         /*
@@ -187,11 +225,15 @@ https://example.com/photo-2.jpg`
           object-fit: var(--gallery-fit);
           /* -> The alt text of an image that did not load, which has no room to be centred in */
           font-size: 12px;
-          color: var(--gallery-fg);
+          color: var(--block-caption-fg);
           transition: transform 200ms ease;
         }
+        /*
+          -> Ledger: no transform on hover, corner marks + ring are the affordance instead. Cobalt:
+             the existing zoom, --gallery-hover-scale is 1 in Ledger so this is a no-op there too.
+        */
         .tile:hover img {
-          transform: scale(1.05);
+          transform: scale(var(--gallery-hover-scale));
         }
         @media (prefers-reduced-motion: reduce) {
           .tile img {
@@ -282,26 +324,25 @@ https://example.com/photo-2.jpg`
           display: flex;
           align-items: center;
           justify-content: center;
-          width: 44px;
-          height: 44px;
+          width: var(--gallery-chrome-size);
+          height: var(--gallery-chrome-size);
           padding: 0;
-          border: 0;
-          border-radius: 50%;
-          background-color: rgb(255 255 255 / 0.1);
+          border: var(--gallery-chrome-border);
+          border-radius: var(--gallery-chrome-radius);
+          background-color: var(--gallery-chrome-bg);
           color: #fff;
           cursor: pointer;
         }
         .chrome:hover {
-          background-color: rgb(255 255 255 / 0.25);
+          background-color: var(--gallery-chrome-hover-bg);
         }
         .chrome:focus-visible {
           outline: 2px solid #fff;
           outline-offset: 2px;
         }
         .chrome svg {
-          width: 28px;
-          height: 28px;
-          fill: currentColor;
+          width: var(--gallery-chrome-icon);
+          height: var(--gallery-chrome-icon);
         }
 
         .chrome.is-close {
@@ -324,11 +365,12 @@ https://example.com/photo-2.jpg`
           bottom: 16px;
           left: 50%;
           transform: translateX(-50%);
-          padding: 4px 10px;
-          border-radius: 12px;
-          background-color: rgb(0 0 0 / 0.5);
+          padding: var(--gallery-counter-pad);
+          border-radius: var(--gallery-counter-radius);
+          background-color: var(--gallery-counter-bg);
           color: rgb(255 255 255 / 0.85);
-          font-size: 13px;
+          font: var(--gallery-counter-font);
+          letter-spacing: var(--gallery-counter-tracking);
           line-height: 1;
         }
 
@@ -550,7 +592,7 @@ https://example.com/photo-2.jpg`
                           title="Previous image"
                           aria-label="Previous image"
                           @click=${this._previous}>
-                          ${inlineIcon(MDI_PATHS.previous)}
+                          ${PREVIOUS_SVG}
                         </button>
                         <button
                           class="chrome is-next"
@@ -558,7 +600,7 @@ https://example.com/photo-2.jpg`
                           title="Next image"
                           aria-label="Next image"
                           @click=${this._next}>
-                          ${inlineIcon(MDI_PATHS.next)}
+                          ${NEXT_SVG}
                         </button>
                         <div class="counter">${this._index + 1} / ${this._images.length}</div>
                       `
@@ -572,7 +614,7 @@ https://example.com/photo-2.jpg`
                   title="Close"
                   aria-label="Close"
                   @click=${this._close}>
-                  ${inlineIcon(MDI_PATHS.close)}
+                  ${CLOSE_SVG}
                 </button>
               `
             : null
@@ -604,6 +646,7 @@ https://example.com/photo-2.jpg`
               title="Enlarge Image"
               aria-label="View ${labelFor(address)} full size"
               @click=${() => this._show(index)}>
+              <i class="marks" aria-hidden="true"></i>
               <img src=${address} alt=${labelFor(address)} loading="lazy" decoding="async" />
             </button>
           `

@@ -199,7 +199,7 @@ export class BlockMapElement extends LitElement {
 
         .map {
           width: 100%;
-          border-radius: 5px;
+          border-radius: var(--block-radius);
           border: 1px solid var(--edge);
           background-color: var(--surface);
         }

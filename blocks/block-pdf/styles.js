@@ -18,38 +18,24 @@ export const viewerStyles = css`
   :host {
     display: block;
 
-    --pdf-border: #e0e0e0;
-    --pdf-toolbar-bg: linear-gradient(to bottom, #fdfdfd, #eeeeee);
-    --pdf-toolbar-fg: #424242;
     --pdf-canvas-bg: #f1f3f5;
-    --pdf-page-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
   }
   :host([dark]) {
-    --pdf-border: rgba(255, 255, 255, 0.15);
-    --pdf-toolbar-bg: linear-gradient(to bottom, #1b212a, #12161d);
-    --pdf-toolbar-fg: rgba(255, 255, 255, 0.7);
     --pdf-canvas-bg: #12161d;
-    --pdf-page-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
   }
 
   /*
-    One raised box, with the toolbar and the pages clipped to its corners.
+    One box, with the toolbar and the pages clipped to its corners. Border rather than a shadow
+    (OpenProject #2875's ground rules: remove box-shadow on cards) -- var(--block-border)/
+    var(--block-radius), same as every other block's own card.
 
     -> It also carries the gap below the block. On this element rather than :host: see block-index.
   */
   .viewer {
     margin-bottom: 16px;
-    border: 1px solid var(--pdf-border);
-    border-radius: 6px;
+    border: 1px solid var(--block-border);
+    border-radius: var(--block-radius);
     overflow: hidden;
-    box-shadow:
-      0 1px 3px rgb(0 0 0 / 0.1),
-      0 1px 2px rgb(0 0 0 / 0.06);
-  }
-  :host([dark]) .viewer {
-    box-shadow:
-      0 1px 3px rgb(0 0 0 / 0.5),
-      0 1px 2px rgb(0 0 0 / 0.35);
   }
 
   .toolbar {
@@ -58,9 +44,9 @@ export const viewerStyles = css`
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    border-bottom: 1px solid var(--pdf-border);
-    background-image: var(--pdf-toolbar-bg);
-    color: var(--pdf-toolbar-fg);
+    border-bottom: 1px solid var(--block-border);
+    background-color: var(--block-tint-bg);
+    color: var(--block-caption-fg);
     font-size: 13px;
     line-height: 1;
   }
@@ -85,7 +71,7 @@ export const viewerStyles = css`
   }
   .tool:hover:not(:disabled) {
     background-color: rgb(0 0 0 / 0.07);
-    color: var(--q-primary, #1976d2);
+    color: var(--block-accent-fg);
   }
   :host([dark]) .tool:hover:not(:disabled) {
     background-color: rgb(255 255 255 / 0.1);
@@ -111,7 +97,7 @@ export const viewerStyles = css`
   .pager input {
     width: 4ch;
     padding: 4px 2px;
-    border: 1px solid var(--pdf-border);
+    border: 1px solid var(--block-border);
     border-radius: 4px;
     background-color: rgb(255 255 255 / 0.6);
     color: inherit;
@@ -132,7 +118,7 @@ export const viewerStyles = css`
   select {
     max-width: 9rem;
     padding: 4px 6px;
-    border: 1px solid var(--pdf-border);
+    border: 1px solid var(--block-border);
     border-radius: 4px;
     background-color: rgb(255 255 255 / 0.6);
     color: inherit;
@@ -170,7 +156,12 @@ export const viewerStyles = css`
     position: relative;
     flex: none;
     background-color: #fff;
-    box-shadow: var(--pdf-page-shadow);
+    /*
+      A hairline rather than the drop shadow this used to draw (OpenProject #2875's ground rules) --
+      what a single page needs against the scroller's own background is definition, not elevation,
+      the same trade block-kroki's/block-drawio's .sheet already made.
+    */
+    border: 1px solid var(--block-border);
 
     /* -> What pdf.js sizes the text layer against; see setLayerDimensions in its source. */
     --scale-factor: 1;
@@ -188,7 +179,7 @@ export const viewerStyles = css`
 
   .status {
     padding: 2rem 1rem;
-    color: var(--pdf-toolbar-fg);
+    color: var(--block-caption-fg);
     text-align: center;
     font-size: 13px;
   }

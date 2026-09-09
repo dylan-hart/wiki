@@ -94,7 +94,7 @@ export class BlockAsciinemaElement extends LitElement {
         }
 
         .player {
-          border-radius: 5px;
+          border-radius: var(--block-radius);
           /* -> The terminal paints its own background into the corners otherwise */
           overflow: hidden;
         }
