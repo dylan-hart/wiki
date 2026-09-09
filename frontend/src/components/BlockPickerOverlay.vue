@@ -4,7 +4,7 @@
       <w-icon name="tabler:square-plus" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
       <w-space />
-      <w-btn-group>
+      <w-btn-group class="block-picker-actions">
         <w-btn
           color="white"
           text-color="text-secondary"
@@ -226,6 +226,32 @@ onMounted(async () => {
 </script>
 
 <style lang="scss">
+/*
+  Cancel / Insert (OpenProject #2873): the general Cobalt button-group gap rule -- adjacent buttons
+  take an 8-10px gap and each keeps its own radius, never a rounded button butted against a square
+  one (Task #2859, `ui-iteration/README.md` Part 2) -- applied literally here at 8px, matching the
+  Cobalt mockup, since #2859's own shared class/rule had not landed in this worktree; reconcile to
+  whatever mechanism it ships with at integration. `WBtnGroup`'s default seam (a hairline
+  `border-inline-end` on every button but the last, the Ledger "joined buttons" look) is switched off
+  here so it doesn't show through the gap -- `WBtn` already gives every button its own default
+  control radius unconditionally, so nothing else about the buttons themselves needs to change.
+
+  A dedicated class rather than nesting under `.card-header .w-btn-group`: `.card-header` is a
+  sibling of `.block-picker` in this overlay's markup (the header sits outside `<w-page-container>`),
+  not a descendant, so there is no ancestor wrapper here to scope a nested rule the way
+  `TableEditorOverlay.vue`'s own `.table-editor .card-header .w-btn-group` does. `block-picker-actions`
+  on the group itself is the equivalent scope with no such wrapper needed.
+*/
+.block-picker-actions {
+  @at-root .body--cobalt & {
+    gap: 8px;
+
+    > .w-btn:not(:last-child) {
+      border-inline-end: none;
+    }
+  }
+}
+
 .block-picker {
   height: 100%;
   padding: 0;
