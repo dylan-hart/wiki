@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -220,6 +220,44 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
 })
 
 /*
+ * OpenProject #2871: adjacent buttons in a Cobalt button group take an 8-10px gap and each keeps its
+ * own radius, per the general rule (Task #2859, `ui-iteration/README.md` Part 2), rather than
+ * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain CSS
+ * value Vitest's compiled SCSS resolves under `happy-dom` (`css: true`) with no layout engine needed.
+ * The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
+ * `getComputedStyle` at all (verified directly: even a bare `border-inline-end` rule with no cascade
+ * involved reads back empty) -- so whether it is present is asserted only in the real-layout describe
+ * below, off the actual rendered gap between the two buttons.
+ */
+describe('TableEditorOverlay Cancel/Update button gap (OpenProject #2871)', () => {
+  let wrapper
+
+  // -> `attachTo: document.body` leaves the mounted tree attached, so the previous test's own
+  //    `.w-btn-group` has to be torn down before the next mount, or `document.body.querySelector`
+  //    can silently resolve the stale one instead of the fresh mount
+  afterEach(() => {
+    wrapper?.unmount()
+    document.body.classList.remove('body--cobalt', 'body--light', 'body--dark')
+  })
+
+  it('takes no gap outside Cobalt', () => {
+    document.body.classList.add('body--light')
+    wrapper = mountWithApp(TableEditorOverlay, { attachTo: document.body }).wrapper
+
+    const group = document.body.querySelector('.card-header .w-btn-group')
+    expect(getComputedStyle(group).gap).not.toBe('8px')
+  })
+
+  it.each(['body--light', 'body--dark'])('takes the 8px gap under Cobalt (%s)', (theme) => {
+    document.body.classList.add('body--cobalt', theme)
+    wrapper = mountWithApp(TableEditorOverlay, { attachTo: document.body }).wrapper
+
+    const group = document.body.querySelector('.card-header .w-btn-group')
+    expect(getComputedStyle(group).gap).toBe('8px')
+  })
+})
+
+/*
   The design's pixel claims, measured in a real headless Chromium: `happy-dom` reports every element
   at a zeroed rect regardless of its CSS, so none of this is answerable under the default
   environment. `{ skip: !hasChromium() }` and the raised timeout follow `ApiKeyCreateDialog.test.js`,
@@ -425,6 +463,64 @@ describe(
       expect(cobalt.focusedCellBoxShadow).toContain('inset')
       expect(cobaltDark.focusedCellBg).toBe('rgb(255, 255, 255)')
       expect(cobaltDark.focusedCellBoxShadow).toContain('rgb(127, 160, 255)')
+    })
+  }
+)
+
+/*
+  OpenProject #2871's real pixel claim: the 8px gap between Cancel and Update. `happy-dom`/`jsdom`
+  report every rect at zero regardless of CSS (see the describe above), so the actual on-screen
+  distance between the two buttons -- as opposed to the `gap` property's literal value, already
+  covered under jsdom -- needs the same real headless Chromium the rest of this screen's pixel claims
+  do.
+*/
+describe(
+  'TableEditorOverlay Cancel/Update button gap — real layout (OpenProject #2871)',
+  { skip: !hasChromium(), timeout: 60000 },
+  () => {
+    let browser
+
+    async function measure(bodyClass) {
+      const wrapper = mountWithApp(TableEditorOverlay).wrapper
+      const html = wrapper.html()
+      const sfcCss = [...document.querySelectorAll('style')]
+        .map((style) => style.textContent)
+        .join('\n')
+      const appCss = await buildAppCss()
+
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${sfcCss}</style></head>` +
+            `<body class="${bodyClass}" style="margin:0">` +
+            `<div style="width:1100px;height:800px">${html}</div></body></html>`
+        )
+        return await page.evaluate(() => {
+          const [cancel, update] = [
+            ...document.querySelectorAll('.card-header .w-btn-group .w-btn')
+          ].map((el) => el.getBoundingClientRect())
+          return Math.round(update.left - cancel.right)
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('draws Cancel and Update flush, joined by the Ledger seam, outside Cobalt', async () => {
+      expect(await measure('body--light')).toBe(0)
+    })
+
+    it("opens the design's 8px gap between Cancel and Update under Cobalt, light and dark alike", async () => {
+      expect(await measure('body--cobalt body--light')).toBe(8)
+      expect(await measure('body--cobalt body--dark')).toBe(8)
     })
   }
 )
