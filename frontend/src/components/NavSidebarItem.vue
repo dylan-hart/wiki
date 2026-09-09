@@ -1,12 +1,16 @@
 <template>
   <!-- -> Open from the start when the page being read is one of its descendants, so a reader arriving
           by URL sees where they are in the tree -- or when the menu says this group opens that way
-          whatever is being read. Not `v-model`: after that first render the group is the reader's
-          to open and close, and a bound value would fight them -->
+          whatever is being read. Controlled through the shared, tree-wide open/closed state
+          (OpenProject #2846) rather than `default-opened`, so a folder's state survives its own
+          unmount/remount -- but the state is still seeded from this same expression the first time
+          this id is seen, and is the reader's to open and close after that (see
+          `composables/navExpansionState.js#isOpen`) -->
   <w-expansion-item
     v-if="item.children?.length > 0"
     dense
-    :default-opened="item.expandByDefault || containsCurrent(item)">
+    :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
+    @update:model-value="setOpen(item.id, $event)">
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
@@ -46,6 +50,7 @@
 import { computed } from 'vue'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
+import { useNavExpansionState } from '@/composables/navExpansionState'
 import { useNavSidebarDestination } from '@/composables/navSidebarDestination'
 import { usePathDisplay } from '@/composables/pathDisplay'
 
@@ -83,6 +88,7 @@ function iconFor(item) {
 const { destination, containsCurrent } = useNavSidebarDestination()
 const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
 const { isActive: pathDisplayActive, humanize } = usePathDisplay()
+const { isOpen, setOpen } = useNavExpansionState()
 
 // STORES
 
