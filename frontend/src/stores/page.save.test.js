@@ -324,7 +324,7 @@ describe('page store: pageSave() same-tab navigation invalidation (OpenProject #
     expect(siteStore.nav.items).toEqual([{ id: 'item-new' }])
   })
 
-  it('does not touch the sidebar menu on an ordinary (non-create) save', async () => {
+  it('does not touch the sidebar menu on an ordinary (non-create) save that leaves icon/title untouched', async () => {
     const pageStore = usePageStore()
     const editorStore = useEditorStore()
     const siteStore = useSiteStore()
@@ -335,7 +335,9 @@ describe('page store: pageSave() same-tab navigation invalidation (OpenProject #
       id: '5',
       contentLoaded: true,
       updatedAt: '2026-01-01T00:00:00.000Z',
-      navigationId: 'nav-1'
+      navigationId: 'nav-1',
+      icon: 'mdi:file-document',
+      title: 'Unchanged Title'
     })
 
     API_CLIENT.patch.mockReturnValueOnce({
@@ -346,6 +348,8 @@ describe('page store: pageSave() same-tab navigation invalidation (OpenProject #
             id: '5',
             navigationId: 'nav-1',
             updatedAt: '2026-01-01T01:00:00.000Z',
+            icon: 'mdi:file-document',
+            title: 'Unchanged Title',
             relations: [],
             tocDepth: {}
           }
@@ -355,6 +359,144 @@ describe('page store: pageSave() same-tab navigation invalidation (OpenProject #
     await pageStore.pageSave()
 
     expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * OpenProject #2824: a plain content save cannot add or remove a tree entry (the invalidation
+ * above), but it CAN change what an existing entry *displays* -- `NavSidebarItem.vue` draws a
+ * cached tree entry's icon and title straight off the nav-tree response, so those two fields need
+ * the same force-refresh an actual tree-shape change gets, on the same "an already-open tab has no
+ * other way to learn" reasoning.
+ */
+describe('page store: pageSave() nav-tree display invalidation (OpenProject #2824)', () => {
+  it('force-refetches the sidebar menu when an ordinary save changes the page icon', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    siteStore.nav.currentId = 'nav-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      navigationId: 'nav-1',
+      icon: 'mdi:file-document',
+      title: 'Unchanged Title'
+    })
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            id: '5',
+            navigationId: 'nav-1',
+            updatedAt: '2026-01-01T01:00:00.000Z',
+            icon: 'mdi:new-icon',
+            title: 'Unchanged Title',
+            relations: [],
+            tocDepth: {}
+          }
+        })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ mode: 'static', items: [{ id: 'item-updated' }] })
+    })
+
+    await pageStore.pageSave()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(siteStore.nav.items).toEqual([{ id: 'item-updated' }])
+  })
+
+  it('force-refetches the sidebar menu when an ordinary save changes the page title', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    siteStore.nav.currentId = 'nav-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      navigationId: 'nav-1',
+      icon: 'mdi:file-document',
+      title: 'Old Title'
+    })
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            id: '5',
+            navigationId: 'nav-1',
+            updatedAt: '2026-01-01T01:00:00.000Z',
+            icon: 'mdi:file-document',
+            title: 'New Title',
+            relations: [],
+            tocDepth: {}
+          }
+        })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ mode: 'static', items: [{ id: 'item-updated' }] })
+    })
+
+    await pageStore.pageSave()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(siteStore.nav.items).toEqual([{ id: 'item-updated' }])
+  })
+
+  it('does not force-refresh on a create-mode save just because it lacks the wasCreate short-circuit -- the flag alone is enough', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    siteStore.nav.currentId = 'nav-1'
+    editorStore.$patch({ mode: 'create' })
+    pageStore.$patch({
+      id: 0,
+      contentLoaded: true,
+      locale: 'en',
+      path: 'new-page',
+      updatedAt: '',
+      icon: 'mdi:file-document',
+      title: 'Draft Title'
+    })
+    pageStore.router = { replace: () => Promise.resolve() }
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            id: '9',
+            navigationId: 'nav-1',
+            updatedAt: '2026-01-02T00:00:00.000Z',
+            icon: 'mdi:file-document',
+            title: 'Draft Title',
+            relations: [],
+            tocDepth: {}
+          }
+        })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ mode: 'static', items: [{ id: 'item-new' }] })
+    })
+
+    await pageStore.pageSave()
+
+    // -> Still force-refreshes: `wasCreate` alone is sufficient, independent of icon/title staying
+    //    exactly as they were on this save.
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
   })
 })
 
