@@ -123,9 +123,11 @@ const userStore = useUserStore()
 // MIDDLE-CLICK ISOLATE (OpenProject #2848)
 
 /**
- * Middle-click a folder's own header row: open it and its ancestor chain, collapse every OTHER
- * folder in the whole tree (`siteStore.nav.items`, not just this row's own subtree). Bound to
- * `auxclick` rather than `click` -- a non-primary mouse button fires `auxclick`, never `click`, in
+ * Middle-click a folder's own header row: toggles it exactly like a plain left click would --
+ * closing it alone, and leaving every other folder's state untouched, when it is already open --
+ * except that OPENING it also isolates: it and its ancestor chain end up open, and every OTHER
+ * folder in the whole tree (`siteStore.nav.items`, not just this row's own subtree) collapses.
+ * Bound to `auxclick` rather than `click` -- a non-primary mouse button fires `auxclick`, never `click`, in
  * every evergreen browser (Chromium, Firefox, WebKit all follow the UI Events spec here), and the
  * `.middle` modifier narrows it to button 1 alone so a right-click's `auxclick`/`contextmenu` does
  * not also trigger this.
@@ -151,6 +153,13 @@ function handleIsolateClick(event, item) {
   //    folder's own content from re-triggering an ancestor folder's identical listener above it.
   event.preventDefault()
   event.stopPropagation()
+  const currentlyOpen = isOpen(item.id, item.expandByDefault || containsCurrent(item))
+  if (currentlyOpen) {
+    // -> The closing half of the toggle: exactly a left click's own `@update:model-value`, and
+    //    nothing else -- no isolation, since closing a folder that was open is not "opening" it.
+    setOpen(item.id, false)
+    return
+  }
   const items = siteStore.nav.items
   const openIds = new Set([item.id, ...ancestorIds(items, item.id)])
   for (const id of folderIds(items)) {

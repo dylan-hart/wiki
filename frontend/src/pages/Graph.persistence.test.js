@@ -128,7 +128,7 @@ describe('Graph.vue graph view preference persistence', () => {
 
     await vi.advanceTimersByTimeAsync(1000)
 
-    expect(API_CLIENT.put).toHaveBeenCalledWith('profile', {
+    expect(API_CLIENT.put).toHaveBeenCalledWith('users/profile', {
       json: {
         graph: {
           groupBy: 'tag',

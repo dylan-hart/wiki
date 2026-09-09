@@ -44,10 +44,16 @@ describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
           getPage: async (_opts: any) => pageResult
         },
         pageDrafts: {
-          getContent: async (_pageId: string) => draftResult,
-          clear: async (pageId: string) => {
-            clearCalls.push(pageId)
-          }
+          getContent: async (_pageId: string) => draftResult
+        }
+      },
+      // -> The DELETE route hands the clear off to `WIKI.collab.discardDraft()` (OpenProject #2898)
+      //    rather than calling `pageDrafts.clear()` directly, so it can coordinate with any
+      //    in-memory room for the page first -- `core/collab.draftPersist.test.ts` covers that
+      //    coordination itself; this file only checks that the route calls it at all.
+      collab: {
+        discardDraft: async (pageId: string) => {
+          clearCalls.push(pageId)
         }
       }
     }

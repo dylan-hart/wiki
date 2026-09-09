@@ -303,3 +303,39 @@ export function parentFanForce(strength = 0.05) {
 
   return force
 }
+
+/** How large a one-time outward nudge every OTHER node's velocity gets when the reader mouses over
+ *  a node (`Graph.vue`'s hover handler calls this once per hover-target change, not per tick) -- a
+ *  constant small kick in the direction away from the hovered node, not scaled by distance: the
+ *  intent is a subtle "make room" pulse as the reader scans the graph, not a simulated explosion
+ *  whose nearest neighbours would fly the farthest. Unlike `clusterForce`/`parentFanForce` above,
+ *  this is not a d3-force `force` object attached via `simulation.force(name, ...)` -- it is a
+ *  plain one-off velocity mutation, the same shape a drag interaction's own "kick" would take.
+ *  `simulation.alpha(...).restart()` (the caller's job, immediately after) is what lets the
+ *  existing link/charge/collide forces settle the nudged nodes back into equilibrium over the next
+ *  few ticks; this function only supplies the initial kick. */
+const HOVER_PUSH_STRENGTH = 4
+
+/**
+ * @param {object[]} nodes - the simulation's current node set.
+ * @param {object} hoveredNode - the node just moused over (a member of `nodes`, by reference).
+ */
+export function applyHoverPushImpulse(nodes, hoveredNode, strength = HOVER_PUSH_STRENGTH) {
+  if (!hoveredNode || hoveredNode.x === undefined) {
+    return
+  }
+  for (const node of nodes) {
+    if (node === hoveredNode || node.x === undefined) {
+      continue
+    }
+    const dx = node.x - hoveredNode.x
+    const dy = node.y - hoveredNode.y
+    const dist = Math.hypot(dx, dy)
+    // -> Two nodes still sharing the exact same point (d3-force's origin-centered spiral start, on
+    //    cold load) have no well-defined direction to push apart along -- an arbitrary fixed
+    //    direction is as good as any other and, unlike skipping the node outright, still nudges it.
+    const [ux, uy] = dist > 0 ? [dx / dist, dy / dist] : [1, 0]
+    node.vx += ux * strength
+    node.vy += uy * strength
+  }
+}

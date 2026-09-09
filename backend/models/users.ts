@@ -105,6 +105,16 @@ export interface GraphPrefs {
 }
 
 /**
+ * The icon picker's one persisted control -- `IconPickerDialog.vue`'s `state.setFilter`, stored
+ * verbatim under `prefs.iconPicker`. Same treatment as {@link GraphPrefs}: absent from a patch
+ * leaves it untouched, present replaces it wholesale (there is only the one key, so "wholesale" and
+ * "merged" coincide here).
+ */
+export interface IconPickerPrefs {
+  set?: string
+}
+
+/**
  * The self-service view of a user, flattening the `meta` and `prefs` blobs into the fields the
  * profile page shows. Mirrors the `UserProfile` API schema.
  */
@@ -127,6 +137,8 @@ export interface UserProfile {
   locale: string
   /** Absent for a user who has never saved a graph view preference. */
   graph?: GraphPrefs
+  /** Absent for a user who has never saved an icon picker set-filter preference. */
+  iconPicker?: IconPickerPrefs
 }
 
 /** The fields a user may change on its own profile. Notably not the email, nor any admin flag. */
@@ -145,6 +157,7 @@ export interface UserProfilePatch {
   cvd?: string
   locale?: string
   graph?: GraphPrefs
+  iconPicker?: IconPickerPrefs
 }
 
 /**
@@ -173,7 +186,8 @@ const profilePrefsKeys = [
   'aesthetic',
   'cvd',
   'locale',
-  'graph'
+  'graph',
+  'iconPicker'
 ] as const
 
 /**
@@ -909,7 +923,11 @@ class Users {
       //    preference gets no `graph` key at all, and `Graph.vue` is the one place that decides what
       //    each of the five controls falls back to when unset (OpenProject #2853's own corrected
       //    defaults, applied there rather than duplicated here).
-      graph: prefs.graph as GraphPrefs | undefined
+      graph: prefs.graph as GraphPrefs | undefined,
+      // -> No forced default, same reasoning as `graph` above: a user who has never saved one gets
+      //    no `iconPicker` key at all, and `IconPickerDialog.vue` is the one place that decides
+      //    what the set filter falls back to when unset.
+      iconPicker: prefs.iconPicker as IconPickerPrefs | undefined
     }
   }
 

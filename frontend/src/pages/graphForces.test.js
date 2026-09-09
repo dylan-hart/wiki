@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
 import { buildPathHierarchyEdges } from './graphFilters.js'
-import { clusterForce, parentFanForce } from './graphForces.js'
+import { applyHoverPushImpulse, clusterForce, parentFanForce } from './graphForces.js'
 
 /**
  * Circular concentration R of a set of edge directions -- 1 means every edge points the same way
@@ -373,5 +373,64 @@ describe('parentFanForce (OpenProject #2581)', () => {
         expect(secondPass[i][1]).toBeCloseTo(vy, 5)
       })
     })
+  })
+})
+
+describe('applyHoverPushImpulse', () => {
+  it('nudges every other node’s velocity directly away from the hovered node, and leaves the hovered node itself untouched', () => {
+    const hovered = { x: 0, y: 0, vx: 0, vy: 0 }
+    const east = { x: 10, y: 0, vx: 0, vy: 0 }
+    const north = { x: 0, y: -10, vx: 0, vy: 0 }
+
+    applyHoverPushImpulse([hovered, east, north], hovered)
+
+    expect(hovered.vx).toBe(0)
+    expect(hovered.vy).toBe(0)
+    expect(east.vx).toBeGreaterThan(0)
+    expect(east.vy).toBeCloseTo(0, 5)
+    expect(north.vy).toBeLessThan(0)
+    expect(north.vx).toBeCloseTo(0, 5)
+  })
+
+  it('the nudge magnitude does not scale with distance -- a far node is pushed exactly as hard as a near one', () => {
+    const hovered = { x: 0, y: 0, vx: 0, vy: 0 }
+    const near = { x: 1, y: 0, vx: 0, vy: 0 }
+    const far = { x: 1000, y: 0, vx: 0, vy: 0 }
+
+    applyHoverPushImpulse([hovered, near, far], hovered)
+
+    expect(near.vx).toBeCloseTo(far.vx, 5)
+  })
+
+  it('a node exactly coincident with the hovered node still gets nudged, along a fixed fallback direction, rather than being skipped', () => {
+    const hovered = { x: 5, y: 5, vx: 0, vy: 0 }
+    const coincident = { x: 5, y: 5, vx: 0, vy: 0 }
+
+    applyHoverPushImpulse([hovered, coincident], hovered)
+
+    expect(coincident.vx).toBeGreaterThan(0)
+    expect(coincident.vy).toBe(0)
+  })
+
+  it('is a no-op with no hoveredNode, or when the hovered node has no position yet', () => {
+    const a = { x: 1, y: 1, vx: 0, vy: 0 }
+    const b = { x: 2, y: 2, vx: 0, vy: 0 }
+
+    applyHoverPushImpulse([a, b], null)
+    applyHoverPushImpulse([a, b], { vx: 0, vy: 0 }) // -> no x/y at all
+
+    expect(a.vx).toBe(0)
+    expect(a.vy).toBe(0)
+    expect(b.vx).toBe(0)
+    expect(b.vy).toBe(0)
+  })
+
+  it('skips a node with no position of its own, same as every other layer in this file', () => {
+    const hovered = { x: 0, y: 0, vx: 0, vy: 0 }
+    const pending = { vx: 0, vy: 0 }
+
+    expect(() => applyHoverPushImpulse([hovered, pending], hovered)).not.toThrow()
+    expect(pending.vx).toBe(0)
+    expect(pending.vy).toBe(0)
   })
 })

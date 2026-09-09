@@ -603,9 +603,19 @@ defineExpose({ focus, state })
       background-color 0.2s var(--ease-standard);
   }
 
-  /* -> Docked against the tags button below (never in `row` form, which stands alone) */
+  /*
+    Docked against the tags button below (never in `row` form, which stands alone). The field's own
+    `border-radius` above is one value for all four corners, but a docked field only OWNS its two
+    start-side (left, in LTR) corners -- `.header-search-tags-btn` already squares off its own
+    start-side corners to sit flush against this one, so leaving these two rounded drew a stray
+    curved notch at the seam where a straight edge meets a straight edge everywhere else. Logical
+    corner properties, not physical `border-top-right-radius` etc., so the fix follows the reading
+    direction the same way the border/padding around it already do.
+  */
   &-field--docked {
     border-inline-end: 0;
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
   }
 
   /*

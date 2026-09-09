@@ -318,9 +318,35 @@ $sidebar-overlay-max: 1199.98px;
       The border stays, at the same 10px width, but transparent -- it is the ONLY thing providing
       per-level indentation (`WExpansionItem` itself declares no content padding), so removing it
       outright would collapse nested items back to their parent's indent, not just drop a color.
+
+      Hovering a row lights its indent lane(s) up with a faint dotted line -- a depth cue that
+      appears only while navigating, rather than cluttering the tree at rest. `:has(:hover)`
+      matches THIS content block as soon as ANY descendant, at any depth, is hovered, so a row
+      nested three levels deep lights up all three ancestors' lanes at once, not just its
+      immediate parent's. `@media (hover: hover)` keeps a touch tap from leaving a lane lit
+      (`WItem.vue`'s own `:has(:disabled):hover` rule uses the same guard).
     */
     .w-expansion-item__content {
+      position: relative;
       border-inline-start: 10px solid transparent;
+
+      &::before {
+        content: '';
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: 0;
+        width: 10px;
+        background-image: radial-gradient(circle, var(--color-slate-faint) 1px, transparent 1.4px);
+        background-size: 100% 8px;
+        background-position: center top;
+        opacity: 0;
+      }
+
+      @media (hover: hover) {
+        &:has(:hover)::before {
+          opacity: 0.5;
+        }
+      }
     }
   }
 

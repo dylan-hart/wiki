@@ -46,6 +46,13 @@ const ROOT_RING_GAP = 3
  *  every node stays drawn (and clickable), just visually de-emphasized relative to a match. */
 const DIMMED_ALPHA = 0.25
 
+/** A white overlay at this alpha, filled on top of the moused-over node's own color, is what "a
+ *  lighter tint of the node's own color" means here -- lightening whatever the underlying fill is
+ *  (a real node's group color, a synthetic node's flat gray) equally, rather than computing a
+ *  per-color lightened hex. `paintGraph()` runs on every animation frame with no transition of its
+ *  own, so this reads as instant on/off exactly by not doing anything special for it. */
+const HOVER_TINT_COLOR = 'rgba(255, 255, 255, 0.3)'
+
 export function drawEdges(ctx, edges, dark) {
   ctx.strokeStyle = dark ? EDGE_COLOR.dark : EDGE_COLOR.light
   ctx.lineWidth = 1
@@ -88,8 +95,12 @@ export function drawClusterHulls(ctx, clusters) {
  *  the folder-hierarchy root is a permanent landmark, not a search-result state, so it strokes every
  *  time this function draws it (dimmed the same as any other non-matching node while a keyword
  *  search is active, same as the rest of `node`'s own draw). A root node that also happens to match
- *  the active keyword search draws both rings, one just outside the other. */
-export function drawNodes(ctx, nodes, radiusFor, highlightedIds) {
+ *  the active keyword search draws both rings, one just outside the other.
+ *
+ *  `hoveredNode` (the object `Graph.vue#findNodeAt()` returns, or `null`) gets the white-overlay
+ *  tint above -- compared by reference, not by id, since it is the very same node object this
+ *  function is already iterating. */
+export function drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
   for (const node of nodes) {
     if (node.x === undefined) {
@@ -102,6 +113,10 @@ export function drawNodes(ctx, nodes, radiusFor, highlightedIds) {
     ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
     ctx.fillStyle = node.color ?? '#888'
     ctx.fill()
+    if (node === hoveredNode) {
+      ctx.fillStyle = HOVER_TINT_COLOR
+      ctx.fill()
+    }
     if (node.root) {
       ctx.beginPath()
       ctx.arc(node.x, node.y, radius + ROOT_RING_GAP, 0, Math.PI * 2)
@@ -342,7 +357,8 @@ export function paintGraph({
   clusters,
   radiusFor,
   dark,
-  highlightedIds
+  highlightedIds,
+  hoveredNode
 }) {
   if (!ctx) {
     return
@@ -356,7 +372,7 @@ export function paintGraph({
   }
   drawEdges(ctx, edges, dark)
   drawClusterHulls(ctx, clusters)
-  drawNodes(ctx, nodes, radiusFor, highlightedIds)
+  drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode)
   drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark, highlightedIds)
   ctx.restore()
 }

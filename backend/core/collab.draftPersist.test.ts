@@ -1,8 +1,9 @@
 /**
  * `core/collab.ts`'s autosave-draft persistence (OpenProject #2454): a room's live Yjs state is
  * debounce-written to `WIKI.models.pageDrafts` as real edits happen, `initRoom()` prefers a persisted
- * draft over the plain stored page when no peer answers, and `pageSaved()` clears the draft once a
- * real save supersedes it. Pure — `test/collabHarness.ts` stubs `WIKI.models.pageDrafts`, so this
+ * draft over the plain stored page when no peer answers, and `pageSaved()`/`discardDraft()` clear
+ * the draft once a real save, or an explicit Cancel (OpenProject #2898), supersedes it. Pure —
+ * `test/collabHarness.ts` stubs `WIKI.models.pageDrafts`, so this
  * needs no database; `models/pageDrafts.db.test.ts` covers the storage layer itself. Split out of
  * `core/collab.test.ts` (TEST-F14) alongside its three siblings.
  */
@@ -316,6 +317,83 @@ describe('pageSaved: clears the persisted draft', () => {
     await flushed
     await Promise.resolve()
     await Promise.resolve()
+
+    assert.deepEqual(order, ['save', 'clear'])
+    assert.equal(pageDrafts.clear.mock.calls.length, 1)
+  })
+})
+
+describe('discardDraft: the same clear-coordination pageSaved gets, for an explicit Cancel (OpenProject #2898)', () => {
+  test('clears the draft when this instance has the room open', async () => {
+    const room = await harness.openRoom(collab, { id: 'page-14', siteId: 'site-1' })
+    const pageDrafts = harness.pageDrafts()
+
+    await collab.discardDraft(room.pageId)
+
+    assert.equal(pageDrafts.clear.mock.calls.length, 1)
+    assert.equal(pageDrafts.clear.mock.calls[0].arguments[0], room.pageId)
+  })
+
+  test('clears the draft even when this instance has no room open for the page', async () => {
+    const pageDrafts = harness.pageDrafts()
+
+    await collab.discardDraft('page-no-room')
+
+    assert.equal(pageDrafts.clear.mock.calls.length, 1)
+    assert.equal(pageDrafts.clear.mock.calls[0].arguments[0], 'page-no-room')
+  })
+
+  test('a still-pending debounce timer at the moment discardDraft() is called never fires afterward -- the race #2898 exists to close', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const room = await harness.openRoom(collab, { id: 'page-15', siteId: 'site-1' })
+    const pageDrafts = harness.pageDrafts()
+
+    room.doc.transact(() => {
+      room.doc.getText('content').insert(0, 'still typing, about to hit Cancel')
+    })
+    assert.ok(room.draftPersist.timer, 'a debounce timer is scheduled before discardDraft() runs')
+
+    await collab.discardDraft(room.pageId)
+
+    t.mock.timers.tick(DRAFT_PERSIST_MAX_DELAY * 2)
+    assert.equal(
+      pageDrafts.save.mock.calls.length,
+      0,
+      'the cancelled timer must never fire and resurrect the draft just discarded'
+    )
+  })
+
+  test('an in-flight flushDraftPersist() write is ordered before pageDrafts.clear()', async () => {
+    const room = await harness.openRoom(collab, { id: 'page-16', siteId: 'site-1' })
+    const pageDrafts = harness.pageDrafts()
+    const order: string[] = []
+    let resolveSave: () => void = () => {}
+    pageDrafts.save.mock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = () => {
+            order.push('save')
+            resolve()
+          }
+        })
+    )
+    pageDrafts.clear.mock.mockImplementationOnce(async () => {
+      order.push('clear')
+    })
+
+    const flushed = collab.flushDraftPersist(room)
+    const discarded = collab.discardDraft(room.pageId)
+
+    // Give discardDraft()'s own promise chain several microtask turns to (wrongly) run ahead of the
+    // still-pending save -- it must still be waiting on it.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    assert.equal(pageDrafts.clear.mock.calls.length, 0, 'clear must wait for the in-flight save')
+
+    resolveSave()
+    await flushed
+    await discarded
 
     assert.deepEqual(order, ['save', 'clear'])
     assert.equal(pageDrafts.clear.mock.calls.length, 1)

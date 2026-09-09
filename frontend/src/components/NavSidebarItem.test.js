@@ -419,6 +419,22 @@ describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
     expect(isExpanded(wrapper, 'target')).toBe(false)
     expect(isExpanded(wrapper, 'root')).toBe(true)
   })
+
+  it('middle-clicking an already-open folder just closes it, like a plain left click -- no isolation', async () => {
+    const wrapper = await mountIsolateTree()
+    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> expandByDefault: true
+    expect(isExpanded(wrapper, 'root')).toBe(true) // -> untouched sibling, to prove it stays that way
+
+    const notPrevented = middleClick(
+      itemWrapper(wrapper, 'sibling').find('.w-expansion-item__header').element
+    )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(false) // -> preventDefault() was still called
+    expect(isExpanded(wrapper, 'sibling')).toBe(false) // -> closed, exactly as a left click would
+    expect(isExpanded(wrapper, 'root')).toBe(true) // -> not isolated: no OTHER folder was touched
+    expect(isExpanded(wrapper, 'target')).toBe(false) // -> already closed, still closed
+  })
 })
 
 /**

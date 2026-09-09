@@ -162,6 +162,34 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
     assert.deepEqual(updated?.graph, { groupBy: 'tag' })
   })
+
+  /**
+   * The icon picker's one persisted control, stored under `prefs.iconPicker` -- same "no forced
+   * default, absent until saved" treatment as `graph` above.
+   */
+  test('has no iconPicker key at all for a user who has never saved one', async () => {
+    const profile = await usersModel.getProfile(fixtures.userId)
+    assert.equal(profile?.iconPicker, undefined)
+  })
+
+  test('persists an iconPicker preference and reads it back on reload', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, { iconPicker: { set: 'mdi' } })
+    assert.deepEqual(updated?.iconPicker, { set: 'mdi' })
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.deepEqual(reloaded?.iconPicker, { set: 'mdi' })
+  })
+
+  test('leaves other prefs fields (e.g. graph) untouched when only iconPicker changes', async () => {
+    await usersModel.updateProfile(fixtures.userId, { graph: { groupBy: 'tag' } })
+
+    const updated = await usersModel.updateProfile(fixtures.userId, {
+      iconPicker: { set: 'mdi' }
+    })
+
+    assert.deepEqual(updated?.iconPicker, { set: 'mdi' })
+    assert.deepEqual(updated?.graph, { groupBy: 'tag' })
+  })
 })
 
 /**
