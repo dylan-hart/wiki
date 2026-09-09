@@ -58,17 +58,26 @@ export function buildNonApiErrorResponse(error: any): NonApiErrorResponse {
 }
 
 /**
- * The actual non-`/_api` error handler `index.ts` wires into `app.setErrorHandler`. Logs every such
- * error through `WIKI.logger.error` -- previously these throws reached only Fastify's own pino
- * instance (`index.ts`'s logger option), so they were missing from the admin terminal stream and its
- * backlog -- then answers with `buildNonApiErrorResponse`'s fixed body.
+ * The actual non-`/_api` error handler `index.ts` wires into `app.setErrorHandler`. Answers with
+ * `buildNonApiErrorResponse`'s body, logging through `WIKI.logger.error` only for a genuine bug --
+ * previously these throws reached only Fastify's own pino instance (`index.ts`'s logger option), so
+ * they were missing from the admin terminal stream and its backlog.
+ *
+ * An error carrying a `statusCode` was set deliberately (almost always `@fastify/sensible`'s
+ * `reply.notFound()` / `app.httpErrors.*`) and is answered as-is with no log line -- this is
+ * `apiErrorHandler`'s own pattern below, which `sendNonApiError` previously diverged from by logging
+ * unconditionally, flooding the log with routine 4xx responses (e.g. `controllers/icons.ts`'s "Icon
+ * set not found" 404, one per unavailable Iconify prefix a search sweeps across; Bug #2837).
+ * Anything else collapses to a fixed generic body and is the only branch that logs.
  *
  * `error`, not `warn` (Bug #2650): a request that ended in an unhandled exception is the canonical
  * case of "a person needs to act", and an operator alerting on `error` saw nothing at all while a
  * crashed request sat one level below a routine version check.
  */
 export function sendNonApiError(error: any, reply: FastifyReply): void {
-  WIKI.logger.error('http', 'unhandled error outside /_api', { error })
+  if (!error?.statusCode) {
+    WIKI.logger.error('http', 'unhandled error outside /_api', { error })
+  }
   const { statusCode, body } = buildNonApiErrorResponse(error)
   reply.code(statusCode).type('application/json').send(body)
 }
