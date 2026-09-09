@@ -171,8 +171,8 @@
       menu button.
 
       Bottom LEFT whichever side the sidebar is on, because the opposite corner belongs to
-      scroll-to-top: on a narrow viewport that button is in the corner too (`scrollerAnchorX` is null),
-      so one that followed the sidebar to the right would land on top of it.
+      scroll-to-top: on a narrow viewport that button is in the corner too, so one that followed the
+      sidebar to the right would land on top of it.
 
       The position goes on a wrapper rather than on the button, as `WPageScroller` does it: `WBtn` is
       `relative` from its own class list, and Tailwind emits `relative` after `fixed`, so a `fixed`
@@ -213,25 +213,25 @@
         flush to the edge, and rounded on the top LEFT, since this is the corner it is tucked into from
         the other side.
 
-        On a wide screen it is the same button in a corner of its own -- the bottom of the sidebar's
-        column, ending where that column ends (`scrollerAnchorX`). Flush there too, so it is unelevated:
-        a shadow is what a disc floating over the page needs, and this one is not floating over anything.
-        And it is filled in the sidebar's own colour a shade lighter (`--color-sidebar-light`), since
-        there it is part of that column rather than an accent laid over the page.
+        OpenProject #2863: this corner disc used to also cover the wide (>=1200px) case, flush against
+        the bottom of the sidebar's own column instead of floating in the corner (`scrollerAnchorX`,
+        removed along with `WPageScroller`'s `anchorX` prop -- its only caller). That mode retires
+        outright at >=1200px, now that the sidebar's own "Top" cell in `.sidebar-actions` (Feature
+        #2840) covers scroll-to-top there instead -- so this only ever renders in the narrower range
+        below, where the sidebar overlays the page rather than columning beside it.
 
-        And it stands down below 750px, where the page view's contents panel takes this corner for its own
-        opener -- one button per corner, and there the contents are the more useful of the two. See
-        `showTocPanelBtn` in `pages/Index.vue`, which is what fills the gap.
+        And it stands down below 750px too, where the page view's contents panel takes this corner for
+        its own opener -- one button per corner, and there the contents are the more useful of the two.
+        See `showTocPanelBtn` in `pages/Index.vue`, which is what fills the gap.
       -->
       <w-page-scroller
-        v-if="isAtLeastTocPanelWidth"
+        v-if="isAtLeastTocPanelWidth && !isWideViewport"
         :scroll-offset="150"
-        :anchor-x="scrollerAnchorX"
         target=".page-container-scrl">
         <w-btn
           class="corner-btn corner-btn--right"
           icon="tabler:arrow-up"
-          :color="scrollerAnchorX ? `sidebar-light` : `primary`"
+          color="primary"
           round
           size="md"
           :aria-label="t(`common.actions.returnToTop`)" />
@@ -474,24 +474,6 @@ const SIDEBAR_WIDTH = 255
 const SIDEBAR_WIDTH_MINI = 56
 
 const sidebarWidth = computed(() => (isSidebarMini.value ? SIDEBAR_WIDTH_MINI : SIDEBAR_WIDTH))
-
-/*
-  The scroll-to-top button ENDS where the sidebar's column does, tucked into the bottom of it: the
-  sidebar's own width on the left, or the window's right edge when the site puts its sidebar there,
-  since that is the side that column ends on.
-
-  Null puts it back in the corner, for every case where there is no sidebar beside it: a narrow
-  viewport (the drawer overlays the page), a site with no sidebar, and the editor, which closes the
-  sidebar to take the full width. That is the corner button, and it is left exactly as it was.
-*/
-const scrollerAnchorX = computed(() => {
-  // -> No separate test for `sidebarPosition === 'off'`: that IS `sideNavIsDisabled`, which
-  //    `isSidebarAvailable` already asks
-  if (!isWideViewport.value || !isSidebarAvailable.value) {
-    return null
-  }
-  return siteStore.theme.sidebarPosition === 'right' ? '100%' : `${sidebarWidth.value}px`
-})
 
 // -> The "Allow Browsing" site feature (admin/general): with it off the tree browser is not something
 //    a reader can reach, so the button that opens it does not render
