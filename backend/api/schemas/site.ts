@@ -30,6 +30,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           "Base URL this instance's in-app \"view docs\" / help links are built from (`WIKI.config.docsBase`, from `base.yml`). Instance-wide, not a per-site setting: `siteStore.docsBase` on the frontend appends a path to it, e.g. `docsBase + '/admin/general'`."
       },
+      isReplicationEnabled: {
+        type: 'boolean',
+        description:
+          'Whether this instance is configured as a scheduled-replication TARGET (`WIKI.config.replication.isEnabled`, from `base.yml`/`config.yml` — see Epic #2437). Instance-wide, not a per-site setting: a replication target periodically wipes and replaces its own data from a source instance, which is what this flag lets the frontend warn an admin about (header banner, Feature #2833).'
+      },
       navigationId: {
         type: 'string',
         format: 'uuid',

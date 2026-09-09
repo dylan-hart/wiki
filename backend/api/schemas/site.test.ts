@@ -54,7 +54,7 @@ test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg
  */
 test('buildSitePayload returns exactly the allow-listed keys and never `search`', async () => {
   const wikiHandle = installTestWiki({
-    config: { docsBase: 'https://test.docs.example/docs' },
+    config: { docsBase: 'https://test.docs.example/docs', replication: { isEnabled: true } },
     models: {
       // -> Availability moved off `rendering` when `models/rendering.ts` was split; the payload
       //    builder reads it here now.
@@ -122,6 +122,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'hostname',
     'id',
     'isEnabled',
+    'isReplicationEnabled',
     'locales',
     'logoText',
     'navigationId',
@@ -135,6 +136,39 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'uploads'
   ])
   assert.ok(!('search' in payload), '`search` must never reach the public site payload')
+  assert.equal(
+    payload.isReplicationEnabled,
+    true,
+    'isReplicationEnabled should reflect WIKI.config.replication.isEnabled'
+  )
+
+  wikiHandle.restore()
+})
+
+/**
+ * Task 2851: `isReplicationEnabled` is a strict boolean derived off `WIKI.config.replication?.isEnabled
+ * === true`, not a bare truthy passthrough -- a missing `replication` config block (an older/minimal
+ * config shape) must answer `false`, not `undefined`, since the field is declared `type: 'boolean'` on
+ * the `Site` schema.
+ */
+test('buildSitePayload reports isReplicationEnabled: false when replication config is absent', async () => {
+  const wikiHandle = installTestWiki({
+    config: { docsBase: '' },
+    models: {
+      renderQueue: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' }
+    }
+  })
+
+  const payload = await buildSitePayload({
+    id: 'site-id',
+    hostname: 'example.test',
+    isEnabled: true,
+    config: {}
+  })
+
+  assert.equal(payload.isReplicationEnabled, false)
 
   wikiHandle.restore()
 })

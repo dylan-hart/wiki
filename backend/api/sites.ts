@@ -156,6 +156,7 @@ export async function buildSitePayload(site: {
     isEnabled: site.isEnabled,
     pdfExportAvailable: await WIKI.models.renderQueue.isAvailable(),
     docsBase: WIKI.config.docsBase,
+    isReplicationEnabled: WIKI.config.replication?.isEnabled === true,
     navigationId: await WIKI.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
     blocksConfig,
     blocksIndex,
