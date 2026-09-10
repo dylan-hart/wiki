@@ -6,24 +6,81 @@
 // ------------------------------------------------------------------
 // SCROLLBAR
 // ------------------------------------------------------------------
+//
+// Ledger: a ruled margin -- 12px gutter, 1px hairline on the inner edge, a square thumb filling
+// the gutter edge to edge (no inset). Dark thumb on light track in light mode, a muted lighter
+// thumb on the dark track in dark mode; one tone stronger on hover, cardinal only while dragging.
+// No arrow buttons. Source: `ui-iteration-scrollbars/scrollbars.md`'s "Ledger" section, reviewed
+// 2026-09-10. Cobalt's own scrollbar block lives beside this one as a separate, undivided
+// addition -- see that task's own header comment rather than interleaving with this block.
+//
+// Chromium 121+ ignores every `::-webkit-scrollbar*` rule on an element where `scrollbar-width`
+// or `scrollbar-color` is non-auto (Feature #3004's "engine gotcha"), so the standard properties
+// are wrapped in `@supports not selector(::-webkit-scrollbar)` and never set on the same selector
+// as a `::-webkit-scrollbar*` rule.
+@supports not selector(::-webkit-scrollbar) {
+  .body--ledger {
+    scrollbar-width: thin;
+    scrollbar-color: #8a99b8 #f0f2f7;
+  }
+}
+.body--ledger ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.body--ledger ::-webkit-scrollbar-track {
+  background: #f0f2f7;
+  border-left: 1px solid #dbe1ec;
+}
+.body--ledger ::-webkit-scrollbar-track:horizontal {
+  border-left: 0;
+  border-top: 1px solid #dbe1ec;
+}
+.body--ledger ::-webkit-scrollbar-thumb {
+  background: #8a99b8;
+  border: 0;
+  border-radius: 0;
+}
+.body--ledger ::-webkit-scrollbar-thumb:hover {
+  background: #57668a;
+}
+.body--ledger ::-webkit-scrollbar-thumb:active {
+  background: #e4676b;
+}
+.body--ledger ::-webkit-scrollbar-corner {
+  background: #f0f2f7;
+}
+.body--ledger ::-webkit-scrollbar-button {
+  display: none;
+}
 
-html {
-  --scrollbarBG: #ccc;
-  --thumbBG: #999;
+// Dark mode, and any Ledger surface on ink (e.g. a `.code-block`).
+@supports not selector(::-webkit-scrollbar) {
+  .body--ledger.body--dark,
+  .body--ledger .code-block {
+    scrollbar-color: #3a4256 #14171f;
+  }
 }
-body::-webkit-scrollbar {
-  width: 7px;
+.body--ledger.body--dark ::-webkit-scrollbar-track,
+.body--ledger .code-block::-webkit-scrollbar-track {
+  background: #14171f;
+  border-color: #2a3040;
 }
-body {
-  scrollbar-width: thin;
-  scrollbar-color: var(--thumbBG) var(--scrollbarBG);
+.body--ledger.body--dark ::-webkit-scrollbar-thumb,
+.body--ledger .code-block::-webkit-scrollbar-thumb {
+  background: #3a4256;
 }
-body::-webkit-scrollbar-track {
-  background: var(--scrollbarBG);
+.body--ledger.body--dark ::-webkit-scrollbar-thumb:hover,
+.body--ledger .code-block::-webkit-scrollbar-thumb:hover {
+  background: #4e5870;
 }
-body::-webkit-scrollbar-thumb {
-  background-color: var(--thumbBG);
-  border: 1px solid var(--scrollbarBG);
+.body--ledger.body--dark ::-webkit-scrollbar-thumb:active,
+.body--ledger .code-block::-webkit-scrollbar-thumb:active {
+  background: #f08287;
+}
+.body--ledger.body--dark ::-webkit-scrollbar-corner,
+.body--ledger .code-block::-webkit-scrollbar-corner {
+  background: #14171f;
 }
 
 // ------------------------------------------------------------------
