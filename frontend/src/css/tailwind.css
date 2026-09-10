@@ -893,6 +893,15 @@ body.body--cobalt {
   --color-tag-chip-border: transparent;
   --color-tag-chip-accent-bg: #ffe9eb;
   --color-tag-chip-accent-text: #c8303c;
+  /*
+    The breadcrumb trail's `/` separator (`WBreadcrumbs.vue` via `Index.vue`'s `.page-breadcrumbs`),
+    OpenProject #2975. Aliased rather than a second literal: this IS `--color-slate-faint`'s own
+    value (the comment on that ramp above already names #b6bfe0 as "the breadcrumb separator on the
+    canonical page view") -- a dedicated name because the dark value below has to diverge from
+    `--color-slate-faint`'s (which stays #b6bfe0 in dark, unreviewed, for its other consumers) without
+    touching those consumers' own rendering.
+  */
+  --color-breadcrumb-separator: var(--color-slate-faint);
 }
 
 /*
@@ -964,11 +973,11 @@ body.body--cobalt .editor-markdown-toolbar .w-btn {
   architecture at all and is left for future work alongside OpenProject #2768.
 
   A few handoff rows have no landed token or component call site to attach to yet -- labels on
-  tinted rows, the "breadcrumb separator/off-state" value distinct from the checkbox-border use
-  `--color-disabled-dark` already carries, inline code/active TOC/section kicker/field error/flat
-  link accent treatments, filled-toast darkening, the info toast, and the callout/info banner. Left
-  undeclared rather than invented, since a token nothing reads is the same drift risk this block
-  exists to prevent.
+  tinted rows, inline code/active TOC/section kicker/field error/flat link accent treatments, filled-
+  toast darkening, the info toast, and the callout/info banner. Left undeclared rather than invented,
+  since a token nothing reads is the same drift risk this block exists to prevent. (The breadcrumb
+  separator/off-state value this used to list here landed with OpenProject #2975 --
+  `--color-breadcrumb-separator` below.)
 
   Hairline/border re-derivation (OpenProject #2912): every hairline and border token below used to
   be a flat white-alpha overlay (`rgb(255 255 255 / 0.0N)`). Composited over this block's blue-black
@@ -1019,6 +1028,12 @@ body.body--cobalt.body--dark {
   --color-accent-wash: rgb(255 77 90 / 0.16);
   --color-accent-strong: #7fa0ff;
   --color-heading-h2: #8fb0ff;
+  /*
+    OpenProject #2975: the breadcrumb separator's dark value genuinely diverges from
+    `--color-slate-faint`'s own (which stays #b6bfe0 in dark for its other, non-breadcrumb
+    consumers -- see the light block's alias comment) -- a literal here, not a second alias.
+  */
+  --color-breadcrumb-separator: #3a4680;
   --color-inner-rule: rgb(255 255 255 / 0.06);
   --color-sidebar-hairline: #2a3684;
   --color-admin-sidebar-hairline: #2a3684;
