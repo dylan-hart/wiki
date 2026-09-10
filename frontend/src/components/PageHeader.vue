@@ -137,11 +137,10 @@
         -->
         <w-btn
           class="ms-4"
-          :class="{ 'is-ringing': state.bellRinging }"
+          :class="{ 'is-ringing': state.bellRinging, 'is-watching': pageStore.isWatching }"
           v-if="userStore.authenticated && !isRedirect"
           flat
           :icon="pageStore.isWatching ? `tabler:bell-filled` : `tabler:bell`"
-          :color="pageStore.isWatching ? `accent` : `slate-soft`"
           :aria-label="pageStore.isWatching ? t(`common.page.unwatch`) : t(`common.page.watch`)"
           :aria-pressed="pageStore.isWatching"
           @click="toggleWatch">
@@ -154,7 +153,6 @@
           v-if="siteStore.theme.showPrintBtn"
           flat
           icon="tabler:printer"
-          color="slate-soft"
           :aria-label="t('common.actions.print')"
           @click="printPage">
           <w-tooltip>{{ t('common.actions.print') }}</w-tooltip>
@@ -809,6 +807,19 @@ async function toggleWatch() {
   background-color: var(--page-header-action-bg);
   color: var(--page-header-action-fg);
   border-radius: var(--radius-control);
+}
+
+/*
+  OpenProject #2961: the watch button's own accent while the page IS watched. `WBtn`'s `color` prop
+  writes an inline `style="color: ..."` on the button root, which always beats the class rule above
+  regardless of aesthetic or source order -- that inline color is what made both this button (when
+  not watching) and the print button beside it read as the wrong, subdued token in Cobalt instead of
+  `--page-header-action-fg`. Neither button takes a `color` prop any more; this state is expressed as
+  a class instead, written one class more specific than the rule above so it wins on specificity
+  alone rather than depending on appearing later in the file.
+*/
+.page-header-actions > .w-btn.w-btn--flat.is-watching {
+  color: var(--color-accent);
 }
 
 /*
