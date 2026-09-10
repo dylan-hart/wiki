@@ -414,6 +414,10 @@ describe('HeaderSearch preview edge cases', () => {
     const panel = panels[0]
     expect(panel.findAll('.searchpanel-results .w-item')).toHaveLength(5)
     expect(panel.findAll('.w-chip').length).toBeGreaterThan(0)
+
+    // -> The operator tips are collapsed by default (OpenProject #2995); expand them to confirm
+    //    they still live in the same panel as the results and tags above.
+    await panel.find('.searchpanel-operators-toggle').trigger('click')
     expect(panel.findAll('.searchpanel-tip').length).toBeGreaterThan(0)
   })
 })
