@@ -1877,6 +1877,38 @@ body.body--cobalt.body--dark {
   }
 
   /*
+    Cobalt's focus/hover ring, OpenProject #3028. The generic mechanism above cycles
+    `--w-input-ring[-hover|-active]` through the neutral slate ramp (`--color-slate-faint` /
+    `--color-slate` in light, `--color-border-dark` / `--color-slate-light` in dark) -- and Cobalt
+    redefines every one of those onto its OWN indigo hue rather than Ledger's warm grey, so a
+    hovered or focused field ends up drawn in one more shade of the same navy family the rest of
+    Cobalt's chrome (sidebar, hairlines, card shadows) already uses. Mathematically the ACTIVE ring
+    still clears WCAG contrast against a plain white/dark-card control face (verified below), but a
+    same-hue-family ring reads as a slightly darker border, not a highlight -- exactly the "no
+    Cobalt-specific override anywhere" gap OpenProject #3028 traced this to. Re-pointing both states
+    at Cobalt's own ACCENT hue (the one color in this palette whose entire job is "this is live/
+    actionable" -- links, `h2`s) makes a focused field visually distinct from its neutral chrome
+    instead of merely darker than it.
+
+    `--color-accent-strong` is reused rather than a new literal: it is already proven at AA (4.5:1)
+    against both a white/paper ground and the raised dark card surface by `cobaltContrast.test.js`'s
+    "link (accent-strong)" rows, which are exactly the two surfaces `.w-input-control`'s own
+    `bg-surface dark:bg-dark-3` can put a field on. `--color-slate-soft` is the hover half-step --
+    still hue-shifted off the neutral ramp, but a lighter tint so hover reads as "reachable" rather
+    than already-focused. It does not clear the 4.5:1 TEXT contrast bar the tests above check (a
+    ring is a UI outline, not text -- WCAG 1.4.11's applicable minimum is 3:1), and clears that
+    comfortably in both aesthetics; see `cobaltContrast.test.js`'s own addition for the figures.
+    `--color-slate-soft` has no Cobalt-dark override of its own, so it is restated explicitly in the
+    dark block below rather than left to resolve through a cross-block specificity tie with the
+    generic dark rule above -- the same reason the pre-existing `--w-input-ring-error` override just
+    below restates its var rather than relying on inheritance.
+  */
+  body.body--cobalt .w-input-control {
+    --w-input-ring-hover: var(--color-slate-soft);
+    --w-input-ring-active: var(--color-accent-strong);
+  }
+
+  /*
     Cobalt dark's own "bad address" mockup swatch (`Primitives Dark 3x - Cobalt.dc.html`) draws its
     error ring at the same bright value Cobalt light uses, not the lightened value the generic rule
     above applies for every other dark aesthetic. `--color-accent-fill` isn't restated in the Cobalt
@@ -1884,8 +1916,15 @@ body.body--cobalt.body--dark {
     `#ff4d5a` here -- this rule just re-points the ring var at it. Higher specificity (4 classes vs.
     3) than the generic rule above, so it wins regardless of source order. OpenProject #2817, fixing
     the gap #2773 logged as a frozen-primitive deferral to Feature #2763.
+
+    `--w-input-ring-hover`/`--w-input-ring-active` are restated here too (OpenProject #3028), for the
+    same "own dark card surface" reason as the light block just above -- `--color-accent-strong` and
+    `--color-slate-soft` both resolve to values proven against `--color-dark-3` by
+    `cobaltContrast.test.js`.
   */
   body.body--cobalt.body--dark .w-input-control {
+    --w-input-ring-hover: var(--color-slate-soft);
+    --w-input-ring-active: var(--color-accent-strong);
     --w-input-ring-error: var(--color-accent-fill);
   }
 
