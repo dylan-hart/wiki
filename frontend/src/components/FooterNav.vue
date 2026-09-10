@@ -128,6 +128,20 @@ const isCopyright = computed(() => {
   border-top: 0;
 }
 
+/*
+  `ui-iteration-cobalt-typography/cobalt-typography.md` §3/§5 (OpenProject #2980): Cobalt dark's
+  copyright line is the caption/kicker dark tier (`--color-text-caption-dark`, `#8b98d6` -- already
+  restated for Cobalt in `tailwind.css`'s `body.body--cobalt.body--dark` block, and already what the
+  Ledger dark rule above this one reads), NOT `--color-footer-text` -- that token was only ever given
+  a light-mode Cobalt value, so left alone it keeps resolving to `#a7b3ea` under Cobalt dark too. The
+  Ledger dark rule above already asks for the right token; it loses the cascade here purely on
+  specificity (two classes vs. this selector's three), so the fix is this one extra notch rather than
+  a new token.
+*/
+:global(body.body--cobalt.body--dark .site-footer) {
+  color: var(--color-text-caption-dark);
+}
+
 .site-footer-line {
   text-align: center;
   /*
