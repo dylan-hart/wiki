@@ -142,6 +142,19 @@ const indicatorDot = computed(() => {
   color: var(--color-slate-light);
 }
 
+/*
+  Cobalt draws the plate as a rounded, backgroundless outline in the saturated accent colour rather
+  than Ledger's hairline-on-paper frame -- `--color-accent-strong` is already redefined per Cobalt
+  mode (light/dark), so this one rule resolves correctly in both without a separate dark override,
+  and it wins the specificity tie against the dark rule above for `body--cobalt.body--dark`.
+*/
+:global(body.body--cobalt .blueprint-icon) {
+  border-radius: var(--radius-mark);
+  background-color: transparent;
+  border-color: var(--color-accent-strong);
+  color: var(--color-accent-strong);
+}
+
 /* -> A code rather than a glyph: mono, because that is what Cardinal sets every short code in */
 .blueprint-icon__text {
   font-family: var(--font-mono);
