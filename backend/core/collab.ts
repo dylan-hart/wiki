@@ -29,11 +29,16 @@ import type { WebSocket } from 'ws'
  * A room's live state is also debounce-persisted to {@link WIKI.models.pageDrafts} as edits happen
  * ({@link scheduleDraftPersist}) — a *recovery* copy, separate from both the room and the stored page,
  * for exactly the case the paragraph above used to end on: every participant gone (a crash, a closed
- * tab) with nothing saved. {@link initRoom} prefers this draft over the stored page the next time a
- * room for that page has to be rebuilt from scratch, so reopening the page picks the in-progress text
- * back up rather than the last save. {@link pageSaved} clears it once a real save supersedes it, and it
- * is deleted, not versioned — see `db/schema.ts`'s `pageDrafts` table comment for the full design and
- * OpenProject #2454/#2455 for the split between persisting it (here) and the frontend's restore prompt.
+ * tab) with nothing saved. {@link initRoom} never seeds a room from it (OpenProject #2957) — a room
+ * rebuilt from scratch always starts from the real stored page (or a live peer's state, if one
+ * answers), so what the reader sees on reopening is genuinely "the last save", not a silent
+ * resurrection of unsaved text. The draft is purely something the frontend fetches and offers to
+ * apply on request instead: `api/pages/drafts.ts`'s `GET .../draft` route hands it over, and
+ * `frontend/src/composables/collab.js#applyRestoredDraft` is what actually writes it into the live
+ * doc, only once the reader confirms. {@link pageSaved} clears the persisted draft once a real save
+ * supersedes it, and it is deleted, not versioned — see `db/schema.ts`'s `pageDrafts` table comment
+ * for the full design and OpenProject #2454/#2455 for the split between persisting it (here) and the
+ * frontend's restore prompt.
  *
  * ## Across instances
  *
@@ -51,9 +56,9 @@ import type { WebSocket } from 'ws'
  * This is the one genuinely delicate part. A Yjs document cannot simply be seeded twice: two instances
  * that each insert the page's text into their own replica produce two *different* sets of operations
  * that both say "insert this text", and merging those replicas concatenates them — the document ends
- * up holding the page twice. So a room being created asks the cluster first ({@link peerState}), then
- * a persisted autosave draft if one exists (see "Autosave draft" above), and only falls back to the
- * stored page once neither of those answers.
+ * up holding the page twice. So a room being created asks the cluster first ({@link peerState}), and
+ * only falls back to the stored page once nobody answers — the persisted autosave draft (see
+ * "Autosave draft" above) is never a seed source, only something the frontend may apply afterward.
  *
  * Two instances cold-starting the same room in the same instant would still both fall back, so that
  * seed is made *deterministic*: it is built in a scratch document pinned to client id 0, and two seeds
@@ -766,15 +771,15 @@ export default {
   },
 
   /**
-   * Fill a newly created room with the state it should start from, in order of preference: a peer's
-   * copy if the cluster already has this page open (the freshest possible truth), else a persisted
-   * autosave draft (OpenProject #2454) if editing was left mid-flight and never saved, else the
-   * stored page.
+   * Fill a newly created room with the state it should start from: a peer's copy if the cluster
+   * already has this page open (the freshest possible truth), else the stored page.
    *
-   * The draft tier is what lets reopening a page after a crash/tab-close recover in-progress content
-   * instead of the last saved copy: `doc.getMap('meta').set('draftRestored', …)` marks that this
-   * happened, the same convention `pageSaved()` uses for `lastSave`, for the frontend to notice and
-   * offer to keep or discard it (OpenProject #2455).
+   * Deliberately never the persisted autosave draft (OpenProject #2957) — seeding from it here would
+   * make the room's content equal the draft before the frontend ever gets a chance to show the reader
+   * a diff between what is saved and what the draft would change, and would make "Discard" silently
+   * do nothing (there would be nothing left to discard *from*, the draft already being live). The
+   * draft stays purely something the frontend fetches and applies on request; see the "Autosave
+   * draft" section of this file's header comment.
    */
   async initRoom(room: CollabRoom): Promise<void> {
     try {
@@ -782,24 +787,14 @@ export default {
       if (fromPeer) {
         Y.applyUpdate(room.doc, fromPeer, RELAYED)
       } else {
-        const draft = await WIKI.models.pageDrafts.get(room.pageId)
-        if (draft) {
-          Y.applyUpdate(room.doc, draft.state, RELAYED)
-          room.doc.transact(() => {
-            room.doc.getMap('meta').set('draftRestored', {
-              at: draft.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
-            })
-          }, RELAYED)
-        } else {
-          const page = await WIKI.models.pages.getPage({
-            siteId: room.siteId,
-            id: room.pageId,
-            withContent: true
-          })
-          // -> A page that went away between the permission check and here leaves an empty room,
-          //    which the first disconnect clears away again
-          Y.applyUpdate(room.doc, buildSeed(page ?? {}), RELAYED)
-        }
+        const page = await WIKI.models.pages.getPage({
+          siteId: room.siteId,
+          id: room.pageId,
+          withContent: true
+        })
+        // -> A page that went away between the permission check and here leaves an empty room,
+        //    which the first disconnect clears away again
+        Y.applyUpdate(room.doc, buildSeed(page ?? {}), RELAYED)
       }
     } catch (err: any) {
       WIKI.logger.warn('collab', 'failed to initialize room', { page: room.pageId, error: err })
