@@ -837,7 +837,7 @@ $action-btn-height: 3rem;
     only (OpenProject #2774).
   */
   @at-root body.body--cobalt &:not(.is-editor) {
-    flex: 0 0 64px;
+    flex: 0 0 40px;
     align-self: flex-start;
     margin: 28px 24px 28px 0;
     border-inline-start: 0;
