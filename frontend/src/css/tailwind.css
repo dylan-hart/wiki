@@ -720,6 +720,16 @@ html.theme-transition-suppress *::after {
   --article-card-pad: 0;
   --content-bleed-default: 28px;
   --content-bleed-xs: 16px;
+
+  /*
+    Cobalt's fixed footer bar (OpenProject #3017/#3010, `Index.vue`'s `.page-container-scrl .w-footer`
+    rule): once the bar is pinned to the bottom of the window instead of sitting in normal flow,
+    nothing downstream of it in the DOM knows how much room it occupies any more. Published once here
+    so a sibling that needs to clear it -- `WDrawer.vue`'s own bottom padding, OpenProject #3018 --
+    reads the SAME number rather than a second, independently-guessed one. `0` in Ledger: the footer
+    stays in normal flow there, so nothing needs to make room for it.
+  */
+  --footer-bar-height: 0;
 }
 
 /*
@@ -891,6 +901,16 @@ body.body--cobalt {
   --color-footer-bg: #10194a;
   --color-footer-text: #a7b3ea;
   --color-footer-link: #ff7a84;
+  /*
+    The bar's own height, published for `WDrawer.vue`'s bottom padding to consume (OpenProject #3018)
+    -- see the bare `:root` declaration above for why this exists at all. A conservative estimate, not
+    a measurement: `FooterNav.vue`'s `.site-footer` is `padding: 8px 16px` around up to two lines of
+    11px Roboto Mono (the colophon line, plus an optional `siteStore.footerExtra` line), and 64px
+    comfortably covers that at a typical width. A very long, unbroken `company`/`footerExtra` value can
+    still wrap past this on a narrow phone (`overflow-wrap: anywhere` lets it) -- OpenProject #3019's
+    cross-viewport pass is where that gets caught and this number revisited if it does.
+  */
+  --footer-bar-height: 64px;
   --color-inner-rule: #e6edff;
   --color-heading-h2: #1f4fd6;
   --color-heading-rule: transparent;
