@@ -1118,14 +1118,23 @@
     OpenProject #2883: the plate's own geometry (`width`/`height`/`inset-inline-start`) is in `rem`,
     not `em` -- real-browser measurement (`getComputedStyle(li, '::before')`) caught what reading the
     rule could not: `em` on a property OTHER than `font-size` resolves against the element's OWN
-    computed font-size, not its parent's, and this element's own font-size is the 11px `0.6875em`
+    computed font-size, not its parent's, and this element's own font-size is the fixed 11px set
     two declarations down. `width: 1.5em` was therefore 1.5 × 11px = 16.5px, not the 24px the handoff
     draws (`pre.codeblock.line-numbers`'s gutter above takes the same `rem` shape for the same
-    reason). Centering is the handoff's own line-height trick -- `font: 600 0.6875em/1.5rem` puts a
+    reason). Centering is the handoff's own line-height trick -- `font: 600 11px/1.5rem` puts a
     single line of text in a line box exactly as tall as the circle, which centers it on the baseline
     grid with no flexbox and no positional nudge to get right; the flex-centering plus an unexplained
     `top: 0.05em` nudge this replaces was two ways of solving the same problem, and the nudge only
     ever corrected for the OTHER bug's fallout.
+
+    OpenProject #2965: the numeral's `font-size` is a fixed `11px`, not `0.6875em` as it used to be.
+    `em` on `font-size` resolves against this element's PARENT (the `li`), which inherits
+    `.page-contents`'s own base font-size -- so an em value here silently drifts any time that base
+    changes, exactly the coupling the sibling "article type scale" fix (dropping `.page-contents`
+    from 16px to 15.5px) would otherwise have introduced (0.6875 × 15.5 ≈ 10.66px). The design target
+    (`600 11px/24px`) is fixed regardless of the article's own base size, so the declaration is fixed
+    too; `line-height: 1.5rem` was already decoupled the same way (`rem` is root-relative, not
+    parent-relative) and needed no change.
   */
   @at-root body.body--cobalt & {
     > ol,
@@ -1150,7 +1159,7 @@
         border-radius: 50%;
         background-color: var(--content-step-bg);
         color: var(--content-step-fg);
-        font: 600 0.6875em/1.5rem var(--font-mono);
+        font: 600 11px/1.5rem var(--font-mono);
         text-align: center;
       }
     }

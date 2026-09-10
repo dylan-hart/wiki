@@ -706,7 +706,7 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
     throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
   }
 
-  it("sizes the circle's box in `rem`, not `em` -- `em` on a property other than `font-size` resolves against the PSEUDO-ELEMENT's own (smaller, `0.6875em`) computed font-size, not the list item's, which is what silently shrank the 24px handoff circle to 16.5px", () => {
+  it("sizes the circle's box in `rem`, not `em` -- `em` on a property other than `font-size` resolves against the PSEUDO-ELEMENT's own (smaller, fixed 11px) computed font-size, not the list item's, which is what silently shrank the 24px handoff circle to 16.5px", () => {
     const block = blockFor('li > ol > li {')
     expect(block).toMatch(/inset-inline-start:\s*-2\.4rem/)
     expect(block).toMatch(/width:\s*1\.5rem/)
@@ -716,7 +716,7 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
 
   it("centers the numeral with a line-height equal to the box height, the handoff's own technique, rather than flexbox plus an unexplained positional nudge", () => {
     const block = blockFor('li > ol > li {')
-    expect(block).toMatch(/font:\s*600 0\.6875em\/1\.5rem var\(--font-mono\)/)
+    expect(block).toMatch(/font:\s*600 11px\/1\.5rem var\(--font-mono\)/)
     expect(block).not.toMatch(/display:\s*flex/)
     expect(block).not.toMatch(/top:\s*0\.05em/)
   })
@@ -774,6 +774,61 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
       const circle = await measureCircle()
       expect(circle.width).toBe('24px')
       expect(circle.height).toBe('24px')
+    })
+  })
+})
+
+/**
+ * OpenProject #2965 ("Cobalt numbered-step numeral sized in em will drift once the article base
+ * font-size fix lands"). Sibling to #2883 above, which fixed the plate's own BOX geometry; this
+ * pins the numeral's own `font-size`, previously `0.6875em` (resolving against the `li`'s inherited,
+ * `.page-contents`-derived font-size, so it would silently shrink any time that base changes), now a
+ * fixed `11px` per the design handoff's literal `600 11px/24px`. The real-browser check proves the
+ * decoupling directly: the numeral stays 11px even when the surrounding article's own font-size
+ * differs from `.page-contents`'s default.
+ */
+describe('_page-contents.scss cobalt numbered-step numeral is a fixed size (OpenProject #2965)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  it('does not size the numeral in `em`, which would resolve against the changing `.page-contents` base', () => {
+    expect(source).toMatch(/font:\s*600 11px\/1\.5rem var\(--font-mono\)/)
+    expect(source).not.toMatch(/font:\s*600 [\d.]+em\/1\.5rem var\(--font-mono\)/)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it("keeps the numeral at 11px even when the article's own base font-size differs from 16px, proving the numeral no longer tracks it", async () => {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="body--cobalt"><article class="page-contents" style="font-size: 15.5px">` +
+            '<ol><li>first</li><li>second</li></ol></article></body></html>'
+        )
+        const fontSize = await page.evaluate(() => {
+          const li = document.querySelector('.page-contents > ol > li')
+          return getComputedStyle(li, '::before').fontSize
+        })
+        expect(fontSize).toBe('11px')
+      } finally {
+        await page.close()
+      }
     })
   })
 })
