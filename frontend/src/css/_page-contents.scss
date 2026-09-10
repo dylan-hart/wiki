@@ -2040,27 +2040,49 @@
     #2916). That trick has no box of its own to hang a frame on that sits OUTSIDE the table's own
     border box: Cobalt's rounded corners (`#2918`) would still get squared off by the scrollbar
     painting across the bottom of the table's own box, which has no radius of its own to clip it to.
-    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes these two nested divs
-    exist at all -- the renderer wraps every table, from either the built-in parser or
-    `markdown-it-multimd-table`'s, in `<div class="table-wrap"><div class="table-scroll">` before it
-    ever reaches this file.
+    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes these three nested
+    divs exist at all -- the renderer wraps every table, from either the built-in parser or
+    `markdown-it-multimd-table`'s, in `<div class="table-wrap"><div class="table-clip"><div
+    class="table-scroll">` before it ever reaches this file.
 
-    TWO boxes, not one (OpenProject #2935, resolving the variance this restructure deleted from
-    `docs/variances.md`): `.table-wrap` is the outer, non-scrolling FRAME -- border, radius, shadow,
-    background and the corner marks below all live here, and it carries no `overflow` of its own, so
-    nothing it draws past its own edge (the marks) is ever clipped. `.table-scroll`, nested inside
-    it, is the actual scroller: `overflow-x: auto` alone is enough to also clip square corners under
-    `--content-table-radius` -- CSS resolves a lone `overflow-x` of anything but `visible` by
-    computing `overflow-y` to `auto` too, so the box is never `visible` on either axis and a rounded
-    corner clips its content (the table's head strip and rows) the same as `overflow: hidden` would
-    -- which is why it repeats `border-radius` on its own rather than relying on the frame's; the two
-    boxes occupy the same rectangle (the scroller fills the frame's border box, with no padding
-    between them), so the same radius value clips correctly on either. A single combined box, as this
-    used to be, could not do both at once: giving IT `overflow-x: auto` for the scroll behaviour also
-    clipped its own `::before`/`::after` pseudo-elements -- the corner marks below -- the moment they
-    rendered past its edge, which is exactly what forced them flush instead of the 4px overhang
-    `markdown-tables.md` specifies. Splitting the frame from the scroller is what lets the marks
-    overhang a box that itself never clips them, confirmed directly in a real Chromium; see
+    THREE boxes, not two (OpenProject #2958, tightening #2935's split further -- resolving the
+    variance #2935 itself deleted from `docs/variances.md`): `.table-wrap` is the outer, non-scrolling
+    FRAME -- border, radius, shadow, background and the corner marks below all live here, and it
+    carries no `overflow` of its own, so nothing it draws past its own edge (the marks) is ever
+    clipped.
+
+    `.table-clip`, nested inside it, is a plain `overflow: hidden` box repeating the same
+    `--content-table-radius` and NOTHING else -- no scroll, no background, no border of its own. It
+    exists purely to own the clip: an `overflow: hidden` box that does not itself scroll has no
+    scrollbar of its own to worry about, so it clips whatever its child paints -- content and any
+    scrollbar chrome that child renders alike -- to its own rounded rectangle exactly the way any
+    ordinary `overflow: hidden` clips any ordinary content.
+
+    `.table-scroll`, nested inside THAT, is the actual scroller, carrying `overflow-x: auto` and the
+    scrollbar tokens but no `border-radius` of its own any more. #2935 landed `.table-scroll` with
+    BOTH `overflow-x: auto` and its own radius on the same element, reasoning that a lone
+    `overflow-x` resolves `overflow-y` to `auto` too and so clips content the same as `overflow:
+    hidden` would -- true for ordinary painted content (a `td`'s background, confirmed directly in a
+    real Chromium), but not for the native scrollbar `overflow-x: auto` itself produces: a
+    classic, space-reserving scrollbar (Windows/Linux by default, macOS whenever scrollbars are set
+    to show always rather than only while scrolling) is browser/OS-painted chrome, not a normal
+    stacking-context descendant, and is not reliably clipped by `border-radius` on the SAME element
+    that renders it -- it squares off the very corner it sits against, which is what OpenProject
+    #2958 reported hands-on on a live instance despite every existing test (all written against
+    ordinary DOM content, not native scrollbar chrome) passing. Moving the radius one level out, onto
+    `.table-clip`, sidesteps the whole class of problem: `.table-clip` isn't the element producing the
+    scrollbar, so its `overflow: hidden` clip applies to `.table-scroll` as a single opaque child, the
+    same as it would to any other element. See `ui-iteration-markdown-tables/markdown-tables.md`'s
+    original "the scrollbar painting over the rounded corners" note -- the same failure mode this
+    closes, one layer deeper than #2935 reached.
+
+    All three boxes occupy the same rectangle (each fills its parent's content box, no padding
+    between any of them), so `--content-table-radius` clips correctly wherever it's applied. A single
+    combined box, as this used to be before #2935, could not give the frame a radius at all without
+    also clipping its own `::before`/`::after` pseudo-elements -- the corner marks below -- the moment
+    they rendered past its edge, which is exactly what forced them flush instead of the 4px overhang
+    `markdown-tables.md` specifies. Splitting the frame from the clip (and now the clip from the
+    scroll) is what lets the marks overhang a box that itself never clips them; see
     `_page-contents.test.js`.
 
     `position: relative` (on the frame) is what the corner marks below position against.
@@ -2080,9 +2102,13 @@
     background-color: var(--content-surface);
   }
 
+  .table-clip {
+    overflow: hidden;
+    border-radius: var(--content-table-radius);
+  }
+
   .table-scroll {
     overflow-x: auto;
-    border-radius: var(--content-table-radius);
     scrollbar-width: thin;
     scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
   }

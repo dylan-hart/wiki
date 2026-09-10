@@ -132,24 +132,29 @@ describe('MarkdownRenderer - multimd-table', () => {
 })
 
 /**
- * OpenProject #2916/#2935: TWO nested scroll/frame divs `_page-contents.scss` now draws around every
- * rendered table -- `.table-wrap`, the outer non-scrolling frame (border/radius/shadow/corner-marks),
- * and `.table-scroll`, the inner box that actually scrolls -- rather than one combined div, so a
- * corner mark can overhang the frame without a box that also has `overflow-x: auto` clipping it away
- * (#2935). Neither box exists on `<table>` itself, which is why they have to actually exist rather
- * than being left to a `display:block` trick on the table alone. `table_open`/`table_close` are
- * overridden the same way `link_open` already is, so this covers both the plain built-in table parser
- * and multimd's richer one, which produce the same core tokens.
+ * OpenProject #2916/#2935/#2958: THREE nested scroll/clip/frame divs `_page-contents.scss` now draws
+ * around every rendered table -- `.table-wrap`, the outer non-scrolling frame
+ * (border/radius/shadow/corner-marks); `.table-clip`, a plain `overflow: hidden` + radius box with
+ * nothing else on it; and `.table-scroll`, the inner box that actually scrolls -- rather than one or
+ * two combined divs, so a corner mark can overhang the frame without a box that also has
+ * `overflow-x: auto` clipping it away (#2935), AND so the radius clip lives on a box that isn't
+ * itself producing a native scrollbar, which is not reliably clipped by `border-radius` on the same
+ * element that renders it (#2958). None of the three boxes exist on `<table>` itself, which is why
+ * they have to actually exist rather than being left to a `display:block` trick on the table alone.
+ * `table_open`/`table_close` are overridden the same way `link_open` already is, so this covers both
+ * the plain built-in table parser and multimd's richer one, which produce the same core tokens.
  */
 describe('MarkdownRenderer - table scroll wrapper', () => {
-  it('wraps a plain table in div.table-wrap > div.table-scroll', () => {
+  it('wraps a plain table in div.table-wrap > div.table-clip > div.table-scroll', () => {
     const renderer = new MarkdownRenderer({})
     const html = renderer.render(
       ['| A    | B    |', '|------|------|', '| 1    | 2    |', ''].join('\n')
     )
 
-    expect(html).toContain('<div class="table-wrap"><div class="table-scroll"><table>')
-    expect(html).toMatch(/<\/table>\n?<\/div><\/div>/)
+    expect(html).toContain(
+      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table>'
+    )
+    expect(html).toMatch(/<\/table>\n?<\/div><\/div><\/div>/)
   })
 
   it('wraps a multimd table (rowspan/colspan) in the same nested divs', () => {
@@ -158,16 +163,18 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
       ['| A                |||', '|------|------|------|', '| B    | C    | D    |', ''].join('\n')
     )
 
-    expect(html).toContain('<div class="table-wrap"><div class="table-scroll"><table>')
-    expect(html).toMatch(/<\/table>\n?<\/div><\/div>/)
+    expect(html).toContain(
+      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table>'
+    )
+    expect(html).toMatch(/<\/table>\n?<\/div><\/div><\/div>/)
   })
 
   /*
     `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
     class onto the TABLE token, at parse time -- before this wrapping ever runs at render time -- so
-    it still lands on `<table>` itself, two levels inside the new wrapper divs, not on either div.
+    it still lands on `<table>` itself, three levels inside the new wrapper divs, not on any of them.
   */
-  it("keeps an author's markdown-it-attrs class on <table>, inside both wrappers rather than on either", () => {
+  it("keeps an author's markdown-it-attrs class on <table>, inside all three wrappers rather than on any of them", () => {
     const renderer = new MarkdownRenderer({})
     const html = renderer.render(
       ['| A    | B    |', '|------|------|', '| 1    | 2    |', '', '{.table-leading-col}'].join(
@@ -176,7 +183,7 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
     )
 
     expect(html).toContain(
-      '<div class="table-wrap"><div class="table-scroll"><table class="table-leading-col">'
+      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table class="table-leading-col">'
     )
   })
 })
