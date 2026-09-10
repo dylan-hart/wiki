@@ -314,12 +314,17 @@ describe('mcp/http', () => {
       'get_page',
       'list_assets',
       'list_navigation',
+      'list_page_watchers',
       'list_sites',
+      'list_watched_pages',
       'rename_asset',
       'render_diagram',
       'search_pages',
+      'set_page_watch_preference',
+      'unwatch_page',
       'update_page',
-      'upload_asset'
+      'upload_asset',
+      'watch_page'
     ])
   })
 
