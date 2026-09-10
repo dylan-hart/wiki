@@ -1882,7 +1882,16 @@ $toc-overlay-max: 749.98px;
   @at-root body.body--cobalt & {
     background-color: transparent;
     border-inline-start: 0;
-    padding: 28px 24px 28px 0;
+    /*
+      Left padding is 2px, not 0: `.page-sidebar-card`'s edge is a box-shadow ring
+      (`--shadow-card`), which extends 1px OUTSIDE its own border-box. This column's
+      `overflow-y: auto` silently computes `overflow-x` to `auto` too (the CSS Overflow
+      spec's same-axis-pairing quirk, per `_page-contents.scss`'s `.table-scroll` comment),
+      so with 0 left padding that 1px of ring had nothing to render into and was clipped
+      away -- the card was missing its left hairline while the other three sides, which
+      have 24-28px of padding to spare, were fine. 2px is just enough room to contain it.
+    */
+    padding: 28px 24px 28px 2px;
   }
 
   // The rules BETWEEN this rail's own sections, which are hairlines like every other rule in the
