@@ -2381,6 +2381,8 @@
   "common.renderedContent.copyCodeDone": "Copied",
   "common.renderedContent.copyHeadingLink": "Copy link to this section",
   "common.renderedContent.copyHeadingLinkDone": "Link copied",
+  "common.renderedContent.copyTable": "Copy table as CSV",
+  "common.renderedContent.copyTableDone": "Copied",
   "common.renderedContent.highlightCount": "{current} of {total}",
   "common.renderedContent.highlightDismiss": "Clear highlight",
   "common.renderedContent.highlightNext": "Next match",

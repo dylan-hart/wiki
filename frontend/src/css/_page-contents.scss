@@ -1872,6 +1872,53 @@
   }
 
   /*
+    The copy-to-CSV button on a rendered table, added by `helpers/renderedContent.js`. Same
+    positioning/reveal treatment as `.code-copy` above (see that comment), just appended to
+    `.table-wrap` -- the outer, non-scrolling frame from the `// TABLES` section further down this
+    file -- rather than `pre.codeblock`, so the control sits with the frame and never scrolls away
+    with `.table-scroll`'s own horizontal overflow.
+  */
+  .table-copy {
+    position: absolute;
+    top: 0.4rem;
+    inset-inline-end: 0.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    background-color: inherit;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.15s var(--ease-standard),
+      box-shadow 0.15s var(--ease-standard);
+
+    &:hover {
+      box-shadow: inset 0 0 0 2rem color-mix(in srgb, currentColor 12%, transparent);
+    }
+
+    &.is-copied {
+      color: color-mix(in srgb, #2ea043 70%, currentColor);
+      opacity: 1;
+    }
+  }
+
+  .table-wrap:hover > .table-copy,
+  .table-copy:focus-visible {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .table-copy {
+      transition-duration: 0.01ms;
+    }
+  }
+
+  /*
     The line-number gutter, for a block of more than one line. The renderer emits one empty <span> per
     line inside `.line-numbers-rows`; a counter turns those into numbers, so the digits are never part
     of the text and a copied selection stays clean.
