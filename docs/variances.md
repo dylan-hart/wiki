@@ -6,6 +6,52 @@ along with the reasoning. It is not a changelog and does not track resolved CI/l
 those get fixed, not logged here. An entry for a deviation that later gets resolved is deleted
 outright, not left behind as changelog prose — see CLAUDE.md's "variances.md Discipline" section.
 
+## 2026-09-10 — CSS Grid markdown tables no longer paste as a spreadsheet grid into Excel/Google Sheets
+
+**Date:** 2026-09-10
+**OpenProject:** #2997 (redesign), #3014 (renderer markup), #3016 (this verification)
+
+**Decision:** #2997 redesigned rendered markdown tables from a real `<table>` to a CSS Grid of
+`<div role="table">`/`[role="row"]`/`[role="columnheader"]`/`[role="cell"]` elements
+(`renderers/markdown.js`'s "TABLE GRID MARKUP" rules), to eliminate a cross-browser rendering gap
+where `border-collapse: collapse` doesn't reliably respect an ancestor's `overflow: hidden` +
+`border-radius` clip — three rounds of container-level fixes (#2916/#2935/#2958) narrowed the clip
+down to a plain box with nothing else on it and the square corners still bled past it, because the
+`<table>` element itself, not the container, was the source of the gap.
+
+**Why this reads as a deviation:** #2997's own acceptance criteria asked to "confirm a `role="table"`
+div structure still pastes as a grid into Excel/Sheets the way a real `<table>` does, or document the
+regression if it doesn't" — it does not.
+
+**Verified, not assumed** (#3016, `renderers/markdown.test.js`'s "table grid accessibility &
+clipboard" describe): capturing the real `text/html` clipboard payload a Chromium `copy` produces
+from the rendered markup shows a real `<table>` copies as `<table><thead>...<tbody>...` verbatim,
+while the CSS Grid markup copies as a flat run of `<div role="row">`/`<div role="columnheader">`/
+`<div role="cell">` elements with **no `<table>` element anywhere in the fragment**. Excel's and
+Google Sheets' HTML-paste importers both key off literal `<table>`/`<tr>`/`<td>` markup (the CF_HTML
+clipboard convention), not ARIA roles, so a reader who copies a rendered table and pastes it into
+either app gets a single run of unstructured text rather than cells split into columns/rows — a
+regression from the previous, real-`<table>` markup.
+
+**What was NOT found to be a regression, for the record:** the same verification pass confirmed
+screen-reader accessibility is preserved — Chromium's accessibility tree for the div/role markup is
+identical to a real `<table>`'s (`table` → `row` → `columnheader`/`cell`, minus the `rowgroup` nodes
+`thead`/`tbody` produced, which the ARIA `table` role has no equivalent for), with no
+`aria-colindex`/`aria-rowindex` needed since DOM order alone conveys row/column position correctly.
+
+**Accepted because:** there is no equivalent-cost pure-CSS or pure-ARIA fix — the only way to restore
+`<table>`-shaped clipboard output would be shipping a second, hidden real `<table>` alongside every
+rendered table purely for copy purposes, doubling the DOM cost of every table on every page for a
+secondary workflow (copying a whole table into a spreadsheet), which #2997/#3014/#3016 did not ask
+for and Dylan has not requested. A reader who needs a table's data in a spreadsheet can still select
+and copy it as plain text (which pastes as tab/newline-delimited text most spreadsheet apps still
+split into cells reasonably), or copy the page's own Markdown source, which is unambiguous pipe-table
+syntax.
+
+**Resolved when:** a future task deliberately restores real `<table>`-shaped clipboard output (e.g. a
+hidden shadow `<table>` twin), or Dylan decides the trade-off should be reversed — either removes this
+entry.
+
 ## TODO/FIXME audit: markers currently in the tree, and why each is deliberate rather than noise
 
 **Date:** 2026-08-22

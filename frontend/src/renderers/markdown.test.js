@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { MarkdownRenderer, gatedContentPlaceholder, sanitizeForPreview } from './markdown.js'
+import { CHROMIUM_TIMEOUT, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
   Runs under Vitest, not `node --test` -- see `docs/variances.md` for why, since this file's own
@@ -245,6 +246,156 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
     expect(html).toMatch(/<\/div>\n?<\/div><\/div><\/div>$/)
   })
 })
+
+/*
+  OpenProject #3016: post-implementation verification of #3014's div/role grid markup, against two
+  things neither jsdom nor happy-dom can answer -- accessibility-tree computation and clipboard
+  behavior -- so this reaches for the same real-Chromium harness `_page-contents.test.js` already
+  uses (`test/realGridLayout.js`) rather than reasoning about either from spec alone. Both describes
+  render through the real `MarkdownRenderer`, not a hand-written fixture, so this is coverage of
+  what a page actually ships, not of an idealized shape.
+*/
+describe(
+  'MarkdownRenderer - table grid accessibility & clipboard (OpenProject #3016)',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    let browser
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    const html = new MarkdownRenderer({}).render(
+      ['| Key   | Value |', '|-------|-------|', '| alpha | 1     |', '| beta  | 2     |', ''].join(
+        '\n'
+      )
+    )
+
+    /*
+      A real `<table>` counterpart to the rendered grid, for a like-for-like accessibility-tree and
+      clipboard comparison -- the question this WP answers is "does the new markup behave the same
+      as the `<table>` it replaced", not "what does the new markup look like in isolation".
+    */
+    const REAL_TABLE_HTML =
+      '<table><thead><tr><th>Key</th><th>Value</th></tr></thead>' +
+      '<tbody><tr><td>alpha</td><td>1</td></tr><tr><td>beta</td><td>2</td></tr></tbody></table>'
+
+    it('exposes the same table/row/columnheader/cell accessibility roles a real <table> would, with row/column associations intact from DOM order alone', async () => {
+      const page = await browser.newPage()
+      try {
+        await page.setContent(`<!doctype html><html><body>${html}</body></html>`)
+        const gridSnapshot = await page.locator('[role="table"]').ariaSnapshot()
+
+        await page.setContent(`<!doctype html><html><body>${REAL_TABLE_HTML}</body></html>`)
+        const tableSnapshot = await page.locator('table').ariaSnapshot()
+
+        // -> The real `<table>`'s tree additionally nests each row under a `rowgroup` (from
+        //    `thead`/`tbody`), which the ARIA `table` role has no equivalent concept for and #3014
+        //    deliberately renders as nothing (see its own "TABLE GRID MARKUP" comment) -- everything
+        //    else (the `table`/`row`/`columnheader`/`cell` roles and their accessible names) is
+        //    asserted identically for both, line order included, which is what "announces it the
+        //    same way a real <table> does" concretely means.
+        const roleLines = (snapshot) =>
+          snapshot
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0 && !line.startsWith('- rowgroup'))
+            .map((line) => line.replace(/:$/, ''))
+
+        expect(roleLines(gridSnapshot)).toEqual(roleLines(tableSnapshot))
+        expect(roleLines(gridSnapshot)).toEqual([
+          '- table',
+          '- row "Key Value"',
+          '- columnheader "Key"',
+          '- columnheader "Value"',
+          '- row "alpha 1"',
+          '- cell "alpha"',
+          '- cell "1"',
+          '- row "beta 2"',
+          '- cell "beta"',
+          '- cell "2"'
+        ])
+
+        // -> Row/column-header and cell associations read correctly with no `aria-colindex`/
+        //    `aria-rowindex` on the markup at all (#3014 sets neither) -- the accessible names above
+        //    prove the browser is associating each cell with its own row's text, which is the
+        //    behavior those two attributes exist to restore only when DOM order can't be trusted (a
+        //    virtualized or reordered grid). Neither is true here: `grid-template-columns: subgrid`
+        //    places every cell left-to-right in DOM order, so no index hint is needed.
+      } finally {
+        await page.close()
+      }
+    })
+
+    /*
+      OpenProject #2997/#3016 acceptance: "confirm a role="table" div structure still pastes as a
+      grid into Excel/Sheets the way a real <table> does, or document the regression if it doesn't."
+      Neither Excel nor Google Sheets is reachable from this suite, but what actually lands on the
+      clipboard is: Excel's and Google Sheets' HTML-paste importers both key off literal `<table>`/
+      `<tr>`/`<td>` markup (the CF_HTML clipboard convention), not ARIA roles, so whether the copied
+      fragment still contains a real `<table>` is the decisive, testable question. `navigator.
+      clipboard.read()` needs a real http(s) origin with clipboard permissions granted -- `about:
+      blank`/`data:` URLs have no stable origin to grant against -- so this fakes one via `page.
+      route()` rather than `page.setContent()`.
+    */
+    it('documents the copy/paste-to-spreadsheet regression: the copied HTML fragment no longer contains a real <table> the way the markup it replaced did (see docs/variances.md)', async () => {
+      const page = await browser.newPage()
+      try {
+        await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
+          origin: 'http://localhost'
+        })
+
+        async function copiedHtmlFor(selector, body) {
+          await page.route('**/probe.html', (route) =>
+            route.fulfill({
+              body: `<!doctype html><html><body>${body}</body></html>`,
+              contentType: 'text/html'
+            })
+          )
+          await page.goto('http://localhost/probe.html')
+          return page.evaluate(async (sel) => {
+            const el = document.querySelector(sel)
+            const range = document.createRange()
+            range.selectNodeContents(el)
+            const selection = window.getSelection()
+            selection.removeAllRanges()
+            selection.addRange(range)
+            document.execCommand('copy')
+            for (const item of await navigator.clipboard.read()) {
+              if (item.types.includes('text/html')) {
+                return await (await item.getType('text/html')).text()
+              }
+            }
+            return null
+          }, selector)
+        }
+
+        const gridClipboardHtml = await copiedHtmlFor('[role="table"]', html)
+        const realTableClipboardHtml = await copiedHtmlFor('table', REAL_TABLE_HTML)
+
+        // -> The real `<table>` copies with its own tag intact -- proving the technique above
+        //    actually captures what the browser puts on the clipboard, not an artifact of the probe
+        expect(realTableClipboardHtml).toContain('<table')
+        expect(realTableClipboardHtml).toContain('<td')
+
+        // -> The grid copies as a flat run of role-bearing `<div>`s -- no `<table>`/`<tr>`/`<td>` at
+        //    all -- which is the regression: an app whose paste importer looks for those tags has
+        //    nothing to recognize as tabular data here, even though a screen reader (previous test)
+        //    reads it back identically to a real table.
+        expect(gridClipboardHtml).not.toContain('<table')
+        expect(gridClipboardHtml).not.toContain('<td')
+        expect(gridClipboardHtml).toContain('role="row"')
+        expect(gridClipboardHtml).toContain('role="cell"')
+      } finally {
+        await page.close()
+      }
+    })
+  }
+)
 
 describe('MarkdownRenderer - previously-broken edge cases', () => {
   it('does not throw when a fence names an unrecognized/malformed language', () => {

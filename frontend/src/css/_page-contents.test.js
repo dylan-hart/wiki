@@ -1300,7 +1300,11 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       square corner would be visibly poking past the frame's rounded one, exactly OpenProject #2958's
       report.
     */
-    async function measureCornerContainment({ dark: darkMode = false, cobalt = false } = {}) {
+    async function measureCornerContainment({
+      dark: darkMode = false,
+      cobalt = false,
+      scrollToEnd = false
+    } = {}) {
       const [{ css: contentCss }, appCss] = await Promise.all([
         compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
           loadPaths: [dir]
@@ -1317,9 +1321,18 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
             `<style>body{margin:0;padding:20px;}</style></head>` +
             `<body class="${bodyClasses}">${WIDE_SAMPLE}</body></html>`
         )
-        return await page.evaluate(() => {
+        return await page.evaluate((scrollAllTheWay) => {
           const wrap = document.querySelector('.table-wrap')
           const scroll = document.querySelector('.table-scroll')
+          // -> OpenProject #3016: re-verifying the #2958 regression didn't isolate whether the
+          //    corner-bleed was scroll-position dependent -- scrolled all the way to the trailing
+          //    edge, the table's own content stops being cut off mid-cell (it sits at its own
+          //    natural edge again), which is exactly the OTHER geometry `measure()`'s own comment
+          //    already calls out as "needs no clip at all" for a table that fits. If containment
+          //    only held at the unscrolled position, this is where it would break.
+          if (scrollAllTheWay) {
+            scroll.scrollLeft = scroll.scrollWidth
+          }
           const r = wrap.getBoundingClientRect()
           // -> Every element in the fixture is a `<div>` now (OpenProject #2997/#3014), so the
           //    corner-containment question is no longer "which tag is here" but "does this pixel
@@ -1333,10 +1346,13 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
             // -> Confirms the fixture actually needs a scrollbar -- otherwise this test would pass
             //    vacuously by never exercising the mid-content cut at all
             needsScroll: scroll.scrollWidth > scroll.clientWidth,
+            // -> Confirms a `scrollToEnd` request actually moved the scroller, so a passing test
+            //    below isn't vacuously true from never having scrolled at all
+            scrolledToEnd: scroll.scrollLeft > 0,
             topRight: roleAt(r.x + r.width - 2, r.y + 2),
             bottomRight: roleAt(r.x + r.width - 2, r.y + r.height - 2)
           }
-        })
+        }, scrollToEnd)
       } finally {
         await page.close()
       }
@@ -1415,6 +1431,79 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         //    `.toMatch()` regex can't take directly -- membership is the same check either way.
         expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.topRight)
         expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.bottomRight)
+      }
+    })
+
+    /*
+      OpenProject #3016: "whether the original corner-bleed was scroll-related was never isolated
+      before this redesign was chosen." The test above only exercises the unscrolled, mid-content-cut
+      position -- this is the other end of the same table, scrolled all the way to its trailing edge,
+      which is the position the pre-#2958 regression report itself never distinguished from the
+      unscrolled one. Containment has to hold at both ends, not just the one already covered.
+    */
+    it("still contains a wide, fully-scrolled Cobalt table's cell backgrounds to the frame's rounded corner at the trailing edge, not just at the unscrolled position (OpenProject #3016)", async () => {
+      const cobaltLight = await measureCornerContainment({
+        dark: false,
+        cobalt: true,
+        scrollToEnd: true
+      })
+      const cobaltDark = await measureCornerContainment({
+        dark: true,
+        cobalt: true,
+        scrollToEnd: true
+      })
+      for (const result of [cobaltLight, cobaltDark]) {
+        expect(result.needsScroll).toBe(true)
+        expect(result.scrolledToEnd).toBe(true)
+        expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.topRight)
+        expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.bottomRight)
+      }
+    })
+
+    /*
+      OpenProject #3016: a plain functional check that `.table-scroll` genuinely scrolls under the
+      new `display: grid` + `grid-template-columns: subgrid` layout, not merely that
+      `scrollWidth > clientWidth` (already asserted elsewhere in this describe) -- subgrid is a
+      newer, less battle-tested layout mode than the plain block/table layout it replaced, so this
+      proves the trailing column is actually draggable into view rather than stuck off-screen.
+    */
+    it('actually scrolls a wide table horizontally: the last column is off-screen before scrolling and comes fully into view after', async () => {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage({ viewport: { width: 500, height: 400 } })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body>${WIDE_SAMPLE}</body></html>`
+        )
+        const result = await page.evaluate(() => {
+          const scroll = document.querySelector('.table-scroll')
+          const lastCell = document.querySelector(
+            '[role="row"]:last-child > [role="cell"]:last-child'
+          )
+          const before = lastCell.getBoundingClientRect()
+          const scrollBox = scroll.getBoundingClientRect()
+          scroll.scrollLeft = scroll.scrollWidth
+          const after = lastCell.getBoundingClientRect()
+          return {
+            needsScroll: scroll.scrollWidth > scroll.clientWidth,
+            // -> Before scrolling, the last column's cell extends past the scroller's own right
+            //    edge -- cut off, exactly the geometry that exercises the corner clip above
+            cutOffBefore: before.right > scrollBox.right,
+            // -> After scrolling all the way, that same cell's right edge sits at or inside the
+            //    scroller's own right edge -- fully visible now, not merely "moved some"
+            visibleAfter: after.right <= scrollBox.right + 1
+          }
+        })
+        expect(result.needsScroll).toBe(true)
+        expect(result.cutOffBefore).toBe(true)
+        expect(result.visibleAfter).toBe(true)
+      } finally {
+        await page.close()
       }
     })
   })
