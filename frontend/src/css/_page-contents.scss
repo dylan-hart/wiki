@@ -2213,6 +2213,7 @@
   .table-wrap {
     position: relative;
     margin: 20px 0;
+    width: fit-content;
     max-width: 100%;
     border: 1px solid var(--content-table-frame);
     border-radius: var(--content-table-radius);
@@ -2319,7 +2320,15 @@
     min-width: 100%`: a table narrower than the frame no longer stretches its own columns to fill it
     (that was the browser's automatic `<table>` column-width redistribution, which a fixed grid
     template has no equivalent for without knowing the real column count) -- it now renders at its
-    natural width, leaving blank frame background after the last column instead.
+    natural width. OpenProject #3033: that natural width used to be masked by `.table-wrap` itself
+    still filling the frame (an ordinary block box's `width: auto` resolves to "fill the containing
+    block"), leaving blank frame background trailing a narrow table instead of the wrap shrinking to
+    meet it -- `.table-wrap`'s own `width: fit-content` (below) is what closes that gap, so the whole
+    three-box frame now hugs the table's natural width instead of just the grid inside it. A `1fr`
+    column track was tested and rejected as the way to let columns share the container's extra width
+    instead: a `fr` track does not degrade to a content-based size during a shrink-to-fit pass, so it
+    silently defeats `.table-wrap`'s own `fit-content` and re-stretches the table to the full
+    container width -- `max-content`, unchanged above, is what `fit-content` on the wrap depends on.
 
     Every `[role="row"]` is `display: grid; grid-template-columns: subgrid; grid-column: 1 / -1` --
     CSS SUBGRID, not `display: contents`. Subgrid is what lets each row's own cells size against the
