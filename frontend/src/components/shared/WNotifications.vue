@@ -7,9 +7,12 @@
          `start-1/2` here, still paired with the SAME leftward translate, would pull the stack off
          to one side instead of centering it. Left physical rather than "fixed" with logical, since
          swapping only half the pair would be worse than swapping neither.
+
+      -> `bottom-0`, not `top-0` (OpenProject #3029): anchored at the top, the stack could sit over
+         the searchbar. There is no Ledger/Cobalt split here -- both aesthetics anchor the same way.
     -->
     <div
-      class="w-notifications fixed top-0 left-1/2 z-[9000] flex w-full max-w-md -translate-x-1/2 flex-col items-center gap-2 p-2 pointer-events-none">
+      class="w-notifications fixed bottom-0 left-1/2 z-[9000] flex w-full max-w-md -translate-x-1/2 flex-col items-center gap-2 p-2 pointer-events-none">
       <transition-group name="w-notification">
         <div
           v-for="n of queue"
@@ -187,7 +190,7 @@ function runAction(n) {
 .w-notification-enter-from,
 .w-notification-leave-to {
   opacity: 0;
-  transform: translateY(-24px);
+  transform: translateY(24px);
 }
 /*
   Takes the leaving toast out of flow, so the ones below it close the gap under TransitionGroup's
