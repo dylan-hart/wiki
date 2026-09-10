@@ -166,18 +166,22 @@ describe('_page-contents.scss logical properties (whole file)', () => {
     // -> OpenProject #2916 split the single `--content-rule` table border into its own
     //    `--content-table-col-rule`/`--content-table-rule` pair (see that WP), so the cell rule
     //    itself moved off `--content-rule` -- the logical-property shape this test guards is
-    //    unchanged either way.
+    //    unchanged either way. OpenProject #2997/#3014/#3015 moved the markup from
+    //    `<table>`/`<th>`/`<td>`/`<thead>` to `div[role="table"]`/`[role="columnheader"]`/
+    //    `[role="cell"]`, which is the selector shape below, not the table-element one.
     expect(source).toMatch(
-      /th,\s*td\s*\{[^}]*border-inline-end:\s*1px solid var\(--content-table-col-rule\)/s
+      /\[role='columnheader'\],\s*\[role='cell'\]\s*\{[^}]*border-inline-end:\s*1px solid var\(--content-table-col-rule\)/s
     )
-    expect(source).toMatch(/tr\s*>\s*:last-child\s*\{\s*border-inline-end:\s*0;\s*\}/)
+    expect(source).toMatch(/\[role='row'\]\s*>\s*:last-child\s*\{\s*border-inline-end:\s*0;\s*\}/)
     expect(source).toMatch(
-      /thead th\s*\{\s*border-inline-end-color:\s*var\(--content-table-head-rule\)/
+      /\[role='columnheader'\]\s*\{\s*border-inline-end-color:\s*var\(--content-table-head-rule\)/
     )
   })
 
   it("aligns table cells and the caption to the logical start, leaving room for markdown's own explicit `---:` alignment", () => {
-    expect(source).toMatch(/th,\s*td\s*\{[^}]*text-align:\s*start;/s)
+    expect(source).toMatch(
+      /\[role='columnheader'\],\s*\[role='cell'\]\s*\{[^}]*text-align:\s*start;/s
+    )
     expect(source).toMatch(/caption\s*\{[^}]*text-align:\s*start;/s)
   })
 })
@@ -1107,18 +1111,20 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
     let browser
 
+    // -> `div[role="table"]`/`[role="row"]`/`[role="columnheader"]`/`[role="cell"]`, matching
+    //    `renderers/markdown.js`'s renderer output (OpenProject #2997/#3014) -- there is no `<table>`,
+    //    `<thead>` or `<tbody>` any more; `thead_open`/`thead_close`/`tbody_open`/`tbody_close`
+    //    render as nothing, so a header row is just a row whose cells carry `role="columnheader"`.
     const SAMPLE = `
       <article class="page-contents">
         <div class="table-wrap">
           <div class="table-clip">
             <div class="table-scroll">
-              <table>
-                <thead><tr><th>Key</th><th>Value</th></tr></thead>
-                <tbody>
-                  <tr><td>alpha</td><td>1</td></tr>
-                  <tr><td>beta</td><td>2</td></tr>
-                </tbody>
-              </table>
+              <div role="table">
+                <div role="row"><div role="columnheader">Key</div><div role="columnheader">Value</div></div>
+                <div role="row"><div role="cell">alpha</div><div role="cell">1</div></div>
+                <div role="row"><div role="cell">beta</div><div role="cell">2</div></div>
+              </div>
             </div>
           </div>
         </div>
@@ -1128,19 +1134,18 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     //    table off mid-content on the trailing edge rather than at the table's own natural edge --
     //    the case that actually exercises the rounded-corner clip (OpenProject #2958). A table that
     //    fits within its container needs no scrolling at all, so its corners sit at the table's own
-    //    natural edge regardless of which box owns the radius.
+    //    natural edge regardless of which box owns the radius. 12 columns, matching the 16-column
+    //    cap `[role="table"]` reserves (OpenProject #3015) with headroom to spare.
     const WIDE_SAMPLE = `
       <article class="page-contents">
         <div class="table-wrap">
           <div class="table-clip">
             <div class="table-scroll">
-              <table>
-                <thead><tr>${Array.from({ length: 12 }, (_, i) => `<th>Column ${i + 1}</th>`).join('')}</tr></thead>
-                <tbody>
-                  <tr>${Array.from({ length: 12 }, (_, i) => `<td>Column ${i + 1} row1 value value</td>`).join('')}</tr>
-                  <tr>${Array.from({ length: 12 }, (_, i) => `<td>Column ${i + 1} row2 value value</td>`).join('')}</tr>
-                </tbody>
-              </table>
+              <div role="table">
+                <div role="row">${Array.from({ length: 12 }, (_, i) => `<div role="columnheader">Column ${i + 1}</div>`).join('')}</div>
+                <div role="row">${Array.from({ length: 12 }, (_, i) => `<div role="cell">Column ${i + 1} row1 value value</div>`).join('')}</div>
+                <div role="row">${Array.from({ length: 12 }, (_, i) => `<div role="cell">Column ${i + 1} row2 value value</div>`).join('')}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -1224,15 +1229,20 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
           const wrap = document.querySelector('.table-wrap')
           const scroll = document.querySelector('.table-scroll')
           const r = wrap.getBoundingClientRect()
-          function tagAt(x, y) {
-            return document.elementFromPoint(x, y)?.tagName ?? null
+          // -> Every element in the fixture is a `<div>` now (OpenProject #2997/#3014), so the
+          //    corner-containment question is no longer "which tag is here" but "does this pixel
+          //    belong to a table role at all" -- a cell/columnheader/row/table `role` attribute
+          //    poking past the frame is exactly OpenProject #2958's regression, restated for the
+          //    new markup.
+          function roleAt(x, y) {
+            return document.elementFromPoint(x, y)?.getAttribute('role') ?? null
           }
           return {
             // -> Confirms the fixture actually needs a scrollbar -- otherwise this test would pass
             //    vacuously by never exercising the mid-content cut at all
             needsScroll: scroll.scrollWidth > scroll.clientWidth,
-            topRight: tagAt(r.x + r.width - 2, r.y + 2),
-            bottomRight: tagAt(r.x + r.width - 2, r.y + r.height - 2)
+            topRight: roleAt(r.x + r.width - 2, r.y + 2),
+            bottomRight: roleAt(r.x + r.width - 2, r.y + r.height - 2)
           }
         })
       } finally {
@@ -1296,8 +1306,10 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       const cobaltDark = await measureCornerContainment({ dark: true, cobalt: true })
       for (const result of [cobaltLight, cobaltDark]) {
         expect(result.needsScroll).toBe(true)
-        expect(result.topRight).not.toMatch(/^(TH|TD|THEAD|TABLE)$/)
-        expect(result.bottomRight).not.toMatch(/^(TH|TD|THEAD|TABLE)$/)
+        // -> `roleAt` returns `null` for a pixel with no element/role there at all, which a
+        //    `.toMatch()` regex can't take directly -- membership is the same check either way.
+        expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.topRight)
+        expect(['columnheader', 'cell', 'row', 'table']).not.toContain(result.bottomRight)
       }
     })
   })
@@ -1352,22 +1364,26 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
   })
 
   it('paints the head as a plain tinted strip -- a flat `background-color`, never a `background-image`/gradient', () => {
-    const theadBlock = blockFor('thead {')
-    expect(theadBlock).toMatch(/background-color:\s*var\(--content-table-head\)/)
-    expect(theadBlock).not.toMatch(/gradient/)
-    expect(theadBlock).not.toMatch(/background-image/)
-
-    const theadThBlock = blockFor('thead th {')
-    expect(theadThBlock).toMatch(/background-color:\s*transparent/)
-    expect(theadThBlock).toMatch(/color:\s*var\(--content-table-head-ink\)/)
-    expect(theadThBlock).not.toMatch(/gradient/)
+    // -> OpenProject #2997/#3014/#3015: there is no `thead` element any more (the renderer's
+    //    `thead_open`/`thead_close` render as nothing), so the strip is painted directly on each
+    //    `[role="columnheader"]` cell rather than on a `thead` ancestor -- grid cells sit flush
+    //    with no gap, so per-cell painting still reads as one continuous strip.
+    const columnheaderBlock = blockFor("[role='columnheader'] {")
+    expect(columnheaderBlock).toMatch(/background-color:\s*var\(--content-table-head\)/)
+    expect(columnheaderBlock).toMatch(/color:\s*var\(--content-table-head-ink\)/)
+    expect(columnheaderBlock).not.toMatch(/gradient/)
+    expect(columnheaderBlock).not.toMatch(/background-image/)
   })
 
   it('bands the body on two stated row tones, with the plain row transparent rather than tinted', () => {
-    const plainRowBlock = blockFor('tbody > tr > td {')
+    const plainRowBlock = blockFor(
+      "[role='row']:not(:has(> [role='columnheader'])) > [role='cell'] {"
+    )
     expect(plainRowBlock).toMatch(/background-color:\s*var\(--content-table-row\)/)
 
-    const bandedRowBlock = blockFor('tbody > tr:nth-child(even) > td {')
+    const bandedRowBlock = blockFor(
+      "[role='row']:nth-child(even of [role='row']:not(:has(> [role='columnheader']))) > [role='cell'] {"
+    )
     expect(bandedRowBlock).toMatch(/background-color:\s*var\(--content-table-row-alt\)/)
 
     // -> Ledger's own plain-row token is `transparent`, not a wash -- the removal the WP names.
@@ -1377,10 +1393,14 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
   it('paints hover over the band, gated on a real hover capability, with the accent on the leading cell only', () => {
     const hoverStart = source.indexOf('@media (hover: hover) {', tablesSectionStart)
     expect(hoverStart).toBeGreaterThan(-1)
-    const rowHoverBlock = blockFor('tbody > tr:hover > td {')
+    const rowHoverBlock = blockFor(
+      "[role='row']:not(:has(> [role='columnheader'])):hover > [role='cell'] {"
+    )
     expect(rowHoverBlock).toMatch(/background:\s*var\(--content-table-row-hover\)/)
 
-    const hoverEdgeBlock = blockFor('tbody > tr:hover > td:first-child {')
+    const hoverEdgeBlock = blockFor(
+      "[role='row']:not(:has(> [role='columnheader'])):hover > [role='cell']:first-child {"
+    )
     expect(hoverEdgeBlock).toMatch(/box-shadow:\s*var\(--content-table-hover-edge\)/)
   })
 
@@ -1390,6 +1410,136 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
     //    one block, so this asserts directly against the two literal patterns that used to exist.
     expect(source).not.toMatch(/--content-table-head-grade/)
     expect(source).not.toMatch(/--content-table-shadow:\s*0[^;]*rgba/)
+  })
+})
+
+/**
+ * OpenProject #2997/#3014/#3015 ("Redesign rendered markdown tables as CSS Grid"). The two describes
+ * above pin the token wiring and the head/band/hover rules from source -- what they CANNOT catch is
+ * whether the CSS Subgrid technique those rules depend on actually does its one job: making a
+ * column's width agree across every row even though no selector anywhere knows the real column
+ * count (see `_page-contents.scss`'s own "Column sizing, CSS Grid style" comment for the full
+ * mechanism). A source regex can't tell a working subgrid from a broken one that happens to declare
+ * the right properties -- only real layout can, which is what this describe is for.
+ */
+describe('_page-contents.scss table CSS Grid column alignment (OpenProject #3015)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+
+  const SAMPLE = `
+    <article class="page-contents">
+      <div class="table-wrap">
+        <div class="table-clip">
+          <div class="table-scroll">
+            <div role="table">
+              <div role="row">
+                <div role="columnheader">A</div>
+                <div role="columnheader">A much, much longer header for the second column</div>
+                <div role="columnheader">C</div>
+              </div>
+              <div role="row">
+                <div role="cell">A much longer first-column value than the header had</div>
+                <div role="cell">short</div>
+                <div role="cell">x</div>
+              </div>
+              <div role="row">
+                <div role="cell">mid</div>
+                <div role="cell">y</div>
+                <div role="cell">z</div>
+              </div>
+              <div role="row">
+                <div role="cell">bottom</div>
+                <div role="cell">w</div>
+                <div role="cell">z2</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>`
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    async function measure() {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body>${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const rows = [...document.querySelectorAll('[role="row"]')]
+          const leftEdges = rows.map((row) => {
+            const firstCell = row.firstElementChild
+            return firstCell.getBoundingClientRect().x
+          })
+          const secondColLeftEdges = rows.map((row) => {
+            const secondCell = row.children[1]
+            return secondCell.getBoundingClientRect().x
+          })
+          const headerRow = rows[0]
+          const bodyRows = rows.slice(1)
+          return {
+            leftEdges,
+            secondColLeftEdges,
+            headerBackground: getComputedStyle(headerRow.firstElementChild).backgroundColor,
+            // -> First and third body rows are the "plain" band, the second is the "alt" band --
+            //    OpenProject #2919's two-tone banding, now counted with the header row excluded.
+            bodyRowBackgrounds: bodyRows.map(
+              (row) => getComputedStyle(row.firstElementChild).backgroundColor
+            )
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    it("lines every row's first column up on the same left edge, even though the rows' own content widths differ wildly", async () => {
+      const { leftEdges } = await measure()
+      // -> Subgrid is what this proves: if it had silently fallen back to independent per-row grids
+      //    (or `display: contents` had let cells drift into the wrong grid row entirely), the data
+      //    row with the long first-column value would push its OWN column 1 wider than the header's,
+      //    and the edges below would disagree.
+      expect(new Set(leftEdges).size).toBe(1)
+    })
+
+    it('lines every row up on the same second-column left edge too, sized off the longest content in that column across every row', async () => {
+      const { secondColLeftEdges, leftEdges } = await measure()
+      expect(new Set(secondColLeftEdges).size).toBe(1)
+      // -> Column 2 starts to the right of column 1 -- confirms the columns are real, distinct grid
+      //    tracks, not every cell collapsing onto the same track.
+      expect(secondColLeftEdges[0]).toBeGreaterThan(leftEdges[0])
+    })
+
+    it('bands the first body row as plain and the second as alt, not the header row (nth-child(of S) skips it correctly)', async () => {
+      const { headerBackground, bodyRowBackgrounds } = await measure()
+      // -> `--content-table-head` in Ledger light, `#f0f2f7` -- the header row's own cell paints
+      //    this directly, never the plain/alt body band, confirming the `:not(:has(> ...))` filter
+      //    correctly excludes it from the banding rules' count.
+      expect(headerBackground).toBe('rgb(240, 242, 247)')
+      expect(bodyRowBackgrounds).toHaveLength(3)
+      // -> `--content-table-row: transparent` -- `getComputedStyle` reports the declared value
+      //    itself, not what shows through once composited against the wrapper's own white ground.
+      expect(bodyRowBackgrounds[0]).toBe('rgba(0, 0, 0, 0)')
+      // -> `--content-table-row-alt` in Ledger light, `#f7f8fb`
+      expect(bodyRowBackgrounds[1]).toBe('rgb(247, 248, 251)')
+      expect(bodyRowBackgrounds[2]).toBe('rgba(0, 0, 0, 0)')
+    })
   })
 })
 
