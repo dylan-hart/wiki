@@ -123,7 +123,9 @@ describe('--block-* Cobalt-light overrides', () => {
 
 describe('--block-* Cobalt-dark overrides', () => {
   it('restates --block-border, --block-tint-bg and re-points --block-accent-fill', () => {
-    expect(declaredValue(cobaltDarkSource, 'block-border')).toBe('rgb(255 255 255 / 0.1)')
+    // -> OpenProject #2912: re-derived from the card hue as a solid hex, not the flat white-alpha
+    //    overlay this used to be -- still its own literal override, not the generic alias.
+    expect(declaredValue(cobaltDarkSource, 'block-border')).toBe('#3143b9')
     expect(declaredValue(cobaltDarkSource, 'block-tint-bg')).toBe('var(--color-dark-3-5)')
     expect(declaredValue(cobaltDarkSource, 'block-accent-fill')).toBe('var(--color-accent-fill)')
   })
@@ -190,7 +192,7 @@ describe('exact-value cross-check against the source docs (ui-iteration/blocks.m
     expect(literalFor('color-hairline')).toBe('#dbe1ec')
     expect(literalFor('color-hairline-dark')).toBe('#2a3040')
     expect(literalFor('color-hairline', { cobalt: true })).toBe('#dfe5f5')
-    // -> Cobalt dark is the literal override (rgb(255 255 255 / 0.1)), not this generic alias
+    // -> Cobalt dark is the literal override (#3143b9, OpenProject #2912), not this generic alias
   })
 
   it('--block-mark-color matches the 7px corner-mark color PageHeader.vue already draws', () => {
