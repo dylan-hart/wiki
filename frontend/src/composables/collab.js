@@ -1,10 +1,10 @@
-import { watch } from 'vue'
+import { defineAsyncComponent, watch } from 'vue'
 
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 
 import { i18n } from '@/boot/i18n'
-import { confirm } from '@/composables/dialog'
+import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { log } from '@/helpers/log'
 import { useCollabStore } from '@/stores/collab'
@@ -470,19 +470,38 @@ async function offerDraftRestore({ siteId, pageId }) {
     return
   }
 
+  /*
+    Fetched the moment the prompt opens, not once Restore is clicked (OpenProject #2929): the dialog
+    shows the draft against what the editor holds now, so it needs both halves in hand while it is up
+    rather than after the reader has already decided. The same request answers the restore itself --
+    no second round trip -- and the dialog reports the fetch's own outcome as a caption.
+
+    The `catch(noop)` is not error handling: the dialog observes this promise's rejection for its
+    caption and `onOk` below re-observes it on Restore, but a reader who discards instead leaves the
+    rejection with no other subscriber, and an unhandled-rejection report for a request whose failure
+    was already reported in the dialog would be noise.
+  */
+  const draftUrl = `sites/${siteId}/pages/${pageId}/draft`
+  const draftRequest = API_CLIENT.get(draftUrl).json()
+  draftRequest.catch(() => {})
+
   const { t } = i18n.global
-  confirm({
-    title: t('editor.collab.draftRecovery.title'),
-    message: draftInfo.authorName
-      ? t('editor.collab.draftRecovery.messageBy', { authorName: draftInfo.authorName })
-      : t('editor.collab.draftRecovery.message'),
-    okLabel: t('editor.collab.draftRecovery.restore'),
-    cancelLabel: t('editor.collab.draftRecovery.discard'),
-    persistent: true
+  dialog({
+    component: defineAsyncComponent(() => import('@/components/PageDraftRestoreDialog.vue')),
+    componentProps: {
+      authorName: draftInfo.authorName,
+      // -> The room's live content once synced, which is what a bound editor shows -- not the copy
+      //    `pageStore.content` loaded from the API before the session started. `doc` is always
+      //    live here: this only ever runs from the session's own `sync` handler.
+      currentContent: doc.getText('content').toString(),
+      draftRequest
+    }
   })
     .onOk(async () => {
       try {
-        const restored = await API_CLIENT.get(`sites/${siteId}/pages/${pageId}/draft`).json()
+        // -> A fetch that failed while the prompt was up is retried here rather than treated as
+        //    final: the draft is still on the server, and Restore was the reader's answer.
+        const restored = await draftRequest.catch(() => API_CLIENT.get(draftUrl).json())
         applyRestoredDraft(restored)
         notify({ type: 'positive', message: t('editor.collab.draftRecovery.restored') })
       } catch (err) {

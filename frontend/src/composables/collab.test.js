@@ -84,13 +84,16 @@ const { FakeWebsocketProvider } = vi.hoisted(() => {
 vi.mock('y-websocket', () => ({ WebsocketProvider: FakeWebsocketProvider }))
 
 /*
-  `confirm()`'s real chain (`composables/dialog.js`) opens a `<w-dialog>` component that resolves
+  `dialog()`'s real chain (`composables/dialog.js`) mounts a `<w-dialog>` component that resolves
   asynchronously through user interaction -- nothing this unit test can drive. This stand-in keeps the
-  same chainable shape (`.onOk(cb).onCancel(cb)`, both registering on the one object confirm() itself
+  same chainable shape (`.onOk(cb).onCancel(cb)`, both registering on the one object dialog() itself
   returns) so a test decides which branch fires by calling `.okCb()`/`.cancelCb()` directly, the same
-  way `GlossaryImportDialog.test.js` drives its own `confirm()` mock.
+  way `GlossaryImportDialog.test.js` drives its own `confirm()` mock. What the draft-restore prompt
+  hands the dialog is asserted off `componentProps`; the component itself is a
+  `defineAsyncComponent` wrapper (`PageDraftRestoreDialog.vue` has its own suite), so identity is
+  not what this file checks.
 */
-const confirmMock = vi.fn(() => {
+const dialogMock = vi.fn(() => {
   const chain = {
     onOk(cb) {
       chain.okCb = cb
@@ -108,7 +111,7 @@ const confirmMock = vi.fn(() => {
 })
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
-  confirm: (...args) => confirmMock(...args)
+  dialog: (...args) => dialogMock(...args)
 }))
 
 /*
@@ -142,7 +145,7 @@ function latestProvider() {
 beforeEach(() => {
   setActivePinia(createPinia())
   FakeWebsocketProvider.instances.length = 0
-  confirmMock.mockClear()
+  dialogMock.mockClear()
 })
 
 afterEach(() => {
@@ -355,10 +358,33 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     return { pageStore, provider: latestProvider() }
   }
 
+  const RESTORED = {
+    content: 'the restored content',
+    title: 'Restored Title',
+    description: 'Restored description',
+    icon: 'tabler:restore'
+  }
+
+  /** Binds a throwaway editor so the shared text can be seeded and read back. */
+  function bindYtext(initial) {
+    let seenYtext = null
+    bindCollabEditor((ytext) => {
+      seenYtext = ytext
+      return { destroy: vi.fn() }
+    })
+    seenYtext.insert(0, initial)
+    return seenYtext
+  }
+
+  function promptProps() {
+    return dialogMock.mock.calls[0][0].componentProps
+  }
+
   it('does not prompt when the page carries no recorded draft', () => {
     const { provider } = boot({ draft: null })
     provider.emit('sync', true)
-    expect(confirmMock).not.toHaveBeenCalled()
+    expect(dialogMock).not.toHaveBeenCalled()
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
   })
 
   it('prompts once the session syncs when a draft is recorded, and clears pageStore.draft right away', () => {
@@ -367,31 +393,40 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     })
     provider.emit('sync', true)
 
-    expect(confirmMock).toHaveBeenCalledTimes(1)
-    const opts = confirmMock.mock.calls[0][0]
-    expect(JSON.parse(opts.title)).toEqual({
-      key: 'editor.collab.draftRecovery.title',
-      params: null
-    })
-    expect(JSON.parse(opts.message)).toEqual({
-      key: 'editor.collab.draftRecovery.messageBy',
-      params: { authorName: 'Grace Hopper' }
-    })
-    expect(opts.persistent).toBe(true)
+    expect(dialogMock).toHaveBeenCalledTimes(1)
+    const { component, componentProps } = dialogMock.mock.calls[0][0]
+    // -> A bespoke dialog component (OpenProject #2929), not the generic `confirm()` path
+    expect(component).toBeTruthy()
+    expect(componentProps.authorName).toBe('Grace Hopper')
     // -> Consumed immediately, not left standing as "still pending" while the dialog is up
     expect(pageStore.draft).toBe(null)
   })
 
-  it('falls back to the name-less message key when the draft carries no author', () => {
+  it('passes a null author through when the draft carries none', () => {
     const { provider } = boot({
       draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: null }
     })
     provider.emit('sync', true)
-    const opts = confirmMock.mock.calls[0][0]
-    expect(JSON.parse(opts.message)).toEqual({
-      key: 'editor.collab.draftRecovery.message',
-      params: null
+    expect(promptProps().authorName).toBe(null)
+  })
+
+  it('fetches the draft the moment the prompt opens and hands it, with the live content, to the dialog', async () => {
+    const { provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
     })
+    bindYtext('what the editor holds now')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(RESTORED) })
+
+    provider.emit('sync', true)
+
+    // -> Before any button is pressed: the GET is already in flight and both halves of the
+    //    comparison are the dialog's to show (OpenProject #2929)
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/page-1/draft')
+    const props = promptProps()
+    expect(props.currentContent).toBe('what the editor holds now')
+    expect(props.draftRequest).toBeInstanceOf(Promise)
+    await expect(props.draftRequest).resolves.toEqual(RESTORED)
   })
 
   it('never prompts twice in the same session, even across a reconnect´s second sync', () => {
@@ -401,35 +436,22 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     provider.emit('sync', true)
     provider.emit('sync', false)
     provider.emit('sync', true)
-    expect(confirmMock).toHaveBeenCalledTimes(1)
+    expect(dialogMock).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
   })
 
-  it('restoring fetches the draft content and applies it into the shared document and page store', async () => {
+  it('restoring applies the already-fetched draft into the shared document and page store, with no second fetch', async () => {
     const { provider } = boot({
       draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
     })
-    let seenYtext = null
-    bindCollabEditor((ytext) => {
-      seenYtext = ytext
-      return { destroy: vi.fn() }
-    })
-    seenYtext.insert(0, 'stale content')
-
-    API_CLIENT.get.mockReturnValueOnce({
-      json: () =>
-        Promise.resolve({
-          content: 'the restored content',
-          title: 'Restored Title',
-          description: 'Restored description',
-          icon: 'tabler:restore'
-        })
-    })
+    const seenYtext = bindYtext('stale content')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(RESTORED) })
 
     provider.emit('sync', true)
-    const chain = confirmMock.mock.results.at(0).value
+    const chain = dialogMock.mock.results.at(0).value
     await chain.okCb()
 
-    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/page-1/draft')
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
     expect(seenYtext.toString()).toBe('the restored content')
     expect(usePageStore().title).toBe('Restored Title')
     expect(usePageStore().description).toBe('Restored description')
@@ -437,23 +459,37 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'positive' })
   })
 
-  it('a failed restore notifies negatively and leaves the document untouched', async () => {
+  it('a fetch that failed while the prompt was up is retried on Restore', async () => {
     const { provider } = boot({
       draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
     })
-    let seenYtext = null
-    bindCollabEditor((ytext) => {
-      seenYtext = ytext
-      return { destroy: vi.fn() }
-    })
-    seenYtext.insert(0, 'unchanged content')
-
-    API_CLIENT.get.mockReturnValueOnce({
-      json: () => Promise.reject(new Error('network'))
-    })
+    const seenYtext = bindYtext('stale content')
+    API_CLIENT.get
+      .mockReturnValueOnce({ json: () => Promise.reject(new Error('network')) })
+      .mockReturnValueOnce({ json: () => Promise.resolve(RESTORED) })
 
     provider.emit('sync', true)
-    const chain = confirmMock.mock.results.at(0).value
+    await expect(promptProps().draftRequest).rejects.toThrow('network')
+
+    const chain = dialogMock.mock.results.at(0).value
+    await chain.okCb()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
+    expect(seenYtext.toString()).toBe('the restored content')
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'positive' })
+  })
+
+  it('a restore whose retry also fails notifies negatively and leaves the document untouched', async () => {
+    const { provider } = boot({
+      draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
+    })
+    const seenYtext = bindYtext('unchanged content')
+    API_CLIENT.get
+      .mockReturnValueOnce({ json: () => Promise.reject(new Error('network')) })
+      .mockReturnValueOnce({ json: () => Promise.reject(new Error('still down')) })
+
+    provider.emit('sync', true)
+    const chain = dialogMock.mock.results.at(0).value
     await chain.okCb()
 
     expect(seenYtext.toString()).toBe('unchanged content')
@@ -464,19 +500,16 @@ describe('offerDraftRestore / applyRestoredDraft', () => {
     const { provider } = boot({
       draft: { updatedAt: '2026-01-01T00:00:00.000Z', authorName: 'Grace Hopper' }
     })
-    let seenYtext = null
-    bindCollabEditor((ytext) => {
-      seenYtext = ytext
-      return { destroy: vi.fn() }
-    })
-    seenYtext.insert(0, 'unchanged content')
+    const seenYtext = bindYtext('unchanged content')
+    // -> The prompt-time fetch failing is exactly the case a discard must not turn into an
+    //    unhandled rejection: nobody else is left to observe it
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.reject(new Error('network')) })
 
     provider.emit('sync', true)
-    const chain = confirmMock.mock.results.at(0).value
+    const chain = dialogMock.mock.results.at(0).value
     await chain.cancelCb()
 
     expect(API_CLIENT.delete).toHaveBeenCalledWith('sites/site-1/pages/page-1/draft')
-    expect(API_CLIENT.get).not.toHaveBeenCalled()
     expect(seenYtext.toString()).toBe('unchanged content')
   })
 
