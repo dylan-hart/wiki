@@ -9,24 +9,26 @@ import { describe, expect, it } from 'vitest'
  * by a filled ancestor's rounded `overflow: hidden` leaves a light antialiasing sliver at the two
  * top corners. The fix moves the fill/round/clip onto the header and body themselves.
  *
- * `MainLayout.vue`'s `<style lang="scss">` block is global (unscoped), so this is plain SCSS
- * source with no compiled stylesheet in this test environment to assert live values against --
- * the established pattern for that (`cobaltTokens.test.js`, and this file's own
- * `MainOverlayDialog.test.js` sibling, which already reads this same file's source for the
- * `is-half-sized` rule) is a direct source-text assertion.
+ * OpenProject #3000 moved the `.main-overlay` rule this suite covers out of `layouts/MainLayout.vue`
+ * (where it lived scoped only by class name, invisible to `AdminLayout.vue`'s own separate async
+ * `<style>` chunk) into this shared `_overlay-dialog.scss` partial -- this file moved with it,
+ * unchanged in substance, since the assertions are still about the same rule.
+ *
+ * `_overlay-dialog.scss` is a plain global partial, so this is plain SCSS source with no compiled
+ * stylesheet in this test environment to assert live values against -- the established pattern for
+ * that (`cobaltTokens.test.js`, and this file's own `MainOverlayDialog.test.js` sibling, which
+ * already reads this same rule's source for the `is-half-sized` rule) is a direct source-text
+ * assertion.
  */
 
-const source = readFileSync(join(import.meta.dirname, 'MainLayout.vue'), 'utf-8')
+const source = readFileSync(join(import.meta.dirname, '_overlay-dialog.scss'), 'utf-8')
 
 // Isolate the `.main-overlay { ... }` rule so every assertion below reads against the right block
-// rather than risking a match against some unrelated part of this large stylesheet.
+// rather than risking a match against some unrelated part of this stylesheet.
 const overlayBlockStart = source.indexOf('.main-overlay {')
-const mainOverlaySource =
-  overlayBlockStart === -1
-    ? ''
-    : source.slice(overlayBlockStart, source.indexOf('\n// -> The `.q-footer', overlayBlockStart))
+const mainOverlaySource = overlayBlockStart === -1 ? '' : source.slice(overlayBlockStart)
 
-describe('MainLayout .main-overlay block', () => {
+describe('_overlay-dialog.scss .main-overlay block', () => {
   it('exists', () => {
     expect(overlayBlockStart).toBeGreaterThan(-1)
     expect(mainOverlaySource.length).toBeGreaterThan(0)
