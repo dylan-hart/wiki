@@ -498,10 +498,14 @@
 
     /*
       The inline chip: the accent wash carrying accent TEXT, edgeless and 4px-cornered -- the one
-      mark in Cobalt's prose that is red rather than blue. `--color-accent` is the white-text/accent-
-      text tone (`#c8303c`), never `--color-accent-fill`'s `#ff4d5a`, which is 3.1:1 on the wash.
+      mark in Cobalt's prose that is red rather than blue. `--color-tag-chip-accent-text` is the
+      fixed design token for exactly this red-on-wash chip look (`#c8303c`) -- the same one the
+      accent tag-chip variant uses -- not `--color-accent` (`var(--q-accent)`), which is the site's
+      own admin-configurable brand color and only *defaults* to that hex; using it here would drag
+      inline code's color along with a site's own accent customization, which the design doesn't
+      call for. Never `--color-accent-fill`'s `#ff4d5a` either, which is 3.1:1 on the wash.
     */
-    --content-code-ink: var(--color-accent);
+    --content-code-ink: var(--color-tag-chip-accent-text);
     --content-code-chip-bg: var(--color-accent-wash);
     --content-code-chip-edge: transparent;
 
@@ -511,6 +515,13 @@
       Cobalt draws no accent bar down the block's leading side -- see the `pre` rule below, which
       zeroes its width -- and no frame.
 
+      The block's own ink is `#e6eaff`, one step off Ledger's `--color-text-dark` (`#e6eaf2`, the
+      generic, non-aesthetic-specific token `--content-code-block-ink` otherwise resolves to) --
+      close enough to read as a typo if left alone, but the handoff's Cobalt page views draw a
+      distinct literal, so it gets its own override here rather than inheriting Ledger's.
+      Unchanged in Cobalt dark: the handoff gives the block the same ink in both modes, the same
+      "same both" shape the syntax tones below already have, so no dark-specific restatement.
+
       The handoff gives Cobalt exactly two syntax tones, `#ff7a84` and `#8fb0ff`, against the block's
       `#10194a`. They are assigned by what a token IS rather than spread thin: the red is the tone
       for a language's own words (keyword, type, and a deletion), the blue for everything a value or
@@ -519,6 +530,7 @@
     */
     --content-code-edge: transparent;
     --content-code-frame: transparent;
+    --content-code-block-ink: #e6eaff;
     --content-code-comment: #7f8ed1;
     --content-code-keyword: #ff7a84;
     --content-code-type: #ff7a84;
@@ -597,7 +609,7 @@
   @at-root body.body--cobalt.body--dark & {
     --content-h2: var(--color-heading-h2);
     --content-surface-code: var(--color-dark-4);
-    --content-code-ink: var(--color-accent-dark);
+    --content-code-ink: var(--color-tag-chip-accent-text);
     --content-code-chip-bg: var(--color-accent-wash-dark);
     --content-code-frame: var(--color-hairline-dark);
     --content-info: #8fb0ff;

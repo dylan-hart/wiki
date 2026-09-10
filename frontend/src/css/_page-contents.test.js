@@ -674,6 +674,163 @@ describe(
 )
 
 /**
+ * OpenProject #2977 ("Cobalt typography: article remainder"). `cobalt-typography.md` §3's Article
+ * role table, for every role that Task's sibling Bugs (#2963 base/heading sizes, #2964 h1 color,
+ * #2965 numbered-step em sizing, #2958 table corner-clipping) don't already own. Reading the source
+ * against `tailwind.css`'s Cobalt token blocks found two genuine gaps -- inline code ink and the code
+ * block's own ink -- and confirmed every other role in the table (h2, h3-h5, h6, paragraph,
+ * numbered-step text, code block background, the syntax tones, links in prose) already resolves
+ * correctly through existing tokens with no Cobalt-scoped size/weight/tracking property needed
+ * anywhere in this file. Same real-browser harness shape as the describe above: a fresh `measure()`
+ * over its own minimal sample, since that one's `SAMPLE` has no headings, paragraph or `<a>` to read.
+ */
+describe(
+  '_page-contents.scss article role-table conformance — real browser (OpenProject #2977)',
+  { skip: !hasChromium(), timeout: 60000 },
+  () => {
+    let browser
+    let stylesheets
+    let light
+    let dark
+    let cobaltLight
+    let cobaltDark
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <h1>Title</h1>
+        <h2>Section</h2>
+        <h3>Subsection</h3>
+        <h6>Label</h6>
+        <p>Body copy with an <a href="/elsewhere">inline link</a> and <code>inline.code()</code>.</p>
+        <pre class="codeblock"><code>plain text</code></pre>
+      </article>`
+
+    async function buildStylesheets() {
+      const cssDir = dirname(fileURLToPath(import.meta.url))
+      const [appCss, content] = await Promise.all([
+        buildAppCss(),
+        compileStringAsync(readFileSync(join(cssDir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [cssDir]
+        })
+      ])
+      return { appCss, contentCss: content.css }
+    }
+
+    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+      const { appCss, contentCss } = stylesheets
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const styleOf = (selector) => getComputedStyle(document.querySelector(selector))
+          return {
+            h2: styleOf('h2').color,
+            h3: styleOf('h3').color,
+            h6: styleOf('h6').color,
+            p: styleOf('p').color,
+            link: styleOf('a').color,
+            inlineCode: styleOf('code').color,
+            codeBlock: styleOf('pre.codeblock').color
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+      stylesheets = await buildStylesheets()
+      light = await measure({ dark: false })
+      dark = await measure({ dark: true })
+      cobaltLight = await measure({ dark: false, cobalt: true })
+      cobaltDark = await measure({ dark: true, cobalt: true })
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('colors Cobalt h2 in the accent, distinct from h3/h6/paragraph ink -- the one heading level allowed to', () => {
+      // -> `--color-heading-h2`
+      expect(cobaltLight.h2).toBe('rgb(31, 79, 214)')
+      expect(cobaltDark.h2).toBe('rgb(143, 176, 255)')
+      expect(cobaltLight.h2).not.toBe(cobaltLight.h3)
+      expect(cobaltDark.h2).not.toBe(cobaltDark.h3)
+    })
+
+    it('keeps h3 and the paragraph on the same body ink under Cobalt, not h1/h2’s navy or accent', () => {
+      // -> `--color-text-body`, resolved through `--content-ink`/`--content-h2` inheritance -- not
+      //    `--color-ink`'s navy, which is what "all blue" (#0.2) was.
+      expect(cobaltLight.h3).toBe('rgb(26, 32, 56)')
+      expect(cobaltLight.p).toBe(cobaltLight.h3)
+      expect(cobaltDark.h3).toBe('rgb(232, 236, 255)')
+      expect(cobaltDark.p).toBe(cobaltDark.h3)
+    })
+
+    it('mutes h6 to the caption-adjacent secondary tone under Cobalt', () => {
+      // -> `--color-text-secondary`
+      expect(cobaltLight.h6).toBe('rgb(74, 85, 128)')
+      expect(cobaltDark.h6).toBe('rgb(167, 179, 234)')
+    })
+
+    it('links prose in the strong accent under Cobalt, matching h2 in light and diverging in dark', () => {
+      // -> `--color-accent-strong`: same hex as `--color-heading-h2` in Cobalt light (both #1f4fd6),
+      //    but NOT in dark -- the dedicated dark-cobalt `--content-link` override this file already
+      //    carries points links at the cool #7fa0ff, not the warm accent-dark a plain `.body--dark`
+      //    cascade would otherwise give them.
+      expect(cobaltLight.link).toBe('rgb(31, 79, 214)')
+      expect(cobaltDark.link).toBe('rgb(127, 160, 255)')
+    })
+
+    it('draws inline code ink from the fixed tag-chip-accent token, not the site-configurable accent color', () => {
+      // -> `--color-tag-chip-accent-text`: #c8303c / #ff8f97, fixed per aesthetic regardless of a
+      //    site's own `--q-accent` customization.
+      expect(cobaltLight.inlineCode).toBe('rgb(200, 48, 60)')
+      expect(cobaltDark.inlineCode).toBe('rgb(255, 143, 151)')
+    })
+
+    it('gives the code block its own Cobalt ink, one step off Ledger’s, unchanged between light and dark', () => {
+      // -> `#e6eaff`, not Ledger's `--color-text-dark` (`#e6eaf2`) the generic token would otherwise
+      //    resolve to.
+      expect(cobaltLight.codeBlock).toBe('rgb(230, 234, 255)')
+      expect(cobaltDark.codeBlock).toBe(cobaltLight.codeBlock)
+      expect(light.codeBlock).not.toBe(cobaltLight.codeBlock)
+    })
+  }
+)
+
+/**
+ * OpenProject #2977, re-verifying §4 role swap #1 (table head) as part of this sweep: already
+ * tokenized before this Task, but the WP calls for a direct check that the Cobalt block actually
+ * sets sentence case with no tracking, not just that the tokens exist. Source-level, matching
+ * `cobaltTokens.test.js`'s own "assert against the declared text" pattern for a hand-edited
+ * property list with no compiled stylesheet in this environment to read a `var()` cascade off of.
+ */
+describe('_page-contents.scss Cobalt table-head swap stays sentence-case with no tracking (§4.1)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt &')
+  const cobaltBlockEnd = source.indexOf('@at-root body.body--cobalt.body--dark &')
+  const cobaltBlock = source.slice(cobaltBlockStart, cobaltBlockEnd)
+
+  it('sets the Barlow sans head font, normal tracking and no case transform under Cobalt', () => {
+    expect(cobaltBlockStart).toBeGreaterThan(-1)
+    expect(cobaltBlock).toMatch(
+      /--content-table-head-font:\s*600 0\.8125rem\/1\.4 var\(--font-sans\);/
+    )
+    expect(cobaltBlock).toMatch(/--content-table-head-tracking:\s*normal;/)
+    expect(cobaltBlock).toMatch(/--content-table-head-transform:\s*none;/)
+  })
+})
+
+/**
  * OpenProject #2883 ("Cobalt list rendering (numbered steps, bullets, nested lists, task lists)
  * doesn't fully match mockups"). Two independent regressions in the numbered-step circle, both
  * invisible to reading the rule and caught only by measuring what a real browser actually resolves
