@@ -378,15 +378,6 @@
                         </w-list>
                       </w-menu>
                     </w-item>
-                    <w-item clickable @click="state.isCompact = !state.isCompact">
-                      <w-item-section side>
-                        <w-icon
-                          :name="state.isCompact ? `tabler:checkbox` : `tabler:player-stop`"
-                          :color="state.isCompact ? `positive` : `grey`"
-                          size="xs" />
-                      </w-item-section>
-                      <w-item-section class="pe-2">{{ t('fileman.compactList') }}</w-item-section>
-                    </w-item>
                     <w-item clickable @click="state.shouldShowFolders = !state.shouldShowFolders">
                       <w-item-section side>
                         <w-icon
@@ -505,7 +496,7 @@
                 <img src="/_assets/icons/carbon-copy-empty-box.svg" alt="" />
                 <span>{{ t('common.pageSelector.folderEmptyWarning') }}</span>
               </div>
-              <w-list class="fileman-filelist" v-else :class="state.isCompact && `is-compact`">
+              <w-list class="fileman-filelist" v-else>
                 <w-item
                   v-for="item of files"
                   :key="item.id"
@@ -515,16 +506,15 @@
                   @click="selectItem(item)"
                   @dblclick="doubleClickItem(item)">
                   <w-item-section class="fileman-filelist-icon" avatar>
-                    <w-icon :name="item.icon" :size="state.isCompact ? `sm` : `xl`" />
+                    <w-icon :name="item.icon" size="md" />
                   </w-item-section>
                   <w-item-section class="fileman-filelist-label">
                     <w-item-label>{{ usePathTitle ? item.fileName : item.title }}</w-item-label>
                   </w-item-section>
                   <!--
                     -> The filetype caption ("PNG Image", "Markdown Page", ...) used to be a
-                       sub-line under the filename, hidden in compact mode. It's now its own
-                       column between the filename and the size, shown regardless of compact
-                       state -- the filename column is exclusive to the name now.
+                       sub-line under the filename (WP #2920). It's now its own column between the
+                       filename and the size -- the filename column is exclusive to the name now.
                   -->
                   <w-item-section class="fileman-filelist-type">
                     <div>{{ item.caption }}</div>
@@ -733,7 +723,6 @@ function storedViewOptions() {
   }
   return {
     ...(['title', 'path'].includes(stored.displayMode) ? { displayMode: stored.displayMode } : {}),
-    ...(typeof stored.isCompact === 'boolean' ? { isCompact: stored.isCompact } : {}),
     ...(typeof stored.shouldShowFolders === 'boolean'
       ? { shouldShowFolders: stored.shouldShowFolders }
       : {})
@@ -762,7 +751,6 @@ const state = reactive({
   treeNodes: {},
   treeRoots: [],
   displayMode: 'title',
-  isCompact: false,
   shouldShowFolders: true,
   isUploading: false,
   shouldCancelUpload: false,
@@ -781,12 +769,12 @@ Object.assign(state, storedViewOptions())
   the editor's insert flow, which can be dismissed in ways that never reach a teardown here.
 */
 watch(
-  () => [state.displayMode, state.isCompact, state.shouldShowFolders],
-  ([displayMode, isCompact, shouldShowFolders]) => {
+  () => [state.displayMode, state.shouldShowFolders],
+  ([displayMode, shouldShowFolders]) => {
     try {
       globalThis.localStorage?.setItem(
         VIEW_OPTIONS_KEY,
-        JSON.stringify({ displayMode, isCompact, shouldShowFolders })
+        JSON.stringify({ displayMode, shouldShowFolders })
       )
     } catch {
       // -> Full, or storage denied. Not worth a word to the reader: the options still work, they
@@ -926,7 +914,8 @@ const files = computed(() => {
           break
         }
         case 'asset': {
-          f.icon = fileTypes[f.fileExt]?.icon ?? ''
+          // -> An unmapped extension still gets a real Tabler glyph, never a blank slot
+          f.icon = fileTypes[f.fileExt]?.icon ?? 'tabler:file'
           f.side = formatFileSize(f.fileSize)
           if (fileTypes[f.fileExt]) {
             f.caption = t(`fileman.${f.fileExt}FileType`)
@@ -1761,7 +1750,17 @@ $fileman-hdr-wrap-max: 899.98px;
 
   /*
     The listing runs edge to edge -- the rows are the page, not cards floating on it -- so the
-    padding is each row's (11px 16px, the design's own) and the list has none of its own.
+    padding is each row's own and the list has none of its own.
+
+    CSS GRID, not flex (OpenProject #2940): `.fileman-filelist-side` (the size column, `v-if=
+    "item.side"`, set only for a file -- a folder or a page has none) carried no width of its own
+    under the previous flex row. With nothing there to claim it, `.fileman-filelist-label`'s
+    `flex: 1 1 0%` simply grew to absorb the space the size column would have used, pushing the
+    fixed-width `.fileman-filelist-type` column further right than on a row that DOES have a size
+    -- "the type column spills into where size is displayed", reported against the live file
+    manager. An explicit `grid-template-columns` on the row reserves every column's width
+    regardless of whether a given row's cell is populated, so `v-if="item.side"` stays exactly as
+    it is: the fourth track is still there, just empty, on a folder or page row.
   */
   &-filelist {
     padding: 0;
@@ -1783,7 +1782,29 @@ $fileman-hdr-wrap-max: 899.98px;
       room for a mark almost none of them carry.
     */
     > .w-item {
-      padding: 11px 16px;
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr) 110px 90px;
+      /*
+        A single row height, ~40px (OpenProject #2940): what shipped as the denser of two row
+        densities (WP #2920/#2921) is now the only one -- the roomier 69px default it used to sit
+        beside is gone, and with it the state flag and CSS modifier class that used to switch
+        between them. 4px top/bottom padding plus the `md` (32px) icon below lands the row at 40px.
+      */
+      padding: 4px 16px;
+      min-height: 40px;
+      /*
+        Opts this row out of `WItem.vue`'s own container-query row stacking
+        (`.w-item:has(.w-item-section--main + .w-item-section--main)`) -- real for the settings
+        rows it was built for, which are single-column and genuinely need to drop a second field
+        onto its own line below ~600px, but wrong here: unopposed, that rule's `margin-top`/
+        `margin-inline-start` would land on this row's own TYPE column (also a "main" section,
+        adjacent to the label) the moment the pane narrows under 600px, which the file list pane
+        does routinely once the details or tree panel sits beside it. `!important` rather than
+        out-specificing the `:has()` selector, which carries its own scoped attribute: matching or
+        beating it here would be one more thing to keep in step by hand if that selector ever
+        changes.
+      */
+      container-type: normal !important;
 
       // -> The design rules each row off from the next; the last one meets the pane's own edge
       &:not(:last-child) {
@@ -1806,6 +1827,18 @@ $fileman-hdr-wrap-max: 899.98px;
           border-block-end-color: var(--color-hairline-dark);
         }
       }
+
+      /*
+        `WItemSection.vue`'s own `.w-item-section--avatar` reserves 56px, sized for a standalone
+        40px avatar -- wider than this row's 40px icon COLUMN, and under Grid a `min-width` that
+        wide overflows a fixed track rather than simply being ignored the way it was on a shrinking
+        flex item. Overridden here, nested under `.w-item`, for the specificity to beat that scoped
+        rule reliably rather than tying with it.
+      */
+      .fileman-filelist-icon {
+        padding-inline-end: 6px;
+        min-width: 0;
+      }
     }
 
     // -> The design's own row type scale: a 14.5px/500 name, the filename column now exclusive
@@ -1818,14 +1851,12 @@ $fileman-hdr-wrap-max: 899.98px;
 
     /*
       The dedicated filetype column ("PNG Image", "Markdown Page", ...) that used to be a sub-line
-      under the filename (WP #2920). A fixed, non-growing width -- not `side`, so it stays out of
-      `WItemSection`'s main-section container-query stacking -- with the same 12px caption treatment
-      the sub-line used to carry, and truncated rather than wrapped: a long caption wrapping onto a
-      second line would blow out the compact row height this same task set.
+      under the filename (WP #2920). Its width is the row's own grid template, not its own -- see
+      `> .w-item` above -- with the same 12px caption treatment the sub-line used to carry, and
+      truncated rather than wrapped: a long caption wrapping onto a second line would blow out this
+      row's fixed height.
     */
     &-type {
-      flex: 0 0 auto;
-      width: 110px;
       font-size: 12px;
       font-weight: 400;
       white-space: nowrap;
@@ -1840,7 +1871,9 @@ $fileman-hdr-wrap-max: 899.98px;
       }
     }
 
-    // -> A measurement, in the mono face, as every other measurement on this screen is
+    // -> A measurement, in the mono face, as every other measurement on this screen is. Its width
+    //    is the row's own grid template too -- reserved whether or not this row's `item.side` is
+    //    actually populated, which is the fix for OpenProject #2940.
     &-side {
       font-family: var(--font-mono);
       font-size: 11.5px;
@@ -1850,24 +1883,6 @@ $fileman-hdr-wrap-max: 899.98px;
       }
       @at-root .body--dark & {
         color: var(--color-text-secondary-dark);
-      }
-    }
-
-    /*
-      Compact mode (WP #2920): roughly half the ~69px a row rendered at before -- a 34px floor
-      (matching the `.fileman-locale` chip's own 34px band elsewhere in this file) plus a smaller
-      icon slot. The icon glyph itself (which icon, not its size) is `fileTypes.js`'s concern
-      (sibling Task #2921).
-    */
-    &.is-compact {
-      > .w-item {
-        padding: 0 16px;
-        min-height: 34px;
-      }
-
-      .fileman-filelist-icon {
-        padding-inline-end: 6px;
-        min-width: 0;
       }
     }
   }
