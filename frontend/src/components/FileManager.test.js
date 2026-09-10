@@ -51,6 +51,7 @@ const i18n = createTestI18n({
     browseUsing: 'Browse using...',
     browseUsingPaths: 'Browse Using Paths',
     browseUsingTitles: 'Browse Using Titles',
+    compactList: 'Compact List',
     showFolders: 'Show Folders',
     fetchingFolderContents: 'Fetching folder contents...',
     duplicateItem: 'Duplicate...',
@@ -1128,12 +1129,16 @@ describe('FileManager compact rows + filetype column (WP #2920)', () => {
 
 /**
  * OpenProject #2940 ("File manager rows are 69px tall (should be 40px/compact-default), size
- * column misaligns, icons aren't 100% Tabler"). The `.is-compact` mode WP #2920/#2921 added is now
- * the ONLY mode -- there is nothing left to switch between, so `state.isCompact` and its "Compact
- * List" view-options toggle are gone entirely, and the row is laid out on CSS Grid rather than flex
- * so the size column's width is reserved whether or not a given row actually has one.
+ * column misaligns, icons aren't 100% Tabler") and OpenProject #2960 ("restore comfortable row
+ * density as a user preference, compact stays default; compact icons too large"). #2940 laid the
+ * row out on CSS Grid rather than flex so the size column's width is reserved whether or not a
+ * given row actually has one -- that part stands for both densities. It ALSO deleted comfortable
+ * mode outright rather than merely defaulting away from it, which #2960 restores: `state.isCompact`
+ * and the "Compact List" view-options toggle are back, `isCompact` now starting `true` so compact
+ * still ships as the default, and its icon corrected from the oversized `md` (32px) #2940 shipped
+ * to `sm` (24px) -- matching `TreeBrowserDialog.vue`'s own row icon for the same kind of list.
  */
-describe('FileManager single-density grid rows (WP #2940)', () => {
+describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
   const source = readFileSync(SOURCE_PATH, 'utf-8')
   const styleBlock = source.slice(source.indexOf('<style'))
@@ -1162,27 +1167,59 @@ describe('FileManager single-density grid rows (WP #2940)', () => {
     ]
   }
 
-  it('drops the compact/default mode switch entirely', () => {
-    expect(source).not.toContain('isCompact')
-    expect(source).not.toContain('is-compact')
-    expect(source).not.toContain('compactList')
-  })
-
-  it('draws every row at a single ~40px height, with a fixed md icon regardless of row content', async () => {
-    expect(rowBlock).toMatch(/display:\s*grid/)
-    expect(rowBlock).toMatch(/min-height:\s*40px/)
-    expect(source).toContain('<w-icon :name="item.icon" size="md" />')
+  it('restores the comfortable/compact toggle, defaulting to compact (OpenProject #2960)', async () => {
+    expect(source).toContain('state.isCompact')
+    expect(source).toContain('is-compact')
+    expect(source).toContain('fileman.compactList')
 
     const { wrapper } = await mountFileManager()
     seedRows(wrapper)
     await flushPromises()
 
-    // -> Both rows resolve a real icon -- a folder and a mapped file extension -- at the one fixed
-    //    slot size, no `sm`/`xl` ternary left to branch on
+    // -> `isCompact` starts `true` -- db2b0196a's over-correction deleted comfortable outright
+    //    rather than merely defaulting away from it; #2960 restores the choice but keeps compact
+    //    as what a reader sees with no preference saved yet.
+    expect(wrapper.vm.state.isCompact).toBe(true)
+    expect(wrapper.find('.fileman-filelist').classes()).toContain('is-compact')
+
+    wrapper.unmount()
+  })
+
+  it('draws the default compact row with the `sm` (24px) icon, not the oversized `md` (32px) db2b0196a shipped', async () => {
+    expect(rowBlock).toMatch(/display:\s*grid/)
+    // -> The ~40px height lives under the `.is-compact` modifier now, not the base row
+    expect(rowBlock).toMatch(/is-compact[\s\S]*min-height:\s*40px/)
+    expect(source).toContain('<w-icon :name="item.icon" :size="state.isCompact ? `sm` : `xl`" />')
+
+    const { wrapper } = await mountFileManager()
+    seedRows(wrapper)
+    await flushPromises()
+
+    // -> Both rows resolve a real icon -- a folder and a mapped file extension -- at the compact
+    //    default's `sm` (24px) size, matching `TreeBrowserDialog.vue`'s own row icon
     const icons = wrapper.findAll('.fileman-filelist-icon [data-icon]')
     expect(icons).toHaveLength(2)
     expect(icons[0].attributes('data-icon')).toBe('tabler:folder')
+    expect(icons[0].element.style.fontSize).toBe('24px')
     expect(icons[1].attributes('data-icon')).toBe('tabler:file-type-png')
+    expect(icons[1].element.style.fontSize).toBe('24px')
+
+    wrapper.unmount()
+  })
+
+  it('switches to the comfortable row -- ~69px height, `xl` (46px) icon -- when isCompact is turned off', async () => {
+    expect(rowBlock).toMatch(/min-height:\s*69px/)
+
+    const { wrapper } = await mountFileManager()
+    seedRows(wrapper)
+    wrapper.vm.state.isCompact = false
+    await flushPromises()
+
+    expect(wrapper.find('.fileman-filelist').classes()).not.toContain('is-compact')
+    const icons = wrapper.findAll('.fileman-filelist-icon [data-icon]')
+    expect(icons).toHaveLength(2)
+    expect(icons[0].element.style.fontSize).toBe('46px')
+    expect(icons[1].element.style.fontSize).toBe('46px')
 
     wrapper.unmount()
   })
@@ -1190,8 +1227,11 @@ describe('FileManager single-density grid rows (WP #2940)', () => {
   it("reserves the size column's own grid track independent of whether item.side is populated", async () => {
     // -> Four fixed/flexible tracks -- icon, name, type, size -- so a row with no `item.side` (a
     //    folder or a page) still leaves the type column exactly where a sibling row WITH a size
-    //    puts it, rather than letting the name column grow to swallow the gap.
-    expect(rowBlock).toMatch(/grid-template-columns:\s*40px minmax\(0,\s*1fr\)\s*110px\s*90px/)
+    //    puts it, rather than letting the name column grow to swallow the gap. Checked against the
+    //    default compact density's own track widths.
+    expect(rowBlock).toMatch(
+      /is-compact[\s\S]*grid-template-columns:\s*40px minmax\(0,\s*1fr\)\s*110px\s*90px/
+    )
 
     const { wrapper } = await mountFileManager()
     seedRows(wrapper)
@@ -1208,5 +1248,22 @@ describe('FileManager single-density grid rows (WP #2940)', () => {
 
   it('opts the row out of the shared WItem container-query row-stacking rule', () => {
     expect(rowBlock).toMatch(/container-type:\s*normal\s*!important/)
+  })
+
+  it('persists isCompact in the same wiki.fileman.viewOptions object other view options use', async () => {
+    const { wrapper } = await mountFileManager()
+
+    wrapper.vm.state.isCompact = false
+    await flushPromises()
+
+    const stored = JSON.parse(globalThis.localStorage.getItem('wiki.fileman.viewOptions'))
+    expect(stored.isCompact).toBe(false)
+
+    wrapper.unmount()
+
+    // -> A fresh mount picks the stored value back up, not the `true` default
+    const { wrapper: wrapper2 } = await mountFileManager()
+    expect(wrapper2.vm.state.isCompact).toBe(false)
+    wrapper2.unmount()
   })
 })

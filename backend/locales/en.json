@@ -2765,6 +2765,7 @@
   "fileman.browseUsingPaths": "Browse Using Paths",
   "fileman.browseUsingTitles": "Browse Using Titles",
   "fileman.bz2FileType": "BZIP2 Archive",
+  "fileman.compactList": "Compact List",
   "fileman.copyURLFailed": "Failed to copy URL to clipboard.",
   "fileman.copyURLSuccess": "URL has been copied to the clipboard.",
   "fileman.createFolderInvalidData": "One or more fields are invalid.",
