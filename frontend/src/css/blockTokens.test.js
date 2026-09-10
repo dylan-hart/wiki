@@ -71,7 +71,11 @@ describe('--block-* Ledger-dark overrides', () => {
     'caption-fg': 'var(--color-text-secondary-dark)',
     'eyebrow-fg': 'var(--color-text-caption-dark)',
     'accent-fill': 'var(--color-accent-dark)',
-    'accent-fg': 'var(--color-accent-dark)'
+    'accent-fg': 'var(--color-accent-dark)',
+    // -> OpenProject #2905: restated because --block-accent-fill is restated on this same
+    //    selector -- otherwise its nested var(--block-accent-fill) would keep resolving against
+    //    :root's Ledger-light fill (the same cascade bug class #2886 fixed for --tabs-strip-rule).
+    'error-border': '1px dashed var(--block-accent-fill)'
   }
 
   it.each(Object.entries(ledgerDark))('--block-%s is restated for Ledger dark', (name, value) => {
@@ -122,6 +126,15 @@ describe('--block-* Cobalt-dark overrides', () => {
     expect(declaredValue(cobaltDarkSource, 'block-border')).toBe('rgb(255 255 255 / 0.1)')
     expect(declaredValue(cobaltDarkSource, 'block-tint-bg')).toBe('var(--color-dark-3-5)')
     expect(declaredValue(cobaltDarkSource, 'block-accent-fill')).toBe('var(--color-accent-fill)')
+  })
+
+  it('restates --block-error-border alongside --block-accent-fill (OpenProject #2905)', () => {
+    // -> Same reasoning as the Ledger-dark case: --block-accent-fill is restated on this exact
+    //    selector, so --block-error-border must be too, or its nested var() would keep resolving
+    //    against :root's Ledger-light fill instead of this block's own re-pointed value.
+    expect(declaredValue(cobaltDarkSource, 'block-error-border')).toBe(
+      '1px dashed var(--block-accent-fill)'
+    )
   })
 
   it('re-points --block-accent-fill back to the un-lightened fill, undoing the generic dark rule', () => {
