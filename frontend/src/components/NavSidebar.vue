@@ -421,30 +421,32 @@ $sidebar-overlay-max: 1199.98px;
         compensate for the row's own gutter margin (OpenProject #2951).
 
         Now that the indent lives on the row's own padding instead of a nested border chain (above),
-        the dot needs no reach-back math -- but it does need a small aesthetic-aware correction
-        (OpenProject #2996). `margin-inline: var(--nav-item-inset)` above (Cobalt's own row-gutter
-        inset, 10px in Cobalt, 0 in Ledger) sits OUTSIDE this box, so a flat `inset-inline-start`
-        would land Cobalt's dot at a DIFFERENT true distance from the navbar's own left edge than
-        Ledger's -- Cobalt's row margin already supplies part of the desired offset "for free". The
-        fix derives the offset from the SAME `--nav-item-inset` token already in play rather than a
-        second, aesthetic-blind constant: `calc(16px - var(--nav-item-inset, 0px))` resolves to a
-        full 16px in Ledger and 6px in Cobalt, which -- ADDED to Cobalt's own 10px row margin --
-        lands both aesthetics at the same true 16px from the navbar's left edge. `width` still scales
-        with `--nav-depth`, so it is the FAR end (toward the icon) that moves as depth increases, but
-        it is now 4px narrower per lane than the depth-indent padding reserves, tightening the gap
-        before the icon (clamped to `0px` at depth 0 via `max()`, never a negative width). Both
-        corrections are relative to the row's own coordinate system, so the dot trail and the icon
-        move together with the row's margin in Cobalt -- only the START point relative to the true
-        navbar edge needed the per-aesthetic offset above. The dot image itself is a `repeat-x` tile
-        exactly one lane (10px) wide, so it draws once per lane crossed rather than once for the
-        whole box regardless of its width. `@media (hover: hover)` keeps a touch tap from leaving a
-        lane lit (`WItem.vue`'s own `:has(:disabled):hover` rule uses the same guard).
+        the dot needs no reach-back math. `inset-inline-start` on this absolutely-positioned
+        `::before` is measured relative to `.w-item`'s own PADDING box, which never includes that
+        element's own `margin` -- `margin-inline: var(--nav-item-inset)` above sits OUTSIDE this box
+        entirely, invisible to this property. #2996 mistakenly treated it as visible, "correcting"
+        this offset to `calc(16px - var(--nav-item-inset, 0px))` on the theory that doing so kept
+        both aesthetics at the same true distance from the navbar's own left edge -- it doesn't:
+        Cobalt's row margin (10px) already opens its own gap before the dot trail even starts, so
+        that formula's 6px there landed correctly BY ACCIDENT, while Ledger's `--nav-item-inset`
+        fallback of 0 made the same formula resolve to 16px -- exactly where the icon itself sits
+        (`padding-inline-start` above), leaving Ledger's dot trail starting flush on the icon with no
+        gap at all (OpenProject #3031). The fix is a flat, aesthetic-independent `6px`: added to
+        Cobalt's own 10px row margin it reproduces Cobalt's already-correct 16px true offset
+        unchanged, and on its own it gives Ledger the same 10px gap before its icon that Cobalt has
+        always had. `width` still scales with `--nav-depth`, so it is the FAR end (toward the icon)
+        that moves as depth increases, but it is now 4px narrower per lane than the depth-indent
+        padding reserves, tightening the gap before the icon (clamped to `0px` at depth 0 via
+        `max()`, never a negative width). The dot image itself is a `repeat-x` tile exactly one lane
+        (10px) wide, so it draws once per lane crossed rather than once for the whole box regardless
+        of its width. `@media (hover: hover)` keeps a touch tap from leaving a lane lit (`WItem.vue`'s
+        own `:has(:disabled):hover` rule uses the same guard).
       */
       &::before {
         content: '';
         position: absolute;
         inset-block: 0;
-        inset-inline-start: calc(16px - var(--nav-item-inset, 0px));
+        inset-inline-start: 6px;
         width: max(0px, calc(var(--nav-depth, 0) * 10px - 4px));
         background-image: radial-gradient(circle, var(--color-slate-faint) 1px, transparent 1.4px);
         background-repeat: repeat-x;

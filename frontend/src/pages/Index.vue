@@ -1692,10 +1692,12 @@ $toc-overlay-max: 749.98px;
     content width by that many pixels, forcing a horizontal scrollbar into existence. Pinning both
     edges to `0` instead stretches the bar to exactly the width the page already renders at.
 
-    `z-index: 45` sits one step above the overlay nav drawer's `z-40` (`WDrawer.vue`) and its `z-30`
-    scrim, so the bar stays the topmost thing on screen even with a drawer open on a narrow viewport --
-    clearing the drawer's own last item is the drawer's job (`--footer-bar-height`, `tailwind.css`;
-    OpenProject #3018), not this bar yielding the space back to it.
+    `z-index: 45` sits one step above the overlay nav drawer's plain `z-40` (`WDrawer.vue`) and its
+    `z-30` scrim, so the bar stays above an open drawer that has NOT been given a reason to sit
+    higher -- the TOC drawer (`.page-sidebar` below) clears the bar's own last item the same way this
+    always worked (`--footer-bar-height`, `tailwind.css`; OpenProject #3018). The nav drawer is the
+    one exception, as of OpenProject #3032: `MainLayout.vue` overrides ITS overlay to `z-index: 46`,
+    one past this bar's own, so it paints on top instead -- see this rule's own comment below for why.
 
     `.page-container-scrl` in the selector, not a bare `.w-footer`: this stylesheet is unscoped (no
     `scoped` attribute on the `<style>` tag below), so an unqualified class selector here would reach
@@ -1708,6 +1710,30 @@ $toc-overlay-max: 749.98px;
       inset-inline: 0;
       bottom: 0;
       z-index: 45;
+
+      /*
+        OpenProject #3032: reverts #3018's approach of shrinking the nav sidebar to clear this bar
+        -- the sidebar should always reach the true bottom of the screen, so instead this bar makes
+        room for the sidebar. Below the sidebar's own permanent-column breakpoint
+        (`SIDEBAR_OVERLAY_BELOW`, `MainLayout.vue`) the drawer takes no layout space at all -- it is
+        a `position: fixed` overlay there, `WDrawer.vue`'s own -- so the bar stays exactly the
+        `inset-inline: 0` full width set above; that breakpoint's `z-index: 46` override on the
+        overlay drawer (`MainLayout.vue`) is what keeps the two from fighting over this corner while
+        it is open. At and above 1200px, `inset-inline-start` pulls this bar's reading-START edge in
+        by `--sidebar-current-width` -- the reactive width `MainLayout.vue` mirrors from its own
+        `sidebarWidth`, inherited down from that shared ancestor element, and `0px` whenever the
+        sidebar isn't actually occupying that column, so a page/site with no sidebar at all still
+        gets the full-width bar.
+
+        `inset-inline-start`, a physical `left` in every shipped locale so far, matches the default
+        sidebar `MainLayout.vue`'s `<w-drawer>` renders without a `sidebarPosition: 'right'`
+        override -- a right-positioned sidebar insetting the wrong edge here is a known gap outside
+        this WP's own confirmed scope, not an oversight; see `docs/variances.md` for anything filed
+        against it.
+      */
+      @media (min-width: 1200px) {
+        inset-inline-start: var(--sidebar-current-width, 0px);
+      }
     }
   }
 }

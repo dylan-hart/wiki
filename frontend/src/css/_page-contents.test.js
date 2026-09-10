@@ -1506,6 +1506,77 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         await page.close()
       }
     })
+
+    /*
+      OpenProject #3033: `.table-wrap` (an ordinary block box) had no width constraint of its own, so
+      `width: auto` resolved to "fill the containing block" regardless of how narrow the table's real
+      columns were -- a 3-column table stretched to the full article width instead of shrinking to its
+      true content width. Fixed by `width: fit-content; max-width: 100%;` on `.table-wrap`, with the
+      column tracks (`max-content`, not `1fr` -- see that rule's own comment for why `1fr` was tested
+      and rejected) unchanged. Measured at a fixed viewport width so "narrower than the container" is
+      a real assertion rather than one that happens to pass at whatever width the test runner gives it.
+    */
+    it("shrinks a narrow table's frame to its own content width instead of stretching to fill the container", async () => {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage({ viewport: { width: 800, height: 400 } })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style>` +
+            `<style>body{margin:0;padding:0;} .page-contents{width:700px;}</style></head>` +
+            `<body>${SAMPLE}</body></html>`
+        )
+        const result = await page.evaluate(() => {
+          const article = document.querySelector('.page-contents')
+          const wrap = document.querySelector('.table-wrap')
+          return {
+            articleWidth: article.getBoundingClientRect().width,
+            wrapWidth: wrap.getBoundingClientRect().width
+          }
+        })
+        // -> The narrow SAMPLE (2 short columns) has nowhere near enough content to need the full
+        //    700px article column -- proving the fix means proving the frame is meaningfully
+        //    narrower than its container, not merely "not wider".
+        expect(result.wrapWidth).toBeLessThan(result.articleWidth * 0.5)
+      } finally {
+        await page.close()
+      }
+    })
+
+    it("still stretches a wide table to fill (and scroll past) the container, since fit-content never shrinks below the columns' natural width", async () => {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage({ viewport: { width: 800, height: 400 } })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style>` +
+            `<style>body{margin:0;padding:0;} .page-contents{width:700px;}</style></head>` +
+            `<body>${WIDE_SAMPLE}</body></html>`
+        )
+        const result = await page.evaluate(() => {
+          const article = document.querySelector('.page-contents')
+          const wrap = document.querySelector('.table-wrap')
+          const scroll = document.querySelector('.table-scroll')
+          return {
+            articleWidth: article.getBoundingClientRect().width,
+            wrapWidth: wrap.getBoundingClientRect().width,
+            needsScroll: scroll.scrollWidth > scroll.clientWidth
+          }
+        })
+        expect(result.wrapWidth).toBeCloseTo(result.articleWidth, 0)
+        expect(result.needsScroll).toBe(true)
+      } finally {
+        await page.close()
+      }
+    })
   })
 })
 
@@ -1733,6 +1804,157 @@ describe('_page-contents.scss table CSS Grid column alignment (OpenProject #3015
       // -> `--content-table-row-alt` in Ledger light, `#f7f8fb`
       expect(bodyRowBackgrounds[1]).toBe('rgb(247, 248, 251)')
       expect(bodyRowBackgrounds[2]).toBe('rgba(0, 0, 0, 0)')
+    })
+  })
+})
+
+/**
+ * OpenProject #3023 ("MultiMarkdown table caption doesn't span the CSS-Grid table width, and
+ * bottom-side placement is ignored"), spun off from Issue #3021.
+ *
+ * The Issue's own "confirmed" fix direction was CSS-only, on the theory that the caption survives
+ * as a real `<caption>` element and just needs `grid-column`/`order`. Reproducing it against a real
+ * Chromium during implementation found that theory wrong: `markdown-it-multimd-table` always pushes
+ * `caption_open`/`caption_close` as the first child inside `table_open`/`table_close`, and
+ * `table_open` already retags every table token to `<div>` (#2997/#3014) -- so there is no real
+ * `<table>` element anywhere on the page for a `<caption>` to be "inside". The WHATWG HTML parser's
+ * "in body" insertion mode treats an orphan `caption`/`tr`/`td`/`th`/`thead`/`tbody` start tag as a
+ * parse error and DROPS it outright, leaving its text to spill out as a bare, unstyled text node --
+ * confirmed directly: `<div role="table"><caption>Cap</caption>…` parses back with the tag gone.
+ * No CSS selector can ever match an element the parser never created, so `renderers/markdown.js`
+ * now retags `caption_open`/`caption_close` to `<div class="table-caption">` the same way every
+ * other table token already is (see `markdown.test.js`'s own coverage of that), and this suite
+ * covers what that change depends on: the grid-column span and the bottom-placement `order` fallback
+ * that only real layout can prove.
+ */
+describe('_page-contents.scss table caption spans the grid and honors caption-side (OpenProject #3023)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  it('spans the caption across every grid column, not just the first', () => {
+    expect(source).toMatch(
+      /\[role='table'\]\s*>\s*\.table-caption\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/s
+    )
+  })
+
+  it("reorders a bottom-authored caption (the plugin's own inline caption-side: bottom) past the rows", () => {
+    expect(source).toMatch(
+      /\[role='table'\]\s*>\s*\.table-caption\[style\*=['"]caption-side: bottom['"]\]\s*\{\s*order:\s*1;/
+    )
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    /*
+      One two-row/two-column table, with a caption in the given position -- built from the exact
+      markup `renderers/markdown.js` actually emits (`<div class="table-caption">`, not `<caption>`,
+      which a real browser would drop entirely before this suite even got to measure anything).
+    */
+    function sample(captionHtml) {
+      return `
+        <article class="page-contents">
+          <div class="table-wrap">
+            <div class="table-clip">
+              <div class="table-scroll">
+                <div role="table">
+                  ${captionHtml}
+                  <div role="row">
+                    <div role="columnheader">A</div>
+                    <div role="columnheader">B</div>
+                  </div>
+                  <div role="row">
+                    <div role="cell">one</div>
+                    <div role="cell">two</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>`
+    }
+
+    async function measure(captionHtml) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body>${sample(captionHtml)}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const caption = document.querySelector('.table-caption')
+          const firstColumnHeader = document.querySelector('[role="columnheader"]')
+          const rows = [...document.querySelectorAll('[role="row"]')]
+          return {
+            // -> Confirms the element actually made it into the DOM at all, not just that some other
+            //    selector below happens to find nothing and silently pass -- see #3023's own history.
+            captionFound: caption !== null,
+            captionRect: caption.getBoundingClientRect(),
+            firstColumnRect: firstColumnHeader.getBoundingClientRect(),
+            // -> Every `[role="row"]` is `grid-column: 1 / -1` subgrid, the SAME area a `1 / -1`
+            //    caption spans -- the comparison this suite needs, not `[role="table"]`'s own outer
+            //    box, which stretches to its container's full width regardless of the grid's actual
+            //    (mostly-empty, `max-content`-tracked) content extent and would pass even if
+            //    `grid-column` on the caption did nothing at all.
+            rowRect: rows[0].getBoundingClientRect(),
+            firstRowTop: rows[0].getBoundingClientRect().top,
+            lastRowBottom: rows[rows.length - 1].getBoundingClientRect().bottom
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    it('spans the caption the same full width as a row, not just the first column', async () => {
+      // -> A caption authored above carries no inline style at all (the plugin only adds one for a
+      //    below-authored caption), so this is also the "no attribute selector to key off" case.
+      const { captionFound, rowRect, captionRect, firstColumnRect } = await measure(
+        '<div class="table-caption">A caption</div>'
+      )
+      expect(captionFound).toBe(true)
+      expect(captionRect.width).toBeCloseTo(rowRect.width, 0)
+      expect(captionRect.left).toBeCloseTo(rowRect.left, 0)
+      expect(captionRect.width).toBeGreaterThan(firstColumnRect.width)
+    })
+
+    it('keeps a top-authored caption above the first row', async () => {
+      const { captionRect, firstRowTop } = await measure(
+        '<div class="table-caption">A caption</div>'
+      )
+      expect(captionRect.bottom).toBeLessThanOrEqual(firstRowTop)
+    })
+
+    it('moves a bottom-authored caption (inline caption-side: bottom) below the last row instead of on top of it', async () => {
+      const { captionFound, captionRect, lastRowBottom } = await measure(
+        '<div class="table-caption" style="caption-side: bottom">A caption</div>'
+      )
+      expect(captionFound).toBe(true)
+      // -> Left alone (no `order`), the caption is still the FIRST DOM child and would paint above
+      //    the rows regardless of the plugin's own inline style, since `caption-side` has no effect
+      //    on a grid child -- this is the exact bug #3023 reports.
+      expect(captionRect.top).toBeGreaterThanOrEqual(lastRowBottom)
+    })
+
+    it('still spans the full grid width once reordered to the bottom', async () => {
+      const { rowRect, captionRect } = await measure(
+        '<div class="table-caption" style="caption-side: bottom">A caption</div>'
+      )
+      expect(captionRect.width).toBeCloseTo(rowRect.width, 0)
     })
   })
 })

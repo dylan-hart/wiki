@@ -423,6 +423,32 @@ export class MarkdownRenderer {
     this.md.renderer.rules.td_open = asGridCell('cell')
     this.md.renderer.rules.td_close = asDiv
 
+    /*
+      A caption (OpenProject #3023). `markdown-it-multimd-table` always pushes `caption_open`/
+      `caption_close` as the first child inside `table_open`/`table_close`, regardless of whether
+      `[Caption]` was authored above or below the table (see the plugin source) -- left as a real
+      `<caption>`, it is silently DROPPED by every browser's own HTML parser the moment this HTML
+      lands in a live DOM. The WHATWG tree-construction algorithm's "in body" insertion mode treats
+      an orphan `caption` start tag -- one that isn't inside an ACTUAL `<table>` element's own
+      insertion mode -- as a parse error and ignores the token outright, leaving its text to spill
+      out as a bare, unwrapped, unstyled text node instead (verified directly against a real
+      Chromium: `<div role="table"><caption>Cap</caption>…` parses back with the tag gone and plain
+      "Cap" text in its place). Since `table_open` above already retags every table token to a
+      `<div>`, there is no `<table>` anywhere on the rendered page any more for a caption to be
+      "inside" -- this is not a hypothetical, it is what happens on every real save.
+
+      Retagging the caption the same way the rest of the table already is fixes it at the root: a
+      `<div>` is never subject to that in-body table-tag rule, so it survives parsing intact with
+      every attribute the plugin gave it (its own `id`/`style="caption-side: bottom"`).
+      `.table-caption` is what `_page-contents.scss`'s grid-caption rules key off of to size and
+      place it -- there is no ARIA role for "caption" to give it the way a row or cell gets one.
+    */
+    this.md.renderer.rules.caption_open = (tokens, idx, options, env, slf) => {
+      tokens[idx].attrJoin('class', 'table-caption')
+      return asDiv(tokens, idx, options, env, slf)
+    }
+    this.md.renderer.rules.caption_close = asDiv
+
     // --------------------------------
     // RESOLVE IMAGE SOURCES
     // --------------------------------

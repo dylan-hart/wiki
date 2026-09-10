@@ -326,6 +326,14 @@ onBeforeUnmount(() => {
     text-decoration: none;
     /* Long headings wrap rather than being cut off; the sidebar is 300px wide, 200px under 1400px */
     overflow-wrap: break-word;
+    /*
+      Always present, not just while active: only `color`/`background-color` transition below, so a
+      radius that appeared/disappeared with the active class would snap to square corners the instant
+      the class is removed, while the background is still fading out over the same 0.2s. A rounded
+      corner on a `transparent` background (Ledger's default, and any inactive row in Cobalt) draws
+      nothing, so this costs nothing when inactive.
+    */
+    border-radius: var(--page-toc-active-radius);
     transition:
       color 0.2s var(--ease-standard),
       background-color 0.2s var(--ease-standard);
@@ -380,7 +388,6 @@ onBeforeUnmount(() => {
     */
     > .page-toc-link {
       background-color: var(--page-toc-active-surface);
-      border-radius: var(--page-toc-active-radius);
       font-weight: var(--page-toc-active-weight);
     }
   }

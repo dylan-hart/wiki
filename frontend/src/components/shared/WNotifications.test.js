@@ -1,3 +1,6 @@
+import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 
@@ -43,5 +46,33 @@ describe('WNotifications', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('.w-notification').classes()).toContain('rounded-control')
+  })
+
+  // -> OpenProject #3029: anchored to the top, the stack could obscure the searchbar. Anchoring to
+  //    the bottom instead applies to both aesthetics identically, with no Ledger/Cobalt split.
+  it('anchors the stack to the bottom of the viewport, not the top', () => {
+    const wrapper = mountStack()
+
+    const classes = wrapper.find('.w-notifications').classes()
+    expect(classes).toContain('bottom-0')
+    expect(classes).not.toContain('top-0')
+  })
+
+  /*
+   * The enter/leave slide direction must match the bottom anchor -- a toast rises from the bottom
+   * rather than dropping from the top. jsdom cannot reliably resolve a scoped `<style>` block's
+   * computed transform on a Vue-transition-only class (it's applied and removed within a single
+   * transition frame), so this asserts against the component's own source text instead, the same
+   * way `WCard.test.js` checks a scoped-style declaration jsdom's cascade can't be trusted to run.
+   */
+  it('slides a toast up from the bottom on enter/leave, not down from the top', () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'WNotifications.vue'),
+      'utf-8'
+    )
+
+    expect(source).toMatch(
+      /\.w-notification-enter-from,\s*\n\s*\.w-notification-leave-to\s*\{\s*\n\s*opacity:\s*0;\s*\n\s*transform:\s*translateY\(24px\);/
+    )
   })
 })

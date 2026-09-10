@@ -2213,6 +2213,7 @@
   .table-wrap {
     position: relative;
     margin: 20px 0;
+    width: fit-content;
     max-width: 100%;
     border: 1px solid var(--content-table-frame);
     border-radius: var(--content-table-radius);
@@ -2319,7 +2320,15 @@
     min-width: 100%`: a table narrower than the frame no longer stretches its own columns to fill it
     (that was the browser's automatic `<table>` column-width redistribution, which a fixed grid
     template has no equivalent for without knowing the real column count) -- it now renders at its
-    natural width, leaving blank frame background after the last column instead.
+    natural width. OpenProject #3033: that natural width used to be masked by `.table-wrap` itself
+    still filling the frame (an ordinary block box's `width: auto` resolves to "fill the containing
+    block"), leaving blank frame background trailing a narrow table instead of the wrap shrinking to
+    meet it -- `.table-wrap`'s own `width: fit-content` (below) is what closes that gap, so the whole
+    three-box frame now hugs the table's natural width instead of just the grid inside it. A `1fr`
+    column track was tested and rejected as the way to let columns share the container's extra width
+    instead: a `fr` track does not degrade to a content-based size during a shrink-to-fit pass, so it
+    silently defeats `.table-wrap`'s own `fit-content` and re-stretches the table to the full
+    container width -- `max-content`, unchanged above, is what `fit-content` on the wrap depends on.
 
     Every `[role="row"]` is `display: grid; grid-template-columns: subgrid; grid-column: 1 / -1` --
     CSS SUBGRID, not `display: contents`. Subgrid is what lets each row's own cells size against the
@@ -2524,6 +2533,49 @@
     color: var(--content-ink-muted);
     font-size: 0.875em;
     text-align: start;
+  }
+
+  /*
+    MultiMarkdown table caption (OpenProject #2997/#3014/#3023). `markdown-it-multimd-table` always
+    pushes `caption_open`/`caption_close` as the FIRST child inside `table_open`/`table_close`,
+    regardless of whether the caption was authored above or below the table (verified in the plugin
+    source) -- and `renderers/markdown.js` retags it to `<div class="table-caption">`, the same way
+    every other table-related token there is retagged, rather than leaving it a real `<caption>`.
+
+    This is NOT a styling nicety: a bare `<caption>` left as-is is invisible to any CSS fix at all.
+    The WHATWG HTML parser's "in body" insertion mode treats a `caption` (or `tr`/`td`/`th`/`thead`/
+    `tbody`/`col`/`colgroup`) start tag encountered outside an ACTUAL `<table>` element's own
+    insertion mode as a parse error and drops the token outright -- and since `table_open` above
+    already retags every table token to `<div>`, there is no real `<table>` anywhere on the page for
+    a caption to be "inside" any more. Verified directly against a real Chromium:
+    `<div role="table"><caption>Cap</caption>…` parses back with the `<caption>` tag gone and a bare,
+    unwrapped "Cap" text node in its place -- there is no element left for any selector to match, so
+    no amount of `caption { … }` CSS could ever have fixed this. `.table-caption` is a plain `<div>`,
+    never subject to that table-tag rule, so it survives parsing with all of its attributes intact
+    (the plugin's own `id`/`style="caption-side: bottom"`).
+
+    `grid-column: 1 / -1` is what makes it span every column of the grid's fixed 16-column track
+    instead of auto-placing into column 1 alone, the same as any other bare grid child would.
+
+    Separately: a caption authored BELOW the table carries the plugin's own inline
+    `style="caption-side: bottom"` -- a real effect inside a `<table>` layout, but a no-op on a grid
+    child, since `[role="table"]` is not a table box any more. Left alone the caption renders on top
+    regardless of what the author asked for, because DOM order wins. `order` is grid's own
+    placement-order property and, unlike paint order alone, the auto-placement algorithm actually
+    respects it for implicit-grid slotting: bumping a bottom-authored caption past every row's
+    default `order: 0` (no row ever sets one) moves it into the last auto-placed slot -- i.e. after
+    every row -- with no need to know the table's real row count.
+  */
+  [role='table'] > .table-caption {
+    padding-bottom: 0.5em;
+    color: var(--content-ink-muted);
+    font-size: 0.875em;
+    text-align: start;
+    grid-column: 1 / -1;
+  }
+
+  [role='table'] > .table-caption[style*='caption-side: bottom'] {
+    order: 1;
   }
 
   // ---------------------------------------------------------------------------

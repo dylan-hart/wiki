@@ -135,17 +135,7 @@ export function drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode) {
   }
 }
 
-/** Below this zoom level a label is unreadably small anyway; skipping the text calls entirely is
- *  also what keeps a dense graph's label layer from becoming visual noise. Lowered again, from
- *  `0.75` to `0.6` (OpenProject #2593; `1.1` -> `0.75` was #2292, itself a follow-up to
- *  #1287/#1288). Labels now draw INSIDE the node rather than beside it, so a label no longer adds
- *  any horizontal clutter to a zoomed-out view -- it is bounded by a circle that was going to be
- *  drawn anyway, which removes most of what the higher threshold was protecting against. The
- *  truncation cutoff below (`fitLabel()`) independently silences any node too small to hold text,
- *  so the one job left for this threshold is "is `10px * k` readable at all": `0.6` hides labels
- *  below 6px effective, against `0.75`'s 7.5px. */
 const LABEL_BASE_FONT_PX = 10
-const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.6
 
 /** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
  *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
@@ -334,9 +324,6 @@ function labelBaseFontFor(radius, minRadius) {
  *  non-matching label dims along with its node rather than staying full-strength while its dot
  *  fades, which would read as two disagreeing signals for the same node. */
 export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds, minRadius) {
-  if (scale < LABEL_VISIBILITY_ZOOM_THRESHOLD) {
-    return
-  }
   const hasHighlights = highlightedIds && highlightedIds.size > 0
   const zoomCappedFontPx = LABEL_MAX_EFFECTIVE_FONT_PX / scale
   ctx.textBaseline = 'middle'

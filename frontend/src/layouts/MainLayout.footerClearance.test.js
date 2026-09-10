@@ -6,16 +6,19 @@ import * as sass from 'sass'
 import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #3018: the left nav drawer (`.bg-sidebar`, `MainLayout.vue`) has to clear Cobalt's
- * fixed footer bar (`Index.vue`'s `.page-container-scrl .w-footer` rule, OpenProject #3017/#3010) --
- * its own content and internal scrollbar should stop above the bar rather than extending underneath
- * or behind it, on both a wide (own grid column, stretched by `WLayout.vue`'s grid) and a narrow
- * (`WDrawer.vue`'s `position: fixed` overlay) viewport.
+ * OpenProject #3032: the left nav drawer (`.bg-sidebar`, `MainLayout.vue`) must ALWAYS reach the
+ * true bottom of the screen, in every aesthetic and colour mode -- Dylan's own direct instruction,
+ * reverting #3018's opposite approach (shrinking the drawer to clear Cobalt's fixed footer bar,
+ * `Index.vue`'s `.page-container-scrl .w-footer` rule, OpenProject #3017/#3010). The bar now insets
+ * from the sidebar's own edge instead, on a wide viewport (its own grid column); on a narrow one
+ * (`WDrawer.vue`'s `position: fixed` overlay) the two occupy the same full-height space, and the
+ * open overlay sits visually ABOVE the bar via a higher `z-index` rather than stopping short of it.
  *
  * Real browser, not `jsdom`/`happy-dom`, for the same reason as `Index.footerCobalt.test.js`: this
- * is genuine box geometry (a stretched grid item's used height minus its margin, a `position: fixed`
- * panel's `bottom` offset) that neither DOM emulator's non-existent layout engine can answer --
- * `getBoundingClientRect()` comes back zeroed regardless of the CSS under either.
+ * is genuine box geometry (a stretched grid item's used height, a `position: fixed` panel's own
+ * offsets, and which of two overlapping fixed elements actually paints on top) that neither DOM
+ * emulator's non-existent layout engine can answer -- `getBoundingClientRect()` comes back zeroed
+ * regardless of the CSS under either, and there is no paint order to query at all.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
@@ -39,6 +42,8 @@ function compileSfcStyles(relativePath) {
   ).css
 }
 
+const SIDEBAR_WIDTH = 300
+
 /**
  * The shell exactly as `MainLayout.vue`/`WLayout.vue`/`WDrawer.vue` render it, reduced to what this
  * test needs: a real `.w-layout` grid (so `.bg-sidebar` gets the same stretch-to-grid-area sizing it
@@ -47,24 +52,35 @@ function compileSfcStyles(relativePath) {
  * the fixed Cobalt bar. `isOverlay` switches in the classes `WDrawer.vue` itself would apply below
  * its breakpoint -- there is no Vue reactivity in this static fixture to derive them from a viewport
  * width, so the two modes are built explicitly instead, matching what each real width renders.
+ *
+ * `sidebarCurrentWidth` is set as an inline custom property on the `.w-layout` root, exactly the way
+ * `MainLayout.vue`'s own `<script setup>` mirrors its reactive `sidebarCurrentWidth` onto
+ * `--sidebar-current-width` via `:style` -- there is no Vue here to compute it live, so the test
+ * states the value that computation would have produced for the scenario under test.
+ * `includeSidebar: false` reproduces a page/site with no sidebar at all (`isSidebarOpen` false,
+ * `WDrawer.vue`'s `v-show` collapsing the column to zero width) -- the fixture then renders no
+ * `.bg-sidebar` element, matching what `MainLayout.vue`'s template actually omits from paint.
  */
-function mainLayoutHtml({ isOverlay }) {
+function mainLayoutHtml({ isOverlay, includeSidebar = true, sidebarCurrentWidth = '0px' }) {
   const overlayClasses = isOverlay ? 'w-drawer--overlay fixed inset-y-0 z-40 start-0' : ''
+  const sidebar = includeSidebar
+    ? `<aside class="w-drawer bg-sidebar w-drawer--left flex flex-col ${overlayClasses}" ` +
+      `style="--w-drawer-width: ${SIDEBAR_WIDTH}px">` +
+      // -> `NavSidebar.vue`'s own `.sidebar-nav` wrapper (`flex: 1 1 0; min-height: 0;
+      //    overflow-y: auto`), reproduced here rather than a bare filler div: without it a tall
+      //    filler's own content height contributes directly to `.bg-sidebar`'s min-content size,
+      //    which grows the grid's `auto` footer-row track to accommodate it instead of letting the
+      //    shell's `height: 100vh; overflow: hidden` actually bound the drawer -- exactly the
+      //    `min-height: 0` escape hatch the real component's own comment documents.
+      '<div style="flex: 1 1 0; min-height: 0; overflow-y: auto">' +
+      '<div style="height: 2000px">nav filler</div>' +
+      '</div>' +
+      '</aside>'
+    : ''
   return (
-    '<div class="w-layout w-layout--page">' +
+    `<div class="w-layout w-layout--page" style="--sidebar-current-width: ${sidebarCurrentWidth}">` +
     '<header class="w-header"></header>' +
-    `<aside class="w-drawer bg-sidebar w-drawer--left flex flex-col ${overlayClasses}" ` +
-    'style="--w-drawer-width: 300px">' +
-    // -> `NavSidebar.vue`'s own `.sidebar-nav` wrapper (`flex: 1 1 0; min-height: 0;
-    //    overflow-y: auto`), reproduced here rather than a bare filler div: without it a tall
-    //    filler's own content height contributes directly to `.bg-sidebar`'s min-content size,
-    //    which grows the grid's `auto` footer-row track to accommodate it instead of letting the
-    //    shell's `height: 100vh; overflow: hidden` actually bound the drawer -- exactly the
-    //    `min-height: 0` escape hatch the real component's own comment documents.
-    '<div style="flex: 1 1 0; min-height: 0; overflow-y: auto">' +
-    '<div style="height: 2000px">nav filler</div>' +
-    '</div>' +
-    '</aside>' +
+    sidebar +
     // -> `min-height: 0; overflow: auto` inline, standing in for `WLayout.vue`'s own
     //    `.w-layout :deep(> .w-page-container) { min-height: 0; overflow: auto }` rule: `:deep()` is
     //    a Vue SFC *compile-time* transform (into a scoped, hashed descendant selector) that a bare
@@ -84,12 +100,20 @@ function mainLayoutHtml({ isOverlay }) {
   )
 }
 
-async function measureShell({ browser, css, isOverlay, bodyClasses, viewport }) {
+async function measureShell({
+  browser,
+  css,
+  isOverlay,
+  includeSidebar,
+  sidebarCurrentWidth,
+  bodyClasses,
+  viewport
+}) {
   const page = await browser.newPage({ viewport })
   try {
     await page.setContent(
       `<!doctype html><html><head><style>${css}</style></head>` +
-        `<body class="${bodyClasses}" style="margin:0">${mainLayoutHtml({ isOverlay })}</body></html>`
+        `<body class="${bodyClasses}" style="margin:0">${mainLayoutHtml({ isOverlay, includeSidebar, sidebarCurrentWidth })}</body></html>`
     )
     return await page.evaluate(() => {
       const sidebar = document.querySelector('.bg-sidebar')
@@ -100,11 +124,23 @@ async function measureShell({ browser, css, isOverlay, bodyClasses, viewport }) 
       const footerBarHeight = Number.parseFloat(
         getComputedStyle(document.body).getPropertyValue('--footer-bar-height')
       )
+      const footerRect = footer.getBoundingClientRect()
+      const sidebarRect = sidebar?.getBoundingClientRect()
+      // -> Which of the two actually paints on top at a point both a fixed sidebar overlay and the
+      //    fixed footer bar cover -- the near bottom-left corner, just inside the sidebar's own
+      //    width and the bar's own height. `closest` rather than an exact-element check: the point
+      //    lands on whichever descendant box is there (the nav filler's own scroll container), not
+      //    necessarily the `<aside>` itself.
+      const topElementAtCorner = document.elementFromPoint(10, window.innerHeight - 10)
       return {
-        sidebarBottom: sidebar.getBoundingClientRect().bottom,
-        footerTop: footer.getBoundingClientRect().top,
+        sidebarTop: sidebarRect?.top ?? null,
+        sidebarBottom: sidebarRect?.bottom ?? null,
+        sidebarRight: sidebarRect?.right ?? null,
+        footerTop: footerRect.top,
+        footerLeft: footerRect.left,
         footerPosition: getComputedStyle(footer).position,
-        footerBarHeight
+        footerBarHeight,
+        sidebarIsAboveFooterAtCorner: Boolean(topElementAtCorner?.closest('.bg-sidebar'))
       }
     })
   } finally {
@@ -146,6 +182,7 @@ describe(
         browser,
         css,
         isOverlay: false,
+        sidebarCurrentWidth: `${SIDEBAR_WIDTH}px`,
         bodyClasses: 'body--light',
         viewport: wideViewport
       })
@@ -156,21 +193,41 @@ describe(
       expect(ledger.sidebarBottom).toBeCloseTo(wideViewport.height, 0)
     })
 
-    it('stops above the fixed footer bar in Cobalt, on a wide viewport', async () => {
+    it('reaches the true bottom of the screen in Cobalt on a wide viewport, and the footer bar insets to meet it', async () => {
       const cobalt = await measureShell({
         browser,
         css,
         isOverlay: false,
+        sidebarCurrentWidth: `${SIDEBAR_WIDTH}px`,
         bodyClasses: 'body--light body--cobalt',
         viewport: wideViewport
       })
 
       expect(cobalt.footerPosition).toBe('fixed')
       expect(cobalt.footerBarHeight).toBeGreaterThan(0)
-      // -> Shrunk by exactly the footer bar's own height, not merely padded internally.
-      expect(cobalt.sidebarBottom).toBeCloseTo(wideViewport.height - cobalt.footerBarHeight, 0)
-      // -> No overlap: the drawer's own bottom edge sits at or above the bar's top edge.
-      expect(cobalt.sidebarBottom).toBeLessThanOrEqual(cobalt.footerTop + 0.5)
+      // -> No longer shrunk by the footer bar's height (OpenProject #3018's rule, reverted): the
+      //    sidebar reaches the shell's own bottom edge exactly like Ledger's does above.
+      expect(cobalt.sidebarBottom).toBeCloseTo(wideViewport.height, 0)
+      // -> The bar's own reading-START edge sits at the sidebar's reading-END edge instead --
+      //    making room for it rather than painting over it.
+      expect(cobalt.footerLeft).toBeCloseTo(SIDEBAR_WIDTH, 0)
+      expect(cobalt.footerLeft).toBeCloseTo(cobalt.sidebarRight, 0)
+    })
+
+    it('keeps the Cobalt footer bar full width on a wide viewport when no sidebar column is occupied', async () => {
+      const cobalt = await measureShell({
+        browser,
+        css,
+        isOverlay: false,
+        includeSidebar: false,
+        sidebarCurrentWidth: '0px',
+        bodyClasses: 'body--light body--cobalt',
+        viewport: wideViewport
+      })
+
+      expect(cobalt.footerPosition).toBe('fixed')
+      // -> Nothing to make room for: the bar's reading-START edge stays flush with the viewport's.
+      expect(cobalt.footerLeft).toBeCloseTo(0, 0)
     })
 
     it('is unaffected in Ledger, on a narrow (overlay) viewport', async () => {
@@ -178,26 +235,37 @@ describe(
         browser,
         css,
         isOverlay: true,
+        sidebarCurrentWidth: `${SIDEBAR_WIDTH}px`,
         bodyClasses: 'body--light',
         viewport: narrowViewport
       })
 
       expect(ledger.footerBarHeight).toBe(0)
+      expect(ledger.sidebarTop).toBeCloseTo(0, 0)
       expect(ledger.sidebarBottom).toBeCloseTo(narrowViewport.height, 0)
     })
 
-    it('stops above the fixed footer bar in Cobalt, on a narrow (overlay) viewport', async () => {
+    it('reaches the true top and bottom of the screen in Cobalt on a narrow (overlay) viewport, above the footer bar', async () => {
       const cobalt = await measureShell({
         browser,
         css,
         isOverlay: true,
+        sidebarCurrentWidth: `${SIDEBAR_WIDTH}px`,
         bodyClasses: 'body--light body--cobalt',
         viewport: narrowViewport
       })
 
       expect(cobalt.footerBarHeight).toBeGreaterThan(0)
-      expect(cobalt.sidebarBottom).toBeCloseTo(narrowViewport.height - cobalt.footerBarHeight, 0)
-      expect(cobalt.sidebarBottom).toBeLessThanOrEqual(cobalt.footerTop + 0.5)
+      // -> No longer pulled up by `bottom: var(--footer-bar-height)` (OpenProject #3018's rule,
+      //    reverted): the open overlay reaches both true edges of the window, same as Ledger's.
+      expect(cobalt.sidebarTop).toBeCloseTo(0, 0)
+      expect(cobalt.sidebarBottom).toBeCloseTo(narrowViewport.height, 0)
+      // -> Below the sidebar's own permanent-column breakpoint the bar stays full width rather than
+      //    making room -- the two occupy the exact same bottom-left patch of the window, so it is
+      //    the open overlay's higher z-index (46 vs. the bar's 45) that keeps it drawn on top,
+      //    checked below, not a footer inset.
+      expect(cobalt.footerLeft).toBeCloseTo(0, 0)
+      expect(cobalt.sidebarIsAboveFooterAtCorner).toBe(true)
     })
   }
 )

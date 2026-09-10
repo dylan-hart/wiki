@@ -8,6 +8,7 @@
         :model-value="modelValue"
         :val="option.value"
         :label="option.label"
+        color="segment-selected"
         @update:model-value="$emit('update:modelValue', $event)" />
     </div>
   </div>
