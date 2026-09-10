@@ -611,3 +611,108 @@ describe('NavSidebarItem: ctrl+click expand/collapse cycle (OpenProject #2847)',
     expect(isExpanded(wrapper, 'branch')).toBe(false) // -> only midB's own instance is force-opened, not ancestors
   })
 })
+
+/**
+ * OpenProject #2909: a chain six folders deep (well past the tree's real `MAX_DEPTH` ceiling of
+ * 10 being reachable in one click), so ctrl+click's own 3-level-below-the-clicked-node cap has
+ * something to actually cut off. Every folder here starts closed, and every one has at least one
+ * folder child so `descendantFolders` would keep walking the whole chain with no cap at all.
+ */
+const DEEP_CHAIN_TREE = [
+  {
+    id: 'deepRoot',
+    label: 'Deep Root',
+    path: 'deep-root',
+    children: [
+      {
+        id: 'deepL1',
+        label: 'Deep L1',
+        path: 'deep-root/l1',
+        children: [
+          {
+            id: 'deepL2',
+            label: 'Deep L2',
+            path: 'deep-root/l1/l2',
+            children: [
+              {
+                id: 'deepL3',
+                label: 'Deep L3',
+                path: 'deep-root/l1/l2/l3',
+                children: [
+                  {
+                    id: 'deepL4',
+                    label: 'Deep L4',
+                    path: 'deep-root/l1/l2/l3/l4',
+                    children: [
+                      {
+                        id: 'deepL5',
+                        label: 'Deep L5',
+                        path: 'deep-root/l1/l2/l3/l4/l5',
+                        children: [{ id: 'deepLeaf', label: 'Deep Leaf', target: '/deep-leaf' }]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
+
+async function mountDeepChainTree() {
+  const Host = defineComponent({
+    name: 'DeepChainTestHost',
+    setup() {
+      useProvideNavExpansionState()
+      return () => h(NavSidebarItem, { item: DEEP_CHAIN_TREE[0] })
+    }
+  })
+
+  const router = await createTestRouter(routes, '/')
+  const { wrapper } = mountWithApp(Host, {
+    router,
+    stores: {
+      site: (store) => {
+        store.nav.items = DEEP_CHAIN_TREE
+      }
+    }
+  })
+  await wrapper.vm.$nextTick()
+  return wrapper
+}
+
+describe('NavSidebarItem: ctrl+click expand-all is capped to 3 levels below the clicked node (OpenProject #2909)', () => {
+  it('expands only the first 3 levels below the clicked node, leaving deeper folders collapsed', async () => {
+    const wrapper = await mountDeepChainTree()
+
+    ctrlClick(itemWrapper(wrapper, 'deepRoot').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'deepRoot')).toBe(true) // -> the clicked node itself, force-opened
+    expect(isExpanded(wrapper, 'deepL1')).toBe(true) // -> 1 level below the clicked node
+    expect(isExpanded(wrapper, 'deepL2')).toBe(true) // -> 2 levels below
+    expect(isExpanded(wrapper, 'deepL3')).toBe(true) // -> 3 levels below -- still inside the cap
+    expect(isExpanded(wrapper, 'deepL4')).toBe(false) // -> 4 levels below -- past the cap, left untouched
+    expect(isExpanded(wrapper, 'deepL5')).toBe(false) // -> 5 levels below -- also left untouched
+  })
+
+  it('caps relative to the CLICKED node, not the overall tree root -- clicking 1 level down still reaches 3 further levels', async () => {
+    const wrapper = await mountDeepChainTree()
+
+    // -> deepL1 is itself 1 level below the tree root. If the cap were measured from the tree root
+    //    rather than from wherever the click happened, this click would only reach as far as deepL3
+    //    (root + 3). Measured from the CLICKED node instead, it must reach deepL4.
+    ctrlClick(itemWrapper(wrapper, 'deepL1').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'deepL1')).toBe(true) // -> the clicked node itself
+    expect(isExpanded(wrapper, 'deepL2')).toBe(true) // -> 1 level below deepL1
+    expect(isExpanded(wrapper, 'deepL3')).toBe(true) // -> 2 levels below deepL1
+    expect(isExpanded(wrapper, 'deepL4')).toBe(true) // -> 3 levels below deepL1 -- still inside the cap
+    expect(isExpanded(wrapper, 'deepL5')).toBe(false) // -> 4 levels below deepL1 -- past the cap
+    expect(isExpanded(wrapper, 'deepRoot')).toBe(false) // -> the clicked node's own ancestor, untouched
+  })
+})

@@ -170,19 +170,37 @@ function handleIsolateClick(event, item) {
 // CTRL+CLICK EXPAND/COLLAPSE CYCLE (OpenProject #2847)
 
 /**
- * Every folder (item carrying at least one child) in `item`'s own descendant subtree, recursively
- * -- NOT including `item` itself. Local to this cycle, and deliberately distinct from
- * `navSidebarDestination.js`'s exported `folderIds` (OpenProject #2848's whole-tree walk for
- * middle-click isolate): that one walks a top-level items array; this one walks a single folder's
- * own `children`, which is what ctrl+click cycling a subtree calls for. Returns full item objects
- * rather than bare ids, since each one's own `expandByDefault`/`containsCurrent` default is needed
- * to read its CURRENT open/closed state faithfully (see `handleExpandCycleClick` below).
+ * Ctrl+click's own reach limit (OpenProject #2909): the tree can nest up to `MAX_DEPTH` (10,
+ * `backend/models/tree.ts`), and `descendantFolders` used to walk every one of those levels with no
+ * ceiling at all -- on a massive instance, one ctrl+click could walk and toggle a huge subtree in a
+ * single, very slow call. Capped to 3 levels BELOW the clicked node, not 3 levels from the overall
+ * tree root -- a click 3 levels down still expands 3 further levels from wherever it was clicked.
+ * Deeper folders stay collapsed; the reader can ctrl+click again further down to keep expanding
+ * incrementally.
  */
-function descendantFolders(item) {
+const MAX_EXPAND_CYCLE_DEPTH = 3
+
+/**
+ * Every folder (item carrying at least one child) in `item`'s own descendant subtree, recursively
+ * -- NOT including `item` itself, and capped at `MAX_EXPAND_CYCLE_DEPTH` levels below it (see
+ * above). Local to this cycle, and deliberately distinct from `navSidebarDestination.js`'s exported
+ * `folderIds` (OpenProject #2848's whole-tree walk for middle-click isolate): that one walks a
+ * top-level items array; this one walks a single folder's own `children`, which is what ctrl+click
+ * cycling a subtree calls for. Returns full item objects rather than bare ids, since each one's own
+ * `expandByDefault`/`containsCurrent` default is needed to read its CURRENT open/closed state
+ * faithfully (see `handleExpandCycleClick` below).
+ *
+ * `depth` counts levels already descended below the originally clicked node -- 0 on the initial
+ * call, incremented once per recursive step -- and is never an absolute depth from the tree root.
+ */
+function descendantFolders(item, depth = 0) {
+  if (depth >= MAX_EXPAND_CYCLE_DEPTH) {
+    return []
+  }
   const folders = []
   for (const child of item.children ?? []) {
     if (child.children?.length > 0) {
-      folders.push(child, ...descendantFolders(child))
+      folders.push(child, ...descendantFolders(child, depth + 1))
     }
   }
   return folders
