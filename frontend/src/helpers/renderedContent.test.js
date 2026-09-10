@@ -37,18 +37,23 @@ function codeBlock(text) {
 }
 
 /**
- * The exact shape `renderers/markdown.js`'s `table_open`/`table_close` override produces:
- * `<div class="table-wrap"><div class="table-scroll"><table>...</table></div></div>`.
+ * The exact shape `renderers/markdown.js`'s table overrides produce (OpenProject #2997/#3014):
+ * `<div class="table-wrap"><div class="table-scroll"><div role="table">...</div></div></div>`.
  *
- * @param {string} rowsHtml `<tr>` rows (including a `<thead>`/`<tbody>` split if the test wants
- *   one) to place inside the `<table>`.
+ * @param {string} rowsHtml `div[role="row"]` rows to place inside the `div[role="table"]`.
  */
 function tableWrap(rowsHtml) {
   const wrap = document.createElement('div')
   wrap.className = 'table-wrap'
-  wrap.innerHTML = `<div class="table-scroll"><table>${rowsHtml}</table></div>`
+  wrap.innerHTML = `<div class="table-scroll"><div role="table">${rowsHtml}</div></div>`
   document.body.appendChild(wrap)
   return wrap
+}
+
+/** A single `div[role="row"]` built from cell text, mirroring one grid row of the real markup. */
+function row(cells, { header = false } = {}) {
+  const role = header ? 'columnheader' : 'cell'
+  return `<div role="row">${cells.map((text) => `<div role="${role}">${text}</div>`).join('')}</div>`
 }
 
 function headingWithId(id) {
@@ -192,7 +197,7 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
   })
 
   it('adds a .table-copy button to a rendered table, marking the wrapper done', () => {
-    const wrap = tableWrap('<tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr>')
+    const wrap = tableWrap(row(['A', 'B'], { header: true }) + row(['1', '2']))
     enhanceRenderedContent(wrap.parentNode, t)
 
     expect(wrap.dataset.tableCopy).toBe('')
@@ -207,7 +212,7 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
 
-    const wrap = tableWrap('<tr><th>Name</th><th>Count</th></tr><tr><td>apples</td><td>3</td></tr>')
+    const wrap = tableWrap(row(['Name', 'Count'], { header: true }) + row(['apples', '3']))
     enhanceRenderedContent(wrap.parentNode, t)
 
     wrap.querySelector('.table-copy').click()
@@ -220,12 +225,12 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
 
-    const wrap = tableWrap(`
-      <tr><th>Item</th><th>Note</th></tr>
-      <tr><td>Comma, here</td><td>plain</td></tr>
-      <tr><td>Say &quot;hi&quot;</td><td>plain</td></tr>
-      <tr><td>Multi</td><td>line one${'\n'}line two</td></tr>
-    `)
+    const wrap = tableWrap(
+      row(['Item', 'Note'], { header: true }) +
+        row(['Comma, here', 'plain']) +
+        row(['Say &quot;hi&quot;', 'plain']) +
+        row(['Multi', `line one${'\n'}line two`])
+    )
     enhanceRenderedContent(wrap.parentNode, t)
 
     wrap.querySelector('.table-copy').click()
@@ -241,7 +246,7 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
   it('is idempotent -- re-running over the same content adds no second button', () => {
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn() } })
 
-    const wrap = tableWrap('<tr><td>A</td></tr>')
+    const wrap = tableWrap(row(['A']))
     enhanceRenderedContent(wrap.parentNode, t)
     enhanceRenderedContent(wrap.parentNode, t)
 
@@ -254,7 +259,7 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
       clipboard: { writeText: vi.fn().mockResolvedValue(undefined) }
     })
 
-    const wrap = tableWrap('<tr><td>A</td></tr>')
+    const wrap = tableWrap(row(['A']))
     enhanceRenderedContent(wrap.parentNode, t)
 
     const button = wrap.querySelector('.table-copy')
@@ -272,7 +277,7 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
       clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }
     })
 
-    const wrap = tableWrap('<tr><td>A</td></tr>')
+    const wrap = tableWrap(row(['A']))
     enhanceRenderedContent(wrap.parentNode, t)
 
     wrap.querySelector('.table-copy').click()

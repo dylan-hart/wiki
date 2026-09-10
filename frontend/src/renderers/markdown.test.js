@@ -86,14 +86,17 @@ describe('MarkdownRenderer - multimd-table', () => {
       ].join('\n')
     )
 
-    expect(html).toContain('<th colspan="3">A</th>')
-    expect(html).toContain('<td rowspan="2">B</td>')
+    // -> `colspan`/`rowspan` are not valid attributes on the `<div role="columnheader"/"cell">` the
+    //    table grid markup renders (see the "table grid markup" describe block below) -- the
+    //    renderer renames them to their ARIA grid-cell equivalents before rendering.
+    expect(html).toContain('<div aria-colspan="3" role="columnheader">A</div>')
+    expect(html).toContain('<div aria-rowspan="2" role="cell">B</div>')
     // -> The merged cell's own row has only the two cells it actually contributes, not a `^^`
     //    placeholder for the one it inherited
     expect(html).not.toContain('^^')
   })
 
-  it('merges a backslash-continued cell across lines into one <td> when multimdTable is enabled', () => {
+  it('merges a backslash-continued cell across lines into one grid cell when multimdTable is enabled', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
     const html = renderer.render(
       ['A         | B', '----------|-------', 'line one  | x     \\', 'line two  | y', ''].join(
@@ -103,7 +106,7 @@ describe('MarkdownRenderer - multimd-table', () => {
 
     // -> One merged row, not two: the continuation line joined into the SAME cell as the line above
     //    it rather than starting a new row
-    const rowCount = (html.match(/<tr>/g) ?? []).length
+    const rowCount = (html.match(/role="row"/g) ?? []).length
     expect(rowCount).toBe(2) // header row + the single merged body row
     expect(html).toContain('<p>line one\nline two</p>')
     expect(html).toContain('<p>x\ny</p>')
@@ -121,13 +124,86 @@ describe('MarkdownRenderer - multimd-table', () => {
       ].join('\n')
     )
 
-    // -> markdown-it's built-in table rule still renders a plain <table> -- multimd syntax on top of
-    //    it is simply not understood, not a parse failure
-    expect(html).toContain('<table>')
+    // -> markdown-it's built-in table rule still renders a plain grid table -- multimd syntax on top
+    //    of it is simply not understood, not a parse failure
+    expect(html).toContain('role="table"')
     expect(html).not.toContain('rowspan')
     expect(html).not.toContain('colspan')
     // -> `^^` is left as the literal cell text rather than being read as a rowspan marker
-    expect(html).toContain('<td>^^</td>')
+    expect(html).toContain('<div role="cell">^^</div>')
+  })
+})
+
+/**
+ * OpenProject #2997/#3014: a rendered table is CSS Grid, not a real `<table>` -- `table_open`/
+ * `table_close` and the row/cell rules retag every table-related token to `<div>`, adding the
+ * matching ARIA role (`table`/`row`/`columnheader`/`cell`) instead of letting markdown-it emit
+ * `<table>`/`<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>` at all. `border-collapse` combined with an
+ * ancestor `overflow: hidden` + `border-radius` clip is a known cross-browser rendering gap that
+ * three rounds of container-level fixes (#2916/#2935/#2958) could not close from the outside, so the
+ * table element itself had to stop being a `<table>`.
+ */
+describe('MarkdownRenderer - table grid markup', () => {
+  it('renders a plain table as nested div[role] elements: table > row > columnheader/cell', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', ''].join('\n')
+    )
+
+    expect(html).toContain('role="table"')
+    expect(html).not.toContain('<table')
+    expect(html).not.toContain('<thead')
+    expect(html).not.toContain('<tbody')
+    expect(html).not.toContain('<tr')
+    expect(html).not.toContain('<th')
+    expect(html).not.toContain('<td')
+
+    expect(html).toContain('<div role="columnheader">A</div>')
+    expect(html).toContain('<div role="columnheader">B</div>')
+    expect(html).toContain('<div role="cell">1</div>')
+    expect(html).toContain('<div role="cell">2</div>')
+
+    // -> Two rows (header + one body row), each a direct child of the grid -- there is no rowgroup
+    //    wrapper left over from the dropped thead/tbody
+    const rowCount = (html.match(/role="row"/g) ?? []).length
+    expect(rowCount).toBe(2)
+  })
+
+  it('carries a column-alignment style from markdown-it onto the header/cell div, same as it did on <th>/<td>', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|:-----|-----:|', '| 1    | 2    |', ''].join('\n')
+    )
+
+    expect(html).toContain('<div style="text-align:left" role="columnheader">A</div>')
+    expect(html).toContain('<div style="text-align:right" role="columnheader">B</div>')
+  })
+
+  it('renders a multimd table (rowspan/colspan) as the same div[role] shape', () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['| A                |||', '|------|------|------|', '| B    | C    | D    |', ''].join('\n')
+    )
+
+    expect(html).toContain('role="table"')
+    expect(html).not.toContain('<table')
+    expect(html).toContain('<div aria-colspan="3" role="columnheader">A</div>')
+  })
+
+  /*
+    `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
+    class onto the TABLE token, at parse time -- before it is retagged to `<div>` at render time --
+    so it still lands on the same token, now rendered as `role="table"` rather than `<table>`.
+  */
+  it('keeps an author\'s markdown-it-attrs class on the grid\'s outer div, alongside role="table"', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', '', '{.table-leading-col}'].join(
+        '\n'
+      )
+    )
+
+    expect(html).toContain('<div class="table-leading-col" role="table">')
   })
 })
 
@@ -139,10 +215,10 @@ describe('MarkdownRenderer - multimd-table', () => {
  * two combined divs, so a corner mark can overhang the frame without a box that also has
  * `overflow-x: auto` clipping it away (#2935), AND so the radius clip lives on a box that isn't
  * itself producing a native scrollbar, which is not reliably clipped by `border-radius` on the same
- * element that renders it (#2958). None of the three boxes exist on `<table>` itself, which is why
- * they have to actually exist rather than being left to a `display:block` trick on the table alone.
- * `table_open`/`table_close` are overridden the same way `link_open` already is, so this covers both
- * the plain built-in table parser and multimd's richer one, which produce the same core tokens.
+ * element that renders it (#2958). `table_open`/`table_close` wrap whatever the table itself renders
+ * as -- a real `<table>` before #3014, the CSS Grid `<div role="table">` after it -- so this coverage
+ * is unaffected by the grid-markup change above and still covers both the plain built-in table parser
+ * and multimd's richer one, which produce the same core tokens.
  */
 describe('MarkdownRenderer - table scroll wrapper', () => {
   it('wraps a plain table in div.table-wrap > div.table-clip > div.table-scroll', () => {
@@ -152,9 +228,9 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
     )
 
     expect(html).toContain(
-      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table>'
+      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><div role="table">'
     )
-    expect(html).toMatch(/<\/table>\n?<\/div><\/div><\/div>/)
+    expect(html).toMatch(/<\/div>\n?<\/div><\/div><\/div>$/)
   })
 
   it('wraps a multimd table (rowspan/colspan) in the same nested divs', () => {
@@ -164,27 +240,9 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
     )
 
     expect(html).toContain(
-      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table>'
+      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><div role="table">'
     )
-    expect(html).toMatch(/<\/table>\n?<\/div><\/div><\/div>/)
-  })
-
-  /*
-    `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
-    class onto the TABLE token, at parse time -- before this wrapping ever runs at render time -- so
-    it still lands on `<table>` itself, three levels inside the new wrapper divs, not on any of them.
-  */
-  it("keeps an author's markdown-it-attrs class on <table>, inside all three wrappers rather than on any of them", () => {
-    const renderer = new MarkdownRenderer({})
-    const html = renderer.render(
-      ['| A    | B    |', '|------|------|', '| 1    | 2    |', '', '{.table-leading-col}'].join(
-        '\n'
-      )
-    )
-
-    expect(html).toContain(
-      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table class="table-leading-col">'
-    )
+    expect(html).toMatch(/<\/div>\n?<\/div><\/div><\/div>$/)
   })
 })
 
