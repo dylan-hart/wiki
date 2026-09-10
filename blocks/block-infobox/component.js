@@ -289,10 +289,11 @@ Website: https://montreal.ca
 
       .name {
         padding: 10px 12px;
-        border-bottom: 1px solid var(--block-border);
+        border-bottom: var(--infobox-name-rule);
         background-color: var(--infobox-name-bg);
         color: var(--infobox-name-fg);
-        font: 600 16px var(--font-display);
+        font: 600 var(--infobox-name-font-size) var(--font-display);
+        letter-spacing: var(--infobox-name-tracking);
         text-align: center;
       }
 

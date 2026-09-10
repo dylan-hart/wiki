@@ -1260,6 +1260,9 @@ body.body--cobalt.body--dark {
   --infobox-border: var(--block-border);
   --infobox-name-bg: #f0f2f7;
   --infobox-name-fg: #1c2233;
+  --infobox-name-font-size: 16px;
+  --infobox-name-tracking: normal;
+  --infobox-name-rule: 1px solid var(--block-border);
   --infobox-group-fg: #57668a;
   --infobox-group-font: 600 9.5px var(--font-mono);
   --infobox-group-tracking: 0.18em;
@@ -1437,6 +1440,9 @@ body.body--cobalt {
   --infobox-border: #c9d6fb;
   --infobox-name-bg: #1f4fd6;
   --infobox-name-fg: #fff;
+  --infobox-name-font-size: 15px;
+  --infobox-name-tracking: 0.04em;
+  --infobox-name-rule: none;
   --infobox-group-fg: #1f4fd6;
   --infobox-group-font: 600 12px var(--font-sans);
   --infobox-group-tracking: normal;
