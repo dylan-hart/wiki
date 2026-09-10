@@ -919,6 +919,21 @@ body.body--cobalt {
   }
 }
 
+/*
+  OpenProject #3009: `WDrawer.vue`'s `borderClass` computed draws the drawer's own inline-end edge
+  with the GENERIC `border-hairline`/`dark:border-hairline-dark` Tailwind utilities, which resolve
+  through `--color-hairline` -- a pale, light-paper-appropriate tone. That's correct for most
+  drawers, but `.bg-sidebar` sits on the dark-toned sidebar surface even in Cobalt LIGHT mode, so
+  the generic token reads as a near-white mismatch against it -- exactly what
+  `.sidebar-footerbtns`'s own `border-top` above already avoids by using `--color-sidebar-hairline`
+  instead. Overridden here (not in `WDrawer.vue`, which other, genuinely light-paper drawers still
+  use unchanged) and `!important` to beat the utility class. `:not(.body--dark)` on purpose --
+  Cobalt dark mode was not reported as wrong and is left alone.
+*/
+body.body--cobalt:not(.body--dark) .bg-sidebar {
+  border-inline-end-color: var(--color-sidebar-hairline) !important;
+}
+
 .sidebar-mini {
   height: 100%;
 }
