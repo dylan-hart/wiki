@@ -1,9 +1,10 @@
 /**
  * `core/collab.ts`'s autosave-draft persistence (OpenProject #2454): a room's live Yjs state is
- * debounce-written to `WIKI.models.pageDrafts` as real edits happen, `initRoom()` prefers a persisted
- * draft over the plain stored page when no peer answers, and `pageSaved()`/`discardDraft()` clear
- * the draft once a real save, or an explicit Cancel (OpenProject #2898), supersedes it. Pure —
- * `test/collabHarness.ts` stubs `WIKI.models.pageDrafts`, so this
+ * debounce-written to `WIKI.models.pageDrafts` as real edits happen, `initRoom()` never reads it back
+ * to seed a room (OpenProject #2957 -- doing so used to make the recovery-restore dialog's diff empty
+ * and its Discard a no-op, since the room would already hold the draft by the time either ran), and
+ * `pageSaved()`/`discardDraft()` clear the draft once a real save, or an explicit Cancel (OpenProject
+ * #2898), supersedes it. Pure -- `test/collabHarness.ts` stubs `WIKI.models.pageDrafts`, so this
  * needs no database; `models/pageDrafts.db.test.ts` covers the storage layer itself. Split out of
  * `core/collab.test.ts` (TEST-F14) alongside its three siblings.
  */
@@ -12,11 +13,6 @@ import { describe, test } from 'node:test'
 import * as Y from 'yjs'
 import collab, { DRAFT_PERSIST_DEBOUNCE, DRAFT_PERSIST_MAX_DELAY } from './collab.ts'
 import { installCollabHarness, STORED_PAGE } from '../test/collabHarness.ts'
-import { ensureTemporal } from '../test/temporal.ts'
-
-// -> `initRoom()`'s draft-restored marker calls `Date.prototype.toTemporalInstant()` -- see
-//    `test/temporal.ts`'s own doc comment for why this sandbox needs the polyfill installed first.
-await ensureTemporal()
 
 const harness = installCollabHarness()
 
@@ -169,8 +165,8 @@ describe('closeRoomIfEmpty: flushes a pending draft before the doc is destroyed'
   })
 })
 
-describe('initRoom: draft preference tier (peer > draft > stored page)', () => {
-  test('a persisted draft is preferred over the stored page when no peer answers', async () => {
+describe('initRoom: never seeds from the persisted draft (peer > stored page only)', () => {
+  test('a persisted draft on file is not consulted at all when no peer answers -- the stored page wins', async () => {
     const draftState = (() => {
       const doc = new Y.Doc()
       doc.getText('content').insert(0, 'DRAFT CONTENT')
@@ -178,19 +174,28 @@ describe('initRoom: draft preference tier (peer > draft > stored page)', () => {
       doc.destroy()
       return update
     })()
-    const updatedAt = new Date('2026-08-01T00:00:00.000Z')
     harness.pageDrafts().get.mock.mockImplementationOnce(async () => ({
       state: Buffer.from(draftState),
-      updatedAt
+      updatedAt: new Date('2026-08-01T00:00:00.000Z')
     }))
 
     const room = await harness.openRoom(collab, { id: 'page-8', siteId: 'site-1' })
 
-    assert.equal(room.doc.getText('content').toString(), 'DRAFT CONTENT')
-    assert.equal(harness.getPage().mock.calls.length, 0, 'the stored page must never be consulted')
-    assert.deepEqual(room.doc.getMap('meta').get('draftRestored'), {
-      at: '2026-08-01T00:00:00.000Z'
-    })
+    assert.equal(
+      room.doc.getText('content').toString(),
+      STORED_PAGE.content,
+      'the draft must never be applied, even though one exists'
+    )
+    assert.equal(
+      harness.getPage().mock.calls.length,
+      1,
+      'the stored page must be consulted instead'
+    )
+    assert.equal(
+      harness.pageDrafts().get.mock.calls.length,
+      0,
+      'initRoom() must not even read the draft back -- OpenProject #2957'
+    )
   })
 
   test('the stored page is used, as before, when no draft exists either', async () => {
@@ -198,31 +203,6 @@ describe('initRoom: draft preference tier (peer > draft > stored page)', () => {
 
     assert.equal(room.doc.getText('content').toString(), STORED_PAGE.content)
     assert.equal(harness.getPage().mock.calls.length, 1)
-    assert.equal(room.doc.getMap('meta').get('draftRestored'), undefined)
-  })
-
-  test('restoring a draft does not itself schedule a further autosave write', async (t) => {
-    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
-    const draftState = (() => {
-      const doc = new Y.Doc()
-      doc.getText('content').insert(0, 'DRAFT')
-      const update = Y.encodeStateAsUpdate(doc)
-      doc.destroy()
-      return update
-    })()
-    harness.pageDrafts().get.mock.mockImplementationOnce(async () => ({
-      state: Buffer.from(draftState),
-      updatedAt: new Date()
-    }))
-
-    await harness.openRoom(collab, { id: 'page-10', siteId: 'site-1' })
-
-    t.mock.timers.tick(DRAFT_PERSIST_MAX_DELAY * 2)
-    assert.equal(
-      harness.pageDrafts().save.mock.calls.length,
-      0,
-      'applying/marking the restored draft must go through RELAYED, not schedule a self-persist'
-    )
   })
 })
 

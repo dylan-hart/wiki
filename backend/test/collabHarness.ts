@@ -142,11 +142,10 @@ export function installCollabHarness(): CollabHarness {
 
   beforeEach(() => {
     getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
-    // -> `initRoom()`'s middle fallback tier (OpenProject #2454): every test in this shared harness
-    //    gets "no draft on file" by default, same as a page nobody has autosaved yet, so the
-    //    peer/timeout/stored-page suites this harness was built for keep exercising exactly what
-    //    they did before this tier existed. A suite that cares about the draft path (or wants to
-    //    assert on a `save`/`clear` call) reads these back through `pageDrafts()`.
+    // -> `WIKI.models.pageDrafts` (OpenProject #2454): `initRoom()` itself never reads `get` (OpenProject
+    //    #2957 — a persisted draft is never a room-seeding source), but `save`/`clear` are still
+    //    exercised by the debounced-persist/pageSaved/discardDraft paths, and a suite that wants to
+    //    assert on any of the three reads them back through `pageDrafts()`.
     pageDraftsMocks = {
       get: mock.fn(async () => undefined),
       save: mock.fn(async () => {}),
