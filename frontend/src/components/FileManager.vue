@@ -378,6 +378,15 @@
                         </w-list>
                       </w-menu>
                     </w-item>
+                    <w-item clickable @click="state.isCompact = !state.isCompact">
+                      <w-item-section side>
+                        <w-icon
+                          :name="state.isCompact ? `tabler:checkbox` : `tabler:player-stop`"
+                          :color="state.isCompact ? `positive` : `grey`"
+                          size="xs" />
+                      </w-item-section>
+                      <w-item-section class="pe-2">{{ t('fileman.compactList') }}</w-item-section>
+                    </w-item>
                     <w-item clickable @click="state.shouldShowFolders = !state.shouldShowFolders">
                       <w-item-section side>
                         <w-icon
@@ -496,7 +505,7 @@
                 <img src="/_assets/icons/carbon-copy-empty-box.svg" alt="" />
                 <span>{{ t('common.pageSelector.folderEmptyWarning') }}</span>
               </div>
-              <w-list class="fileman-filelist" v-else>
+              <w-list class="fileman-filelist" v-else :class="state.isCompact && `is-compact`">
                 <w-item
                   v-for="item of files"
                   :key="item.id"
@@ -506,7 +515,7 @@
                   @click="selectItem(item)"
                   @dblclick="doubleClickItem(item)">
                   <w-item-section class="fileman-filelist-icon" avatar>
-                    <w-icon :name="item.icon" size="md" />
+                    <w-icon :name="item.icon" :size="state.isCompact ? `sm` : `xl`" />
                   </w-item-section>
                   <w-item-section class="fileman-filelist-label">
                     <w-item-label>{{ usePathTitle ? item.fileName : item.title }}</w-item-label>
@@ -723,6 +732,7 @@ function storedViewOptions() {
   }
   return {
     ...(['title', 'path'].includes(stored.displayMode) ? { displayMode: stored.displayMode } : {}),
+    ...(typeof stored.isCompact === 'boolean' ? { isCompact: stored.isCompact } : {}),
     ...(typeof stored.shouldShowFolders === 'boolean'
       ? { shouldShowFolders: stored.shouldShowFolders }
       : {})
@@ -751,6 +761,13 @@ const state = reactive({
   treeNodes: {},
   treeRoots: [],
   displayMode: 'title',
+  /**
+   * Row density (OpenProject #2960): compact stays the DEFAULT -- a work-cycle commit
+   * (`db2b0196a`) briefly deleted comfortable mode entirely rather than merely defaulting away from
+   * it, which is not what was asked for. `true` here, not `false`, is the one behavioral change
+   * from this flag's pre-`db2b0196a` shape.
+   */
+  isCompact: true,
   shouldShowFolders: true,
   isUploading: false,
   shouldCancelUpload: false,
@@ -769,12 +786,12 @@ Object.assign(state, storedViewOptions())
   the editor's insert flow, which can be dismissed in ways that never reach a teardown here.
 */
 watch(
-  () => [state.displayMode, state.shouldShowFolders],
-  ([displayMode, shouldShowFolders]) => {
+  () => [state.displayMode, state.isCompact, state.shouldShowFolders],
+  ([displayMode, isCompact, shouldShowFolders]) => {
     try {
       globalThis.localStorage?.setItem(
         VIEW_OPTIONS_KEY,
-        JSON.stringify({ displayMode, shouldShowFolders })
+        JSON.stringify({ displayMode, isCompact, shouldShowFolders })
       )
     } catch {
       // -> Full, or storage denied. Not worth a word to the reader: the options still work, they
@@ -1761,6 +1778,13 @@ $fileman-hdr-wrap-max: 899.98px;
     manager. An explicit `grid-template-columns` on the row reserves every column's width
     regardless of whether a given row's cell is populated, so `v-if="item.side"` stays exactly as
     it is: the fourth track is still there, just empty, on a folder or page row.
+
+    ROW DENSITY (OpenProject #2960): comfortable, below, is the unmodified base -- the design's
+    original ~69px row -- and `.is-compact` shrinks it down to the ~40px row that ships as the
+    DEFAULT (`state.isCompact` starts `true`). An intervening work-cycle commit (`db2b0196a`)
+    deleted comfortable entirely rather than merely defaulting away from it, and separately sized
+    the compact icon at `md` (32px) instead of the `sm` (24px) every other row list of this kind
+    uses (`TreeBrowserDialog.vue`) -- both restored/fixed here.
   */
   &-filelist {
     padding: 0;
@@ -1783,15 +1807,18 @@ $fileman-hdr-wrap-max: 899.98px;
     */
     > .w-item {
       display: grid;
-      grid-template-columns: 40px minmax(0, 1fr) 110px 90px;
       /*
-        A single row height, ~40px (OpenProject #2940): what shipped as the denser of two row
-        densities (WP #2920/#2921) is now the only one -- the roomier 69px default it used to sit
-        beside is gone, and with it the state flag and CSS modifier class that used to switch
-        between them. 4px top/bottom padding plus the `md` (32px) icon below lands the row at 40px.
+        Comfortable's own column widths: a 56px icon track (room for the `xl`/46px icon plus the
+        6px `padding-inline-end` below), matching `WItemSection`'s own default avatar reservation.
+        `.is-compact` narrows this track to 40px, for its smaller `sm`/24px icon.
       */
-      padding: 4px 16px;
-      min-height: 40px;
+      grid-template-columns: 56px minmax(0, 1fr) 110px 90px;
+      /*
+        The comfortable row: ~69px, the design's own original density. 11px top/bottom padding
+        plus the `xl` (46px) icon below lands it there.
+      */
+      padding: 11px 16px;
+      min-height: 69px;
       /*
         Opts this row out of `WItem.vue`'s own container-query row stacking
         (`.w-item:has(.w-item-section--main + .w-item-section--main)`) -- real for the settings
@@ -1829,16 +1856,29 @@ $fileman-hdr-wrap-max: 899.98px;
       }
 
       /*
-        `WItemSection.vue`'s own `.w-item-section--avatar` reserves 56px, sized for a standalone
-        40px avatar -- wider than this row's 40px icon COLUMN, and under Grid a `min-width` that
-        wide overflows a fixed track rather than simply being ignored the way it was on a shrinking
-        flex item. Overridden here, nested under `.w-item`, for the specificity to beat that scoped
-        rule reliably rather than tying with it.
+        `WItemSection.vue`'s own `.w-item-section--avatar` reserves 56px width AND a matching
+        `min-width` -- fine for comfortable's own 56px track, but under Grid that `min-width`
+        overflows `.is-compact`'s narrower 40px track rather than simply being ignored the way it
+        was on a shrinking flex item. Overridden unconditionally here, nested under `.w-item`, for
+        the specificity to beat that scoped rule reliably rather than tying with it in either
+        density.
       */
       .fileman-filelist-icon {
         padding-inline-end: 6px;
         min-width: 0;
       }
+    }
+
+    /*
+      Compact (the default -- `state.isCompact` starts `true`): roughly the ~40px row
+      `db2b0196a` shipped as the only option, now reachable as a toggle instead. The icon itself
+      shrinks with it, in the template's `:size="state.isCompact ? 'sm' : 'xl'"` -- CSS alone
+      can't resize the icon glyph, only the row and its grid track around it.
+    */
+    &.is-compact > .w-item {
+      grid-template-columns: 40px minmax(0, 1fr) 110px 90px;
+      padding: 4px 16px;
+      min-height: 40px;
     }
 
     // -> The design's own row type scale: a 14.5px/500 name, the filename column now exclusive

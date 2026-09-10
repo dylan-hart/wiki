@@ -119,7 +119,7 @@
         -->
         <w-badge
           v-if="pageStore.publishState === `draft`"
-          class="uppercase"
+          class="uppercase page-header-badge"
           color="negative"
           :label="t(`editor.props.draft`)" />
         <!--
@@ -137,11 +137,10 @@
         -->
         <w-btn
           class="ms-4"
-          :class="{ 'is-ringing': state.bellRinging }"
+          :class="{ 'is-ringing': state.bellRinging, 'is-watching': pageStore.isWatching }"
           v-if="userStore.authenticated && !isRedirect"
           flat
           :icon="pageStore.isWatching ? `tabler:bell-filled` : `tabler:bell`"
-          :color="pageStore.isWatching ? `accent` : `slate-soft`"
           :aria-label="pageStore.isWatching ? t(`common.page.unwatch`) : t(`common.page.watch`)"
           :aria-pressed="pageStore.isWatching"
           @click="toggleWatch">
@@ -154,7 +153,6 @@
           v-if="siteStore.theme.showPrintBtn"
           flat
           icon="tabler:printer"
-          color="slate-soft"
           :aria-label="t('common.actions.print')"
           @click="printPage">
           <w-tooltip>{{ t('common.actions.print') }}</w-tooltip>
@@ -795,6 +793,22 @@ async function toggleWatch() {
 }
 
 /*
+  The Draft badge (`ui-iteration-cobalt-typography/cobalt-typography.md` §3, "Page header banner"):
+  600 9.5px mono, .16em tracking, uppercase -- shared metric, not a Cobalt-only swap (§2: Cobalt
+  moves colour only). `WBadge` itself is already mono/600/9px -- what it does not carry is the
+  size step to 9.5px or the tracking, and both are scoped to this one badge rather than added to
+  `WBadge` itself, which draws plenty of untracked, sentence-case labels elsewhere (group/user
+  counts, history markers, ...). `uppercase` is the caller's own Tailwind class already; this rule
+  is the two properties Tailwind has no utility for at this exact value. Unlayered scoped rule, so
+  it beats `WBadge`'s `text-[9px]` utility with no `!important` needed -- same reasoning as the
+  mobile title override below.
+*/
+.page-header-badge {
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+}
+
+/*
   The secondary actions' own plate. Ledger draws them as bare icons in the chrome tone on a white
   band -- `--page-header-action-bg` is `transparent` and `--page-header-action-fg` the same
   `--color-slate-soft` each caller asks for, so nothing changes there. Cobalt sets each one in a
@@ -809,6 +823,19 @@ async function toggleWatch() {
   background-color: var(--page-header-action-bg);
   color: var(--page-header-action-fg);
   border-radius: var(--radius-control);
+}
+
+/*
+  OpenProject #2961: the watch button's own accent while the page IS watched. `WBtn`'s `color` prop
+  writes an inline `style="color: ..."` on the button root, which always beats the class rule above
+  regardless of aesthetic or source order -- that inline color is what made both this button (when
+  not watching) and the print button beside it read as the wrong, subdued token in Cobalt instead of
+  `--page-header-action-fg`. Neither button takes a `color` prop any more; this state is expressed as
+  a class instead, written one class more specific than the rule above so it wins on specificity
+  alone rather than depending on appearing later in the file.
+*/
+.page-header-actions > .w-btn.w-btn--flat.is-watching {
+  color: var(--color-accent);
 }
 
 /*

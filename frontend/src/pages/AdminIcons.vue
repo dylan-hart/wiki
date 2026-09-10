@@ -158,6 +158,24 @@
             </w-item>
           </w-list>
         </w-card>
+        <!-- ----------------------- -->
+        <!-- Offline Sideload -->
+        <!-- ----------------------- -->
+        <w-card class="rounded mt-4" style="width: 350px" v-if="canSideload">
+          <w-card-header>
+            {{ t('admin.icons.sideload') }}
+            <template #hint>{{ t('admin.icons.sideloadHelp') }}</template>
+          </w-card-header>
+          <w-card-section>
+            <w-btn
+              outline
+              icon="tabler:upload"
+              color="slate"
+              :label="t('admin.icons.sideload')"
+              :loading="state.sideloading"
+              @click="sideload" />
+          </w-card-section>
+        </w-card>
       </div>
     </div>
     <!-- ----------------------- -->
@@ -252,6 +270,7 @@ import { notify } from '@/composables/notify'
 import { confirm } from '@/composables/dialog'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { formatFileSize } from '@/helpers/fileSize'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
@@ -263,6 +282,7 @@ const dark = useDark()
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -284,10 +304,17 @@ const state = reactive({
   availableSets: [],
   availableFilter: '',
   availableError: '',
-  loadingAvailable: false
+  loadingAvailable: false,
+  sideloading: false
 })
 
 // COMPUTED
+
+// -> `POST icons/sideload` (backend/api/icons.ts) is `manage:system`-only -- icon sets are
+//    instance-wide (see CLAUDE.md's Icons section), so there is no site-scoped delegation to check
+//    alongside it the way AdminLocale.vue's `site:locale` gate does; the control is hidden rather
+//    than shown disabled for anyone lacking it.
+const canSideload = computed(() => userStore.can('manage:system'))
 
 const filteredAvailableSets = computed(() => {
   const filter = state.availableFilter?.trim().toLowerCase()
@@ -370,6 +397,56 @@ async function refreshSets() {
   }
   state.loading--
   await load()
+}
+
+/**
+ * The air-gapped deployment path (OpenProject #820/#2939): `POST icons/sideload` rescans
+ * `<dataPath>/icons/` on the server's own data volume for vendored Iconify collection JSON files an
+ * operator placed there out-of-band and (re)loads whatever it finds -- unlike the locale sideload,
+ * every file found there is always reloaded, so there is no freshness gate to force past. `loaded`
+ * and `skipped` can both be non-empty at once (a partial run), so success/failure isn't a strict
+ * either/or -- each is reported on its own, mirroring AdminLocale.vue's sideload() but against the
+ * icons route's own response shape ({ loaded: { prefix, iconCount }[], skipped: { prefix, error }[] }).
+ */
+async function sideload() {
+  if (state.sideloading) {
+    return
+  }
+  state.sideloading = true
+  try {
+    const resp = await API_CLIENT.post('icons/sideload').json()
+    const loadedSets = resp?.loaded ?? []
+    const skippedSets = resp?.skipped ?? []
+    if (loadedSets.length > 0) {
+      notify({
+        type: 'positive',
+        message: t('admin.icons.sideloadSuccess', { count: loadedSets.length }),
+        caption: loadedSets.map((s) => s.prefix).join(', ')
+      })
+    } else if (skippedSets.length === 0) {
+      notify({
+        type: 'info',
+        message: t('admin.icons.sideloadNone')
+      })
+    }
+    if (skippedSets.length > 0) {
+      notify({
+        type: 'negative',
+        message: t('admin.icons.sideloadFailed'),
+        caption: skippedSets.map((s) => `${s.prefix}: ${s.error}`).join('; ')
+      })
+    }
+    if (loadedSets.length > 0) {
+      await load()
+    }
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.icons.sideloadFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.sideloading = false
 }
 
 async function openAddSet() {

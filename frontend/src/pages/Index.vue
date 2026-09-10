@@ -1460,15 +1460,33 @@ $toc-overlay-max: 749.98px;
     banner card below it is what separates the two -- and marks the current page in cobalt rather
     than leaving it to inherit the trail's caption tone (`Page View 3x - Cobalt`). One rule for both
     themes: every token in it is already aesthetic- and theme-aware.
+
+    OpenProject #2975 (Cobalt typography, "Breadcrumb bar" role table): every non-last `<li>` here
+    carries its own inline `color` -- `WBreadcrumbs`' `active-color` prop, resolved as
+    `var(--color-grey-5/-7)`, LEDGER's tone -- so a plain `color:` on this block alone never reaches
+    a trail segment; only the LAST crumb had a rule specific enough (`li:last-child
+    .w-breadcrumbs__el`, no inline style to out-rank) to actually land. `.w-breadcrumbs__el` gets its
+    own explicit `color` below instead of leaning on inheritance from the `<li>`'s inline style --
+    an explicit declaration on the element itself beats an inherited value with no `!important`
+    needed. The separator's inline `color` (`separator-color="grey"`) sits on that SAME `<li>`, not a
+    child, so unseating it does need `!important`.
   */
   @at-root body.body--cobalt & {
     background-color: transparent;
     border-bottom: 0;
     color: var(--color-text-caption);
 
+    li:not(:last-child) .w-breadcrumbs__el {
+      color: var(--color-text-caption);
+    }
+
     li:last-child .w-breadcrumbs__el {
       color: var(--color-accent-strong);
       font-weight: 500;
+    }
+
+    .w-breadcrumbs__separator {
+      color: var(--color-breadcrumb-separator) !important;
     }
   }
 
@@ -1539,8 +1557,8 @@ $toc-overlay-max: 749.98px;
 .page-header {
   min-height: 120px;
   padding-block: 8px;
-  margin-inline: var(--page-header-margin);
-  margin-block-start: var(--page-header-margin);
+  margin-inline: var(--page-header-margin-inline);
+  margin-block-start: var(--page-header-margin-block-start);
   border-radius: var(--page-header-radius);
   box-shadow: var(--page-header-shadow);
   background: var(--page-header-bg);

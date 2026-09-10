@@ -191,6 +191,35 @@ describe('Search.vue results list keying (WP #1728)', () => {
 })
 
 /**
+ * Cobalt typography role-table conformance (OpenProject #2984, "Search" §3): the empty-query
+ * prompt carried no type role of its own before this -- just the ambient inherited size/color --
+ * so it is the one role in this table that needed a real fix rather than already resolving
+ * correctly through the existing color tokens.
+ */
+describe('Search.vue empty-query prompt (OpenProject #2984)', () => {
+  it('renders the empty-query prompt in its own italic type role when no search has run', async () => {
+    const { wrapper } = await mountSearch()
+
+    const prompt = wrapper.find('.layout-search-empty-prompt')
+    expect(prompt.exists()).toBe(true)
+    expect(prompt.find('em').exists()).toBe(true)
+    // -> Not the "no results for a query" wording -- that is a different role, unstyled by this WP
+    expect(wrapper.find('.layout-search-empty-prompt').text()).not.toBe('')
+  })
+
+  it('does not render the empty-query prompt once a query has actually matched nothing', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [],
+      totalHits: 0,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.find('.layout-search-empty-prompt').exists()).toBe(false)
+  })
+})
+
+/**
  * OpenProject #2006: a restricted reader's page rules can drop rows the search engine itself
  * matched, which makes the reported `totalHits` a floor rather than an exact count -- see
  * `backend/modules/search/db/search.test.ts` for the backend half (the flag itself) and this file

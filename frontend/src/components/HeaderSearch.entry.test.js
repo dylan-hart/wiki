@@ -225,6 +225,37 @@ describe('HeaderSearch focus ring spans the field and the docked tags button (Op
   })
 })
 
+/**
+ * `ui-iteration-cobalt-typography/cobalt-typography.md` §3's header-bar role table: the search
+ * placeholder/input is a 13.5px role, identical in Ledger and Cobalt (only `color` differs between
+ * the two aesthetics) -- `font: inherit` on `.header-search-input` used to leave it with no
+ * font-size of its own, falling through the ancestor chain to `body`'s unrelated 14px fallback base
+ * (`tailwind.css`'s documented "fallback, not a role").
+ *
+ * Mounted attached to `document.body`, following `EditorWysiwyg.darkMode.test.js`'s established
+ * pattern -- happy-dom's `getComputedStyle` needs a real body ancestor to resolve a cascaded
+ * property at all, returning `''` for an unattached wrapper rather than the initial/inherited value.
+ */
+describe('HeaderSearch placeholder/input type role (cobalt-typography.md §3)', () => {
+  it('sets the search input to the 13.5px role size, not the 14px body fallback', async () => {
+    const router = await createTestRouter(['/'])
+    const { wrapper } = mountWithApp(HeaderSearch, {
+      attachTo: document.body,
+      router,
+      stores: {
+        site: (store) => {
+          store.features.search = true
+        }
+      }
+    })
+
+    const input = wrapper.find('.header-search-input').element
+    expect(getComputedStyle(input).fontSize).toBe('13.5px')
+
+    wrapper.unmount()
+  })
+})
+
 describe('HeaderSearch popularTags', () => {
   it('sorts tags by usage count descending, most-used first', async () => {
     const wrapper = await mountWithTags([

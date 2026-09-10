@@ -25,7 +25,7 @@
   piece of it this file actually owns; the formula's own look comes from KaTeX's stylesheet, imported
   globally in `app.scss`.
 
-  The measurements follow what the documentation platforms have converged on -- 16px body text, headings
+  The measurements follow what the documentation platforms have converged on -- 15.5px body text, headings
   at 600 with far more space above than below, ruled h1/h2, tinted code, a table headed by a tinted
   strip in a framed, ruled and banded body, a left-ruled quote -- because those conventions are what
   makes a long page scannable, not because any one of them is copied.
@@ -334,12 +334,18 @@
     `--font-sans` resolves to -- the same font the rest of the app is using, not the browser default.
   */
   font-family: var(--font-content, var(--font-sans));
-  font-size: 1rem;
   /*
-    1.6, not the 1.7 the documentation platforms tend to set: at this measure the looser leading read
-    as gappy rather than airy, with the lines of a paragraph no longer holding together as a block.
+    `ui-iteration-cobalt-typography/cobalt-typography.md` §0.1: 15.5px, not the 16px (`1rem`) this
+    used to read -- `rem` rather than a bare px value so a reader's browser-level font-size
+    preference still scales the whole article the same way it always has.
   */
-  line-height: 1.6;
+  font-size: 0.96875rem;
+  /*
+    1.72, not the 1.6 this used to read at 16px: the same design pass raises both together, and at
+    15.5px the looser leading is what keeps a paragraph's lines reading as a block rather than
+    gapping open.
+  */
+  line-height: 1.72;
   /* -> A pasted URL or a long identifier wraps rather than widening the whole column */
   overflow-wrap: break-word;
 
@@ -480,16 +486,26 @@
     into the other.
   */
   @at-root body.body--cobalt & {
-    /* -> h2 in cobalt with no rule under it; h1 keeps the ink of its own aesthetic and its rule */
+    /*
+      -> h1 is body ink, not the aesthetic's saturated navy `--color-ink` -- the Ledger-default
+      `--content-h1: var(--color-ink)` reads as a second "blue" heading beside h2's own accent color,
+      which only h2 is meant to carry (OpenProject #2964). h2 keeps no rule under it, per the
+      handoff.
+    */
+    --content-h1: var(--color-text-body);
     --content-h2: var(--color-heading-h2);
     --content-h2-rule: transparent;
 
     /*
       The inline chip: the accent wash carrying accent TEXT, edgeless and 4px-cornered -- the one
-      mark in Cobalt's prose that is red rather than blue. `--color-accent` is the white-text/accent-
-      text tone (`#c8303c`), never `--color-accent-fill`'s `#ff4d5a`, which is 3.1:1 on the wash.
+      mark in Cobalt's prose that is red rather than blue. `--color-tag-chip-accent-text` is the
+      fixed design token for exactly this red-on-wash chip look (`#c8303c`) -- the same one the
+      accent tag-chip variant uses -- not `--color-accent` (`var(--q-accent)`), which is the site's
+      own admin-configurable brand color and only *defaults* to that hex; using it here would drag
+      inline code's color along with a site's own accent customization, which the design doesn't
+      call for. Never `--color-accent-fill`'s `#ff4d5a` either, which is 3.1:1 on the wash.
     */
-    --content-code-ink: var(--color-accent);
+    --content-code-ink: var(--color-tag-chip-accent-text);
     --content-code-chip-bg: var(--color-accent-wash);
     --content-code-chip-edge: transparent;
 
@@ -499,6 +515,13 @@
       Cobalt draws no accent bar down the block's leading side -- see the `pre` rule below, which
       zeroes its width -- and no frame.
 
+      The block's own ink is `#e6eaff`, one step off Ledger's `--color-text-dark` (`#e6eaf2`, the
+      generic, non-aesthetic-specific token `--content-code-block-ink` otherwise resolves to) --
+      close enough to read as a typo if left alone, but the handoff's Cobalt page views draw a
+      distinct literal, so it gets its own override here rather than inheriting Ledger's.
+      Unchanged in Cobalt dark: the handoff gives the block the same ink in both modes, the same
+      "same both" shape the syntax tones below already have, so no dark-specific restatement.
+
       The handoff gives Cobalt exactly two syntax tones, `#ff7a84` and `#8fb0ff`, against the block's
       `#10194a`. They are assigned by what a token IS rather than spread thin: the red is the tone
       for a language's own words (keyword, type, and a deletion), the blue for everything a value or
@@ -507,6 +530,7 @@
     */
     --content-code-edge: transparent;
     --content-code-frame: transparent;
+    --content-code-block-ink: #e6eaff;
     --content-code-comment: #7f8ed1;
     --content-code-keyword: #ff7a84;
     --content-code-type: #ff7a84;
@@ -585,7 +609,7 @@
   @at-root body.body--cobalt.body--dark & {
     --content-h2: var(--color-heading-h2);
     --content-surface-code: var(--color-dark-4);
-    --content-code-ink: var(--color-accent-dark);
+    --content-code-ink: var(--color-tag-chip-accent-text);
     --content-code-chip-bg: var(--color-accent-wash-dark);
     --content-code-frame: var(--color-hairline-dark);
     --content-info: #8fb0ff;
@@ -723,19 +747,20 @@
     /* -> Less than the 1.5em its size would give it, which at 32px was a gap of over 50px */
     margin-top: 1.25em;
     color: var(--content-h1);
-    font-size: 2em;
+    /* -> `rem`, not `em`: pinned to 32px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    font-size: 2rem;
     letter-spacing: normal;
 
     /*
       A step down on a phone, where 32px of display type is a fifth of the column's width and a long
       title wraps to three lines before the article has started.
 
-      28px rather than further: it has to stay clearly above the 1.5em (24px) of the h2 under it, or the
+      28px rather than further: it has to stay clearly above the 26px of the h2 under it, or the
       two top levels stop reading as two -- and only this level moves, so the rest of the ramp descends
       from a shorter first step rather than being redrawn.
     */
     @media (max-width: $breakpoint-xs-max) {
-      font-size: 1.75em;
+      font-size: 1.75rem;
     }
   }
 
@@ -744,14 +769,15 @@
     --content-heading-rule-color: var(--content-h2-rule);
 
     color: var(--content-h2);
-    /* -> A shade under the shared 1.5em, so it stays clear of the h1 above it in the ramp */
+    /* -> A shade under the heading's own 1.625rem, so it stays clear of the h1 above it in the ramp */
     margin-top: 1.4em;
-    font-size: 1.5em;
+    /* -> `rem`, not `em`: pinned to 26px (`ui-iteration-cobalt-typography/cobalt-typography.md` §0.1) */
+    font-size: 1.625rem;
     letter-spacing: normal;
 
     /*
       Down with the h1 on a phone, and by the same proportion, so the two top levels keep the distance
-      between them: 28px over 22px reads as a title over its sections, where 28 over 24 had them almost
+      between them: 28px over 22px reads as a title over its sections, where 28 over 26 had them almost
       level.
 
       It closes to within 2px of the h3 below, which is further than the ramp would otherwise allow --
@@ -759,7 +785,7 @@
       column separates it from a plain heading far more than two points of type ever did.
     */
     @media (max-width: $breakpoint-xs-max) {
-      font-size: 1.375em;
+      font-size: 1.375rem;
     }
   }
 
@@ -773,12 +799,15 @@
   }
 
   h3 {
-    font-size: 1.25em;
+    /* -> `rem`, not `em`: pinned to 20px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    font-size: 1.25rem;
   }
   h4 {
-    font-size: 1.0625em;
+    /* -> `rem`, not `em`: pinned to 17px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    font-size: 1.0625rem;
   }
   h5 {
+    /* -> `em`, not `rem`: h5 IS the base -- 15.5px, exactly `.page-contents`'s own size */
     font-size: 1em;
   }
   /*
@@ -890,7 +919,8 @@
 
   /* The last level reads as a label rather than a title; there is no room left to go smaller */
   h6 {
-    font-size: 0.875em;
+    /* -> `rem`, not `em`: pinned to 13.5px, regardless of `.page-contents`'s own 15.5px base */
+    font-size: 0.84375rem;
     color: var(--content-ink-muted);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1118,14 +1148,23 @@
     OpenProject #2883: the plate's own geometry (`width`/`height`/`inset-inline-start`) is in `rem`,
     not `em` -- real-browser measurement (`getComputedStyle(li, '::before')`) caught what reading the
     rule could not: `em` on a property OTHER than `font-size` resolves against the element's OWN
-    computed font-size, not its parent's, and this element's own font-size is the 11px `0.6875em`
+    computed font-size, not its parent's, and this element's own font-size is the fixed 11px set
     two declarations down. `width: 1.5em` was therefore 1.5 × 11px = 16.5px, not the 24px the handoff
     draws (`pre.codeblock.line-numbers`'s gutter above takes the same `rem` shape for the same
-    reason). Centering is the handoff's own line-height trick -- `font: 600 0.6875em/1.5rem` puts a
+    reason). Centering is the handoff's own line-height trick -- `font: 600 11px/1.5rem` puts a
     single line of text in a line box exactly as tall as the circle, which centers it on the baseline
     grid with no flexbox and no positional nudge to get right; the flex-centering plus an unexplained
     `top: 0.05em` nudge this replaces was two ways of solving the same problem, and the nudge only
     ever corrected for the OTHER bug's fallout.
+
+    OpenProject #2965: the numeral's `font-size` is a fixed `11px`, not `0.6875em` as it used to be.
+    `em` on `font-size` resolves against this element's PARENT (the `li`), which inherits
+    `.page-contents`'s own base font-size -- so an em value here silently drifts any time that base
+    changes, exactly the coupling the sibling "article type scale" fix (dropping `.page-contents`
+    from 16px to 15.5px) would otherwise have introduced (0.6875 × 15.5 ≈ 10.66px). The design target
+    (`600 11px/24px`) is fixed regardless of the article's own base size, so the declaration is fixed
+    too; `line-height: 1.5rem` was already decoupled the same way (`rem` is root-relative, not
+    parent-relative) and needed no change.
   */
   @at-root body.body--cobalt & {
     > ol,
@@ -1150,7 +1189,7 @@
         border-radius: 50%;
         background-color: var(--content-step-bg);
         color: var(--content-step-fg);
-        font: 600 0.6875em/1.5rem var(--font-mono);
+        font: 600 11px/1.5rem var(--font-mono);
         text-align: center;
       }
     }
@@ -1184,6 +1223,9 @@
   }
 
   li {
+    /* -> `rem`, not `em`: pinned to 15px/1.6, regardless of `.page-contents`'s own 15.5px/1.72 base */
+    font-size: 0.9375rem;
+    line-height: 1.6;
     margin-top: 0.35em;
 
     &::marker {
@@ -1426,6 +1468,12 @@
   */
   blockquote {
     position: relative;
+    /*
+      -> `rem`, not `em`: an absolute 14.5px/1.6 regardless of `.page-contents`'s own 15.5px/1.72
+         base, the same reasoning the table cells further down already use.
+    */
+    font-size: 0.90625rem;
+    line-height: 1.6;
     margin: 1.5em 0;
     padding-block: 0.9em;
     padding-inline: 3.5em 1.1em;
@@ -1668,7 +1716,8 @@
     background-color: var(--content-code-chip-bg);
     color: var(--content-code-ink);
     font-family: var(--font-mono);
-    font-size: 0.875em;
+    /* -> `rem`, not `em`: pinned to 14px (unchanged), regardless of the surrounding text's own size */
+    font-size: 0.875rem;
   }
 
   /* A heading's code is already emphasised; a wash inside one only muddies it */
@@ -1872,6 +1921,53 @@
   }
 
   /*
+    The copy-to-CSV button on a rendered table, added by `helpers/renderedContent.js`. Same
+    positioning/reveal treatment as `.code-copy` above (see that comment), just appended to
+    `.table-wrap` -- the outer, non-scrolling frame from the `// TABLES` section further down this
+    file -- rather than `pre.codeblock`, so the control sits with the frame and never scrolls away
+    with `.table-scroll`'s own horizontal overflow.
+  */
+  .table-copy {
+    position: absolute;
+    top: 0.4rem;
+    inset-inline-end: 0.4rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    background-color: inherit;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.15s var(--ease-standard),
+      box-shadow 0.15s var(--ease-standard);
+
+    &:hover {
+      box-shadow: inset 0 0 0 2rem color-mix(in srgb, currentColor 12%, transparent);
+    }
+
+    &.is-copied {
+      color: color-mix(in srgb, #2ea043 70%, currentColor);
+      opacity: 1;
+    }
+  }
+
+  .table-wrap:hover > .table-copy,
+  .table-copy:focus-visible {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .table-copy {
+      transition-duration: 0.01ms;
+    }
+  }
+
+  /*
     The line-number gutter, for a block of more than one line. The renderer emits one empty <span> per
     line inside `.line-numbers-rows`; a counter turns those into numbers, so the digits are never part
     of the text and a copied selection stays clean.
@@ -2040,27 +2136,49 @@
     #2916). That trick has no box of its own to hang a frame on that sits OUTSIDE the table's own
     border box: Cobalt's rounded corners (`#2918`) would still get squared off by the scrollbar
     painting across the bottom of the table's own box, which has no radius of its own to clip it to.
-    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes these two nested divs
-    exist at all -- the renderer wraps every table, from either the built-in parser or
-    `markdown-it-multimd-table`'s, in `<div class="table-wrap"><div class="table-scroll">` before it
-    ever reaches this file.
+    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes these three nested
+    divs exist at all -- the renderer wraps every table, from either the built-in parser or
+    `markdown-it-multimd-table`'s, in `<div class="table-wrap"><div class="table-clip"><div
+    class="table-scroll">` before it ever reaches this file.
 
-    TWO boxes, not one (OpenProject #2935, resolving the variance this restructure deleted from
-    `docs/variances.md`): `.table-wrap` is the outer, non-scrolling FRAME -- border, radius, shadow,
-    background and the corner marks below all live here, and it carries no `overflow` of its own, so
-    nothing it draws past its own edge (the marks) is ever clipped. `.table-scroll`, nested inside
-    it, is the actual scroller: `overflow-x: auto` alone is enough to also clip square corners under
-    `--content-table-radius` -- CSS resolves a lone `overflow-x` of anything but `visible` by
-    computing `overflow-y` to `auto` too, so the box is never `visible` on either axis and a rounded
-    corner clips its content (the table's head strip and rows) the same as `overflow: hidden` would
-    -- which is why it repeats `border-radius` on its own rather than relying on the frame's; the two
-    boxes occupy the same rectangle (the scroller fills the frame's border box, with no padding
-    between them), so the same radius value clips correctly on either. A single combined box, as this
-    used to be, could not do both at once: giving IT `overflow-x: auto` for the scroll behaviour also
-    clipped its own `::before`/`::after` pseudo-elements -- the corner marks below -- the moment they
-    rendered past its edge, which is exactly what forced them flush instead of the 4px overhang
-    `markdown-tables.md` specifies. Splitting the frame from the scroller is what lets the marks
-    overhang a box that itself never clips them, confirmed directly in a real Chromium; see
+    THREE boxes, not two (OpenProject #2958, tightening #2935's split further -- resolving the
+    variance #2935 itself deleted from `docs/variances.md`): `.table-wrap` is the outer, non-scrolling
+    FRAME -- border, radius, shadow, background and the corner marks below all live here, and it
+    carries no `overflow` of its own, so nothing it draws past its own edge (the marks) is ever
+    clipped.
+
+    `.table-clip`, nested inside it, is a plain `overflow: hidden` box repeating the same
+    `--content-table-radius` and NOTHING else -- no scroll, no background, no border of its own. It
+    exists purely to own the clip: an `overflow: hidden` box that does not itself scroll has no
+    scrollbar of its own to worry about, so it clips whatever its child paints -- content and any
+    scrollbar chrome that child renders alike -- to its own rounded rectangle exactly the way any
+    ordinary `overflow: hidden` clips any ordinary content.
+
+    `.table-scroll`, nested inside THAT, is the actual scroller, carrying `overflow-x: auto` and the
+    scrollbar tokens but no `border-radius` of its own any more. #2935 landed `.table-scroll` with
+    BOTH `overflow-x: auto` and its own radius on the same element, reasoning that a lone
+    `overflow-x` resolves `overflow-y` to `auto` too and so clips content the same as `overflow:
+    hidden` would -- true for ordinary painted content (a `td`'s background, confirmed directly in a
+    real Chromium), but not for the native scrollbar `overflow-x: auto` itself produces: a
+    classic, space-reserving scrollbar (Windows/Linux by default, macOS whenever scrollbars are set
+    to show always rather than only while scrolling) is browser/OS-painted chrome, not a normal
+    stacking-context descendant, and is not reliably clipped by `border-radius` on the SAME element
+    that renders it -- it squares off the very corner it sits against, which is what OpenProject
+    #2958 reported hands-on on a live instance despite every existing test (all written against
+    ordinary DOM content, not native scrollbar chrome) passing. Moving the radius one level out, onto
+    `.table-clip`, sidesteps the whole class of problem: `.table-clip` isn't the element producing the
+    scrollbar, so its `overflow: hidden` clip applies to `.table-scroll` as a single opaque child, the
+    same as it would to any other element. See `ui-iteration-markdown-tables/markdown-tables.md`'s
+    original "the scrollbar painting over the rounded corners" note -- the same failure mode this
+    closes, one layer deeper than #2935 reached.
+
+    All three boxes occupy the same rectangle (each fills its parent's content box, no padding
+    between any of them), so `--content-table-radius` clips correctly wherever it's applied. A single
+    combined box, as this used to be before #2935, could not give the frame a radius at all without
+    also clipping its own `::before`/`::after` pseudo-elements -- the corner marks below -- the moment
+    they rendered past its edge, which is exactly what forced them flush instead of the 4px overhang
+    `markdown-tables.md` specifies. Splitting the frame from the clip (and now the clip from the
+    scroll) is what lets the marks overhang a box that itself never clips them; see
     `_page-contents.test.js`.
 
     `position: relative` (on the frame) is what the corner marks below position against.
@@ -2080,9 +2198,13 @@
     background-color: var(--content-surface);
   }
 
+  .table-clip {
+    overflow: hidden;
+    border-radius: var(--content-table-radius);
+  }
+
   .table-scroll {
     overflow-x: auto;
-    border-radius: var(--content-table-radius);
     scrollbar-width: thin;
     scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
   }
@@ -2148,8 +2270,8 @@
     text-align: start;
     vertical-align: top;
     /* -> `rem`, not `em`: an absolute 14.5px regardless of any ancestor's own font-size, matching how
-          `markdown-tables.md` states it and how this file's own base size is stated (`font-size: 1rem`
-          further up) rather than inherited-and-scaled */
+          `markdown-tables.md` states it and how this file's own base size is stated (`font-size:
+          0.96875rem` further up) rather than inherited-and-scaled */
     font-size: 0.90625rem;
     line-height: 1.5;
     color: var(--content-ink);

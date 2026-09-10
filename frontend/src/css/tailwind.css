@@ -673,7 +673,8 @@ html.theme-transition-suppress *::after {
   --page-header-fg: var(--color-ink);
   --page-header-radius: 0;
   --page-header-shadow: none;
-  --page-header-margin: 0;
+  --page-header-margin-inline: 0;
+  --page-header-margin-block-start: 0;
 
   /*
     The rest of the masthead, which `--page-header-bg`/`-fg` alone cannot carry: the description
@@ -835,7 +836,14 @@ body.body--cobalt {
   /* Matte pass (OpenProject #2856): the glow under the banner is gone. The banner sits on its own
      solid gradient fill, not low-contrast on the `#f2f5ff` ground, so it gets no border either. */
   --page-header-shadow: none;
-  --page-header-margin: 24px;
+  /*
+    Split into direction-specific tokens (OpenProject #2970): the horizontal margin and the top
+    margin are NOT the same value -- `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` both draw
+    the banner as `margin:10px 24px 0`, and one shared token feeding both `margin-inline` and
+    `margin-block-start` in `Index.vue` was overstating the top gap at 24px instead of 10px.
+  */
+  --page-header-margin-inline: 24px;
+  --page-header-margin-block-start: 10px;
   --page-header-subtitle-fg: #dbe4ff;
   --page-header-icon-bg: rgb(255 255 255 / 0.16);
   --page-header-icon-fg: #fff;
@@ -893,6 +901,15 @@ body.body--cobalt {
   --color-tag-chip-border: transparent;
   --color-tag-chip-accent-bg: #ffe9eb;
   --color-tag-chip-accent-text: #c8303c;
+  /*
+    The breadcrumb trail's `/` separator (`WBreadcrumbs.vue` via `Index.vue`'s `.page-breadcrumbs`),
+    OpenProject #2975. Aliased rather than a second literal: this IS `--color-slate-faint`'s own
+    value (the comment on that ramp above already names #b6bfe0 as "the breadcrumb separator on the
+    canonical page view") -- a dedicated name because the dark value below has to diverge from
+    `--color-slate-faint`'s (which stays #b6bfe0 in dark, unreviewed, for its other consumers) without
+    touching those consumers' own rendering.
+  */
+  --color-breadcrumb-separator: var(--color-slate-faint);
 }
 
 /*
@@ -932,6 +949,19 @@ body.body--cobalt .editor-markdown-toolbar .w-btn {
 }
 
 /*
+  -- Cobalt aesthetic: tag chip weight (OpenProject #2969, §4.3 role swap) ------------------------
+  One of the four places Cobalt is allowed to differ from Ledger in more than colour
+  (`ui-iteration-cobalt-typography/cobalt-typography.md` §4): a chip drawn as a filled tint reads
+  lighter than Ledger's hairline-outlined one at the same 400 weight, so Cobalt steps up to 500.
+  Lives here, on the compound `.w-chip` selector, rather than in the bare `body.body--cobalt` token
+  block above -- that block is colour-only (§2), enforced by `cobaltTypography.test.js`'s
+  source-scan.
+*/
+body.body--cobalt .w-chip {
+  font-weight: 500;
+}
+
+/*
   -- Cobalt aesthetic: dark token block (OpenProject #2771) -----------------
   Source: `ui-redesign-cobalt/HANDOFF.md`'s "Cobalt dark tokens" section. Layered on top of
   `body.body--cobalt` above via the compound selector, so this wins by specificity regardless of
@@ -964,11 +994,11 @@ body.body--cobalt .editor-markdown-toolbar .w-btn {
   architecture at all and is left for future work alongside OpenProject #2768.
 
   A few handoff rows have no landed token or component call site to attach to yet -- labels on
-  tinted rows, the "breadcrumb separator/off-state" value distinct from the checkbox-border use
-  `--color-disabled-dark` already carries, inline code/active TOC/section kicker/field error/flat
-  link accent treatments, filled-toast darkening, the info toast, and the callout/info banner. Left
-  undeclared rather than invented, since a token nothing reads is the same drift risk this block
-  exists to prevent.
+  tinted rows, inline code/active TOC/section kicker/field error/flat link accent treatments, filled-
+  toast darkening, the info toast, and the callout/info banner. Left undeclared rather than invented,
+  since a token nothing reads is the same drift risk this block exists to prevent. (The breadcrumb
+  separator/off-state value this used to list here landed with OpenProject #2975 --
+  `--color-breadcrumb-separator` below.)
 
   Hairline/border re-derivation (OpenProject #2912): every hairline and border token below used to
   be a flat white-alpha overlay (`rgb(255 255 255 / 0.0N)`). Composited over this block's blue-black
@@ -1019,6 +1049,12 @@ body.body--cobalt.body--dark {
   --color-accent-wash: rgb(255 77 90 / 0.16);
   --color-accent-strong: #7fa0ff;
   --color-heading-h2: #8fb0ff;
+  /*
+    OpenProject #2975: the breadcrumb separator's dark value genuinely diverges from
+    `--color-slate-faint`'s own (which stays #b6bfe0 in dark for its other, non-breadcrumb
+    consumers -- see the light block's alias comment) -- a literal here, not a second alias.
+  */
+  --color-breadcrumb-separator: #3a4680;
   --color-inner-rule: rgb(255 255 255 / 0.06);
   --color-sidebar-hairline: #2a3684;
   --color-admin-sidebar-hairline: #2a3684;
@@ -1177,17 +1213,40 @@ body.body--dark {
 }
 
 /*
-  Cobalt light. `--block-tint-bg` and `--block-error-bg` are the only `--block-*` rows this
-  aesthetic changes -- everything else (border, radius, bg, caption/eyebrow fg, the three accent
-  roles) already resolves correctly through the generic tokens it redefines above (`--color-
-  hairline`, `--radius-card`, `--color-white`, `--color-text-secondary`, `--color-text-caption`,
-  `--color-accent-fill`, `--color-accent`, `--color-accent-strong`), the same "Ledger is provably
-  unchanged, Cobalt is one new value" discipline #2767's own block documents.
+  Cobalt light. `--block-tint-bg`, `--block-error-bg`, `--block-radius` and `--block-corner-marks`
+  are the `--block-*` rows this aesthetic changes -- the first two because Cobalt genuinely wants a
+  different value, the last two restated here per OpenProject #2955 (see that token's own comment
+  just below) rather than left to resolve through inheritance from the generic token it aliases,
+  which is exactly the mistake this comment used to claim was safe for them. `--block-bg`,
+  `--block-caption-fg`, `--block-eyebrow-fg` and the three accent roles genuinely are safe left
+  undeclared here -- the generic tokens they alias (`--color-white`, `--color-text-secondary`,
+  `--color-text-caption`, `--color-accent-fill`, `--color-accent`, `--color-accent-strong`) either
+  don't change under Cobalt or aren't referenced only from `:root`. `--block-border` is NOT one of
+  these: confirmed directly in real Chromium that it has the identical #2955 bug under plain
+  `body.body--cobalt` (resolves to Ledger light's `#dbe1ec`, not Cobalt's own `#dfe5f5` hairline) --
+  out of #2955's scope (only `--infobox-border`/`--block-radius`/`--block-corner-marks`), left
+  unfixed here and flagged for a follow-up rather than silently left claimed-correct.
 */
 body.body--cobalt {
   --block-tint-bg: var(--color-tint);
   /* -> errorBox: Cobalt tints instead of using the card colour ("on #ffe9eb", ui-iteration/blocks.md) */
   --block-error-bg: var(--color-accent-wash);
+  /*
+    OpenProject #2955 -- same nested-var() cascade bug class as #2886/#2905, on the two shape rows
+    this comment block's own header (above) used to call "dark-invariant" and therefore safe to
+    leave undeclared. `--block-radius`/`--block-corner-marks` (`var(--radius-card)`/
+    `var(--corner-marks)`, `:root` above) were assigned only at `:root`, so their nested `var()`s
+    kept resolving against `<html>`'s own Ledger-light values (`0`, `block`) forever, even though
+    `--radius-card`/`--corner-marks` themselves ARE correctly redefined here, further up in this
+    same rule (`8px`, `none`) -- every block reading the shared alias (infobox included) stayed
+    square-cornered with its Ledger corner marks still showing under Cobalt. Restated here so their
+    `var()`s substitute using THIS element's own Cobalt values instead. Neither `--radius-card` nor
+    `--corner-marks` changes again under `body.body--cobalt.body--dark`, so no further restatement
+    is needed there (same as `--tabs-radius`/`--tabs-corner-marks` below, which never restate for
+    Cobalt dark either).
+  */
+  --block-radius: var(--radius-card);
+  --block-corner-marks: var(--corner-marks);
 
   --tabs-border: #dfe5f5;
   --tabs-radius: 8px;
@@ -1388,6 +1447,18 @@ body.body--cobalt.body--dark {
 
 /* Ledger dark: only the rows blocks.md's own dark palette actually changes for these blocks. */
 body.body--dark {
+  /*
+    OpenProject #2955 -- same nested-var() cascade bug class as #2886/#2905. `--infobox-border`
+    (`var(--block-border)`, `:root` above) was assigned only at `:root`, so its nested
+    `var(--block-border)` kept resolving against `<html>`'s own Ledger-light `--block-border`
+    forever, even here under `body.body--dark` (which overrides `--block-border` to
+    `var(--color-hairline-dark)` further up, on `<body>` itself, never reaching `<html>`) -- drawing
+    a near-white `#dbe1ec` hairline against a dark card. Restated here so its `var(--block-border)`
+    substitutes using THIS element's own (dark) `--block-border` instead. `body.body--cobalt` and
+    `body.body--cobalt.body--dark` already restate `--infobox-border` with their own literals below
+    and are unaffected.
+  */
+  --infobox-border: var(--block-border);
   --infobox-name-bg: #242b3a;
   --infobox-name-fg: #e6eaf2;
   --infobox-group-fg: #8792ab;

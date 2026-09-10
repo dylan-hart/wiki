@@ -20,7 +20,9 @@ const MESSAGES = {
   'common.renderedContent.copyCode': 'Copy code',
   'common.renderedContent.copyCodeDone': 'Copied',
   'common.renderedContent.copyHeadingLink': 'Copy link to this section',
-  'common.renderedContent.copyHeadingLinkDone': 'Link copied'
+  'common.renderedContent.copyHeadingLinkDone': 'Link copied',
+  'common.renderedContent.copyTable': 'Copy table as CSV',
+  'common.renderedContent.copyTableDone': 'Copied'
 }
 const t = (key) => MESSAGES[key] ?? key
 
@@ -32,6 +34,21 @@ function codeBlock(text) {
   pre.appendChild(code)
   document.body.appendChild(pre)
   return pre
+}
+
+/**
+ * The exact shape `renderers/markdown.js`'s `table_open`/`table_close` override produces:
+ * `<div class="table-wrap"><div class="table-scroll"><table>...</table></div></div>`.
+ *
+ * @param {string} rowsHtml `<tr>` rows (including a `<thead>`/`<tbody>` split if the test wants
+ *   one) to place inside the `<table>`.
+ */
+function tableWrap(rowsHtml) {
+  const wrap = document.createElement('div')
+  wrap.className = 'table-wrap'
+  wrap.innerHTML = `<div class="table-scroll"><table>${rowsHtml}</table></div>`
+  document.body.appendChild(wrap)
+  return wrap
 }
 
 function headingWithId(id) {
@@ -154,6 +171,116 @@ describe('renderedContent accessible-name/tooltip localization (#2357)', () => {
 
     expect(button.getAttribute('aria-label')).toBe('Link copied')
     expect(button.dataset.tooltip).toBe('Link copied')
+  })
+})
+
+/**
+ * OpenProject #2972: a rendered table grows a copy-to-CSV button, mirroring the code-block copy
+ * button exactly -- same `copyWithFeedback` pattern, same idempotency, same t()-sourced labels --
+ * plus its own CSV-serialization coverage (`csvOf`, exercised indirectly through the button's
+ * clipboard write, since it is a private helper).
+ */
+describe('renderedContent table copy-to-CSV button (#2972)', () => {
+  beforeEach(() => {
+    notifyQueue.length = 0
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('adds a .table-copy button to a rendered table, marking the wrapper done', () => {
+    const wrap = tableWrap('<tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    expect(wrap.dataset.tableCopy).toBe('')
+    const button = wrap.querySelector('.table-copy')
+    expect(button).not.toBeNull()
+    // -> Appended to the frame (`.table-wrap`), not the scroller, so it never travels with the
+    //    table's own horizontal scroll
+    expect(button.parentElement).toBe(wrap)
+  })
+
+  it('copies the table as plain CSV, without quoting fields that need none', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+
+    const wrap = tableWrap('<tr><th>Name</th><th>Count</th></tr><tr><td>apples</td><td>3</td></tr>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('.table-copy').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(writeText).toHaveBeenCalledWith('Name,Count\napples,3')
+  })
+
+  it('quotes a field containing a comma, a double quote, or an embedded newline', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+
+    const wrap = tableWrap(`
+      <tr><th>Item</th><th>Note</th></tr>
+      <tr><td>Comma, here</td><td>plain</td></tr>
+      <tr><td>Say &quot;hi&quot;</td><td>plain</td></tr>
+      <tr><td>Multi</td><td>line one${'\n'}line two</td></tr>
+    `)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('.table-copy').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(writeText).toHaveBeenCalledWith(
+      ['Item,Note', '"Comma, here",plain', '"Say ""hi""",plain', 'Multi,"line one\nline two"'].join(
+        '\n'
+      )
+    )
+  })
+
+  it('is idempotent -- re-running over the same content adds no second button', () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn() } })
+
+    const wrap = tableWrap('<tr><td>A</td></tr>')
+    enhanceRenderedContent(wrap.parentNode, t)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    expect(wrap.querySelectorAll('.table-copy')).toHaveLength(1)
+  })
+
+  it('labels the button via t() at creation, and via t() again once copied', async () => {
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) }
+    })
+
+    const wrap = tableWrap('<tr><td>A</td></tr>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    const button = wrap.querySelector('.table-copy')
+    expect(button.getAttribute('aria-label')).toBe('Copy table as CSV')
+
+    button.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(button.getAttribute('aria-label')).toBe('Copied')
+  })
+
+  it('raises the localized failure message via the passed-in t() when the copy rejects', async () => {
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }
+    })
+
+    const wrap = tableWrap('<tr><td>A</td></tr>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('.table-copy').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(notifyQueue).toHaveLength(1)
+    expect(notifyQueue[0].type).toBe('negative')
+    expect(notifyQueue[0].caption).toBe('denied')
   })
 })
 

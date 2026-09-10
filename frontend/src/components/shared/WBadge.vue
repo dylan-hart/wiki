@@ -1,8 +1,13 @@
 <template>
   <!--
     A count in Roboto Mono, which is what Cardinal sets every number in -- a notification count, a
-    version cursor, a row tally. At 9px/600 it matches the design's own badge; the proportional
-    12px it replaced made two- and three-digit counts jump about in width as they changed.
+    version cursor, a row tally. At 9.5px/600 it matches the design's own badge (cobalt-typography.md
+    §3's "Badge (Draft, 1, 2)" role -- `.16em` tracking, uppercase, the same metrics as the
+    Draft/Published mark `PageHeader.vue` draws). The proportional 12px it replaced made two- and
+    three-digit counts jump about in width as they changed; the `.16em`/uppercase pair only matters
+    for a text label (`1`/`2`/`Draft` reads the same either way) but is stated unconditionally rather
+    than only for the label case, since a badge's whole point is drawing every one of its roles the
+    same way regardless of what happens to be inside it this time.
 
     `min-h-3.5` is what makes a badge with no label a dot rather than a 14x4 sliver: the only child
     here is often a tooltip, which renders nothing inline, so the box would otherwise be pure
@@ -11,7 +16,7 @@
     its own and is unaffected.
   -->
   <div
-    class="w-badge inline-flex min-h-3.5 items-center justify-center px-1.5 py-0.5 font-mono text-[9px] leading-none font-semibold"
+    class="w-badge inline-flex min-h-3.5 items-center justify-center px-1.5 py-0.5 font-mono text-[9.5px] leading-none font-semibold tracking-[.16em] uppercase"
     :class="classes"
     :style="styles"
     :title="title">

@@ -316,28 +316,40 @@ export class MarkdownRenderer {
     // --------------------------------
 
     /*
-      A table's own scroll frame -- TWO nested boxes, not one (OpenProject #2935). `.table-wrap` is
-      the outer, non-scrolling frame: `_page-contents.scss`'s `// TABLES` section draws the border,
-      radius, shadow and corner marks on it, and nothing about it ever clips a descendant. Nested
-      inside, `.table-scroll` gets `overflow-x: auto` and the scrollbar tokens, with `<table>` itself
-      reduced to `width: max-content; min-width: 100%` -- the previous `table { display: block;
-      overflow-x: auto }` trick has no element of its own to carry a frame that sits outside the
-      table's box (Ledger's corner marks, drawn 4px outside it) or a radius that clips the scrollbar
-      rather than being painted over by it (Cobalt), and a single combined wrapper couldn't draw an
-      overhanging mark past a box that also has to scroll itself (an element's own `overflow` other
-      than `visible` clips ALL of its descendants, marks included, the moment they render past it) --
-      see `_page-contents.scss`'s own comments on both boxes. See OpenProject #2916/#2935.
+      A table's own scroll frame -- THREE nested boxes, not two (OpenProject #2958, tightening
+      #2935's split further). `.table-wrap` is the outer, non-scrolling frame: `_page-contents.scss`'s
+      `// TABLES` section draws the border, radius, shadow and corner marks on it, and nothing about
+      it ever clips a descendant, so Ledger's marks (4px outside it) are never cropped. Nested inside,
+      `.table-clip` is a plain `overflow: hidden` + the same radius, and nothing else -- it does not
+      scroll itself, so it has no scrollbar of its own to worry about, which is exactly what lets it
+      clip cleanly. Nested inside THAT, `.table-scroll` gets `overflow-x: auto` and the scrollbar
+      tokens, with `<table>` itself reduced to `width: max-content; min-width: 100%`.
 
-      A plain pair of `<div>`s, not tokens carrying any classes of their own -- table AND
+      Splitting the clip from the scroll this far is what actually contains a wide table's cell
+      backgrounds to the rounded corner in Cobalt: a native scrollbar's track/thumb is browser/OS
+      chrome, not ordinary painted content, and is not reliably clipped by `border-radius` on the SAME
+      element that produces it -- `.table-scroll` combining `overflow-x: auto` with its own radius
+      (the shape #2935 landed) still let a classic, space-reserving scrollbar (Windows/Linux by
+      default, macOS whenever scrollbars are set to show always) square off the very corner it sits
+      against, one level in from the frame #2935 already fixed. `.table-clip`'s `overflow: hidden`
+      clips `.table-scroll` as a whole -- scrollbar chrome included -- the same way any ordinary
+      content is clipped by an ancestor's `overflow: hidden`, because from `.table-clip`'s own
+      perspective there is no scrolling happening on IT; there is just a child box to trim to its own
+      rounded rectangle. See `_page-contents.scss`'s own comments on all three boxes, and
+      `ui-iteration-markdown-tables/markdown-tables.md`'s original "the scrollbar painting over the
+      rounded corners" note, which is the same failure mode this closes. See OpenProject
+      #2916/#2935/#2958.
+
+      A plain trio of `<div>`s, not tokens carrying any classes of their own -- table AND
       thead/tbody/tr/td tokens already exist for markdown-it's own default table rendering (including
       `markdown-it-multimd-table`'s, which produces the same core tokens with richer cell content),
       so wrapping at `table_open`/`table_close` catches every table regardless of which parser rule
       produced it, exactly like `link_open` above wraps every link regardless of which rule matched.
     */
     this.md.renderer.rules.table_open = (tokens, idx, options, env, slf) =>
-      `<div class="table-wrap"><div class="table-scroll">${slf.renderToken(tokens, idx, options, env, slf)}`
+      `<div class="table-wrap"><div class="table-clip"><div class="table-scroll">${slf.renderToken(tokens, idx, options, env, slf)}`
     this.md.renderer.rules.table_close = (tokens, idx, options, env, slf) =>
-      `${slf.renderToken(tokens, idx, options, env, slf)}</div></div>`
+      `${slf.renderToken(tokens, idx, options, env, slf)}</div></div></div>`
 
     // --------------------------------
     // RESOLVE IMAGE SOURCES

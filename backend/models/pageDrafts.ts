@@ -72,8 +72,9 @@ function decodeDraftState(state: Uint8Array): Omit<PageDraftContent, 'authorName
  */
 class PageDrafts {
   /** The persisted draft for a page, or `undefined` when none exists (never edited collaboratively
-   * since its last save, or never edited at all). Raw Yjs state — what `core/collab.ts#initRoom`
-   * needs to reseed a room. */
+   * since its last save, or never edited at all). Raw Yjs state, undecoded — `getContent()` is what a
+   * caller wanting the plain content/title/description/icon out of it wants instead; `core/collab.ts`
+   * deliberately never calls this to reseed a room (OpenProject #2957), only ever `save()`/`clear()`. */
   async get(pageId: string): Promise<PageDraft | undefined> {
     const [row] = await WIKI.db
       .select({ state: pageDraftsTable.state, updatedAt: pageDraftsTable.updatedAt })

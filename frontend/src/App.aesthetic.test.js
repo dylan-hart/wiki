@@ -156,6 +156,65 @@ describe('App.vue aesthetic resolution', () => {
   })
 
   /*
+   * OpenProject #2956: the appearance (light/dark) watch used to call `dark.set()` directly
+   * without ever calling `applyTheme()` -- the same class of bug #2887 fixed for the aesthetic
+   * watch just above, but never applied to this one. `--q-header` (and the rest of the brand CSS
+   * custom properties `resolveAestheticColors()` derives) stayed stale at whatever `applyTheme()`
+   * last resolved, which is `#fff` (the `:root` fallback) if nothing had recomputed it yet this
+   * session -- rendering the header bar white instead of Cobalt's blue in light mode.
+   */
+  describe('recomputes brand CSS custom properties when appearance changes, with no manual applyTheme trigger', () => {
+    it('resolves the Cobalt light header color on a personal light override', async () => {
+      const { siteStore, userStore } = await mountApp()
+      siteStore.theme.aesthetic = 'cobalt'
+      userStore.appearance = 'light'
+      await triggerApplyTheme()
+      expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1f4fd6')
+
+      // -> Simulate a fresh session where applyTheme() has never resolved Cobalt's real color yet
+      document.documentElement.style.setProperty('--q-header', '#ffffff')
+      expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#ffffff')
+
+      // -> No triggerApplyTheme() here: this is the live appearance toggle, not an admin save.
+      userStore.appearance = 'dark'
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      userStore.appearance = 'light'
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1f4fd6')
+    })
+
+    it('resolves the Cobalt dark header color on a personal dark override', async () => {
+      const { siteStore, userStore } = await mountApp()
+      siteStore.theme.aesthetic = 'cobalt'
+      userStore.appearance = 'light'
+      await triggerApplyTheme()
+      expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1f4fd6')
+
+      // -> No triggerApplyTheme() here: this is the live appearance toggle, not an admin save.
+      userStore.appearance = 'dark'
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1a43bd')
+    })
+
+    it("re-resolves following the site's dark preference when appearance is 'site'", async () => {
+      const { siteStore, userStore } = await mountApp()
+      siteStore.theme.aesthetic = 'cobalt'
+      siteStore.theme.dark = false
+      userStore.appearance = 'dark'
+      await triggerApplyTheme()
+      expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1a43bd')
+
+      // -> No triggerApplyTheme() here: this is the live appearance toggle, not an admin save.
+      userStore.appearance = 'site'
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1f4fd6')
+    })
+  })
+
+  /*
    * OpenProject #2814: `--q-positive`/`-negative`/`-info`/`-warning` used to be Ledger-literal
    * (two hardcoded, two never even set) regardless of aesthetic, so toast/banner fills stayed
    * Ledger-colored under Cobalt. They now follow the resolved aesthetic the same way `--q-primary`/

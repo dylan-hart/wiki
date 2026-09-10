@@ -321,6 +321,8 @@ describe('mcp/http', () => {
       'render_diagram',
       'search_pages',
       'set_page_watch_preference',
+      'sideload_icons',
+      'sideload_locales',
       'unwatch_page',
       'update_page',
       'upload_asset',

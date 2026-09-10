@@ -674,6 +674,163 @@ describe(
 )
 
 /**
+ * OpenProject #2977 ("Cobalt typography: article remainder"). `cobalt-typography.md` §3's Article
+ * role table, for every role that Task's sibling Bugs (#2963 base/heading sizes, #2964 h1 color,
+ * #2965 numbered-step em sizing, #2958 table corner-clipping) don't already own. Reading the source
+ * against `tailwind.css`'s Cobalt token blocks found two genuine gaps -- inline code ink and the code
+ * block's own ink -- and confirmed every other role in the table (h2, h3-h5, h6, paragraph,
+ * numbered-step text, code block background, the syntax tones, links in prose) already resolves
+ * correctly through existing tokens with no Cobalt-scoped size/weight/tracking property needed
+ * anywhere in this file. Same real-browser harness shape as the describe above: a fresh `measure()`
+ * over its own minimal sample, since that one's `SAMPLE` has no headings, paragraph or `<a>` to read.
+ */
+describe(
+  '_page-contents.scss article role-table conformance — real browser (OpenProject #2977)',
+  { skip: !hasChromium(), timeout: 60000 },
+  () => {
+    let browser
+    let stylesheets
+    let light
+    let dark
+    let cobaltLight
+    let cobaltDark
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <h1>Title</h1>
+        <h2>Section</h2>
+        <h3>Subsection</h3>
+        <h6>Label</h6>
+        <p>Body copy with an <a href="/elsewhere">inline link</a> and <code>inline.code()</code>.</p>
+        <pre class="codeblock"><code>plain text</code></pre>
+      </article>`
+
+    async function buildStylesheets() {
+      const cssDir = dirname(fileURLToPath(import.meta.url))
+      const [appCss, content] = await Promise.all([
+        buildAppCss(),
+        compileStringAsync(readFileSync(join(cssDir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [cssDir]
+        })
+      ])
+      return { appCss, contentCss: content.css }
+    }
+
+    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+      const { appCss, contentCss } = stylesheets
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const styleOf = (selector) => getComputedStyle(document.querySelector(selector))
+          return {
+            h2: styleOf('h2').color,
+            h3: styleOf('h3').color,
+            h6: styleOf('h6').color,
+            p: styleOf('p').color,
+            link: styleOf('a').color,
+            inlineCode: styleOf('code').color,
+            codeBlock: styleOf('pre.codeblock').color
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+      stylesheets = await buildStylesheets()
+      light = await measure({ dark: false })
+      dark = await measure({ dark: true })
+      cobaltLight = await measure({ dark: false, cobalt: true })
+      cobaltDark = await measure({ dark: true, cobalt: true })
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('colors Cobalt h2 in the accent, distinct from h3/h6/paragraph ink -- the one heading level allowed to', () => {
+      // -> `--color-heading-h2`
+      expect(cobaltLight.h2).toBe('rgb(31, 79, 214)')
+      expect(cobaltDark.h2).toBe('rgb(143, 176, 255)')
+      expect(cobaltLight.h2).not.toBe(cobaltLight.h3)
+      expect(cobaltDark.h2).not.toBe(cobaltDark.h3)
+    })
+
+    it('keeps h3 and the paragraph on the same body ink under Cobalt, not h1/h2’s navy or accent', () => {
+      // -> `--color-text-body`, resolved through `--content-ink`/`--content-h2` inheritance -- not
+      //    `--color-ink`'s navy, which is what "all blue" (#0.2) was.
+      expect(cobaltLight.h3).toBe('rgb(26, 32, 56)')
+      expect(cobaltLight.p).toBe(cobaltLight.h3)
+      expect(cobaltDark.h3).toBe('rgb(232, 236, 255)')
+      expect(cobaltDark.p).toBe(cobaltDark.h3)
+    })
+
+    it('mutes h6 to the caption-adjacent secondary tone under Cobalt', () => {
+      // -> `--color-text-secondary`
+      expect(cobaltLight.h6).toBe('rgb(74, 85, 128)')
+      expect(cobaltDark.h6).toBe('rgb(167, 179, 234)')
+    })
+
+    it('links prose in the strong accent under Cobalt, matching h2 in light and diverging in dark', () => {
+      // -> `--color-accent-strong`: same hex as `--color-heading-h2` in Cobalt light (both #1f4fd6),
+      //    but NOT in dark -- the dedicated dark-cobalt `--content-link` override this file already
+      //    carries points links at the cool #7fa0ff, not the warm accent-dark a plain `.body--dark`
+      //    cascade would otherwise give them.
+      expect(cobaltLight.link).toBe('rgb(31, 79, 214)')
+      expect(cobaltDark.link).toBe('rgb(127, 160, 255)')
+    })
+
+    it('draws inline code ink from the fixed tag-chip-accent token, not the site-configurable accent color', () => {
+      // -> `--color-tag-chip-accent-text`: #c8303c / #ff8f97, fixed per aesthetic regardless of a
+      //    site's own `--q-accent` customization.
+      expect(cobaltLight.inlineCode).toBe('rgb(200, 48, 60)')
+      expect(cobaltDark.inlineCode).toBe('rgb(255, 143, 151)')
+    })
+
+    it('gives the code block its own Cobalt ink, one step off Ledger’s, unchanged between light and dark', () => {
+      // -> `#e6eaff`, not Ledger's `--color-text-dark` (`#e6eaf2`) the generic token would otherwise
+      //    resolve to.
+      expect(cobaltLight.codeBlock).toBe('rgb(230, 234, 255)')
+      expect(cobaltDark.codeBlock).toBe(cobaltLight.codeBlock)
+      expect(light.codeBlock).not.toBe(cobaltLight.codeBlock)
+    })
+  }
+)
+
+/**
+ * OpenProject #2977, re-verifying §4 role swap #1 (table head) as part of this sweep: already
+ * tokenized before this Task, but the WP calls for a direct check that the Cobalt block actually
+ * sets sentence case with no tracking, not just that the tokens exist. Source-level, matching
+ * `cobaltTokens.test.js`'s own "assert against the declared text" pattern for a hand-edited
+ * property list with no compiled stylesheet in this environment to read a `var()` cascade off of.
+ */
+describe('_page-contents.scss Cobalt table-head swap stays sentence-case with no tracking (§4.1)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt &')
+  const cobaltBlockEnd = source.indexOf('@at-root body.body--cobalt.body--dark &')
+  const cobaltBlock = source.slice(cobaltBlockStart, cobaltBlockEnd)
+
+  it('sets the Barlow sans head font, normal tracking and no case transform under Cobalt', () => {
+    expect(cobaltBlockStart).toBeGreaterThan(-1)
+    expect(cobaltBlock).toMatch(
+      /--content-table-head-font:\s*600 0\.8125rem\/1\.4 var\(--font-sans\);/
+    )
+    expect(cobaltBlock).toMatch(/--content-table-head-tracking:\s*normal;/)
+    expect(cobaltBlock).toMatch(/--content-table-head-transform:\s*none;/)
+  })
+})
+
+/**
  * OpenProject #2883 ("Cobalt list rendering (numbered steps, bullets, nested lists, task lists)
  * doesn't fully match mockups"). Two independent regressions in the numbered-step circle, both
  * invisible to reading the rule and caught only by measuring what a real browser actually resolves
@@ -706,7 +863,7 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
     throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
   }
 
-  it("sizes the circle's box in `rem`, not `em` -- `em` on a property other than `font-size` resolves against the PSEUDO-ELEMENT's own (smaller, `0.6875em`) computed font-size, not the list item's, which is what silently shrank the 24px handoff circle to 16.5px", () => {
+  it("sizes the circle's box in `rem`, not `em` -- `em` on a property other than `font-size` resolves against the PSEUDO-ELEMENT's own (smaller, fixed 11px) computed font-size, not the list item's, which is what silently shrank the 24px handoff circle to 16.5px", () => {
     const block = blockFor('li > ol > li {')
     expect(block).toMatch(/inset-inline-start:\s*-2\.4rem/)
     expect(block).toMatch(/width:\s*1\.5rem/)
@@ -716,7 +873,7 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
 
   it("centers the numeral with a line-height equal to the box height, the handoff's own technique, rather than flexbox plus an unexplained positional nudge", () => {
     const block = blockFor('li > ol > li {')
-    expect(block).toMatch(/font:\s*600 0\.6875em\/1\.5rem var\(--font-mono\)/)
+    expect(block).toMatch(/font:\s*600 11px\/1\.5rem var\(--font-mono\)/)
     expect(block).not.toMatch(/display:\s*flex/)
     expect(block).not.toMatch(/top:\s*0\.05em/)
   })
@@ -779,6 +936,61 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
 })
 
 /**
+ * OpenProject #2965 ("Cobalt numbered-step numeral sized in em will drift once the article base
+ * font-size fix lands"). Sibling to #2883 above, which fixed the plate's own BOX geometry; this
+ * pins the numeral's own `font-size`, previously `0.6875em` (resolving against the `li`'s inherited,
+ * `.page-contents`-derived font-size, so it would silently shrink any time that base changes), now a
+ * fixed `11px` per the design handoff's literal `600 11px/24px`. The real-browser check proves the
+ * decoupling directly: the numeral stays 11px even when the surrounding article's own font-size
+ * differs from `.page-contents`'s default.
+ */
+describe('_page-contents.scss cobalt numbered-step numeral is a fixed size (OpenProject #2965)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  it('does not size the numeral in `em`, which would resolve against the changing `.page-contents` base', () => {
+    expect(source).toMatch(/font:\s*600 11px\/1\.5rem var\(--font-mono\)/)
+    expect(source).not.toMatch(/font:\s*600 [\d.]+em\/1\.5rem var\(--font-mono\)/)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it("keeps the numeral at 11px even when the article's own base font-size differs from 16px, proving the numeral no longer tracks it", async () => {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="body--cobalt"><article class="page-contents" style="font-size: 15.5px">` +
+            '<ol><li>first</li><li>second</li></ol></article></body></html>'
+        )
+        const fontSize = await page.evaluate(() => {
+          const li = document.querySelector('.page-contents > ol > li')
+          return getComputedStyle(li, '::before').fontSize
+        })
+        expect(fontSize).toBe('11px')
+      } finally {
+        await page.close()
+      }
+    })
+  })
+})
+
+/**
  * OpenProject #2917 ("Tables: Ledger styling, light + dark"). The frame, mono eyebrow head, rules
  * and hover accent are `#2916`'s own token wiring (`--content-table-*`, already covered by that
  * WP's tests) — this suite covers what #2917 itself added on top: the body's own surface colour,
@@ -787,15 +999,20 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
  * `.table-scroll` (the inner scroller), specifically so the marks could move from flush with the
  * frame to the spec's own 4px overhang — the scrollbar assertions below moved to `.table-scroll`
  * with them, and the "flush" variance this suite used to also assert is deleted from
- * `docs/variances.md` along with the deviation itself.
+ * `docs/variances.md` along with the deviation itself. OpenProject #2958 split the boxes a second
+ * time — `.table-clip` now sits between the two, owning `overflow: hidden` plus the radius on its
+ * own, because `.table-scroll`'s own `overflow-x: auto` produces a native scrollbar that is not
+ * reliably clipped by `border-radius` on that SAME element (a classic, space-reserving scrollbar
+ * squares off the very corner it sits against) — see `_page-contents.scss`'s own `// TABLES` header
+ * comment for the full mechanism.
  */
 describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  // -> The shared `.table-wrap`/`.table-scroll` mechanics this describe covers live in the
-  //    `// TABLES` section (see that section's own header comment); per-aesthetic sections earlier
-  //    in the file (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their own
-  //    `.table-scroll` selector too, so a plain search would find one of those instead.
+  // -> The shared `.table-wrap`/`.table-clip`/`.table-scroll` mechanics this describe covers live in
+  //    the `// TABLES` section (see that section's own header comment); per-aesthetic sections
+  //    earlier in the file (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their
+  //    own `.table-scroll` selector too, so a plain search would find one of those instead.
   const tablesSectionStart = source.indexOf('\n  // TABLES\n')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
@@ -842,6 +1059,23 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     expect(block).not.toMatch(/overflow/)
   })
 
+  it('puts the radius clip on .table-clip, an overflow:hidden box with nothing else on it, rather than on the scroller itself (OpenProject #2958)', () => {
+    const clipBlock = blockFor('.table-clip {')
+    expect(clipBlock).toMatch(/overflow:\s*hidden/)
+    expect(clipBlock).toMatch(/border-radius:\s*var\(--content-table-radius\)/)
+    // -> No scroll, no background, no border, no scrollbar tokens -- it exists purely to clip
+    expect(clipBlock).not.toMatch(/overflow-x/)
+    expect(clipBlock).not.toMatch(/scrollbar/)
+    expect(clipBlock).not.toMatch(/background/)
+    expect(clipBlock).not.toMatch(/border(?!-radius)/)
+  })
+
+  it("keeps the scroller's own radius off it now that .table-clip owns the clip -- an `overflow-x: auto` element's own border-radius doesn't reliably clip the native scrollbar it produces (OpenProject #2958)", () => {
+    const scrollBlock = blockFor('.table-scroll {')
+    expect(scrollBlock).toMatch(/overflow-x:\s*auto/)
+    expect(scrollBlock).not.toMatch(/border-radius/)
+  })
+
   it('gates the corner marks on the same --corner-marks token the page header plate and blockquote read, so Cobalt draws none', () => {
     const block = blockFor('.table-wrap::after {')
     expect(block).toMatch(/display:\s*var\(--content-table-corner-marks\)/)
@@ -876,14 +1110,38 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     const SAMPLE = `
       <article class="page-contents">
         <div class="table-wrap">
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>Key</th><th>Value</th></tr></thead>
-              <tbody>
-                <tr><td>alpha</td><td>1</td></tr>
-                <tr><td>beta</td><td>2</td></tr>
-              </tbody>
-            </table>
+          <div class="table-clip">
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Key</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td>alpha</td><td>1</td></tr>
+                  <tr><td>beta</td><td>2</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </article>`
+
+    // -> Wide enough that `.table-scroll` needs a horizontal scrollbar and, unscrolled, cuts the
+    //    table off mid-content on the trailing edge rather than at the table's own natural edge --
+    //    the case that actually exercises the rounded-corner clip (OpenProject #2958). A table that
+    //    fits within its container needs no scrolling at all, so its corners sit at the table's own
+    //    natural edge regardless of which box owns the radius.
+    const WIDE_SAMPLE = `
+      <article class="page-contents">
+        <div class="table-wrap">
+          <div class="table-clip">
+            <div class="table-scroll">
+              <table>
+                <thead><tr>${Array.from({ length: 12 }, (_, i) => `<th>Column ${i + 1}</th>`).join('')}</tr></thead>
+                <tbody>
+                  <tr>${Array.from({ length: 12 }, (_, i) => `<td>Column ${i + 1} row1 value value</td>`).join('')}</tr>
+                  <tr>${Array.from({ length: 12 }, (_, i) => `<td>Column ${i + 1} row2 value value</td>`).join('')}</tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </article>`
@@ -906,8 +1164,10 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         )
         return await page.evaluate(() => {
           const wrap = document.querySelector('.table-wrap')
+          const clip = document.querySelector('.table-clip')
           const scroll = document.querySelector('.table-scroll')
           const wrapStyle = getComputedStyle(wrap)
+          const clipStyle = getComputedStyle(clip)
           const scrollStyle = getComputedStyle(scroll)
           const afterStyle = getComputedStyle(wrap, '::after')
           return {
@@ -916,12 +1176,63 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
             scrollbarWidth: scrollStyle.scrollbarWidth,
             marksDisplay: afterStyle.display,
             marksImage: afterStyle.backgroundImage,
+            clipOverflow: clipStyle.overflow,
+            clipRadius: clipStyle.borderRadius,
             // -> Measured on the inner scroller (OpenProject #2935) -- that's the box with
             //    `overflow-x: auto` now, not the outer frame, which no longer scrolls at all.
             scrollWidth: scroll.scrollWidth,
             clientWidth: scroll.clientWidth,
             scrollHeight: scroll.scrollHeight,
             clientHeight: scroll.clientHeight
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    /*
+      OpenProject #2958's actual regression check: a table too wide for its column, UNSCROLLED, so
+      `.table-scroll` cuts it off mid-content on the trailing edge -- the geometry that actually
+      exercises the rounded-corner clip (a table that fits needs no clip at all; a table scrolled all
+      the way to either end sits at the table's own natural edge, which coincides with the frame's
+      edge regardless of which box owns the radius). `elementFromPoint`, a pixel inside the rounded
+      corner's own arc, is what proves the clip: a correctly-clipped corner resolves to `.table-wrap`
+      itself (its own background showing through, nothing painted over it there) or a page-content
+      ancestor, never a `td`/`th`/`thead` -- if a cell's own background reached that pixel, its
+      square corner would be visibly poking past the frame's rounded one, exactly OpenProject #2958's
+      report.
+    */
+    async function measureCornerContainment({ dark: darkMode = false, cobalt = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage({ viewport: { width: 500, height: 400 } })
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style>` +
+            `<style>body{margin:0;padding:20px;}</style></head>` +
+            `<body class="${bodyClasses}">${WIDE_SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const wrap = document.querySelector('.table-wrap')
+          const scroll = document.querySelector('.table-scroll')
+          const r = wrap.getBoundingClientRect()
+          function tagAt(x, y) {
+            return document.elementFromPoint(x, y)?.tagName ?? null
+          }
+          return {
+            // -> Confirms the fixture actually needs a scrollbar -- otherwise this test would pass
+            //    vacuously by never exercising the mid-content cut at all
+            needsScroll: scroll.scrollWidth > scroll.clientWidth,
+            topRight: tagAt(r.x + r.width - 2, r.y + 2),
+            bottomRight: tagAt(r.x + r.width - 2, r.y + r.height - 2)
           }
         })
       } finally {
@@ -971,6 +1282,23 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       const light = await measure({ dark: false })
       expect(light.scrollWidth).toBe(light.clientWidth)
       expect(light.scrollHeight).toBe(light.clientHeight)
+    })
+
+    it('resolves .table-clip to a real overflow:hidden box carrying the radius (OpenProject #2958)', async () => {
+      const light = await measure({ dark: false, cobalt: true })
+      expect(light.clipOverflow).toBe('hidden')
+      // -> 8px, Cobalt's --radius-card
+      expect(light.clipRadius).toBe('8px')
+    })
+
+    it("contains a wide, unscrolled Cobalt table's cell backgrounds to the frame's rounded corner rather than letting them poke a square corner past it (OpenProject #2958)", async () => {
+      const cobaltLight = await measureCornerContainment({ dark: false, cobalt: true })
+      const cobaltDark = await measureCornerContainment({ dark: true, cobalt: true })
+      for (const result of [cobaltLight, cobaltDark]) {
+        expect(result.needsScroll).toBe(true)
+        expect(result.topRight).not.toMatch(/^(TH|TD|THEAD|TABLE)$/)
+        expect(result.bottomRight).not.toMatch(/^(TH|TD|THEAD|TABLE)$/)
+      }
     })
   })
 })
@@ -1062,5 +1390,293 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
     //    one block, so this asserts directly against the two literal patterns that used to exist.
     expect(source).not.toMatch(/--content-table-head-grade/)
     expect(source).not.toMatch(/--content-table-shadow:\s*0[^;]*rgba/)
+  })
+})
+
+/**
+ * OpenProject #2963 ("Article type scale too large: 16px/24px base+h2 instead of spec'd 15.5px/26px").
+ * `ui-iteration-cobalt-typography/cobalt-typography.md` §0.1 pins the article's whole type ramp in
+ * absolute px, identical in Ledger and Cobalt -- deliberately not scoped to a `body.body--cobalt`
+ * block. Source-level checks pin the declarations the fix depends on; the real-browser check pins
+ * what a source read cannot -- the actual computed `font-size`/`line-height` once the em/rem chain
+ * (`.page-contents`'s own base, then whatever each element is set relative to) has resolved, and
+ * that it resolves to the same numbers whether or not Cobalt is active.
+ */
+describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  it('sets the article base at 15.5px/1.72, not the old 16px/1.6', () => {
+    expect(source).toMatch(/\.page-contents\s*\{[\s\S]*?font-size:\s*0\.96875rem;/)
+    expect(source).toMatch(/\.page-contents\s*\{[\s\S]*?line-height:\s*1\.72;/)
+  })
+
+  it('pins h1/h3/h4 to their unchanged px sizes in `rem`, not the old `em` ratio against the base', () => {
+    // -> `rem`, not `em`: had these stayed em-relative to the new 15.5px base they would have
+    //    silently shrunk (32em -> 31px, 20em -> 19.375px, 17em -> 16.469px) despite being unchanged.
+    expect(source).toMatch(/h1\s*\{[\s\S]*?font-size:\s*2rem;/)
+    expect(source).toMatch(/h3\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1\.25rem;/)
+    expect(source).toMatch(/h4\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1\.0625rem;/)
+  })
+
+  it('moves h2 to the spec-drawn 26px, not the old 24px, and h6 to 13.5px, not the old 14px', () => {
+    expect(source).toMatch(/h2\s*\{[\s\S]*?font-size:\s*1\.625rem;/)
+    expect(source).toMatch(
+      /h6\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*0\.84375rem;\s*\n\s*color:\s*var\(--content-ink-muted\)/
+    )
+  })
+
+  it('leaves h5 as a bare `1em` -- it IS the base, so it tracks it exactly', () => {
+    expect(source).toMatch(/h5\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1em;\s*\n\s*\}/)
+  })
+
+  it('pins li to 15px/1.6 and inline code to 14px, in `rem`, not inherited-and-scaled from the base', () => {
+    expect(source).toMatch(
+      /li\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*0\.9375rem;\s*\n\s*line-height:\s*1\.6;/
+    )
+    expect(source).toMatch(/\bcode\s*\{[\s\S]*?font-size:\s*0\.875rem;\s*\n\s*\}/)
+  })
+
+  it('pins blockquote/callout to 14.5px/1.6, and leaves pre code at its already-correct 13px/1.75', () => {
+    expect(source).toMatch(
+      /blockquote\s*\{[\s\S]*?font-size:\s*0\.90625rem;[\s\S]*?line-height:\s*1\.6;/
+    )
+    // -> Already matched the target before this WP; asserted so a future edit can't regress it unseen.
+    expect(source).toMatch(/pre\s*\{[\s\S]*?font-size:\s*0\.8125rem;[\s\S]*?line-height:\s*1\.75;/)
+  })
+
+  it('never re-scopes any of this to `body.body--cobalt` -- the design handoff draws one ramp for both aesthetics', () => {
+    const cobaltStart = source.indexOf('@at-root body.body--cobalt &')
+    expect(cobaltStart).toBeGreaterThan(-1)
+    // -> None of the type-scale properties this WP owns appear inside a Cobalt-scoped block anywhere
+    //    in the file; a real per-block parse would be needed to prove a NEGATIVE precisely, but every
+    //    `body.body--cobalt` block in this file is a short, self-contained token/color override (see
+    //    #2964's own `--content-h1`/`--content-h2` block), never a font-size declaration.
+    const cobaltBlocks = [...source.matchAll(/@at-root body\.body--cobalt & \{/g)]
+    expect(cobaltBlocks.length).toBeGreaterThan(0)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <h1>Heading one</h1>
+        <h2>Heading two</h2>
+        <h3>Heading three</h3>
+        <h4>Heading four</h4>
+        <h5>Heading five</h5>
+        <h6>Heading six</h6>
+        <p>A paragraph with <code>inline code</code> in it.</p>
+        <ul><li>A list item</li></ul>
+        <blockquote><p>A quoted line.</p></blockquote>
+        <pre class="codeblock"><code>const x = 1</code></pre>
+      </article>`
+
+    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const sizeOf = (selector) => {
+            const style = getComputedStyle(document.querySelector(selector))
+            return { fontSize: style.fontSize, lineHeight: style.lineHeight }
+          }
+          return {
+            article: sizeOf('.page-contents'),
+            p: sizeOf('p'),
+            li: sizeOf('li'),
+            h1: sizeOf('h1'),
+            h2: sizeOf('h2'),
+            h3: sizeOf('h3'),
+            h4: sizeOf('h4'),
+            h5: sizeOf('h5'),
+            h6: sizeOf('h6'),
+            inlineCode: sizeOf('p code'),
+            blockquote: sizeOf('blockquote'),
+            preCode: sizeOf('pre.codeblock')
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('resolves the whole ramp to the spec-drawn absolute px, in Ledger', async () => {
+      const m = await measure()
+      expect(m.article.fontSize).toBe('15.5px')
+      expect(m.p.fontSize).toBe('15.5px')
+      expect(m.li.fontSize).toBe('15px')
+      expect(m.li.lineHeight).toBe('24px') // -> 15 * 1.6
+      expect(m.h1.fontSize).toBe('32px')
+      expect(m.h2.fontSize).toBe('26px')
+      expect(m.h3.fontSize).toBe('20px')
+      expect(m.h4.fontSize).toBe('17px')
+      expect(m.h5.fontSize).toBe('15.5px')
+      expect(m.h6.fontSize).toBe('13.5px')
+      expect(m.inlineCode.fontSize).toBe('14px')
+      expect(m.blockquote.fontSize).toBe('14.5px')
+      expect(m.blockquote.lineHeight).toBe('23.2px') // -> 14.5 * 1.6
+      expect(m.preCode.fontSize).toBe('13px')
+    })
+
+    it('resolves to the identical ramp under Cobalt -- this fix is deliberately not aesthetic-scoped', async () => {
+      const [ledger, cobalt] = await Promise.all([measure(), measure({ cobalt: true })])
+      for (const key of [
+        'article',
+        'p',
+        'li',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'inlineCode',
+        'blockquote',
+        'preCode'
+      ]) {
+        expect(cobalt[key].fontSize).toBe(ledger[key].fontSize)
+      }
+    })
+
+    it('holds the same ramp in dark mode -- this fix touches size, never colour or theme', async () => {
+      const [light, dark] = await Promise.all([measure(), measure({ dark: true })])
+      for (const key of [
+        'article',
+        'p',
+        'li',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'inlineCode',
+        'blockquote',
+        'preCode'
+      ]) {
+        expect(dark[key].fontSize).toBe(light[key].fontSize)
+      }
+    })
+  })
+})
+
+/**
+ * OpenProject #2964 ("Cobalt: in-content h1 shares --color-ink with h2, reading 'all blue' instead
+ * of body ink"). The Ledger-default `--content-h1: var(--color-ink)` (L68 of this file) carried
+ * through into Cobalt with no override, so in-content h1 rendered in Cobalt's saturated navy
+ * `--color-ink` (`#10194a`) -- the same "blue" register h2 uses via its own accent-colored
+ * `--content-h2` -- rather than the aesthetic's plain body ink. The fix scopes a `--content-h1`
+ * override to the `body.body--cobalt &` block, pointing it at `--color-text-body` (`#1a2038` light /
+ * `#e8ecff` dark) instead. `--content-h2` and its accent color are untouched -- that split (h2
+ * alone carries the accent) is the locked design decision this fix must not disturb.
+ */
+describe('_page-contents.scss cobalt h1 ink (OpenProject #2964)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt & {')
+  const cobaltDarkBlockStart = source.indexOf('@at-root body.body--cobalt.body--dark & {')
+  if (cobaltBlockStart === -1 || cobaltDarkBlockStart === -1) {
+    throw new Error(
+      'body.body--cobalt block(s) not found in _page-contents.scss -- have they moved?'
+    )
+  }
+  const cobaltBlock = source.slice(cobaltBlockStart, cobaltDarkBlockStart)
+
+  it('overrides --content-h1 to the plain body-ink token inside the Cobalt block, not the saturated --color-ink h2 shares the register with', () => {
+    expect(cobaltBlock).toMatch(/--content-h1:\s*var\(--color-text-body\);/)
+    expect(cobaltBlock).not.toMatch(/--content-h1:\s*var\(--color-ink\);/)
+  })
+
+  it('leaves --content-h2 and its accent color completely untouched by this fix', () => {
+    expect(cobaltBlock).toMatch(/--content-h2:\s*var\(--color-heading-h2\);/)
+  })
+
+  it("declares no --content-h1 override in the Cobalt-dark block -- --color-text-body is already re-declared for dark in tailwind.css, so the light block's var() is expected to re-resolve through the cascade with no second override needed here", () => {
+    const cobaltDarkBlockEnd = source.indexOf('\n  }', cobaltDarkBlockStart)
+    const cobaltDarkBlock = source.slice(cobaltDarkBlockStart, cobaltDarkBlockEnd)
+    expect(cobaltDarkBlock).not.toMatch(/--content-h1:/)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <h1>Heading one</h1>
+        <h2>Heading two</h2>
+      </article>`
+
+    async function measureHeadingColors({ dark: darkMode = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = ['body--cobalt', darkMode ? 'body--dark' : ''].filter(Boolean).join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const h1 = document.querySelector('.page-contents h1')
+          const h2 = document.querySelector('.page-contents h2')
+          return {
+            h1Color: getComputedStyle(h1).color,
+            h2Color: getComputedStyle(h2).color
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('resolves h1 to Cobalt light body ink (#1a2038), distinct from h2 (#1f4fd6)', async () => {
+      const { h1Color, h2Color } = await measureHeadingColors()
+      expect(h1Color).toBe('rgb(26, 32, 56)') // #1a2038
+      expect(h2Color).toBe('rgb(31, 79, 214)') // #1f4fd6
+      expect(h1Color).not.toBe(h2Color)
+      // -> Never the aesthetic's saturated navy --color-ink (#10194a) that made h1 read "all blue"
+      expect(h1Color).not.toBe('rgb(16, 25, 74)')
+    })
+
+    it('resolves h1 to Cobalt dark body ink (#e8ecff), distinct from h2 (#8fb0ff), via the cascade alone', async () => {
+      const { h1Color, h2Color } = await measureHeadingColors({ dark: true })
+      expect(h1Color).toBe('rgb(232, 236, 255)') // #e8ecff
+      expect(h2Color).toBe('rgb(143, 176, 255)') // #8fb0ff
+      expect(h1Color).not.toBe(h2Color)
+    })
   })
 })

@@ -114,6 +114,34 @@ function tagCodeLanguage(pre) {
   }
 }
 
+/**
+ * One CSV field, RFC4180-quoted when it needs to be: wrapped in double quotes, with any embedded
+ * double quote doubled, whenever the raw text contains a comma, a quote, or a newline -- the three
+ * characters that would otherwise be ambiguous with the format's own delimiters.
+ */
+function csvField(text) {
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`
+  }
+  return text
+}
+
+/**
+ * A rendered `<table>`'s rows, serialized as CSV -- one line per `<tr>`, in document order across
+ * whichever of `thead`/`tbody`/`tfoot` are present, each cell's trimmed text run through `csvField`.
+ *
+ * A dedicated walk rather than a reuse of `codeOf()`: a table has no gutter or language concerns,
+ * and what it needs quoted is cell text, not a code block's literal source.
+ */
+function csvOf(table) {
+  const lines = []
+  for (const row of table.querySelectorAll('tr')) {
+    const cells = row.querySelectorAll('th, td')
+    lines.push(Array.from(cells, (cell) => csvField(cell.textContent.trim())).join(','))
+  }
+  return lines.join('\n')
+}
+
 function addCodeCopyButtons(root, t) {
   for (const pre of root.querySelectorAll('pre.codeblock:not([data-code-copy])')) {
     // -> Marks the block as done, and is what the stylesheet keys the button's position off
@@ -139,6 +167,43 @@ function addCodeCopyButtons(root, t) {
     )
 
     pre.appendChild(button)
+  }
+}
+
+/**
+ * The per-table copy-to-CSV button, following `addCodeCopyButtons` exactly: marks the wrapper as
+ * done, builds a button reusing the same `copyWithFeedback` icon-swap/timeout pattern, and appends
+ * it to `.table-wrap` -- the outer frame (see `_page-contents.scss`'s `// TABLES` section), not
+ * `.table-scroll`, so the control never travels with the table's own horizontal scroll and is never
+ * clipped by the scroller's `overflow-x`.
+ */
+function addTableCopyButtons(root, t) {
+  for (const wrap of root.querySelectorAll('.table-wrap:not([data-table-copy])')) {
+    const table = wrap.querySelector('table')
+    if (!table) {
+      continue
+    }
+    wrap.dataset.tableCopy = ''
+
+    const restingLabel = t('common.renderedContent.copyTable')
+
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'table-copy'
+    setLabel(button, restingLabel)
+    button.innerHTML = iconSvg(ICON_COPY)
+    button.addEventListener('click', () =>
+      copyWithFeedback({
+        text: csvOf(table),
+        control: button,
+        restingLabel,
+        restingHtml: iconSvg(ICON_COPY),
+        doneLabel: t('common.renderedContent.copyTableDone'),
+        t
+      })
+    )
+
+    wrap.appendChild(button)
   }
 }
 
@@ -201,6 +266,7 @@ export function enhanceRenderedContent(root, t) {
     return
   }
   addCodeCopyButtons(root, t)
+  addTableCopyButtons(root, t)
   addHeadingAnchors(root, t)
 }
 

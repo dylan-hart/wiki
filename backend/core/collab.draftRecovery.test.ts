@@ -4,9 +4,9 @@
  * (`CollabRoom.lastAuthorName`), so that the draft `flushDraftPersist` writes next — whether that
  * happens right away, because the room is now empty (`closeRoomIfEmpty`), or later, from a still-open
  * room's own debounce — carries best-effort attribution of who was last known to be editing. The
- * persistence mechanism itself (debounce, which fallback tier `initRoom()` prefers, the clear-on-save)
- * is `core/collab.draftPersist.test.ts`'s job (OpenProject #2454); this file only covers the
- * attribution this WP added on top of it.
+ * persistence mechanism itself (debounce, the clear-on-save, `initRoom()` never reading it back to
+ * seed a room) is `core/collab.draftPersist.test.ts`'s job (OpenProject #2454); this file only covers
+ * the attribution this WP added on top of it.
  *
  * Split out of `core/collab.test.ts` (TEST-F14 precedent); see that file's header for the sibling map.
  */

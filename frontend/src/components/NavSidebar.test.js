@@ -1028,20 +1028,26 @@ describe('NavSidebar', () => {
    * A static check on the source rather than a rendered assertion, for the reason the file header
    * above gives: happy-dom cannot resolve a logical property against `direction`, so the only way
    * left to catch a stray physical declaration sneaking back into this `<style>` block is to grep
-   * for one. Specifically the open-group indent's own border, which uses a logical property so a
-   * `dir="rtl"` page still indents into the reading direction rather than the visual left.
+   * for one. Specifically the open-group indent, which uses a logical property (`padding-inline-
+   * start`, OpenProject #2951 -- previously a `border-inline-start`, moved off the ancestor
+   * wrapper and onto the row's own padding, see the tests below) so a `dir="rtl"` page still
+   * indents into the reading direction rather than the visual left.
    *
    * Scoped to the `<style>` block specifically rather than the whole file, since a script-side
    * `right`/`left` property name (positioning, not a physical border) would otherwise false-match.
    */
-  it('keeps the open-group indent on a logical (inline-start) border, not a physical one', () => {
+  it('keeps the open-group indent on a logical (inline-start) property, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
 
     expect(styleBlock).not.toMatch(/border-left\s*:/)
     expect(styleBlock).not.toMatch(/border-right\s*:/)
-    expect(styleBlock).toMatch(/border-inline-start\s*:\s*10px/)
+    expect(styleBlock).not.toMatch(/padding-left\s*:/)
+    expect(styleBlock).not.toMatch(/padding-right\s*:/)
+    expect(styleBlock).toMatch(
+      /padding-inline-start:\s*calc\(1rem \+ var\(--nav-depth,\s*0\)\s*\*\s*10px\)/
+    )
   })
 
   /**
@@ -1050,32 +1056,36 @@ describe('NavSidebar', () => {
    * `background-color`/`background-clip` wash, and a mitred `&::before` elbow turning the rail out
    * of the row above. All three are removed; indentation and the `.w-expansion-item__arrow`
    * chevron were the only nesting cues left, until a LATER `&::before` was added back for a
-   * different purpose entirely -- the hover depth-cue dots. Asserted here only that the shared
-   * `.w-expansion-item__content` wrapper itself carries no `background-color`/`background-clip`
-   * and keeps its transparent 10px indent border (still the only thing providing per-level
-   * indentation); the dots' own rule -- and the hover scoping that is this test file's actual
-   * regression surface (OpenProject #2906) -- is asserted separately below, on the `.w-item` rule
-   * nested inside this wrapper rather than on the wrapper's own bare `&::before`. Asserted on the
-   * source, for the same happy-dom-cannot-resolve-logical-properties reason the test above gives.
+   * different purpose entirely -- the hover depth-cue dots (asserted separately below). Asserted
+   * here only that the row's own `.w-item` rule (which is what carries indentation now, OpenProject
+   * #2951 -- previously the ancestor `.w-expansion-item__content` wrapper) has no `background-
+   * color`/`background-clip` of its own. Asserted on the source, for the same happy-dom-cannot-
+   * resolve-logical-properties reason the test above gives.
    */
-  it('keeps the shared content wrapper to a transparent indent border, with no rail/wash of its own', () => {
+  it('keeps the indent to plain padding, with no rail/wash of its own', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
-    // -> The RULE's own opening brace, not a bare class-name match -- both this comment's own
-    //    prose and the rule's neighboring comments mention `.w-expansion-item__content`/`.w-item`
-    //    by name too, and a bare `indexOf` would happily match one of those first.
-    const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content {')
-    const nestedItemRuleStart = styleBlock.indexOf('.w-item {', contentRuleStart)
-    // -> Only the wrapper's OWN declarations, stopping before the nested `.w-item` rule this test
-    //    does not cover (asserted on its own, below) -- rather than a fixed character count, which
-    //    would silently start clipping either rule's body the next time either one is edited.
-    const contentRule = styleBlock.slice(contentRuleStart, nestedItemRuleStart)
+    // -> The RULE's own opening brace, not a bare class-name match -- the rule's own comments
+    //    mention `.w-item`/`.w-expansion-item__content` by name too, and a bare `indexOf` would
+    //    happily match one of those first. `.w-item.router-link-exact-active {}` is declared
+    //    earlier in source order and doesn't contain this exact substring (no space before `{`),
+    //    so this lands on the plain `.w-item {}` rule.
+    const itemRuleStart = styleBlock.indexOf('.w-item {')
+    expect(itemRuleStart).toBeGreaterThanOrEqual(0)
+    // -> A generous, fixed-length window covering the whole rule (indent padding, the dot
+    //    `&::before`/`&:hover::before` below it) -- verified against the source not to run into
+    //    any LATER, unrelated rule's own `background-color` within this range.
+    const itemRule = styleBlock.slice(itemRuleStart, itemRuleStart + 3000)
 
-    expect(contentRule).toMatch(/border-inline-start\s*:\s*10px solid transparent/)
-    expect(contentRule).not.toMatch(/background-color/)
-    expect(contentRule).not.toMatch(/background-clip/)
-    expect(contentRule).not.toMatch(/&::before/)
+    expect(itemRule).toMatch(
+      /padding-inline-start:\s*calc\(1rem \+ var\(--nav-depth,\s*0\)\s*\*\s*10px\)/
+    )
+    expect(itemRule).not.toMatch(/background-color/)
+    expect(itemRule).not.toMatch(/background-clip/)
+    // -> The ancestor wrapper no longer draws any indent border of its own -- it doesn't need a
+    //    rule left in this stylesheet at all any more.
+    expect(styleBlock).not.toMatch(/\.w-expansion-item__content\s*{/)
   })
 
   /**
@@ -1085,53 +1095,48 @@ describe('NavSidebar', () => {
    * `:has(:hover)` matching as soon as ANY descendant at any depth was hovered. A row nested three
    * levels deep lit all three ancestors' lanes at once, not just the one it actually sits inside.
    *
-   * #2906's fix moved the dot onto each ROW's own `.w-item` (nested inside a `.content` wrapper, so
-   * a depth-0 row -- with no ancestor lane to light -- gets the rule but no VISIBLE lane to paint
-   * it in), scoped by a plain `&:hover`, never `:has()` -- and that hover-scoping half is still
-   * correct and asserted here unchanged. But #2906 left the reach-back distance and dot count both
-   * hard-coded to exactly one lane, regardless of how deep the row actually nested (OpenProject
-   * #2932) -- so this also asserts the fix for THAT: both the reach-back box and the dot tiling
-   * scale off `--nav-depth`, the custom property `NavSidebarItem.vue`'s `depth` prop now sets on
-   * every row, rather than off a fixed `-10px`/`10px` pair that could only ever draw one dot.
-   * Asserted on the source rather than rendered, for the same
-   * happy-dom-cannot-resolve-logical-properties/no-real-layout reason the tests around this one
-   * give -- but the bugs this guards were both BEHAVIORAL (hover scoping, and now dot count scaling
-   * with depth), which the real behavior test right after this one covers in an actual browser
-   * instead.
+   * #2906's fix moved the dot onto each ROW's own `.w-item`, scoped by a plain `&:hover`, never
+   * `:has()` -- and that hover-scoping half is still correct and asserted here unchanged. #2932
+   * then scaled the reach-back box and dot count off `--nav-depth` instead of a fixed one-lane
+   * offset -- but by reaching BACKWARD from the row's own edge, which anchored the trail at the
+   * row's own (icon-side) position and grew it toward the navbar edge as depth increased: the
+   * wrong direction (OpenProject #2951). The fix here drops the reach-back arithmetic entirely: the
+   * box now sits at a FIXED `inset-inline-start: 0` (the row's own left edge, which -- since the
+   * row spans the navbar's full width at every depth now -- is the same absolute position
+   * regardless of nesting) and only its `width` scales with `--nav-depth`, so the trail's far end
+   * grows TOWARD the icon as depth increases instead of away from the edge.
+   *
+   * Asserted on the source rather than rendered, for the same happy-dom-cannot-resolve-logical-
+   * properties/no-real-layout reason the tests around this one give -- but the actual regression
+   * this WP fixes (which end is fixed, which end grows) is a real-layout question, covered by the
+   * real behavior test right after this one in an actual browser instead.
    */
-  it('scopes the depth-cue dot to each row itself, and scales its reach and dot count with --nav-depth', () => {
+  it("anchors the depth-cue dot at the row's own fixed left edge, scaling only its reach with --nav-depth", () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
-    // -> The RULE's own opening brace, not a bare class-name match -- both this comment's own
-    //    prose and the rule's neighboring comments mention `.w-expansion-item__content`/`.w-item`
-    //    by name too, and a bare `indexOf` would happily match one of those first.
-    const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content {')
-    const nestedItemRuleStart = styleBlock.indexOf('.w-item {', contentRuleStart)
-    const nestedItemRule = styleBlock.slice(nestedItemRuleStart, nestedItemRuleStart + 900)
+    const itemRuleStart = styleBlock.indexOf('.w-item {')
+    const beforeRuleStart = styleBlock.indexOf('&::before', itemRuleStart)
+    const itemRule = styleBlock.slice(beforeRuleStart, beforeRuleStart + 700)
 
     // -> No bubbling trigger anywhere in the ACTUAL rules (comments -- including this fix's own,
     //    which names the old pattern by way of explaining why it's gone -- are stripped first, or
     //    they would false-match the very prose describing the bug).
     const codeOnly = styleBlock.replace(/\/\*[\s\S]*?\*\//g, '')
     expect(codeOnly).not.toMatch(/:has\(:hover\)/)
-    expect(nestedItemRule).toMatch(/position:\s*relative/)
-    expect(nestedItemRule).toMatch(/&::before/)
-    expect(nestedItemRule).toMatch(/opacity:\s*0;/)
-    expect(nestedItemRule).toMatch(/&:hover::before\s*{\s*opacity:\s*0\.5/)
-    // -> Reaches back a MULTIPLE of the row's own margin-inline compensation (Cobalt insets every
-    //    row 10px off the column edges -- `--nav-item-inset`), scaled by `--nav-depth`, not a bare
-    //    `-10px` -- a fixed offset can only ever land one dot on the CLOSEST lane, no matter how
-    //    many ancestor `.content` wrappers actually enclose the row.
-    expect(nestedItemRule).toMatch(
-      /inset-inline-start:\s*calc\(\(var\(--nav-depth,\s*1\)\s*\*\s*-10px\)\s*-\s*var\(--nav-item-inset\)\)/
-    )
-    // -> The reach-back box's own width scales the same way, so it spans exactly `depth` lanes.
-    expect(nestedItemRule).toMatch(/width:\s*calc\(var\(--nav-depth,\s*1\)\s*\*\s*10px\)/)
+    expect(styleBlock.slice(itemRuleStart, itemRuleStart + 200)).toMatch(/position:\s*relative/)
+    expect(itemRule).toMatch(/opacity:\s*0;/)
+    expect(itemRule).toMatch(/&:hover::before\s*{\s*opacity:\s*0\.5/)
+    // -> Fixed, not reaching back -- a MULTIPLE of the ancestor-wrapper offset the old version
+    //    subtracted `--nav-item-inset` to compensate for is gone entirely.
+    expect(itemRule).toMatch(/inset-inline-start:\s*0;/)
+    expect(itemRule).not.toMatch(/--nav-item-inset/)
+    // -> Only the width scales with depth, so the box's far end (toward the icon) is what moves.
+    expect(itemRule).toMatch(/width:\s*calc\(var\(--nav-depth,\s*0\)\s*\*\s*10px\)/)
     // -> One dot PER lane, not one dot for the whole (now depth-scaled) box: a `repeat-x` tile
-    //    exactly one lane (10px) wide, rather than the old single centered, non-repeating image.
-    expect(nestedItemRule).toMatch(/background-repeat:\s*repeat-x/)
-    expect(nestedItemRule).toMatch(/background-size:\s*10px\s+100%/)
+    //    exactly one lane (10px) wide, rather than a single centered, non-repeating image.
+    expect(itemRule).toMatch(/background-repeat:\s*repeat-x/)
+    expect(itemRule).toMatch(/background-size:\s*10px\s+100%/)
   })
 
   /**
@@ -1151,7 +1156,7 @@ describe('NavSidebar', () => {
    * `top` at depth 0 with no ancestor lane of its own to light at all.
    */
   describe(
-    'depth-cue dot hover scoping & depth scaling — real behavior (OpenProject #2906, #2932)',
+    'depth-cue dot hover scoping, anchor point & depth scaling — real behavior (OpenProject #2906, #2932, #2951)',
     { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
     () => {
       const nestedTree = [
@@ -1218,14 +1223,20 @@ describe('NavSidebar', () => {
               `<body class="sidebar-nav"><div class="w-list">${html}</div></body></html>`
           )
 
+          const topHeader = page.locator('.w-expansion-item__header:has-text("Top folder")')
           const middleHeader = page.locator('.w-expansion-item__header:has-text("Middle folder")')
           const deepHeader = page.locator('.w-expansion-item__header:has-text("Deep folder")')
           const leaf = page.locator('.w-item:has-text("Leaf page")')
           const dotStyle = (locator) =>
             locator.evaluate((el) => {
               const style = getComputedStyle(el, '::before')
-              return { opacity: Number.parseFloat(style.opacity), width: style.width }
+              return {
+                opacity: Number.parseFloat(style.opacity),
+                width: style.width,
+                left: style.left
+              }
             })
+          const rowLeft = (locator) => locator.evaluate((el) => el.getBoundingClientRect().left)
 
           // -> Each row's reach-back box is already sized to its own depth even at rest (opacity
           //    0 -- nothing is lit yet) -- this is the #2932 fix itself: `width` scales with
@@ -1233,6 +1244,26 @@ describe('NavSidebar', () => {
           expect((await dotStyle(middleHeader)).width).toBe('10px')
           expect((await dotStyle(deepHeader)).width).toBe('20px')
           expect((await dotStyle(leaf)).width).toBe('30px')
+
+          // -> OpenProject #2951's own regression: the trail's NEAR edge (`left`, resolved off
+          //    `inset-inline-start: 0`) is a FIXED `0px` -- the row's own left edge -- at every
+          //    depth, not a depth-dependent negative reach-back. It is the box's `width` (above)
+          //    that grows toward the icon as depth increases, never this.
+          expect((await dotStyle(topHeader)).left).toBe('0px')
+          expect((await dotStyle(middleHeader)).left).toBe('0px')
+          expect((await dotStyle(deepHeader)).left).toBe('0px')
+          expect((await dotStyle(leaf)).left).toBe('0px')
+
+          // -> The structural half of the same fix: every row spans the navbar's full width at
+          //    every depth now (no more ancestor `.w-expansion-item__content` border narrowing the
+          //    box per level), so each row's own left edge lands at the SAME page position
+          //    regardless of how deep it is nested -- which is what makes the fixed `left: 0px`
+          //    above actually mean "anchored at the navbar edge" rather than "anchored at whatever
+          //    position this particular row happens to render at".
+          const topLeft = await rowLeft(topHeader)
+          expect(await rowLeft(middleHeader)).toBe(topLeft)
+          expect(await rowLeft(deepHeader)).toBe(topLeft)
+          expect(await rowLeft(leaf)).toBe(topLeft)
 
           // -> Hovering the row nested 3 levels deep (the leaf -- OpenProject #2932's own worked
           //    example, "a folder 3 levels deep shows 3 dots") lights a reach-back box spanning
@@ -1256,6 +1287,124 @@ describe('NavSidebar', () => {
           expect(deepDot.width).toBe('20px')
           expect((await dotStyle(leaf)).opacity).toBe(0)
           expect((await dotStyle(middleHeader)).opacity).toBe(0)
+        } finally {
+          await page.close()
+        }
+      })
+
+      /**
+       * OpenProject #2951's second reported symptom: under Cobalt (`--nav-item-inset: 10px`, the
+       * row gutter `Page View 3x - Cobalt` insets every row by), the dots used to sit flush against
+       * -- or past -- the column edge, because the old reach-back box's `inset-inline-start`
+       * subtracted `--nav-item-inset` to compensate for the row's own `margin-inline`. Now that the
+       * box sits at a fixed `inset-inline-start: 0` on the row's own (already margin-inset) box,
+       * with no subtraction, the row's own edge -- and so the dot's near edge -- naturally carries
+       * that same gutter, with no separate math needed. Asserted as the row's own rendered gap from
+       * its container's edge (`getBoundingClientRect`, not a computed-style read), and that the gap
+       * is IDENTICAL at depth 0 and depth 3 -- a depth-dependent gap would mean the old subtraction
+       * bug (or a new variant of it) survived.
+       */
+      it("gives Cobalt's row gutter the same edge breathing room at every depth", async () => {
+        const wrapper = await mountRealTree(nestedTree)
+        const html = wrapper.html()
+        const source = readFileSync(
+          join(dirname(fileURLToPath(import.meta.url)), 'NavSidebar.vue'),
+          'utf-8'
+        )
+        const styleStart = source.indexOf('<style')
+        const scss = source.slice(
+          source.indexOf('>', styleStart) + 1,
+          source.lastIndexOf('</style>')
+        )
+        const cobaltCss = sass.compileString(
+          `:root { --color-slate-faint: #94a3b8; --nav-item-inset: 10px; }\n${scss}`
+        ).css
+        const page = await browser.newPage()
+        try {
+          await page.setContent(
+            `<!doctype html><html><head><style>${cobaltCss}` +
+              // -> This suite injects only `NavSidebar.vue`'s OWN compiled SCSS, not Tailwind's
+              //    utility CSS -- so `.w-item`'s real `flex` class (`WItem.vue`) never actually
+              //    becomes `display: flex` here. That's fine for every OTHER assertion in this
+              //    describe (all `position: absolute`/dimension reads off the pseudo-element,
+              //    unaffected by the row's own display), but a MARGIN-based gap read off a real
+              //    `<a>` row (the leaf, which -- unlike a `<div>` -- defaults to `display: inline`
+              //    with no other rule here to override it) needs block-level layout to render the
+              //    way it does in the real app, or the browser folds the anchor's own box around
+              //    its block-level `.w-item-section` children instead of applying its margin. One
+              //    line reproducing exactly what Tailwind's `flex` utility already gives every real
+              //    `.w-item` in production.
+              `.w-item { display: flex; }</style></head>` +
+              `<body class="sidebar-nav"><div class="w-list">${html}</div></body></html>`
+          )
+
+          // -> `.first()`: this page's own outermost wrapper div (below), not one of the several
+          //    nested `.w-list`s the real recursive markup also renders one per open folder.
+          const container = page.locator('.w-list').first()
+          const topHeader = page.locator('.w-expansion-item__header:has-text("Top folder")')
+          const leaf = page.locator('.w-item:has-text("Leaf page")')
+          const gapFromContainer = async (locator) => {
+            const containerLeft = await container.evaluate((el) => el.getBoundingClientRect().left)
+            const rowLeft = await locator.evaluate((el) => el.getBoundingClientRect().left)
+            return rowLeft - containerLeft
+          }
+
+          expect(await gapFromContainer(topHeader)).toBe(10)
+          expect(await gapFromContainer(leaf)).toBe(10)
+        } finally {
+          await page.close()
+        }
+      })
+
+      /**
+       * OpenProject #2974 -- the typography role-table conformance sweep's "Sidebar" section
+       * (`ui-iteration-cobalt-typography/cobalt-typography.md` §3): a row's own `font-size`/
+       * `font-weight` is identical in both aesthetics (only its `color` differs, per §2), so this
+       * is asserted once, against the real compiled CSS, rather than per-aesthetic. Real Chromium
+       * because a plain vitest render leaves an unset property's fallback (the page's own `body {
+       * font-size: 14px }`, §2's flagged leak) indistinguishable from happy-dom's own defaults --
+       * the same reasoning the depth-cue test right above this one gives.
+       */
+      it('sizes a plain row 400/13.5px and the active row 600/13.5px', async () => {
+        const items = [
+          { id: 'a', type: 'link', label: 'Item A', target: '/a' },
+          { id: 'b', type: 'link', label: 'Item B', target: '/b' }
+        ]
+        const wrapper = await mountRealTree(items, { path: '/a' })
+        const html = wrapper.html()
+        const page = await browser.newPage()
+        try {
+          await page.setContent(
+            `<!doctype html><html><head><style>${compiledCss}</style></head>` +
+              `<body class="sidebar-nav"><div class="w-list">${html}</div></body></html>`
+          )
+
+          const activeRow = page.locator('.w-item:has-text("Item A")')
+          const plainRow = page.locator('.w-item:has-text("Item B")')
+          const readFont = (locator) =>
+            locator.evaluate((el) => {
+              const style = getComputedStyle(el)
+              return {
+                className: el.className,
+                fontSize: style.fontSize,
+                fontWeight: style.fontWeight
+              }
+            })
+
+          const active = await readFont(activeRow)
+          const plain = await readFont(plainRow)
+
+          // -> The row actually navigated to picks up vue-router's own exact-active class, which is
+          //    what the production `.w-item.router-link-exact-active` selector keys off -- confirmed
+          //    rather than assumed, since a mismatch here would make the rest of this assertion
+          //    compare the wrong two rows.
+          expect(active.className).toMatch(/router-link-exact-active/)
+          expect(plain.className).not.toMatch(/router-link-exact-active/)
+
+          expect(plain.fontSize).toBe('13.5px')
+          expect(plain.fontWeight).toBe('400')
+          expect(active.fontSize).toBe('13.5px')
+          expect(active.fontWeight).toBe('600')
         } finally {
           await page.close()
         }

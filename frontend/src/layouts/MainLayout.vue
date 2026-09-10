@@ -104,7 +104,7 @@
               flat
               dense
               icon="tabler:language"
-              :label="commonStore.locale"
+              :label="commonStore.locale.toUpperCase()"
               :aria-label="commonStore.locale"
               size="sm">
               <locale-selector-menu :offset="[-5, 5]" />
@@ -435,9 +435,9 @@ const navSidebarEl = ref(null)
  * `[SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX]`.
  *
  * `sidebarContentWidth.value - label.clientWidth` is this row's own fixed, depth-dependent chrome
- * (icon, padding, nesting indentation -- `NavSidebar.vue`'s `.w-expansion-item__content` gives
- * every level a 10px indent via its own transparent `border-inline-start`, which is why a single
- * constant across every row would be wrong): the label is a flex-column item inside its
+ * (icon, padding, nesting indentation -- `NavSidebar.vue`'s `.w-item` gives every level a 10px
+ * indent via its own depth-scaled `padding-inline-start` (OpenProject #2951), which is why a
+ * single constant across every row would be wrong): the label is a flex-column item inside its
  * `.w-item-section` (`WItemSection.vue`'s `flex flex-col`, `align-items` left at its default
  * `stretch`), so it always fills whatever room the row's fixed chrome leaves it -- `chrome` is
  * therefore invariant to however wide the drawer happens to be measured right now, and this

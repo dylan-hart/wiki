@@ -95,7 +95,7 @@ async function measureGridChildren({ browser, html, css, containerWidth }) {
           isLoginsPanel: el.classList.contains('admin-dashboard-logins'),
           /*
             Which of the two figure shapes this card carries. `<span>` is the 30px counter figure,
-            `<small>` the 22px status line Logins and Wiki Version use -- the pair Dylan named, and
+            `<small>` the 26px figure Logins and Wiki Version use -- the pair Dylan named, and
             the reason a card is short in the first place.
           */
           figureKind: el.querySelector('.admin-dashboard-card small')
@@ -177,7 +177,7 @@ describe(
           1200px is a routine desktop admin width, and it is what makes the assertion mean
           something: less the grid's own 24px side padding, `repeat(auto-fit, minmax(230px, 1fr))`
           with a 12px gap resolves to four columns, so a measured row mixes both card shapes -- the
-          `<span>` counters (30px figure) alongside a `<small>` one (22px). A row of a single shape
+          `<span>` counters (30px figure) alongside a `<small>` one (26px). A row of a single shape
           would report equal heights whether the card stretched or not, which is what the
           "not free" test below stands guard over.
         */

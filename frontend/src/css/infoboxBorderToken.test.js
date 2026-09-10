@@ -12,6 +12,12 @@ import { describe, expect, it } from 'vitest'
  * the one custom property this task owns inside the shared 4-state `--infobox-*` block ("-- The 8
  * block boards", OpenProject #2875) -- `.name` typography (#2943) and the image well (#2944) are
  * siblings under the same Feature and are not this file's concern.
+ *
+ * The Ledger-dark case was updated by OpenProject #2955 ("Infobox theme tokens only declared at
+ * :root -- Ledger dark borders white"): the "left undeclared, inherits --block-border's dark value
+ * unchanged" assumption this suite used to assert was itself the bug -- see
+ * `infoboxTokensRealBrowser.test.js` for the real-Chromium proof and `--block-error-border`'s own
+ * #2905 fix for the same cascade mechanism.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
@@ -39,8 +45,12 @@ describe('--infobox-border (OpenProject #2942)', () => {
     expect(declaredValue(ledgerLightSource, 'infobox-border')).toBe('var(--block-border)')
   })
 
-  it('is left undeclared for Ledger dark, inheriting --block-border’s own dark value unchanged', () => {
-    expect(ledgerDarkSource).not.toMatch(/--infobox-border:/)
+  it('is restated for Ledger dark, aliasing --block-border (OpenProject #2955)', () => {
+    // -> NOT left undeclared: a bare var(--block-border) assigned only at :root would keep
+    //    resolving against <html>'s own Ledger-light --block-border forever, drawing a near-white
+    //    hairline against a dark card -- the same nested-var() cascade bug #2886/#2905 fixed
+    //    elsewhere in this file.
+    expect(declaredValue(ledgerDarkSource, 'infobox-border')).toBe('var(--block-border)')
   })
 
   it('takes its own literal value in Cobalt light, distinct from the generic card border', () => {
