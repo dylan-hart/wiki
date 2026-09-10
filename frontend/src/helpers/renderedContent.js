@@ -127,16 +127,20 @@ function csvField(text) {
 }
 
 /**
- * A rendered `<table>`'s rows, serialized as CSV -- one line per `<tr>`, in document order across
- * whichever of `thead`/`tbody`/`tfoot` are present, each cell's trimmed text run through `csvField`.
+ * A rendered table's rows, serialized as CSV -- one line per `[role="row"]`, in document order,
+ * each cell's trimmed text run through `csvField`.
+ *
+ * `renderers/markdown.js`'s table overrides (OpenProject #2997/#3014) render a table as CSS Grid --
+ * `div[role="table"]` > `div[role="row"]` > `div[role="columnheader"/"cell"]` -- rather than
+ * `<table>`/`<tr>`/`<th>`/`<td>`, so this reads role attributes, not tag names.
  *
  * A dedicated walk rather than a reuse of `codeOf()`: a table has no gutter or language concerns,
  * and what it needs quoted is cell text, not a code block's literal source.
  */
 function csvOf(table) {
   const lines = []
-  for (const row of table.querySelectorAll('tr')) {
-    const cells = row.querySelectorAll('th, td')
+  for (const row of table.querySelectorAll('[role="row"]')) {
+    const cells = row.querySelectorAll('[role="columnheader"], [role="cell"]')
     lines.push(Array.from(cells, (cell) => csvField(cell.textContent.trim())).join(','))
   }
   return lines.join('\n')
@@ -179,7 +183,7 @@ function addCodeCopyButtons(root, t) {
  */
 function addTableCopyButtons(root, t) {
   for (const wrap of root.querySelectorAll('.table-wrap:not([data-table-copy])')) {
-    const table = wrap.querySelector('table')
+    const table = wrap.querySelector('[role="table"]')
     if (!table) {
       continue
     }

@@ -109,6 +109,46 @@ function closeIconTags(html) {
 }
 
 /**
+ * Renames one attribute on a token, in place -- used to turn `colspan`/`rowspan` (real HTML
+ * attributes only on `<td>`/`<th>`) into `aria-colspan`/`aria-rowspan` (the ARIA grid-cell
+ * equivalents) before a table cell token is re-rendered as a `<div>`. See the table rules below for
+ * why.
+ */
+function renameAttr(token, from, to) {
+  const i = token.attrIndex(from)
+  if (i < 0) {
+    return
+  }
+  const value = token.attrs[i][1]
+  token.attrs.splice(i, 1)
+  token.attrSet(to, value)
+}
+
+/** Retags a token to `<div>`, then renders it exactly as markdown-it would have rendered its original tag. */
+function asDiv(tokens, idx, options, env, slf) {
+  tokens[idx].tag = 'div'
+  return slf.renderToken(tokens, idx, options, env, slf)
+}
+
+/** `asDiv`, plus an ARIA `role` -- for a table/row token, whose only structural attribute is the role. */
+function asGridRole(role) {
+  return (tokens, idx, options, env, slf) => {
+    tokens[idx].attrSet('role', role)
+    return asDiv(tokens, idx, options, env, slf)
+  }
+}
+
+/** `asGridRole`, plus the `colspan`/`rowspan` -> `aria-colspan`/`aria-rowspan` rename -- for a header/data cell. */
+function asGridCell(role) {
+  return (tokens, idx, options, env, slf) => {
+    const token = tokens[idx]
+    renameAttr(token, 'colspan', 'aria-colspan')
+    renameAttr(token, 'rowspan', 'aria-rowspan')
+    return asGridRole(role)(tokens, idx, options, env, slf)
+  }
+}
+
+/**
  * The permission a stripped `<iframe>`/`<script>`/`<style>` was missing, named the way a reader can
  * act on it, and the visible callout `sanitizeForPreview` leaves in the element's place.
  *
@@ -312,44 +352,76 @@ export class MarkdownRenderer {
     }
 
     // --------------------------------
-    // TABLE SCROLL WRAPPER
+    // TABLE GRID MARKUP + SCROLL WRAPPER
     // --------------------------------
 
     /*
-      A table's own scroll frame -- THREE nested boxes, not two (OpenProject #2958, tightening
-      #2935's split further). `.table-wrap` is the outer, non-scrolling frame: `_page-contents.scss`'s
-      `// TABLES` section draws the border, radius, shadow and corner marks on it, and nothing about
-      it ever clips a descendant, so Ledger's marks (4px outside it) are never cropped. Nested inside,
-      `.table-clip` is a plain `overflow: hidden` + the same radius, and nothing else -- it does not
-      scroll itself, so it has no scrollbar of its own to worry about, which is exactly what lets it
-      clip cleanly. Nested inside THAT, `.table-scroll` gets `overflow-x: auto` and the scrollbar
-      tokens, with `<table>` itself reduced to `width: max-content; min-width: 100%`.
+      A rendered table is CSS Grid, not a real `<table>` -- every rule below retags its token to
+      `<div>` and adds the matching ARIA role (`table`, `row`, `columnheader`, `cell`) rather than
+      letting markdown-it emit `<table>`/`<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>` at all (OpenProject
+      #2997/#3014).
 
-      Splitting the clip from the scroll this far is what actually contains a wide table's cell
-      backgrounds to the rounded corner in Cobalt: a native scrollbar's track/thumb is browser/OS
-      chrome, not ordinary painted content, and is not reliably clipped by `border-radius` on the SAME
-      element that produces it -- `.table-scroll` combining `overflow-x: auto` with its own radius
-      (the shape #2935 landed) still let a classic, space-reserving scrollbar (Windows/Linux by
-      default, macOS whenever scrollbars are set to show always) square off the very corner it sits
-      against, one level in from the frame #2935 already fixed. `.table-clip`'s `overflow: hidden`
-      clips `.table-scroll` as a whole -- scrollbar chrome included -- the same way any ordinary
-      content is clipped by an ancestor's `overflow: hidden`, because from `.table-clip`'s own
-      perspective there is no scrolling happening on IT; there is just a child box to trim to its own
-      rounded rectangle. See `_page-contents.scss`'s own comments on all three boxes, and
-      `ui-iteration-markdown-tables/markdown-tables.md`'s original "the scrollbar painting over the
-      rounded corners" note, which is the same failure mode this closes. See OpenProject
-      #2916/#2935/#2958.
+      The reason is `border-collapse: collapse`. Three rounds of container-level fixes (#2916, #2935,
+      #2958 -- see `_page-contents.scss`'s own TABLES comment) narrowed Cobalt's rounded-corner clip
+      down to a plain `overflow: hidden` box with nothing else on it, and the square corners STILL
+      bled past it. `border-collapse` combined with an ancestor `overflow: hidden` + `border-radius`
+      clip is a known cross-browser rendering gap: a collapsed table's own borders/backgrounds don't
+      reliably respect an ancestor's clip in every engine, no matter how the ancestor box is built. A
+      `<table>` element carries that behaviour intrinsically -- there was no container fix left to
+      try -- so the table itself had to stop being a `<table>`.
 
-      A plain trio of `<div>`s, not tokens carrying any classes of their own -- table AND
-      thead/tbody/tr/td tokens already exist for markdown-it's own default table rendering (including
-      `markdown-it-multimd-table`'s, which produces the same core tokens with richer cell content),
-      so wrapping at `table_open`/`table_close` catches every table regardless of which parser rule
+      `thead_open`/`thead_close`/`tbody_open`/`tbody_close` render as nothing: the ARIA grid this
+      becomes has no row-group concept of its own -- every `role="row"` sits directly under
+      `role="table"` -- and `table`/`row`/`columnheader`/`cell` are the whole of what a screen reader
+      needs to read this back as a table.
+
+      `th`/`td`'s `colspan`/`rowspan` (set by `markdown-it-multimd-table`'s `^^`/`\` continuation
+      syntax -- see the MultiMarkdown tables comment above) are renamed to `aria-colspan`/
+      `aria-rowspan` rather than carried over as-is: those are real HTML attributes only on
+      `<td>`/`<th>`, meaningless on a `<div>`, and the backend sanitizer
+      (`helpers/htmlSanitizePolicy.ts`'s `td`/`th` entries) does not allow them there either --
+      `aria-colspan`/`aria-rowspan` are the ARIA grid-cell equivalents, and already pass its blanket
+      `aria-*` allowance unchanged, so a spanned cell keeps surviving a save with no sanitizer change
+      needed.
+
+      Every rule still ends by delegating to `slf.renderToken(tokens, idx, options, env, slf)`,
+      exactly like `table_open`/`table_close` always did (and `link_open` above) -- only `token.tag`
+      and its attributes are rewritten first (`asDiv`/`asGridRole`/`asGridCell`, `renameAttr`, above),
+      so markdown-it's own attribute rendering, escaping and self-closing logic still does the actual
+      string-building. This is what keeps an author's `markdown-it-attrs` class on the table
+      (`{.some-class}` under it) landing on the SAME token that used to carry it, now rendered as
+      `<div class="some-class" role="table">` instead of `<table class="some-class">`.
+
+      The three scroll/clip/frame wrapper divs below (`.table-wrap` > `.table-clip` > `.table-scroll`,
+      OpenProject #2935/#2958) are unaffected by any of this: `.table-wrap` is the outer,
+      non-scrolling frame (`_page-contents.scss`'s `// TABLES` section draws the border, radius,
+      shadow and corner marks on it, and nothing about it ever clips a descendant); `.table-clip` is a
+      plain `overflow: hidden` + the same radius and nothing else, so it has no scrollbar of its own
+      to worry about, which is what lets it clip cleanly; `.table-scroll` is the innermost box that
+      actually gets `overflow-x: auto` and the scrollbar tokens. They wrap whatever `table_open`/
+      `table_close` renders, table or grid alike, and stay exactly as they were -- a plain trio of
+      `<div>`s with no classes of their own beyond `.table-wrap`/`.table-clip`/`.table-scroll`,
+      wrapping at `table_open`/`table_close` so every table is caught regardless of which parser rule
       produced it, exactly like `link_open` above wraps every link regardless of which rule matched.
     */
     this.md.renderer.rules.table_open = (tokens, idx, options, env, slf) =>
-      `<div class="table-wrap"><div class="table-clip"><div class="table-scroll">${slf.renderToken(tokens, idx, options, env, slf)}`
+      `<div class="table-wrap"><div class="table-clip"><div class="table-scroll">${asGridRole('table')(tokens, idx, options, env, slf)}`
     this.md.renderer.rules.table_close = (tokens, idx, options, env, slf) =>
-      `${slf.renderToken(tokens, idx, options, env, slf)}</div></div></div>`
+      `${asDiv(tokens, idx, options, env, slf)}</div></div></div>`
+
+    this.md.renderer.rules.thead_open = () => ''
+    this.md.renderer.rules.thead_close = () => ''
+    this.md.renderer.rules.tbody_open = () => ''
+    this.md.renderer.rules.tbody_close = () => ''
+
+    this.md.renderer.rules.tr_open = asGridRole('row')
+    this.md.renderer.rules.tr_close = asDiv
+
+    this.md.renderer.rules.th_open = asGridCell('columnheader')
+    this.md.renderer.rules.th_close = asDiv
+
+    this.md.renderer.rules.td_open = asGridCell('cell')
+    this.md.renderer.rules.td_close = asDiv
 
     // --------------------------------
     // RESOLVE IMAGE SOURCES
