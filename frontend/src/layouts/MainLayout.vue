@@ -934,6 +934,42 @@ body.body--cobalt:not(.body--dark) .bg-sidebar {
   border-inline-end-color: var(--color-sidebar-hairline) !important;
 }
 
+/*
+  OpenProject #3018: Cobalt's site footer is a `position: fixed` bar pinned to the WINDOW bottom
+  (`Index.vue`'s `.page-container-scrl .w-footer` rule, OpenProject #3017/#3010) rather than a
+  document-flow element `WLayout.vue`'s grid knows about, so it paints straight over whatever sits
+  behind it there -- and on a wide viewport this drawer (`.w-drawer--left`, grid-area `ldrawer`)
+  spans the grid's full height below the header by that grid's own default item-stretch alignment,
+  which puts its bottom edge, and everything scrolling inside it, right behind the bar.
+
+  `margin-bottom` rather than `padding-bottom`: the drawer's own height is `auto`, so a stretched
+  grid item's used size is already "fill the grid area, minus the item's own margin" per the Box
+  Alignment spec -- a margin here shrinks the drawer's actual border box, rather than padding blank
+  space inside a box that stays full height. That is what lets `NavSidebar.vue`'s own `.sidebar-nav`
+  (`flex: 1 1 0; min-height: 0` inside this drawer's flex column) shrink along with it, so its real
+  scrolling content AND its native scrollbar stop above the bar too, instead of merely being
+  followed by hidden padding that the bar still covers.
+
+  On a narrow viewport the drawer overlays the page as a `position: fixed` panel instead
+  (`WDrawer.vue`'s own `.w-drawer--overlay`, Tailwind's `inset-y-0` utility -- `top: 0; bottom: 0`).
+  A margin is NOT a no-op there the way the paragraph above implies for a plain fixed box: with both
+  `top` and `bottom` set non-auto and `height: auto`, the spec solves the used height as the
+  containing block's size minus `top`, `bottom` AND both margins -- so left un-reset, the
+  `margin-bottom` above would apply a SECOND time on top of the `bottom` override just below,
+  double-subtracting the bar's height. `bottom` is overridden directly here instead, and
+  `margin-bottom` explicitly zeroed to cancel the other rule; same clearance, same token.
+  `.bg-sidebar.w-drawer--overlay` (two classes) outranks the single-class `.inset-y-0` utility on
+  specificity alone, so no `!important` is needed for either declaration.
+*/
+body.body--cobalt .bg-sidebar {
+  margin-bottom: var(--footer-bar-height);
+}
+
+body.body--cobalt .bg-sidebar.w-drawer--overlay {
+  margin-bottom: 0;
+  bottom: var(--footer-bar-height);
+}
+
 .sidebar-mini {
   height: 100%;
 }
