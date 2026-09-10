@@ -706,12 +706,6 @@ defineExpose({ focus, state })
   `HeaderNav.vue`'s own eyebrow rule uses.
 */
 body.body--cobalt .header-search {
-  .header-search-row-inline.is-focused &-field {
-    background-color: rgb(255 255 255 / 0.26);
-    border-color: rgb(255 255 255 / 0.4);
-    color: #fff;
-  }
-
   &-clear:hover {
     color: #fff;
   }
@@ -722,6 +716,20 @@ body.body--cobalt .header-search {
     border-radius: var(--radius-mark);
     color: #fff;
   }
+}
+
+/*
+  -> Written flat, not nested inside the `.header-search` block above: nesting
+     `.header-search-row-inline.is-focused &-field` there flattens to
+     `.header-search-row-inline.is-focused body.body--cobalt .header-search-field`, which requires
+     `body.body--cobalt` to appear as a DESCENDANT of `.is-focused` -- backwards from the real DOM,
+     where `body.body--cobalt` is always the top-level ancestor, so it can never match
+     (OpenProject #2994). Written flat here, matching the tags-btn pattern below.
+*/
+body.body--cobalt .header-search-row-inline.is-focused .header-search-field {
+  background-color: rgb(255 255 255 / 0.26);
+  border-color: rgb(255 255 255 / 0.4);
+  color: #fff;
 }
 
 body.body--cobalt .header-search-tags-btn {
@@ -748,12 +756,6 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
     color: var(--color-text-caption-dark);
   }
 
-  .header-search-row-inline.is-focused &-field {
-    background-color: var(--color-dark-3);
-    border-color: var(--color-slate-light);
-    color: var(--color-text-dark);
-  }
-
   &-lead {
     color: var(--color-slate-light);
   }
@@ -767,6 +769,19 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
     border-color: var(--color-hairline-dark);
     color: var(--color-text-caption-dark);
   }
+}
+
+/*
+  -> Written flat, not nested inside the `.header-search` block above: the same backwards-nesting
+     mistake as the Cobalt rule above, and the one actually reported (OpenProject #2994) -- nesting
+     `.header-search-row-inline.is-focused &-field` there flattens to
+     `.header-search-row-inline.is-focused .body--dark:not(.body--cobalt) .header-search-field`,
+     which can never match the real DOM. Written flat here, matching the tags-btn pattern below.
+*/
+.body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-field {
+  background-color: var(--color-dark-3);
+  border-color: var(--color-slate-light);
+  color: var(--color-text-dark);
 }
 
 /*
