@@ -555,6 +555,22 @@
     --content-table-row-hover: rgba(31, 79, 214, 0.1);
     --content-table-hover-edge: none;
     --content-table-cell-padding: 10px 14px;
+
+    /*
+      Cobalt table styling, light (OpenProject #2918). Every colour a table needs is already one of
+      the `--content-table-*` tokens above; the one thing with no token slot is the wide-table
+      scrollbar the shared `.table-wrap` mechanics (`// TABLES`, further down this file) leave to
+      `scrollbar-width`/`scrollbar-color` -- both plain CSS properties, not custom properties this
+      file threads through a variable, so the pair is written directly here rather than invented as
+      two more tokens with only Cobalt ever setting them. `#c5cff5` is the same ink `--color-
+      sidebar-actions-text`/`--color-admin-sidebar-text` already carry on this aesthetic; the track
+      is `--color-paper` (`#f2f5ff`, this aesthetic's own page ground), so an idle scrollbar reads
+      as part of the page rather than a chrome-grey stripe cutting across a card's own tint.
+    */
+    .table-wrap {
+      scrollbar-width: thin;
+      scrollbar-color: #c5cff5 #f2f5ff;
+    }
   }
 
   /*
@@ -579,24 +595,50 @@
     --content-tick: var(--color-accent-fill);
 
     /*
-      Cobalt-dark table tokens (OpenProject #2916). The frame is `--shadow-card`'s own dark ring
-      value -- literal here because that ring is a `box-shadow`, not a colour custom property, so
-      there is nothing to `var()` for just its colour; it is NOT `--color-hairline-dark` (`rgb(255
-      255 255 / 0.08)` here), a different, fainter rung. The head strip reuses the rung
+      Cobalt-dark table tokens (OpenProject #2916/#2918). The frame is `--shadow-card`'s own dark
+      ring value -- literal here because that ring is a `box-shadow`, not a colour custom property,
+      so there is nothing to `var()` for just its colour; it is NOT `--color-hairline-dark` (`rgb(255
+      255 255 / 0.08)` here -- see below), a different, fainter rung. The head strip reuses the rung
       `.w-section-header`'s own Cobalt-dark override already names for this exact "banded strip
       header" look (`--color-dark-3-5`), and the head ink is the same `#8fb0ff` `--color-heading-h2`
-      resolves to on this ground. The head rule happens to land exactly on `--color-hairline-dark`;
-      the body/column rules and the banding are one rung fainter still and have no token to match.
+      resolves to on this ground. The head's own rule (both its underline and its column rule) is a
+      literal `rgba(255,255,255,.08)`, one notch above the body/column rules' `.07` and the banding's
+      `.035` -- `markdown-tables.md`'s own numbers, and NOT `--color-hairline-dark`, which resolves
+      to a saturated `#2e3d9e` on this ground (composited by hand: `rgb(255 255 255 / .08)` over
+      `#0e1540` lands at `rgb(33 40 79)`, nowhere near it) -- an earlier draft of this token reached
+      for that var() on the assumption the two matched and they do not.
     */
     --content-table-frame: rgba(255, 255, 255, 0.1);
     --content-table-head: var(--color-dark-3-5);
     --content-table-head-ink: var(--color-heading-h2);
-    --content-table-head-rule: var(--color-hairline-dark);
+    --content-table-head-rule: rgba(255, 255, 255, 0.08);
     --content-table-rule: rgba(255, 255, 255, 0.07);
     --content-table-col-rule: rgba(255, 255, 255, 0.07);
     --content-table-row-alt: rgba(255, 255, 255, 0.035);
     --content-table-row-hover: rgba(255, 255, 255, 0.08);
     --content-table-hover-edge: none;
+
+    /*
+      `markdown-tables.md`'s Cobalt-specifics also give a table LINK its own dark tone (`#7fa0ff`),
+      distinct from `--content-link`'s ordinary dark-mode value: the un-scoped `.body--dark &` block
+      above sets it to `var(--color-accent-dark)`, which on this aesthetic is `#ff8f97` -- a warm
+      coral reserved for negative/deletion accents, not the cool blue every Cobalt dark mockup draws
+      a link in. `--color-accent-strong` is that blue here (`#7fa0ff`, the same tone the head ink
+      and the sidebar text already carry), so restating `--content-link` against it is a one-line
+      fix rather than a new token -- and it corrects every link this element renders on a dark
+      Cobalt page, a table's included, not only the table's own.
+    */
+    --content-link: var(--color-accent-strong);
+
+    /*
+      Wide-table scrollbar, dark half of the light block's own comment above: thumb `rgba(255,255,
+      255,.14)`, track `--color-dark-3-5` (`#0e1540`, the same rung the head strip already sits on,
+      so an idle scrollbar reads as part of the card rather than a seam across it).
+    */
+    .table-wrap {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.14) var(--color-dark-3-5);
+    }
   }
 
   /* -> The page's own margins are the container's business; the first and last block give theirs up */
