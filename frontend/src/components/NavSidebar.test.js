@@ -1085,14 +1085,21 @@ describe('NavSidebar', () => {
    * `:has(:hover)` matching as soon as ANY descendant at any depth was hovered. A row nested three
    * levels deep lit all three ancestors' lanes at once, not just the one it actually sits inside.
    *
-   * The fix moves the dot onto each ROW's own `.w-item` (nested inside a `.content` wrapper, so a
-   * depth-0 row -- with no ancestor lane to light -- gets the rule at all but no VISIBLE lane to
-   * paint it in), scoped by a plain `&:hover`, never `:has()`. Asserted on the source rather than
-   * rendered, for the same happy-dom-cannot-resolve-logical-properties/no-real-layout reason the
-   * tests around this one give -- but the bug this guards was a HOVER-SCOPING bug, which the real
-   * behavior test right after this one covers in an actual browser instead.
+   * #2906's fix moved the dot onto each ROW's own `.w-item` (nested inside a `.content` wrapper, so
+   * a depth-0 row -- with no ancestor lane to light -- gets the rule but no VISIBLE lane to paint
+   * it in), scoped by a plain `&:hover`, never `:has()` -- and that hover-scoping half is still
+   * correct and asserted here unchanged. But #2906 left the reach-back distance and dot count both
+   * hard-coded to exactly one lane, regardless of how deep the row actually nested (OpenProject
+   * #2932) -- so this also asserts the fix for THAT: both the reach-back box and the dot tiling
+   * scale off `--nav-depth`, the custom property `NavSidebarItem.vue`'s `depth` prop now sets on
+   * every row, rather than off a fixed `-10px`/`10px` pair that could only ever draw one dot.
+   * Asserted on the source rather than rendered, for the same
+   * happy-dom-cannot-resolve-logical-properties/no-real-layout reason the tests around this one
+   * give -- but the bugs this guards were both BEHAVIORAL (hover scoping, and now dot count scaling
+   * with depth), which the real behavior test right after this one covers in an actual browser
+   * instead.
    */
-  it('scopes the depth-cue dot to each row itself, not the ancestor content wrapper', () => {
+  it('scopes the depth-cue dot to each row itself, and scales its reach and dot count with --nav-depth', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
@@ -1101,7 +1108,7 @@ describe('NavSidebar', () => {
     //    by name too, and a bare `indexOf` would happily match one of those first.
     const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content {')
     const nestedItemRuleStart = styleBlock.indexOf('.w-item {', contentRuleStart)
-    const nestedItemRule = styleBlock.slice(nestedItemRuleStart, nestedItemRuleStart + 800)
+    const nestedItemRule = styleBlock.slice(nestedItemRuleStart, nestedItemRuleStart + 900)
 
     // -> No bubbling trigger anywhere in the ACTUAL rules (comments -- including this fix's own,
     //    which names the old pattern by way of explaining why it's gone -- are stripped first, or
@@ -1112,29 +1119,42 @@ describe('NavSidebar', () => {
     expect(nestedItemRule).toMatch(/&::before/)
     expect(nestedItemRule).toMatch(/opacity:\s*0;/)
     expect(nestedItemRule).toMatch(/&:hover::before\s*{\s*opacity:\s*0\.5/)
-    // -> Reaches back past the row's OWN margin-inline (Cobalt insets every row 10px off the
-    //    column edges -- `--nav-item-inset`), not a bare `-10px`, or the dot drifts into that
-    //    margin gutter instead of landing on the ancestor's actual lane under that aesthetic.
+    // -> Reaches back a MULTIPLE of the row's own margin-inline compensation (Cobalt insets every
+    //    row 10px off the column edges -- `--nav-item-inset`), scaled by `--nav-depth`, not a bare
+    //    `-10px` -- a fixed offset can only ever land one dot on the CLOSEST lane, no matter how
+    //    many ancestor `.content` wrappers actually enclose the row.
     expect(nestedItemRule).toMatch(
-      /inset-inline-start:\s*calc\(-10px\s*-\s*var\(--nav-item-inset\)\)/
+      /inset-inline-start:\s*calc\(\(var\(--nav-depth,\s*1\)\s*\*\s*-10px\)\s*-\s*var\(--nav-item-inset\)\)/
     )
+    // -> The reach-back box's own width scales the same way, so it spans exactly `depth` lanes.
+    expect(nestedItemRule).toMatch(/width:\s*calc\(var\(--nav-depth,\s*1\)\s*\*\s*10px\)/)
+    // -> One dot PER lane, not one dot for the whole (now depth-scaled) box: a `repeat-x` tile
+    //    exactly one lane (10px) wide, rather than the old single centered, non-repeating image.
+    expect(nestedItemRule).toMatch(/background-repeat:\s*repeat-x/)
+    expect(nestedItemRule).toMatch(/background-size:\s*10px\s+100%/)
   })
 
   /**
-   * OpenProject #2906, real-behavior regression: the tests above can only read the source text, not
-   * confirm the actual scoping bug is gone -- `:has(:hover)` matching every ancestor of a hovered
-   * descendant is exactly the kind of thing neither `jsdom` nor `happy-dom` can be trusted to
-   * emulate (see `test/realGridLayout.js`'s own header, and this project's own "jsdom can't catch
-   * layout bugs" lesson). This mounts the REAL `NavSidebarItem`/`WExpansionItem`/`WItem` markup --
-   * not the `CapturingWItem` stub `mountNav` uses elsewhere in this file, which has no `.w-item`
-   * class or computed styles of its own to hover at all -- three folders deep, in a real headless
-   * Chromium page, and hovers the leaf and the middle folder's own header row in turn.
+   * OpenProject #2906/#2932, real-behavior regression: the tests above can only read the source
+   * text, not confirm either bug is actually gone -- `:has(:hover)` matching every ancestor of a
+   * hovered descendant, and a fixed-width reach-back box that can only ever draw one dot
+   * regardless of depth, are both exactly the kind of thing neither `jsdom` nor `happy-dom` can be
+   * trusted to emulate (see `test/realGridLayout.js`'s own header, and this project's own "jsdom
+   * can't catch layout bugs" lesson). This mounts the REAL `NavSidebarItem`/`WExpansionItem`/
+   * `WItem` markup -- not the `CapturingWItem` stub `mountNav` uses elsewhere in this file, which
+   * has no `.w-item` class, `depth`-derived inline style, or computed styles of its own to hover at
+   * all -- three folders deep, in a real headless Chromium page, and hovers each row in turn.
+   *
+   * The tree nests one level deeper than #2906's own original fixture (four levels, not three) so
+   * the row actually asserted against #2932's own worked example (a folder 3 levels deep) is the
+   * LEAF, not an intermediate folder -- `middle`/`deep`/`leaf` sit at depth 1/2/3 respectively,
+   * `top` at depth 0 with no ancestor lane of its own to light at all.
    */
   describe(
-    'depth-cue dot hover scoping — real behavior (OpenProject #2906)',
+    'depth-cue dot hover scoping & depth scaling — real behavior (OpenProject #2906, #2932)',
     { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
     () => {
-      const threeDeepTree = [
+      const nestedTree = [
         {
           id: 'top',
           type: 'link',
@@ -1148,10 +1168,18 @@ describe('NavSidebar', () => {
               expandByDefault: true,
               children: [
                 {
-                  id: 'leaf',
+                  id: 'deep',
                   type: 'link',
-                  label: 'Leaf page',
-                  target: '/leaf'
+                  label: 'Deep folder',
+                  expandByDefault: true,
+                  children: [
+                    {
+                      id: 'leaf',
+                      type: 'link',
+                      label: 'Leaf page',
+                      target: '/leaf'
+                    }
+                  ]
                 }
               ]
             }
@@ -1180,8 +1208,8 @@ describe('NavSidebar', () => {
         await browser?.close()
       })
 
-      it("lights only the hovered row's own lane, not an ancestor folder's", async () => {
-        const wrapper = await mountRealTree(threeDeepTree)
+      it('lights a reach-back box spanning exactly N lanes for a row nested N levels deep, scoped to only the hovered row', async () => {
+        const wrapper = await mountRealTree(nestedTree)
         const html = wrapper.html()
         const page = await browser.newPage()
         try {
@@ -1190,30 +1218,44 @@ describe('NavSidebar', () => {
               `<body class="sidebar-nav"><div class="w-list">${html}</div></body></html>`
           )
 
-          const leaf = page.locator('.w-item:has-text("Leaf page")')
           const middleHeader = page.locator('.w-expansion-item__header:has-text("Middle folder")')
-          const dotOpacity = (locator) =>
-            locator.evaluate((el) => Number.parseFloat(getComputedStyle(el, '::before').opacity))
+          const deepHeader = page.locator('.w-expansion-item__header:has-text("Deep folder")')
+          const leaf = page.locator('.w-item:has-text("Leaf page")')
+          const dotStyle = (locator) =>
+            locator.evaluate((el) => {
+              const style = getComputedStyle(el, '::before')
+              return { opacity: Number.parseFloat(style.opacity), width: style.width }
+            })
 
-          // -> At rest, neither row's own lane is lit.
-          expect(await dotOpacity(leaf)).toBe(0)
-          expect(await dotOpacity(middleHeader)).toBe(0)
+          // -> Each row's reach-back box is already sized to its own depth even at rest (opacity
+          //    0 -- nothing is lit yet) -- this is the #2932 fix itself: `width` scales with
+          //    `--nav-depth` rather than staying a fixed 10px regardless of nesting.
+          expect((await dotStyle(middleHeader)).width).toBe('10px')
+          expect((await dotStyle(deepHeader)).width).toBe('20px')
+          expect((await dotStyle(leaf)).width).toBe('30px')
 
-          // -> Hovering the LEAF (nested two folders deep) lights only its own lane -- the one
-          //    lane immediately enclosing it (the middle folder's own content border). Before
-          //    OpenProject #2906's fix, this same hover would ALSO have lit the middle folder's
-          //    OWN row's lane (reaching into the outer, top folder's content border), since the
-          //    old rule's `:has(:hover)` bubbled up from the leaf through every ancestor content
-          //    wrapper -- which is exactly what `middleHeader` staying dark here disproves.
+          // -> Hovering the row nested 3 levels deep (the leaf -- OpenProject #2932's own worked
+          //    example, "a folder 3 levels deep shows 3 dots") lights a reach-back box spanning
+          //    ALL 3 of its ancestor lanes, not just the single closest one (the bug this guards).
           await leaf.hover()
-          expect(await dotOpacity(leaf)).toBeCloseTo(0.5)
-          expect(await dotOpacity(middleHeader)).toBe(0)
+          const leafDot = await dotStyle(leaf)
+          expect(leafDot.opacity).toBeCloseTo(0.5)
+          expect(leafDot.width).toBe('30px')
+          // -> Still scoped to the hovered row alone: hovering the leaf lights neither ancestor
+          //    folder's OWN row lane (the #2906 bug this test file already guarded, and which
+          //    #2932's fix must not have reintroduced).
+          expect((await dotStyle(middleHeader)).opacity).toBe(0)
+          expect((await dotStyle(deepHeader)).opacity).toBe(0)
 
-          // -> Hovering the MIDDLE folder's own header row (one level up) lights only ITS lane,
-          //    and the leaf's own dot -- lit a moment ago -- goes back dark.
-          await middleHeader.hover()
-          expect(await dotOpacity(leaf)).toBe(0)
-          expect(await dotOpacity(middleHeader)).toBeCloseTo(0.5)
+          // -> Hovering an intermediate folder (2 levels deep) lights a reach-back box spanning
+          //    only ITS 2 ancestor lanes -- not the leaf's 3, and not the top folder's 0 -- and the
+          //    leaf's own dot, unrelated to this hover, stays dark.
+          await deepHeader.hover()
+          const deepDot = await dotStyle(deepHeader)
+          expect(deepDot.opacity).toBeCloseTo(0.5)
+          expect(deepDot.width).toBe('20px')
+          expect((await dotStyle(leaf)).opacity).toBe(0)
+          expect((await dotStyle(middleHeader)).opacity).toBe(0)
         } finally {
           await page.close()
         }
