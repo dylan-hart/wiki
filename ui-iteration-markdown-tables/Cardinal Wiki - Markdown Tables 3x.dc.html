@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e9edf5;font-family:Barlow,system-ui,sans-serif}
+a{color:#a83f45;text-decoration:none}a:hover{color:#c14a52}
+</style></helmet>
+<section style="padding:40px 40px 60px;display:flex;flex-direction:column;gap:24px" data-screen-label="Markdown tables — turn 1">
+  <div style="max-width:820px">
+    <div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">Turn 1 &nbsp;rendered markdown tables</div>
+    <div style="font:700 30px/1.05 'Barlow Condensed',sans-serif;color:#1c2233;margin-top:6px">Tables in the article column, both aesthetics</div>
+    <div style="font:400 13px/1.6 Barlow;color:#4e5d7d;margin-top:8px;text-wrap:pretty">GFM pipe tables render to a plain <span style="font:400 12px 'Roboto Mono',monospace;color:#38465f">&lt;table&gt;</span> inside the page content. Column alignment (<span style="font:400 12px 'Roboto Mono',monospace;color:#38465f">:---</span>, <span style="font:400 12px 'Roboto Mono',monospace;color:#38465f">:---:</span>, <span style="font:400 12px 'Roboto Mono',monospace;color:#38465f">---:</span>) is honoured; right-aligned columns are treated as numeric and set in Roboto Mono with tabular figures. Both aesthetics keep row rules and banding for readability; they differ in how those are drawn. The table sits in a scroll wrapper so wide tables scroll inside their frame instead of breaking the column. Each frame below is the table in the article, light and dark, then the hover row and a 300px wide-table case.</div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start">
+
+    <!-- ================= LEDGER ================= -->
+    <div id="1a" style="display:flex;flex-direction:column;gap:14px;width:720px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <a href="#1a" style="font:600 11px 'Roboto Mono',monospace;letter-spacing:.14em;color:#c14a52;border:1px solid #e4676b;background:#fdeced;padding:3px 7px">1a</a>
+        <div style="font:600 18px 'Barlow Condensed',sans-serif;color:#1c2233">Ledger</div>
+        <div style="font:400 12.5px Barlow;color:#4e5d7d">A ruled ledger sheet: hairline frame with two corner marks, mono eyebrow header on the tinted strip, row and column rules, faint banding.</div>
+      </div>
+
+      <!-- light -->
+      <div style="background:#f5f6f9;padding:22px;border:1px solid #c9d2e2">
+        <div style="background:#fff;border:1px solid #dbe1ec;padding:26px 32px 30px;position:relative">
+          <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+          <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+          <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#1c2233;margin:0;padding-bottom:8px;border-bottom:1px solid #dbe1ec">Health gates</h2>
+          <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:14px 0 0;text-wrap:pretty">Each batch is held against four gates. A breach on any of the first two aborts the rollout and leaves the batch drained.</p>
+
+          <div style="position:relative;border:1px solid #dbe1ec;margin:20px 0">
+            <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+            <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;border-spacing:0">
+                <thead>
+                  <tr>
+                    <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec;white-space:nowrap">Gate</th>
+                    <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec;white-space:nowrap">Threshold</th>
+                    <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec;white-space:nowrap">Window</th>
+                    <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;white-space:nowrap">Action on breach</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#fdeced;color:#c14a52;padding:1px 6px">p99_latency</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">&lt; 250 ms</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr style="background:#f7f8fb">
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#fdeced;color:#c14a52;padding:1px 6px">error_rate</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">&lt; 0.5 %</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">120 s</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#fdeced;color:#c14a52;padding:1px 6px">queue_depth</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">&lt; 50 000</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">5 min</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;vertical-align:top">Pause, resume when the depth recovers. See <a href="#0">Queue topology</a>.</td>
+                  </tr>
+                  <tr style="background:#f7f8fb">
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-right:1px solid #e9edf3;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#fdeced;color:#c14a52;padding:1px 6px">consumer_lag</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">&lt; 2 000 msgs</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-right:1px solid #e9edf3;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;vertical-align:top"><strong style="font-weight:600;color:#1c2233">Warn only</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p style="font:400 15.5px/1.72 Barlow;color:#2f3a4f;margin:0;text-wrap:pretty">Thresholds are read from the release manifest, so a hotfix can loosen a gate without a config deploy.</p>
+        </div>
+        <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#57668a;text-transform:uppercase;margin-top:12px">Light</div>
+      </div>
+
+      <!-- dark -->
+      <div style="background:#14171f;padding:22px;border:1px solid #c9d2e2">
+        <div style="background:#1b1f2a;border:1px solid #2a3040;padding:26px 32px 30px;position:relative">
+          <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+          <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+          <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#e6eaf2;margin:0;padding-bottom:8px;border-bottom:1px solid #2a3040">Health gates</h2>
+          <p style="font:400 15.5px/1.72 Barlow;color:#e6eaf2;margin:14px 0 0;text-wrap:pretty">Each batch is held against four gates. A breach on any of the first two aborts the rollout and leaves the batch drained.</p>
+
+          <div style="position:relative;border:1px solid #2a3040;margin:20px 0">
+            <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+            <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;border-spacing:0">
+                <thead>
+                  <tr>
+                    <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#9aa6bd;background:#14171f;border-bottom:1px solid #2a3040;border-right:1px solid #2a3040;white-space:nowrap">Gate</th>
+                    <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#9aa6bd;background:#14171f;border-bottom:1px solid #2a3040;border-right:1px solid #2a3040;white-space:nowrap">Threshold</th>
+                    <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#9aa6bd;background:#14171f;border-bottom:1px solid #2a3040;border-right:1px solid #2a3040;white-space:nowrap">Window</th>
+                    <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#9aa6bd;background:#14171f;border-bottom:1px solid #2a3040;white-space:nowrap">Action on breach</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(240,130,135,.16);color:#f08287;padding:1px 6px">p99_latency</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">&lt; 250 ms</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-bottom:1px solid #2a3040;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr style="background:rgba(255,255,255,.025)">
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(240,130,135,.16);color:#f08287;padding:1px 6px">error_rate</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">&lt; 0.5 %</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">120 s</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-bottom:1px solid #2a3040;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(240,130,135,.16);color:#f08287;padding:1px 6px">queue_depth</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">&lt; 50 000</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">5 min</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-bottom:1px solid #2a3040;vertical-align:top">Pause, resume when the depth recovers. See <a href="#0" style="color:#f08287">Queue topology</a>.</td>
+                  </tr>
+                  <tr style="background:rgba(255,255,255,.025)">
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-right:1px solid #232838;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(240,130,135,.16);color:#f08287;padding:1px 6px">consumer_lag</code></td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">&lt; 2 000 msgs</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-right:1px solid #232838;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;vertical-align:top"><strong style="font-weight:600;color:#fff">Warn only</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p style="font:400 15.5px/1.72 Barlow;color:#e6eaf2;margin:0;text-wrap:pretty">Thresholds are read from the release manifest, so a hotfix can loosen a gate without a config deploy.</p>
+        </div>
+        <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#8792ab;text-transform:uppercase;margin-top:12px">Dark</div>
+      </div>
+
+      <!-- states -->
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;background:#f5f6f9;border:1px solid #c9d2e2;padding:18px 22px">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="position:relative;border:1px solid #dbe1ec;width:320px;background:#fff">
+            <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+            <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec">Node</th>
+                <th style="padding:9px 14px;text-align:center;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec">State</th>
+                <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec">Lag</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3">ingest-01</td>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;text-align:center;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3">Live</td>
+                  <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec">412</td>
+                </tr>
+                <tr style="background:#f7f8fb">
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#1c2233;background:#eef1f7;box-shadow:inset 2px 0 0 #e4676b;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3">ingest-02</td>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#1c2233;background:#eef1f7;text-align:center;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3">Draining</td>
+                  <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1c2233;background:#eef1f7;border-bottom:1px solid #dbe1ec">1 980</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-right:1px solid #e9edf3">ingest-03</td>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;text-align:center;border-right:1px solid #e9edf3">Live</td>
+                  <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#2f3a4f">37</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#57668a;text-transform:uppercase">Row hover over a band, centred column</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;background:#14171f;padding:14px;margin:-4px">
+          <div style="position:relative;border:1px solid #2a3040;width:320px;background:#1b1f2a">
+            <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+            <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#9aa6bd;background:#14171f;border-bottom:1px solid #2a3040;border-right:1px solid #2a3040">Node</th>
+                <th style="padding:9px 14px;text-align:center;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#9aa6bd;background:#14171f;border-bottom:1px solid #2a3040;border-right:1px solid #2a3040">State</th>
+                <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#9aa6bd;background:#14171f;border-bottom:1px solid #2a3040">Lag</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-bottom:1px solid #2a3040;border-right:1px solid #232838">ingest-01</td>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;text-align:center;border-bottom:1px solid #2a3040;border-right:1px solid #232838">Live</td>
+                  <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2;border-bottom:1px solid #2a3040">412</td>
+                </tr>
+                <tr style="background:rgba(255,255,255,.025)">
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#fff;background:rgba(255,255,255,.05);box-shadow:inset 2px 0 0 #f08287;border-bottom:1px solid #2a3040;border-right:1px solid #232838">ingest-02</td>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#fff;background:rgba(255,255,255,.05);text-align:center;border-bottom:1px solid #2a3040;border-right:1px solid #232838">Draining</td>
+                  <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#fff;background:rgba(255,255,255,.05);border-bottom:1px solid #2a3040">1 980</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;border-right:1px solid #232838">ingest-03</td>
+                  <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#e6eaf2;text-align:center;border-right:1px solid #232838">Live</td>
+                  <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e6eaf2">37</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#8792ab;text-transform:uppercase">Row hover, dark</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="position:relative;border:1px solid #dbe1ec;width:300px;background:#fff">
+            <i style="position:absolute;top:-4px;left:-4px;width:7px;height:7px;border-left:1px solid #64789f;border-top:1px solid #64789f"></i>
+            <i style="position:absolute;bottom:-4px;right:-4px;width:7px;height:7px;border-right:1px solid #64789f;border-bottom:1px solid #64789f"></i>
+            <div style="overflow-x:auto;scrollbar-width:thin;scrollbar-color:#c9d2e2 #f0f2f7">
+              <table style="border-collapse:collapse;min-width:100%">
+                <thead><tr>
+                  <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec;white-space:nowrap">Region</th>
+                  <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec;white-space:nowrap">Nodes</th>
+                  <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec;white-space:nowrap">Consumers</th>
+                  <th style="padding:9px 14px;text-align:right;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;border-right:1px solid #dbe1ec;white-space:nowrap">p99</th>
+                  <th style="padding:9px 14px;text-align:left;font:600 10.5px/1.4 'Roboto Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:#4e5d7d;background:#f0f2f7;border-bottom:1px solid #dbe1ec;white-space:nowrap">Owner</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;white-space:nowrap">us-east-1</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3">6</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3">48</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#2f3a4f;border-bottom:1px solid #dbe1ec;border-right:1px solid #e9edf3;white-space:nowrap">184 ms</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-bottom:1px solid #dbe1ec;white-space:nowrap">Platform</td>
+                  </tr>
+                  <tr style="background:#f7f8fb">
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;border-right:1px solid #e9edf3;white-space:nowrap">eu-west-2</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#2f3a4f;border-right:1px solid #e9edf3">4</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#2f3a4f;border-right:1px solid #e9edf3">32</td>
+                    <td style="padding:9px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#2f3a4f;border-right:1px solid #e9edf3;white-space:nowrap">211 ms</td>
+                    <td style="padding:9px 14px;font:400 14.5px/1.5 Barlow;color:#2f3a4f;white-space:nowrap">Platform</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#57668a;text-transform:uppercase">Wide table, 300px — scrolls inside the frame</div>
+        </div>
+      </div>
+
+      <div style="font:400 12px/1.65 Barlow;color:#4e5d7d;max-width:700px;text-wrap:pretty"><strong style="color:#2f3a4f">Spec.</strong> Frame 1px #dbe1ec, square, no shadow, two opposite corner marks (7px, #64789f), 20px vertical margin; the marks sit on the frame, the scroll wrapper is inside it. Header strip #f0f2f7, Roboto Mono 600 10.5px, .14em tracking, uppercase, #4e5d7d, 1px #dbe1ec rules below and between columns. Body cells 9px 14px, Barlow 14.5px/1.5 #2f3a4f, top-aligned, 1px #dbe1ec row rules, 1px #e9edf3 column rules; the last row and last column drop their rule so the frame closes the grid. Every second body row is banded #f7f8fb (the strip colour, one step lighter) so the eye can track a row across wide tables. Right-aligned columns switch to Roboto Mono 13.5px with tabular figures and no wrap. Inline code, links and bold inherit the article's styles. Hover: row #eef1f7 (over the band), 2px #e4676b inset on the first cell. Dark: frame, header and row rules #2a3040, column rules #232838, header #14171f, body #1b1f2a, text #e6eaf2, header text #9aa6bd, accent #f08287, band rgba(255,255,255,.025), hover rgba(255,255,255,.05). Wide tables keep their columns and scroll horizontally inside the frame (thin scrollbar, #c9d2e2 on #f0f2f7).</div>
+    </div>
+
+    <!-- ================= COBALT ================= -->
+    <div id="1b" style="display:flex;flex-direction:column;gap:14px;width:720px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <a href="#1b" style="font:600 11px 'Roboto Mono',monospace;letter-spacing:.14em;color:#c8303c;border:1px solid #ff4d5a;background:#ffe9eb;padding:3px 7px;border-radius:4px">1b</a>
+        <div style="font:600 18px 'Barlow Condensed',sans-serif;color:#1a2038">Cobalt</div>
+        <div style="font:400 12.5px Barlow;color:#4a5580">Matte 8px card. Cobalt header on the tinted strip, banded rows with soft tint-coloured row and column rules.</div>
+      </div>
+
+      <!-- light -->
+      <div style="background:#f2f5ff;padding:22px;border:1px solid #c9d2e2">
+        <div style="background:#fff;border:1px solid #dfe5f5;border-radius:8px;padding:26px 32px 30px">
+          <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#1f4fd6;margin:0">Health gates</h2>
+          <p style="font:400 15.5px/1.72 Barlow;color:#1a2038;margin:12px 0 0;text-wrap:pretty">Each batch is held against four gates. A breach on any of the first two aborts the rollout and leaves the batch drained.</p>
+
+          <div style="border:1px solid #dfe5f5;border-radius:8px;overflow:hidden;margin:20px 0">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;border-spacing:0">
+                <thead>
+                  <tr>
+                    <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Gate</th>
+                    <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Threshold</th>
+                    <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Window</th>
+                    <th style="padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Action on breach</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#ffe9eb;color:#c8303c;border-radius:4px;padding:1px 6px">p99_latency</code></td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">&lt; 250 ms</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr style="background:#f6f8ff">
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#ffe9eb;color:#c8303c;border-radius:4px;padding:1px 6px">error_rate</code></td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">&lt; 0.5 %</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">120 s</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#ffe9eb;color:#c8303c;border-radius:4px;padding:1px 6px">queue_depth</code></td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">&lt; 50 000</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">5 min</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top">Pause, resume when the depth recovers. See <a href="#0" style="color:#1f4fd6">Queue topology</a>.</td>
+                  </tr>
+                  <tr style="background:#f6f8ff">
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:#ffe9eb;color:#c8303c;border-radius:4px;padding:1px 6px">consumer_lag</code></td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">&lt; 2 000 msgs</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#1a2038;vertical-align:top"><strong style="font-weight:600">Warn only</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p style="font:400 15.5px/1.72 Barlow;color:#1a2038;margin:0;text-wrap:pretty">Thresholds are read from the release manifest, so a hotfix can loosen a gate without a config deploy.</p>
+        </div>
+        <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#5a6699;text-transform:uppercase;margin-top:12px">Light</div>
+      </div>
+
+      <!-- dark -->
+      <div style="background:#0a0f2c;padding:22px;border:1px solid #c9d2e2">
+        <div style="background:#141c4f;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:26px 32px 30px">
+          <h2 style="font:600 26px/1.15 'Barlow Condensed',sans-serif;color:#8fb0ff;margin:0">Health gates</h2>
+          <p style="font:400 15.5px/1.72 Barlow;color:#e8ecff;margin:12px 0 0;text-wrap:pretty">Each batch is held against four gates. A breach on any of the first two aborts the rollout and leaves the batch drained.</p>
+
+          <div style="border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin:20px 0">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;border-spacing:0">
+                <thead>
+                  <tr>
+                    <th style="border-right:1px solid rgba(255,255,255,.08);padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#8fb0ff;background:#0e1540;white-space:nowrap">Gate</th>
+                    <th style="border-right:1px solid rgba(255,255,255,.08);padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#8fb0ff;background:#0e1540;white-space:nowrap">Threshold</th>
+                    <th style="border-right:1px solid rgba(255,255,255,.08);padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#8fb0ff;background:#0e1540;white-space:nowrap">Window</th>
+                    <th style="padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#8fb0ff;background:#0e1540;white-space:nowrap">Action on breach</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(255,77,90,.16);color:#ff8f97;border-radius:4px;padding:1px 6px">p99_latency</code></td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">&lt; 250 ms</td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr style="background:rgba(255,255,255,.035)">
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(255,77,90,.16);color:#ff8f97;border-radius:4px;padding:1px 6px">error_rate</code></td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">&lt; 0.5 %</td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">120 s</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top">Abort batch</td>
+                  </tr>
+                  <tr>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(255,77,90,.16);color:#ff8f97;border-radius:4px;padding:1px 6px">queue_depth</code></td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">&lt; 50 000</td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">5 min</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top">Pause, resume when the depth recovers. See <a href="#0" style="color:#7fa0ff">Queue topology</a>.</td>
+                  </tr>
+                  <tr style="background:rgba(255,255,255,.035)">
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top"><code style="font:400 13.5px 'Roboto Mono',monospace;background:rgba(255,77,90,.16);color:#ff8f97;border-radius:4px;padding:1px 6px">consumer_lag</code></td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">&lt; 2 000 msgs</td>
+                    <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff;vertical-align:top;white-space:nowrap">60 s</td>
+                    <td style="padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#e8ecff;vertical-align:top"><strong style="font-weight:600;color:#fff">Warn only</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p style="font:400 15.5px/1.72 Barlow;color:#e8ecff;margin:0;text-wrap:pretty">Thresholds are read from the release manifest, so a hotfix can loosen a gate without a config deploy.</p>
+        </div>
+        <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#8b98d6;text-transform:uppercase;margin-top:12px">Dark</div>
+      </div>
+
+      <!-- states -->
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;background:#f2f5ff;border:1px solid #c9d2e2;padding:18px 22px">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="border:1px solid #dfe5f5;border-radius:8px;overflow:hidden;width:320px;background:#fff">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff">Node</th>
+                <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:center;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff">State</th>
+                <th style="padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff">Lag</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038">ingest-01</td>
+                  <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;text-align:center">Live</td>
+                  <td style="padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038">412</td>
+                </tr>
+                <tr style="background:rgba(31,79,214,.1)">
+                  <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038">ingest-02</td>
+                  <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;text-align:center">Draining</td>
+                  <td style="padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038">1 980</td>
+                </tr>
+                <tr>
+                  <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#1a2038">ingest-03</td>
+                  <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#1a2038;text-align:center">Live</td>
+                  <td style="padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#1a2038">37</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#5a6699;text-transform:uppercase">Row hover (over a band), centred column</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;background:#0a0f2c;padding:14px;margin:-4px;border-radius:8px">
+          <div style="border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;width:320px;background:#141c4f">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="border-right:1px solid rgba(255,255,255,.08);padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#8fb0ff;background:#0e1540">Node</th>
+                <th style="border-right:1px solid rgba(255,255,255,.08);padding:10px 14px;text-align:center;font:600 13px/1.4 Barlow;color:#8fb0ff;background:#0e1540">State</th>
+                <th style="padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#8fb0ff;background:#0e1540">Lag</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff">ingest-01</td>
+                  <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;text-align:center">Live</td>
+                  <td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff">412</td>
+                </tr>
+                <tr style="background:rgba(255,255,255,.08)">
+                  <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff">ingest-02</td>
+                  <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 14.5px/1.5 Barlow;color:#e8ecff;text-align:center">Draining</td>
+                  <td style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.07);font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff">1 980</td>
+                </tr>
+                <tr>
+                  <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#e8ecff">ingest-03</td>
+                  <td style="border-right:1px solid rgba(255,255,255,.07);padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#e8ecff;text-align:center">Live</td>
+                  <td style="padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;font-variant-numeric:tabular-nums;text-align:right;color:#e8ecff">37</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#8b98d6;text-transform:uppercase">Row hover, dark</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="border:1px solid #dfe5f5;border-radius:8px;overflow:hidden;width:300px;background:#fff">
+            <div style="overflow-x:auto;scrollbar-width:thin;scrollbar-color:#c5cff5 #f2f5ff">
+              <table style="border-collapse:collapse;min-width:100%">
+                <thead><tr>
+                  <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Region</th>
+                  <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Nodes</th>
+                  <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Consumers</th>
+                  <th style="border-right:1px solid #d3ddfb;padding:10px 14px;text-align:right;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">p99</th>
+                  <th style="padding:10px 14px;text-align:left;font:600 13px/1.4 Barlow;color:#1f4fd6;background:#e6edff;white-space:nowrap">Owner</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;white-space:nowrap">us-east-1</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#1a2038">6</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#1a2038">48</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;border-bottom:1px solid #e6edff;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#1a2038;white-space:nowrap">184 ms</td>
+                    <td style="padding:10px 14px;border-bottom:1px solid #e6edff;font:400 14.5px/1.5 Barlow;color:#1a2038;white-space:nowrap">Platform</td>
+                  </tr>
+                  <tr style="background:#f6f8ff">
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#1a2038;white-space:nowrap">eu-west-2</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#1a2038">4</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#1a2038">32</td>
+                    <td style="border-right:1px solid #e6edff;padding:10px 14px;font:400 13.5px/1.6 'Roboto Mono',monospace;text-align:right;color:#1a2038;white-space:nowrap">211 ms</td>
+                    <td style="padding:10px 14px;font:400 14.5px/1.5 Barlow;color:#1a2038;white-space:nowrap">Platform</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#5a6699;text-transform:uppercase">Wide table, 300px — scrolls inside the card</div>
+        </div>
+      </div>
+
+      <div style="font:400 12px/1.65 Barlow;color:#4a5580;max-width:700px;text-wrap:pretty"><strong style="color:#1a2038">Spec.</strong> Card 1px #dfe5f5, 8px radius, overflow hidden, no shadow, 20px vertical margin; the scroll wrapper sits inside the card. Header strip #e6edff, Barlow 600 13px #1f4fd6, sentence case. Rows carry a 1px #e6edff rule (the strip colour, so it reads as a soft tint edge rather than a hairline) and every second body row is banded #f6f8ff; column rules in the same #e6edff (header cells #d3ddfb so they show on the strip); no rule under the last row or after the last column — the card edge closes it. Body cells 10px 14px, Barlow 14.5px/1.5 #1a2038, top-aligned. Right-aligned columns switch to Roboto Mono 13.5px with tabular figures and no wrap. Inline code, links and bold inherit the article's styles. Hover: row rgba(31,79,214,.1), painted over the band. Dark: card #141c4f with rgba(255,255,255,.1) border, header #0e1540 with #8fb0ff type, text #e8ecff, row and column rules rgba(255,255,255,.07) (header columns .08), band rgba(255,255,255,.035), hover rgba(255,255,255,.08), links #7fa0ff. Wide tables scroll horizontally inside the card (thin scrollbar, #c5cff5 on #f2f5ff).</div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+</body>
+</html>
