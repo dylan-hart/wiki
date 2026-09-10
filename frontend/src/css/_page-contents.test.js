@@ -963,3 +963,93 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     })
   })
 })
+
+/**
+ * OpenProject #2919 ("Tables: update regression tests and contrast pins"). Before OpenProject #2916
+ * a table's head was a dark title bar -- `--content-table-head` painted a `linear-gradient` down to
+ * `--content-table-head-grade` and white-ish ink, with `--content-table-shadow` a real two-layer
+ * `box-shadow` under the whole wrapper -- and the body's two row tones (`--content-table-row`/
+ * `-row-alt`) were both a tinted wash over that dark surface. None of that shape had a regression
+ * test guarding it (`--content-table-head-grade` and a real `--content-table-shadow` value never
+ * appeared in this file), so there is nothing stale to rewrite here -- but there was also no POSITIVE
+ * test yet for what replaced it: a plain tinted STRIP head (no gradient, no dark-title-bar ink), no
+ * wrapper shadow at all, and a body whose plain row is the bare surface with only the alternating row
+ * tinted. This pins that shape down the same way `NavSidebar.test.js` pins the depth-cue-dot fix --
+ * asserting the new rule AND the absence of the pattern it replaced, from source.
+ */
+describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const tablesSectionStart = source.indexOf('\n  // TABLES\n')
+
+  /** The declarations of one selector's block, given the selector's own opening line. */
+  function blockFor(selector) {
+    const start = source.indexOf(selector, tablesSectionStart)
+    if (start === -1) {
+      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+    }
+    let depth = 0
+    for (let i = start; i < source.length; i += 1) {
+      if (source[i] === '{') {
+        depth += 1
+      } else if (source[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          return source.slice(start, i + 1)
+        }
+      }
+    }
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+  }
+
+  it('gives the wrapper no drop shadow at all -- `--content-table-shadow` is a single `none`, not a per-theme box-shadow', () => {
+    const wrapBlock = blockFor('.table-wrap {')
+    expect(wrapBlock).toMatch(/box-shadow:\s*var\(--content-table-shadow\)/)
+    // -> Declared exactly once in the whole file, at `none` -- no aesthetic or dark override
+    //    reintroduces a real shadow value.
+    const shadowDeclarations = source.match(/--content-table-shadow:\s*[^;]+;/g) ?? []
+    expect(shadowDeclarations).toHaveLength(1)
+    expect(shadowDeclarations[0]).toMatch(/--content-table-shadow:\s*none;/)
+  })
+
+  it('paints the head as a plain tinted strip -- a flat `background-color`, never a `background-image`/gradient', () => {
+    const theadBlock = blockFor('thead {')
+    expect(theadBlock).toMatch(/background-color:\s*var\(--content-table-head\)/)
+    expect(theadBlock).not.toMatch(/gradient/)
+    expect(theadBlock).not.toMatch(/background-image/)
+
+    const theadThBlock = blockFor('thead th {')
+    expect(theadThBlock).toMatch(/background-color:\s*transparent/)
+    expect(theadThBlock).toMatch(/color:\s*var\(--content-table-head-ink\)/)
+    expect(theadThBlock).not.toMatch(/gradient/)
+  })
+
+  it('bands the body on two stated row tones, with the plain row transparent rather than tinted', () => {
+    const plainRowBlock = blockFor('tbody > tr > td {')
+    expect(plainRowBlock).toMatch(/background-color:\s*var\(--content-table-row\)/)
+
+    const bandedRowBlock = blockFor('tbody > tr:nth-child(even) > td {')
+    expect(bandedRowBlock).toMatch(/background-color:\s*var\(--content-table-row-alt\)/)
+
+    // -> Ledger's own plain-row token is `transparent`, not a wash -- the removal the WP names.
+    expect(source).toMatch(/--content-table-row:\s*transparent;/)
+  })
+
+  it('paints hover over the band, gated on a real hover capability, with the accent on the leading cell only', () => {
+    const hoverStart = source.indexOf('@media (hover: hover) {', tablesSectionStart)
+    expect(hoverStart).toBeGreaterThan(-1)
+    const rowHoverBlock = blockFor('tbody > tr:hover > td {')
+    expect(rowHoverBlock).toMatch(/background:\s*var\(--content-table-row-hover\)/)
+
+    const hoverEdgeBlock = blockFor('tbody > tr:hover > td:first-child {')
+    expect(hoverEdgeBlock).toMatch(/box-shadow:\s*var\(--content-table-hover-edge\)/)
+  })
+
+  it('would fail if the head went back to a dark title-bar gradient or the wrapper regained a real shadow', () => {
+    // -> Guards the guard: if either removed pattern reappeared verbatim, the assertions above
+    //    would still pass a loose "no gradient anywhere in the file" check bypassed by scoping to
+    //    one block, so this asserts directly against the two literal patterns that used to exist.
+    expect(source).not.toMatch(/--content-table-head-grade/)
+    expect(source).not.toMatch(/--content-table-shadow:\s*0[^;]*rgba/)
+  })
+})
