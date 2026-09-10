@@ -716,3 +716,44 @@ describe('NavSidebarItem: ctrl+click expand-all is capped to 3 levels below the 
     expect(isExpanded(wrapper, 'deepRoot')).toBe(false) // -> the clicked node's own ancestor, untouched
   })
 })
+
+/**
+ * OpenProject #2932: nesting used to be a pure DOM side effect -- `NavSidebarItem.vue` took only an
+ * `item` prop, with no numeric notion of how deep a row actually sat, which is why the nav-rail's
+ * hover depth-cue dot (`NavSidebar.vue`'s own `<style>` block) could only ever draw exactly one dot
+ * regardless of real nesting depth. This is the fast, jsdom-level companion to
+ * `NavSidebar.test.js`'s real-Chromium depth-scaling test: it asserts the PROP threading and the
+ * `--nav-depth` style it drives, not the rendered dot geometry itself (real background-image tiling
+ * needs a real layout engine, which is exactly what that other test is for).
+ */
+describe('NavSidebarItem: depth prop (OpenProject #2932)', () => {
+  it('starts at 0 for the row mounted directly (no depth passed), and increments by exactly 1 per recursive level', async () => {
+    const wrapper = await mountDeepChainTree()
+
+    expect(itemWrapper(wrapper, 'deepRoot').props('depth')).toBe(0)
+    expect(itemWrapper(wrapper, 'deepL1').props('depth')).toBe(1)
+    expect(itemWrapper(wrapper, 'deepL2').props('depth')).toBe(2)
+    expect(itemWrapper(wrapper, 'deepL3').props('depth')).toBe(3)
+    expect(itemWrapper(wrapper, 'deepL4').props('depth')).toBe(4)
+    expect(itemWrapper(wrapper, 'deepL5').props('depth')).toBe(5)
+    // -> `deepLeaf` is DEEP_CHAIN_TREE's own bottom-most node -- a leaf (no `children`), rendered
+    //    through the `v-else` `<w-item>` branch rather than `<w-expansion-item>`, so this also
+    //    covers the leaf branch's own `depth` prop reaching the same recursive increment.
+    expect(itemWrapper(wrapper, 'deepLeaf').props('depth')).toBe(6)
+  })
+
+  it("sets the depth it was passed as the row's own `--nav-depth` inline style, on both the folder and leaf branches", async () => {
+    const wrapper = await mountDeepChainTree()
+
+    // -> Folder branch: the style binds to `<w-expansion-item>`, whose Vue attrs-fallthrough lands
+    //    it on that component's own single root element (`.w-expansion-item`) -- see
+    //    `NavSidebarItem.vue#depthStyle`'s own comment for why the CSS rule can still read it off
+    //    the header row nested inside, via ordinary custom-property inheritance.
+    const deepL2Style = itemWrapper(wrapper, 'deepL2').find('.w-expansion-item').attributes('style')
+    expect(deepL2Style).toMatch(/--nav-depth:\s*2/)
+
+    // -> Leaf branch: the style binds directly to the rendered `<w-item>`.
+    const leafStyle = itemWrapper(wrapper, 'deepLeaf').find('.w-item').attributes('style')
+    expect(leafStyle).toMatch(/--nav-depth:\s*6/)
+  })
+})
