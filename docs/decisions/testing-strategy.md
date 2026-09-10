@@ -626,6 +626,59 @@ writing): a bound on concurrency addresses the resource contention that makes a 
 test flaky; a job timeout is the backstop for the case where something wedges outright regardless of
 how much headroom it had.
 
+## Bounded test time
+
+Added 2026-09-10, after OpenProject #2927: PR #61's "Backend Tests" step printed its last result at
+03:44:57, then nothing at all for 27 minutes until `timeout-minutes: 30` killed the job. The job
+timeout did its one job -- the run ended -- but a cancelled job names no test, so an overnight batch
+of 16 work packages stalled on a hang nobody could bisect from the log. Reading the spec reporter's
+buffering (it emits files in glob order) placed the wedge in `core/scheduler.execution.test.ts`, the
+suite driving a real poolifier worker pool; the same commit passed on the next run, and no amount of
+loaded reruns reproduced it locally. That is the shape of every future hang too, which is why the
+fix is a runner-level one rather than a patch to one file.
+
+`node --test` makes a silent hang the default outcome of a wedge in two independent ways, both
+reproduced against fixtures on the pinned Node before deciding:
+
+- **It has no per-test timeout unless told.** A test, an `afterEach`, or a suite's `after` hook that
+  never settles is waited on forever. `--test-timeout=<ms>` bounds each test, and each suite over
+  the whole of its subtests and hooks (verified: a hanging `afterEach` fails the test, a hanging
+  `after` fails the suite -- and two 1s suites pass under a 1.5s ceiling, so a file's root is NOT
+  bounded, only its suites and tests are).
+- **It waits for each test-file child to exit.** A file whose tests all passed but which left a
+  referenced handle behind -- a worker thread a pool teardown did not reap, an interval, an open
+  socket -- keeps its child alive, and the runner waits on the child with nothing left to report.
+  `--test-timeout` cannot see this at all: no test is running. `--test-force-exit` ends the child
+  once every known test has reported (verified against a fixture that leaks a worker thread:
+  without the flag the run never returns, with it the run exits 0 in well under a second).
+
+**Decision:** `backend/`'s `test` and `test:flaky` scripts pass `--test-timeout=600000` and
+`--test-force-exit`, and `backend/package.test.ts` guards both -- structurally, and by re-running
+the leaked-thread fixture live under `--test-force-exit`. Two things about the value:
+
+- **The ceiling is a hang detector, not a performance budget.** `--test-timeout` binds a suite over
+  ALL its subtests, and the slowest suite on record is `userCredentials recovery codes (DB-backed)`
+  at 112s on CI (real bcrypt at `BCRYPT_ROUNDS`, four files sharing four vCPUs). Ten minutes is
+  over five times that: a suite tripping it has wedged, not slowed. Lowering it to "catch hangs
+  faster" trades a rare silent hang for a new source of red trunk on a slow runner day, which is
+  the exact trade the quarantine lane and the concurrency bound exist to stop making.
+- **It has to fit under the job timeout with the rest of the run.** The gate job's baseline is
+  ~11-12 minutes; ten minutes of ceiling on top still lands under `timeout-minutes: 30`, so a hang
+  now ends as a named test failure in a completed job instead of a cancelled one. If either number
+  moves, `package.test.ts` is what fails.
+
+**What `--test-force-exit` costs.** It masks a leak rather than reporting one: a file that leaves a
+thread alive now exits clean instead of hanging. So a suite that owns threads or sockets asserts
+its own teardown -- `core/scheduler.execution.test.ts`'s `executeOnWorker` suite checks that
+`pool.destroy()` returned with no worker node still registered (poolifier only unregisters a node
+on the thread's real `exit`), which is what turns a leaked thread there into a failure that names
+itself. A new suite of that kind does the same.
+
+**Known gap.** A hang inside a file-level `before()` (one declared outside any `describe`) is
+bounded by neither flag: the root is not under `--test-timeout`, and no test has finished for
+`--test-force-exit` to act on. `timeout-minutes` remains the backstop for that case; keep such hooks
+to work that cannot wedge (`ensureTemporal()`, a dynamic import), and do the I/O inside a suite.
+
 ## What this document does not do
 
 - **It authorises no deletion by itself.** #2690 acts, file by file, with an audit row and this

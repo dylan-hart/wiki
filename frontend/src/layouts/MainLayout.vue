@@ -11,8 +11,13 @@
       not focus.
     -->
     <a href="#w-page-main" class="skip-link">{{ t('common.actions.skipToContent') }}</a>
+    <!--
+      The sidebar's opener on a narrow viewport is an inline toggle at the head of the header bar
+      (OpenProject #2904/#2928), not a floating corner disc: this layout still decides WHEN it shows
+      (`showSidebarBtn`) and does the opening (`openSidebar`), the header only draws it.
+    -->
     <w-header class="site-header-wrap">
-      <header-nav />
+      <header-nav :show-sidebar-toggle="showSidebarBtn" @open-sidebar="openSidebar" />
     </w-header>
     <w-drawer
       class="bg-sidebar"
@@ -165,43 +170,6 @@
       </template>
     </w-drawer>
     <!--
-      The way back to the sidebar on a narrow viewport, where it overlays the page instead of taking a
-      column of its own: closed to start with, so it is not sitting over the article on arrival, and
-      nothing else on that screen opens it -- the header is full of page actions and has no room for a
-      menu button.
-
-      Bottom LEFT whichever side the sidebar is on, because the opposite corner is reserved for a page
-      view's own contents-panel opener below 750px (`showTocPanelBtn` in `pages/Index.vue`) -- a
-      hamburger that followed the sidebar to the right would land on top of it there. OpenProject #2894
-      retired the scroll-to-top corner disc this button used to pair with at 750-1199px (the sidebar's
-      own "Top" cell, `.sidebar-actions-top` below, covers that now) -- so in that band this is the only
-      fixed corner button left, still anchored physically rather than logically for consistency with the
-      narrower band where it does pair with one.
-
-      The position goes on a wrapper rather than on the button: `WBtn` is `relative` from its own class
-      list, and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses.
-
-      Hard into the corner, with the corner facing the page rounded and the other three square -- see
-      `.corner-btn`. No margin, so the button is not a disc hovering near the edge of a small screen but
-      a piece of the screen's own corner, and every pixel of it is inside the viewport.
-
-      `left-0` (not `start-0`) is deliberate -- OpenProject #1590's physical-positioning triage: a fixed
-      screen corner, not a reading-direction gutter, so it must not move when the locale does. See
-      `frontend/src/physicalPositioning.test.js`.
-    -->
-    <transition name="corner-btn">
-      <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">
-        <w-btn
-          class="corner-btn corner-btn--left"
-          icon="tabler:menu-2"
-          color="primary"
-          round
-          size="md"
-          :aria-label="t(`common.sidebar.mainMenu`)"
-          @click="openSidebar" />
-      </div>
-    </transition>
-    <!--
       No `<w-footer>` here, unlike every other layout: this one only ever holds the page view, and
       there the article column scrolls inside a shell that holds still, so a footer at this level
       would be pinned to the window no matter which row it took. The page view puts it at the end of
@@ -341,9 +309,10 @@ const isSidebarOpen = computed({
 })
 
 /*
-  Shown only where the sidebar is something to open: a narrow viewport, on a site and a page that have
-  one. Not while it is already open -- the scrim is what closes it, and the button would be behind the
-  panel in any case.
+  Whether `HeaderNav` draws its inline sidebar toggle (OpenProject #2928 -- it used to be a floating
+  bottom-left corner disc in this layout's own template). Shown only where the sidebar is something to
+  open: a narrow viewport, on a site and a page that have one. Not while it is already open -- the
+  scrim is what closes it, and the toggle would only be a second way to do that.
 */
 const showSidebarBtn = computed(() => {
   return isSidebarAvailable.value && !isWideViewport.value && !isNarrowSidebarOpen.value

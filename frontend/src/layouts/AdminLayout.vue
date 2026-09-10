@@ -458,9 +458,10 @@
       </w-scroll-area>
     </w-drawer>
     <!--
-      The way back to the sidebar once it overlays the page instead of taking a column of its own, exactly
-      as `MainLayout` offers one: nothing else in the admin area opens it, and the header is a row of site
-      and account controls with no room for a menu button.
+      The way back to the sidebar once it overlays the page instead of taking a column of its own:
+      nothing else in the admin area opens it, and the header is a row of site and account controls
+      with no room for a menu button. (`MainLayout`'s equivalent moved inline into `HeaderNav`'s bar,
+      OpenProject #2928; this one stays a corner disc, out of that task's scope.)
 
       The position goes on a wrapper rather than on the button: `WBtn` is `relative` from its own class
       list, and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses. `.corner-btn`

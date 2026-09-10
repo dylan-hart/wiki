@@ -308,6 +308,18 @@ describe('executeOnWorker (real worker pool)', () => {
 
   afterEach(async () => {
     await pool?.destroy()
+    // -> OpenProject #2927: this file is the one that never finished in the CI run that hung for
+    //    27 minutes and was killed at the job's 30-minute ceiling. A worker thread `destroy()` did
+    //    not actually reap is a live handle that keeps the test process alive after its last test,
+    //    and `node --test` waits on that forever with nothing left to report. poolifier removes a
+    //    node from `workerNodes` only on the thread's real `exit`, so a node still listed here IS a
+    //    thread still running. `--test-force-exit` (package.json) stops such a leak hanging CI; this
+    //    is what turns it into a named failure instead of a silent one.
+    assert.equal(
+      pool?.workerNodes.length ?? 0,
+      0,
+      'pool.destroy() returned with a worker node (a live thread) still registered'
+    )
     pool = null
   })
 

@@ -9,6 +9,28 @@
     <div class="flex flex-nowrap">
       <w-toolbar style="height: 64px">
         <!--
+          The sidebar's opener on a narrow viewport, where the sidebar overlays the page and nothing
+          else on that screen opens it (OpenProject #2904/#2928). First in the bar, ahead of the logo,
+          so the wordmark is what gets pushed right -- where a hamburger is expected to be, rather
+          than the floating bottom-left corner disc `MainLayout` used to draw for the same job.
+
+          Content-only, like the rest of this component: the layout owning the sidebar decides WHEN
+          (`showSidebarToggle` -- `MainLayout`'s `showSidebarBtn`, unchanged) and does the opening
+          (`openSidebar`). `pages/Search.vue` mounts this header too and has no sidebar, so the
+          default is no toggle at all.
+
+          Same `header-nav-btn` band as the logo beside it, for the same reason given there: a flush
+          64x64 square whose hover lights the header's full height.
+        -->
+        <w-btn
+          v-if="showSidebarToggle"
+          class="header-nav-btn"
+          flat
+          icon="tabler:menu-2"
+          color="slate-soft"
+          :aria-label="t(`common.sidebar.mainMenu`)"
+          @click="emit('openSidebar')" />
+        <!--
           On the same `header-nav-btn` band as the five icon buttons at the far end of this 64px bar
           (and `AccountMenu`'s avatar): a flush, squared 64x64 target whose hover lights the header's
           full height, rather than the smaller rounded box `WBtn`'s own dense sizing draws around a
@@ -230,6 +252,24 @@ import HeaderSearch from '@/components/HeaderSearch.vue'
  * Content only, for the same reason as `FooterNav`: the enclosing layout supplies the header
  * element, so layouts sharing this component can migrate independently.
  */
+
+// PROPS
+
+defineProps({
+  /**
+   * Whether to draw the sidebar toggle at the head of the bar (OpenProject #2928). The layout that
+   * owns a sidebar answers this off its own breakpoint/open state and listens for `openSidebar`;
+   * a layout with no sidebar leaves it off.
+   */
+  showSidebarToggle: {
+    type: Boolean,
+    default: false
+  }
+})
+
+// EMITS
+
+const emit = defineEmits(['openSidebar'])
 
 // STORES
 
