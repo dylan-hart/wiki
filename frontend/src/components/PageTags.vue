@@ -198,7 +198,10 @@ function removeTag(tag) {
     (OpenProject #2767, see `WChip.vue`'s own comment); only the fill/border/ink need a Cobalt
     override here, since Ledger's own `--color-tag-chip-bg` default is `transparent` (an outline
     chip) while the rule above paints an opaque `var(--color-surface)` plate instead -- swapping it outright
-    would visibly change Ledger, so this stays additive (OpenProject #2774).
+    would visibly change Ledger, so this stays additive (OpenProject #2774). The weight step
+    (Ledger 400 -> Cobalt 500, §4.3 of `ui-iteration-cobalt-typography/cobalt-typography.md`) is
+    `tailwind.css`'s `body.body--cobalt .w-chip` rule, shared by every chip rather than restated
+    here.
   */
   body.body--cobalt & {
     border-color: var(--color-tag-chip-border);

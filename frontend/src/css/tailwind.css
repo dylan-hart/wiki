@@ -940,6 +940,19 @@ body.body--cobalt .editor-markdown-toolbar .w-btn {
 }
 
 /*
+  -- Cobalt aesthetic: tag chip weight (OpenProject #2969, §4.3 role swap) ------------------------
+  One of the four places Cobalt is allowed to differ from Ledger in more than colour
+  (`ui-iteration-cobalt-typography/cobalt-typography.md` §4): a chip drawn as a filled tint reads
+  lighter than Ledger's hairline-outlined one at the same 400 weight, so Cobalt steps up to 500.
+  Lives here, on the compound `.w-chip` selector, rather than in the bare `body.body--cobalt` token
+  block above -- that block is colour-only (§2), enforced by `cobaltTypography.test.js`'s
+  source-scan.
+*/
+body.body--cobalt .w-chip {
+  font-weight: 500;
+}
+
+/*
   -- Cobalt aesthetic: dark token block (OpenProject #2771) -----------------
   Source: `ui-redesign-cobalt/HANDOFF.md`'s "Cobalt dark tokens" section. Layered on top of
   `body.body--cobalt` above via the compound selector, so this wins by specificity regardless of
