@@ -223,8 +223,18 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     )
     assert.equal(midway.size, 1, 'the two delivered chunks are held, waiting for the third')
 
-    await new Promise((resolve) => setTimeout(resolve, RELAY_REASSEMBLY_TIMEOUT))
-    const after = await a.call('partialsSize')
+    // -> `reassemble()`'s cleanup timer (`core/collab.ts`) starts the instant A's *first* chunk of
+    //    this burst arrives -- strictly before the `pollUntil` above noticed it, over a real
+    //    cross-worker-thread postgres NOTIFY round trip. Sleeping for exactly one
+    //    RELAY_REASSEMBLY_TIMEOUT window from here and checking once (OpenProject #2992) leaves zero
+    //    margin against that gap, so it is racy under CI load rather than testing anything about the
+    //    cleanup itself; poll for the drop instead, with a ceiling generous enough that only a genuine
+    //    leak -- not scheduling jitter -- can still fail it.
+    const after = await pollUntil(
+      () => a.call('partialsSize'),
+      (result) => result.size === 0,
+      { timeoutMs: RELAY_REASSEMBLY_TIMEOUT * 3 }
+    )
     assert.equal(after.size, 0, 'the abandoned partial was dropped rather than held forever')
   })
 

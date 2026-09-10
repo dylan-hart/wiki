@@ -285,9 +285,13 @@ describe('runJob failure logging (fake WIKI)', () => {
 })
 
 /**
- * Task 704 (a): `executeOnWorker`'s two timeout ceilings, verified against a REAL poolifier worker
+ * Task 704 (a): `executeOnWorker`'s abort-signal ceiling, verified against a REAL poolifier worker
  * thread rather than a mock of one — see `test/fixtures/schedulerCrashWorker.ts` for why a worker
  * thread's own `process.exit()` is the faithful in-process equivalent of `kill -9`-ing it.
+ *
+ * The sibling case — a worker that exits mid-task, caught only by the backup timer — lives in
+ * `core/scheduler.execution.flaky.test.ts` (OpenProject #2992): same harness, quarantined because its
+ * ceiling is a real wall-clock margin the whole CI run's scheduling can blow through, not this one's.
  */
 describe('executeOnWorker (real worker pool)', () => {
   let wikiHandle: { restore(): void }
@@ -350,16 +354,6 @@ describe('executeOnWorker (real worker pool)', () => {
     // -> taskTimeout is 1s; the backup timer would not fire until 1s + 5s grace = 6s. Rejecting well
     //    before that means the abort signal — not the backup timer — is what ended it.
     assert.ok(elapsed < 4000, `expected the abort ceiling (~1s) to fire, took ${elapsed}ms`)
-  })
-
-  test('a worker that exits mid-task is caught only by the backup timer, after taskTimeout + grace', async () => {
-    freshPool()
-    const start = Date.now()
-    await assert.rejects(scheduler.executeOnWorker({ task: 'x', payload: { mode: 'crash' } }))
-    const elapsed = Date.now() - start
-    // -> The worker is gone before the abort signal has anything left to abort, so only the backup
-    //    `setTimeout` at taskTimeout + TASK_TIMEOUT_GRACE (1s + 5s = 6s) rejects this.
-    assert.ok(elapsed >= 5500, `expected the backup timer (~6s) to fire, took ${elapsed}ms`)
   })
 })
 
