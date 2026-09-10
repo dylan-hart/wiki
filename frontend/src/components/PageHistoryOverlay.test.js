@@ -427,6 +427,30 @@ describe('PageHistoryOverlay: MCP provenance marker', () => {
     )
   })
 
+  /**
+   * OpenProject #2913: the badge must read in the accent color, not the muted `slate-pale` tone --
+   * `WBadge.vue`'s `outline` styling resolves `color` straight to `style="color: var(--color-...)"`.
+   */
+  it('renders the "via MCP" badge in the accent color, not slate-pale', async () => {
+    const mcpVersion = { ...VERSION, via: 'mcp' }
+    await mountOverlay({
+      mockEndpoints: () => {
+        globalThis.API_CLIENT.get.mockImplementation((url) => {
+          if (String(url).endsWith('/history')) {
+            return { json: () => Promise.resolve({ items: [mcpVersion], nextCursor: null }) }
+          }
+          return { json: () => Promise.resolve({ ...FULL_VERSION, via: 'mcp' }) }
+        })
+      }
+    })
+
+    const badges = [...document.body.querySelectorAll('.page-history-timeline .w-badge')]
+    const viaMcpBadge = badges.find((el) => el.textContent.includes('history.viaMcp'))
+
+    expect(viaMcpBadge.getAttribute('style')).toContain('var(--color-accent)')
+    expect(viaMcpBadge.getAttribute('style')).not.toContain('var(--color-slate-pale)')
+  })
+
   it('shows no badge on a version whose via is editor (or unset)', async () => {
     await mountOverlay()
 
