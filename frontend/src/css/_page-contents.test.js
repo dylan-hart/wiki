@@ -787,15 +787,20 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
  * `.table-scroll` (the inner scroller), specifically so the marks could move from flush with the
  * frame to the spec's own 4px overhang — the scrollbar assertions below moved to `.table-scroll`
  * with them, and the "flush" variance this suite used to also assert is deleted from
- * `docs/variances.md` along with the deviation itself.
+ * `docs/variances.md` along with the deviation itself. OpenProject #2958 split the boxes a second
+ * time — `.table-clip` now sits between the two, owning `overflow: hidden` plus the radius on its
+ * own, because `.table-scroll`'s own `overflow-x: auto` produces a native scrollbar that is not
+ * reliably clipped by `border-radius` on that SAME element (a classic, space-reserving scrollbar
+ * squares off the very corner it sits against) — see `_page-contents.scss`'s own `// TABLES` header
+ * comment for the full mechanism.
  */
 describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  // -> The shared `.table-wrap`/`.table-scroll` mechanics this describe covers live in the
-  //    `// TABLES` section (see that section's own header comment); per-aesthetic sections earlier
-  //    in the file (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their own
-  //    `.table-scroll` selector too, so a plain search would find one of those instead.
+  // -> The shared `.table-wrap`/`.table-clip`/`.table-scroll` mechanics this describe covers live in
+  //    the `// TABLES` section (see that section's own header comment); per-aesthetic sections
+  //    earlier in the file (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their
+  //    own `.table-scroll` selector too, so a plain search would find one of those instead.
   const tablesSectionStart = source.indexOf('\n  // TABLES\n')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
@@ -842,6 +847,23 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     expect(block).not.toMatch(/overflow/)
   })
 
+  it('puts the radius clip on .table-clip, an overflow:hidden box with nothing else on it, rather than on the scroller itself (OpenProject #2958)', () => {
+    const clipBlock = blockFor('.table-clip {')
+    expect(clipBlock).toMatch(/overflow:\s*hidden/)
+    expect(clipBlock).toMatch(/border-radius:\s*var\(--content-table-radius\)/)
+    // -> No scroll, no background, no border, no scrollbar tokens -- it exists purely to clip
+    expect(clipBlock).not.toMatch(/overflow-x/)
+    expect(clipBlock).not.toMatch(/scrollbar/)
+    expect(clipBlock).not.toMatch(/background/)
+    expect(clipBlock).not.toMatch(/border(?!-radius)/)
+  })
+
+  it("keeps the scroller's own radius off it now that .table-clip owns the clip -- an `overflow-x: auto` element's own border-radius doesn't reliably clip the native scrollbar it produces (OpenProject #2958)", () => {
+    const scrollBlock = blockFor('.table-scroll {')
+    expect(scrollBlock).toMatch(/overflow-x:\s*auto/)
+    expect(scrollBlock).not.toMatch(/border-radius/)
+  })
+
   it('gates the corner marks on the same --corner-marks token the page header plate and blockquote read, so Cobalt draws none', () => {
     const block = blockFor('.table-wrap::after {')
     expect(block).toMatch(/display:\s*var\(--content-table-corner-marks\)/)
@@ -876,14 +898,38 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     const SAMPLE = `
       <article class="page-contents">
         <div class="table-wrap">
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>Key</th><th>Value</th></tr></thead>
-              <tbody>
-                <tr><td>alpha</td><td>1</td></tr>
-                <tr><td>beta</td><td>2</td></tr>
-              </tbody>
-            </table>
+          <div class="table-clip">
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Key</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td>alpha</td><td>1</td></tr>
+                  <tr><td>beta</td><td>2</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </article>`
+
+    // -> Wide enough that `.table-scroll` needs a horizontal scrollbar and, unscrolled, cuts the
+    //    table off mid-content on the trailing edge rather than at the table's own natural edge --
+    //    the case that actually exercises the rounded-corner clip (OpenProject #2958). A table that
+    //    fits within its container needs no scrolling at all, so its corners sit at the table's own
+    //    natural edge regardless of which box owns the radius.
+    const WIDE_SAMPLE = `
+      <article class="page-contents">
+        <div class="table-wrap">
+          <div class="table-clip">
+            <div class="table-scroll">
+              <table>
+                <thead><tr>${Array.from({ length: 12 }, (_, i) => `<th>Column ${i + 1}</th>`).join('')}</tr></thead>
+                <tbody>
+                  <tr>${Array.from({ length: 12 }, (_, i) => `<td>Column ${i + 1} row1 value value</td>`).join('')}</tr>
+                  <tr>${Array.from({ length: 12 }, (_, i) => `<td>Column ${i + 1} row2 value value</td>`).join('')}</tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </article>`
@@ -906,8 +952,10 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         )
         return await page.evaluate(() => {
           const wrap = document.querySelector('.table-wrap')
+          const clip = document.querySelector('.table-clip')
           const scroll = document.querySelector('.table-scroll')
           const wrapStyle = getComputedStyle(wrap)
+          const clipStyle = getComputedStyle(clip)
           const scrollStyle = getComputedStyle(scroll)
           const afterStyle = getComputedStyle(wrap, '::after')
           return {
@@ -916,12 +964,63 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
             scrollbarWidth: scrollStyle.scrollbarWidth,
             marksDisplay: afterStyle.display,
             marksImage: afterStyle.backgroundImage,
+            clipOverflow: clipStyle.overflow,
+            clipRadius: clipStyle.borderRadius,
             // -> Measured on the inner scroller (OpenProject #2935) -- that's the box with
             //    `overflow-x: auto` now, not the outer frame, which no longer scrolls at all.
             scrollWidth: scroll.scrollWidth,
             clientWidth: scroll.clientWidth,
             scrollHeight: scroll.scrollHeight,
             clientHeight: scroll.clientHeight
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    /*
+      OpenProject #2958's actual regression check: a table too wide for its column, UNSCROLLED, so
+      `.table-scroll` cuts it off mid-content on the trailing edge -- the geometry that actually
+      exercises the rounded-corner clip (a table that fits needs no clip at all; a table scrolled all
+      the way to either end sits at the table's own natural edge, which coincides with the frame's
+      edge regardless of which box owns the radius). `elementFromPoint`, a pixel inside the rounded
+      corner's own arc, is what proves the clip: a correctly-clipped corner resolves to `.table-wrap`
+      itself (its own background showing through, nothing painted over it there) or a page-content
+      ancestor, never a `td`/`th`/`thead` -- if a cell's own background reached that pixel, its
+      square corner would be visibly poking past the frame's rounded one, exactly OpenProject #2958's
+      report.
+    */
+    async function measureCornerContainment({ dark: darkMode = false, cobalt = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage({ viewport: { width: 500, height: 400 } })
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style>` +
+            `<style>body{margin:0;padding:20px;}</style></head>` +
+            `<body class="${bodyClasses}">${WIDE_SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const wrap = document.querySelector('.table-wrap')
+          const scroll = document.querySelector('.table-scroll')
+          const r = wrap.getBoundingClientRect()
+          function tagAt(x, y) {
+            return document.elementFromPoint(x, y)?.tagName ?? null
+          }
+          return {
+            // -> Confirms the fixture actually needs a scrollbar -- otherwise this test would pass
+            //    vacuously by never exercising the mid-content cut at all
+            needsScroll: scroll.scrollWidth > scroll.clientWidth,
+            topRight: tagAt(r.x + r.width - 2, r.y + 2),
+            bottomRight: tagAt(r.x + r.width - 2, r.y + r.height - 2)
           }
         })
       } finally {
@@ -971,6 +1070,23 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       const light = await measure({ dark: false })
       expect(light.scrollWidth).toBe(light.clientWidth)
       expect(light.scrollHeight).toBe(light.clientHeight)
+    })
+
+    it('resolves .table-clip to a real overflow:hidden box carrying the radius (OpenProject #2958)', async () => {
+      const light = await measure({ dark: false, cobalt: true })
+      expect(light.clipOverflow).toBe('hidden')
+      // -> 8px, Cobalt's --radius-card
+      expect(light.clipRadius).toBe('8px')
+    })
+
+    it("contains a wide, unscrolled Cobalt table's cell backgrounds to the frame's rounded corner rather than letting them poke a square corner past it (OpenProject #2958)", async () => {
+      const cobaltLight = await measureCornerContainment({ dark: false, cobalt: true })
+      const cobaltDark = await measureCornerContainment({ dark: true, cobalt: true })
+      for (const result of [cobaltLight, cobaltDark]) {
+        expect(result.needsScroll).toBe(true)
+        expect(result.topRight).not.toMatch(/^(TH|TD|THEAD|TABLE)$/)
+        expect(result.bottomRight).not.toMatch(/^(TH|TD|THEAD|TABLE)$/)
+      }
     })
   })
 })
