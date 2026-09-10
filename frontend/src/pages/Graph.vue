@@ -82,10 +82,11 @@
         <!--
           SIZE BY and COUNT used to be two separate rows, each with its own caption -- consolidated
           into one row under a single "SIZE BY" caption (OpenProject #2855/#2828 item 3): the
-          Unique/Total toggle (sizeCountMode) first/left, the Edits/Visits toggle (sizeBy)
-          second/right. The "COUNT" caption is dropped entirely rather than kept and hidden; the
-          count toggle keeps its own aria-label since its accessible name ("Unique or total") still
-          differs from the row's visible caption.
+          Total/Unique toggle (sizeCountMode) first/left, the Visits/Edits toggle (sizeBy)
+          second/right (option order within each toggle swapped per OpenProject #2934). The "COUNT"
+          caption is dropped entirely rather than kept and hidden; the count toggle keeps its own
+          aria-label since its accessible name ("Unique or total") still differs from the row's
+          visible caption.
         -->
         <div class="graph-view-control-group">
           <span class="graph-view-control-caption">{{ t('graph.controls.sizeByLabel') }}</span>
@@ -343,10 +344,11 @@ const pageviewsTrackingEnabled = ref(false)
  *  rather than a static template literal so 'visits' can be omitted while pageview tracking is
  *  disabled. No 'uniform' option any more (OpenProject #1270). */
 const sizeByOptions = computed(() => {
-  const options = [{ label: t('graph.controls.sizeByEdits'), value: 'edits' }]
+  const options = []
   if (pageviewsTrackingEnabled.value) {
     options.push({ label: t('graph.controls.sizeByVisits'), value: 'visits' })
   }
+  options.push({ label: t('graph.controls.sizeByEdits'), value: 'edits' })
   return options
 })
 
@@ -359,8 +361,8 @@ const groupByOptions = computed(() => [
   { label: t('graph.controls.groupByClassification'), value: 'classification' }
 ])
 const sizeCountModeOptions = computed(() => [
-  { label: t('graph.controls.countUnique'), value: 'unique' },
-  { label: t('graph.controls.countTotal'), value: 'total' }
+  { label: t('graph.controls.countTotal'), value: 'total' },
+  { label: t('graph.controls.countUnique'), value: 'unique' }
 ])
 const contributorTypeOptions = computed(() => [
   { value: 'editor', label: t('graph.controls.editsByEditor') },
