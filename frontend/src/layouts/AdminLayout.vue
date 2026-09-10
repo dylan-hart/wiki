@@ -132,6 +132,7 @@
                   standout
                   dense
                   hide-bottom-space
+                  class="admin-site-select"
                   v-model="adminStore.currentSiteId"
                   :options="adminStore.sites"
                   option-value="id"
@@ -1182,6 +1183,27 @@ body.body--cobalt {
     .count-badge {
       background-color: var(--color-admin-sidebar-raised) !important;
       color: var(--color-sidebar-text-secondary) !important;
+    }
+
+    /*
+      OpenProject #3002: the Site dropdown (`<w-select dark standout dense>`) had no Cobalt-specific
+      styling at all -- it relied entirely on `WSelect`'s generic `standout` variant (no border, since
+      `noFrame` skips the frame's box-shadow border) and `dense`'s fixed Tailwind sizing (`min-h-7
+      px-2` = 28px/8px), neither of which varies for Cobalt even though the sidebar around it already
+      carries its own dark-navy Cobalt tokens. `!important` beats those Tailwind utilities and
+      `standout`'s `bg-white/10` fill utility, same pattern as `.admin-contribute-btn`'s border and
+      `.admin-header-action-btn` above (OpenProject #3001). `--color-dark-4` (#171b24 Cobalt light,
+      #070b22 Cobalt dark) reads as a darker interior than the sidebar's own background in both
+      modes; `--color-heading-h2` (#1f4fd6 light, #8fb0ff dark) is a clearly lighter blue border
+      against it -- both confirmed with Dylan (2026-09-10) in the absence of an existing mockup value
+      for this specific control. One rule covers both Cobalt modes uniformly, since both tokens
+      already cascade correctly per mode.
+    */
+    .admin-site-select .w-input-control {
+      min-height: 38px !important;
+      padding-inline: 14px !important;
+      background-color: var(--color-dark-4) !important;
+      border: 1px solid var(--color-heading-h2);
     }
   }
 }
