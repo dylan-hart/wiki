@@ -926,10 +926,15 @@ opt out of the conventions, and the test caps how many may exist at once.
 ### Testing (backend)
 
 `backend/`'s test runner is Node's built-in **`node:test`**, run via `npm run test` (→ `node --test
-'**/*.test.ts'`). No extra framework — this follows the same no-build-step, native-TS-stripping
-approach as everything else in `backend/`: `node --test` type-strips `.ts` test files exactly like
-`node backend` does, so a test file is written and run the same way as the code it tests, with no
-separate transpile or worker config.
+--test-concurrency=4 --test-timeout=600000 --test-force-exit '**/!(*.flaky).test.ts'`). No extra
+framework — this follows the same no-build-step, native-TS-stripping approach as everything else in
+`backend/`: `node --test` type-strips `.ts` test files exactly like `node backend` does, so a test
+file is written and run the same way as the code it tests, with no separate transpile or worker
+config. The three flags are decisions, not tuning: the concurrency bound and the two hang ceilings
+are `docs/decisions/testing-strategy.md`'s "Bounded test concurrency" and "Bounded test time", and
+`package.test.ts` guards the ceilings. Bare `node --test` has no per-test timeout and waits forever
+on a child kept alive by a leaked handle — which is how OpenProject #2927's 27-minute silent hang
+reached the job's 30-minute kill with no test named.
 
 **What earns a test, at which layer, and what deliberately gets none is
 `docs/decisions/testing-strategy.md`** — the settled policy, written from the #2687/#2688 test-value
