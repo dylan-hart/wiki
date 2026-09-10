@@ -21,8 +21,11 @@ import { mountWithApp } from '../../test/mount.js'
  *    only the single 900px fixture `Index.footerCobalt.test.js` measured -- and Ledger's footer stays
  *    unaffected (not full-bleed at all) across that same range.
  * 2. Both overlay drawers (nav + TOC), open TOGETHER with the footer in one combined real fixture --
- *    not each drawer tested against the footer alone -- truly do not overlap it, across several
- *    narrow widths.
+ *    not each drawer tested against the footer alone -- across several narrow widths. OpenProject
+ *    #3032 (reverting #3018 for the nav drawer alone, per Dylan's own direct instruction) splits what
+ *    "correct" means between them here: the TOC drawer still stops clear of the bar exactly as
+ *    #3018 left it, while the nav drawer now deliberately reaches the true bottom of the screen and
+ *    OVERLAPS the bar, drawn above it by a higher z-index instead.
  * 3. The TOC-open corner button (`pages/Index.vue`'s `fixed bottom-0 right-0 z-30` -- the sole
  *    remaining fixed corner button in the page view) does not end up hidden behind the opaque,
  *    higher-z-index footer bar. This is a genuine finding from writing this suite: before this Task's
@@ -247,7 +250,7 @@ describe(
           )
         }
 
-        it('neither open drawer overlaps the fixed footer bar, in Cobalt', async () => {
+        it('the TOC drawer does not overlap the fixed footer bar, and the nav drawer reaches the true bottom of the screen ABOVE it, in Cobalt', async () => {
           const result = await measure(
             {
               browser,
@@ -257,19 +260,37 @@ describe(
               viewport
             },
             () => {
-              const footerTop = document.querySelector('.w-footer').getBoundingClientRect().top
-              const navBottom = document.querySelector('.bg-sidebar').getBoundingClientRect().bottom
-              const tocBottom = document
-                .querySelector('.page-sidebar')
-                .getBoundingClientRect().bottom
-              return { footerTop, navBottom, tocBottom }
+              const footer = document.querySelector('.w-footer')
+              const nav = document.querySelector('.bg-sidebar')
+              const footerRect = footer.getBoundingClientRect()
+              const navRect = nav.getBoundingClientRect()
+              return {
+                footerTop: footerRect.top,
+                navBottom: navRect.bottom,
+                tocBottom: document.querySelector('.page-sidebar').getBoundingClientRect().bottom,
+                navZIndex: Number(getComputedStyle(nav).zIndex),
+                footerZIndex: Number(getComputedStyle(footer).zIndex),
+                // -> Which of the nav drawer and the footer bar actually paints on top at a point
+                //    both cover -- the near bottom-left corner, inside the drawer's own width and
+                //    the bar's own height.
+                navIsAboveFooterAtCorner: Boolean(
+                  document.elementFromPoint(10, window.innerHeight - 10)?.closest('.bg-sidebar')
+                )
+              }
             }
           )
 
-          // -> Each drawer's own bottom edge sits at or above the bar's top edge -- no overlap, matching
-          //    OpenProject #3018's clearance.
-          expect(result.navBottom).toBeLessThanOrEqual(result.footerTop + 0.5)
+          // -> The TOC drawer keeps its own #3018 clearance, unchanged by OpenProject #3032 (which is
+          //    scoped to the NAV drawer alone) -- its own bottom edge still sits at or above the bar's
+          //    top edge.
           expect(result.tocBottom).toBeLessThanOrEqual(result.footerTop + 0.5)
+          // -> The nav drawer, by contrast, now reaches the true bottom of the window rather than
+          //    stopping short of it (OpenProject #3032, reverting #3018's opposite fix for this one
+          //    drawer) -- it and the footer bar genuinely overlap here, at this width, and a higher
+          //    z-index is what keeps the drawer drawn on top rather than painted over.
+          expect(result.navBottom).toBeCloseTo(viewport.height, 0)
+          expect(result.navZIndex).toBeGreaterThan(result.footerZIndex)
+          expect(result.navIsAboveFooterAtCorner).toBe(true)
         })
 
         it('the TOC-open corner button is not hidden behind the fixed footer bar, in Cobalt', async () => {

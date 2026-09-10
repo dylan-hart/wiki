@@ -1,5 +1,7 @@
 <template>
-  <w-layout :class="{ 'main-layout--entrance-flourish': playEntranceFlourish }">
+  <w-layout
+    :class="{ 'main-layout--entrance-flourish': playEntranceFlourish }"
+    :style="{ '--sidebar-current-width': sidebarCurrentWidth }">
     <!--
       The way past every sidebar link and header control on a keyboard, per WCAG 2.4.1 (Bypass
       Blocks) -- the first focusable element in the whole layout, ahead of even `header-nav`. Still
@@ -540,6 +542,20 @@ const sidebarWidth = computed(() =>
   isSidebarMini.value ? SIDEBAR_WIDTH_MINI : sidebarContentWidth.value
 )
 
+/**
+ * OpenProject #3032: mirrors `sidebarWidth` onto a CSS custom property (`--sidebar-current-width`,
+ * set via `:style` on this component's own root `<w-layout>` element in the template above) so
+ * `Index.vue`'s Cobalt `.w-footer` rule can inset from the sidebar's own edge -- plain CSS
+ * inheritance carries the value down to it, since this element is already a shared ancestor of both
+ * `<w-drawer>` and the routed page content. `0px` whenever the drawer's own grid column isn't
+ * actually occupied (`isSidebarOpen` false -- no sidebar on this page/site at all, or an editor that
+ * hides it): using the raw width unconditionally would inset the footer to make room for a sidebar
+ * that isn't actually rendered there.
+ */
+const sidebarCurrentWidth = computed(() =>
+  isSidebarOpen.value ? `${sidebarWidth.value}px` : '0px'
+)
+
 // -> The "Allow Browsing" site feature (admin/general): with it off the tree browser is not something
 //    a reader can reach, so the button that opens it does not render
 const canBrowse = computed(() => siteStore.features.browse)
@@ -935,39 +951,29 @@ body.body--cobalt:not(.body--dark) .bg-sidebar {
 }
 
 /*
-  OpenProject #3018: Cobalt's site footer is a `position: fixed` bar pinned to the WINDOW bottom
-  (`Index.vue`'s `.page-container-scrl .w-footer` rule, OpenProject #3017/#3010) rather than a
-  document-flow element `WLayout.vue`'s grid knows about, so it paints straight over whatever sits
-  behind it there -- and on a wide viewport this drawer (`.w-drawer--left`, grid-area `ldrawer`)
-  spans the grid's full height below the header by that grid's own default item-stretch alignment,
-  which puts its bottom edge, and everything scrolling inside it, right behind the bar.
+  OpenProject #3032: reverts the #3018 rules that used to live here. Dylan's own instruction, from
+  his own hands-on use of the wiki: the sidebar should ALWAYS reach the true bottom of the screen,
+  in every aesthetic and colour mode -- it is Cobalt's `position: fixed` footer bar (`Index.vue`'s
+  `.page-container-scrl .w-footer` rule, OpenProject #3017/#3010) that has to make room for the
+  sidebar, never the sidebar shrinking to clear the bar. The permanent-column drawer therefore
+  carries no `margin-bottom` of its own any more -- it goes back to the plain full-height stretch
+  every OTHER aesthetic already gets from `WLayout.vue`'s grid. See `Index.vue`'s own `.w-footer`
+  rule for the inset that replaces it, and `sidebarCurrentWidth` above for the reactive width
+  (mirrored onto `--sidebar-current-width`) the footer reads to know how far to make room.
 
-  `margin-bottom` rather than `padding-bottom`: the drawer's own height is `auto`, so a stretched
-  grid item's used size is already "fill the grid area, minus the item's own margin" per the Box
-  Alignment spec -- a margin here shrinks the drawer's actual border box, rather than padding blank
-  space inside a box that stays full height. That is what lets `NavSidebar.vue`'s own `.sidebar-nav`
-  (`flex: 1 1 0; min-height: 0` inside this drawer's flex column) shrink along with it, so its real
-  scrolling content AND its native scrollbar stop above the bar too, instead of merely being
-  followed by hidden padding that the bar still covers.
-
-  On a narrow viewport the drawer overlays the page as a `position: fixed` panel instead
-  (`WDrawer.vue`'s own `.w-drawer--overlay`, Tailwind's `inset-y-0` utility -- `top: 0; bottom: 0`).
-  A margin is NOT a no-op there the way the paragraph above implies for a plain fixed box: with both
-  `top` and `bottom` set non-auto and `height: auto`, the spec solves the used height as the
-  containing block's size minus `top`, `bottom` AND both margins -- so left un-reset, the
-  `margin-bottom` above would apply a SECOND time on top of the `bottom` override just below,
-  double-subtracting the bar's height. `bottom` is overridden directly here instead, and
-  `margin-bottom` explicitly zeroed to cancel the other rule; same clearance, same token.
-  `.bg-sidebar.w-drawer--overlay` (two classes) outranks the single-class `.inset-y-0` utility on
-  specificity alone, so no `!important` is needed for either declaration.
+  The narrow-viewport overlay drawer keeps one piece of #3018's reasoning even so: below the
+  breakpoint the sidebar and the footer bar occupy the exact same full-window-height space (the
+  drawer is `WDrawer.vue`'s own `position: fixed` overlay, Tailwind's `inset-y-0` utility -- `top: 0;
+  bottom: 0`, left unclipped by anything here), so while the overlay is open it needs to sit
+  visually ABOVE the bar rather than stop short of it. A higher `z-index` is what does that -- `46`,
+  one past the bar's own `45` -- rather than the `bottom` clearance #3018 gave it, which pulled the
+  open overlay's own bottom edge up off the true bottom of the screen exactly as the permanent
+  column's `margin-bottom` did above. `.bg-sidebar.w-drawer--overlay` (two classes) already outranks
+  the single-class `.z-40` utility `WDrawer.vue` applies on specificity alone, so no `!important` is
+  needed here either.
 */
-body.body--cobalt .bg-sidebar {
-  margin-bottom: var(--footer-bar-height);
-}
-
 body.body--cobalt .bg-sidebar.w-drawer--overlay {
-  margin-bottom: 0;
-  bottom: var(--footer-bar-height);
+  z-index: 46;
 }
 
 .sidebar-mini {

@@ -6,6 +6,37 @@ along with the reasoning. It is not a changelog and does not track resolved CI/l
 those get fixed, not logged here. An entry for a deviation that later gets resolved is deleted
 outright, not left behind as changelog prose — see CLAUDE.md's "variances.md Discipline" section.
 
+## 2026-09-10 — Cobalt's footer bar only insets from a LEFT-positioned nav sidebar
+
+**Date:** 2026-09-10
+**OpenProject:** #3032
+
+**Decision:** #3032's confirmed fix has `Index.vue`'s Cobalt `.w-footer` rule inset its
+`inset-inline-start` edge by `--sidebar-current-width` (`MainLayout.vue`) at and above the sidebar's
+own 1200px permanent-column breakpoint, so the fixed footer bar makes room for the nav drawer instead
+of the drawer shrinking to clear the bar (reverting #3018). This is correct for the default sidebar
+placement, but `MainLayout.vue`'s `<w-drawer>` also supports `sidebarPosition: 'right'`
+(`siteStore.theme.sidebarPosition`, `AdminTheme.vue`) — with that setting on, the sidebar renders on
+the reading-END side, and the footer bar still insets its reading-START side, i.e. the wrong edge.
+
+**Why this reads as a deviation:** the rule #3032 replaced (#3018's `margin-bottom` on `.bg-sidebar`)
+applied to the drawer regardless of which side it was pinned to, so it never had this asymmetry — a
+right-positioned sidebar's own bottom edge cleared the bar exactly as a left-positioned one's did.
+The replacement fixes the reported bug (the sidebar failing to reach the bottom of the screen at all)
+but is narrower than the rule it replaces on this one axis, and #3032's own confirmed scope
+("permanent-sidebar layout" and "narrow-viewport overlay-drawer case") did not consider sidebar side.
+
+**What actually happens:** with `sidebarPosition: 'right'` and the Cobalt aesthetic, on a ≥1200px
+viewport the footer bar continues to span the full window width behind the right-positioned sidebar's
+own column, rather than stopping short of it — the same "bar paints over the sidebar's bottom corner"
+symptom #3032 fixed for the left-positioned default, just on the other edge. The narrow-viewport
+overlay case is unaffected (the higher `z-index` #3032 gives the open overlay covers the bar
+regardless of which side it slides in from).
+
+**Resolved when:** the footer rule reads which side the sidebar renders on (a second custom property,
+or a class mirroring `sidebarPosition`, set alongside `--sidebar-current-width`) and insets
+`inset-inline-end` instead when it is `'right'` — at which point delete this entry.
+
 ## 2026-09-10 — CSS Grid markdown tables no longer paste as a spreadsheet grid into Excel/Google Sheets
 
 **Date:** 2026-09-10
