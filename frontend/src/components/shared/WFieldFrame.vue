@@ -17,13 +17,11 @@
       header carry the meaning. That is not portable to this app: a `label` here is frequently the
       only thing that says what a field is (an admin form's dialogs, the page-properties panel), and
       dropping it would leave the accessible name on an `aria-label` nobody sighted can read. So a
-      label that is passed is drawn, in Cardinal's own caption tone, and a field with nothing to say
-      is exactly the bare box the design draws.
+      label that is passed is drawn, in Cardinal's own "Field label" role (`.w-field-label` below --
+      500/14px, the ink colour, the same role `WSettingsRow.vue`'s own row label draws), and a field
+      with nothing to say is exactly the bare box the design draws.
     -->
-    <label
-      v-if="label"
-      :for="labelFor"
-      class="mb-1 block text-caption text-text-secondary dark:text-text-secondary-dark">
+    <label v-if="label" :for="labelFor" class="w-field-label mb-1 block">
       {{ label }}
       <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
     </label>
@@ -53,8 +51,12 @@
       :id="bottomId"
       aria-live="polite"
       aria-atomic="true"
-      class="min-h-5 pt-1 text-caption"
-      :class="errorMessage ? 'text-negative' : 'text-text-caption dark:text-text-caption-dark'">
+      class="w-field-message min-h-5 pt-1"
+      :class="
+        errorMessage
+          ? 'w-field-message--error text-negative'
+          : 'w-field-message--hint text-text-caption dark:text-text-caption-dark'
+      ">
       {{ errorMessage || hint }}
     </div>
   </div>
@@ -159,3 +161,42 @@ const controlEl = ref(null)
 
 defineExpose({ controlEl })
 </script>
+
+<style scoped>
+/*
+  Field typography (cobalt-typography.md §3, "Shared primitives"). Explicit rather than the Material
+  `text-caption` utility this used to carry for both the label and the hint/error line -- that
+  utility is `@theme static`'s 12px/400/0.033em-tracking role, which is a Material role reaching a
+  Cardinal-drawn one (the audit's own forbidden case) and, for the label, the wrong size outright:
+  the label's role is 500/14px ("Field label", the same swatch `WSettingsRow.vue`'s own
+  `.w-settings-row__label` draws -- there is no separate control-label swatch, only that one), not
+  400/12px. The hint and error lines are two DIFFERENT sizes in the design (12.5px / 11.5px), which
+  this used to draw identically at 12px; `.w-field-message` carries what both share (family, weight,
+  normal tracking) and the two modifiers below carry the one thing that differs.
+*/
+.w-field-label {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: normal;
+  color: var(--color-ink);
+}
+
+:global(body.body--dark .w-field-label) {
+  color: var(--color-text-dark);
+}
+
+.w-field-message {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.w-field-message--hint {
+  font-size: 12.5px;
+}
+
+.w-field-message--error {
+  font-size: 11.5px;
+}
+</style>

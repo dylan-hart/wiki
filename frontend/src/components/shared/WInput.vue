@@ -35,6 +35,13 @@
       {{ prefix }}
     </span>
 
+    <!--
+      cobalt-typography.md §3's "Read-only field value" role (400 13px mono, the secondary text
+      colour) -- `monospaced` carries the size/family/tracking every mono value shares, at `font-
+      normal` because the design's own read-only swatch is weight 400, not the 600 this used to
+      carry; `readonly`'s own colour swap is separate below, since a caller can pass `monospaced` on
+      an EDITABLE field (a key, a slug) that stays in the ordinary ink/text-body colour.
+    -->
     <component
       :is="type === 'textarea' ? 'textarea' : 'input'"
       v-bind="controlAttrs"
@@ -55,7 +62,10 @@
       :aria-required="required || undefined"
       :aria-describedby="describedBy"
       class="w-unstyled min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-caption dark:placeholder:text-text-caption-dark"
-      :class="monospaced ? 'font-mono text-[13px] leading-[1.4] font-semibold' : ''"
+      :class="[
+        monospaced ? 'font-mono text-[13px] leading-[1.4] font-normal tracking-normal' : '',
+        readonly ? 'text-text-secondary dark:text-text-secondary-dark' : ''
+      ]"
       @input="onInput"
       @focus="onFocus"
       @blur="onBlur"

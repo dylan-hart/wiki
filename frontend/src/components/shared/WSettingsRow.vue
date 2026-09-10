@@ -198,30 +198,37 @@ const controlClass = computed(() => `w-settings-row__control--${props.controlWid
 }
 
 /*
-  `line-height: 1.2` is load-bearing, not a nicety. The app sets `body { line-height: 1.5 }`, which
-  a label at 13.5px inherits as a 20.25px line box; with the hint's 17.4px under it the text column
-  comes to 37.6px and becomes the tallest thing in the row, taller than the 34px plate. The plate
-  then stops setting the row's height, and any row whose hint wraps -- or that has no hint at all --
-  is a different height from its neighbours, which is the whole rhythm gone. At 1.2 (what the
-  design's own `font:` shorthand resolves to) the column is 33.6px, the plate is back in charge, and
-  every one-line row measures the same 58px. Pinned in `WSettingsRow.layout.test.js`.
+  14px/500 is cobalt-typography.md §3's "Field label" role -- the exact swatch is this component's
+  own "Setting label" one, and `.w-input`/`.w-select`'s own `<label>` (`WFieldFrame.vue`) draws the
+  identical role for the same reason: there is no separate control-label swatch, only this one.
+
+  `line-height` is tighter than the size ratio the label used to carry (1.2), not a nicety. The app
+  sets `body { line-height: 1.5 }`, which an unset label would inherit as a much taller line box; with
+  the hint's own line box under it the text column would become the tallest thing in the row, taller
+  than the 34px plate -- the plate then stops setting the row's height, and any row whose hint wraps,
+  or has none at all, is a different height from its neighbours, which is the whole rhythm gone. 1.15
+  here and 1.35 on the hint below keep the two-line column at ~33px, under the plate's 34px with the
+  same margin the previous 13.5px/12px pair held. Pinned in `WSettingsRow.layout.test.js`.
 */
 .w-settings-row__label {
   color: var(--color-ink);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 1.2;
+  letter-spacing: normal;
+  line-height: 1.15;
 }
 
 :global(body.body--dark .w-settings-row__label) {
   color: var(--color-text-dark);
 }
 
+/* 12.5px/400 is cobalt-typography.md §3's "Setting row description" role. */
 .w-settings-row__hint {
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 400;
-  line-height: 1.45;
+  letter-spacing: normal;
+  line-height: 1.35;
 }
 
 :global(body.body--dark .w-settings-row__hint) {

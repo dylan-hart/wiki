@@ -444,7 +444,7 @@ describe('WSelect', () => {
         props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', hint: 'Helper text' }
       })
 
-      const message = wrapper.find('.text-caption')
+      const message = wrapper.find('.w-field-message')
       expect(message.attributes('aria-live')).toBe('polite')
       expect(message.attributes('aria-atomic')).toBe('true')
     })

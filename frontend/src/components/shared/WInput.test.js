@@ -377,7 +377,7 @@ describe('WInput', () => {
     it('carries aria-live and aria-atomic whenever the message area is shown', () => {
       const wrapper = mount(WInput, { props: { modelValue: '', hint: 'Helper text' } })
 
-      const message = wrapper.find('.text-caption')
+      const message = wrapper.find('.w-field-message')
       expect(message.attributes('aria-live')).toBe('polite')
       expect(message.attributes('aria-atomic')).toBe('true')
     })
@@ -390,13 +390,13 @@ describe('WInput', () => {
         props: { modelValue: '', hint: 'Helper text', rules: [isNonEmpty] }
       })
 
-      const message = wrapper.find('.text-caption')
+      const message = wrapper.find('.w-field-message')
       expect(message.text()).toBe('Helper text')
 
       wrapper.vm.validate()
       await wrapper.vm.$nextTick()
 
-      expect(wrapper.findAll('.text-caption')).toHaveLength(1)
+      expect(wrapper.findAll('.w-field-message')).toHaveLength(1)
       expect(message.text()).toBe('Required')
       expect(message.attributes('aria-live')).toBe('polite')
     })
