@@ -158,7 +158,10 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     expect(radiusA).not.toBe(radiusB)
 
     wrapper.vm.ctx.fillText.mockClear()
-    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 1.2)
+    // -> `minRadius` (7th arg, OpenProject #2993) mirrors `Graph.vue`'s current `MIN_NODE_RADIUS`,
+    //    20 -- a `<script setup>`-local const with no export, so hardcoding the value here is the
+    //    same established tradeoff `Graph.sizing.test.js` already documents for the same constant.
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 1.2, false, undefined, 20)
 
     const callA = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeA.title)
     expect(callA.slice(1)).toEqual([nodeA.x, nodeA.y])
@@ -188,7 +191,10 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     const radius = wrapper.vm.radiusFor(synthetic)
 
     wrapper.vm.ctx.fillText.mockClear()
-    drawLabels(wrapper.vm.ctx, [synthetic], wrapper.vm.radiusFor, 1.2)
+    // -> `minRadius` is irrelevant here (`drawLabels()` skips it entirely for `node.synthetic`
+    //    nodes), but the call is updated to the current signature anyway to avoid the same stale-4-
+    //    arg drift the sibling test above just had (OpenProject #3025).
+    drawLabels(wrapper.vm.ctx, [synthetic], wrapper.vm.radiusFor, 1.2, false, undefined, 20)
 
     const [call] = wrapper.vm.ctx.fillText.mock.calls
     expect(call).toEqual(['docs', synthetic.x + radius + LABEL_GAP, synthetic.y])
