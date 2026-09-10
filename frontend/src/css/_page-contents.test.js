@@ -1064,3 +1064,192 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
     expect(source).not.toMatch(/--content-table-shadow:\s*0[^;]*rgba/)
   })
 })
+
+/**
+ * OpenProject #2963 ("Article type scale too large: 16px/24px base+h2 instead of spec'd 15.5px/26px").
+ * `ui-iteration-cobalt-typography/cobalt-typography.md` §0.1 pins the article's whole type ramp in
+ * absolute px, identical in Ledger and Cobalt -- deliberately not scoped to a `body.body--cobalt`
+ * block. Source-level checks pin the declarations the fix depends on; the real-browser check pins
+ * what a source read cannot -- the actual computed `font-size`/`line-height` once the em/rem chain
+ * (`.page-contents`'s own base, then whatever each element is set relative to) has resolved, and
+ * that it resolves to the same numbers whether or not Cobalt is active.
+ */
+describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  it('sets the article base at 15.5px/1.72, not the old 16px/1.6', () => {
+    expect(source).toMatch(/\.page-contents\s*\{[\s\S]*?font-size:\s*0\.96875rem;/)
+    expect(source).toMatch(/\.page-contents\s*\{[\s\S]*?line-height:\s*1\.72;/)
+  })
+
+  it('pins h1/h3/h4 to their unchanged px sizes in `rem`, not the old `em` ratio against the base', () => {
+    // -> `rem`, not `em`: had these stayed em-relative to the new 15.5px base they would have
+    //    silently shrunk (32em -> 31px, 20em -> 19.375px, 17em -> 16.469px) despite being unchanged.
+    expect(source).toMatch(/h1\s*\{[\s\S]*?font-size:\s*2rem;/)
+    expect(source).toMatch(/h3\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1\.25rem;/)
+    expect(source).toMatch(/h4\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1\.0625rem;/)
+  })
+
+  it('moves h2 to the spec-drawn 26px, not the old 24px, and h6 to 13.5px, not the old 14px', () => {
+    expect(source).toMatch(/h2\s*\{[\s\S]*?font-size:\s*1\.625rem;/)
+    expect(source).toMatch(
+      /h6\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*0\.84375rem;\s*\n\s*color:\s*var\(--content-ink-muted\)/
+    )
+  })
+
+  it('leaves h5 as a bare `1em` -- it IS the base, so it tracks it exactly', () => {
+    expect(source).toMatch(/h5\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*1em;\s*\n\s*\}/)
+  })
+
+  it('pins li to 15px/1.6 and inline code to 14px, in `rem`, not inherited-and-scaled from the base', () => {
+    expect(source).toMatch(
+      /li\s*\{\s*\n\s*\/\*[^*]*\*\/\s*\n\s*font-size:\s*0\.9375rem;\s*\n\s*line-height:\s*1\.6;/
+    )
+    expect(source).toMatch(/\bcode\s*\{[\s\S]*?font-size:\s*0\.875rem;\s*\n\s*\}/)
+  })
+
+  it('pins blockquote/callout to 14.5px/1.6, and leaves pre code at its already-correct 13px/1.75', () => {
+    expect(source).toMatch(
+      /blockquote\s*\{[\s\S]*?font-size:\s*0\.90625rem;[\s\S]*?line-height:\s*1\.6;/
+    )
+    // -> Already matched the target before this WP; asserted so a future edit can't regress it unseen.
+    expect(source).toMatch(/pre\s*\{[\s\S]*?font-size:\s*0\.8125rem;[\s\S]*?line-height:\s*1\.75;/)
+  })
+
+  it('never re-scopes any of this to `body.body--cobalt` -- the design handoff draws one ramp for both aesthetics', () => {
+    const cobaltStart = source.indexOf('@at-root body.body--cobalt &')
+    expect(cobaltStart).toBeGreaterThan(-1)
+    // -> None of the type-scale properties this WP owns appear inside a Cobalt-scoped block anywhere
+    //    in the file; a real per-block parse would be needed to prove a NEGATIVE precisely, but every
+    //    `body.body--cobalt` block in this file is a short, self-contained token/color override (see
+    //    #2964's own `--content-h1`/`--content-h2` block), never a font-size declaration.
+    const cobaltBlocks = [...source.matchAll(/@at-root body\.body--cobalt & \{/g)]
+    expect(cobaltBlocks.length).toBeGreaterThan(0)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <h1>Heading one</h1>
+        <h2>Heading two</h2>
+        <h3>Heading three</h3>
+        <h4>Heading four</h4>
+        <h5>Heading five</h5>
+        <h6>Heading six</h6>
+        <p>A paragraph with <code>inline code</code> in it.</p>
+        <ul><li>A list item</li></ul>
+        <blockquote><p>A quoted line.</p></blockquote>
+        <pre class="codeblock"><code>const x = 1</code></pre>
+      </article>`
+
+    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const sizeOf = (selector) => {
+            const style = getComputedStyle(document.querySelector(selector))
+            return { fontSize: style.fontSize, lineHeight: style.lineHeight }
+          }
+          return {
+            article: sizeOf('.page-contents'),
+            p: sizeOf('p'),
+            li: sizeOf('li'),
+            h1: sizeOf('h1'),
+            h2: sizeOf('h2'),
+            h3: sizeOf('h3'),
+            h4: sizeOf('h4'),
+            h5: sizeOf('h5'),
+            h6: sizeOf('h6'),
+            inlineCode: sizeOf('p code'),
+            blockquote: sizeOf('blockquote'),
+            preCode: sizeOf('pre.codeblock')
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('resolves the whole ramp to the spec-drawn absolute px, in Ledger', async () => {
+      const m = await measure()
+      expect(m.article.fontSize).toBe('15.5px')
+      expect(m.p.fontSize).toBe('15.5px')
+      expect(m.li.fontSize).toBe('15px')
+      expect(m.li.lineHeight).toBe('24px') // -> 15 * 1.6
+      expect(m.h1.fontSize).toBe('32px')
+      expect(m.h2.fontSize).toBe('26px')
+      expect(m.h3.fontSize).toBe('20px')
+      expect(m.h4.fontSize).toBe('17px')
+      expect(m.h5.fontSize).toBe('15.5px')
+      expect(m.h6.fontSize).toBe('13.5px')
+      expect(m.inlineCode.fontSize).toBe('14px')
+      expect(m.blockquote.fontSize).toBe('14.5px')
+      expect(m.blockquote.lineHeight).toBe('23.2px') // -> 14.5 * 1.6
+      expect(m.preCode.fontSize).toBe('13px')
+    })
+
+    it('resolves to the identical ramp under Cobalt -- this fix is deliberately not aesthetic-scoped', async () => {
+      const [ledger, cobalt] = await Promise.all([measure(), measure({ cobalt: true })])
+      for (const key of [
+        'article',
+        'p',
+        'li',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'inlineCode',
+        'blockquote',
+        'preCode'
+      ]) {
+        expect(cobalt[key].fontSize).toBe(ledger[key].fontSize)
+      }
+    })
+
+    it('holds the same ramp in dark mode -- this fix touches size, never colour or theme', async () => {
+      const [light, dark] = await Promise.all([measure(), measure({ dark: true })])
+      for (const key of [
+        'article',
+        'p',
+        'li',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'inlineCode',
+        'blockquote',
+        'preCode'
+      ]) {
+        expect(dark[key].fontSize).toBe(light[key].fontSize)
+      }
+    })
+  })
+})
