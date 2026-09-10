@@ -30,10 +30,10 @@
 }
 .body--ledger ::-webkit-scrollbar-track {
   background: #f0f2f7;
-  border-left: 1px solid #dbe1ec;
+  border-inline-start: 1px solid #dbe1ec;
 }
 .body--ledger ::-webkit-scrollbar-track:horizontal {
-  border-left: 0;
+  border-inline-start: 0;
   border-top: 1px solid #dbe1ec;
 }
 .body--ledger ::-webkit-scrollbar-thumb {
