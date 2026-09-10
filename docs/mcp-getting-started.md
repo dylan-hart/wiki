@@ -96,6 +96,7 @@ library handles it for you as part of speaking the protocol.
 | `set_page_watch_preference` | Change how a watched page's changes are delivered (immediate mail vs. digest, and which change types to hear about). **Requires a personal access token**; refused if the caller is not already watching the page — call `watch_page` first.                                                                            |
 | `render_diagram`            | Render a Mermaid or PlantUML diagram to a static SVG/PNG, server-side — independent of any site or page, since it renders posted source directly. Rate-limited the same as the web UI's own diagram export; Mermaid needs the Puppeteer extension installed on this instance, PlantUML needs the instance to be online. |
 | `sideload_locales`          | Rescan `<dataPath>/locales/` on the server for locale-pack JSON files and load them into the database — the offline-mode path for adding or updating a locale with no rebuild, redeploy, or network access. Instance-wide, not site-scoped. Requires `manage:system`.                                                   |
+| `sideload_icons`            | Rescan `<dataPath>/icons/` on the server for vendored Iconify collection JSON files and load them into the database — the offline-mode path for adding or updating an icon set against a running instance with no rebuild, redeploy, or network access. Always re-loads every file found there. Requires `manage:system`. |
 
 Every tool is always registered and visible to a client — nothing is hidden based on what a given
 token happens to hold. `create_page`/`update_page`/`upload_asset`/`list_watched_pages`/`watch_page`/
@@ -103,7 +104,7 @@ token happens to hold. `create_page`/`update_page`/`upload_asset`/`list_watched_
 the token can't use them (no personal access token behind it, or missing the required page-rule
 permission), the same way the read tools refuse per-page rather than per-tool. `delete_asset`/
 `rename_asset` refuse the same way for a token missing `manage:assets` on the asset's folder, and
-`sideload_locales` refuses the same way for a token missing `manage:system`.
+`sideload_locales`/`sideload_icons` refuse the same way for a token missing `manage:system`.
 
 ## 4. Site scoping
 
