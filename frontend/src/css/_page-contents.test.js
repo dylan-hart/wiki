@@ -1369,3 +1369,102 @@ describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
     })
   })
 })
+
+/**
+ * OpenProject #2964 ("Cobalt: in-content h1 shares --color-ink with h2, reading 'all blue' instead
+ * of body ink"). The Ledger-default `--content-h1: var(--color-ink)` (L68 of this file) carried
+ * through into Cobalt with no override, so in-content h1 rendered in Cobalt's saturated navy
+ * `--color-ink` (`#10194a`) -- the same "blue" register h2 uses via its own accent-colored
+ * `--content-h2` -- rather than the aesthetic's plain body ink. The fix scopes a `--content-h1`
+ * override to the `body.body--cobalt &` block, pointing it at `--color-text-body` (`#1a2038` light /
+ * `#e8ecff` dark) instead. `--content-h2` and its accent color are untouched -- that split (h2
+ * alone carries the accent) is the locked design decision this fix must not disturb.
+ */
+describe('_page-contents.scss cobalt h1 ink (OpenProject #2964)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt & {')
+  const cobaltDarkBlockStart = source.indexOf('@at-root body.body--cobalt.body--dark & {')
+  if (cobaltBlockStart === -1 || cobaltDarkBlockStart === -1) {
+    throw new Error(
+      'body.body--cobalt block(s) not found in _page-contents.scss -- have they moved?'
+    )
+  }
+  const cobaltBlock = source.slice(cobaltBlockStart, cobaltDarkBlockStart)
+
+  it('overrides --content-h1 to the plain body-ink token inside the Cobalt block, not the saturated --color-ink h2 shares the register with', () => {
+    expect(cobaltBlock).toMatch(/--content-h1:\s*var\(--color-text-body\);/)
+    expect(cobaltBlock).not.toMatch(/--content-h1:\s*var\(--color-ink\);/)
+  })
+
+  it('leaves --content-h2 and its accent color completely untouched by this fix', () => {
+    expect(cobaltBlock).toMatch(/--content-h2:\s*var\(--color-heading-h2\);/)
+  })
+
+  it("declares no --content-h1 override in the Cobalt-dark block -- --color-text-body is already re-declared for dark in tailwind.css, so the light block's var() is expected to re-resolve through the cascade with no second override needed here", () => {
+    const cobaltDarkBlockEnd = source.indexOf('\n  }', cobaltDarkBlockStart)
+    const cobaltDarkBlock = source.slice(cobaltDarkBlockStart, cobaltDarkBlockEnd)
+    expect(cobaltDarkBlock).not.toMatch(/--content-h1:/)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <h1>Heading one</h1>
+        <h2>Heading two</h2>
+      </article>`
+
+    async function measureHeadingColors({ dark: darkMode = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = ['body--cobalt', darkMode ? 'body--dark' : ''].filter(Boolean).join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const h1 = document.querySelector('.page-contents h1')
+          const h2 = document.querySelector('.page-contents h2')
+          return {
+            h1Color: getComputedStyle(h1).color,
+            h2Color: getComputedStyle(h2).color
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('resolves h1 to Cobalt light body ink (#1a2038), distinct from h2 (#1f4fd6)', async () => {
+      const { h1Color, h2Color } = await measureHeadingColors()
+      expect(h1Color).toBe('rgb(26, 32, 56)') // #1a2038
+      expect(h2Color).toBe('rgb(31, 79, 214)') // #1f4fd6
+      expect(h1Color).not.toBe(h2Color)
+      // -> Never the aesthetic's saturated navy --color-ink (#10194a) that made h1 read "all blue"
+      expect(h1Color).not.toBe('rgb(16, 25, 74)')
+    })
+
+    it('resolves h1 to Cobalt dark body ink (#e8ecff), distinct from h2 (#8fb0ff), via the cascade alone', async () => {
+      const { h1Color, h2Color } = await measureHeadingColors({ dark: true })
+      expect(h1Color).toBe('rgb(232, 236, 255)') // #e8ecff
+      expect(h2Color).toBe('rgb(143, 176, 255)') // #8fb0ff
+      expect(h1Color).not.toBe(h2Color)
+    })
+  })
+})
